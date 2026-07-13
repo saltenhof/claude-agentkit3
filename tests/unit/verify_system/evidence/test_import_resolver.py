@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
 from agentkit.backend.verify_system.evidence import (
     AuthorityClass,
     BundleEntry,
@@ -51,6 +52,19 @@ def _story(tmp_path: Path) -> Path:
     return story_dir
 
 
+def _resolver(*repos: RepoContext) -> ImportResolver:
+    return ImportResolver.from_collected_files(
+        VerifyEvidenceFile.from_content(
+            repo_id=repo.repo_id,
+            path=path.relative_to(repo.repo_path).as_posix(),
+            content=path.read_text(encoding="utf-8"),
+        )
+        for repo in repos
+        for path in repo.repo_path.rglob("*")
+        if path.is_file()
+    )
+
+
 def test_confidence_labels_and_priority_are_exact() -> None:
     assert [label.value for label in ConfidenceLabel] == [
         "RESOLVED_IMPORT",
@@ -80,13 +94,30 @@ def test_python_import_resolves_module_and_ambiguous_cross_repo_is_dynamic(tmp_p
     source = app.repo_path / "main.py"
     source.write_text("import pkg.util\n", encoding="utf-8")
 
-    results = ImportResolver.from_repo_contexts({"app": app, "lib": lib}).resolve(source)
+    results = _resolver(app, lib).resolve("app", Path("main.py"))
 
     assert results == [
         results[0],
     ]
-    assert results[0].confidence is ConfidenceLabel.UNRESOLVED_DYNAMIC
-    assert results[0].target_file is None
+    assert results[0].confidence is ConfidenceLabel.RESOLVED_IMPORT
+    assert results[0].target_repo_id == "app"
+
+
+def test_python_relative_import_resolves_from_source_package(tmp_path: Path) -> None:
+    """Leading dots are normalized against the importing module's package."""
+    app = _repo(tmp_path, "app")
+    package = app.repo_path / "pkg"
+    package.mkdir()
+    (package / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (package / "main.py").write_text(
+        "from .helper import VALUE\n", encoding="utf-8"
+    )
+
+    results = _resolver(app).resolve("app", Path("pkg/main.py"))
+
+    assert len(results) == 1
+    assert results[0].target_file == Path("pkg/helper.py")
+    assert results[0].confidence is ConfidenceLabel.RESOLVED_IMPORT
 
 
 def test_typescript_alias_and_barrel_resolution(tmp_path: Path) -> None:
@@ -104,7 +135,7 @@ def test_typescript_alias_and_barrel_resolution(tmp_path: Path) -> None:
     source = repo.repo_path / "src" / "main.ts"
     source.write_text("import { Button } from '@app/components';\n", encoding="utf-8")
 
-    results = ImportResolver.from_repo_contexts({"app": repo}).resolve(source)
+    results = _resolver(repo).resolve("app", Path("src/main.ts"))
 
     assert [(result.target_file.name if result.target_file else None, result.confidence) for result in results] == [
         ("button.ts", ConfidenceLabel.BARREL_CONTEXT)
@@ -125,10 +156,10 @@ def test_js_jsx_tsx_resolve_static_import_forms(tmp_path: Path, suffix: str, sta
     source = repo.repo_path / f"main{suffix}"
     source.write_text(statement, encoding="utf-8")
 
-    results = ImportResolver.from_repo_contexts({"app": repo}).resolve(source)
+    results = _resolver(repo).resolve("app", Path(f"main{suffix}"))
 
     assert len(results) == 1
-    assert results[0].target_file == repo.repo_path / "helper.ts"
+    assert results[0].target_file == Path("helper.ts")
     assert results[0].confidence is ConfidenceLabel.RESOLVED_IMPORT
 
 
@@ -137,7 +168,7 @@ def test_typescript_dynamic_import_is_unresolved_dynamic(tmp_path: Path) -> None
     source = repo.repo_path / "main.ts"
     source.write_text("await import('./runtime');\n", encoding="utf-8")
 
-    results = ImportResolver.from_repo_contexts({"app": repo}).resolve(source)
+    results = _resolver(repo).resolve("app", Path("main.ts"))
 
     assert len(results) == 1
     assert results[0].confidence is ConfidenceLabel.UNRESOLVED_DYNAMIC
@@ -157,7 +188,7 @@ def test_java_import_same_package_and_spring_heuristic(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    results = ImportResolver.from_repo_contexts({"app": repo}).resolve(source)
+    results = _resolver(repo).resolve("app", source.relative_to(repo.repo_path))
     labels_by_target = {
         result.target_file.name: result.confidence
         for result in results
@@ -178,7 +209,8 @@ def test_stage2_provider_feeds_secondary_context_bundle_entries(tmp_path: Path) 
     assembler = EvidenceAssembler(
         {"app": repo},
         change_evidence_port=StaticChangeEvidencePort(repo, ("src/main.py",)),
-        import_evidence_provider=ImportResolver.from_repo_contexts({"app": repo}),
+        collected_files=_resolver(repo)._files.values(),  # noqa: SLF001 - snapshot fixture
+        import_evidence_provider=_resolver(repo),
     )
 
     result = assembler.assemble(story_dir=_story(tmp_path))

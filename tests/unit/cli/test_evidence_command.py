@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     import pytest
 
 from agentkit.backend.cli.main import main
+from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
 
 
 def test_evidence_assemble_command_writes_manifest_and_prints_merge_paths(
@@ -18,9 +19,6 @@ def test_evidence_assemble_command_writes_manifest_and_prints_merge_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The CLI command runs the assembler and writes ``bundle_manifest.json``."""
-    repo = tmp_path / "repo"
-    (repo / "src").mkdir(parents=True)
-    (repo / "src" / "app.py").write_text("print('app')\n", encoding="utf-8")
     story_dir = tmp_path / "story"
     story_dir.mkdir()
     (story_dir / "story.md").write_text("# Story\n", encoding="utf-8")
@@ -31,7 +29,6 @@ def test_evidence_assemble_command_writes_manifest_and_prints_merge_paths(
                 "repositories": [
                     {
                         "repo_id": "app",
-                        "repo_path": str(repo),
                         "git_base_branch": "main",
                         "role": "app",
                         "affected": True,
@@ -40,6 +37,13 @@ def test_evidence_assemble_command_writes_manifest_and_prints_merge_paths(
                 "change_evidence": {
                     "app": {"changed_files": ["src/app.py"]},
                 },
+                "collected_files": [
+                    VerifyEvidenceFile.from_content(
+                        repo_id="app",
+                        path="src/app.py",
+                        content="print('app')\n",
+                    ).model_dump(mode="json")
+                ],
             }
         ),
         encoding="utf-8",

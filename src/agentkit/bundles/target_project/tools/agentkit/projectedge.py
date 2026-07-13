@@ -1,4 +1,9 @@
-"""Project-local wrapper for official AK3 control-plane operations."""
+"""Project-local wrapper for official AK3 control-plane operations.
+
+The imported command loop is the deployed SSOT executor for
+``collect_verify_evidence`` as well as lifecycle commands; target worktree
+collection therefore remains on this Project Edge.
+"""
 
 from __future__ import annotations
 
@@ -370,7 +375,8 @@ def _run_commands(
     """Run the Edge command loop (AG3-145/147/151, FK-91 §91.1b).
 
     Fetches this session's open commands, executes provision/teardown/
-    preflight_probe, the official ``sync_push`` Edge-Push-Gate path, AND the
+    preflight_probe, ``collect_verify_evidence``, the official ``sync_push``
+    Edge-Push-Gate path, AND the
     ``takeover_reconcile`` quarantine/reprovision path and atomic ``merge_local``
     closure transport. The push path uses the
     backend-managed service identity and only the official ``story/{id}`` ref

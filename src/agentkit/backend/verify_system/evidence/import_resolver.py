@@ -1,30 +1,28 @@
-"""Language-specific import resolution for Stage-2 evidence enrichment."""
+"""Backend-pure import consolidation over edge-collected file observations."""
 
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from agentkit.backend.verify_system.evidence.authority import AuthorityClass, BundleEntry
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
+    from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
     from agentkit.backend.verify_system.evidence.repo_context import RepoContext
 
-
 PY_IMPORT = re.compile(r"^(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE)
-# Two simpler patterns cover the two TS static-import forms (split to avoid S5843):
-# Form A: import [type] { named } from 'path'
 TS_STATIC_IMPORT_NAMED = re.compile(
     r"""import\s+(?:type\s+)?\{(?P<named>[^}]*)\}\s+from\s+['"](?P<path_a>[^'"]+)['"]""",
     re.MULTILINE,
 )
-# Form B: import [type] default[, { named2 }] from 'path'
 TS_STATIC_IMPORT_DEFAULT = re.compile(
     r"""import\s+(?:type\s+)?[\w*]+(?:\s*,\s*\{(?P<named2>[^}]*)\})?\s+from\s+['"](?P<path_b>[^'"]+)['"]""",
     re.MULTILINE,
@@ -40,15 +38,16 @@ JAVA_TYPE_REFERENCE = re.compile(
     re.ASCII,
 )
 JAVA_CLASS_DECL = re.compile(
-    r"\b(?:class|interface|enum|record)\s+([A-Z][\w]*)\b",
-    re.ASCII,
+    r"\b(?:class|interface|enum|record)\s+([A-Z][\w]*)\b", re.ASCII
 )
 SPRING_SCAN = re.compile(
     r"@(?:SpringBootApplication|ComponentScan|Import|EntityScan|EnableJpaRepositories)\s*\(([^)]*)\)",
     re.MULTILINE | re.DOTALL,
 )
 SPRING_MARKER = re.compile(r"@SpringBootApplication\b")
-SPRING_PACKAGE_LITERAL = re.compile(r'"([\w.]+)"|basePackages\s*=\s*\{([^}]*)\}|scanBasePackages\s*=\s*\{([^}]*)\}')
+SPRING_PACKAGE_LITERAL = re.compile(
+    r'"([\w.]+)"|basePackages\s*=\s*\{([^}]*)\}|scanBasePackages\s*=\s*\{([^}]*)\}'
+)
 
 TS_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".d.ts")
 TS_INDEXES = ("index.ts", "index.tsx", "index.js", "index.jsx", "index.d.ts")
@@ -77,394 +76,366 @@ CONFIDENCE_PRIORITY: dict[ConfidenceLabel, int] = {
 
 @dataclass(frozen=True)
 class ResolvedImport:
-    """One import resolver result.
+    """One deterministic import decision from the reported snapshot."""
 
-    ``target_file`` is ``None`` for intentionally unresolved dynamic or
-    ambiguous imports. Such results are diagnostics, not bundle entries.
-    """
-
+    source_repo_id: str
     source_file: Path
+    target_repo_id: str | None
     target_file: Path | None
     import_statement: str
     confidence: ConfidenceLabel
 
 
-@dataclass(frozen=True)
-class _RepoFile:
-    repo_id: str
-    repo_root: Path
-    rel_path: Path
-    abs_path: Path
-
-
 class ImportResolver:
-    """Resolve Python, TypeScript/JavaScript and Java imports across repos."""
+    """Resolve Python, TypeScript/JavaScript, and Java imports without I/O."""
 
-    LANGUAGE_MAP: dict[str, str] = {
-        ".py": "_resolve_python",
-        ".ts": "_resolve_typescript",
-        ".tsx": "_resolve_typescript",
-        ".js": "_resolve_typescript",
-        ".jsx": "_resolve_typescript",
-        ".java": "_resolve_java",
-    }
+    def __init__(self, files: Iterable[VerifyEvidenceFile]) -> None:
+        """Create the resolver from content-bound edge observations."""
+        self._files = {(item.repo_id, item.path): item for item in files}
+        self._repo_ids = tuple(sorted({item.repo_id for item in files}))
+        self._java_packages: dict[str, list[tuple[str, str]]] | None = None
 
-    def __init__(self, repos: Mapping[str, Path]) -> None:
-        """Create an import resolver for repository roots keyed by repo id."""
-        self._repos = {repo_id: repo_path.resolve() for repo_id, repo_path in repos.items()}
-        self._tsconfig_cache: dict[Path, dict[str, Any] | None] = {}
-        self._java_package_index: dict[str, list[Path]] | None = None
-
-    def resolve(self, source_file: Path) -> list[ResolvedImport]:
-        """Resolve imports for ``source_file`` based on its extension."""
-        handler_name = self.LANGUAGE_MAP.get(source_file.suffix.lower())
-        if handler_name is None:
+    def resolve(self, repo_id: str, source_file: Path) -> list[ResolvedImport]:
+        """Resolve imports for one repo-relative source file."""
+        path = _normal_path(source_file.as_posix())
+        source = self._files.get((repo_id, path))
+        if source is None:
             return []
-        handler = cast("Callable[[Path], list[ResolvedImport]]", getattr(self, handler_name))
-        return handler(source_file.resolve())
+        suffix = PurePosixPath(path).suffix.lower()
+        if suffix == ".py":
+            return self._resolve_python(repo_id, path, source.content)
+        if suffix in {".ts", ".tsx", ".js", ".jsx"}:
+            return self._resolve_typescript(repo_id, path, source.content)
+        if suffix == ".java":
+            return self._resolve_java(repo_id, path, source.content)
+        return []
 
     def collect(
         self,
         repos: Mapping[str, RepoContext],
         changed_files_by_repo: Mapping[str, Sequence[Path]],
     ) -> Sequence[BundleEntry]:
-        """Return resolved imports as ``SECONDARY_CONTEXT`` bundle entries."""
+        """Return unique resolved imports as secondary-context entries."""
         del repos
         entries: dict[tuple[str, str], BundleEntry] = {}
-        for repo_id, changed_paths in changed_files_by_repo.items():
-            repo_root = self._repos[repo_id]
-            for rel_path in changed_paths:
-                for result in self.resolve(repo_root / rel_path):
-                    repo_file = self._repo_file_for_result(result)
-                    if repo_file is None:
+        for repo_id, paths in changed_files_by_repo.items():
+            for path in paths:
+                for result in self.resolve(repo_id, path):
+                    if result.target_repo_id is None or result.target_file is None:
                         continue
-                    key = (repo_file.repo_id, repo_file.rel_path.as_posix())
+                    key = (result.target_repo_id, result.target_file.as_posix())
+                    file = self._files.get(key)
+                    if file is None:
+                        continue
+                    candidate = BundleEntry(
+                        repo_id=key[0],
+                        path=result.target_file,
+                        authority=AuthorityClass.SECONDARY_CONTEXT,
+                        confidence=result.confidence.value,
+                        reason="Resolved import from Stage-2 import resolver",
+                        size=file.size,
+                        content=file.content,
+                    )
                     current = entries.get(key)
-                    if current is None or _confidence_rank(result.confidence) > _confidence_rank_value(current.confidence):
-                        entries[key] = self._bundle_entry(repo_file, result.confidence)
+                    if current is None or _confidence_rank_value(
+                        candidate.confidence
+                    ) > _confidence_rank_value(current.confidence):
+                        entries[key] = candidate
         return tuple(entries[key] for key in sorted(entries))
 
     @classmethod
-    def from_repo_contexts(cls, repos: Mapping[str, RepoContext]) -> ImportResolver:
-        """Create a resolver from AG3-061 ``RepoContext`` values."""
-        return cls({repo_id: repo.repo_path for repo_id, repo in repos.items()})
+    def from_collected_files(
+        cls, files: Iterable[VerifyEvidenceFile]
+    ) -> ImportResolver:
+        """Create a resolver from the edge-reported snapshot."""
+        return cls(files)
 
-    def _resolve_python(self, source: Path) -> list[ResolvedImport]:
+    def _resolve_python(
+        self, repo_id: str, path: str, content: str
+    ) -> list[ResolvedImport]:
         results: list[ResolvedImport] = []
-        content = source.read_text(encoding="utf-8", errors="replace")
         for match in PY_IMPORT.finditer(content):
-            module_path = match.group(1) or match.group(2)
-            if module_path is None:
+            module = match.group(1) or match.group(2)
+            if module is None:
                 continue
-            candidates = self._find_python_candidates(module_path, source)
-            results.extend(self._result_for_candidates(source, match.group(0), candidates))
-        return results
-
-    def _find_python_candidates(self, module_path: str, source: Path) -> list[Path]:
-        parts = module_path.split(".")
-        source_repo_id = self._repo_id_for_path(source)
-        candidates: list[Path] = []
-        for repo_id, repo_root in self._repo_roots_for_source(source_repo_id):
-            del repo_id
-            module_file = repo_root / Path(*parts).with_suffix(".py")
-            package_file = repo_root / Path(*parts) / "__init__.py"
-            candidates.extend(path for path in (module_file, package_file) if path.is_file())
-        return _unique_paths(candidates)
-
-    def _resolve_typescript(self, source: Path) -> list[ResolvedImport]:
-        content = source.read_text(encoding="utf-8", errors="replace")
-        results: list[ResolvedImport] = []
-        results.extend(self._resolve_ts_static_patterns(source, content))
-        for pattern in (TS_SIDE_EFFECT, TS_REEXPORT, TS_REQUIRE):
-            results.extend(self._resolve_ts_pattern(source, content, pattern, None))
-        for match in TS_DYNAMIC.finditer(content):
-            results.append(
-                ResolvedImport(source, None, match.group(0), ConfidenceLabel.UNRESOLVED_DYNAMIC)
+            leading_dots = len(module) - len(module.lstrip("."))
+            module_path = module.lstrip(".").replace(".", "/")
+            raw_candidates = (f"{module_path}.py", f"{module_path}/__init__.py")
+            if leading_dots:
+                base = PurePosixPath(path).parent
+                for _ in range(leading_dots - 1):
+                    base = base.parent
+                candidates = [
+                    (repo_id, _normal_path((base / candidate).as_posix()))
+                    for candidate in raw_candidates
+                    if (repo_id, _normal_path((base / candidate).as_posix()))
+                    in self._files
+                ]
+            else:
+                candidates = self._ordered_candidates(repo_id, raw_candidates)
+            results.extend(
+                self._results(repo_id, path, match.group(0), candidates)
             )
         return results
 
-    def _resolve_ts_static_patterns(self, source: Path, content: str) -> list[ResolvedImport]:
-        results: list[ResolvedImport] = []
-        for match in TS_STATIC_IMPORT_NAMED.finditer(content):
-            named_import = _first_named_import(match.groupdict().get("named"))
-            results.extend(self._ts_results_for_specifier(source, match.group("path_a"), match.group(0), named_import))
-        for match in TS_STATIC_IMPORT_DEFAULT.finditer(content):
-            named_import = _first_named_import(match.groupdict().get("named2"))
-            results.extend(self._ts_results_for_specifier(source, match.group("path_b"), match.group(0), named_import))
-        return results
-
-    def _resolve_ts_pattern(
-        self,
-        source: Path,
-        content: str,
-        pattern: re.Pattern[str],
-        named_import: str | None,
+    def _resolve_typescript(
+        self, repo_id: str, path: str, content: str
     ) -> list[ResolvedImport]:
         results: list[ResolvedImport] = []
-        for match in pattern.finditer(content):
-            results.extend(self._ts_results_for_specifier(source, match.group(1), match.group(0), named_import))
-        return results
-
-    def _ts_results_for_specifier(
-        self,
-        source: Path,
-        specifier: str,
-        import_statement: str,
-        named_import: str | None,
-    ) -> list[ResolvedImport]:
-        candidates, used_alias = self._resolve_ts_specifier(specifier, source)
-        resolved = self._result_for_candidates(
-            source,
-            import_statement,
-            candidates,
-            confidence=ConfidenceLabel.RESOLVED_ALIAS if used_alias else ConfidenceLabel.RESOLVED_IMPORT,
+        for pattern, path_group, named_group in (
+            (TS_STATIC_IMPORT_NAMED, "path_a", "named"),
+            (TS_STATIC_IMPORT_DEFAULT, "path_b", "named2"),
+        ):
+            for match in pattern.finditer(content):
+                named = _first_named_import(match.groupdict().get(named_group))
+                results.extend(
+                    self._ts_results(repo_id, path, match.group(path_group), match.group(0), named)
+                )
+        for pattern in (TS_SIDE_EFFECT, TS_REEXPORT, TS_REQUIRE):
+            for match in pattern.finditer(content):
+                results.extend(
+                    self._ts_results(repo_id, path, match.group(1), match.group(0), None)
+                )
+        results.extend(
+            ResolvedImport(
+                repo_id,
+                Path(path),
+                None,
+                None,
+                match.group(0),
+                ConfidenceLabel.UNRESOLVED_DYNAMIC,
+            )
+            for match in TS_DYNAMIC.finditer(content)
         )
-        if len(resolved) == 1 and resolved[0].target_file is not None and resolved[0].target_file.name.startswith("index."):
-            barrel = self._resolve_barrel(resolved[0].target_file, named_import)
-            if barrel:
-                return [
-                    ResolvedImport(source, target, import_statement, ConfidenceLabel.BARREL_CONTEXT)
-                    for target in barrel
-                ]
-        return resolved
+        return results
 
-    def _resolve_ts_specifier(self, specifier: str, source: Path) -> tuple[list[Path], bool]:
-        if specifier.startswith(("./", "../")):
-            return self._ts_candidates((source.parent / specifier).resolve()), False
-        alias_candidates = self._resolve_ts_alias(specifier, source)
-        if alias_candidates:
-            return alias_candidates, True
-        return [], False
-
-    def _resolve_ts_alias(self, specifier: str, source: Path) -> list[Path]:
-        tsconfig = self._load_tsconfig(source)
-        if tsconfig is None:
-            return []
-        compiler_options = tsconfig.get("compilerOptions")
-        if not isinstance(compiler_options, dict):
-            return []
-        paths = compiler_options.get("paths")
-        if not isinstance(paths, dict):
-            return []
-        base_url = compiler_options.get("baseUrl")
-        base_root = self._tsconfig_root(source) / str(base_url or ".")
-        candidates: list[Path] = []
-        for alias, raw_targets in paths.items():
-            candidates.extend(self._alias_candidates(str(alias), raw_targets, specifier, base_root))
-        return _unique_paths(candidates)
-
-    def _alias_candidates(
+    def _ts_results(
         self,
-        alias: str,
-        raw_targets: object,
+        repo_id: str,
+        source: str,
         specifier: str,
-        base_root: Path,
-    ) -> list[Path]:
-        if not isinstance(raw_targets, list):
-            return []
-        suffix = _alias_suffix(alias, specifier)
-        if suffix is None:
-            return []
-        candidates: list[Path] = []
-        for target in raw_targets:
-            if isinstance(target, str):
-                candidates.extend(self._ts_candidates((base_root / target.replace("*", suffix)).resolve()))
-        return candidates
+        statement: str,
+        named: str | None,
+    ) -> list[ResolvedImport]:
+        candidates, alias = self._ts_candidates_for_specifier(repo_id, source, specifier)
+        results = self._results(
+            repo_id,
+            source,
+            statement,
+            candidates,
+            confidence=ConfidenceLabel.RESOLVED_ALIAS if alias else ConfidenceLabel.RESOLVED_IMPORT,
+        )
+        if len(results) != 1 or results[0].target_file is None:
+            return results
+        target = results[0]
+        target_file = target.target_file
+        target_repo = target.target_repo_id
+        if (
+            target_file is None
+            or target_repo is None
+            or not target_file.name.startswith("index.")
+        ):
+            return results
+        barrel = self._files.get((target_repo, target_file.as_posix()))
+        if barrel is None:
+            return results
+        resolved: list[ResolvedImport] = []
+        for match in TS_REEXPORT.finditer(barrel.content):
+            if named is not None and named not in match.group(0) and "*" not in match.group(0):
+                continue
+            nested, _ = self._ts_candidates_for_specifier(
+                target_repo, target_file.as_posix(), match.group(1)
+            )
+            resolved.extend(
+                ResolvedImport(
+                    repo_id,
+                    Path(source),
+                    nested_repo,
+                    Path(nested_path),
+                    statement,
+                    ConfidenceLabel.BARREL_CONTEXT,
+                )
+                for nested_repo, nested_path in nested
+            )
+        return _unique_results(resolved) or results
 
-    def _load_tsconfig(self, source: Path) -> dict[str, Any] | None:
-        config_root = self._tsconfig_root(source)
-        if config_root in self._tsconfig_cache:
-            return self._tsconfig_cache[config_root]
-        for name in ("tsconfig.json", "jsconfig.json"):
-            config_path = config_root / name
-            if config_path.is_file():
+    def _ts_candidates_for_specifier(
+        self, repo_id: str, source: str, specifier: str
+    ) -> tuple[list[tuple[str, str]], bool]:
+        if specifier.startswith(("./", "../")):
+            base = _join(PurePosixPath(source).parent.as_posix(), specifier)
+            return self._ts_file_candidates(repo_id, base), False
+        config = self._nearest_tsconfig(repo_id, source)
+        if config is None:
+            return [], False
+        config_path, data = config
+        options = data.get("compilerOptions")
+        if not isinstance(options, dict) or not isinstance(options.get("paths"), dict):
+            return [], False
+        base_url = str(options.get("baseUrl") or ".")
+        root = _join(PurePosixPath(config_path).parent.as_posix(), base_url)
+        candidates: list[tuple[str, str]] = []
+        for alias, targets in options["paths"].items():
+            suffix = _alias_suffix(str(alias), specifier)
+            if suffix is None or not isinstance(targets, list):
+                continue
+            for target in targets:
+                if isinstance(target, str):
+                    candidates.extend(
+                        self._ts_file_candidates(
+                            repo_id, _join(root, target.replace("*", suffix))
+                        )
+                    )
+        return _unique_candidates(candidates), bool(candidates)
+
+    def _nearest_tsconfig(
+        self, repo_id: str, source: str
+    ) -> tuple[str, dict[str, object]] | None:
+        current = PurePosixPath(source).parent
+        for directory in (current, *current.parents):
+            for name in ("tsconfig.json", "jsconfig.json"):
+                path = _join(directory.as_posix(), name)
+                file = self._files.get((repo_id, path))
+                if file is None:
+                    continue
                 try:
-                    data = json.loads(config_path.read_text(encoding="utf-8"))
+                    data = json.loads(file.content)
                 except json.JSONDecodeError:
-                    data = None
-                self._tsconfig_cache[config_root] = data if isinstance(data, dict) else None
-                return self._tsconfig_cache[config_root]
-        self._tsconfig_cache[config_root] = None
+                    return None
+                return (path, data) if isinstance(data, dict) else None
         return None
 
-    def _tsconfig_root(self, source: Path) -> Path:
-        repo_root = self._repo_root_for_path(source)
-        for directory in (source.parent, *source.parents):
-            if directory == repo_root.parent:
-                break
-            if (directory / "tsconfig.json").is_file() or (directory / "jsconfig.json").is_file():
-                return directory
-        return repo_root
+    def _ts_file_candidates(self, repo_id: str, base: str) -> list[tuple[str, str]]:
+        paths = [base, *(f"{base}{ext}" for ext in TS_EXTENSIONS), *(f"{base}/{name}" for name in TS_INDEXES)]
+        return [(repo_id, path) for path in paths if (repo_id, path) in self._files]
 
-    def _ts_candidates(self, base: Path) -> list[Path]:
-        candidates = [base] if base.is_file() else []
-        candidates.extend(base.with_suffix(ext) for ext in TS_EXTENSIONS)
-        candidates.extend(base / index_name for index_name in TS_INDEXES)
-        return _unique_paths(path for path in candidates if path.is_file())
-
-    def _resolve_barrel(self, barrel_file: Path, named_import: str | None) -> list[Path]:
-        content = barrel_file.read_text(encoding="utf-8", errors="replace")
-        results: list[Path] = []
-        for match in TS_REEXPORT.finditer(content):
-            if named_import is not None and named_import not in match.group(0) and "*" not in match.group(0):
-                continue
-            candidates, _used_alias = self._resolve_ts_specifier(match.group(1), barrel_file)
-            results.extend(candidates)
-        return _unique_paths(results)
-
-    def _resolve_java(self, source: Path) -> list[ResolvedImport]:
-        content = source.read_text(encoding="utf-8", errors="replace")
-        package = _java_package(content)
-        results = self._resolve_java_imports(source, content)
-        if package is not None:
-            results.extend(self._resolve_same_package(source, package, content))
-        results.extend(self._resolve_spring_annotations(source, content, package))
-        return _deduplicate_results(results)
-
-    def _resolve_java_imports(self, source: Path, content: str) -> list[ResolvedImport]:
+    def _resolve_java(
+        self, repo_id: str, path: str, content: str
+    ) -> list[ResolvedImport]:
         results: list[ResolvedImport] = []
         for match in JAVA_IMPORT.finditer(content):
-            candidates = self._resolve_java_import(match.group(1))
-            results.extend(self._result_for_candidates(source, match.group(0), candidates))
-        return results
-
-    def _build_java_package_index(self) -> dict[str, list[Path]]:
-        index: dict[str, list[Path]] = {}
-        for repo_root in self._repos.values():
-            for java_file in repo_root.rglob("*.java"):
-                package = _java_package(java_file.read_text(encoding="utf-8", errors="replace"))
-                if package is not None:
-                    index.setdefault(package, []).append(java_file)
-        return index
-
-    def _java_index(self) -> dict[str, list[Path]]:
-        if self._java_package_index is None:
-            self._java_package_index = self._build_java_package_index()
-        return self._java_package_index
-
-    def _resolve_java_import(self, import_stmt: str) -> list[Path]:
-        if import_stmt.endswith(".*"):
-            return _unique_paths(self._java_index().get(import_stmt[:-2], []))
-        parts = import_stmt.split(".")
-        package = ".".join(parts[:-1])
-        type_name = parts[-1]
-        candidates = [
-            path for path in self._java_index().get(package, []) if path.stem == type_name
-        ]
-        if candidates:
-            return _unique_paths(candidates)
-        static_package = ".".join(parts[:-2])
-        static_type = parts[-2] if len(parts) > 1 else type_name
-        return _unique_paths(
-            path for path in self._java_index().get(static_package, []) if path.stem == static_type
-        )
-
-    def _resolve_same_package(
-        self,
-        source: Path,
-        package: str,
-        content: str,
-    ) -> list[ResolvedImport]:
-        references = set(JAVA_TYPE_REFERENCE.findall(content))
-        declared = set(JAVA_CLASS_DECL.findall(content))
-        candidates = [
-            path
-            for path in self._java_index().get(package, [])
-            if path.resolve() != source.resolve() and path.stem in references - declared
-        ]
-        return [
-            ResolvedImport(source, path, f"same-package:{path.stem}", ConfidenceLabel.SAME_PACKAGE_HEURISTIC)
-            for path in _unique_paths(candidates)
-        ]
-
-    def _resolve_spring_annotations(
-        self,
-        source: Path,
-        content: str,
-        package: str | None,
-    ) -> list[ResolvedImport]:
+            statement = match.group(1)
+            candidates = self._java_import_candidates(statement)
+            results.extend(self._results(repo_id, path, match.group(0), candidates))
+        package = _java_package(content)
+        if package is not None:
+            references = set(JAVA_TYPE_REFERENCE.findall(content)) - set(JAVA_CLASS_DECL.findall(content))
+            for candidate_repo, candidate_path in self._java_index().get(package, []):
+                if candidate_path != path and PurePosixPath(candidate_path).stem in references:
+                    results.append(
+                        ResolvedImport(
+                            repo_id,
+                            Path(path),
+                            candidate_repo,
+                            Path(candidate_path),
+                            f"same-package:{PurePosixPath(candidate_path).stem}",
+                            ConfidenceLabel.SAME_PACKAGE_HEURISTIC,
+                        )
+                    )
         packages = set(_spring_packages(content))
         if package is not None and SPRING_MARKER.search(content):
             packages.add(package)
+        for scan_package in packages:
+            for candidate_repo, candidate_path in self._java_index().get(scan_package, []):
+                if candidate_path != path:
+                    results.append(
+                        ResolvedImport(
+                            repo_id,
+                            Path(path),
+                            candidate_repo,
+                            Path(candidate_path),
+                            "spring-scan",
+                            ConfidenceLabel.SPRING_SCAN_HEURISTIC,
+                        )
+                    )
+        return _unique_results(results)
+
+    def _java_index(self) -> dict[str, list[tuple[str, str]]]:
+        if self._java_packages is None:
+            index: dict[str, list[tuple[str, str]]] = {}
+            for (repo_id, path), file in self._files.items():
+                if PurePosixPath(path).suffix != ".java":
+                    continue
+                package = _java_package(file.content)
+                if package is not None:
+                    index.setdefault(package, []).append((repo_id, path))
+            self._java_packages = index
+        return self._java_packages
+
+    def _java_import_candidates(self, statement: str) -> list[tuple[str, str]]:
+        if statement.endswith(".*"):
+            return self._java_index().get(statement[:-2], [])
+        parts = statement.split(".")
+        package, type_name = ".".join(parts[:-1]), parts[-1]
         candidates = [
-            path
-            for scan_package in packages
-            for path in self._java_index().get(scan_package, [])
-            if path.resolve() != source.resolve()
+            item for item in self._java_index().get(package, [])
+            if PurePosixPath(item[1]).stem == type_name
         ]
+        if candidates:
+            return candidates
+        static_package = ".".join(parts[:-2])
+        static_type = parts[-2] if len(parts) > 1 else type_name
         return [
-            ResolvedImport(source, path, "spring-scan", ConfidenceLabel.SPRING_SCAN_HEURISTIC)
-            for path in _unique_paths(candidates)
+            item for item in self._java_index().get(static_package, [])
+            if PurePosixPath(item[1]).stem == static_type
         ]
 
-    def _result_for_candidates(
-        self,
-        source: Path,
-        import_statement: str,
-        candidates: list[Path],
+    def _ordered_candidates(
+        self, preferred_repo: str, paths: Sequence[str]
+    ) -> list[tuple[str, str]]:
+        repos = (preferred_repo, *(repo for repo in self._repo_ids if repo != preferred_repo))
+        return [
+            (repo_id, path)
+            for repo_id in repos
+            for path in paths
+            if (repo_id, path) in self._files
+        ]
+
+    @staticmethod
+    def _results(
+        source_repo: str,
+        source: str,
+        statement: str,
+        candidates: Sequence[tuple[str, str]],
         *,
         confidence: ConfidenceLabel = ConfidenceLabel.RESOLVED_IMPORT,
     ) -> list[ResolvedImport]:
-        unique = _unique_paths(candidates)
+        unique = _unique_candidates(candidates)
         if len(unique) == 1:
-            return [ResolvedImport(source, unique[0], import_statement, confidence)]
+            target_repo, target = unique[0]
+            return [ResolvedImport(source_repo, Path(source), target_repo, Path(target), statement, confidence)]
         if len(unique) > 1:
-            return [
-                ResolvedImport(
-                    source,
-                    None,
-                    import_statement,
-                    ConfidenceLabel.UNRESOLVED_DYNAMIC,
-                )
-            ]
+            return [ResolvedImport(source_repo, Path(source), None, None, statement, ConfidenceLabel.UNRESOLVED_DYNAMIC)]
         return []
 
-    def _repo_file_for_result(self, result: ResolvedImport) -> _RepoFile | None:
-        if result.target_file is None:
-            return None
-        repo_id = self._repo_id_for_path(result.target_file)
-        repo_root = self._repos[repo_id]
-        rel_path = Path(result.target_file.relative_to(repo_root).as_posix())
-        return _RepoFile(repo_id, repo_root, rel_path, result.target_file)
 
-    def _bundle_entry(self, repo_file: _RepoFile, confidence: ConfidenceLabel) -> BundleEntry:
-        content = repo_file.abs_path.read_text(encoding="utf-8", errors="replace")
-        return BundleEntry(
-            repo_id=repo_file.repo_id,
-            path=repo_file.rel_path,
-            authority=AuthorityClass.SECONDARY_CONTEXT,
-            confidence=confidence.value,
-            reason="Resolved import from Stage-2 import resolver",
-            size=len(content.encode("utf-8")),
-            content=content,
+def _normal_path(path: str) -> str:
+    normalized = posixpath.normpath(path.replace("\\", "/"))
+    if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
+        raise ValueError(f"snapshot path escapes repository: {path}")
+    return normalized.removeprefix("./")
+
+
+def _join(root: str, child: str) -> str:
+    return _normal_path(posixpath.join(root, child))
+
+
+def _unique_candidates(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    return sorted(set(items))
+
+
+def _unique_results(results: Iterable[ResolvedImport]) -> list[ResolvedImport]:
+    selected: dict[tuple[str, str | None, str | None], ResolvedImport] = {}
+    for result in results:
+        key = (
+            result.source_file.as_posix(),
+            result.target_repo_id,
+            result.target_file.as_posix() if result.target_file else None,
         )
-
-    def _repo_roots_for_source(self, source_repo_id: str) -> list[tuple[str, Path]]:
-        preferred = [(source_repo_id, self._repos[source_repo_id])]
-        rest = sorted((repo_id, root) for repo_id, root in self._repos.items() if repo_id != source_repo_id)
-        return [*preferred, *rest]
-
-    def _repo_id_for_path(self, path: Path) -> str:
-        resolved = path.resolve()
-        for repo_id, repo_root in self._repos.items():
-            try:
-                resolved.relative_to(repo_root)
-            except ValueError:
-                continue
-            return repo_id
-        msg = f"path is outside configured repositories: {path}"
-        raise ValueError(msg)
-
-    def _repo_root_for_path(self, path: Path) -> Path:
-        return self._repos[self._repo_id_for_path(path)]
-
-
-def _unique_paths(paths: Any) -> list[Path]:
-    unique: dict[str, Path] = {}
-    for path in paths:
-        resolved = Path(path).resolve()
-        unique[str(resolved)] = resolved
-    return [unique[key] for key in sorted(unique)]
+        current = selected.get(key)
+        if current is None or CONFIDENCE_PRIORITY[result.confidence] > CONFIDENCE_PRIORITY[current.confidence]:
+            selected[key] = result
+    return list(selected.values())
 
 
 def _first_named_import(raw: str | None) -> str | None:
@@ -497,30 +468,17 @@ def _spring_packages(content: str) -> list[str]:
             if literal:
                 packages.append(literal)
             if grouped:
-                packages.extend(item.strip().strip('"') for item in grouped.split(",") if item.strip())
+                packages.extend(
+                    item.strip().strip('"')
+                    for item in grouped.split(",")
+                    if item.strip()
+                )
     return packages
 
 
-def _deduplicate_results(results: list[ResolvedImport]) -> list[ResolvedImport]:
-    unique: dict[tuple[str, str | None], ResolvedImport] = {}
-    for result in results:
-        target = str(result.target_file) if result.target_file is not None else None
-        key = (str(result.source_file), target)
-        current = unique.get(key)
-        if current is None or _confidence_rank(result.confidence) > _confidence_rank(current.confidence):
-            unique[key] = result
-    return list(unique.values())
-
-
-def _confidence_rank(confidence: ConfidenceLabel) -> int:
-    return CONFIDENCE_PRIORITY[confidence]
-
-
 def _confidence_rank_value(confidence: str | None) -> int:
-    if confidence is None:
-        return -1
     try:
-        return CONFIDENCE_PRIORITY[ConfidenceLabel(confidence)]
+        return CONFIDENCE_PRIORITY[ConfidenceLabel(confidence)] if confidence else -1
     except ValueError:
         return -1
 

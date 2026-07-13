@@ -75,6 +75,7 @@ from agentkit.backend.control_plane.push_sync import (
 )
 from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
+    EdgeCommandRecord,
     RunOwnershipRecord,
     SessionRunBindingRecord,
     TakeoverApprovalRecord,
@@ -85,6 +86,7 @@ from agentkit.backend.control_plane.records import (
 )
 from agentkit.backend.control_plane.repository import (
     ControlPlaneRuntimeRepository,
+    EdgeCommandRepository,
     ObjectMutationClaimRepository,
 )
 from agentkit.backend.control_plane.runtime import (
@@ -99,6 +101,11 @@ from agentkit.backend.control_plane.runtime._ownership_transfer import (
 )
 from agentkit.backend.control_plane_http.routes_config import ControlPlaneApplicationRoutes
 from agentkit.backend.core_types.freeze import FreezeKind
+from agentkit.backend.core_types.verify_evidence import (
+    CollectVerifyEvidenceCommandPayload,
+    VerifyEvidenceReport,
+    VerifyEvidenceRepository,
+)
 from agentkit.backend.exceptions import OwnershipFenceViolationError
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.governance.principal_capabilities.principals import Principal
@@ -3889,6 +3896,161 @@ def _run_real_invalidating_predecessor(
     assert predecessor is not None
     assert predecessor.operation_kind == operation_kind
     assert predecessor.status == "committed"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("operation_kind", "story_id"),
+    [("story_exit", "AG3-980"), ("story_reset", "AG3-981")],
+)
+def test_verify_evidence_result_after_real_terminal_predecessor_has_no_write(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    operation_kind: str,
+    story_id: str,
+) -> None:
+    """Real exit/reset revokes the lease before a late evidence result."""
+    del postgres_backend_env
+    run_id = f"run-late-evidence-{operation_kind}"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident=f"inst-late-evidence-{operation_kind}")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id=story_id,
+        project_key=_PROJECT,
+        run_id=run_id,
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id=_REPO, expected_head_sha=_SHA),
+        ),
+        spawn_worktree_repo=_REPO,
+    )
+    command_id = f"{run_id}::collect_verify_evidence::base_collection::{payload.generation}"
+    EdgeCommandRepository().insert_command(
+        EdgeCommandRecord(
+            command_id=command_id,
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            session_id="sess-A",
+            command_kind="collect_verify_evidence",
+            payload=payload.model_dump(mode="json"),
+            status="delivered",
+            ownership_epoch=1,
+            created_at=_NOW,
+            delivered_at=_NOW,
+        )
+    )
+    _run_real_invalidating_predecessor(
+        operation_kind=operation_kind,
+        story_id=story_id,
+        run_id=run_id,
+        service=service,
+        tmp_path=tmp_path,
+    )
+
+    result = service.submit_command_result(
+        command_id,
+        EdgeCommandResultRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-A",
+            op_id=f"op-late-evidence-{operation_kind}",
+            result=VerifyEvidenceReport(
+                stage="base_collection",
+                batch_id=payload.batch_id,
+                generation=payload.generation,
+                candidate_digest=payload.candidate_digest,
+                request_digest=payload.request_digest,
+            ),
+        ),
+    )
+
+    assert result.status == "rejected"
+    stored = load_edge_command_record_global(command_id)
+    assert stored is not None
+    assert stored.status == "delivered"
+    assert stored.result_payload is None
+
+
+@pytest.mark.integration
+def test_current_owner_verify_evidence_result_terminalizes_only_command_record(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """A released phase claim lets the real result POST complete independently."""
+    del postgres_backend_env
+    story_id = "AG3-982"
+    run_id = "run-current-owner-evidence"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-current-owner-evidence")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id=story_id,
+        project_key=_PROJECT,
+        run_id=run_id,
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id=_REPO, expected_head_sha=_SHA),
+        ),
+        spawn_worktree_repo=_REPO,
+    )
+    command_id = (
+        f"{run_id}::collect_verify_evidence::base_collection::{payload.generation}"
+    )
+    EdgeCommandRepository().insert_command(
+        EdgeCommandRecord(
+            command_id=command_id,
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            session_id="sess-A",
+            command_kind="collect_verify_evidence",
+            payload=payload.model_dump(mode="json"),
+            status="delivered",
+            ownership_epoch=1,
+            created_at=_NOW,
+            delivered_at=_NOW,
+        )
+    )
+
+    result = service.submit_command_result(
+        command_id,
+        EdgeCommandResultRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-A",
+            op_id="op-current-owner-evidence",
+            result=VerifyEvidenceReport(
+                stage="base_collection",
+                batch_id=payload.batch_id,
+                generation=payload.generation,
+                candidate_digest=payload.candidate_digest,
+                request_digest=payload.request_digest,
+            ),
+        ),
+    )
+
+    assert result.status == "completed"
+    stored = load_edge_command_record_global(command_id)
+    assert stored is not None
+    assert stored.status == "completed"
+    assert stored.result_type == "verify_evidence_report"
+    assert stored.result_op_id == "op-current-owner-evidence"
 
 
 @pytest.mark.integration

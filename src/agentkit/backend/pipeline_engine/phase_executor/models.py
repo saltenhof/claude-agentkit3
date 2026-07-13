@@ -101,6 +101,19 @@ class QaCycleStatus(StrEnum):
     ESCALATED = "escalated"
 
 
+class VerifyEvidenceWaitCursor(BaseModel):
+    """Small phase checkpoint pointing at the full edge-command checkpoint."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    stage: Literal["base_collection", "dynamic_requests"]
+    command_id: str = Field(min_length=1)
+    candidate_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    implementation_attempt: int = Field(ge=1)
+    owner_session_id: str = Field(min_length=1)
+    ownership_epoch: int = Field(ge=1)
+
+
 class AreBundleStatus(StrEnum):
     """Setup ARE bundle load status (FK-22 §22.4b)."""
 
@@ -146,6 +159,7 @@ class ImplementationPayload(BaseModel):
     qa_cycle_id: str | None = None
     evidence_epoch: datetime | None = None
     evidence_fingerprint: str | None = None
+    verify_evidence_wait: VerifyEvidenceWaitCursor | None = None
 
     @field_validator("qa_cycle_id")
     @classmethod

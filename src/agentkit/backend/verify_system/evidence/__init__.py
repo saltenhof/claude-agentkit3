@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
 from agentkit.backend.verify_system.evidence.assembler import (
     BUNDLE_SIZE_LIMIT,
     EvidenceAssembler,
@@ -11,6 +12,11 @@ from agentkit.backend.verify_system.evidence.assembler import (
 )
 from agentkit.backend.verify_system.evidence.authority import AuthorityClass, BundleEntry
 from agentkit.backend.verify_system.evidence.bundle_manifest import BundleManifest
+from agentkit.backend.verify_system.evidence.edge_preparation import (
+    EvidencePreparationInput,
+    EvidencePreparationOutcome,
+    VerifyEvidencePreparationCoordinator,
+)
 from agentkit.backend.verify_system.evidence.import_resolver import (
     CONFIDENCE_PRIORITY as IMPORT_CONFIDENCE_PRIORITY,
 )
@@ -21,6 +27,7 @@ from agentkit.backend.verify_system.evidence.import_resolver import (
 )
 from agentkit.backend.verify_system.evidence.preflight_sender import (
     FailClosedPreflightReviewSender,
+    LlmPreflightReviewSender,
     PreflightReviewSender,
     PreflightReviewSenderError,
 )
@@ -55,11 +62,14 @@ __all__ = [
     "EvidenceAssembler",
     "EvidenceAssemblyError",
     "EvidenceAssemblyResult",
+    "EvidencePreparationInput",
+    "EvidencePreparationOutcome",
     "FailClosedPreflightReviewSender",
     "ConfidenceLabel",
     "IMPORT_CONFIDENCE_PRIORITY",
     "ImportEvidenceProvider",
     "ImportResolver",
+    "LlmPreflightReviewSender",
     "MAX_REQUESTS",
     "PREFLIGHT_SENTINEL_PREFIX",
     "PREFLIGHT_TEMPLATE_NAME",
@@ -75,6 +85,8 @@ __all__ = [
     "RequestType",
     "ResolvedImport",
     "ReviewerRequest",
+    "VerifyEvidencePreparationCoordinator",
+    "VerifyEvidenceFile",
     "make_preflight_sentinel",
     "parse_preflight_response",
     "render_preflight_prompt",

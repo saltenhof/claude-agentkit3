@@ -79,8 +79,9 @@ glossary:
   internal_terms:
     - id: repo-context
       reason: >
-        Laufzeit-Datenklasse für Multi-Repo-Assembly (repo_id, repo_path, git,
-        git_base_branch, role, affected); Implementierungsdetail des Assemblers.
+        Laufzeit-Datenklasse fuer Multi-Repo-Assembly. `repo_path` ist seit
+        AG3-156 nur noch Durchreichung an die AG3-147-Change-Evidence-Port;
+        alle uebrigen Dateiinhalte kommen als Edge-Snapshot.
 ---
 
 # 28 — Evidence Assembly und Review-Vorbereitung
@@ -150,6 +151,26 @@ agentkit/evidence/
 
 ## 28.3 Evidence Assembler
 
+### 28.3.0 Ausfuehrungsort und Snapshot-Grenze (AG3-156)
+
+Der Backend-Assembler liest keine Ziel-Worktrees. Vor dem ersten
+Bundle-Aufbau commissioned die Implementation-Phase einen
+`collect_verify_evidence`-Batch `base_collection`, yielded
+`PAUSED` und konsumiert den terminalen Result erst auf einem
+client-getriebenen Resume unter dem Ownership-Fence (FK-47 §47.5,
+FK-91 §91.1b). Stage-1-Dateiinhalte, Nachbarn, Config-Dateien,
+Import-Quellen und Worker-Hint-Ziele stammen aus content-gebundenen
+`VerifyEvidenceFile`-Meldungen.
+
+Einzige bewusst verbleibende Ausnahme ist
+`_change_evidence_port.collect(repo.repo_path)`: Inventar und
+Push-/QA-Grenz-Evidenz gehoeren AG3-147. Backend-lokale Story- und
+Konzeptdokumente duerfen weiterhin lokal gelesen werden. Alle
+nachfolgenden Algorithmus-Skizzen sind unter dieser Grenze zu lesen:
+`exists`, Nachbarsuche und Inhaltszugriff bedeuten Lookup im
+gemeldeten Snapshot, niemals einen Backend-Dateisystemzugriff auf
+den Ziel-Worktree.
+
 ### 28.3.1 3-Stufen-Architektur
 
 Der Evidence Assembler arbeitet in drei sequentiellen Stufen mit
@@ -165,14 +186,14 @@ flowchart TD
     LIMIT --> MANIFEST["BundleManifest erzeugen"]
     MANIFEST --> RESULT["AssemblyResult"]
 
-    S1 -.- N1["Git-Diff, Nachbarn,<br/>Story/Concept/Guardrails<br/>Authority: PRIMARY_*"]
+    S1 -.- N1["AG3-147-Change-Inventar + Edge-Snapshot,<br/>Story/Concept lokal<br/>Authority: PRIMARY_*"]
     S2 -.- N2["Python/TS/Java Imports<br/>Authority: SECONDARY_CONTEXT"]
     S3 -.- N3["handover.json, worker-manifest.json<br/>Authority: WORKER_ASSERTION"]
 ```
 
 | Stufe | Quelle | Autoritätsklasse | Unsicherheit |
 |-------|--------|-----------------|--------------|
-| 1 — Deterministischer Kern | Git-Diff, Nachbardateien, Story-Spec, Concepts, Guardrails, YAML/JSON-Configs | `PRIMARY_IMPLEMENTATION` / `PRIMARY_NORMATIVE` | Keine — alles deterministisch aus Git und Filesystem |
+| 1 — Deterministischer Kern | AG3-147-Change-Inventar, Edge-Snapshot, backend-lokale Story-/Concept-Quellen | `PRIMARY_IMPLEMENTATION` / `PRIMARY_NORMATIVE` | Keine — content- und SHA-gebunden |
 | 2 — Import-Extraktion | Regex-basierte Import-Auflösung für Python, TypeScript, Java (FK-46) | `SECONDARY_CONTEXT` | Gering — Regex kann False Positives erzeugen, Confidence Labels quantifizieren das |
 | 3 — Worker-Hints | `handover.json` und `worker-manifest.json` | `WORKER_ASSERTION` | Hoch — Worker-Claims sind ungeprüft, niedrigste Beweiskraft |
 
@@ -198,15 +219,13 @@ class RepoContext:
 
     Args:
         repo_id: Eindeutige Kennung (z.B. "app", "docs", "frontend").
-        repo_path: Worktree-Pfad oder Repository-Root.
-        git: Bereits instanziierte GitOperations (single-repo per design).
+        repo_path: Nur fuer die AG3-147-Change-Evidence-Port; nie fuer Dateiinhalt.
         git_base_branch: Branch gegen den der Diff berechnet wird.
         role: Semantische Rolle ("app" | "docs" | "frontend" | "infra").
         affected: Ob dieses Repo von der Story betroffen ist (aus StoryContext bzw. dessen `context.json`-Export).
     """
     repo_id: str
     repo_path: Path
-    git: GitOperations
     git_base_branch: str
     role: str
     affected: bool
@@ -221,19 +240,14 @@ class RepoContext:
 2. Der Assembler iteriert über das Repo-Set:
    - Stufe 1: `_collect_changed_files()` läuft **pro Repo** und
      aggregiert die Ergebnisse.
-   - Stufe 2: `ImportResolver` wird **pro Repo** instanziiert
-     (jeweils mit dessen `repo_path`).
+   - Stufe 2: ein backend-purer `ImportResolver` wird aus dem
+     gemeinsamen Edge-Snapshot instanziiert.
    - Stufe 3: Worker-Hints aus `handover.json` referenzieren Pfade,
      die gegen das Repo-Set aufgelöst werden.
 
-3. **Priorisierung bei Multi-Repo:**
-   - Bei gleicher `AuthorityClass` haben Dateien aus dem
-     Spawn-Worktree-Repo (= `participating_repos[0]`,
-     FK-22 §22.6.4) Vorrang vor Dateien aus den uebrigen
-     teilnehmenden Repos. Das ist eine deterministische
-     Disambiguierungsregel ohne fachliche Sonderrolle —
-     der Spawn-Worktree ist der CWD-Anker des Workers,
-     nicht ein semantisch ausgezeichnetes Repo.
+3. **Multi-Repo:** Kandidaten bleiben durch `repo_id:path` getrennt.
+   Mehrdeutigkeit wird nicht durch Spawn-Repo-Priorisierung
+   aufgeloest, sondern nach D3 als `UNRESOLVED` sichtbar gemacht.
    - Repos mit `affected=false` werden nur für Import-Auflösung
      herangezogen, nicht für Diff-Collection.
 
@@ -243,17 +257,18 @@ im `StoryContext` bzw. dessen `context.json`-Export erzeugen ein Repo-Set mit ei
 
 ### 28.3.3 Stufe 1: Deterministischer Kern
 
-Stufe 1 sammelt alle Evidenz, die ohne Heuristik aus dem
-Dateisystem und Git ableitbar ist.
+Stufe 1 konsolidiert die ohne Heuristik aus AG3-147-Inventar,
+Edge-Snapshot und backend-lokalen normativen Quellen ableitbare
+Evidenz.
 
 **Datenquellen pro Repo:**
 
 | Kategorie | Methode | Authority | Beschreibung |
 |-----------|---------|-----------|--------------|
-| Geänderte Dateien | `_collect_changed_files()` | `PRIMARY_IMPLEMENTATION` | `git diff --name-only {base} HEAD` |
-| Modul-Nachbarn | `_collect_module_neighbors()` | `SECONDARY_CONTEXT` | `__init__.py`, `schemas.py`, `protocols.py`, `config.py`, `types.py` im selben und übergeordneten Verzeichnis |
+| Geänderte Dateien | `_collect_changed_files()` | `PRIMARY_IMPLEMENTATION` | AG3-147-Change-Inventar plus passender Edge-Snapshot-Inhalt |
+| Modul-Nachbarn | `_collect_module_neighbors()` | `SECONDARY_CONTEXT` | Lookup gemeldeter Nachbarpfade im Edge-Snapshot |
 | Normative Quellen | `_collect_normative_sources()` | `PRIMARY_NORMATIVE` | Story-Spec, Concept-Docs, Guardrails aus `StoryContext` / `project.yaml` |
-| YAML/JSON-Configs | `_collect_yaml_json_configs()` | `SECONDARY_CONTEXT` | Konfigurationsdateien im selben Modul wie geänderte Dateien |
+| YAML/JSON-Configs | `_collect_yaml_json_configs()` | `SECONDARY_CONTEXT` | Snapshot-Konfigurationsdateien im selben Modul |
 
 **Diff-Basis-Ermittlung (D4, FK-28-002):**
 
@@ -320,30 +335,11 @@ Imports der geänderten Dateien auflöst.
 
 ```python
 def _stage2_imports(self) -> list[BundleEntry]:
-    """Delegiert an ImportResolver für Python/TS/Java."""
-    entries: list[BundleEntry] = []
-    for repo_id, repo_ctx in self._repos.items():
-        if not repo_ctx.affected:
-            continue
-        resolver = ImportResolver(
-            repos={rid: rc.repo_path for rid, rc in self._repos.items()},
-        )
-        for changed_file in self._changed_files_by_repo.get(repo_id, []):
-            resolved = resolver.resolve(changed_file)
-            for imp in resolved:
-                if imp.target_file not in self._seen_paths:
-                    self._seen_paths.add(imp.target_file)
-                    content = imp.target_file.read_text(encoding="utf-8", errors="replace")
-                    entries.append(BundleEntry(
-                        repo_id=repo_id,
-                        path=imp.target_file.relative_to(repo_ctx.repo_path),
-                        authority=AuthorityClass.SECONDARY_CONTEXT,
-                        confidence=imp.confidence,
-                        reason=f"Import aus {imp.source_file.name}: {imp.import_statement}",
-                        size=len(content.encode("utf-8")),
-                        content=content,
-                    ))
-    return entries
+    """Konsolidiert Python/TS/Java-Imports aus dem Edge-Snapshot."""
+    resolver = ImportResolver.from_collected_files(self._collected_files)
+    return list(
+        resolver.collect(self._repos, self._changed_files_by_repo)
+    )
 ```
 
 ### 28.3.5 Stufe 3: Worker-Hints
@@ -457,10 +453,7 @@ class EvidenceAssembler:
 
     Args:
         repos: Repo-Set mit RepoContext pro Repository.
-        spawn_worktree_repo: Name des Spawn-Worktree-Repos
-            (= `participating_repos[0]`, FK-22 §22.6.4). Wird zur
-            deterministischen Disambiguierung gleichrangiger Treffer
-            herangezogen — keine fachliche Sonderrolle.
+        collected_files: Content-gebundener Multi-Repo-Snapshot des Edge.
         story_dir: Verzeichnis der Story-Artefakte.
         context_json: Geladener `context.json`-Export eines `StoryContext`.
         pipeline_config: Geladene project.yaml.
@@ -469,7 +462,7 @@ class EvidenceAssembler:
     def __init__(
         self,
         repos: dict[str, RepoContext],
-        spawn_worktree_repo: str,
+        collected_files: Iterable[VerifyEvidenceFile],
         story_dir: Path,
         context_json: dict,
         pipeline_config: dict,
@@ -507,7 +500,7 @@ class EvidenceAssembler:
         ...
 
     def _collect_module_neighbors(
-        self, changed_files: list[Path], repo_path: Path,
+        self, repo_id: str, changed_files: list[Path],
     ) -> list[Path]:
         """Strukturelle Nachbarn im selben und übergeordneten Verzeichnis."""
         ...
@@ -517,7 +510,7 @@ class EvidenceAssembler:
         ...
 
     def _collect_yaml_json_configs(
-        self, changed_files: list[Path], repo_path: Path,
+        self, repo_id: str, changed_files: list[Path],
     ) -> list[Path]:
         """YAML/JSON-Configs im selben Modul wie geänderte Dateien."""
         ...
@@ -822,7 +815,7 @@ agentkit evidence assemble \
   --story-id ODIN-042 \
   --story-dir ./stories/ODIN-042 \
   --output-dir ./stories/ODIN-042/qa \
-  [--config .agentkit/config/project.yaml]
+  [--config ./stories/ODIN-042/context.json]
 ```
 
 **Parameter:**
@@ -832,7 +825,7 @@ agentkit evidence assemble \
 | `--story-id` | Ja | Story-ID für Telemetrie und Artefakt-Benennung |
 | `--story-dir` | Ja | Verzeichnis der Story-Artefakt-Exporte (enthaelt optional `context.json`) |
 | `--output-dir` | Ja | Zielverzeichnis für `bundle_manifest.json` und assemblierte Dateien |
-| `--config` | Nein | Pfad zur `project.yaml` (Default: `.agentkit/config/project.yaml` im Repo-Root) |
+| `--config` | Nein | Pfad zu einem Edge-exportierten Evidence-JSON (Default: `story_dir/context.json`); enthaelt logische Repos, Change-Inventar und content-gebundene `collected_files`, niemals `repo_path` |
 
 **Handler-Logik:**
 
@@ -858,9 +851,9 @@ def _register_evidence_commands(subparsers) -> None:
 def _handle_evidence_assemble(args) -> int:
     """Handler für 'agentkit evidence assemble'.
 
-1. Lädt `context.json`-Export aus `--story-dir` oder nutzt direkt `StoryContext`
-2. Baut RepoContext-Set aus `repositories[]` + `worktree_paths`
-    3. Instanziiert EvidenceAssembler mit Multi-Repo-API
+1. Laedt den Edge-exportierten `context.json`-Evidence-Checkpoint
+2. Baut logische Repo-Kontexte ohne physische Worktree-Pfade
+    3. Instanziiert EvidenceAssembler mit `collected_files`
     4. Ruft assemble() auf
     5. Schreibt bundle_manifest.json in --output-dir
     6. Gibt Exit-Code 0 bei Erfolg, 1 bei Fehler zurück
@@ -883,17 +876,15 @@ Der vollständige Review-Flow mit Evidence Assembly:
 
 ```mermaid
 flowchart TD
-    START["Story im QA-Subflow<br/>(innerhalb Implementation-Phase)"] --> L1["Schicht 1: Deterministische Checks<br/>(FK-33)"]
-    L1 -->|PASS| ASSEMBLE["EvidenceAssembler.assemble()"]
-    L1 -->|FAIL| FAIL_L1["→ Feedback + Remediation"]
-
+    START["Implementation-Phase"] --> BASE["base_collection commission"]
+    BASE --> PA["PAUSED / Resume A"]
+    PA --> ASSEMBLE["EvidenceAssembler ueber Edge-Snapshot"]
     ASSEMBLE --> MANIFEST["BundleManifest erstellt<br/>evidence_epoch + manifest_hash"]
-
-    MANIFEST --> PREFLIGHT["Preflight-Turn<br/>(MCP Pool Send) — FK-47"]
+    MANIFEST --> PREFLIGHT["Once-only Preflight — FK-47"]
     PREFLIGHT --> PARSE["parse_preflight_response() — FK-47"]
-
-    PARSE -->|Requests vorhanden| RESOLVE["RequestResolver.resolve_all() — FK-47"]
-    PARSE -->|Keine Requests| REVIEW
+    PARSE --> DYNAMIC["dynamic_requests commission"]
+    DYNAMIC --> PB["PAUSED / Resume B"]
+    PB --> RESOLVE["Backend-D3 + Bundle-Anwendung — FK-47"]
 
     RESOLVE --> EXTEND["merge_paths erweitern<br/>+ BUNDLE_HEADER aktualisieren"]
     EXTEND --> REVIEW
@@ -907,10 +898,13 @@ flowchart TD
 
 **Zeitliche Einordnung:**
 
-Die Evidence Assembly läuft **nach** Schicht 1 (deterministische
-Checks) und **vor** Schicht 2 (LLM-Bewertungen). Sie ist selbst
-ein deterministischer Schritt — kein LLM beteiligt. Der
-Preflight-Turn (FK-47) ist der erste LLM-Kontakt im Review-Flow.
+Die beiden Evidence-Wartepunkte laufen an der Implementation-
+Phasengrenze **vor** dem synchronen QA-Subflow, damit kein
+claim-haltender QA-Request auf seinen eigenen Result-POST wartet.
+Das vorbereitete Manifest wird spaeter ausschliesslich in Schicht 2
+verbraucht; die deterministische Schicht 1 und ihre Reihenfolge im
+QA-Subflow bleiben unveraendert. Der Preflight-Turn (FK-47) ist der
+erste LLM-Kontakt im Review-Flow.
 
 ### 28.8.2 Worker-Template-Aenderungen (FK-28-016)
 
@@ -919,7 +913,7 @@ der DoD-Review-Sektion eine Anweisung, den Evidence Assembler
 (`agentkit evidence assemble`) statt eigener `merge_paths`-Kuration
 zu verwenden. Der Assembler:
 
-1. Ermittelt geänderte Dateien aus Git-Diff
+1. Konsumiert das AG3-147-Change-Inventar und den Edge-Snapshot
 2. Sammelt normative Quellen (Story-Spec, Concepts, Guardrails)
 3. Löst Imports auf und fügt Nachbar-Dateien hinzu (FK-46)
 4. Integriert Worker-Hinweise aus handover.json (additiv)
@@ -928,7 +922,7 @@ zu verwenden. Der Assembler:
 
 ### 28.8.3 Bestehende Review-Template-Erweiterungen (FK-28-017)
 
-Alle Review-Templates im Prompt-Bundle unter `prompts/sparring/` erhalten
+Alle Review-Templates im Prompt-Bundle unter `src/agentkit/bundles/internal/prompts/` erhalten
 den `{{BUNDLE_MANIFEST_HEADER}}`-Platzhalter, der vom Evidence
 Assembler befüllt wird. Das ersetzt die bisherige unstrukturierte
 Einleitung.

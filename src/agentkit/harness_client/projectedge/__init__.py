@@ -27,6 +27,9 @@ from agentkit.harness_client.projectedge.runtime import (
     build_project_edge_client,
     read_change_frame_freeze_state,
 )
+from agentkit.harness_client.projectedge.verify_evidence import (
+    execute_collect_verify_evidence,
+)
 
 __all__ = [
     "ChangeFrameFreezeState",
@@ -42,6 +45,7 @@ __all__ = [
     "build_project_edge_client",
     "execute_command",
     "execute_merge_local",
+    "execute_collect_verify_evidence",
     "execute_sync_push",
     "execute_takeover_reconcile",
     "process_open_commands",

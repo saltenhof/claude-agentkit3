@@ -18,6 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 # read models (``EdgePointer``/``SessionRunBindingView``) re-use the ONE canonical
 # object instead of redeclaring the inline literal -- true AK2 SSOT, no drift.
 from agentkit.backend.core_types.operating_mode import OperatingMode  # noqa: TC001
+from agentkit.backend.core_types.verify_evidence import (  # noqa: TC001
+    CollectVerifyEvidenceCommandPayload as CollectVerifyEvidenceCommandPayload,
+)
+from agentkit.backend.core_types.verify_evidence import (
+    VerifyEvidenceReport,
+)
 from agentkit.backend.story_creation.reconciliation_evidence import ReconciliationEvidence
 from agentkit.backend.telemetry.events import EventType
 
@@ -1341,7 +1347,8 @@ EdgeCommandResultPayload = Annotated[
     | PreflightProbeReport
     | TakeoverQuarantineDetail
     | TakeoverErrorResult
-    | CommandErrorResult,
+    | CommandErrorResult
+    | VerifyEvidenceReport,
     Field(discriminator="result_type"),
 ]
 

@@ -30,6 +30,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
+    VerifyEvidenceWaitCursor,
 )
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
@@ -46,6 +47,11 @@ from agentkit.backend.story_context_manager.types import StoryMode, StoryType, g
 from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.verify_system import VerifySystem
 from agentkit.backend.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
+from agentkit.backend.verify_system.evidence.authority import AuthorityClass, BundleEntry
+from agentkit.backend.verify_system.evidence.bundle_manifest import BundleManifest
+from agentkit.backend.verify_system.evidence.edge_preparation import (
+    EvidencePreparationOutcome,
+)
 from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.backend.verify_system.protocols import LayerResult
 from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
@@ -472,10 +478,40 @@ def _seed_adversarial_sandbox(story_dir: Path, *, attempt: int = 1) -> None:
     )
 
 
+class _ReadyEvidenceCoordinator:
+    """Return a fixed edge-prepared manifest for phase-only unit tests."""
+
+    def advance(self, inputs: object, current: object) -> EvidencePreparationOutcome:
+        """Return a minimal authoritative manifest without worktree access."""
+        del inputs, current
+        content = "# Test story\n"
+        return EvidencePreparationOutcome(
+            manifest=BundleManifest.from_entries(
+                [
+                    BundleEntry(
+                        repo_id="_story",
+                        path="story.md",
+                        authority=AuthorityClass.PRIMARY_NORMATIVE,
+                        reason="phase unit-test evidence",
+                        size=len(content.encode("utf-8")),
+                        content=content,
+                    )
+                ],
+                truncated=False,
+                warnings=[],
+                evidence_epoch=datetime(2026, 7, 13, tzinfo=UTC),
+            )
+        )
+
+
 @pytest.fixture(autouse=True)
 def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    monkeypatch.setattr(
+        "agentkit.backend.implementation.phase._verify_evidence_inputs",
+        lambda *args, **kwargs: object(),
+    )
     reset_backend_cache_for_tests()
     yield
     reset_backend_cache_for_tests()
@@ -627,6 +663,67 @@ def _write_required_worker_artifacts(story_dir: Path) -> None:
 class TestImplementationPhaseHandler:
     """ImplementationPhaseHandler tests."""
 
+    def test_verify_evidence_wait_yields_before_qa_subflow(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The productive phase boundary persists PAUSED before any QA write."""
+        story_dir = _setup_complete_story_dir(tmp_path)
+        verify_system = _RecordingVerifySystem(verdict=PolicyVerdict.PASS)
+        cursor = VerifyEvidenceWaitCursor(
+            stage="base_collection",
+            command_id="run::collect_verify_evidence::base::generation",
+            candidate_digest="a" * 64,
+            implementation_attempt=1,
+            owner_session_id="sqlite-unfenced",
+            ownership_epoch=1,
+        )
+
+        class _WaitingCoordinator:
+            def advance(self, inputs: object, current: object) -> EvidencePreparationOutcome:
+                del inputs, current
+                return EvidencePreparationOutcome(cursor=cursor)
+
+        monkeypatch.setattr(
+            "agentkit.backend.implementation.phase._verify_evidence_inputs",
+            lambda *args, **kwargs: object(),
+        )
+        handler = ImplementationPhaseHandler(
+            ImplementationConfig(
+                story_dir=story_dir,
+                verify_system=verify_system,  # type: ignore[arg-type]
+                evidence_preparation=_WaitingCoordinator(),  # type: ignore[arg-type]
+            )
+        )
+
+        result = handler.on_enter(_make_context(), _make_envelope(_make_state()))
+
+        assert result.status is PhaseStatus.PAUSED
+        assert result.yield_status == "awaiting_edge_provisioning"
+        assert result.updated_state is not None
+        assert result.updated_state.payload.verify_evidence_wait == cursor  # type: ignore[union-attr]
+        assert verify_system.calls == []
+
+    def test_missing_evidence_coordinator_fails_before_qa_subflow(
+        self, tmp_path: Path
+    ) -> None:
+        """A missing edge coordinator is a named fail-closed configuration error."""
+        story_dir = _setup_complete_story_dir(tmp_path)
+        verify_system = _RecordingVerifySystem(verdict=PolicyVerdict.PASS)
+        handler = ImplementationPhaseHandler(
+            ImplementationConfig(
+                story_dir=story_dir,
+                verify_system=verify_system,  # type: ignore[arg-type]
+            )
+        )
+
+        result = handler.on_enter(_make_context(), _make_envelope(_make_state()))
+
+        assert result.status is PhaseStatus.FAILED
+        assert result.errors == (
+            "VERIFY_EVIDENCE_PREPARATION_UNAVAILABLE: no coordinator configured",
+        )
+        assert verify_system.calls == []
+
     def test_complete_setup_returns_completed(self, tmp_path: Path) -> None:
         """PASS verdict from VerifySystem -> PhaseStatus.COMPLETED."""
         story_dir = _setup_complete_story_dir(tmp_path)
@@ -634,6 +731,7 @@ class TestImplementationPhaseHandler:
         config = ImplementationConfig(
             story_dir=story_dir,
             verify_system=_RecordingVerifySystem(verdict=PolicyVerdict.PASS),  # type: ignore[arg-type]
+            evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
@@ -676,6 +774,7 @@ class TestImplementationPhaseHandler:
             verify_system=_RecordingVerifySystem(
                 verdict=PolicyVerdict.FAIL, max_feedback_rounds=1
             ),  # type: ignore[arg-type]
+            evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
@@ -705,6 +804,7 @@ class TestImplementationPhaseHandler:
         config = ImplementationConfig(
             story_dir=story_dir,
             verify_system=_RecordingVerifySystem(verdict=PolicyVerdict.PASS),  # type: ignore[arg-type]
+            evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
@@ -727,6 +827,7 @@ class TestImplementationPhaseHandler:
         config = ImplementationConfig(
             story_dir=story_dir,
             verify_system=_RecordingVerifySystem(verdict=PolicyVerdict.PASS),  # type: ignore[arg-type]
+            evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
@@ -780,6 +881,7 @@ class TestImplementationPhaseHandler:
             story_dir=story_dir,
             max_feedback_rounds=1,
             verify_system=_make_real_verify_system(story_dir, max_feedback_rounds=1),
+            evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
@@ -815,7 +917,11 @@ class TestImplementationPhaseHandler:
         # PASS with >= 1 executed test instead of failing closed.
         _seed_adversarial_sandbox(story_dir)
         verify_system = _make_real_verify_system(story_dir, max_major_findings=3)
-        config = ImplementationConfig(story_dir=story_dir, verify_system=verify_system)
+        config = ImplementationConfig(
+            story_dir=story_dir,
+            verify_system=verify_system,
+            evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
+        )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()
         state = _make_state()
@@ -896,6 +1002,7 @@ class TestImplementationPhaseHandler:
             story_dir=story_dir,
             max_feedback_rounds=1,
             verify_system=_make_real_verify_system(story_dir, max_feedback_rounds=1),
+            evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
         ctx = _make_context()

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from agentkit.backend.cli.main import main
+from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
 from agentkit.backend.verify_system.evidence import AuthorityClass, ConfidenceLabel
 
 
@@ -13,17 +14,9 @@ def test_evidence_assemble_cli_wires_import_resolver_into_stage2(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "project"
-    repo_path = project_root / "app"
     story_dir = project_root / "stories" / "AG3-062"
     output_dir = tmp_path / "out"
-    (repo_path / "src").mkdir(parents=True)
-    (repo_path / "lib").mkdir()
     story_dir.mkdir(parents=True)
-    (repo_path / "src" / "main.py").write_text(
-        "from lib.imported import VALUE\n",
-        encoding="utf-8",
-    )
-    (repo_path / "lib" / "imported.py").write_text("VALUE = 1\n", encoding="utf-8")
     (story_dir / "story.md").write_text("# AG3-062\n", encoding="utf-8")
     config_path = tmp_path / "evidence-config.json"
     config_path.write_text(
@@ -31,7 +24,6 @@ def test_evidence_assemble_cli_wires_import_resolver_into_stage2(
             "repositories": [
                 {
                     "repo_id": "app",
-                    "repo_path": str(repo_path),
                     "git_base_branch": "main",
                     "role": "app",
                     "affected": True,
@@ -40,6 +32,18 @@ def test_evidence_assemble_cli_wires_import_resolver_into_stage2(
             "change_evidence": {
                 "app": {"changed_files": ["src/main.py"]},
             },
+            "collected_files": [
+                VerifyEvidenceFile.from_content(
+                    repo_id="app",
+                    path="src/main.py",
+                    content="from lib.imported import VALUE\n",
+                ).model_dump(mode="json"),
+                VerifyEvidenceFile.from_content(
+                    repo_id="app",
+                    path="lib/imported.py",
+                    content="VALUE = 1\n",
+                ).model_dump(mode="json"),
+            ],
         }),
         encoding="utf-8",
     )

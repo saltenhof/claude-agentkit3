@@ -5,13 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
-
+from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
 from agentkit.backend.verify_system.evidence import (
     AuthorityClass,
     BundleEntry,
     EvidenceAssembler,
-    EvidenceAssemblyError,
     RepoContext,
 )
 from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
@@ -58,8 +56,19 @@ def _assembler(
     import_entries: list[BundleEntry] | None = None,
     bundle_size_limit: int = 350 * 1024,
 ) -> EvidenceAssembler:
+    collected = [
+        VerifyEvidenceFile.from_content(
+            repo_id=repo.repo_id,
+            path=path.relative_to(repo.repo_path).as_posix(),
+            content=path.read_text(encoding="utf-8"),
+        )
+        for repo in repos
+        for path in repo.repo_path.rglob("*")
+        if path.is_file()
+    ]
     return EvidenceAssembler(
         {repo.repo_id: repo for repo in repos},
+        collected_files=collected,
         change_evidence_port=StaticChangeEvidencePort(
             evidence_by_repo=evidence_by_repo,
             repo_paths={repo.repo_id: repo.repo_path for repo in repos},
@@ -206,20 +215,20 @@ def test_multi_repo_entries_retain_repo_id(tmp_path: Path) -> None:
     }
 
 
-def test_missing_change_evidence_fails_closed(tmp_path: Path) -> None:
-    """Unavailable system change evidence blocks assembly."""
+def test_missing_change_evidence_is_named_and_review_continues(tmp_path: Path) -> None:
+    """Unavailable collection stays visible while normative review continues."""
     repo = _repo(tmp_path)
     assembler = _assembler(
         [repo],
         {"app": ChangeEvidence(available=False)},
     )
 
-    with pytest.raises(EvidenceAssemblyError, match="unavailable"):
-        assembler.assemble(story_dir=_story(tmp_path))
+    result = assembler.assemble(story_dir=_story(tmp_path))
+    assert any("EDGE_EVIDENCE_UNAVAILABLE" in item for item in result.manifest.warnings)
 
 
-def test_nonexistent_import_entry_path_fails_closed(tmp_path: Path) -> None:
-    """Stage-2 entries must point at existing files."""
+def test_nonexistent_import_entry_is_named_and_omitted(tmp_path: Path) -> None:
+    """Stage-2 entries absent from the edge snapshot are never fabricated."""
     repo = _repo(tmp_path)
     missing_entry = BundleEntry(
         repo_id="app",
@@ -236,5 +245,5 @@ def test_nonexistent_import_entry_path_fails_closed(tmp_path: Path) -> None:
         import_entries=[missing_entry],
     )
 
-    with pytest.raises(EvidenceAssemblyError, match="does not exist"):
-        assembler.assemble(story_dir=_story(tmp_path))
+    result = assembler.assemble(story_dir=_story(tmp_path))
+    assert any("missing import file" in item for item in result.manifest.warnings)

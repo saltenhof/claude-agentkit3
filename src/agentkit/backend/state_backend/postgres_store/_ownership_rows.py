@@ -1058,6 +1058,117 @@ def update_takeover_challenge_status_global_row(row: dict[str, Any]) -> bool:
         return int(cursor.rowcount) == 1
 
 
+def reconcile_verify_evidence_command_generation_global_row(
+    *,
+    command_row: dict[str, Any],
+    obsolete_command_id: str | None,
+    completed_at: str,
+    result_payload_json: str,
+    expected_ownership_epoch: int,
+) -> tuple[bool, bool]:
+    """Fence, supersede the obsolete generation, then commission its successor.
+
+    The caller already holds the story object claim through the phase mutation;
+    this internal transaction deliberately does not acquire a second claim. It
+    reuses the Rule-15 ownership row fence in the same transaction as both
+    command-record writes, guaranteeing the frozen supersede-before-commission
+    ordering without a TOCTOU window.
+    """
+    del obsolete_command_id
+    with _connect_global() as conn:
+        _enforce_ownership_fence_row(
+            conn,
+            project_key=str(command_row["project_key"]),
+            story_id=str(command_row["story_id"]),
+            run_id=str(command_row["run_id"]),
+            session_id=str(command_row["session_id"]),
+            expected_ownership_epoch=expected_ownership_epoch,
+            command_id="collect_verify_evidence_commission",
+        )
+        superseded = False
+        cursor = conn.execute(
+            """
+            UPDATE edge_command_records
+            SET status = 'superseded', completed_at = ?,
+                result_type = 'command_superseded', result_payload_json = ?
+            WHERE project_key = ? AND story_id = ?
+              AND command_kind = 'collect_verify_evidence'
+              AND command_id <> ? AND status IN ('created', 'delivered')
+            """,
+            (
+                completed_at,
+                result_payload_json,
+                command_row["project_key"],
+                command_row["story_id"],
+                command_row["command_id"],
+            ),
+        )
+        superseded = int(cursor.rowcount) > 0
+        cursor = conn.execute(
+            """
+            INSERT INTO edge_command_records (
+                command_id, project_key, story_id, run_id, session_id,
+                command_kind, payload_json, status, ownership_epoch,
+                created_at, delivered_at, completed_at, result_op_id,
+                result_type, result_payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (command_id) DO NOTHING
+            """,
+            (
+                command_row["command_id"],
+                command_row["project_key"],
+                command_row["story_id"],
+                command_row["run_id"],
+                command_row["session_id"],
+                command_row["command_kind"],
+                command_row["payload_json"],
+                command_row["status"],
+                command_row["ownership_epoch"],
+                command_row["created_at"],
+                command_row["delivered_at"],
+                command_row["completed_at"],
+                command_row["result_op_id"],
+                command_row["result_type"],
+                command_row["result_payload_json"],
+            ),
+        )
+        return superseded, int(cursor.rowcount) == 1
+
+
+def supersede_verify_evidence_command_global_row(
+    *,
+    command_id: str,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    session_id: str,
+    completed_at: str,
+    result_payload_json: str,
+    expected_ownership_epoch: int,
+) -> bool:
+    """Fence and timeout-terminalize one open verify-evidence command."""
+    with _connect_global() as conn:
+        _enforce_ownership_fence_row(
+            conn,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            session_id=session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+            command_id="collect_verify_evidence_timeout",
+        )
+        cursor = conn.execute(
+            """
+            UPDATE edge_command_records
+            SET status = 'superseded', completed_at = ?,
+                result_type = 'command_superseded', result_payload_json = ?
+            WHERE command_id = ? AND status IN ('created', 'delivered')
+            """,
+            (completed_at, result_payload_json, command_id),
+        )
+        return int(cursor.rowcount) == 1
+
+
 # ---------------------------------------------------------------------------
 # TakeoverApprovalRecord rows (AG3-148, Postgres-only K5)
 # ---------------------------------------------------------------------------

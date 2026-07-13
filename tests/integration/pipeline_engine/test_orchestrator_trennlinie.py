@@ -54,6 +54,9 @@ from agentkit.backend.verify_system.protocols import (
     TrustClass,
 )
 from agentkit.backend.verify_system.remediation.feedback import build_feedback
+from integration.implementation_evidence_support import (
+    ReadyEvidencePreparationCoordinator,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -171,13 +174,20 @@ def test_no_inline_while_loop_in_handler() -> None:
     )
 
 
-def test_qa_fail_below_ceiling_sets_remediation_spawn(tmp_path: Path) -> None:
+def test_qa_fail_below_ceiling_sets_remediation_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """FAIL below ceiling -> IN_PROGRESS + agents_to_spawn=[remediation_worker]."""
     story_dir = _story_dir(tmp_path)
     config = ImplementationConfig(
         story_dir=story_dir,
         max_feedback_rounds=3,
         verify_system=_FailVerifySystem(),  # type: ignore[arg-type]
+        evidence_preparation=ReadyEvidencePreparationCoordinator(),  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.implementation.phase._verify_evidence_inputs",
+        lambda *args, **kwargs: object(),
     )
     handler = ImplementationPhaseHandler(config)
     state = make_phase_state(

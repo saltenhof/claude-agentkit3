@@ -10,8 +10,8 @@ vocabulary shared by both sides of the wire (backend command creation +
 
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
 ``sync_push`` (AG3-147), ``takeover_reconcile`` (AG3-151), and
-``reset_worktree`` (AG3-154) and ``merge_local`` (AG3-152) are executed by the
-edge. An edge that
+``reset_worktree`` (AG3-154), ``merge_local`` (AG3-152), and
+``collect_verify_evidence`` (AG3-156) are executed by the edge. An edge that
 receives a command of a kind outside :data:`EXECUTABLE_COMMAND_KINDS` reports a
 deterministic error result -- never a silent no-op (Scope item 4).
 """
@@ -39,6 +39,7 @@ __all__ = (
     "decide_branch_preflight",
     "decide_worktree_preflight",
     "edge_command_id",
+    "verify_evidence_command_id",
     "is_executable_command_kind",
     "is_known_command_kind",
 )
@@ -54,12 +55,14 @@ CommandKind = Literal[
     "takeover_reconcile",
     "reset_worktree",
     "merge_local",
+    "collect_verify_evidence",
 ]
 
 ALL_COMMAND_KINDS: frozenset[str] = frozenset(
     {
         "provision_worktree", "teardown_worktree", "preflight_probe", "sync_push",
         "takeover_reconcile", "reset_worktree", "merge_local",
+        "collect_verify_evidence",
     }
 )
 
@@ -91,10 +94,17 @@ ResultType = Literal[
     "push_status_report",
     "worktree_report",
     "merge_local_report",
+    "verify_evidence_report",
 ]
 
 RESULT_TYPES: frozenset[str] = frozenset(
-    {"branch_ref_report", "push_status_report", "worktree_report", "merge_local_report"}
+    {
+        "branch_ref_report",
+        "push_status_report",
+        "worktree_report",
+        "merge_local_report",
+        "verify_evidence_report",
+    }
 )
 
 #: FK-91 §91.1b / FK-30 §30.6.3: the named takeover-family error states,
@@ -150,6 +160,16 @@ def edge_command_id(run_id: str, command_kind: str, repo_id: str) -> str:
         A stable, collision-free command identity string.
     """
     return f"{run_id}::{command_kind}::{repo_id}"
+
+
+def verify_evidence_command_id(
+    run_id: str,
+    *,
+    stage: str,
+    generation: str,
+) -> str:
+    """Return the generation-specific verify-evidence command identity."""
+    return f"{run_id}::collect_verify_evidence::{stage}::{generation}"
 
 
 # ---------------------------------------------------------------------------

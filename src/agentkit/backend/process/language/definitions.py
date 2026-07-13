@@ -209,6 +209,11 @@ def _build_implementation_workflow() -> WorkflowDefinition:
             ),
         )
         .phase("implementation")
+        .yield_to(
+            "verify_evidence",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received", "edge_deadline_elapsed"],
+        )
         .max_remediation_rounds(3)
         .phase("closure")
         .substates(["merging", "cleanup", "reporting"])
@@ -282,6 +287,11 @@ def _build_bugfix_workflow() -> WorkflowDefinition:
             ),
         )
         .phase("implementation")
+        .yield_to(
+            "verify_evidence",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received", "edge_deadline_elapsed"],
+        )
         .max_remediation_rounds(3)
         .phase("closure")
         .substates(["merging", "cleanup", "reporting"])
@@ -312,6 +322,11 @@ def _build_concept_workflow() -> WorkflowDefinition:
             resume_triggers=["edge_report_received"],
         )
         .phase("implementation")
+        .yield_to(
+            "verify_evidence",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received", "edge_deadline_elapsed"],
+        )
         .phase("closure")
         .transition("setup", "implementation")
         .transition("implementation", "closure")
@@ -336,6 +351,11 @@ def _build_research_workflow() -> WorkflowDefinition:
             resume_triggers=["edge_report_received"],
         )
         .phase("implementation")
+        .yield_to(
+            "verify_evidence",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received", "edge_deadline_elapsed"],
+        )
         .phase("closure")
         .transition("setup", "implementation")
         .transition("implementation", "closure")

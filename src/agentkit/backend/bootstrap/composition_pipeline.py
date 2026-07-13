@@ -108,6 +108,23 @@ def build_pipeline_handler_registry(
     if "exploration" in phases:
         registry.register("exploration", build_exploration_phase_handler(story_dir))
     if "implementation" in phases:
+        from agentkit.backend.bootstrap.composition_verify import (
+            build_change_evidence_port,
+        )
+        from agentkit.backend.control_plane.repository import EdgeCommandRepository
+        from agentkit.backend.verify_system.evidence.edge_preparation import (
+            VerifyEvidencePreparationCoordinator,
+        )
+        from agentkit.backend.verify_system.evidence.preflight_sender import (
+            FailClosedPreflightReviewSender,
+            LlmPreflightReviewSender,
+        )
+
+        preflight_sender = (
+            LlmPreflightReviewSender(layer2_llm_client)
+            if layer2_llm_client is not None
+            else FailClosedPreflightReviewSender()
+        )
         registry.register(
             "implementation",
             ImplementationPhaseHandler(
@@ -115,6 +132,11 @@ def build_pipeline_handler_registry(
                     story_dir=story_dir,
                     # AG3-067 AC7: same transport as the closure feedback port.
                     layer2_llm_client=layer2_llm_client,
+                    evidence_preparation=VerifyEvidencePreparationCoordinator(
+                        edge_commands=EdgeCommandRepository(),
+                        sender=preflight_sender,
+                        change_evidence_port=build_change_evidence_port(),
+                    ),
                 )
             ),
         )

@@ -589,6 +589,14 @@ während Git-`main` schon bei `M2` steht). Die drei Lifecycle-Punkte lesen/
 erzeugen diese Attestation; das Closure-Lock (FK-29/FK-35) sichert
 `tree_hash(scan) == tree_hash(merge)`.
 
+**Topologie-Bindung:** Diese Commit-/Tree-Bindung setzt keinen
+Backend-Zugriff auf ein lokales Git-Repository voraus. `commit_sha`,
+`tree_hash`, Push-Status und Scanner-Evidence stammen aus
+serverseitigen Code-Backend-Ref-Reads, CI/Jenkins-Attestationen oder
+typisierten Project-Edge-Meldungen (FK-10 §10.2.4a/b). Der
+Sonar-Gate-Adapter darf weder einen Ziel-Worktree oeffnen noch
+backend-lokal `git` ausfuehren, um die Attestation zu ergaenzen.
+
 **Scope-Ehrlichkeit:** „Sonar-clean" ist nicht „security-/dependency-/
 secret-clean". Dependency-/SCA-, Secret-, Lizenz- und Container-Scans gehören in
 eigene deterministische Layer-1-Checks (§33.3.2 Security), nicht in dieses Gate.

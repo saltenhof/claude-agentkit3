@@ -55,6 +55,7 @@ from ._push_barrier_results import (
     _sync_push_failed_barrier_verdict,
     _sync_push_result_repo_id,
 )
+from ._verify_evidence_results import verify_evidence_result_matches_command
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -272,6 +273,13 @@ class _EdgeCommandMixin:
                 command_id=command_id,
                 op_id=request.op_id,
                 error_code="edge_command_already_resolved",
+            )
+        if not verify_evidence_result_matches_command(existing, request.result):
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=request.op_id,
+                error_code="verify_evidence_result_mismatch",
             )
 
         admission = self._evaluate_run_admission(

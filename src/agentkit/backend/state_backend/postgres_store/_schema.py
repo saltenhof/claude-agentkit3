@@ -93,9 +93,8 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "push_freshness_records",
         "push_barrier_verdicts",
         "ref_protection_degradation_findings",
-        # AG3-145 canary: a pre-AG3-145 schema lacks the Edge-Command-Queue
-        # table; brand-new and forward-only (mirrors the AG3-143 precedent
-        # above -- no additive ALTER/backfill needed).
+        # AG3-145 table canary; AG3-156 additionally checks the closed
+        # command-kind constraint below so an existing table is migrated.
         "edge_command_records",
     )
     table_rows = conn.execute(
@@ -125,6 +124,8 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
     if not _ag3_147_push_freshness_columns_present(conn):
         return False
     if not _ag3_137_binding_constraints_present(conn):
+        return False
+    if not _verify_evidence_command_kind_present(conn):
         return False
     if not _takeover_approval_challenge_ref_unique_present(conn):
         return False
@@ -262,6 +263,24 @@ def _ag3_137_binding_constraints_present(conn: _CompatConnection) -> bool:
     return set(_AG3_137_BINDING_CONSTRAINTS) <= present
 
 
+def _verify_evidence_command_kind_present(conn: _CompatConnection) -> bool:
+    """Return whether the queue constraint accepts the AG3-156 command kind."""
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = current_schema()
+          AND t.relname = 'edge_command_records'
+          AND c.contype = 'c'
+          AND position('command_kind' in pg_get_constraintdef(c.oid)) > 0
+          AND position('collect_verify_evidence' in pg_get_constraintdef(c.oid)) > 0
+        """
+    ).fetchone()
+    return row is not None
+
+
 def _analytics_versions_are_recorded(conn: _CompatConnection) -> bool:
     required_versions = {"3.4", "3.5", "3.6"}
     table_row = conn.execute(
@@ -305,6 +324,31 @@ def _schema_alter_statements() -> tuple[str, ...]:
     return (
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_uuid UUID",
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_number INTEGER",
+        (
+            "DO $$ "
+            "DECLARE kind_constraint text; "
+            "BEGIN "
+            "IF to_regclass('edge_command_records') IS NULL THEN RETURN; END IF; "
+            "SELECT c.conname INTO kind_constraint "
+            "FROM pg_constraint c "
+            "JOIN pg_class t ON t.oid = c.conrelid "
+            "JOIN pg_namespace n ON n.oid = t.relnamespace "
+            "WHERE n.nspname = current_schema() "
+            "AND t.relname = 'edge_command_records' "
+            "AND c.contype = 'c' "
+            "AND position('command_kind' in pg_get_constraintdef(c.oid)) > 0 "
+            "LIMIT 1; "
+            "IF kind_constraint IS NOT NULL THEN "
+            "EXECUTE 'ALTER TABLE edge_command_records DROP CONSTRAINT ' || quote_ident(kind_constraint); "
+            "END IF; "
+            "ALTER TABLE edge_command_records "
+            "ADD CONSTRAINT edge_command_records_command_kind_check "
+            "CHECK (command_kind IN ('provision_worktree', 'teardown_worktree', "
+            "'preflight_probe', 'sync_push', 'takeover_reconcile', "
+            "'reset_worktree', 'merge_local', 'collect_verify_evidence')); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; "
+            "END $$"
+        ),
         (
             "DO $$ "
             "DECLARE status_constraint text; "

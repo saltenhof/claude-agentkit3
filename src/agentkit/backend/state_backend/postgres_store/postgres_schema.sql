@@ -464,8 +464,9 @@
         -- worktree operations (FK-10 §10.2.4a): the backend commissions a
         -- command here, the Project Edge fetches/acks it (GET, delivered_at),
         -- executes it dev-locally and reports a result (POST .../result). Brand
-        -- new / forward-only table (mirrors the AG3-143 execution_contract_digests
-        -- precedent -- no additive ALTER/backfill needed). No TTL/expiry column
+        -- existing table reused by AG3-156; its closed command-kind CHECK is
+        -- reconciled idempotently by _schema.py (no new table or data backfill).
+        -- No TTL/expiry column
         -- by design (SOLL-165, FK-91 §91.1a Rule 16): an open command never ends
         -- by wall clock -- it stays visibly open until a result terminates it.
         CREATE TABLE IF NOT EXISTS edge_command_records (
@@ -477,7 +478,8 @@
             command_kind TEXT NOT NULL CHECK (
                 command_kind IN (
                     'provision_worktree', 'teardown_worktree', 'preflight_probe',
-                    'sync_push', 'takeover_reconcile', 'reset_worktree', 'merge_local'
+                    'sync_push', 'takeover_reconcile', 'reset_worktree', 'merge_local',
+                    'collect_verify_evidence'
                 )
             ),
             payload_json TEXT NOT NULL,

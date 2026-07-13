@@ -15,6 +15,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import ValidationError
 
 from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
@@ -31,6 +32,15 @@ from agentkit.backend.control_plane.models import (
     PreflightProbeReport,
     WorktreeReport,
 )
+from agentkit.backend.core_types.verify_evidence import (
+    CollectVerifyEvidenceCommandPayload,
+    VerifyEvidenceObservation,
+    VerifyEvidenceObservationStatus,
+    VerifyEvidenceRepository,
+    VerifyEvidenceRequest,
+    VerifyTestCommand,
+)
+from agentkit.harness_client.projectedge import verify_evidence
 from agentkit.harness_client.projectedge.command_executor import (
     _EDGE_GIT_TIMEOUT_S,
     EdgeGitError,
@@ -97,6 +107,32 @@ def _command(kind: str, payload: dict[str, object]) -> EdgeCommandView:
         status="delivered",
         created_at=_now(),
     )
+
+
+def _verify_payload(*, request: VerifyEvidenceRequest | None = None) -> dict[str, object]:
+    return CollectVerifyEvidenceCommandPayload(
+        stage="dynamic_requests",
+        story_id=_STORY_ID,
+        project_key="test-project",
+        run_id="run-verify",
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_now(),
+        repositories=(
+            VerifyEvidenceRepository(repo_id="app", expected_head_sha="e" * 40),
+        ),
+        spawn_worktree_repo="app",
+        requests=() if request is None else (request,),
+        preflight_attempt_id="attempt-1",
+        preflight_checkpoint_state="ready",
+        preflight_request_hash="f" * 64,
+        raw_preflight_response='{"requests":[]}',
+        base_manifest={},
+    ).model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------
@@ -500,3 +536,199 @@ def test_unknown_repo_id_raises_edge_git_error(tmp_path: Path) -> None:
             project_config=config,
             project_root=tmp_path,
         )
+
+
+def test_llm_shell_text_is_rejected_before_any_edge_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-contract test command is named and never reaches subprocess."""
+    payload = _verify_payload()
+    payload["requests"] = [
+        {
+            "request_index": 0,
+            "request_type": "NEED_TEST_EVIDENCE",
+            "target": "pytest -q; Remove-Item -Recurse .",
+            "test_command": {
+                "runner": "pytest",
+                "arguments": ["-q", ";", "Remove-Item"],
+                "timeout_seconds": 30,
+            },
+        }
+    ]
+
+    def forbidden_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise AssertionError(f"subprocess must not run: {args!r} {kwargs!r}")
+
+    monkeypatch.setattr(verify_evidence.subprocess, "run", forbidden_run)
+    result = execute_command(
+        _command("collect_verify_evidence", payload),
+        project_config=_project_config(tmp_path, ["app"]),
+        project_root=tmp_path,
+    )
+
+    assert isinstance(result, CommandErrorResult)
+    assert result.error_code == "command_execution_failed"
+    assert "shell operator" in result.message
+
+
+def test_windows_absolute_pytest_target_is_rejected_by_contract() -> None:
+    """Drive-letter paths cannot escape a Linux-hosted edge worktree."""
+    with pytest.raises(ValidationError, match="inside the worktree"):
+        VerifyTestCommand(arguments=("C:/outside/test_secret.py",))
+
+
+def test_collected_observation_requires_actual_evidence() -> None:
+    """COLLECTED cannot be used as an empty success signal."""
+    with pytest.raises(ValidationError, match="requires content or candidates"):
+        VerifyEvidenceObservation(
+            request_index=0,
+            status=VerifyEvidenceObservationStatus.COLLECTED,
+        )
+
+
+def test_pytest_symlink_target_outside_worktree_is_never_executed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The execution site rejects an in-tree symlink resolving outside."""
+    root = tmp_path / "worktree"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (outside / "test_secret.py").write_text("assert True\n", encoding="utf-8")
+    link = root / "linked-tests"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable on this host")
+
+    def forbidden_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise AssertionError(f"subprocess must not run: {args!r} {kwargs!r}")
+
+    monkeypatch.setattr(verify_evidence.subprocess, "run", forbidden_run)
+    result = verify_evidence._run_test(  # noqa: SLF001 - execution-site security pin
+        0,
+        VerifyTestCommand(arguments=("linked-tests/test_secret.py",)),
+        root,
+        0.0,
+    )
+
+    assert result.status is VerifyEvidenceObservationStatus.REJECTED
+    assert result.finding_code == "TEST_COMMAND_REJECTED"
+
+
+def test_candidate_collection_rejects_dirty_worktree_but_allows_edge_marker(
+    tmp_path: Path,
+) -> None:
+    """A fixed HEAD is insufficient when candidate files remain mutable."""
+    root = tmp_path / "repo"
+    _init_repo(root)
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
+    (root / ".agentkit-story.json").write_text("{}\n", encoding="utf-8")
+
+    verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
+
+    (root / "README.md").write_text("dirty\n", encoding="utf-8")
+    with pytest.raises(verify_evidence.VerifyEvidenceEdgeError, match="not clean"):
+        verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
+
+
+def test_base_collection_returns_changed_file_and_resolved_import_only(
+    tmp_path: Path,
+) -> None:
+    """Stage A selects assembler inputs without shipping a whole worktree."""
+    root = tmp_path / "worktree"
+    (root / "src").mkdir(parents=True)
+    (root / "lib").mkdir()
+    (root / "web" / "feature").mkdir(parents=True)
+    (root / "web" / "shared").mkdir()
+    (root / "java" / "app").mkdir(parents=True)
+    (root / "java" / "domain").mkdir()
+    (root / "unrelated").mkdir()
+    (root / "src" / "main.py").write_text(
+        "from lib.imported import VALUE\n", encoding="utf-8"
+    )
+    (root / "lib" / "imported.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (root / "web" / "feature" / "main.ts").write_text(
+        "import { value } from '../shared/value';\n", encoding="utf-8"
+    )
+    (root / "web" / "shared" / "value.ts").write_text(
+        "export const value = 1;\n", encoding="utf-8"
+    )
+    (root / "java" / "app" / "Main.java").write_text(
+        "package app;\nimport domain.Value;\nclass Main { Value value; }\n",
+        encoding="utf-8",
+    )
+    (root / "java" / "domain" / "Value.java").write_text(
+        "package domain;\nclass Value {}\n", encoding="utf-8"
+    )
+    (root / "unrelated" / "other.py").write_text("OTHER = 2\n", encoding="utf-8")
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id=_STORY_ID,
+        project_key="test-project",
+        run_id="run-verify",
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_now(),
+        repositories=(
+            VerifyEvidenceRepository(
+                repo_id="app",
+                expected_head_sha="e" * 40,
+                changed_paths=(
+                    "src/main.py",
+                    "web/feature/main.ts",
+                    "java/app/Main.java",
+                ),
+            ),
+        ),
+        spawn_worktree_repo="app",
+    )
+
+    files = verify_evidence._collect_base_files(  # noqa: SLF001 - boundary pin
+        payload, {"app": root}
+    )
+
+    assert {file.path for file in files} == {
+        "src/main.py",
+        "lib/imported.py",
+        "web/feature/main.ts",
+        "web/shared/value.ts",
+        "java/app/Main.java",
+        "java/domain/Value.java",
+    }
+
+
+def test_typed_test_execution_is_argwise_bounded_and_shell_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The physical test site enforces args, timeout, and no shell."""
+    recorded: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        recorded["args"] = args[0]
+        recorded.update(kwargs)
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(verify_evidence.subprocess, "run", fake_run)
+    result = verify_evidence._run_test(  # noqa: SLF001 - execution-site contract pin
+        0,
+        VerifyTestCommand(arguments=("-q", "tests/unit"), timeout_seconds=17),
+        tmp_path,
+        0.0,
+    )
+
+    assert result.status is VerifyEvidenceObservationStatus.COLLECTED
+    assert recorded["shell"] is False
+    assert recorded["timeout"] == 17
+    assert isinstance(recorded["args"], list)
+    assert recorded["args"][-2:] == ["-q", "tests/unit"]  # type: ignore[index]

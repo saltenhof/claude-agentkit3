@@ -1,9 +1,9 @@
-"""Evidence assembler for deterministic review bundle preparation."""
+"""Evidence assembly over edge-collected files and backend-local story docs."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from agentkit.backend.core_types import HANDOVER_FILE, WORKER_MANIFEST_FILE
 from agentkit.backend.verify_system.evidence.authority import AuthorityClass, BundleEntry
 from agentkit.backend.verify_system.evidence.bundle_manifest import BundleManifest
-from agentkit.backend.verify_system.evidence.repo_context import RepoContext
 from agentkit.backend.verify_system.structural.system_evidence import (
     ABSENT_CHANGE_EVIDENCE_PORT,
     ChangeEvidencePort,
@@ -21,51 +20,42 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from datetime import datetime
 
+    from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
+    from agentkit.backend.verify_system.evidence.repo_context import RepoContext
+    from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
+
 BUNDLE_SIZE_LIMIT = 350 * 1024
 
-_NEIGHBOR_EXTENSIONS = frozenset({
-    ".cfg",
-    ".css",
-    ".ini",
-    ".java",
-    ".js",
-    ".json",
-    ".md",
-    ".py",
-    ".pyi",
-    ".toml",
-    ".ts",
-    ".tsx",
-    ".yaml",
-    ".yml",
-})
+_NEIGHBOR_EXTENSIONS = frozenset(
+    {".cfg", ".css", ".ini", ".java", ".js", ".json", ".md", ".py", ".pyi", ".toml", ".ts", ".tsx", ".yaml", ".yml"}
+)
 _CONFIG_EXTENSIONS = frozenset({".json", ".toml", ".yaml", ".yml"})
 _WORKER_HINT_FILES = (HANDOVER_FILE, WORKER_MANIFEST_FILE)
-_PATH_KEYS = frozenset({
-    "file",
-    "file_path",
-    "file_paths",
-    "files",
-    "merge_paths",
-    "path",
-    "paths",
-    "relevant_files",
-})
+_PATH_KEYS = frozenset(
+    {
+        "file",
+        "file_path",
+        "file_paths",
+        "files",
+        "files_changed",
+        "merge_paths",
+        "path",
+        "paths",
+        "relevant_files",
+        "tests_added",
+    }
+)
 
 
 class ImportEvidenceProvider(Protocol):
-    """Stage-2 port for import-derived evidence entries.
-
-    AG3-062 can implement this protocol with the FK-46 import resolver without
-    changing the assembler contract.
-    """
+    """Backend-pure Stage-2 import consolidation port."""
 
     def collect(
         self,
         repos: Mapping[str, RepoContext],
         changed_files_by_repo: Mapping[str, Sequence[Path]],
     ) -> Sequence[BundleEntry]:
-        """Return import-derived bundle entries."""
+        """Return import-derived entries from a pre-collected snapshot."""
         ...
 
 
@@ -74,12 +64,7 @@ class EvidenceAssemblyError(RuntimeError):
 
 
 class EvidenceAssemblyResult(BaseModel):
-    """Result of one evidence assembly run.
-
-    Attributes:
-        manifest: Bundle manifest for the included entries.
-        merge_paths: Deterministically sorted, deduplicated manifest paths.
-    """
+    """Manifest plus deterministic review paths."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -88,47 +73,63 @@ class EvidenceAssemblyResult(BaseModel):
 
 
 class EvidenceAssembler:
-    """Assemble deterministic review evidence from system-owned inputs."""
+    """Assemble review evidence without target-worktree filesystem access."""
 
     def __init__(
         self,
         repos: Mapping[str, RepoContext],
         *,
+        collected_files: Iterable[VerifyEvidenceFile] = (),
         change_evidence_port: ChangeEvidencePort | None = None,
         import_evidence_provider: ImportEvidenceProvider | None = None,
         import_entries: Iterable[BundleEntry] = (),
+        collection_finding: str | None = None,
         bundle_size_limit: int = BUNDLE_SIZE_LIMIT,
     ) -> None:
-        """Create an assembler for a repo set.
-
-        Args:
-            repos: Participating repositories keyed by ``repo_id``.
-            change_evidence_port: Existing system-evidence read port. The
-                assembler never shells out to git.
-            import_evidence_provider: Optional Stage-2 provider for AG3-062.
-            import_entries: Optional pre-resolved Stage-2 entries.
-            bundle_size_limit: Hard uncompressed bundle size limit in bytes.
-
-        Raises:
-            EvidenceAssemblyError: If repos or the size limit are invalid.
-        """
+        """Create an assembler over an immutable edge-reported file snapshot."""
         if not repos:
-            msg = "at least one RepoContext is required for evidence assembly"
-            raise EvidenceAssemblyError(msg)
+            raise EvidenceAssemblyError("at least one RepoContext is required")
         if bundle_size_limit <= 0:
-            msg = "bundle_size_limit must be positive"
-            raise EvidenceAssemblyError(msg)
-        normalized: dict[str, RepoContext] = {}
+            raise EvidenceAssemblyError("bundle_size_limit must be positive")
         for repo_id, repo in repos.items():
             if repo_id != repo.repo_id:
-                msg = f"repo mapping key {repo_id!r} does not match RepoContext.repo_id {repo.repo_id!r}"
-                raise EvidenceAssemblyError(msg)
-            normalized[repo_id] = repo
-        self._repos = normalized
+                raise EvidenceAssemblyError(
+                    f"repo mapping key {repo_id!r} does not match RepoContext.repo_id {repo.repo_id!r}"
+                )
+        self._repos = dict(repos)
+        self._files = _file_index(collected_files)
         self._change_evidence_port = change_evidence_port or ABSENT_CHANGE_EVIDENCE_PORT
         self._import_evidence_provider = import_evidence_provider
         self._import_entries = tuple(import_entries)
+        self._collection_finding = collection_finding
         self._bundle_size_limit = bundle_size_limit
+
+    @staticmethod
+    def collect_change_inventory(
+        repos: Mapping[str, RepoContext],
+        change_evidence_port: ChangeEvidencePort,
+    ) -> dict[str, ChangeEvidence]:
+        """Use only the sanctioned AG3-147 change-evidence read surface."""
+        return {
+            repo.repo_id: change_evidence_port.collect(repo.repo_path)
+            for repo in repos.values()
+            if repo.affected
+        }
+
+    @staticmethod
+    def collect_worker_hint_paths(story_dir: Path) -> tuple[str, ...]:
+        """Read backend-local worker hint manifests before Stage-A commission."""
+        hints: list[str] = []
+        for filename in _WORKER_HINT_FILES:
+            path = story_dir / filename
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise EvidenceAssemblyError(f"invalid worker hint JSON: {path}") from exc
+            hints.extend(_extract_path_strings(payload))
+        return tuple(sorted(dict.fromkeys(hints)))
 
     def assemble(
         self,
@@ -136,45 +137,24 @@ class EvidenceAssembler:
         story_dir: Path,
         evidence_epoch: datetime | str | None = None,
     ) -> EvidenceAssemblyResult:
-        """Run the FK-28 three-stage assembly and return a manifest result.
-
-        Args:
-            story_dir: Directory containing story evidence artifacts.
-            evidence_epoch: Optional injected manifest epoch.
-
-        Returns:
-            An :class:`EvidenceAssemblyResult`.
-
-        Raises:
-            EvidenceAssemblyError: If mandatory evidence is missing or invalid.
-        """
+        """Run the three assembly stages over reported content."""
         resolved_story_dir = story_dir.resolve()
         if not resolved_story_dir.is_dir():
-            msg = f"story_dir does not exist or is not a directory: {story_dir}"
-            raise EvidenceAssemblyError(msg)
-
-        warnings: list[str] = []
+            raise EvidenceAssemblyError(f"story_dir does not exist: {story_dir}")
+        warnings = [self._collection_finding] if self._collection_finding else []
         changed_files_by_repo: dict[str, tuple[Path, ...]] = {}
-        stage1_entries = self._stage1_deterministic(
-            story_dir=resolved_story_dir,
-            changed_files_by_repo=changed_files_by_repo,
+        stage1 = self._stage1(resolved_story_dir, changed_files_by_repo, warnings)
+        stage2 = self._stage2(changed_files_by_repo, warnings)
+        stage3 = self._stage3(
+            resolved_story_dir,
+            changed_files_by_repo,
+            _entry_keys([*stage1, *stage2]),
+            warnings,
         )
-        stage2_entries = self._stage2_imports(changed_files_by_repo)
-        seeded_keys = _entry_keys([*stage1_entries, *stage2_entries])
-        stage3_entries = self._stage3_worker_hints(
-            story_dir=resolved_story_dir,
-            seeded_keys=seeded_keys,
-            changed_files_by_repo=changed_files_by_repo,
-            warnings=warnings,
-        )
-
-        deduplicated = self._deduplicate(
-            [*stage1_entries, *stage2_entries, *stage3_entries]
-        )
-        included, truncated = self._enforce_size_limit(deduplicated, warnings)
+        entries = self._deduplicate([*stage1, *stage2, *stage3])
+        included, truncated = self._enforce_size_limit(entries, warnings)
         if not included:
-            msg = "evidence assembly produced no entries after validation"
-            raise EvidenceAssemblyError(msg)
+            raise EvidenceAssemblyError("evidence assembly produced no entries")
         manifest = BundleManifest.from_entries(
             included,
             truncated=truncated,
@@ -186,96 +166,248 @@ class EvidenceAssembler:
             merge_paths=tuple(dict.fromkeys(manifest.file_paths)),
         )
 
-    def _stage1_deterministic(
+    def _stage1(
         self,
-        *,
         story_dir: Path,
         changed_files_by_repo: dict[str, tuple[Path, ...]],
+        warnings: list[str],
     ) -> list[BundleEntry]:
         entries: list[BundleEntry] = []
-        changed_entry_count = 0
+        inventory = self.collect_change_inventory(
+            self._repos, self._change_evidence_port
+        )
         for repo in self._affected_repos():
-            self._ensure_repo_path(repo)
-            evidence = self._change_evidence_port.collect(repo.repo_path)
+            evidence = inventory[repo.repo_id]
             if not evidence.available:
-                msg = f"change evidence is unavailable for affected repo {repo.repo_id}"
-                raise EvidenceAssemblyError(msg)
-            changed_paths = tuple(
-                self._resolve_repo_relative_path(repo, changed)
-                for changed in sorted(set(evidence.changed_files))
-            )
-            if not changed_paths:
-                msg = f"mandatory changed-file evidence is empty for affected repo {repo.repo_id}"
-                raise EvidenceAssemblyError(msg)
-            changed_files_by_repo[repo.repo_id] = changed_paths
-            for rel_path in changed_paths:
-                entries.append(
-                    self._entry_from_file(
-                        repo=repo,
-                        rel_path=rel_path,
-                        authority=AuthorityClass.PRIMARY_IMPLEMENTATION,
-                        reason="Changed file from system change evidence",
-                        confidence=None,
-                    )
+                warnings.append(
+                    f"EDGE_EVIDENCE_UNAVAILABLE: change inventory unavailable for {repo.repo_id}"
                 )
-                changed_entry_count += 1
-            entries.extend(self._module_neighbors(repo=repo, changed_paths=changed_paths))
-            entries.extend(self._config_entries(repo=repo, changed_paths=changed_paths))
-        if changed_entry_count == 0:
-            msg = "mandatory changed-file evidence is missing"
-            raise EvidenceAssemblyError(msg)
+                changed_files_by_repo[repo.repo_id] = ()
+                continue
+            paths = tuple(
+                self._relative_path(repo, raw)
+                for raw in sorted(set(evidence.changed_files))
+            )
+            changed_files_by_repo[repo.repo_id] = paths
+            if not paths:
+                warnings.append(
+                    f"EDGE_EVIDENCE_UNAVAILABLE: changed-file inventory empty for {repo.repo_id}"
+                )
+            for path in paths:
+                entry = self._entry_from_snapshot(
+                    repo.repo_id,
+                    path,
+                    authority=AuthorityClass.PRIMARY_IMPLEMENTATION,
+                    reason="Changed file from system change evidence",
+                    confidence=None,
+                )
+                if entry is None:
+                    warnings.append(
+                        f"EDGE_EVIDENCE_UNAVAILABLE: missing changed file {repo.repo_id}:{path.as_posix()}"
+                    )
+                else:
+                    entries.append(entry)
+            entries.extend(self._module_neighbors(repo.repo_id, paths))
+            entries.extend(self._config_entries(repo.repo_id, paths))
         entries.extend(self._normative_entries(story_dir))
         return entries
 
-    def _stage2_imports(
+    def _stage2(
         self,
         changed_files_by_repo: Mapping[str, Sequence[Path]],
+        warnings: list[str],
     ) -> list[BundleEntry]:
         entries = list(self._import_entries)
         if self._import_evidence_provider is not None:
             entries.extend(
-                self._import_evidence_provider.collect(self._repos, changed_files_by_repo)
+                self._import_evidence_provider.collect(
+                    self._repos, changed_files_by_repo
+                )
             )
-        return [self._validated_external_entry(entry) for entry in entries]
+        validated: list[BundleEntry] = []
+        for entry in entries:
+            snapshot = self._files.get((entry.repo_id, entry.path.as_posix()))
+            if snapshot is None:
+                warnings.append(
+                    f"EDGE_EVIDENCE_UNAVAILABLE: missing import file {entry.repo_id}:{entry.path.as_posix()}"
+                )
+                continue
+            if snapshot.size != entry.size or snapshot.content != entry.content:
+                raise EvidenceAssemblyError(
+                    f"import entry size mismatch or content mismatch for {entry.repo_id}:{entry.path.as_posix()}"
+                )
+            validated.append(entry)
+        return validated
 
-    def _stage3_worker_hints(
+    def _stage3(
         self,
-        *,
         story_dir: Path,
-        seeded_keys: set[tuple[str, str]],
         changed_files_by_repo: Mapping[str, Sequence[Path]],
+        seeded_keys: set[tuple[str, str]],
         warnings: list[str],
     ) -> list[BundleEntry]:
-        entries: list[BundleEntry] = []
-        seen_hints: set[tuple[str, str]] = set()
-        changed_keys = {
-            (repo_id, rel_path.as_posix())
+        changed = {
+            (repo_id, path.as_posix())
             for repo_id, paths in changed_files_by_repo.items()
-            for rel_path in paths
+            for path in paths
         }
+        entries: list[BundleEntry] = []
         for hint in self._worker_hint_paths(story_dir):
-            repo, rel_path = self._resolve_hint_path(hint)
-            key = (repo.repo_id, rel_path.as_posix())
-            if key in changed_keys:
-                warnings.append(
-                    f"Self-reference WARNING: worker hint points to changed file "
-                    f"{repo.repo_id}:{rel_path.as_posix()}"
-                )
-            if key in seeded_keys or key in seen_hints:
+            match = self._resolve_hint(hint)
+            if match is None:
+                warnings.append(f"EDGE_EVIDENCE_UNAVAILABLE: worker hint unresolved: {hint}")
                 continue
-            entries.append(
-                self._entry_from_file(
-                    repo=repo,
-                    rel_path=rel_path,
-                    authority=AuthorityClass.WORKER_ASSERTION,
-                    reason="Worker-suggested evidence hint",
+            repo_id, path = match
+            key = (repo_id, path.as_posix())
+            if key in changed:
+                warnings.append(
+                    f"Self-reference WARNING: worker hint points to changed file {repo_id}:{path.as_posix()}"
+                )
+            if key in seeded_keys:
+                continue
+            entry = self._entry_from_snapshot(
+                repo_id,
+                path,
+                authority=AuthorityClass.WORKER_ASSERTION,
+                reason="Worker-provided context hint",
+                confidence=None,
+            )
+            if entry is not None:
+                entries.append(entry)
+        return entries
+
+    def _entry_from_snapshot(
+        self,
+        repo_id: str,
+        path: Path,
+        *,
+        authority: AuthorityClass,
+        reason: str,
+        confidence: str | None,
+    ) -> BundleEntry | None:
+        file = self._files.get((repo_id, path.as_posix()))
+        if file is None:
+            return None
+        return BundleEntry(
+            repo_id=repo_id,
+            path=path,
+            authority=authority,
+            confidence=confidence,
+            reason=reason,
+            size=file.size,
+            content=file.content,
+        )
+
+    def _module_neighbors(
+        self, repo_id: str, changed_paths: Sequence[Path]
+    ) -> list[BundleEntry]:
+        changed = {path.as_posix() for path in changed_paths}
+        directories = {path.parent.as_posix() for path in changed_paths}
+        candidates = sorted(
+            path
+            for candidate_repo, path in self._files
+            if candidate_repo == repo_id
+            and PurePosixPath(path).parent.as_posix() in directories
+            and PurePosixPath(path).suffix.lower() in _NEIGHBOR_EXTENSIONS
+            and path not in changed
+        )
+        return self._entries_for_paths(
+            repo_id, candidates, "Module neighbor of changed file"
+        )
+
+    def _config_entries(
+        self, repo_id: str, changed_paths: Sequence[Path]
+    ) -> list[BundleEntry]:
+        directories = {".", *(path.parent.as_posix() for path in changed_paths)}
+        candidates = sorted(
+            path
+            for candidate_repo, path in self._files
+            if candidate_repo == repo_id
+            and PurePosixPath(path).parent.as_posix() in directories
+            and PurePosixPath(path).suffix.lower() in _CONFIG_EXTENSIONS
+        )
+        return self._entries_for_paths(
+            repo_id, candidates, "Repository configuration context"
+        )
+
+    def _entries_for_paths(
+        self, repo_id: str, paths: Sequence[str], reason: str
+    ) -> list[BundleEntry]:
+        return [
+            entry
+            for raw in paths
+            if (
+                entry := self._entry_from_snapshot(
+                    repo_id,
+                    Path(raw),
+                    authority=AuthorityClass.SECONDARY_CONTEXT,
+                    reason=reason,
                     confidence=None,
                 )
             )
-            seen_hints.add(key)
+            is not None
+        ]
+
+    def _normative_entries(self, story_dir: Path) -> list[BundleEntry]:
+        names = ["story.md", "status.yaml", "remediation-r1.md", "remediation-r2.md"]
+        entries: list[BundleEntry] = []
+        for name in names:
+            path = story_dir / name
+            if not path.is_file():
+                if name == "story.md":
+                    raise EvidenceAssemblyError(f"mandatory story spec is missing: {path}")
+                continue
+            content = path.read_text(encoding="utf-8", errors="replace")
+            entries.append(
+                BundleEntry(
+                    repo_id="_story",
+                    path=Path(name),
+                    authority=AuthorityClass.PRIMARY_NORMATIVE,
+                    confidence=None,
+                    reason="Story normative context",
+                    size=len(content.encode("utf-8")),
+                    content=content,
+                )
+            )
         return entries
 
-    def _deduplicate(self, entries: list[BundleEntry]) -> list[BundleEntry]:
+    def _worker_hint_paths(self, story_dir: Path) -> list[str]:
+        return list(self.collect_worker_hint_paths(story_dir))
+
+    def _resolve_hint(self, hint: str) -> tuple[str, Path] | None:
+        if ":" in hint:
+            repo_id, raw_path = hint.split(":", 1)
+            path = self._relative_path(self._repo_for_id(repo_id), raw_path)
+            return (repo_id, path) if (repo_id, path.as_posix()) in self._files else None
+        path = Path(_relative_path_string(hint))
+        matches = [
+            (repo.repo_id, path)
+            for repo in self._affected_repos()
+            if (repo.repo_id, path.as_posix()) in self._files
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    def _relative_path(self, repo: RepoContext, raw_path: str) -> Path:
+        del repo
+        return Path(_relative_path_string(raw_path))
+
+    def _affected_repos(self) -> list[RepoContext]:
+        repos = sorted(
+            (repo for repo in self._repos.values() if repo.affected),
+            key=lambda repo: repo.repo_id,
+        )
+        if not repos:
+            raise EvidenceAssemblyError("at least one affected repo is required")
+        return repos
+
+    def _repo_for_id(self, repo_id: str) -> RepoContext:
+        repo = self._repos.get(repo_id)
+        if repo is None:
+            raise EvidenceAssemblyError(f"unknown repo_id: {repo_id}")
+        return repo
+
+    @staticmethod
+    def _deduplicate(entries: Sequence[BundleEntry]) -> list[BundleEntry]:
         selected: dict[tuple[str, str], BundleEntry] = {}
         for entry in entries:
             key = (entry.repo_id, entry.path.as_posix())
@@ -285,263 +417,74 @@ class EvidenceAssembler:
         return sorted(selected.values(), key=lambda entry: entry.sort_key)
 
     def _enforce_size_limit(
-        self,
-        entries: list[BundleEntry],
-        warnings: list[str],
+        self, entries: Sequence[BundleEntry], warnings: list[str]
     ) -> tuple[list[BundleEntry], bool]:
         included: list[BundleEntry] = []
-        total_size = 0
+        total = 0
         truncated = False
-        for entry in sorted(entries, key=lambda item: item.sort_key):
-            if total_size + entry.size <= self._bundle_size_limit:
+        for entry in entries:
+            if total + entry.size <= self._bundle_size_limit:
                 included.append(entry)
-                total_size += entry.size
+                total += entry.size
                 continue
             truncated = True
             warnings.append(
-                "Bundle truncated WARNING: "
-                f"{entry.repo_id}:{entry.path.as_posix()} ({entry.authority.name}) "
-                f"excluded ({entry.size} bytes)"
+                f"Bundle truncated WARNING: {entry.repo_id}:{entry.path.as_posix()} excluded ({entry.size} bytes)"
             )
         return included, truncated
 
-    def _affected_repos(self) -> list[RepoContext]:
-        repos = sorted(
-            (repo for repo in self._repos.values() if repo.affected),
-            key=lambda repo: repo.repo_id,
+
+def _file_index(
+    files: Iterable[VerifyEvidenceFile],
+) -> dict[tuple[str, str], VerifyEvidenceFile]:
+    result: dict[tuple[str, str], VerifyEvidenceFile] = {}
+    for file in files:
+        key = (file.repo_id, file.path)
+        existing = result.get(key)
+        if existing is not None and existing.sha256 != file.sha256:
+            raise EvidenceAssemblyError(
+                f"conflicting edge file observations for {file.repo_id}:{file.path}"
+            )
+        result[key] = file
+    return result
+
+
+def _relative_path_string(raw_path: str) -> str:
+    path = PurePosixPath(raw_path.replace("\\", "/"))
+    if (
+        path.is_absolute()
+        or Path(raw_path).is_absolute()
+        or ".." in path.parts
+        or not raw_path.strip()
+    ):
+        raise EvidenceAssemblyError(
+            f"path is outside repo or traverses outside repo: {raw_path}"
         )
-        if not repos:
-            msg = "at least one affected repo is required for evidence assembly"
-            raise EvidenceAssemblyError(msg)
-        return repos
-
-    def _ensure_repo_path(self, repo: RepoContext) -> None:
-        if not repo.repo_path.is_dir():
-            msg = f"repo_path does not exist or is not a directory: {repo.repo_path}"
-            raise EvidenceAssemblyError(msg)
-
-    def _entry_from_file(
-        self,
-        *,
-        repo: RepoContext,
-        rel_path: Path,
-        authority: AuthorityClass,
-        reason: str,
-        confidence: str | None,
-    ) -> BundleEntry:
-        abs_path = _safe_join(repo.repo_path, rel_path)
-        if not abs_path.is_file():
-            msg = f"bundle entry path does not exist: {repo.repo_id}:{rel_path.as_posix()}"
-            raise EvidenceAssemblyError(msg)
-        content = abs_path.read_text(encoding="utf-8", errors="replace")
-        return BundleEntry(
-            repo_id=repo.repo_id,
-            path=rel_path,
-            authority=authority,
-            confidence=confidence,
-            reason=reason,
-            size=len(content.encode("utf-8")),
-            content=content,
-        )
-
-    def _validated_external_entry(self, entry: BundleEntry) -> BundleEntry:
-        repo = self._repo_for_id(entry.repo_id)
-        abs_path = _safe_join(repo.repo_path, entry.path)
-        if not abs_path.is_file():
-            msg = f"bundle entry path does not exist: {entry.repo_id}:{entry.path.as_posix()}"
-            raise EvidenceAssemblyError(msg)
-        actual_size = len(abs_path.read_text(encoding="utf-8", errors="replace").encode("utf-8"))
-        if actual_size != entry.size:
-            msg = (
-                f"bundle entry size mismatch for {entry.repo_id}:{entry.path.as_posix()}: "
-                f"entry={entry.size}, actual={actual_size}"
-            )
-            raise EvidenceAssemblyError(msg)
-        return entry
-
-    def _resolve_repo_relative_path(self, repo: RepoContext, raw_path: str) -> Path:
-        rel_path = Path(raw_path)
-        if rel_path.is_absolute():
-            try:
-                rel_path = rel_path.resolve().relative_to(repo.repo_path.resolve())
-            except ValueError as exc:
-                msg = f"changed file is outside repo {repo.repo_id}: {raw_path}"
-                raise EvidenceAssemblyError(msg) from exc
-        if any(part == ".." for part in rel_path.parts):
-            msg = f"changed file traverses outside repo {repo.repo_id}: {raw_path}"
-            raise EvidenceAssemblyError(msg)
-        return Path(rel_path.as_posix())
-
-    def _module_neighbors(
-        self,
-        *,
-        repo: RepoContext,
-        changed_paths: Sequence[Path],
-    ) -> list[BundleEntry]:
-        changed_set = {path.as_posix() for path in changed_paths}
-        candidates: dict[str, Path] = {}
-        for changed_path in changed_paths:
-            directory = changed_path.parent
-            abs_dir = _safe_join(repo.repo_path, directory)
-            if not abs_dir.is_dir():
-                continue
-            for child in abs_dir.iterdir():
-                rel_child = Path(directory, child.name)
-                if (
-                    child.is_file()
-                    and child.suffix.lower() in _NEIGHBOR_EXTENSIONS
-                    and rel_child.as_posix() not in changed_set
-                ):
-                    candidates[rel_child.as_posix()] = rel_child
-        return [
-            self._entry_from_file(
-                repo=repo,
-                rel_path=path,
-                authority=AuthorityClass.SECONDARY_CONTEXT,
-                reason="Module neighbor of changed file",
-                confidence=None,
-            )
-            for path in sorted(candidates.values(), key=lambda item: item.as_posix())
-        ]
-
-    def _config_entries(
-        self,
-        *,
-        repo: RepoContext,
-        changed_paths: Sequence[Path],
-    ) -> list[BundleEntry]:
-        candidates: dict[str, Path] = {}
-        for changed_path in changed_paths:
-            for directory in (Path("."), changed_path.parent):
-                abs_dir = _safe_join(repo.repo_path, directory)
-                if not abs_dir.is_dir():
-                    continue
-                for child in abs_dir.iterdir():
-                    rel_child = Path(directory, child.name)
-                    if child.is_file() and child.suffix.lower() in _CONFIG_EXTENSIONS:
-                        candidates[rel_child.as_posix()] = rel_child
-        return [
-            self._entry_from_file(
-                repo=repo,
-                rel_path=path,
-                authority=AuthorityClass.SECONDARY_CONTEXT,
-                reason="Repository YAML/JSON configuration context",
-                confidence=None,
-            )
-            for path in sorted(candidates.values(), key=lambda item: item.as_posix())
-        ]
-
-    def _normative_entries(self, story_dir: Path) -> list[BundleEntry]:
-        story_repo = RepoContext(
-            repo_id="_story",
-            repo_path=story_dir,
-            git_base_branch="n/a",
-            role="story",
-            affected=True,
-        )
-        story_spec = story_dir / "story.md"
-        if not story_spec.is_file():
-            msg = f"mandatory story spec is missing: {story_spec}"
-            raise EvidenceAssemblyError(msg)
-        entries = [
-            self._entry_from_file(
-                repo=story_repo,
-                rel_path=Path("story.md"),
-                authority=AuthorityClass.PRIMARY_NORMATIVE,
-                reason="Story specification",
-                confidence=None,
-            )
-        ]
-        for optional_name in ("status.yaml", "remediation-r1.md", "remediation-r2.md"):
-            optional_path = story_dir / optional_name
-            if optional_path.is_file():
-                entries.append(
-                    self._entry_from_file(
-                        repo=story_repo,
-                        rel_path=Path(optional_name),
-                        authority=AuthorityClass.PRIMARY_NORMATIVE,
-                        reason="Story normative context",
-                        confidence=None,
-                    )
-                )
-        return entries
-
-    def _worker_hint_paths(self, story_dir: Path) -> list[str]:
-        hints: list[str] = []
-        for filename in _WORKER_HINT_FILES:
-            path = story_dir / filename
-            if not path.is_file():
-                continue
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as exc:
-                msg = f"invalid worker hint JSON in {path}: {exc}"
-                raise EvidenceAssemblyError(msg) from exc
-            hints.extend(_extract_path_strings(payload))
-        return sorted(dict.fromkeys(hints))
-
-    def _resolve_hint_path(self, hint: str) -> tuple[RepoContext, Path]:
-        if ":" in hint:
-            repo_id, raw_path = hint.split(":", 1)
-            repo = self._repo_for_id(repo_id)
-            rel_path = self._resolve_repo_relative_path(repo, raw_path)
-            _safe_join(repo.repo_path, rel_path)
-            return repo, rel_path
-        matches: list[tuple[RepoContext, Path]] = []
-        for repo in self._affected_repos():
-            rel_path = self._resolve_repo_relative_path(repo, hint)
-            if _safe_join(repo.repo_path, rel_path).is_file():
-                matches.append((repo, rel_path))
-        if len(matches) == 1:
-            return matches[0]
-        if not matches:
-            msg = f"worker hint path does not exist in any affected repo: {hint}"
-        else:
-            msg = f"worker hint path is ambiguous across affected repos: {hint}"
-        raise EvidenceAssemblyError(msg)
-
-    def _repo_for_id(self, repo_id: str) -> RepoContext:
-        repo = self._repos.get(repo_id)
-        if repo is None:
-            msg = f"unknown repo_id in evidence entry: {repo_id}"
-            raise EvidenceAssemblyError(msg)
-        return repo
+    return path.as_posix()
 
 
 def _entry_keys(entries: Iterable[BundleEntry]) -> set[tuple[str, str]]:
     return {(entry.repo_id, entry.path.as_posix()) for entry in entries}
 
 
-def _safe_join(repo_path: Path, rel_path: Path) -> Path:
-    candidate = (repo_path / rel_path).resolve()
-    repo_root = repo_path.resolve()
-    try:
-        candidate.relative_to(repo_root)
-    except ValueError as exc:
-        msg = f"path escapes repo root: {rel_path.as_posix()}"
-        raise EvidenceAssemblyError(msg) from exc
-    return candidate
-
-
 def _extract_path_strings(value: object, *, key_hint: str | None = None) -> list[str]:
     hints: list[str] = []
     if isinstance(value, dict):
         for key, item in value.items():
-            normalized_key = str(key).lower()
-            hints.extend(_extract_path_strings(item, key_hint=normalized_key))
-        return hints
-    if isinstance(value, list):
+            hints.extend(_extract_path_strings(item, key_hint=str(key).lower()))
+    elif isinstance(value, list):
         for item in value:
             hints.extend(_extract_path_strings(item, key_hint=key_hint))
-        return hints
-    if isinstance(value, str) and key_hint in _PATH_KEYS and _looks_like_path(value):
+    elif isinstance(value, str) and key_hint in _PATH_KEYS and _looks_like_path(value):
         hints.append(value)
     return hints
 
 
 def _looks_like_path(value: str) -> bool:
     path = value.strip()
-    return bool(path) and not path.startswith("-") and ("/" in path or "\\" in path or "." in Path(path).name)
+    return bool(path) and not path.startswith("-") and (
+        "/" in path or "\\" in path or "." in Path(path).name
+    )
 
 
 __all__ = [

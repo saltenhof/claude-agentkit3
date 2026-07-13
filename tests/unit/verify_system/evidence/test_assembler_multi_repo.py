@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.core_types.verify_evidence import VerifyEvidenceFile
 from agentkit.backend.verify_system.evidence import (
     AuthorityClass,
     BundleEntry,
@@ -75,8 +76,19 @@ def _assembler(
     import_entries: list[BundleEntry] | None = None,
     bundle_size_limit: int = 350 * 1024,
 ) -> EvidenceAssembler:
+    collected = [
+        VerifyEvidenceFile.from_content(
+            repo_id=repo.repo_id,
+            path=path.relative_to(repo.repo_path).as_posix(),
+            content=path.read_text(encoding="utf-8"),
+        )
+        for repo in repos
+        for path in repo.repo_path.rglob("*")
+        if path.is_file()
+    ]
     return EvidenceAssembler(
         {repo.repo_id: repo for repo in repos},
+        collected_files=collected,
         change_evidence_port=StaticChangeEvidencePort(
             evidence_by_repo=evidence_by_repo,
             repo_paths={repo.repo_id: repo.repo_path for repo in repos},
@@ -151,8 +163,8 @@ def test_assemble_fails_closed_when_no_repo_is_affected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_assemble_fails_closed_when_repo_path_missing(tmp_path: Path) -> None:
-    """A RepoContext with a non-existent repo_path must raise EvidenceAssemblyError."""
+def test_assemble_never_reads_missing_repo_path(tmp_path: Path) -> None:
+    """A physical repo path is irrelevant to backend snapshot assembly."""
     repo = RepoContext(
         repo_id="ghost",
         repo_path=tmp_path / "ghost_repo",
@@ -167,8 +179,8 @@ def test_assemble_fails_closed_when_repo_path_missing(tmp_path: Path) -> None:
             repo_paths={"ghost": repo.repo_path},
         ),
     )
-    with pytest.raises(EvidenceAssemblyError, match="does not exist or is not a directory"):
-        assembler.assemble(story_dir=_make_story(tmp_path))
+    result = assembler.assemble(story_dir=_make_story(tmp_path))
+    assert any("missing changed file" in item for item in result.manifest.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -176,15 +188,15 @@ def test_assemble_fails_closed_when_repo_path_missing(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_stage1_fails_closed_when_changed_files_is_empty(tmp_path: Path) -> None:
-    """ChangeEvidence with available=True but no changed_files must raise."""
+def test_stage1_empty_changed_files_is_named(tmp_path: Path) -> None:
+    """An empty inventory remains visible without blocking normative review."""
     repo = _make_repo(tmp_path)
     assembler = _assembler(
         [repo],
         {"app": ChangeEvidence(available=True, changed_files=())},
     )
-    with pytest.raises(EvidenceAssemblyError, match="mandatory changed-file evidence is empty"):
-        assembler.assemble(story_dir=_make_story(tmp_path))
+    result = assembler.assemble(story_dir=_make_story(tmp_path))
+    assert any("changed-file inventory empty" in item for item in result.manifest.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -192,15 +204,15 @@ def test_stage1_fails_closed_when_changed_files_is_empty(tmp_path: Path) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_entry_from_file_fails_closed_for_missing_file(tmp_path: Path) -> None:
-    """A changed file path that does not exist on disk must raise EvidenceAssemblyError."""
+def test_missing_changed_file_is_named(tmp_path: Path) -> None:
+    """A changed path absent from the immutable snapshot is named and omitted."""
     repo = _make_repo(tmp_path)
     assembler = _assembler(
         [repo],
         {"app": ChangeEvidence(available=True, changed_files=("src/missing_file.py",))},
     )
-    with pytest.raises(EvidenceAssemblyError, match="does not exist"):
-        assembler.assemble(story_dir=_make_story(tmp_path))
+    result = assembler.assemble(story_dir=_make_story(tmp_path))
+    assert any("missing changed file" in item for item in result.manifest.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +367,8 @@ def test_resolve_hint_path_explicit_form_unknown_repo_id_raises(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_hint_path_ambiguous_across_repos_fails_closed(tmp_path: Path) -> None:
-    """A bare hint path present in multiple repos without a repo_id must raise."""
+def test_resolve_hint_path_ambiguous_across_repos_is_named(tmp_path: Path) -> None:
+    """An ambiguous hint is visible and never heuristically selected."""
     app = _make_repo(tmp_path, "app")
     docs = _make_repo(tmp_path, "docs")
     # Both repos have 'src/app.py' (created by _make_repo)
@@ -373,8 +385,8 @@ def test_resolve_hint_path_ambiguous_across_repos_fails_closed(tmp_path: Path) -
         },
     )
     # src/app.py is in both repos — must fail closed as ambiguous
-    with pytest.raises(EvidenceAssemblyError, match="ambiguous"):
-        assembler.assemble(story_dir=story_dir)
+    result = assembler.assemble(story_dir=story_dir)
+    assert any("worker hint unresolved" in item for item in result.manifest.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -382,8 +394,8 @@ def test_resolve_hint_path_ambiguous_across_repos_fails_closed(tmp_path: Path) -
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_hint_path_not_found_in_any_repo_fails_closed(tmp_path: Path) -> None:
-    """A bare hint path that exists in no affected repo must raise EvidenceAssemblyError."""
+def test_resolve_hint_path_not_found_is_named(tmp_path: Path) -> None:
+    """A missing hint is visible and never backend-read."""
     repo = _make_repo(tmp_path)
     story_dir = _make_story(tmp_path)
     (story_dir / "handover.json").write_text(
@@ -394,8 +406,8 @@ def test_resolve_hint_path_not_found_in_any_repo_fails_closed(tmp_path: Path) ->
         [repo],
         {"app": ChangeEvidence(available=True, changed_files=("src/app.py",))},
     )
-    with pytest.raises(EvidenceAssemblyError, match="does not exist in any affected repo"):
-        assembler.assemble(story_dir=story_dir)
+    result = assembler.assemble(story_dir=story_dir)
+    assert any("worker hint unresolved" in item for item in result.manifest.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +555,15 @@ def test_stage2_import_evidence_provider_is_called(tmp_path: Path) -> None:
     provider = _FakeProvider()
     assembler = EvidenceAssembler(
         {"app": app},
+        collected_files=[
+            VerifyEvidenceFile.from_content(
+                repo_id="app",
+                path=path.relative_to(app.repo_path).as_posix(),
+                content=path.read_text(encoding="utf-8"),
+            )
+            for path in app.repo_path.rglob("*")
+            if path.is_file()
+        ],
         change_evidence_port=StaticChangeEvidencePort(
             evidence_by_repo={"app": ChangeEvidence(available=True, changed_files=("src/app.py",))},
             repo_paths={"app": app.repo_path},

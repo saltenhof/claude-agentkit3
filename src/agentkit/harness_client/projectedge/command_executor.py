@@ -10,6 +10,8 @@ against the REAL git repo, and reports the typed result with the edge's OWN
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
 ``sync_push`` (AG3-147), ``takeover_reconcile`` (AG3-151), and
 ``reset_worktree`` (AG3-154) and ``merge_local`` (AG3-152) are executed here.
+``collect_verify_evidence`` (AG3-156) performs bounded filesystem/test
+collection here without shell interpretation.
 The edge derives the physical repo path from its LOCAL
 project config, never from the backend (FK-10 §10.2.4a).
 """
@@ -49,11 +51,16 @@ from agentkit.backend.control_plane.push_sync import (
     decide_push_gate,
     official_story_ref,
 )
+from agentkit.backend.core_types.verify_evidence import CollectVerifyEvidenceCommandPayload
 from agentkit.backend.utils.io import atomic_write_text
 from agentkit.harness_client.projectedge.merge_local import execute_merge_local
 from agentkit.harness_client.projectedge.reconcile import (
     TakeoverReconcileExecution,
     execute_takeover_reconcile,
+)
+from agentkit.harness_client.projectedge.verify_evidence import (
+    VerifyEvidenceEdgeError,
+    execute_collect_verify_evidence,
 )
 
 if TYPE_CHECKING:
@@ -741,7 +748,7 @@ def execute_command(
             project_root=project_root,
             sync_push_context=sync_push_context,
         )
-    except (ValidationError, EdgeGitError) as exc:
+    except (ValidationError, EdgeGitError, VerifyEvidenceEdgeError) as exc:
         return CommandErrorResult(
             error_code="command_execution_failed",
             message=f"{command.command_kind} failed: {exc}",
@@ -791,6 +798,12 @@ def _dispatch_executable(
     if command.command_kind == "merge_local":
         return execute_merge_local(
             MergeLocalCommandPayload.model_validate(command.payload),
+            project_config=project_config,
+            project_root=project_root,
+        )
+    if command.command_kind == "collect_verify_evidence":
+        return execute_collect_verify_evidence(
+            CollectVerifyEvidenceCommandPayload.model_validate(command.payload),
             project_config=project_config,
             project_root=project_root,
         )

@@ -390,9 +390,18 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-153 | Frontend Takeover (globaler governance-Stream, Overlay, Cockpit) | L | blocked | 144, 148, 151 |
 | AG3-154 | CLI/Admin-Kommandos + Edge-Tool (inkl. recover-story) | M | **ready** | 138, 145, 148 |
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
-| AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | **ready** | 144, 145 |
+| AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | **completed** | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-149, AG3-154, AG3-156** (Ownership-Strang; AG3-148 und AG3-152 completed). Unabhängige Blätter ausserhalb dieses Strangs: AG3-131/132/133/134/157.**
+**Sofort startbar (`ready`): AG3-149, AG3-154** (Ownership-Strang; AG3-148, AG3-152 und AG3-156 completed). Unabhängige Blätter ausserhalb dieses Strangs: AG3-131/132/133/134/157.**
+AG3-156 ✅ **completed** 2026-07-13 — Verify-Evidenz wird als zweistufiger
+`collect_verify_evidence`-Edge-Batch über die vorhandene Phase-Yield/Resume-
+Grenze erhoben: Basis-Snapshot vor dem einmaligen crash-sicheren Preflight,
+danach dynamische Reviewer-Requests. Result-POSTs terminalisieren nur den
+CommandRecord; D3 und Bundle-Erweiterung erfolgen beim gefencten Resume.
+Backend-Resolver, Assembler und Import-Resolver lesen keine Ziel-Worktrees;
+Testkommandos sind typisiert, argumentweise, `shell=False` und hart begrenzt.
+P3-Decision-Record, FK-28/33/46/47/91 und der Postgres-Command-Kind-Vertrag
+sind nachgezogen; reale Exit-/Reset-Negativpfade verhindern Late-Result-Writes.
 (AG3-146 ✅ **completed** 2026-07-05 — Provider-Adapter-Schnitt: neues Backend-BC
 `code_backend/` mit schmalem Capability-Port `provider_port.py` (Blutgruppe A,
 GitHub-frei/Azure-DevOps-tauglich: keine gh-Argumente/URL-Formen/owner-repo-Slugs im

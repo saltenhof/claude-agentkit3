@@ -16,6 +16,11 @@ from agentkit.backend.implementation.manifest import WorkerManifest, WorkerManif
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.evidence.authority import AuthorityClass, BundleEntry
+from agentkit.backend.verify_system.evidence.bundle_manifest import BundleManifest
+from agentkit.backend.verify_system.evidence.edge_preparation import (
+    EvidencePreparationOutcome,
+)
 from agentkit.backend.verify_system.protocols import RunScope
 from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
@@ -27,6 +32,32 @@ _AK3_REPO_ROOT = Path(__file__).resolve().parents[2]
 _AK3_COMMIT_REFUSAL = (
     "integration fixture refused to git-commit into the AK3 repository"
 )
+
+
+class ReadyEvidencePreparationCoordinator:
+    """Return a fixed edge-prepared manifest at unrelated phase test boundaries."""
+
+    def advance(self, inputs: object, current: object) -> EvidencePreparationOutcome:
+        """Return a minimal authoritative manifest without reading a worktree."""
+        del inputs, current
+        content = "# Integration fixture story\n"
+        return EvidencePreparationOutcome(
+            manifest=BundleManifest.from_entries(
+                [
+                    BundleEntry(
+                        repo_id="_story",
+                        path="story.md",
+                        authority=AuthorityClass.PRIMARY_NORMATIVE,
+                        reason="integration phase fixture evidence",
+                        size=len(content.encode("utf-8")),
+                        content=content,
+                    )
+                ],
+                truncated=False,
+                warnings=[],
+                evidence_epoch=datetime(2026, 7, 13, tzinfo=UTC),
+            )
+        )
 
 
 class GitDiffChangeEvidencePort:

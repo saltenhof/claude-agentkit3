@@ -8,8 +8,8 @@ from __future__ import annotations
 from agentkit.backend.control_plane import edge_commands as ec
 
 
-def test_all_command_kinds_pins_the_seven_registered_kinds() -> None:
-    """FK-91 §91.1b: exactly the seven registered command kinds."""
+def test_all_command_kinds_pins_the_eight_registered_kinds() -> None:
+    """FK-91 §91.1b: exactly the eight registered command kinds."""
     assert {
         "provision_worktree",
         "teardown_worktree",
@@ -18,6 +18,7 @@ def test_all_command_kinds_pins_the_seven_registered_kinds() -> None:
         "takeover_reconcile",
         "reset_worktree",
         "merge_local",
+        "collect_verify_evidence",
     } == ec.ALL_COMMAND_KINDS
 
 
@@ -31,6 +32,7 @@ def test_executable_command_kinds_includes_merge_local() -> None:
         "takeover_reconcile",
         "reset_worktree",
         "merge_local",
+        "collect_verify_evidence",
     } == ec.EXECUTABLE_COMMAND_KINDS
     assert ec.EXECUTABLE_COMMAND_KINDS == ec.ALL_COMMAND_KINDS
 
@@ -52,12 +54,13 @@ def test_open_command_statuses_are_exactly_the_non_terminal_ones() -> None:
     assert ec.OPEN_COMMAND_STATUSES < ec.ALL_COMMAND_STATUSES
 
 
-def test_result_types_pins_the_four_named_report_shapes() -> None:
+def test_result_types_pins_the_five_named_report_shapes() -> None:
     assert {
         "branch_ref_report",
         "push_status_report",
         "worktree_report",
         "merge_local_report",
+        "verify_evidence_report",
     } == ec.RESULT_TYPES
 
 

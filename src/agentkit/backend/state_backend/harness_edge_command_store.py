@@ -90,10 +90,65 @@ def supersede_open_edge_command_global(
     )
 
 
+def reconcile_verify_evidence_command_generation_global(
+    *,
+    record: Any,
+    obsolete_command_id: str | None,
+    completed_at: datetime,
+    result_payload: dict[str, object],
+    expected_ownership_epoch: int,
+) -> tuple[bool, bool]:
+    """Fenced supersede-before-commission for an AG3-156 generation."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    result = backend.reconcile_verify_evidence_command_generation_global_row(
+        command_row=mappers.edge_command_record_to_row(record),
+        obsolete_command_id=obsolete_command_id,
+        completed_at=completed_at.isoformat(),
+        result_payload_json=mappers.dump_json(result_payload),
+        expected_ownership_epoch=expected_ownership_epoch,
+    )
+    return bool(result[0]), bool(result[1])
+
+
+def supersede_verify_evidence_command_global(
+    *,
+    command_id: str,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    session_id: str,
+    completed_at: datetime,
+    result_payload: dict[str, object],
+    expected_ownership_epoch: int,
+) -> bool:
+    """Fenced timeout terminalization for an AG3-156 command."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.supersede_verify_evidence_command_global_row(
+            command_id=command_id,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            session_id=session_id,
+            completed_at=completed_at.isoformat(),
+            result_payload_json=mappers.dump_json(result_payload),
+            expected_ownership_epoch=expected_ownership_epoch,
+        )
+    )
+
+
 __all__ = [
     "insert_edge_command_record_global",
     "commission_edge_command_record_global",
     "load_edge_command_record_global",
     "list_and_ack_open_edge_command_records_global",
+    "reconcile_verify_evidence_command_generation_global",
+    "supersede_verify_evidence_command_global",
     "supersede_open_edge_command_global",
 ]

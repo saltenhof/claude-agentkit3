@@ -58,6 +58,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseState,
     PhaseStatus,
     QaCycleStatus,
+    VerifyEvidenceWaitCursor,
     evolve_phase_state,
 )
 from agentkit.backend.state_backend.governance_runtime_store import (
@@ -84,6 +85,10 @@ if TYPE_CHECKING:
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.verify_system import VerifySystem
+    from agentkit.backend.verify_system.evidence.edge_preparation import (
+        EvidencePreparationInput,
+        VerifyEvidencePreparationCoordinator,
+    )
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
     from agentkit.backend.verify_system.protocols import Finding
     from agentkit.backend.verify_system.sonarqube_gate.port import SonarGateInputPort
@@ -115,6 +120,7 @@ class ImplementationConfig:
     max_feedback_rounds: int = 3
     verify_system: VerifySystem | None = None
     layer2_llm_client: LlmClient | None = None
+    evidence_preparation: VerifyEvidencePreparationCoordinator | None = None
 
 
 class ImplementationPhaseHandler:
@@ -229,6 +235,80 @@ class ImplementationPhaseHandler:
         qa_rounds = state.memory.implementation.qa_feedback_rounds
         attempt_nr = qa_rounds + 1
         structural_completion_sync_point_id = f"phase_completion:{flow.run_id}"
+        prepared_manifest: dict[str, object] | None = None
+        if self._config.evidence_preparation is None:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(
+                    "VERIFY_EVIDENCE_PREPARATION_UNAVAILABLE: no coordinator configured",
+                ),
+                updated_state=_state_with_payload(
+                    state,
+                    QaCycleStatus.ESCALATED,
+                    _verify_context_for(qa_rounds),
+                ),
+            )
+        else:
+            from agentkit.backend.verify_system.evidence.assembler import (
+                EvidenceAssemblyError,
+            )
+            from agentkit.backend.verify_system.evidence.preflight_sender import (
+                PreflightReviewSenderError,
+            )
+
+            try:
+                evidence_inputs = _verify_evidence_inputs(
+                    ctx,
+                    run_id=flow.run_id,
+                    implementation_attempt=attempt_nr,
+                    owner_session_id=owner_session_id,
+                    ownership_epoch=expected_ownership_epoch,
+                    story_dir=s_dir,
+                )
+                wait_cursor = (
+                    state.payload.verify_evidence_wait
+                    if isinstance(state.payload, ImplementationPayload)
+                    else None
+                )
+                with bind_ownership_fence_scope(
+                    project_key=ctx.project_key,
+                    story_id=ctx.story_id,
+                    run_id=flow.run_id,
+                    owner_session_id=owner_session_id,
+                    expected_ownership_epoch=expected_ownership_epoch,
+                ):
+                    preparation = self._config.evidence_preparation.advance(
+                        evidence_inputs, wait_cursor
+                    )
+            except (EvidenceAssemblyError, PreflightReviewSenderError, ValueError) as exc:
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=(f"VERIFY_EVIDENCE_PREPARATION_FAILED: {exc}",),
+                    updated_state=_state_with_payload(
+                        state,
+                        QaCycleStatus.ESCALATED,
+                        _verify_context_for(qa_rounds),
+                    ),
+                )
+            if preparation.waiting:
+                assert preparation.cursor is not None  # noqa: S101 - typed outcome
+                return HandlerResult(
+                    status=PhaseStatus.PAUSED,
+                    yield_status="awaiting_edge_provisioning",
+                    updated_state=_state_with_payload(
+                        state,
+                        QaCycleStatus.IDLE,
+                        _verify_context_for(qa_rounds),
+                        verify_evidence_wait=preparation.cursor,
+                    ),
+                )
+            if preparation.manifest is None:
+                return HandlerResult(
+                    status=PhaseStatus.FAILED,
+                    errors=("VERIFY_EVIDENCE_PREPARATION_FAILED: bundle missing",),
+                )
+            prepared_manifest = preparation.manifest.model_dump(mode="json")
+            state = _clear_verify_evidence_wait(state)
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,
@@ -267,6 +347,7 @@ class ImplementationPhaseHandler:
             phase_envelope=phase_envelope_view,
             attempt=attempt_nr,
             project_root=ctx.project_root,
+            evidence_manifest=prepared_manifest,
         )
         target = ArtifactReference(
             artifact_class=ArtifactClass.WORKER,
@@ -934,6 +1015,7 @@ def _state_with_payload(
     qa_cycle_id: str | None = None,
     evidence_epoch: datetime | None = None,
     evidence_fingerprint: str | None = None,
+    verify_evidence_wait: VerifyEvidenceWaitCursor | None = None,
 ) -> PhaseState:
     """Rebuild the implementation ``PhaseState`` with QA-cycle identities.
 
@@ -976,6 +1058,15 @@ def _state_with_payload(
             qa_cycle_id=qa_cycle_id,
             evidence_epoch=evidence_epoch,
             evidence_fingerprint=evidence_fingerprint,
+            verify_evidence_wait=(
+                verify_evidence_wait
+                if verify_evidence_wait is not None
+                else (
+                    state.payload.verify_evidence_wait
+                    if isinstance(state.payload, ImplementationPayload)
+                    else None
+                )
+            ),
         ),
         memory=memory,
         pause_reason=state.pause_reason,
@@ -983,6 +1074,75 @@ def _state_with_payload(
         review_round=state.review_round,
         errors=list(state.errors),
         attempt_id=state.attempt_id,
+    )
+
+
+def _clear_verify_evidence_wait(state: PhaseState) -> PhaseState:
+    """Clear only the small wait cursor after fenced result application."""
+    if not isinstance(state.payload, ImplementationPayload):
+        return state
+    return state.model_copy(
+        update={
+            "payload": state.payload.model_copy(
+                update={"verify_evidence_wait": None}
+            )
+        }
+    )
+
+
+def _verify_evidence_inputs(
+    ctx: StoryContext,
+    *,
+    run_id: str,
+    implementation_attempt: int,
+    owner_session_id: str,
+    ownership_epoch: int,
+    story_dir: Path,
+) -> EvidencePreparationInput:
+    """Build a candidate-bound input from authoritative push freshness."""
+    from agentkit.backend.core_types.verify_evidence import VerifyEvidenceRepository
+    from agentkit.backend.state_backend.story_closure_store import (
+        load_push_freshness_record_global,
+    )
+    from agentkit.backend.verify_system.evidence.edge_preparation import (
+        EvidencePreparationInput,
+    )
+
+    repositories: list[VerifyEvidenceRepository] = []
+    repository_paths: dict[str, Path] = {}
+    for repo_id in ctx.participating_repos:
+        freshness = load_push_freshness_record_global(
+            ctx.project_key, ctx.story_id, run_id, repo_id
+        )
+        head = None if freshness is None else freshness.last_pushed_head_sha
+        if not head:
+            raise ValueError(
+                f"EDGE_CANDIDATE_UNAVAILABLE: no pushed head for {repo_id!r}"
+            )
+        repositories.append(
+            VerifyEvidenceRepository(repo_id=repo_id, expected_head_sha=head)
+        )
+        repo_path = ctx.worktree_map.get(repo_id)
+        if repo_path is None and len(ctx.participating_repos) == 1:
+            repo_path = ctx.worktree_path
+        if repo_path is None:
+            raise ValueError(
+                f"EDGE_CANDIDATE_UNAVAILABLE: no worktree coordinate for {repo_id!r}"
+            )
+        repository_paths[repo_id] = repo_path
+    if not repositories:
+        raise ValueError("EDGE_CANDIDATE_UNAVAILABLE: no participating repositories")
+    return EvidencePreparationInput(
+        project_key=ctx.project_key,
+        story_id=ctx.story_id,
+        run_id=run_id,
+        implementation_attempt=implementation_attempt,
+        owner_session_id=owner_session_id,
+        ownership_epoch=ownership_epoch,
+        repositories=tuple(repositories),
+        spawn_worktree_repo=repositories[0].repo_id,
+        story_dir=story_dir,
+        repository_paths=repository_paths,
     )
 
 

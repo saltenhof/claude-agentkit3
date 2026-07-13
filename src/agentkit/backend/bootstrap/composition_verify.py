@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from agentkit.backend.bootstrap import composition_project_types as project_types
     from agentkit.backend.bootstrap import composition_verify_types as verify_types
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+    from agentkit.backend.verify_system.structural.system_evidence import (
+        ChangeEvidencePort,
+    )
 
 
 def build_verify_system(
@@ -138,8 +141,8 @@ def build_verify_system(
         # productive subprocess-git provider (verify-system stays free of
         # subprocess; the import lives in this composition root). NEVER the
         # worker manifest.
-        structural_change_evidence_port=_SubprocessGitChangeEvidenceProvider(
-            push_verification_port=build_push_verification_port(required_sync_point_id=structural_completion_sync_point_id)
+        structural_change_evidence_port=build_change_evidence_port(
+            required_sync_point_id=structural_completion_sync_point_id
         ),
         # AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push
         # barrier gate, delegating to the control-plane two-stage barrier.
@@ -525,6 +528,17 @@ class _SubprocessGitChangeEvidenceProvider:
 _LOCAL_FILE_THRESHOLD = 3
 #: Number of distinct top-level components that marks a CROSS_COMPONENT change.
 _CROSS_COMPONENT_DIRS = 2
+
+
+def build_change_evidence_port(
+    required_sync_point_id: str | None = None,
+) -> ChangeEvidencePort:
+    """Wire the sanctioned AG3-147 change-inventory read surface."""
+    return _SubprocessGitChangeEvidenceProvider(
+        push_verification_port=build_push_verification_port(
+            required_sync_point_id=required_sync_point_id
+        )
+    )
 
 
 def _derive_actual_impact(changed_files: tuple[str, ...]) -> project_types.ChangeImpact | None:

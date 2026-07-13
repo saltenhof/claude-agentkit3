@@ -168,6 +168,7 @@ class VerifyContextBundle(BaseModel):
     phase_envelope: PhaseEnvelopeView | None = None
     attempt: int
     project_root: Path | None = None
+    evidence_manifest: dict[str, object] | None = None
 
 
 class VerifyTargetType(StrEnum):

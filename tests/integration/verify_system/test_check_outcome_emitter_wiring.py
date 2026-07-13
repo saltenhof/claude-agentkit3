@@ -48,6 +48,9 @@ from agentkit.backend.verify_system.stage_registry import StageRegistry
 from agentkit.backend.verify_system.stage_registry.records import CheckOutcome
 from agentkit.backend.verify_system.structural.checks import BuildTestEvidence
 from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
+from integration.implementation_evidence_support import (
+    ReadyEvidencePreparationCoordinator,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -564,6 +567,7 @@ class _PassVerifySystemWithOverridableCheck:
 
 def test_phase_wiring_emits_overridden_outcome_via_production_path(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC4: overridden outcome reaches qa_check_outcomes via the REAL phase.py path.
 
@@ -592,6 +596,11 @@ def test_phase_wiring_emits_overridden_outcome_via_production_path(
     config = ImplementationConfig(
         story_dir=story_dir,
         verify_system=_PassVerifySystemWithOverridableCheck(),  # type: ignore[arg-type]
+        evidence_preparation=ReadyEvidencePreparationCoordinator(),  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.implementation.phase._verify_evidence_inputs",
+        lambda *args, **kwargs: object(),
     )
     handler = ImplementationPhaseHandler(config)
 

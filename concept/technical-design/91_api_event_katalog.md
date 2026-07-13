@@ -333,8 +333,9 @@ Auftraegen ueberladen.
 (FK-30 §30.6.3; das Ergebnis wird ueber den Wire-Contract
 `takeover-reconcile-worktree` gemeldet, §91.1a), `reset_worktree`
 (FK-20 §20.7.3; setzt den bestehenden Worktree auf dessen eigenes `HEAD`
-zurueck und entfernt unversionierte Dateien, ohne Stash-/Salvage-Pfad) und `merge_local`
-(FK-29 §29.1a).
+zurueck und entfernt unversionierte Dateien, ohne Stash-/Salvage-Pfad), `merge_local`
+(FK-29 §29.1a) und `collect_verify_evidence` (zweistufige
+`base_collection`/`dynamic_requests`-Batch-Erhebung, FK-47 §47.5).
 
 **Result-Typen:** `branch_ref_report` (Branch-Klasse + Head-SHA je
 teilnehmendem Repo — die Branch-Ref-Meldung nach jedem Sync-Punkt,
@@ -342,7 +343,10 @@ FK-10 §10.2.4b), `push_status_report` (Push-Erfolg bzw.
 Push-Rueckstand), `worktree_report` (Provisionierungs-/Teardown-/
 Reset-Ergebnis inklusive der gemeldeten Worktree-Pfade =
 `worktree_roots` der Session, FK-56 §56.8) sowie
-Quarantaene-Ergebnisdetails beim `takeover_reconcile`
+Quarantaene-Ergebnisdetails beim `takeover_reconcile` sowie
+`verify_evidence_report` (Stage, Batch-/Generation-/Candidate-/
+Request-Digest, content-gebundene Dateien beziehungsweise
+Request-Beobachtungen)
 (FK-56 §56.13e). Fehlerbilder der Takeover-Familie
 (`remote_branch_diverged_after_takeover`,
 `local_stale_or_dirty_takeover_target`, `contested_local_writes`)
@@ -352,6 +356,28 @@ sind benannte Result-Zustaende, kein Sammel-FAIL (FK-30 §30.6.3).
 (FK-10 §10.2.4b) verifiziert das Backend serverseitig gegen das
 Code-Backend (Ref-Read auf den gepushten Story-Branch,
 FK-12 §12.1) — die Edge-Meldung allein ist nie hinreichend.
+
+### 91.1b.1 Verify-Evidence Yield/Resume-Vertrag
+
+`collect_verify_evidence` nutzt die bestehende
+Implementation-Phase-Yield/Resume-Grenze und `edge_command_records`;
+es gibt weder eine neue Tabelle noch ein allgemeines Async-Framework.
+Die Phase commissioned zuerst `base_collection`, persistiert
+`PAUSED` und gibt damit den Story-Claim frei. Nach Result-POST und
+client-getriebenem Resume erzeugt sie das Basis-Bundle und ruft den
+Preflight-Reviewer genau einmal je auditiertem Attempt. Raw Response,
+Requests, Digests und Basis-Manifest werden im Stage-B-CommandRecord
+checkpointed; danach folgt derselbe Yield/Result/Resume-Ablauf fuer
+`dynamic_requests` (FK-47 §47.5.1/§47.5.2).
+
+Die Deadline steht im Command-Payload. Open vor Deadline bleibt
+`PAUSED`; nach Deadline supersedet Resume den offenen Record unter
+dem Rule-15-Fence und klassifiziert dynamische Requests als
+`TIMEOUT`. Der Result-POST validiert alle Echo-Digests und
+terminalisiert ausschliesslich das CommandRecord. Bundle- und
+QA-Projektionen werden erst vom Resume unter dem aktuellen
+Ownership-Fence geschrieben. Candidate-/Session-/Epoch-Drift
+supersedet eine alte offene Generation vor Commissioning der neuen.
 
 ## 91.1 Operator-Recovery-CLI (agentkit)
 

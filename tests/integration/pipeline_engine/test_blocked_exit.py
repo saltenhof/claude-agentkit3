@@ -32,6 +32,9 @@ from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_exec
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from integration.implementation_evidence_support import (
+    ReadyEvidencePreparationCoordinator,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -201,7 +204,9 @@ def test_engine_propagates_suggested_reaction_to_caller(tmp_path: Path) -> None:
     assert "POLICY_CONFLICT" in result.errors[0]
 
 
-def test_non_blocked_manifest_does_not_short_circuit(tmp_path: Path) -> None:
+def test_non_blocked_manifest_does_not_short_circuit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A COMPLETED manifest does NOT trigger the BLOCKED-exit (QA-subflow runs).
 
     Here the exploding double WOULD be reached, proving the gate only fires for
@@ -238,6 +243,11 @@ def test_non_blocked_manifest_does_not_short_circuit(tmp_path: Path) -> None:
         # test double: a minimal VerifySystem stub whose run_qa_subflow raises if
         # ever reached (proves BLOCKED short-circuits before QA); not the full surface.
         verify_system=_ExplodingVerifySystem(),  # type: ignore[arg-type]
+        evidence_preparation=ReadyEvidencePreparationCoordinator(),  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.implementation.phase._verify_evidence_inputs",
+        lambda *args, **kwargs: object(),
     )
     handler = ImplementationPhaseHandler(config)
     state = make_phase_state(

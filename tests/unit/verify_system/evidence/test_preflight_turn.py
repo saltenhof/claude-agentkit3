@@ -39,7 +39,16 @@ class RecordingSender:
     prompts: list[str] = field(default_factory=list)
     merge_paths: list[tuple[Path, ...]] = field(default_factory=list)
 
-    def send(self, *, prompt: str, merge_paths: Sequence[Path]) -> str:
+    def send(
+        self,
+        *,
+        prompt: str,
+        merge_paths: Sequence[Path],
+        attempt_id: str,
+        request_hash: str,
+    ) -> str:
+        assert attempt_id
+        assert len(request_hash) == 64
         self.prompts.append(prompt)
         self.merge_paths.append(tuple(merge_paths))
         return self.responses.pop(0)
@@ -106,10 +115,10 @@ def test_preflight_turn_with_valid_answer_extends_paths_and_balances_telemetry(t
     assembly = _assembly()
     result = turn.run(story_id="AG3-062", assembly=assembly, review_prompt="review")
 
-    assert result.extended_paths == (Path("src/app.py"), Path("src/context.py"))
+    assert result.extended_paths == (Path("src/app.py"),)
     assert sender.merge_paths == [
         (Path("src/app.py"),),
-        (Path("src/app.py"), Path("src/context.py")),
+        (Path("src/app.py"),),
     ]
     assert "## Bundle Content" in sender.prompts[-1]
     assert "PRIMARY_IMPLEMENTATION" in sender.prompts[-1]
@@ -167,7 +176,12 @@ def test_preflight_turn_all_unresolved_continues_with_original_bundle(tmp_path: 
 
 def test_fail_closed_preflight_sender_raises_without_productive_transport() -> None:
     with pytest.raises(PreflightReviewSenderError, match="No productive file-capable"):
-        FailClosedPreflightReviewSender().send(prompt="prompt", merge_paths=[Path("src/app.py")])
+        FailClosedPreflightReviewSender().send(
+            prompt="prompt",
+            merge_paths=[Path("src/app.py")],
+            attempt_id="attempt",
+            request_hash="0" * 64,
+        )
 
 
 def test_preflight_prompt_sentinel_uses_prefight_prefix_and_not_template_prefix() -> None:

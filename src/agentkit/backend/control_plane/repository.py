@@ -14,7 +14,9 @@ from agentkit.backend.state_backend.harness_edge_command_store import (
     insert_edge_command_record_global,
     list_and_ack_open_edge_command_records_global,
     load_edge_command_record_global,
+    reconcile_verify_evidence_command_generation_global,
     supersede_open_edge_command_global,
+    supersede_verify_evidence_command_global,
 )
 from agentkit.backend.state_backend.operation_ledger import (
     acquire_object_mutation_claim_global,
@@ -508,3 +510,9 @@ class EdgeCommandRepository:
     )
     commit_result: Callable[..., None] = commit_edge_command_result_global
     supersede_command: Callable[..., bool] = supersede_open_edge_command_global
+    reconcile_verify_evidence_generation: Callable[..., tuple[bool, bool]] = (
+        reconcile_verify_evidence_command_generation_global
+    )
+    supersede_verify_evidence: Callable[..., bool] = (
+        supersede_verify_evidence_command_global
+    )

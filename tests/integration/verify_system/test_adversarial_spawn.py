@@ -55,6 +55,7 @@ from agentkit.backend.verify_system.protocols import (
 )
 from agentkit.backend.verify_system.system import VerifySystem
 from integration.implementation_evidence_support import (
+    ReadyEvidencePreparationCoordinator,
     bind_implementation_qa_preconditions,
 )
 
@@ -427,7 +428,9 @@ def _bind_engine_story_dir(tmp_path: Path) -> Path:
     return story_dir
 
 
-def test_engine_persists_remediation_and_adversarial_spawn(tmp_path: Path) -> None:
+def test_engine_persists_remediation_and_adversarial_spawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """REAL engine drives REAL handler: BOTH spawn orders + sandbox persisted.
 
     FIX-3 (FK-27 §27.6 / FK-48 §48.2 / FK-45 §45.3): instead of hand-copying
@@ -457,6 +460,11 @@ def test_engine_persists_remediation_and_adversarial_spawn(tmp_path: Path) -> No
         story_dir=story_dir,
         max_feedback_rounds=3,
         verify_system=system,
+        evidence_preparation=ReadyEvidencePreparationCoordinator(),  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.implementation.phase._verify_evidence_inputs",
+        lambda *args, **kwargs: object(),
     )
     registry = PhaseHandlerRegistry()
     registry.register("implementation", ImplementationPhaseHandler(config))

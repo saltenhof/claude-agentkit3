@@ -226,11 +226,6 @@ unresolved_references:
     reference: prompts/qa-semantic-review.md
     reason: Deployed target-project prompt path, not its packaged bundle source path.
   - code: UNRESOLVED_REPO_PATH
-    path: concept/technical-design/28_evidence_assembly_review_vorbereitung.md
-    line: 931
-    reference: prompts/sparring
-    reason: Deployed target-project prompt directory, not its packaged bundle source path.
-  - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/32_dokumententreue_conformance_service.md
     line: 191
     reference: prompts/doc-fidelity-goal.md
@@ -259,11 +254,6 @@ unresolved_references:
     path: concept/technical-design/34_llm_bewertungen_adversarial_testing_runtime.md
     line: 188
     reference: prompts/qa-semantic-review.md
-    reason: Deployed target-project prompt path, not its packaged bundle source path.
-  - code: UNRESOLVED_REPO_PATH
-    path: concept/technical-design/47_request_dsl_und_preflight_turn.md
-    line: 339
-    reference: prompts/sparring/review-preflight.md
     reason: Deployed target-project prompt path, not its packaged bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/48_adversarial_testing_runtime.md

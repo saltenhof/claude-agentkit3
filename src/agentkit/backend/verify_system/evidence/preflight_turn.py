@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -69,15 +70,18 @@ class PreflightTurn:
         preflight_prompt = render_preflight_prompt(assembly.manifest.render_prompt_header(), story_id)
         original_paths = _path_tuple(assembly.merge_paths)
         self._emit(story_id, EventType.PREFLIGHT_REQUEST, {"merge_path_count": len(original_paths)})
-        raw_response = self._sender.send(prompt=preflight_prompt, merge_paths=original_paths)
+        request_hash = hashlib.sha256(preflight_prompt.encode("utf-8")).hexdigest()
+        attempt_id = f"{story_id}:legacy-preflight:{request_hash}"
+        raw_response = self._sender.send(
+            prompt=preflight_prompt,
+            merge_paths=original_paths,
+            attempt_id=attempt_id,
+            request_hash=request_hash,
+        )
         requests = tuple(parse_preflight_response(raw_response))
         results: tuple[RequestResult, ...] = ()
         if requests:
-            resolver = RequestResolver(
-                self._repos,
-                self._spawn_worktree_repo,
-                story_dir=self._story_dir,
-            )
+            resolver = RequestResolver(story_dir=self._story_dir)
             results = tuple(resolver.resolve_all(list(requests)))
         extended_paths = _extended_paths(original_paths, results)
         self._emit(
@@ -90,13 +94,17 @@ class PreflightTurn:
             EventType.PREFLIGHT_COMPLIANT,
             {"resolved_count": sum(1 for result in results if result.status == "RESOLVED")},
         )
-        review_response = self._sender.send(
-            prompt=render_review_prompt(
+        review_text = render_review_prompt(
                 review_prompt,
                 results,
                 bundle_manifest_header=assembly.manifest.render_prompt_header(),
-            ),
+            )
+        review_hash = hashlib.sha256(review_text.encode("utf-8")).hexdigest()
+        review_response = self._sender.send(
+            prompt=review_text,
             merge_paths=extended_paths,
+            attempt_id=f"{attempt_id}:review",
+            request_hash=review_hash,
         )
         return PreflightTurnResult(
             raw_preflight_response=raw_response,

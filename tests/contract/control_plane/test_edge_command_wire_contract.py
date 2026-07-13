@@ -37,9 +37,59 @@ from agentkit.backend.control_plane.models import (
     WorktreeReport,
 )
 from agentkit.backend.control_plane.records import EdgeCommandRecord
+from agentkit.backend.core_types.verify_evidence import (
+    CollectVerifyEvidenceCommandPayload,
+    VerifyEvidenceFile,
+    VerifyEvidenceReport,
+    VerifyEvidenceRepository,
+)
 from agentkit.backend.state_backend import persistence_mappers as mappers
 
 _NOW = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.contract
+def test_verify_evidence_two_stage_contract_is_path_free_and_echo_bound() -> None:
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id="AG3-156",
+        project_key="project",
+        run_id="run-156",
+        implementation_attempt=2,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id="app", expected_head_sha="e" * 40),
+        ),
+        spawn_worktree_repo="app",
+    )
+    report = VerifyEvidenceReport(
+        stage="base_collection",
+        batch_id=payload.batch_id,
+        generation=payload.generation,
+        candidate_digest=payload.candidate_digest,
+        request_digest=payload.request_digest,
+        files=(
+            VerifyEvidenceFile.from_content(
+                repo_id="app", path="src/app.py", content="pass\n"
+            ),
+        ),
+    )
+    request = EdgeCommandResultRequest(
+        project_key="project",
+        story_id="AG3-156",
+        session_id="session",
+        op_id="op-156",
+        result=report,
+    )
+
+    assert "repo_path" not in payload.model_dump_json()
+    assert request.result.result_type == "verify_evidence_report"
+    assert request.model_dump(mode="json")["result"]["batch_id"] == "a" * 64
 
 # ---------------------------------------------------------------------------
 # Six command kinds (initial), FK-91 §91.1b
@@ -47,7 +97,7 @@ _NOW = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
 
 
 @pytest.mark.contract
-def test_seven_command_kinds_are_pinned() -> None:
+def test_eight_command_kinds_are_pinned() -> None:
     assert {
         "provision_worktree",
         "teardown_worktree",
@@ -56,6 +106,7 @@ def test_seven_command_kinds_are_pinned() -> None:
         "takeover_reconcile",
         "reset_worktree",
         "merge_local",
+        "collect_verify_evidence",
     } == ec.ALL_COMMAND_KINDS
 
 
@@ -154,6 +205,7 @@ def test_result_types_constant_matches_the_pinned_models() -> None:
         "push_status_report",
         "worktree_report",
         "merge_local_report",
+        "verify_evidence_report",
     } == ec.RESULT_TYPES
 
 

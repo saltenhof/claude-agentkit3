@@ -28,6 +28,15 @@ from agentkit.backend.control_plane.runtime import (
     ControlPlaneRuntimeService,
     _default_di_edge_command_repository,
 )
+from agentkit.backend.core_types.verify_evidence import (
+    CollectVerifyEvidenceCommandPayload,
+    VerifyEvidenceFile,
+    VerifyEvidenceObservation,
+    VerifyEvidenceObservationStatus,
+    VerifyEvidenceReport,
+    VerifyEvidenceRepository,
+    VerifyEvidenceRequest,
+)
 from agentkit.backend.exceptions import OwnershipFenceViolationError
 
 _NOW = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
@@ -398,6 +407,180 @@ def test_merge_local_result_from_ex_owner_has_no_control_effect() -> None:
     stored = edge_repo.load_command("cmd-1")
     assert stored is not None
     assert stored.status == "delivered"
+
+
+def test_verify_evidence_echo_mismatch_never_terminalizes_command() -> None:
+    """Batch/generation/candidate/request correlation is a pre-commit fence."""
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id="AG3-100",
+        project_key="tenant-a",
+        run_id="run-1",
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id="repo-a", expected_head_sha="e" * 40),
+        ),
+        spawn_worktree_repo="repo-a",
+    )
+    edge_repo = _default_di_edge_command_repository()
+    edge_repo.insert_command(
+        _command(
+            status="delivered",
+            command_kind="collect_verify_evidence",
+            payload=payload.model_dump(mode="json"),
+        )
+    )
+    service = _service(active=_ownership_record(), edge_command_repository=edge_repo)
+    request = EdgeCommandResultRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-A",
+        op_id="op-mismatch",
+        result=VerifyEvidenceReport(
+            stage="base_collection",
+            batch_id="f" * 64,
+            generation=payload.generation,
+            candidate_digest=payload.candidate_digest,
+            request_digest=payload.request_digest,
+        ),
+    )
+
+    result = service.submit_command_result("cmd-1", request)
+
+    assert result.status == "rejected"
+    assert result.error_code == "verify_evidence_result_mismatch"
+    stored = edge_repo.load_command("cmd-1")
+    assert stored is not None and stored.status == "delivered"
+
+
+def test_verify_evidence_result_from_ex_owner_has_no_bundle_effect() -> None:
+    """The sanctioned Rule-15 surface rejects the old epoch before commit."""
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id="AG3-100",
+        project_key="tenant-a",
+        run_id="run-1",
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id="repo-a", expected_head_sha="e" * 40),
+        ),
+        spawn_worktree_repo="repo-a",
+    )
+    edge_repo = _default_di_edge_command_repository()
+    edge_repo.insert_command(
+        _command(
+            status="delivered",
+            command_kind="collect_verify_evidence",
+            payload=payload.model_dump(mode="json"),
+        )
+    )
+    service = _service(
+        active=_ownership_record(owner="sess-NEW-OWNER", epoch=2),
+        edge_command_repository=edge_repo,
+    )
+    request = EdgeCommandResultRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-A",
+        op_id="op-old-owner-evidence",
+        result=VerifyEvidenceReport(
+            stage="base_collection",
+            batch_id=payload.batch_id,
+            generation=payload.generation,
+            candidate_digest=payload.candidate_digest,
+            request_digest=payload.request_digest,
+        ),
+    )
+
+    result = service.submit_command_result("cmd-1", request)
+
+    assert result.error_code == "ownership_transferred"
+    stored = edge_repo.load_command("cmd-1")
+    assert stored is not None and stored.status == "delivered"
+
+
+def test_dynamic_evidence_from_foreign_repo_never_terminalizes_command() -> None:
+    """Every candidate must belong to the command's repository generation."""
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="dynamic_requests",
+        story_id="AG3-100",
+        project_key="tenant-a",
+        run_id="run-1",
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id="repo-a", expected_head_sha="e" * 40),
+        ),
+        spawn_worktree_repo="repo-a",
+        requests=(
+            VerifyEvidenceRequest(
+                request_index=0,
+                request_type="NEED_FILE",
+                target="src/context.py",
+            ),
+        ),
+        preflight_requests=(),
+        preflight_attempt_id="attempt-1",
+        preflight_checkpoint_state="ready",
+        preflight_request_hash="f" * 64,
+        raw_preflight_response='{"requests":[]}',
+        base_manifest={},
+    )
+    edge_repo = _default_di_edge_command_repository()
+    edge_repo.insert_command(
+        _command(
+            status="delivered",
+            command_kind="collect_verify_evidence",
+            payload=payload.model_dump(mode="json"),
+        )
+    )
+    service = _service(active=_ownership_record(), edge_command_repository=edge_repo)
+    foreign = VerifyEvidenceFile.from_content(
+        repo_id="foreign", path="src/context.py", content="SECRET = True\n"
+    )
+    request = EdgeCommandResultRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-A",
+        op_id="op-foreign-repo",
+        result=VerifyEvidenceReport(
+            stage="dynamic_requests",
+            batch_id=payload.batch_id,
+            generation=payload.generation,
+            candidate_digest=payload.candidate_digest,
+            request_digest=payload.request_digest,
+            observations=(
+                VerifyEvidenceObservation(
+                    request_index=0,
+                    status=VerifyEvidenceObservationStatus.COLLECTED,
+                    candidates=(foreign,),
+                ),
+            ),
+        ),
+    )
+
+    result = service.submit_command_result("cmd-1", request)
+
+    assert result.error_code == "verify_evidence_result_mismatch"
+    stored = edge_repo.load_command("cmd-1")
+    assert stored is not None and stored.status == "delivered"
 
 
 def test_submit_result_commit_time_fence_violation_releases_claim_no_write() -> None:

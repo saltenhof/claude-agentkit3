@@ -15,19 +15,13 @@ defers_to:
     reason: Bundle-Manifest und Eintritt in den Review-Flow liegen in FK-28
   - target: FK-46
     scope: import-resolution
-    reason: Mehrdeutigkeitsregel gilt auch für den Import-Resolver in FK-46
+    reason: Import-Aufloesung liegt in FK-46
   - target: FK-11
     scope: llm-evaluator
-    reason: Abgrenzung zum LlmEvaluator/StructuredEvaluator in FK-11
-  - target: FK-30
-    scope: hook-infrastructure
-    reason: Sentinel-Isolation und Review-Guard-Regex liegen in FK-30
-  - target: FK-68
-    scope: review-invariants
-    reason: Review-Invarianten und Telemetrie der Review-Bindung liegen in FK-68
-  - target: FK-12
-    scope: git-operations
-    reason: Diff-Expansion nutzt GitOperations.diff_full()
+    reason: Eigentliche Layer-2-Auswertung liegt in FK-11
+  - target: FK-91
+    scope: edge-command-queue
+    reason: Auftrag und Result der Edge-Sammlung liegen in FK-91 §91.1b
 supersedes: []
 superseded_by:
 tags: [request-dsl, review-preparation, evidence-assembly, prompt-templates]
@@ -38,364 +32,154 @@ formal_scope: prose-only
 
 ## 47.1 Zweck
 
-Die Request-DSL ist der Mechanismus, über den ein LLM-Reviewer
-**vor dem eigentlichen Review** strukturiert fehlende
-Informationen anfordern kann. Der Preflight-Turn ist der
-Kommunikationsschritt, der diese Anfragen einsammelt, deterministisch
-auflöst und das Bundle vor dem Review nachreicht. Beides setzt auf
-dem Evidence Assembler (FK-28) auf — Stufe 1 + 2 + 3 sind bereits
-durchlaufen, bevor ein Reviewer überhaupt angesprochen wird.
+Die Request-DSL erlaubt einem LLM-Reviewer, vor dem eigentlichen
+Review strukturiert fehlende Evidenz anzufordern. Die physische
+Erhebung aus Ziel-Worktrees findet gemaess FK-10 §10.2.4a
+ausschliesslich am Project Edge statt. Das Backend besitzt weiterhin
+die deterministische Konsolidierung, D3, Timeout-Klassifikation und
+Bundle-Anwendung.
 
 ## 47.2 7 Request-Typen (FK-28-009)
 
-Die Request-DSL definiert 7 strukturierte Typen, mit denen ein
-Reviewer fehlende Informationen anfordern kann:
+`ReviewerRequest` ist ein geschlossenes Pydantic-v2-Modell mit den
+Feldern `type`, `target`, optional `region` und `reason`. Pro
+Preflight-Antwort werden hoechstens acht Requests verarbeitet.
 
-```python
-# agentkit/evidence/request_types.py
-from __future__ import annotations
+| Typ | Target | Erhebung / Aufloesung |
+|-----|--------|-----------------------|
+| `NEED_FILE` | Pfad oder Glob | Edge meldet Kandidaten; Backend wendet D3 an |
+| `NEED_SCHEMA` | Klassen-/Interface-/Typname | Edge durchsucht den lokalen Worktree und meldet Kandidaten |
+| `NEED_CALLSITE` | Funktions-/Methodenname | Edge meldet Callsite-Kandidaten |
+| `NEED_RUNTIME_BINDING` | Config-Key | Edge meldet Treffer aus YAML, JSON und `.env` |
+| `NEED_TEST_EVIDENCE` | typisiertes `pytest`-Kommando | Edge fuehrt argumentweise, `shell=False`, mit hartem Timeout aus |
+| `NEED_CONCEPT_SOURCE` | Dokument-Abschnitt | Backend-lokaler Heading-Match nur in `concept/` und `stories/` |
+| `NEED_DIFF_EXPANSION` | Datei und Region | AG3-147-Edge-/Adapter-Leseflaeche; Backend konsumiert die Meldung |
 
-from enum import StrEnum
-from pydantic import BaseModel, Field
-
-
-class RequestType(StrEnum):
-    NEED_FILE = "NEED_FILE"
-    NEED_SCHEMA = "NEED_SCHEMA"
-    NEED_CALLSITE = "NEED_CALLSITE"
-    NEED_RUNTIME_BINDING = "NEED_RUNTIME_BINDING"
-    NEED_TEST_EVIDENCE = "NEED_TEST_EVIDENCE"
-    NEED_CONCEPT_SOURCE = "NEED_CONCEPT_SOURCE"
-    NEED_DIFF_EXPANSION = "NEED_DIFF_EXPANSION"
-
-
-class ReviewerRequest(BaseModel):
-    """Ein einzelner strukturierter Request vom Reviewer."""
-    type: RequestType
-    target: str = Field(description="Pfad, Symbol, Pattern oder Command")
-    region: str | None = Field(
-        default=None,
-        description="Nur für NEED_DIFF_EXPANSION: Methode oder Codebereich",
-    )
-    reason: str = Field(description="Warum der Reviewer diese Information braucht")
-
-
-class RequestResult(BaseModel):
-    """Ergebnis der deterministischen Auflösung eines Requests."""
-    request: ReviewerRequest
-    status: str = Field(description="RESOLVED | UNRESOLVED | TIMEOUT | ERROR")
-    content: str | None = Field(default=None, description="Aufgelöster Inhalt")
-    file_path: str | None = Field(default=None, description="Pfad der gefundenen Datei")
-    duration_ms: int = 0
-```
-
-**Request-Typ-Dokumentation:**
-
-| Typ | Target | Auflösung | Timeout |
-|-----|--------|-----------|---------|
-| `NEED_FILE` | Pfad oder Glob-Pattern | Exakter Match, dann Glob, dann `rg --files` | — |
-| `NEED_SCHEMA` | Symbol-Name (Klasse, Interface, Type) | `rg 'class {symbol}\|interface {symbol}\|type {symbol}'` | — |
-| `NEED_CALLSITE` | Funktions-/Methodenname | `rg '{symbol}\('` | — |
-| `NEED_RUNTIME_BINDING` | Config-Key | `rg '{target}' -g '*.yaml' -g '*.yml' -g '*.json' -g '*.env'` | — |
-| `NEED_TEST_EVIDENCE` | Test-Command (z.B. `pytest pfad/`) | `subprocess.run` mit cwd=repo_root | 30s |
-| `NEED_CONCEPT_SOURCE` | Dokument-Abschnitt | Heading-Match in `concepts_dir` und `wiki_stories_dir` | — |
-| `NEED_DIFF_EXPANSION` | Datei + Region | `git diff` mit erweitertem Kontext für spezifische Region | — |
+Nicht gelistete Test-Runner, Optionen, absolute Pfade,
+Pfad-Traversal und Shell-Operatoren werden als
+`TEST_COMMAND_REJECTED` klassifiziert und niemals ausgefuehrt.
 
 ## 47.3 RequestResolver (Multi-Repo) (FK-28-010)
 
-Der `RequestResolver` bekommt den vollen `RepoContext`, weil
-verschiedene Request-Typen unterschiedliche Context-Felder
-benötigen:
-
-| Request-Typ | Benötigte RepoContext-Felder |
-|-------------|------------------------------|
-| `NEED_DIFF_EXPANSION` | `git` (für `diff_full()`), `git_base_branch` |
-| `NEED_FILE` / `NEED_SCHEMA` / `NEED_CALLSITE` | `repo_path`, Priorisierung über Spawn-Worktree-Repo (`participating_repos[0]`, FK-22 §22.6.4) |
-| `NEED_RUNTIME_BINDING` | `repo_path`, `affected` (nur affected Repos durchsuchen) |
-| `NEED_TEST_EVIDENCE` | `repo_path` (als cwd für subprocess) |
-| `NEED_CONCEPT_SOURCE` | Nur `story_dir` (repo-unabhängig) |
+Der Backend-`RequestResolver` erhaelt keinen Worktree-Pfad. Sein
+produktiver Eingang besteht aus den kanonischen Requests und
+`VerifyEvidenceObservation`-Meldungen des Project Edge. Kandidaten
+tragen `repo_id`, relativen Pfad, Inhalt, Groesse und SHA-256-Bindung.
+Der Edge entscheidet nie D3 und erweitert nie selbst das Review-Bundle.
 
 ```python
-# agentkit/evidence/request_resolver.py
 from __future__ import annotations
 
-import json
-import logging
-import subprocess
-from pathlib import Path
-
-from agentkit.evidence.assembler import RepoContext
-from agentkit.evidence.request_types import (
-    RequestResult, RequestType, ReviewerRequest,
-)
-
-logger = logging.getLogger(__name__)
-
-REQUEST_TIMEOUT_S = 30  # Timeout pro Request
-MAX_REQUESTS = 8        # Max 8 Requests pro Reviewer
-
-
-def parse_preflight_response(raw_response: str) -> list[ReviewerRequest]:
-    """Parst die Preflight-Antwort des Reviewers (JSON mit requests-Array).
-
-    Bei Parse-Fehler: leere Liste + WARNING. Der Review läuft dann
-    ohne Preflight-Ergänzung weiter.
-    """
-    try:
-        data = json.loads(raw_response)
-        raw_requests = data.get("requests", [])
-        return [ReviewerRequest(**r) for r in raw_requests[:MAX_REQUESTS]]
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.warning("Preflight-Response konnte nicht geparst werden: %s", exc)
-        return []
-
-
 class RequestResolver:
-    """Löst Review-DSL-Requests deterministisch auf.
+    def __init__(self, *, story_dir: Path) -> None: ...
 
-    Jeder Request-Typ hat eine eigene Auflösungsstrategie.
-    Multi-Repo: sucht über alle Repos; das Spawn-Worktree-Repo
-    (`participating_repos[0]`, FK-22 §22.6.4) hat Vorrang bei
-    Mehrdeutigkeit. Das ist eine deterministische
-    Disambiguierungsregel, keine fachliche Sonderrolle.
-
-    Args:
-        repos: Repo-Set mit vollem RepoContext (Git, Branch, Role, Affected).
-        spawn_worktree_repo: Name des Spawn-Worktree-Repos
-            (= `participating_repos[0]`); Vorrang bei Mehrdeutigkeit.
-    """
-
-    def __init__(
+    def resolve_all(
         self,
-        repos: dict[str, RepoContext],
-        spawn_worktree_repo: str,
-    ) -> None:
-        self._repos = repos
-        self._spawn_worktree_repo = spawn_worktree_repo
-
-    def resolve_all(self, requests: list[ReviewerRequest]) -> list[RequestResult]:
-        """Löst bis zu MAX_REQUESTS Requests auf."""
-        results: list[RequestResult] = []
-        for req in requests[:MAX_REQUESTS]:
-            result = self._resolve_single(req)
-            results.append(result)
-        return results
-
-    def _resolve_single(self, req: ReviewerRequest) -> RequestResult:
-        """Dispatch auf den passenden Handler."""
-        handlers: dict[RequestType, ...] = {
-            RequestType.NEED_FILE: self._resolve_file,
-            RequestType.NEED_SCHEMA: self._resolve_schema,
-            RequestType.NEED_CALLSITE: self._resolve_callsite,
-            RequestType.NEED_RUNTIME_BINDING: self._resolve_runtime_binding,
-            RequestType.NEED_TEST_EVIDENCE: self._resolve_test_evidence,
-            RequestType.NEED_CONCEPT_SOURCE: self._resolve_concept_source,
-            RequestType.NEED_DIFF_EXPANSION: self._resolve_diff_expansion,
-        }
-        handler = handlers.get(req.type)
-        if handler is None:
-            return RequestResult(
-                request=req,
-                status="ERROR",
-                content=f"Unknown type: {req.type}",
-            )
-        return handler(req)
-
-    def _resolve_file(self, req: ReviewerRequest) -> RequestResult:
-        """Exakter Pfad oder Glob-Pattern → Dateiinhalt.
-
-        Auflösungsreihenfolge:
-        1. Exakter Match: repo_root / target (Spawn-Worktree-Repo zuerst)
-        2. Glob: repo_root.glob(target)
-        3. Fallback: rg --files | grep target
-        """
-        ...
-
-    def _resolve_schema(self, req: ReviewerRequest) -> RequestResult:
-        """Symbol-Name → class/interface/type Definition finden.
-
-        Sucht: rg 'class {symbol}|interface {symbol}|type {symbol}'
-        über alle Repos (Spawn-Worktree-Repo zuerst).
-        """
-        ...
-
-    def _resolve_callsite(self, req: ReviewerRequest) -> RequestResult:
-        """Symbol-Name → Aufrufer finden.
-
-        Sucht: rg '{symbol}\\(' über alle Repos.
-        """
-        ...
-
-    def _resolve_runtime_binding(self, req: ReviewerRequest) -> RequestResult:
-        """Config-Key → Bindung in YAML/JSON/.env suchen.
-
-        Sucht: rg '{target}' -g '*.yaml' -g '*.yml' -g '*.json' -g '*.env'
-        Priorisiert affected=True Repos.
-        """
-        ...
-
-    def _resolve_test_evidence(self, req: ReviewerRequest) -> RequestResult:
-        """Test-Command ausführen und Ergebnis zurückgeben.
-
-        subprocess.run mit timeout=REQUEST_TIMEOUT_S, cwd=repo_root.
-        """
-        ...
-
-    def _resolve_concept_source(self, req: ReviewerRequest) -> RequestResult:
-        """Konzeptdokument-Abschnitt suchen.
-
-        Heading-Match in concepts_dir und wiki_stories_dir per Regex.
-        """
-        ...
-
-    def _resolve_diff_expansion(self, req: ReviewerRequest) -> RequestResult:
-        """Erweiterten Diff-Kontext für eine bestimmte Region.
-
-        Nutzt git.diff_full() mit Kontextzeilen für
-        spezifische Datei/Region.
-        """
-        ...
+        requests: Sequence[ReviewerRequest],
+        observations: Sequence[VerifyEvidenceObservation] = (),
+    ) -> list[RequestResult]: ...
 ```
+
+Fehlt eine Edge-Beobachtung, entsteht der benannte Befund
+`EDGE_EVIDENCE_UNAVAILABLE`. Ein abgelaufener Batch erzeugt
+`EDGE_EVIDENCE_TIMEOUT`. `NEED_CONCEPT_SOURCE` ist die einzige lokale
+Resolver-Leseflaeche; sie bleibt auf den Backend-Konzeptkorpus
+begrenzt und wird nie auf Ziel-Worktrees erweitert.
 
 ## 47.4 Mehrdeutigkeitsregel (D3) (FK-28-011)
 
-Strikte Auflösungspolitik für alle 7 Request-Typen — kein stilles
-Heuristik-Picking bei Mehrdeutigkeit:
+| Treffer | Verhalten |
+|---------|-----------|
+| genau 1 | `RESOLVED`; der gemeldete Inhalt darf als `SECONDARY_CONTEXT` in das Bundle |
+| 2 oder mehr | `UNRESOLVED` mit Kandidatenliste; keine heuristische Auswahl |
+| 0 | `UNRESOLVED`; kein Inhalt wird erfunden |
 
-| Treffer | Verhalten | Begründung |
-|---------|-----------|------------|
-| 1 Treffer | `RESOLVED` — Inhalt wird aufgenommen | Eindeutig |
-| Mehrere Treffer | `UNRESOLVED` mit Kandidatenliste — Reviewer sieht die Kandidaten, muss selbst entscheiden | Determinismus: der Resolver wählt bei Mehrdeutigkeit NICHT eigenständig aus |
-| 0 Treffer | `UNRESOLVED` — kein Inhalt | Datei existiert nicht oder Pattern hat kein Match |
-
-Diese Regel gilt auch für den Import-Resolver (FK-46): Bei
-mehreren Kandidaten für denselben Import-Specifier wird der Import
-als `UNRESOLVED_DYNAMIC` markiert.
+D3 wird ausschliesslich im Backend angewandt. Der Acht-Request-Cap
+bleibt auch fuer einen Multi-Repo-Batch verbindlich. Test-Evidenz
+wird anhand ihres benannten Edge-Status klassifiziert, nicht anhand
+von Dateikandidaten.
 
 ## 47.5 Preflight-Turn-Architektur (FK-28-012)
 
-Der Preflight-Turn ist ein eigenständiger Kommunikationsschritt
-zwischen dem Orchestrator und einem LLM-Reviewer **vor** dem
-eigentlichen Review. Er läuft NICHT über den bestehenden
-`LlmEvaluator`/`StructuredEvaluator` (FK-11), sondern als
-Review-spezifischer Hub-Aufruf über den FK-75-REST-Adapter.
+Der Preflight nutzt zwei vorhandene Phase-Yield/Resume-Wartepunkte.
+Ein synchrones Warten innerhalb der QA-Anfrage ist verboten, weil
+die QA-Anfrage den `(project_key, story_id)`-Claim haelt, den der
+Result-POST ebenfalls benoetigt (FK-91 §91.1a Regeln 14/15).
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator
-    participant A as EvidenceAssembler
-    participant R as LLM-Hub (Reviewer)
-    participant RR as RequestResolver
-
-    O->>A: assemble()
-    A-->>O: AssemblyResult (manifest + entries)
-
-    O->>R: Review-Request via FK-75 (preflight_prompt, merge_paths)
-    Note over R: Reviewer prüft Bundle,<br/>formuliert Requests
-    R-->>O: JSON { "requests": [...] }
-
-    O->>O: parse_preflight_response()
-    alt requests vorhanden
-        O->>RR: resolve_all(requests)
-        RR-->>O: RequestResult[] (RESOLVED/UNRESOLVED)
-        O->>O: merge_paths erweitern
-    end
-
-    O->>R: Review-Request via FK-75 (review_prompt + BUNDLE_HEADER, extended_paths)
-    Note over R: Eigentlicher Review<br/>mit erweitertem Kontext
-    R-->>O: Review-Ergebnis
+    participant C as Client/Orchestrator
+    participant B as Backend Implementation Phase
+    participant E as Project Edge
+    participant R as Preflight Reviewer
+    C->>B: Start/Resume
+    B->>B: commission base_collection
+    B-->>C: PAUSED (Claim frei)
+    C->>E: offene Commands pollen/ausfuehren
+    E->>B: Result-POST (terminalisiert nur CommandRecord)
+    C->>B: Resume
+    B->>B: Bundle aus Edge-Dateien assembliert
+    B->>R: einmaliger Preflight je auditiertem attempt
+    R-->>B: raw response
+    B->>B: response + Requests + Digests atomar checkpointen
+    B-->>C: PAUSED (Claim frei)
+    C->>E: dynamic_requests ausfuehren
+    E->>B: Result-POST (nur CommandRecord)
+    C->>B: Resume
+    B->>B: D3 + Bundle-Anwendung unter Ownership-Fence
+    B->>B: QA-Subflow fortsetzen
 ```
 
-**Ablauf im Detail:**
+### 47.5.1 Timing- und Generation-Vertrag
 
-```
-1. evidence = EvidenceAssembler(repos, spawn_worktree_repo, ...).assemble()
-2. manifest = evidence.manifest
-3. preflight_prompt = render_preflight_prompt(manifest)
-4. raw_response = hub_adapter.send_review(preflight_prompt, merge_paths=manifest.file_paths)  # FK-75
-5. requests = parse_preflight_response(raw_response)
-   # Bei Parse-Fehler: requests=[] + WARNING, Review läuft trotzdem weiter
-6. IF requests:
-     results = RequestResolver(repos, spawn_worktree_repo).resolve_all(requests)
-     extended_paths = manifest.file_paths + [
-         Path(r.file_path) for r in results if r.status == "RESOLVED"
-     ]
-7. review_prompt = render_review_prompt(manifest, resolved_requests=results)
-8. hub.send(review_prompt, merge_paths=extended_paths)
-9. → Reviewer führt Review durch
-```
+- `collect_verify_evidence` hat die Stufen `base_collection` und
+  `dynamic_requests`; beide tragen eine UTC-Deadline.
+- Open und vor Deadline bedeutet erneut `PAUSED`; es wird nicht
+  geschlafen. Der Client treibt Polling und Resume.
+- Nach Deadline terminalisiert Resume das offene CommandRecord als
+  `superseded`; dynamische Requests erhalten `TIMEOUT`.
+- `batch_id` bindet Run, Implementation-Attempt, Candidate-Digest,
+  Stufe und Preflight-Template-Version. `generation` bindet zusaetzlich
+  Owner-Session/Epoch beziehungsweise den Preflight-Attempt.
+- Der Candidate-Digest bindet Repository-IDs, erwartete gepushte
+  Head-SHAs, AG3-147-Change-Inventar und Worker-Hint-Pfade. Der Edge
+  erhebt nur bei passendem `HEAD` und sauberem Worktree; einzig die
+  von AgentKit selbst erzeugte `.agentkit-story.json`-Markierung ist
+  kein Candidate-Inhalt.
+- Candidate- oder Ownership-Drift supersedet die alte offene
+  Generation unter dem Story-Claim, bevor die neue Generation
+  commissioned wird.
+- Resultate echoen Batch, Generation, Candidate- und Request-Digest.
+  Ein Mismatch terminalisiert das CommandRecord nicht.
 
-**Fehlertoleranz:**
+### 47.5.2 Crash-sicherer Preflight
 
-- Parse-Fehler in der Preflight-Response → `requests=[]` + WARNING.
-  Der Review läuft ohne Preflight-Ergänzung weiter.
-- Alle Requests UNRESOLVED → Review läuft mit Original-Bundle weiter.
-  Der Reviewer wird über die unauflösbaren Requests informiert.
-- Timeout bei `NEED_TEST_EVIDENCE` → `status="TIMEOUT"`, andere
-  Requests werden trotzdem aufgelöst.
+Vor dem LLM-Aufruf wird ein terminaler, gefencter
+`preflight_attempt`-Audit-Record mit Request-Hash materialisiert. Der
+Attempt wird hoechstens einmal gesendet. Raw Response, kanonische
+Requests, Request-Digest und Basis-Manifest werden danach gemeinsam
+im ausfuehrbaren Stage-B-CommandRecord checkpointed, bevor die Phase
+yielded. Ein Crash nach der Antwort, aber vor diesem Checkpoint fuehrt
+zu einem neuen auditierten Attempt; der alte Attempt wird nie mit
+einem neueren Batch gemischt.
+
+### 47.5.3 Fehlertoleranz
+
+- Parse-Fehler erzeugen `requests=[]` plus WARNING; der Review laeuft
+  mit dem Basis-Bundle weiter.
+- Nicht erreichbarer Edge beziehungsweise Deadline-Ablauf bleibt als
+  `EDGE_EVIDENCE_TIMEOUT`/`UNRESOLVED` im Bundle sichtbar.
+- Result-POSTs schreiben weder Bundle noch QA-Projektion. Erst Resume
+  wendet terminale Resultate unter dem gebundenen Rule-15-Fence an.
+- Story-Exit, Reset, Ex-Owner oder Epoch-Drift verhindern daher jede
+  nachtraegliche Bundle-Wirkung.
 
 ## 47.6 Prompt-Template: `review-preflight.md` (FK-28-013)
 
-Neues Template im Prompt-Bundle unter `prompts/sparring/review-preflight.md`:
-
-```markdown
-# Review Preflight — Context Sufficiency Check
-
-Du erhältst ein Review-Bundle mit klassifiziertem Kontext.
-Bevor du den eigentlichen Review durchführst, prüfe ob dir
-Informationen fehlen, um die Änderungen korrekt bewerten zu können.
-
-{{BUNDLE_MANIFEST_HEADER}}
-
-### Dein Auftrag
-
-Prüfe die angehängten Dateien und beantworte:
-
-1. Hast du genug Kontext, um die Änderungen gegen die Story-Spezifikation
-   und die Architektur-Referenzen zu verifizieren?
-
-2. Falls nicht: Formuliere **max 8 strukturierte Requests** im folgenden
-   JSON-Format:
-
-\`\`\`json
-{
-  "requests": [
-    {"type": "NEED_FILE", "target": "pfad/oder/pattern", "reason": "Warum"},
-    {"type": "NEED_SCHEMA", "target": "SymbolName", "reason": "Warum"},
-    {"type": "NEED_CALLSITE", "target": "funktionsname", "reason": "Warum"},
-    {"type": "NEED_RUNTIME_BINDING", "target": "config_key", "reason": "Warum"},
-    {"type": "NEED_TEST_EVIDENCE", "target": "pytest pfad/", "reason": "Warum"},
-    {"type": "NEED_CONCEPT_SOURCE", "target": "Dok-Abschnitt", "reason": "Warum"},
-    {"type": "NEED_DIFF_EXPANSION", "target": "datei.py", "region": "methode", "reason": "Warum"}
-  ]
-}
-\`\`\`
-
-3. Falls du genug Kontext hast, antworte mit:
-
-\`\`\`json
-{"requests": []}
-\`\`\`
-
-**Wichtig:**
-- Fordere nur Informationen an, die du NICHT aus den angehängten Dateien
-  ableiten kannst.
-- Achte auf die Autoritätsklassen: PRIMARY_NORMATIVE-Quellen sind
-  die autoritativen Referenzen, WORKER_ASSERTION hat die niedrigste
-  Beweiskraft.
-```
-
-**Sentinel-Isolation:**
-
-Das Preflight-Template erhält einen **eigenen Sentinel** mit anderem
-Präfix als die Review-Templates:
-
-```
-[PREFLIGHT:review-preflight-v1:{story_id}]
-```
-
-Der bestehende `_REVIEW_SENTINEL`-Regex in `hook.py` und
-`review_guard.py` (FK-30) matcht `[TEMPLATE:...]`. Der
-Preflight-Sentinel mit `[PREFLIGHT:...]` wird bewusst NICHT von
-diesem Regex erfasst. Damit stört der Preflight-Turn nicht die
-bestehenden Review-Invarianten (FK-68, FK-35).
+Das registrierte Template `src/agentkit/bundles/internal/prompts/review-preflight.md`
+enthaelt den Sentinel
+`[PREFLIGHT:review-preflight-v1:{story_id}]`, das Bundle-Manifest und
+die am Edge erhobenen, inhaltlich gebundenen Basisdateien. Die Antwort
+ist ein JSON-Objekt mit einem `requests`-Array. Der Preflight ist kein
+zweiter eigentlicher Review; die Layer-2-Auswertung beginnt erst nach
+der gefencten Stage-B-Anwendung.

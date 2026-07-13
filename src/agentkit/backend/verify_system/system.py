@@ -907,7 +907,11 @@ class VerifySystem:
         result = builder.build(
             effective_input,
             caller_diff_summary=builder.caller_diff_summary(),
-            caller_evidence_manifest=builder.caller_evidence_manifest(),
+            caller_evidence_manifest=(
+                ctx.evidence_manifest
+                if ctx.evidence_manifest is not None
+                else builder.caller_evidence_manifest()
+            ),
         )
         payload = result.artifact.model_dump(mode="json")
         payload.update(qa_cycle_fields)

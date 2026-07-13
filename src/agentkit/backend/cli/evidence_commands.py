@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import argparse
 
-    from agentkit.backend.verify_system.evidence import RepoContext
+    from agentkit.backend.verify_system.evidence import RepoContext, VerifyEvidenceFile
     from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 
@@ -52,16 +52,20 @@ def _cmd_evidence_assemble(args: argparse.Namespace) -> int:
         cli_config = _load_evidence_cli_config(config_path)
         repos = {
             repo.repo_id: repo
-            for repo in _repo_contexts_from_cli_config(cli_config, story_dir)
+            for repo in _repo_contexts_from_cli_config(cli_config)
         }
         evidence_by_repo = _change_evidence_from_cli_config(cli_config)
+        collected_files = _collected_files_from_cli_config(cli_config)
         assembler = EvidenceAssembler(
             repos,
+            collected_files=collected_files,
             change_evidence_port=_StaticChangeEvidencePort(
                 evidence_by_repo=evidence_by_repo,
                 repo_paths={repo_id: repo.repo_path for repo_id, repo in repos.items()},
             ),
-            import_evidence_provider=ImportResolver.from_repo_contexts(repos),
+            import_evidence_provider=ImportResolver.from_collected_files(
+                collected_files
+            ),
         )
         result = assembler.assemble(story_dir=story_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -110,9 +114,8 @@ def _load_evidence_cli_config(path: Path) -> dict[str, object]:
 
 def _repo_contexts_from_cli_config(
     config: dict[str, object],
-    story_dir: Path,
 ) -> list[RepoContext]:
-    """Build repo contexts from CLI config data."""
+    """Build logical repo contexts without accepting physical worktree paths."""
     from agentkit.backend.verify_system.evidence import RepoContext
 
     repositories = config.get("repositories")
@@ -124,15 +127,26 @@ def _repo_contexts_from_cli_config(
         if not isinstance(item, dict):
             msg = "each evidence repository config must be an object"
             raise ValueError(msg)
-        repo_path_raw = item.get("repo_path")
-        if not isinstance(repo_path_raw, str) or not repo_path_raw.strip():
-            msg = "each evidence repository config requires repo_path"
+        repo_id = item.get("repo_id")
+        if not isinstance(repo_id, str) or not repo_id.strip():
+            msg = "each evidence repository config requires repo_id"
             raise ValueError(msg)
-        repo_path = Path(repo_path_raw)
-        if not repo_path.is_absolute():
-            repo_path = (story_dir / repo_path).resolve()
-        repos.append(RepoContext.model_validate({**item, "repo_path": repo_path}))
+        if "repo_path" in item:
+            raise ValueError("physical repo_path is forbidden in evidence config")
+        repos.append(RepoContext.model_validate({**item, "repo_path": Path(repo_id)}))
     return repos
+
+
+def _collected_files_from_cli_config(
+    config: dict[str, object],
+) -> tuple[VerifyEvidenceFile, ...]:
+    """Parse content-bound Project-Edge file observations."""
+    from agentkit.backend.verify_system.evidence import VerifyEvidenceFile
+
+    raw_files = config.get("collected_files")
+    if not isinstance(raw_files, list):
+        raise ValueError("evidence config requires collected_files from Project Edge")
+    return tuple(VerifyEvidenceFile.model_validate(item) for item in raw_files)
 
 
 def _change_evidence_from_cli_config(
