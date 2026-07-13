@@ -3,6 +3,40 @@ title: "merge_local-Umzug (Closure): FK-29-Merge-Block als Edge-Auftrag mit unve
 type: implementation
 status: completed
 phase: closure
+# CLOSED 2026-07-13 at main@7d47d705. Pre-Merge-Scan-und-Merge-Block relocated
+# from backend subprocess git to the Project Edge (command kind merge_local, now
+# in EXECUTABLE_COMMAND_KINDS; new merge_local_report ResultType + models +
+# result->ClosureProgress mapper; edge executor harness_client/projectedge/
+# merge_local.py mirroring reconcile.py; backend commission in closure/
+# edge_merge.py gated on the AG3-147 push-verification; deployed
+# bundles/target_project mirror delegates to the shared process_open_commands
+# = SSOT). FK-29 §29.1a contract UNCHANGED: single-repo productive path,
+# >=2-repo stays fail-closed; locked_sha CAS (--force-with-lease) + pre_merge_sha
+# rollback + teardown atomic within ONE edge execution (one op_id). AC-1 met:
+# backend runs no git on the merge path (residual read-only Build/Test evidence
+# git is AG3-156 scope, honestly attributed; conformance grep widened).
+# Hardening across 3 review passes (Codex worker + orchestrator code-adjudication
+# every round + TWO Fable finales): the first Fable pass caught 2 real BLOCKERS
+# the worker AND the orchestrator adjudication missed -- ERROR-1 already-merged
+# replay wedged closure (teardown raised instead of converging), ERROR-2 replay
+# teardown destroyed a SIBLING story worktree via junction (AG3-154 data-loss
+# class) -> fixed with best-effort replay teardown + _require_safe_story_worktree
+# (link/junction refusal on root+target, registered-linked, marker.story_id ==
+# commanded story). W1 (failed-checkout branch rewrite), W2 (push-result
+# classification incl. applied-but-response-lost), W4 (feedback-fidelity real
+# evidence, no silent placeholder), W5 (AC-1 conformance-grep honesty) fixed;
+# the second Fable pass returned CLOSE-READY (empirical NTFS-junction refusal
+# verified). W3b was a genuine concept gap (main-update credential class): the
+# worker correctly hard-stopped fail-closed; resolved by decision-record
+# META-DEC-2026-07-13-MERGE-LOCAL-MAIN-CREDENTIAL (host git CLI ambient auth per
+# FK-12 §12.1, provider-neutral, no edge credential, authorized by the merge_local
+# commission gating; GIT_TERMINAL_PROMPT=0 fail-closed) + FK-12/FK-15 cross-refs.
+# Evidence: Jenkins #1883 SUCCESS, Sonar gate OK / new 0-0-0-0, new_coverage 91.1%
+# on 7d47d705; local ex-e2e 9398 passed (Windows), ruff + mypy strict + all 5
+# concept gates green. Enabling test-infra fix committed alongside: Windows
+# MAX_PATH (260) pytest temp-path shortening (commit 31289a3e). merge_local is
+# the last registered edge command made executable -> the edge-command family
+# (AG3-145/147/151/154/152) is complete.
 created: "2026-07-02"
 size: M
 # Herkunft: GAP-ST-14b (gap-analyse-session-ownership.md v4, Codex-APPROVE;
