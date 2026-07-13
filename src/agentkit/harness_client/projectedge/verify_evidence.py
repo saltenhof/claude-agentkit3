@@ -35,6 +35,7 @@ _SOURCE_SUFFIXES = frozenset({".java", ".js", ".jsx", ".kt", ".md", ".py", ".pyi
 _CONFIG_SUFFIXES = frozenset({".yaml", ".yml", ".json", ".env"})
 _MAX_DYNAMIC_CANDIDATES = 32
 _MAX_REQUEST_RESULT_BYTES = MAX_EVIDENCE_RESULT_BYTES // 8
+_PYTEST_CACHE_DIR = ".pytest_cache"
 _PYTEST_CACHE_ROOT_FILES = frozenset({".gitignore", "CACHEDIR.TAG", "README.md"})
 _PYTEST_CACHE_VALUE_FILES = frozenset(
     {"durations", "lastfailed", "nodeids", "stepwise"}
@@ -176,7 +177,7 @@ def _allowed_untracked_artifact(status_line: str) -> bool:
 def _is_standard_pytest_cache_file(parts: tuple[str, ...]) -> bool:
     """Recognize only pytest's standard cache layout, not arbitrary content."""
     try:
-        cache_index = parts.index(".pytest_cache")
+        cache_index = parts.index(_PYTEST_CACHE_DIR)
     except ValueError:
         return False
     relative = parts[cache_index + 1 :]
@@ -298,7 +299,7 @@ def _snapshot_file(repo_id: str, root: Path, path: Path) -> VerifyEvidenceFile |
 def _snapshot_files(root: Path) -> Iterable[Path]:
     for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
         if (
-            {".git", ".pytest_cache", "__pycache__"}.intersection(path.parts)
+            {".git", _PYTEST_CACHE_DIR, "__pycache__"}.intersection(path.parts)
             or path.is_symlink()
             or not path.is_file()
         ):
@@ -512,7 +513,7 @@ def _safe_file(root: Path, raw_path: str) -> Path | None:
     parts = PurePosixPath(normalized).parts
     if (
         normalized.endswith(".pyc")
-        or ".pytest_cache" in parts
+        or _PYTEST_CACHE_DIR in parts
         or "__pycache__" in parts
     ):
         return None
