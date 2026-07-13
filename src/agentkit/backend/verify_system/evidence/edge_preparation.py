@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from agentkit.backend.control_plane.edge_commands import verify_evidence_command_id
 from agentkit.backend.control_plane.records import EdgeCommandRecord
 from agentkit.backend.core_types.verify_evidence import (
@@ -48,6 +50,7 @@ from agentkit.backend.verify_system.evidence.request_types import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.backend.control_plane.models import CommandErrorResult
     from agentkit.backend.control_plane.repository import EdgeCommandRepository
     from agentkit.backend.verify_system.evidence.preflight_sender import PreflightReviewSender
     from agentkit.backend.verify_system.structural.system_evidence import (
@@ -56,6 +59,8 @@ if TYPE_CHECKING:
     )
 
 _OPEN_STATUSES = frozenset({"created", "delivered"})
+_DEFAULT_COLLECTION_MARGIN = timedelta(seconds=30)
+_MAX_COLLECTION_MARGIN = timedelta(minutes=2)
 _REQUEST_TYPES = {
     RequestType.NEED_FILE,
     RequestType.NEED_SCHEMA,
@@ -103,6 +108,10 @@ class EvidencePreparationOutcome:
         return self.cursor is not None
 
 
+class VerifyEvidencePreparationError(RuntimeError):
+    """Raised when a terminal edge failure cannot produce safe evidence."""
+
+
 @dataclass(frozen=True)
 class _ReportedChangeEvidencePort:
     """Adapt the candidate-bound AG3-147 inventory to the assembler port."""
@@ -135,13 +144,15 @@ class VerifyEvidencePreparationCoordinator:
         sender: PreflightReviewSender,
         change_evidence_port: ChangeEvidencePort | None = None,
         now: Callable[[], datetime] | None = None,
-        wait_timeout: timedelta = timedelta(seconds=30),
+        collection_margin: timedelta = _DEFAULT_COLLECTION_MARGIN,
     ) -> None:
+        if not timedelta(0) < collection_margin <= _MAX_COLLECTION_MARGIN:
+            raise ValueError("collection_margin must be positive and at most two minutes")
         self._edge_commands = edge_commands
         self._sender = sender
         self._change_evidence_port = change_evidence_port
         self._now = now or (lambda: datetime.now(UTC))
-        self._wait_timeout = wait_timeout
+        self._collection_margin = collection_margin
 
     def advance(
         self,
@@ -159,7 +170,16 @@ class VerifyEvidencePreparationCoordinator:
         record = self._edge_commands.load_command(cursor.command_id)
         if record is None:
             return self._commission_base(bound_inputs, candidate_digest, cursor)
-        payload = CollectVerifyEvidenceCommandPayload.model_validate(record.payload)
+        try:
+            payload = CollectVerifyEvidenceCommandPayload.model_validate(record.payload)
+        except ValidationError as exc:
+            if record.status != "failed":
+                raise
+            command_error = _command_error(record)
+            raise VerifyEvidencePreparationError(
+                "verify-evidence edge command failed: "
+                f"{command_error.error_code}: {command_error.message}"
+            ) from exc
         if payload.stage is VerifyEvidenceStage.BASE_COLLECTION:
             return self._advance_base(bound_inputs, cursor, record, payload)
         return self._advance_dynamic(bound_inputs, cursor, record, payload)
@@ -210,17 +230,21 @@ class VerifyEvidencePreparationCoordinator:
             stage=VerifyEvidenceStage.BASE_COLLECTION,
             candidate_digest=candidate_digest,
             request_digest=_digest([]),
-            generation_seed=f"{inputs.owner_session_id}:{inputs.ownership_epoch}:base",
-            deadline_at=self._now() + self._wait_timeout,
+            generation_seed=(
+                f"{inputs.owner_session_id}:{inputs.ownership_epoch}:base:{uuid4().hex}"
+            ),
+            deadline_at=self._now() + _wait_budget((), self._collection_margin),
         )
         record = _command_record(inputs, payload)
-        self._edge_commands.reconcile_verify_evidence_generation(
+        _, inserted = self._edge_commands.reconcile_verify_evidence_generation(
             record=record,
             obsolete_command_id=old_cursor.command_id if old_cursor else None,
             completed_at=self._now(),
             result_payload={"reason": "verify_evidence_generation_drift"},
             expected_ownership_epoch=inputs.ownership_epoch,
         )
+        if not inserted:
+            raise RuntimeError("fresh verify-evidence base generation was not commissioned")
         return _waiting(inputs, payload, record.command_id)
 
     def _advance_base(
@@ -231,6 +255,7 @@ class VerifyEvidencePreparationCoordinator:
         payload: CollectVerifyEvidenceCommandPayload,
     ) -> EvidencePreparationOutcome:
         report: VerifyEvidenceReport | None
+        command_error: CommandErrorResult | None = None
         if record.status in _OPEN_STATUSES:
             if self._now() < payload.deadline_at:
                 return EvidencePreparationOutcome(cursor=cursor)
@@ -238,6 +263,9 @@ class VerifyEvidencePreparationCoordinator:
             report = None
         elif record.status == "completed":
             report = VerifyEvidenceReport.model_validate(record.result_payload)
+        elif record.status == "failed":
+            report = None
+            command_error = _command_error(record)
         else:
             report = None
         files = report.files if report is not None else ()
@@ -245,7 +273,7 @@ class VerifyEvidencePreparationCoordinator:
             item.repo_id: RepoContext(repo_id=item.repo_id, repo_path=Path(item.repo_id))
             for item in inputs.repositories
         }
-        collection_finding = _base_collection_finding(report)
+        collection_finding = _base_collection_finding(report, command_error)
         assembly = EvidenceAssembler(
             repos,
             collected_files=files,
@@ -298,7 +326,10 @@ class VerifyEvidencePreparationCoordinator:
             candidate_digest=candidate_digest,
             request_digest=request_digest,
             generation_seed=f"{attempt_id}:ready",
-            deadline_at=self._now() + self._wait_timeout,
+            deadline_at=(
+                self._now()
+                + _wait_budget(edge_requests, self._collection_margin)
+            ),
             requests=edge_requests,
             preflight_requests=tuple(_checkpoint_request(item) for item in requests),
             preflight_attempt_id=attempt_id,
@@ -353,6 +384,17 @@ class VerifyEvidencePreparationCoordinator:
             observations = VerifyEvidenceReport.model_validate(
                 record.result_payload
             ).observations
+        elif record.status == "failed":
+            command_error = _command_error(record)
+            observations = tuple(
+                VerifyEvidenceObservation(
+                    request_index=request.request_index,
+                    status=VerifyEvidenceObservationStatus.REJECTED,
+                    content=f"{command_error.error_code}: {command_error.message}",
+                    finding_code="EDGE_COMMAND_FAILED",
+                )
+                for request in payload.requests
+            )
         else:
             observations = ()
         all_observations = (*observations, *local_observations)
@@ -491,10 +533,38 @@ def _cursor_matches(
     )
 
 
-def _base_collection_finding(report: VerifyEvidenceReport | None) -> str | None:
+def _base_collection_finding(
+    report: VerifyEvidenceReport | None,
+    command_error: CommandErrorResult | None,
+) -> str | None:
+    if command_error is not None:
+        return f"EDGE_COMMAND_FAILED: {command_error.error_code}: {command_error.message}"
     if report is None:
         return "EDGE_EVIDENCE_TIMEOUT: base collection"
     return report.finding_code
+
+
+def _command_error(record: EdgeCommandRecord) -> CommandErrorResult:
+    """Validate a terminal failure payload without creating an import cycle."""
+    from agentkit.backend.control_plane.models import CommandErrorResult
+
+    return CommandErrorResult.model_validate(record.result_payload)
+
+
+def _wait_budget(
+    requests: tuple[VerifyEvidenceRequest, ...],
+    collection_margin: timedelta,
+) -> timedelta:
+    """Return the bounded batch deadline budget from its slowest test contract."""
+    max_test_seconds = max(
+        (
+            request.test_command.timeout_seconds
+            for request in requests
+            if request.test_command is not None
+        ),
+        default=0,
+    )
+    return collection_margin + timedelta(seconds=max_test_seconds)
 
 
 def _candidate_digest(
@@ -720,5 +790,6 @@ def _render_manifest_content(manifest: BundleManifest) -> str:
 __all__ = [
     "EvidencePreparationInput",
     "EvidencePreparationOutcome",
+    "VerifyEvidencePreparationError",
     "VerifyEvidencePreparationCoordinator",
 ]

@@ -35,6 +35,10 @@ _SOURCE_SUFFIXES = frozenset({".java", ".js", ".jsx", ".kt", ".md", ".py", ".pyi
 _CONFIG_SUFFIXES = frozenset({".yaml", ".yml", ".json", ".env"})
 _MAX_DYNAMIC_CANDIDATES = 32
 _MAX_REQUEST_RESULT_BYTES = MAX_EVIDENCE_RESULT_BYTES // 8
+_PYTEST_CACHE_ROOT_FILES = frozenset({".gitignore", "CACHEDIR.TAG", "README.md"})
+_PYTEST_CACHE_VALUE_FILES = frozenset(
+    {"durations", "lastfailed", "nodeids", "stepwise"}
+)
 
 
 class VerifyEvidenceEdgeError(RuntimeError):
@@ -150,12 +154,39 @@ def _verify_candidate_head(root: Path, repository: VerifyEvidenceRepository) -> 
     dirty_entries = tuple(
         line
         for line in status.stdout.splitlines()
-        if line.strip() and line.strip() != "?? .agentkit-story.json"
+        if line.strip() and not _allowed_untracked_artifact(line)
     )
     if status.returncode != 0 or dirty_entries:
         raise VerifyEvidenceEdgeError(
             f"candidate worktree is not clean for repo {repository.repo_id!r}"
         )
+
+
+def _allowed_untracked_artifact(status_line: str) -> bool:
+    """Allow only the known untracked files created by the pytest runner."""
+    if not status_line.startswith("?? "):
+        return False
+    raw_path = status_line[3:].strip('"').replace("\\", "/")
+    if raw_path == ".agentkit-story.json":
+        return True
+    parts = PurePosixPath(raw_path).parts
+    return raw_path.endswith(".pyc") or _is_standard_pytest_cache_file(parts)
+
+
+def _is_standard_pytest_cache_file(parts: tuple[str, ...]) -> bool:
+    """Recognize only pytest's standard cache layout, not arbitrary content."""
+    try:
+        cache_index = parts.index(".pytest_cache")
+    except ValueError:
+        return False
+    relative = parts[cache_index + 1 :]
+    if len(relative) == 1:
+        return relative[0] in _PYTEST_CACHE_ROOT_FILES
+    return (
+        len(relative) == 3
+        and relative[:2] == ("v", "cache")
+        and relative[2] in _PYTEST_CACHE_VALUE_FILES
+    )
 
 
 def _verify_candidate_heads(
@@ -266,7 +297,11 @@ def _snapshot_file(repo_id: str, root: Path, path: Path) -> VerifyEvidenceFile |
 
 def _snapshot_files(root: Path) -> Iterable[Path]:
     for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
-        if ".git" in path.parts or path.is_symlink() or not path.is_file():
+        if (
+            {".git", ".pytest_cache", "__pycache__"}.intersection(path.parts)
+            or path.is_symlink()
+            or not path.is_file()
+        ):
             continue
         if path.suffix.lower() in _SNAPSHOT_SUFFIXES or path.name.endswith(".env"):
             yield path
@@ -473,7 +508,15 @@ def _safe_target(target: str) -> str:
 
 
 def _safe_file(root: Path, raw_path: str) -> Path | None:
-    target = root / _safe_target(raw_path)
+    normalized = _safe_target(raw_path)
+    parts = PurePosixPath(normalized).parts
+    if (
+        normalized.endswith(".pyc")
+        or ".pytest_cache" in parts
+        or "__pycache__" in parts
+    ):
+        return None
+    target = root / normalized
     if target.is_symlink() or not target.is_file():
         return None
     resolved = target.resolve(strict=True)

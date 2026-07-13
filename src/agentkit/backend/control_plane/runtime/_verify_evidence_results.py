@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
+from agentkit.backend.control_plane.models import CommandErrorResult
 from agentkit.backend.core_types.verify_evidence import (
     CollectVerifyEvidenceCommandPayload,
     VerifyEvidenceReport,
@@ -23,6 +24,8 @@ def verify_evidence_result_matches_command(
     """Return whether a typed report exactly matches its immutable command."""
     if command.command_kind != "collect_verify_evidence":
         return not isinstance(result, VerifyEvidenceReport)
+    if isinstance(result, CommandErrorResult):
+        return True
     if not isinstance(result, VerifyEvidenceReport):
         return False
     try:

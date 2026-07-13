@@ -36,6 +36,7 @@ from agentkit.backend.core_types.verify_evidence import (
     CollectVerifyEvidenceCommandPayload,
     VerifyEvidenceObservation,
     VerifyEvidenceObservationStatus,
+    VerifyEvidenceReport,
     VerifyEvidenceRepository,
     VerifyEvidenceRequest,
     VerifyTestCommand,
@@ -109,7 +110,11 @@ def _command(kind: str, payload: dict[str, object]) -> EdgeCommandView:
     )
 
 
-def _verify_payload(*, request: VerifyEvidenceRequest | None = None) -> dict[str, object]:
+def _verify_payload(
+    *,
+    request: VerifyEvidenceRequest | None = None,
+    expected_head_sha: str = "e" * 40,
+) -> dict[str, object]:
     return CollectVerifyEvidenceCommandPayload(
         stage="dynamic_requests",
         story_id=_STORY_ID,
@@ -123,7 +128,7 @@ def _verify_payload(*, request: VerifyEvidenceRequest | None = None) -> dict[str
         preflight_template_version=1,
         deadline_at=_now(),
         repositories=(
-            VerifyEvidenceRepository(repo_id="app", expected_head_sha="e" * 40),
+            VerifyEvidenceRepository(repo_id="app", expected_head_sha=expected_head_sha),
         ),
         spawn_worktree_repo="app",
         requests=() if request is None else (request,),
@@ -636,6 +641,140 @@ def test_candidate_collection_rejects_dirty_worktree_but_allows_edge_marker(
     (root / "README.md").write_text("dirty\n", encoding="utf-8")
     with pytest.raises(verify_evidence.VerifyEvidenceEdgeError, match="not clean"):
         verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
+
+
+def test_pytest_artifacts_do_not_self_invalidate_evidence_batch(
+    tmp_path: Path,
+) -> None:
+    """Unignored pytest/cache bytecode artifacts are not candidate mutation."""
+    worktree = tmp_path / "app" / "worktrees" / _STORY_ID
+    _init_repo(worktree)
+    (worktree / "test_example.py").write_text(
+        "def test_example():\n    assert True\n",
+        encoding="utf-8",
+    )
+    _git(worktree, "add", "test_example.py")
+    _git(worktree, "commit", "-q", "-m", "add test")
+    head = subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    request = VerifyEvidenceRequest(
+        request_index=0,
+        request_type="NEED_TEST_EVIDENCE",
+        target="pytest -q test_example.py",
+        test_command=VerifyTestCommand(arguments=("-q", "test_example.py")),
+    )
+
+    result = execute_command(
+        _command(
+            "collect_verify_evidence",
+            _verify_payload(request=request, expected_head_sha=head),
+        ),
+        project_config=_project_config(tmp_path, ["app"]),
+        project_root=tmp_path,
+    )
+
+    assert isinstance(result, VerifyEvidenceReport)
+    assert result.finding_code is None
+    assert result.observations[0].status is VerifyEvidenceObservationStatus.COLLECTED
+    assert (worktree / ".pytest_cache").is_dir()
+    assert tuple(worktree.rglob("*.pyc"))
+
+
+def test_pytest_genuine_tracked_mutation_still_fails_closed(tmp_path: Path) -> None:
+    """The artifact exception never permits a test to mutate tracked truth."""
+    worktree = tmp_path / "app" / "worktrees" / _STORY_ID
+    _init_repo(worktree)
+    (worktree / "test_mutates.py").write_text(
+        "from pathlib import Path\n\n"
+        "def test_mutates():\n"
+        "    Path('README.md').write_text('mutated\\n', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    _git(worktree, "add", "test_mutates.py")
+    _git(worktree, "commit", "-q", "-m", "add mutating test")
+    head = subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    request = VerifyEvidenceRequest(
+        request_index=0,
+        request_type="NEED_TEST_EVIDENCE",
+        target="pytest -q test_mutates.py",
+        test_command=VerifyTestCommand(arguments=("-q", "test_mutates.py")),
+    )
+
+    result = execute_command(
+        _command(
+            "collect_verify_evidence",
+            _verify_payload(request=request, expected_head_sha=head),
+        ),
+        project_config=_project_config(tmp_path, ["app"]),
+        project_root=tmp_path,
+    )
+
+    assert isinstance(result, VerifyEvidenceReport)
+    assert result.finding_code == "EDGE_COLLECTION_FAILED"
+    assert result.observations[0].status is VerifyEvidenceObservationStatus.REJECTED
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ("src/__pycache__/forged.py", ".pytest_cache/forged.py"),
+)
+def test_untracked_source_inside_cache_still_fails_closed(
+    tmp_path: Path,
+    relative_path: str,
+) -> None:
+    """Only bytecode is an artifact; forged source remains candidate mutation."""
+    root = tmp_path / "repo"
+    _init_repo(root)
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
+    forged = root / relative_path
+    forged.parent.mkdir(parents=True)
+    forged.write_text("class ForgedEvidence: ...\n", encoding="utf-8")
+
+    with pytest.raises(verify_evidence.VerifyEvidenceEdgeError, match="not clean"):
+        verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
+
+
+def test_untracked_bytecode_is_tolerated_but_never_collected(
+    tmp_path: Path,
+) -> None:
+    """The explicit *.pyc artifact allowance cannot become evidence input."""
+    root = tmp_path / "repo"
+    _init_repo(root)
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
+    (root / "forged.pyc").write_bytes(b"forged bytecode")
+
+    verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
+    candidates = verify_evidence._request_candidates(  # noqa: SLF001
+        VerifyEvidenceRequest(
+            request_index=0,
+            request_type="NEED_FILE",
+            target="forged.pyc",
+        ),
+        {"app": root},
+    )
+
+    assert candidates == []
 
 
 def test_base_collection_returns_changed_file_and_resolved_import_only(

@@ -16,6 +16,7 @@ from agentkit.backend.verify_system.evidence.edge_preparation import (
     EvidencePreparationInput,
     EvidencePreparationOutcome,
     VerifyEvidencePreparationCoordinator,
+    VerifyEvidencePreparationError,
 )
 from agentkit.backend.verify_system.evidence.import_resolver import (
     CONFIDENCE_PRIORITY as IMPORT_CONFIDENCE_PRIORITY,
@@ -32,14 +33,9 @@ from agentkit.backend.verify_system.evidence.preflight_sender import (
     PreflightReviewSenderError,
 )
 from agentkit.backend.verify_system.evidence.preflight_turn import (
-    PREFLIGHT_SENTINEL_PREFIX,
     PREFLIGHT_TEMPLATE_NAME,
     PREFLIGHT_TEMPLATE_VERSION,
-    PreflightTurn,
-    PreflightTurnResult,
-    make_preflight_sentinel,
     render_preflight_prompt,
-    render_review_prompt,
 )
 from agentkit.backend.verify_system.evidence.repo_context import RepoContext
 from agentkit.backend.verify_system.evidence.request_resolver import (
@@ -64,6 +60,7 @@ __all__ = [
     "EvidenceAssemblyResult",
     "EvidencePreparationInput",
     "EvidencePreparationOutcome",
+    "VerifyEvidencePreparationError",
     "FailClosedPreflightReviewSender",
     "ConfidenceLabel",
     "IMPORT_CONFIDENCE_PRIORITY",
@@ -71,13 +68,10 @@ __all__ = [
     "ImportResolver",
     "LlmPreflightReviewSender",
     "MAX_REQUESTS",
-    "PREFLIGHT_SENTINEL_PREFIX",
     "PREFLIGHT_TEMPLATE_NAME",
     "PREFLIGHT_TEMPLATE_VERSION",
     "PreflightReviewSender",
     "PreflightReviewSenderError",
-    "PreflightTurn",
-    "PreflightTurnResult",
     "REQUEST_TIMEOUT_S",
     "RepoContext",
     "RequestResolver",
@@ -87,8 +81,6 @@ __all__ = [
     "ReviewerRequest",
     "VerifyEvidencePreparationCoordinator",
     "VerifyEvidenceFile",
-    "make_preflight_sentinel",
     "parse_preflight_response",
     "render_preflight_prompt",
-    "render_review_prompt",
 ]

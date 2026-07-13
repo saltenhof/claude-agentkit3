@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from agentkit.backend.control_plane.models import (
+    CommandErrorResult,
     EdgeCommandResultRequest,
     MergeLocalRepoReport,
     MergeLocalReport,
@@ -455,6 +456,110 @@ def test_verify_evidence_echo_mismatch_never_terminalizes_command() -> None:
 
     assert result.status == "rejected"
     assert result.error_code == "verify_evidence_result_mismatch"
+    stored = edge_repo.load_command("cmd-1")
+    assert stored is not None and stored.status == "delivered"
+
+
+def test_verify_evidence_command_error_terminalizes_with_real_reason() -> None:
+    """A typed edge failure closes the command instead of awaiting deadline."""
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id="AG3-100",
+        project_key="tenant-a",
+        run_id="run-1",
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id="repo-a", expected_head_sha="e" * 40),
+        ),
+        spawn_worktree_repo="repo-a",
+    )
+    edge_repo = _default_di_edge_command_repository()
+    skewed_payload = payload.model_dump(mode="json")
+    skewed_payload["schema_version"] = "0.9"
+    edge_repo.insert_command(
+        _command(
+            status="delivered",
+            command_kind="collect_verify_evidence",
+            payload=skewed_payload,
+        )
+    )
+    service = _service(active=_ownership_record(), edge_command_repository=edge_repo)
+    request = EdgeCommandResultRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-A",
+        op_id="op-edge-failure",
+        result=CommandErrorResult(
+            error_code="command_execution_failed",
+            message="payload schema version is unsupported",
+        ),
+    )
+
+    result = service.submit_command_result("cmd-1", request)
+
+    assert result.status == "completed"
+    assert result.error_code is None
+    stored = edge_repo.load_command("cmd-1")
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.result_payload == {
+        "result_type": "command_error",
+        "error_code": "command_execution_failed",
+        "message": "payload schema version is unsupported",
+    }
+
+
+def test_verify_evidence_command_error_remains_rule_15_fenced() -> None:
+    """Typed failure admission cannot bypass the active ownership fence."""
+    payload = CollectVerifyEvidenceCommandPayload(
+        stage="base_collection",
+        story_id="AG3-100",
+        project_key="tenant-a",
+        run_id="run-1",
+        implementation_attempt=1,
+        batch_id="a" * 64,
+        generation="b" * 64,
+        candidate_digest="c" * 64,
+        request_digest="d" * 64,
+        preflight_template_version=1,
+        deadline_at=_NOW,
+        repositories=(
+            VerifyEvidenceRepository(repo_id="repo-a", expected_head_sha="e" * 40),
+        ),
+        spawn_worktree_repo="repo-a",
+    )
+    edge_repo = _default_di_edge_command_repository()
+    edge_repo.insert_command(
+        _command(
+            status="delivered",
+            command_kind="collect_verify_evidence",
+            payload=payload.model_dump(mode="json"),
+        )
+    )
+    service = _service(
+        active=_ownership_record(owner="sess-NEW-OWNER", epoch=2),
+        edge_command_repository=edge_repo,
+    )
+    request = EdgeCommandResultRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-A",
+        op_id="op-old-owner-edge-failure",
+        result=CommandErrorResult(
+            error_code="command_execution_failed",
+            message="payload schema version is unsupported",
+        ),
+    )
+
+    result = service.submit_command_result("cmd-1", request)
+
+    assert result.error_code == "ownership_transferred"
     stored = edge_repo.load_command("cmd-1")
     assert stored is not None and stored.status == "delivered"
 
