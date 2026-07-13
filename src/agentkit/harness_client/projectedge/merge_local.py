@@ -252,7 +252,6 @@ def _require_safe_story_worktree(
 ) -> Path:
     """Bind a destructive operation to the commanded linked story worktree."""
     from agentkit.harness_client.projectedge.command_executor import (
-        EdgeGitError,
         _read_story_marker,
         _require_registered_linked_worktree,
     )
@@ -267,7 +266,7 @@ def _require_safe_story_worktree(
     try:
         resolved = worktree_path.resolve(strict=True)
         _require_registered_linked_worktree(repo_root, resolved)
-    except (OSError, RuntimeError, EdgeGitError) as exc:
+    except (OSError, RuntimeError) as exc:
         raise WorktreeIdentityError(str(exc)) from exc
     marker = _read_story_marker(resolved)
     if marker is None or marker.get("story_id") != story_id:
