@@ -1,7 +1,9 @@
 story_id: AG3-153
 title: "Frontend Takeover: globaler governance-Stream (GET /v1/events/governance), benutzeruebergreifender Freigabe-Overlay mit Verlustkorridor-Pflichttext, Cockpit-Takeover-Sicht (SHA/Push-Frische, 4 Edge-Zustaende), Wire-Commands + Read-Model"
 type: implementation
-status: blocked
+status: ready
+# Unblocked 2026-07-13: all deps completed (AG3-144, AG3-148, AG3-151).
+# Status was stale at `blocked` while deps had already closed.
 phase: setup
 created: "2026-07-02"
 size: L
