@@ -650,7 +650,11 @@ def test_pytest_artifacts_do_not_self_invalidate_evidence_batch(
     worktree = tmp_path / "app" / "worktrees" / _STORY_ID
     _init_repo(worktree)
     (worktree / "test_example.py").write_text(
-        "def test_example():\n    assert True\n",
+        "from pathlib import Path\n\n"
+        "def test_example():\n"
+        "    cache = Path('__pycache__')\n"
+        "    cache.mkdir(exist_ok=True)\n"
+        "    (cache / 'test_example.cpython.pyc').write_bytes(b'artifact')\n",
         encoding="utf-8",
     )
     _git(worktree, "add", "test_example.py")
