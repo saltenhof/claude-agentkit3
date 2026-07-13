@@ -134,6 +134,7 @@ PY
                             -q \
                             --junitxml=test-results/ci.xml \
                             --cov=src \
+                            --cov-fail-under=0 \
                             --cov-report=xml:coverage.xml
                     '''
                 }
@@ -210,7 +211,10 @@ PY
                         python -m pytest tests/contract tests/integration tests/e2e \
                             -m "not requires_gh" \
                             -q \
-                            --junitxml=test-results/postgres.xml
+                            --junitxml=test-results/postgres.xml \
+                            --cov=src \
+                            --cov-append \
+                            --cov-report=xml:coverage.xml
                         TEST_EXIT=$?
                         set -e
                         python - <<'PY'
