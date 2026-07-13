@@ -3,7 +3,48 @@ title: "Verify-Evidenz-Ausführungsort: Request-DSL-Resolver vom Backend-Worktre
 type: implementation
 status: completed
 phase: closure
-completed_at: "2026-07-13T17:29:54Z"
+completed_at: "2026-07-13T22:51:20Z"
+# CLOSED 2026-07-13 at main@87750b996a58e65ae165c554e45b99a44f9a89e7 (origin matches).
+# Verify-evidence collection relocated from backend shell=True worktree access to
+# the Project Edge (command kind collect_verify_evidence, two-stage BASE/DYNAMIC
+# batch; new VerifyEvidenceReport result type; edge executor harness_client/
+# projectedge/verify_evidence.py; backend coordinator verify_system/evidence/
+# edge_preparation.py). Timing model = variant (a): existing phase-yield/resume
+# wait-points, NOT an in-request wait (FK-91 Regel 14 deadlock avoided). Two
+# wait-points: A base collection, B dynamic reviewer requests after a once-only,
+# crash-safe-checkpointed preflight LLM call (preflight_attempt_id gate). No-Lease-
+# no-Write: result POST terminalizes only the command record under the Rule-15
+# fence; bundle/D3 application happens only on the fenced Resume. Backend KEEPS D3
+# ambiguity + 8-cap + timeout classification + bundle application; _resolve_concept_
+# source still reads only backend-local concept/stories (regression-pinned).
+# shell=True eliminated: edge runs [sys.executable,-m,pytest,*args] shell=False,
+# hard timeout; LLM request.target never shell-interpreted. Concept nachzug: FK-47/
+# 46/28/33 + FK-91 §91.1b command+result catalog + decision-record
+# 2026-07-13-verify-evidence-edge-execution.md; reference-integrity baseline
+# updated; all resolve (AG3-157 gate green). Story-drift to the landed AG3-144
+# No-Lease-no-Write model was fixed BEFORE dispatch (Fable-confirmed spec-conform +
+# implementation-ready). Hardening across the whole-story Fable finale + TWO
+# orchestrator-adjudicated fix-passes: pass-1 closed W1 (wait-budget 30s vs 120s
+# contract), W2 (pytest-artifact self-invalidation), W3 (CommandErrorResult now
+# terminalizes fenced instead of masking to generic TIMEOUT), W4 (uuid4 base
+# generation seed + honored reconcile insert -> A->B->A flap re-collects, once-only
+# preflight intact) + removed dead PreflightTurn. A SECOND adversarial Fable pass
+# then caught what pass-1 and the first orchestrator adjudication rated fail-closed
+# but was NOT: W2-ERROR the bare-`*.pyc`-anywhere allowance was a fail-OPEN integrity
+# widening (sourceless-bytecode import-execution channel + false clean-worktree
+# attestation) -> narrowed to `.pyc` only under a `__pycache__` path SEGMENT +
+# `git status --porcelain=v1 -z` NUL-delimited (kills quoted/backslash path
+# forgery), genuine mutations still fail closed; and W1-WARNING the budget summed
+# only max not SUM of the sequentially-executed test contracts (false timeout at
+# N>=3 default-30s tests) -> now collection_margin + SUM(timeout_seconds), bounded
+# at margin + 8x120s. Evidence on 87750b99: Jenkins #1901 SUCCESS (built exact SHA),
+# Sonar gate OK / violations 0 / critical 0 / blocker 0 / security_hotspots 0 /
+# new_violations 0, coverage 90.9 (new 90.8); local ex-e2e 9436 passed / 14 skipped
+# (Windows), coverage 91.70%, ruff clean, mypy strict native + --platform linux
+# clean (907 files), all 5 concept gates green; orchestrator code-adjudication of
+# every W1-W4 + the two finale fixes confirmed fail-CLOSED at code. Mirrored WARNING
+# (out of this story's lane, tracked as tech-debt): 25 unrelated unclosed-SQLite
+# ResourceWarnings in control-plane/state-backend tests (Jenkins stays green).
 created: "2026-07-02"
 size: L
 # Herkunft: Story-Schnitt-Review 2026-07-02 (Codex-WARNING "Verify-System-
