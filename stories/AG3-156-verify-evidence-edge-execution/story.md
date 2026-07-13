@@ -9,11 +9,13 @@
     mit bounded wait wie beim Preflight-Muster; Endpoints, Ack-Semantik,
     client-op_id-Pflicht und Regel-15-Result-Fencing sind deren
     Trägerschicht — diese Story baut keine eigene Auftragsmechanik.
-  - **AG3-144** — die Anwendung der aufgelösten Evidenz ist ein
-    Job-/Result-Abschluss mit deklarierter Ergebnisart über die
-    AG3-144-Registry: Resolver-Ergebnisse werden als gefencte Evidenz
-    verbucht (Fence-Prädikat-Katalog am Abschluss-Commit); Ex-Owner-/
-    Stale-Ergebnisse wirken nie steuernd (`stale_observation`-Routing).
+  - **AG3-144** — die Anwendung der gemeldeten Auflösungs-Evidenz ist ein
+    mutierender Story-Projektions-Write und muss transaktional vom aktiven
+    Ownership-Lease gedeckt sein (No-Lease-no-Write, FK-91 §91.1a Regel 15;
+    AG3-142-Fence `_enforce_ownership_fence_row` in DERSELBEN Transaktion,
+    `SELECT … FOR UPDATE`). Ein verspätetes/Ex-Owner-Ergebnis wird
+    deterministisch abgewiesen (Regel 18) — OHNE State-Write, nicht als
+    Historie/Stale abgelegt.
 - **Quell-Konzept:** FK-10 §10.2.4a (Topologie-Regel, Akteursmodell
   Agent/Edge/niemand, Ausführungsort-Grundsatz mit
   Fehlbetriebs-Klassifikation); FK-47 (Request-DSL und Preflight-Turn —
@@ -24,6 +26,25 @@
   „Verify-System-Testevidence bleibt backend-seitiger
   shell=True-Worktree-Zugriff" + Batch-C-Befund; PO-Freigabe 2026-07-02.
   Kein GAP-Nenner-Bezug (Review-Fund).
+- **Story-Nachzug 2026-07-13 (Konzept-/Spec-Konformität, PO-freigegeben):**
+  Die Ergebnisanwendung war beim Schnitt (2026-07-02) gegen das async-Modell
+  von AG3-144 formuliert (Ergebnisart-Registry, `stale_observation`-Routing).
+  AG3-144 wurde am 2026-07-05 per bindender PO-Entscheidung neu geschnitten
+  (synchron; aktiver Ownership-Lease = ALLEINIGER Fence; Ex-Owner-Ergebnisse
+  werden deterministisch abgewiesen, NICHT als `stale_observation` abgelegt —
+  Registry/Fence-Sicht/Stale-Store ENTFALLEN, AG3-144 Scope 3). Die Story ist
+  gegen die Konzepte (FK-91 §91.1a Regel 14/15/18, FK-44 §44.3a — maßgebliche
+  Norm) nachgezogen: Scope 4, AK5, AK8, depends_on- und Out-of-Scope-Zeilen.
+  Kern der Story (Ausführungsort-Verlagerung Edge/Agent + shell=True-Härtung)
+  ist unberührt. Zusätzlich sind einige Code-Anker seit dem Schnitt veraltet
+  (Refactor-Drift, bei Umsetzung zu verifizieren): `control_plane/runtime.py`
+  ist ein Package `control_plane/runtime/` (u. a. `_di.py`);
+  `cli/main.py:1435-1442` → `cli/evidence_commands.py`; die
+  Diff-Expansion-Restfundstelle ist durch das gelandete AG3-147 bereits
+  content-basiert abgelöst (der AC1-Abschlussbeweis ist damit sofort
+  erfüllbar). Ebenfalls präzisiert: das Timing-/Claim-Serialisierungs-Modell
+  (Scope 1, AK4) — der Design-Freeze muss es auflösen, bevor Scope 2-8 gebaut
+  wird.
 
 ## Kontext / Problem
 
@@ -88,7 +109,17 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
    in seinem Worktree auf und meldet Ergebnisse).
    Die Story prüft beide Varianten im FK-47-Rahmen (Latenz im
    Preflight-Turn, Determinismus/D3-Regel, Session-/Ownership-Bindung,
-   Multi-Repo); der **Konzept-Nachzug entscheidet**. Hart normiert ist nur:
+   Multi-Repo, **und — entscheidend — die Interaktion mit der synchronen
+   Objekt-Serialisierung nach FK-91 §91.1a Regel 13/14**: der QA-Subflow
+   hält für seine Dauer den `(project_key, story_id)`-Claim, während der
+   Edge-Result-POST (§91.1b) denselben Claim als mutierende Operation
+   erwirbt — ein In-Request-bounded-wait unter gehaltenem Claim (Variante a
+   naiv) timeoutet daher systematisch (fail-closed-by-construction, kein
+   echtes RESOLVED). Der P3-Decision-Record MUSS dieses Timing-Modell
+   auflösen: Wartepunkt mit Claim-Freigabe + Resume des Preflight-Turns
+   vs. Auflösung im Agenten-Turn (Variante b), inkl. Ergebnis-Korrelation
+   und Supersede verspäteter/epoch-drifteter Ergebnisse); der
+   **Konzept-Nachzug entscheidet**. Hart normiert ist nur:
    **Ausführungsort nie Backend**; **fail-closed, wenn kein Edge erreichbar**
    (kein stiller Backend-Fallback); **keine `shell=True`-Ausführung von
    LLM-geliefertem Text ohne Kommando-Whitelist/Vertrag**. Der Nachzug
@@ -118,11 +149,14 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
    gilt am Ausführungsort (Edge/Agent) genauso wie an jeder anderen
    Stelle; ein nicht vertragskonformes Kommando wird deterministisch als
    benannter Befund abgelehnt, nie ausgeführt.
-4. **Ergebnisanwendung als gefencte Evidenz:** Die gemeldeten
-   Auflösungs-Ergebnisse werden über die AG3-144-Ergebnisart-Registry
-   deklariert und am Abschluss-Commit gefenct (aktiver Ownership-Record,
-   Epochen — AG3-144-Fence-Sicht); verspätete/Ex-Owner-Results landen als
-   `stale_observation` und erweitern nie das Review-Bundle.
+4. **Ergebnisanwendung unter dem aktiven Ownership-Lease
+   (No-Lease-no-Write):** Die gemeldeten Auflösungs-Ergebnisse werden als
+   mutierender Projektions-Write nur angewandt, wenn der schreibende
+   Session-Kontext den aktiven `RunOwnershipRecord` hält — transaktional
+   gedeckt durch den AG3-142-Lease-Fence (`_enforce_ownership_fence_row`,
+   `SELECT … FOR UPDATE`, kein TOCTOU). Ein Commit ohne (aktuellen) Lease
+   wird deterministisch abgewiesen (FK-91 §91.1a Regel 15/18) — OHNE
+   State-Write; das Ergebnis erweitert nie das Review-Bundle.
 5. **Fail-closed-Verhalten im Preflight-Turn:** Ist kein Edge erreichbar
    (bzw. meldet der Agenten-Turn nicht), enden die betroffenen Requests
    nach bounded wait als benannter, deterministischer Status (kein
@@ -170,8 +204,9 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
   AG3-147-Lesefläche (Adapter-Compare/Edge-Meldung, FK-10 §10.2.4a(b)).
 - **Command-Queue-Trägerschicht** (Endpoints, Ack/Result, Regel-15-Fencing
   der Queue): **AG3-145**.
-- **Ergebnisart-Registry, Fence-Sicht, `stale_observation`-Store** selbst:
-  **AG3-144** — hier nur deren Verwendung.
+- **Ownership-Lease-Fence-Mechanismus** (`_enforce_ownership_fence_row`,
+  No-Lease-no-Write-Vollständigkeit) selbst: **AG3-142/AG3-144** — hier nur
+  dessen Anwendung auf den Evidenz-Write.
 - **Push-/QA-Grenz-Evidenz** (`branch_checks.py`, `system_evidence.py`,
   `qa_cycle/fingerprint.py`): **AG3-147** (AG3-145-Ausführungsort-Inventar).
 - **Diff-/Change-Evidenz-Erhebung des Assemblers**
@@ -197,7 +232,7 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
 | `src/agentkit/backend/verify_system/evidence/request_types.py` | ändern | Benannte Result-Status für nicht erreichbare Ausführungsorte + typisierter Kommando-Vertrag für `NEED_TEST_EVIDENCE` (englische Status-/Befund-Codes, ARCH-55) |
 | `src/agentkit/backend/verify_system/evidence/preflight_turn.py` | ändern | Auflösungsschritt beauftragt (Variante a) bzw. konsumiert Agenten-Meldungen (Variante b); bounded wait; Fehlertoleranz-Pfad (:76-81) |
 | `src/agentkit/backend/control_plane/edge_commands.py` (AG3-145-Fläche) | ändern (Variante a) | Neue Auftrags-/Result-Art (analog `preflight_probe`) im typisierten Vokabular, contract-gepinnt |
-| `src/agentkit/backend/control_plane/runtime.py` | ändern (Variante a) | Anlage der Auflösungs-Aufträge; Result-Anwendung als gefencte Evidenz (AG3-144-Ergebnisart) |
+| `src/agentkit/backend/control_plane/runtime/` (Package, seit Schnitt zerlegt) | ändern (Variante a) | Anlage der Auflösungs-Aufträge; Result-Anwendung unter dem aktiven Ownership-Lease (No-Lease-no-Write, FK-91 §91.1a Regel 15/18) |
 | `src/agentkit/harness_client/projectedge/**` (Executor-Modul aus AG3-145) | ändern (Variante a) | Edge-seitige Ausführung der Auflösungs-Aufträge (Datei-/Glob-/Text-Suche, vertragskonforme Test-Ausführung ohne Shell-Interpretation) |
 | `src/agentkit/bundles/target_project/tools/agentkit/projectedge.py` | ändern (Variante a) | Bundle-Asset: Ausführung der neuen Auftragsart im deployten Edge-Tool |
 | `tests/unit/verify_system/**`, `tests/integration/**`, `tests/contract/**` | neu/ändern | Resolver-Umbau-Tests (Ports/Fakes), Fail-closed-/bounded-wait-Negativtests, Kommando-Vertrags-Negativtests, Contract-Pin der neuen Auftrags-/Result-Art bzw. Meldeform |
@@ -234,16 +269,22 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
    Edge nicht verfügbar → Status-Assertion + Beweis, dass kein
    Worktree-Zugriff stattfand); der Review läuft nach FK-47-Fehlertoleranz
    weiter, der Reviewer sieht die unaufgelösten Requests.
-4. **Bounded wait:** Der Preflight-Turn blockiert nie unbegrenzt auf
-   Auflösungs-Ergebnisse (Muster analog Preflight-Probe aus AG3-145);
-   Timeout ist ein benannter Result-Status (`TIMEOUT`-Familie), kein
-   Fehlerabbruch des Turns.
-5. **Gefencte Ergebnisanwendung:** Auflösungs-Ergebnisse werden mit
-   deklarierter Ergebnisart (AG3-144-Registry) verbucht; ein präpariertes
+4. **Bounded wait / kein Claim-Deadlock:** Der Preflight-Turn blockiert nie
+   unbegrenzt auf Auflösungs-Ergebnisse; Timeout ist ein benannter
+   Result-Status (`TIMEOUT`-Familie), kein Fehlerabbruch des Turns.
+   **Achtung (FK-91 §91.1a Regel 13/14):** das AG3-145-Preflight-Probe-Muster
+   läuft in einer claim-freigebenden Setup-Phase und ist NICHT unbesehen auf
+   den claim-haltenden QA-Subflow übertragbar — der vom Decision-Record
+   gewählte Mechanismus (Wartepunkt+Resume bzw. Agenten-Turn) muss die
+   Serialisierung so lösen, dass die Ergebnis-Meldung nie hinter dem
+   wartenden Preflight-Request staut (Negativtest: der Result-POST wird
+   angewandt, ohne dass der Preflight-Request ihn blockiert).
+5. **Gefencte Ergebnisanwendung (No-Lease-no-Write):** Auflösungs-Ergebnisse
+   werden nur unter dem aktiven Ownership-Lease angewandt; ein präpariertes
    Ex-Owner-/Epoch-Drift-Result (über die sanktionierte
-   AG3-137/142-Schreibfläche erzeugt) landet als `stale_observation` und
-   erweitert weder `extended_paths` noch das Review-Bundle (Negativpfad an
-   der Commit-Grenze).
+   AG3-137/142-Schreibfläche erzeugt) wird deterministisch abgewiesen — OHNE
+   State-Write — und erweitert weder `extended_paths` noch das Review-Bundle
+   (Negativpfad an der Commit-Grenze, FK-91 §91.1a Regel 15/18).
 6. **D3-Regel unverändert:** 1 Treffer → RESOLVED, mehrere Treffer →
    UNRESOLVED mit Kandidatenliste, 0 Treffer → UNRESOLVED; der 8er-Cap
    bleibt (Regressionstests gegen die bestehende Semantik, FK-47 §47.4).
@@ -257,7 +298,7 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
 8. **Negativpfade an Phasengrenzen:** Auflösung nach Story-Exit/Reset
    (Zustand über echte Vorgängerpfade erzeugt) wirkt nie auf das
    Review-Bundle (testing-guardrails; Anbindung an die
-   AG3-144-Stale-Mechanik).
+   AG3-144-No-Lease-no-Write-/Ex-Owner-Abweis-Mechanik).
 9. Coverage ≥ 85 % gehalten; `mypy` strict (inkl. `--platform linux`) und
    `ruff` ohne neue Ausnahmen; ARCH-55 (englische Bezeichner, Wire-Keys,
    Status-/Befund-Codes).
@@ -287,6 +328,9 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
   Kontexttabelle :115 und Code-Skizze :237-242 — Pre-K1-Stand, wird durch
   den Nachzug dieser Story bereinigt; §47.4 D3-Mehrdeutigkeitsregel;
   §47.5 Preflight-Turn-Architektur inkl. Fehlertoleranz)
+- FK-91 §91.1a (Regel 13/14 synchrone Objekt-Serialisierung; Regel 15/18
+  No-Lease-no-Write + Ex-Owner-Abweisung — maßgeblich für Ergebnisanwendung
+  und Timing-Modell: Scope 1/4, AK4/AK5)
 - FK-91 §91.1b (Command-Queue: Auftrags-/Result-Vertrag — Andockpunkt der
   neuen Auftragsart in Variante a)
 - META-CONCEPT-CONSISTENCY (`concept/_meta/konzept-konsistenz-governance.md`)
@@ -307,8 +351,9 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
   Ursache behoben (Kommando-Vertrag), nicht durch Escaping-Kosmetik
   umgangen.
 - **QA-Artefakt-Schutz (CLAUDE.md):** Die Ergebnisanwendung läuft gefenct
-  über die AG3-144-Registry — Worker/Ex-Owner können Review-Evidenz nicht
-  nachträglich manipulieren.
+  über den aktiven Ownership-Lease (No-Lease-no-Write, FK-91 §91.1a
+  Regel 15/18) — Worker/Ex-Owner können Review-Evidenz nicht nachträglich
+  manipulieren.
 - **Konzepttreue:** Der FK-47-Konflikt wird nicht implizit wegimplementiert,
   sondern per Konzept-Nachzug + P3-Decision-Record aufgelöst (hart
   gestoppt wäre ohne Nachzug jede Abweichung vom geschriebenen FK-47).
@@ -322,7 +367,7 @@ diesen Story-Scope — inklusive P3-Decision-Record-Pflicht.
   (Variante a) neue Persistenzflächen über die bestehenden
   `edge_command_records` hinaus erfordert — dann Postgres-only, fail-closed
   über das `_require_postgres_control_plane_backend`-Muster
-  (`control_plane/runtime.py:2119`), kein SQLite-Spiegel. Erwartung:
+  (`control_plane/runtime/_di.py`, seit Schnitt zerlegt), kein SQLite-Spiegel. Erwartung:
   keine neue Tabelle (Wiederverwendung der AG3-145-Command-Records);
   Abweichung ist im Decision-Record zu begründen.
 - **Blutgruppen-Klassifikation**
