@@ -36,6 +36,7 @@ from agentkit.backend.control_plane.models import (
 from agentkit.harness_client.projectedge import command_executor
 from agentkit.harness_client.projectedge.client import PushOwnershipProbe
 from agentkit.harness_client.projectedge.command_executor import (
+    EdgeGitError,
     SyncPushContext,
     execute_command,
     execute_sync_push,
@@ -108,13 +109,16 @@ def _project_config(project_root: Path, repo_names: list[str]) -> ProjectConfig:
     )
 
 
-def _payload(branch: str = _BRANCH) -> SyncPushCommandPayload:
+def _payload(
+    branch: str = _BRANCH, *, base_branch: str = "main"
+) -> SyncPushCommandPayload:
     return SyncPushCommandPayload(
         story_id=_STORY_ID,
         project_key="test-project",
         run_id="run-1",
         repo_id="api",
         branch=branch,
+        base_branch=base_branch,
     )
 
 
@@ -319,10 +323,9 @@ def _git(root: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
 
 
-@pytest.mark.requires_git
-def test_gate_open_pushes_official_ref_to_remote(tmp_path: Path) -> None:
-    """The gate opens + service identity resolves => the official story ref is
-    pushed to the real remote and reported as ``pushed`` with the head SHA."""
+def _real_push_repo(
+    tmp_path: Path, *, base_branch: str = "main"
+) -> tuple[Path, Path]:
     remote = tmp_path / "remote.git"
     remote.mkdir()
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
@@ -337,11 +340,25 @@ def test_gate_open_pushes_official_ref_to_remote(tmp_path: Path) -> None:
     _git(repo, "commit", "-q", "-m", f"seed ({_STORY_ID})")
     _git(repo, "remote", "add", "origin", str(remote))
     _git(repo, "push", "-q", "origin", "main")
+    if base_branch != "main":
+        _git(repo, "checkout", "-q", "-b", base_branch)
+        (repo / "base_only.py").write_text("base = True\n", encoding="utf-8")
+        _git(repo, "add", "base_only.py")
+        _git(repo, "commit", "-q", "-m", "base branch change")
+        _git(repo, "push", "-q", "origin", base_branch)
     worktree = repo / "worktrees" / _STORY_ID
-    _git(repo, "worktree", "add", str(worktree), "-b", _BRANCH, "main")
+    _git(repo, "worktree", "add", str(worktree), "-b", _BRANCH, base_branch)
     (worktree / "story.py").write_text("value = 1\n", encoding="utf-8")
     _git(worktree, "add", "story.py")
     _git(worktree, "commit", "-q", "-m", "story change")
+    return remote, worktree
+
+
+@pytest.mark.requires_git
+def test_gate_open_pushes_official_ref_to_remote(tmp_path: Path) -> None:
+    """The gate opens + service identity resolves => the official story ref is
+    pushed to the real remote and reported as ``pushed`` with the head SHA."""
+    remote, _worktree = _real_push_repo(tmp_path)
 
     context = _context(
         PushOwnershipProbe(server_reachable=True, owner_confirmed=True, detail="owner")
@@ -363,3 +380,58 @@ def test_gate_open_pushes_official_ref_to_remote(tmp_path: Path) -> None:
         check=True, capture_output=True, text=True,
     ).stdout.strip()
     assert remote_ref == result.head_sha
+
+
+@pytest.mark.requires_git
+def test_non_main_base_drives_fidelity_evidence_diff(tmp_path: Path) -> None:
+    _remote, _worktree = _real_push_repo(tmp_path, base_branch="release")
+    context = _context(
+        PushOwnershipProbe(server_reachable=True, owner_confirmed=True, detail="owner")
+    )
+
+    result = execute_sync_push(
+        _payload(base_branch="release"),
+        project_config=_project_config(tmp_path, ["api"]),
+        project_root=tmp_path,
+        context=context,
+    )
+
+    assert result.push_outcome == "pushed"
+    assert result.change_evidence is not None
+    assert "diff --git a/story.py b/story.py" in result.change_evidence
+    assert "base_only.py" not in result.change_evidence
+
+
+@pytest.mark.requires_git
+def test_unavailable_change_evidence_does_not_block_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    remote, _worktree = _real_push_repo(tmp_path)
+    real_run_git = command_executor._run_git
+
+    def _run_git_with_diff_timeout(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "diff":
+            raise EdgeGitError("git diff timed out after 30 seconds")
+        return real_run_git(root, *args)
+
+    monkeypatch.setattr(command_executor, "_run_git", _run_git_with_diff_timeout)
+    context = _context(
+        PushOwnershipProbe(server_reachable=True, owner_confirmed=True, detail="owner")
+    )
+
+    result = execute_sync_push(
+        _payload(),
+        project_config=_project_config(tmp_path, ["api"]),
+        project_root=tmp_path,
+        context=context,
+    )
+
+    assert result.push_outcome == "pushed"
+    assert result.change_evidence is None
+    remote_ref = subprocess.run(
+        ["git", "-C", str(remote), "rev-parse", f"refs/heads/{_BRANCH}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert len(remote_ref) == 40

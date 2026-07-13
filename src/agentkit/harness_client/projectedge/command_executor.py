@@ -560,18 +560,21 @@ def execute_sync_push(
         tree_hash = tree.stdout.strip()
         status = _run_git(worktree_path, "status", "--porcelain")
         _require_git(status, "status --porcelain")
-        fetch_main = _run_git(worktree_path, "fetch", "origin", "main")
+        fetch_main = _run_git(worktree_path, "fetch", "origin", payload.base_branch)
+        base_ref = f"origin/{payload.base_branch}"
         base_ancestor = fetch_main.returncode == 0 and (
             _run_git(
                 worktree_path,
                 "merge-base",
                 "--is-ancestor",
-                "origin/main",
+                base_ref,
                 head_sha,
             ).returncode
             == 0
         )
-        change_evidence = _edge_change_evidence(worktree_path, head_sha)
+        change_evidence = _edge_change_evidence(
+            worktree_path, head_sha, payload.base_branch
+        )
         outcome = _push_official_ref(
             worktree_path,
             story_id=payload.story_id,
@@ -657,16 +660,21 @@ def _sync_push_report(
     )
 
 
-def _edge_change_evidence(worktree_path: Path, head_sha: str) -> str | None:
+def _edge_change_evidence(
+    worktree_path: Path, head_sha: str, base_branch: str
+) -> str | None:
     """Return a bounded edge-reported diff for post-merge fidelity feedback."""
-    result = _run_git(
-        worktree_path,
-        "diff",
-        "--no-ext-diff",
-        "--unified=3",
-        f"origin/main...{head_sha}",
-        "--",
-    )
+    try:
+        result = _run_git(
+            worktree_path,
+            "diff",
+            "--no-ext-diff",
+            "--unified=3",
+            f"origin/{base_branch}...{head_sha}",
+            "--",
+        )
+    except EdgeGitError:
+        return None
     evidence = result.stdout.strip() if result.returncode == 0 else ""
     if not evidence:
         return None

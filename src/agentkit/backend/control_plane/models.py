@@ -1038,12 +1038,13 @@ class SyncPushCommandPayload(BaseModel):
 
     The backend commissions ONE per participating repo. It carries only what the
     edge cannot derive itself -- the repo NAME (not path; FK-10 §10.2.4a: the
-    backend derives NO physical path) and the story branch. The official push
-    target ref is ALWAYS ``story/{story_id}`` (there is no WIP-ref push path,
-    In-Scope #7 / AC10); the edge derives it from ``story_id`` and rejects any
-    other ref at the push gate. The edge resolves the physical repo path from its
-    LOCAL project config and runs the bounded online-ownership check itself
-    (FK-15 §15.5.4: online-required, no ACTIVE-bundle re-sync fallback).
+    backend derives NO physical path), the story branch, and the base branch
+    used for candidate evidence. The official push target ref is ALWAYS
+    ``story/{story_id}`` (there is no WIP-ref push path, In-Scope #7 / AC10);
+    the edge derives it from ``story_id`` and rejects any other ref at the push
+    gate. The edge resolves the physical repo path from its LOCAL project config
+    and runs the bounded online-ownership check itself (FK-15 §15.5.4:
+    online-required, no ACTIVE-bundle re-sync fallback).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -1053,6 +1054,7 @@ class SyncPushCommandPayload(BaseModel):
     run_id: str = Field(min_length=1)
     repo_id: str = Field(min_length=1)
     branch: str = Field(min_length=1)
+    base_branch: str = Field(default="main", pattern=r"^[A-Za-z0-9._/-]+$")
     boundary_type: str | None = None
     boundary_id: str | None = None
     boundary_epoch: int | None = Field(default=None, ge=1)

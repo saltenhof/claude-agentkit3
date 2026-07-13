@@ -109,7 +109,7 @@ def execute_merge_local(
         )
     try:
         _teardown_if_present(repo_root, worktree_path, payload.story_id)
-    except EdgeGitError as exc:
+    except (WorktreeIdentityError, EdgeGitError) as exc:
         return _success(
             repo_id,
             "merged",
@@ -235,12 +235,15 @@ def _teardown_if_present(
         raise WorktreeIdentityError(
             "merge_local refuses to follow a symlinked or junction worktree path"
         )
-    if not worktree_path.exists():
-        return
-    resolved = _require_safe_story_worktree(repo_root, worktree_path, story_id)
+    if worktree_path.exists():
+        resolved = _require_safe_story_worktree(repo_root, worktree_path, story_id)
+        _require_git(
+            _run_git(repo_root, "worktree", "remove", "--force", str(resolved)),
+            "worktree remove after merge",
+        )
     _require_git(
-        _run_git(repo_root, "worktree", "remove", "--force", str(resolved)),
-        "worktree remove after merge",
+        _run_git(repo_root, "worktree", "prune"),
+        "worktree prune after merge",
     )
     branch = _run_git(repo_root, "branch", "-D", f"story/{story_id}")
     if branch.returncode not in (0, 1):
@@ -384,12 +387,17 @@ def _push_failure_code(push: subprocess.CompletedProcess[str]) -> FailureCode:
 
 
 def _push(worktree_path: Path, lease: str, refspec: str) -> subprocess.CompletedProcess[str]:
+    import os
+
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
     try:
         return subprocess.run(
             ["git", "-C", str(worktree_path), "push", lease, "origin", refspec],
             capture_output=True,
             text=True,
             check=False,
+            env=env,
             timeout=120,
         )
     except subprocess.TimeoutExpired as exc:

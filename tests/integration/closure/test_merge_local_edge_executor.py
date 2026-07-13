@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,15 +19,21 @@ from agentkit.backend.config.models import (
     SonarQubeConfig,
 )
 from agentkit.backend.control_plane.models import (
+    EdgeCommandView,
     MergeLocalCommandPayload,
+    MergeLocalReport,
     MergeLocalRepository,
 )
 from agentkit.harness_client.projectedge import merge_local
 from agentkit.harness_client.projectedge.command_executor import (
     EdgeGitError,
     _write_story_marker,
+    execute_command,
 )
-from agentkit.harness_client.projectedge.merge_local import execute_merge_local
+from agentkit.harness_client.projectedge.merge_local import (
+    WorktreeIdentityError,
+    execute_merge_local,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -105,6 +113,98 @@ def _payload(candidate_and_tree: str, *repo_ids: str) -> MergeLocalCommandPayloa
         expected_candidate_commit=candidate,
         expected_candidate_tree_hash=tree_hash,
     )
+
+
+def test_main_push_disables_terminal_prompts_and_preserves_ambient_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded: dict[str, object] = {}
+    monkeypatch.setenv("AG3_152_AMBIENT", "preserved")
+
+    def _auth_sensitive_run(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        env = kwargs.get("env")
+        recorded["env"] = env
+        recorded["timeout"] = kwargs.get("timeout")
+        if not isinstance(env, dict) or env.get("GIT_TERMINAL_PROMPT") != "0":
+            raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+        return subprocess.CompletedProcess(
+            args[0], 128, "", "fatal: could not read Username"
+        )
+
+    monkeypatch.setattr(merge_local.subprocess, "run", _auth_sensitive_run)
+
+    result = merge_local._push(
+        tmp_path,
+        "--force-with-lease=refs/heads/main:locked",
+        "candidate:refs/heads/main",
+    )
+
+    env = recorded["env"]
+    assert isinstance(env, dict)
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert env["AG3_152_AMBIENT"] == "preserved"
+    assert recorded["timeout"] == 120
+    assert result.returncode == 128
+
+
+@pytest.mark.requires_git
+def test_successful_push_identity_teardown_failure_returns_merged_executor_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _worktree, _pre_merge, candidate_and_tree = _repo(tmp_path)
+    payload = _payload(candidate_and_tree, "api")
+
+    def _identity_failure(*_args: object, **_kwargs: object) -> None:
+        raise WorktreeIdentityError("simulated transient identity timeout")
+
+    monkeypatch.setattr(merge_local, "_teardown_if_present", _identity_failure)
+    command = EdgeCommandView(
+        command_id="cmd-merge-local",
+        command_kind="merge_local",
+        payload=payload.model_dump(mode="json"),
+        status="delivered",
+        created_at=datetime(2026, 7, 13, tzinfo=UTC),
+    )
+
+    result = execute_command(
+        command,
+        project_config=_config(tmp_path, "api"),
+        project_root=tmp_path,
+    )
+
+    candidate = candidate_and_tree.split(":", maxsplit=1)[0]
+    assert isinstance(result, MergeLocalReport)
+    assert result.outcome == "merged"
+    assert result.escalated is False
+    assert "teardown remains retryable" in result.detail
+    assert _git(root, "ls-remote", "origin", "refs/heads/main").split()[0] == candidate
+
+
+@pytest.mark.requires_git
+def test_absent_worktree_replay_prunes_registration_and_deletes_story_branch(
+    tmp_path: Path,
+) -> None:
+    root, worktree, _pre_merge, candidate_and_tree = _repo(tmp_path)
+    candidate = candidate_and_tree.split(":", maxsplit=1)[0]
+    _git(root, "push", "-q", "origin", f"{candidate}:refs/heads/main")
+    shutil.rmtree(worktree)
+
+    report = execute_merge_local(
+        _payload(candidate_and_tree, "api"),
+        project_config=_config(tmp_path, "api"),
+        project_root=tmp_path,
+    )
+
+    story_ref = f"refs/heads/story/{_STORY_ID}"
+    branch = subprocess.run(
+        ["git", "-C", str(root), "show-ref", "--verify", "--quiet", story_ref],
+        check=False,
+    )
+    assert report.outcome == "already_merged"
+    assert branch.returncode == 1
+    assert f"branch {story_ref}" not in _git(root, "worktree", "list", "--porcelain")
 
 
 @pytest.mark.requires_git
@@ -226,7 +326,8 @@ def test_already_merged_replay_refuses_sibling_worktree_symlink(
         junction = subprocess.run(
             ["cmd", "/c", "mklink", "/J", str(worktree_a), str(worktree_b)],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if junction.returncode != 0:

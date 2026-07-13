@@ -29,6 +29,7 @@ from agentkit.backend.control_plane.models import (
     ProvisionWorktreeCommandPayload,
     PushStatusReport,
     ResetWorktreeCommandPayload,
+    SyncPushCommandPayload,
     TakeoverErrorResult,
     TakeoverQuarantineDetail,
     TakeoverReconcileWorktreeRequest,
@@ -331,6 +332,27 @@ def test_command_payload_shapes_are_pinned() -> None:
         story_id="AG3-100", repo_id="api", branch="story/AG3-100"
     )
     assert set(probe.model_dump(mode="json")) == {"story_id", "repo_id", "branch"}
+    sync_push = SyncPushCommandPayload(
+        story_id="AG3-100",
+        project_key="tenant-a",
+        run_id="run-1",
+        repo_id="api",
+        branch="story/AG3-100",
+        base_branch="release",
+    )
+    assert sync_push.base_branch == "release"
+    assert set(sync_push.model_dump(mode="json")) == {
+        "story_id",
+        "project_key",
+        "run_id",
+        "repo_id",
+        "branch",
+        "base_branch",
+        "boundary_type",
+        "boundary_id",
+        "boundary_epoch",
+        "ownership_epoch",
+    }
 
 
 # ---------------------------------------------------------------------------
