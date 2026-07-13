@@ -1612,24 +1612,72 @@ td:hover .sheet-title-cell svg {
   line-height: var(--leading-body);
 }
 
+.detail-scroll-shell {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  background: var(--ak-bg);
+}
+
 .detail {
+  height: 100%;
+  min-height: 0;
   min-width: 0;
   overflow: auto;
-  padding: var(--space-5);
+  padding: var(--space-5) 2.125rem var(--space-5) var(--space-5);
   background: var(--ak-bg);
+  scrollbar-width: none;
+}
+
+.detail::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.detail-scrollbar {
+  position: absolute;
+  top: var(--space-4);
+  right: 0.25rem;
+  bottom: var(--space-4);
+  width: 0.625rem;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ak-surface-2), transparent 12%);
+  border: var(--border-hairline) solid var(--ak-border);
+  cursor: pointer;
+}
+
+.detail-scrollbar__thumb {
+  position: absolute;
+  top: 0;
+  left: 0.0625rem;
+  right: 0.0625rem;
+  background: color-mix(in srgb, var(--ak-accent-text), white 10%);
+  border-radius: var(--radius-pill);
+  box-shadow:
+    0 0 0.375rem color-mix(in srgb, var(--ak-accent-text), transparent 55%),
+    inset 0 0 0 0.0625rem color-mix(in srgb, white, transparent 72%);
+  cursor: grab;
+}
+
+.detail-scrollbar__thumb:hover {
+  background: color-mix(in srgb, var(--ak-accent-text), white 18%);
+}
+
+.detail-scrollbar__thumb:active {
+  cursor: grabbing;
 }
 
 .detail-inspector {
   position: fixed;
   top: 4.75rem;
-  right: 0.875rem;
+  right: 0;
   bottom: 0.875rem;
   z-index: 30;
   min-width: 35rem;
   max-width: calc(100vw - 6rem);
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
   box-shadow: 0 1.125rem 4.375rem var(--overlay-black-54);
 }
 
@@ -1765,7 +1813,7 @@ td:hover .sheet-title-cell svg {
 
 .detail-inspector .detail {
   min-height: 0;
-  padding: var(--space-5);
+  padding: var(--space-5) 2.125rem var(--space-5) var(--space-5);
 }
 
 .detail h2 {

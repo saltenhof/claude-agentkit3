@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import {
   Background,
   BaseEdge,
@@ -1769,13 +1769,99 @@ function DetailInspector({
 }
 
 function Detail({ story, activeTab }: { story: Story; activeTab: 'spec' | 'evidence' | 'kpi' | 'flow' }) {
+  const detailRef = useRef<HTMLElement | null>(null);
+  const [scrollThumb, setScrollThumb] = useState({ top: 0, height: 0, visible: false });
+
+  const updateScrollThumb = useCallback(() => {
+    const detail = detailRef.current;
+    if (!detail) return;
+
+    const { clientHeight, scrollHeight, scrollTop } = detail;
+    const visible = scrollHeight > clientHeight + 1;
+    if (!visible) {
+      setScrollThumb({ top: 0, height: 0, visible: false });
+      return;
+    }
+
+    const height = Math.max(44, Math.round((clientHeight / scrollHeight) * clientHeight));
+    const maxTop = Math.max(0, clientHeight - height);
+    const maxScroll = Math.max(1, scrollHeight - clientHeight);
+    const top = Math.round((scrollTop / maxScroll) * maxTop);
+    setScrollThumb({ top, height, visible: true });
+  }, []);
+
+  useEffect(() => {
+    const detail = detailRef.current;
+    if (!detail) return undefined;
+
+    updateScrollThumb();
+    detail.addEventListener('scroll', updateScrollThumb, { passive: true });
+    const resizeObserver = new ResizeObserver(updateScrollThumb);
+    resizeObserver.observe(detail);
+
+    return () => {
+      detail.removeEventListener('scroll', updateScrollThumb);
+      resizeObserver.disconnect();
+    };
+  }, [activeTab, story.id, updateScrollThumb]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(updateScrollThumb);
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTab, story.id, updateScrollThumb]);
+
+  const handleScrollRailClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const detail = detailRef.current;
+    if (!detail || !scrollThumb.visible) return;
+    if (event.target !== event.currentTarget) return;
+
+    const rail = event.currentTarget.getBoundingClientRect();
+    const nextTop = event.clientY - rail.top - scrollThumb.height / 2;
+    const maxTop = Math.max(1, detail.clientHeight - scrollThumb.height);
+    const maxScroll = detail.scrollHeight - detail.clientHeight;
+    detail.scrollTop = Math.max(0, Math.min(maxTop, nextTop)) / maxTop * maxScroll;
+  }, [scrollThumb.height, scrollThumb.visible]);
+
+  const handleScrollThumbDrag = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const detail = detailRef.current;
+    if (!detail || !scrollThumb.visible) return;
+
+    event.preventDefault();
+    const startY = event.clientY;
+    const startScrollTop = detail.scrollTop;
+    const maxTop = Math.max(1, detail.clientHeight - scrollThumb.height);
+    const maxScroll = detail.scrollHeight - detail.clientHeight;
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      detail.scrollTop = startScrollTop + ((moveEvent.clientY - startY) / maxTop) * maxScroll;
+    };
+    const handleUp = () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+  }, [scrollThumb.height, scrollThumb.visible]);
+
   return (
-    <aside className="detail">
-      {activeTab === 'spec' && <SpecificationTab story={story} />}
-      {activeTab === 'evidence' && <EvidenceTab story={story} />}
-      {activeTab === 'kpi' && <KpiTab story={story} />}
-      {activeTab === 'flow' && <FlowTab story={story} />}
-    </aside>
+    <div className="detail-scroll-shell">
+      <aside className="detail" ref={detailRef}>
+        {activeTab === 'spec' && <SpecificationTab story={story} />}
+        {activeTab === 'evidence' && <EvidenceTab story={story} />}
+        {activeTab === 'kpi' && <KpiTab story={story} />}
+        {activeTab === 'flow' && <FlowTab story={story} />}
+      </aside>
+      {scrollThumb.visible && (
+        <div className="detail-scrollbar" aria-hidden="true" onMouseDown={handleScrollRailClick}>
+          <div
+            className="detail-scrollbar__thumb"
+            style={{ height: scrollThumb.height, transform: `translateY(${scrollThumb.top}px)` }}
+            onMouseDown={handleScrollThumbDrag}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
