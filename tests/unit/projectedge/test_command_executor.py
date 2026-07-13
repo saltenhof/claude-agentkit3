@@ -753,10 +753,10 @@ def test_untracked_source_inside_cache_still_fails_closed(
         verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
 
 
-def test_untracked_bytecode_is_tolerated_but_never_collected(
+def test_untracked_pycache_bytecode_is_tolerated_but_never_collected(
     tmp_path: Path,
 ) -> None:
-    """The explicit *.pyc artifact allowance cannot become evidence input."""
+    """The narrow __pycache__ allowance cannot become evidence input."""
     root = tmp_path / "repo"
     _init_repo(root)
     head = subprocess.run(
@@ -766,19 +766,61 @@ def test_untracked_bytecode_is_tolerated_but_never_collected(
         text=True,
     ).stdout.strip()
     repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
-    (root / "forged.pyc").write_bytes(b"forged bytecode")
+    bytecode = root / "some" / "__pycache__" / "mod.pyc"
+    bytecode.parent.mkdir(parents=True)
+    bytecode.write_bytes(b"pytest bytecode")
 
     verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
     candidates = verify_evidence._request_candidates(  # noqa: SLF001
         VerifyEvidenceRequest(
             request_index=0,
             request_type="NEED_FILE",
-            target="forged.pyc",
+            target="some/__pycache__/mod.pyc",
         ),
         {"app": root},
     )
 
     assert candidates == []
+
+
+def test_untracked_root_bytecode_fails_closed_while_pycache_is_tolerated(
+    tmp_path: Path,
+) -> None:
+    """Bare bytecode is candidate mutation; only PEP 3147 layout is tolerated."""
+    root = tmp_path / "repo"
+    _init_repo(root)
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
+    root_bytecode = root / "root.pyc"
+    root_bytecode.write_bytes(b"unreviewed bytecode")
+
+    with pytest.raises(verify_evidence.VerifyEvidenceEdgeError, match="not clean"):
+        verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
+
+    root_bytecode.unlink()
+    cached_bytecode = root / "some" / "__pycache__" / "mod.pyc"
+    cached_bytecode.parent.mkdir(parents=True)
+    cached_bytecode.write_bytes(b"pytest bytecode")
+    verify_evidence._verify_candidate_head(root, repository)  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    "status_line",
+    (
+        r"?? foo\__pycache__\evil.pyc",
+        r"?? foo\.pytest_cache\README.md",
+    ),
+)
+def test_literal_backslashes_cannot_forge_cache_path_segments(
+    status_line: str,
+) -> None:
+    """Cache recognition uses actual Git path segments, not rewritten names."""
+    assert not verify_evidence._allowed_untracked_artifact(status_line)  # noqa: SLF001
 
 
 def test_base_collection_returns_changed_file_and_resolved_import_only(

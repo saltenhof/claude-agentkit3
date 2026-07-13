@@ -386,6 +386,42 @@ def test_120_second_test_contract_completes_after_old_30_second_cap(
     assert completed.request_results[0].status == "RESOLVED"
 
 
+def test_sequential_test_batch_budget_sums_timeouts_with_finite_ceiling() -> None:
+    """Sequential tests receive their summed contract time without an open wait."""
+    margin = timedelta(seconds=30)
+    requests = tuple(
+        VerifyEvidenceRequest(
+            request_index=index,
+            request_type="NEED_TEST_EVIDENCE",
+            target=f"pytest -q tests/test_{index}.py",
+            test_command=VerifyTestCommand(
+                arguments=("-q", f"tests/test_{index}.py"),
+                timeout_seconds=timeout_seconds,
+            ),
+        )
+        for index, timeout_seconds in enumerate((20, 30, 40))
+    )
+
+    budget = _wait_budget(requests, collection_margin=margin)
+
+    assert budget == margin + timedelta(seconds=20 + 30 + 40)
+    maximum_batch = tuple(
+        VerifyEvidenceRequest(
+            request_index=index,
+            request_type="NEED_TEST_EVIDENCE",
+            target=f"pytest -q tests/test_max_{index}.py",
+            test_command=VerifyTestCommand(
+                arguments=("-q", f"tests/test_max_{index}.py"),
+                timeout_seconds=120,
+            ),
+        )
+        for index in range(8)
+    )
+    assert _wait_budget(maximum_batch, collection_margin=margin) == timedelta(
+        seconds=30 + (8 * 120)
+    )
+
+
 def test_edge_command_failure_surfaces_real_reason_in_base_manifest(
     tmp_path: Path,
 ) -> None:

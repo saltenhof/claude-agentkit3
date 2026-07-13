@@ -555,16 +555,13 @@ def _wait_budget(
     requests: tuple[VerifyEvidenceRequest, ...],
     collection_margin: timedelta,
 ) -> timedelta:
-    """Return the bounded batch deadline budget from its slowest test contract."""
-    max_test_seconds = max(
-        (
-            request.test_command.timeout_seconds
-            for request in requests
-            if request.test_command is not None
-        ),
-        default=0,
+    """Return the bounded batch deadline budget for sequential test contracts."""
+    test_seconds = sum(
+        request.test_command.timeout_seconds
+        for request in requests
+        if request.test_command is not None
     )
-    return collection_margin + timedelta(seconds=max_test_seconds)
+    return collection_margin + timedelta(seconds=test_seconds)
 
 
 def _candidate_digest(

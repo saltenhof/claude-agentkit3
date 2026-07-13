@@ -146,7 +146,15 @@ def _verify_candidate_head(root: Path, repository: VerifyEvidenceRepository) -> 
             f"candidate head drift for repo {repository.repo_id!r}"
         )
     status = subprocess.run(
-        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+        [
+            "git",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -154,7 +162,7 @@ def _verify_candidate_head(root: Path, repository: VerifyEvidenceRepository) -> 
     )
     dirty_entries = tuple(
         line
-        for line in status.stdout.splitlines()
+        for line in status.stdout.split("\0")
         if line.strip() and not _allowed_untracked_artifact(line)
     )
     if status.returncode != 0 or dirty_entries:
@@ -167,11 +175,13 @@ def _allowed_untracked_artifact(status_line: str) -> bool:
     """Allow only the known untracked files created by the pytest runner."""
     if not status_line.startswith("?? "):
         return False
-    raw_path = status_line[3:].strip('"').replace("\\", "/")
+    raw_path = status_line[3:]
     if raw_path == ".agentkit-story.json":
         return True
     parts = PurePosixPath(raw_path).parts
-    return raw_path.endswith(".pyc") or _is_standard_pytest_cache_file(parts)
+    return (
+        raw_path.endswith(".pyc") and "__pycache__" in parts
+    ) or _is_standard_pytest_cache_file(parts)
 
 
 def _is_standard_pytest_cache_file(parts: tuple[str, ...]) -> bool:
