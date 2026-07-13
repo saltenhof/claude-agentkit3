@@ -12,6 +12,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 TOOLS_ROOT = REPO_ROOT / "tools"
 PYTEST_TEMP_ROOT = REPO_ROOT / "var" / "pytest-temproot"
+#: Windows MAX_PATH (260) fix: the repo-local temp root above, PLUS pytest-xdist's
+#: ``pytest-of-<user>/pytest-N/popen-gwN`` layout, PLUS the 64-char digest-keyed
+#: materialized-skill-variant paths (installer/paths.py) overrun 260 chars on
+#: Windows (WinError 206). POSIX has no such limit, so it keeps the repo-local
+#: ``var/`` root. On Windows we root the ephemeral test temp at a SHORT path on the
+#: SAME drive as the repo -- same volume keeps prompt-bundle hardlink binding valid,
+#: the short prefix restores headroom under 260. Overridable via
+#: ``AGENTKIT_PYTEST_TEMPROOT`` (the project itself never has to move up).
+WINDOWS_PYTEST_TEMP_ROOT = Path(
+    os.environ.get("AGENTKIT_PYTEST_TEMPROOT", str(Path(REPO_ROOT.anchor) / "akt-t"))
+)
 PROMPT_BUNDLE_STORE_ENV = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
 #: AG3-111 introduced a SECOND central store (materialized skill variants) that, like
 #: the prompt-bundle store, defaults to a privileged system path (``/var/lib/agentkit``
@@ -27,8 +38,8 @@ if str(TOOLS_ROOT) not in sys.path:
 os.environ.setdefault("AGENTKIT_STATE_BACKEND", "sqlite")
 os.environ.setdefault("AGENTKIT_ALLOW_SQLITE", "1")
 if os.name == "nt":
-    PYTEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(PYTEST_TEMP_ROOT))
+    WINDOWS_PYTEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(WINDOWS_PYTEST_TEMP_ROOT))
 
 
 #: ``pytest_plugins`` muss ab pytest 8 in der **top-level** ``conftest.py``
@@ -47,13 +58,15 @@ def _isolate_central_skill_stores(tmp_path_factory: pytest.TempPathFactory) -> N
     placeholder-bearing skill (materialized variant) or stages a prompt bundle would
     fail fail-closed. ``setdefault`` keeps any per-test explicit override intact.
     """
+    # Short mount names ("pbs"/"msv") keep the digest-keyed variant paths under the
+    # Windows 260-char MAX_PATH limit; the names are internal test-store roots only.
     os.environ.setdefault(
         PROMPT_BUNDLE_STORE_ENV,
-        str(tmp_path_factory.mktemp("prompt-bundle-store")),
+        str(tmp_path_factory.mktemp("pbs")),
     )
     os.environ.setdefault(
         MATERIALIZED_SKILL_VARIANT_STORE_ENV,
-        str(tmp_path_factory.mktemp("materialized-skill-variant-store")),
+        str(tmp_path_factory.mktemp("msv")),
     )
 
 
