@@ -172,23 +172,43 @@ def _collect_base_files(
 ) -> list[VerifyEvidenceFile]:
     selected: dict[tuple[str, str], Path] = {}
     for repository in payload.repositories:
-        root = roots[repository.repo_id]
-        mandatory = set(repository.changed_paths)
-        mandatory.update(_worker_hints_for_repo(payload.worker_hint_paths, repository.repo_id))
-        for raw_path in mandatory:
-            path = _safe_file(root, raw_path)
-            if path is not None:
-                selected[(repository.repo_id, raw_path)] = path
-        for changed in repository.changed_paths:
-            directory = PurePosixPath(changed).parent.as_posix()
-            for path in _safe_directory_files(root, directory):
-                rel = path.relative_to(root).as_posix()
-                if path.suffix.lower() in _SNAPSHOT_SUFFIXES:
-                    selected[(repository.repo_id, rel)] = path
-        for path in _safe_directory_files(root, "."):
-            if path.suffix.lower() in _CONFIG_SUFFIXES:
-                selected[(repository.repo_id, path.name)] = path
+        selected.update(
+            _base_repository_paths(
+                repository,
+                roots[repository.repo_id],
+                payload.worker_hint_paths,
+            )
+        )
     selected.update(_import_target_paths(payload, roots))
+    return _files_within_result_limit(selected)
+
+
+def _base_repository_paths(
+    repository: VerifyEvidenceRepository,
+    root: Path,
+    worker_hint_paths: tuple[str, ...],
+) -> dict[tuple[str, str], Path]:
+    selected: dict[tuple[str, str], Path] = {}
+    mandatory = set(repository.changed_paths)
+    mandatory.update(_worker_hints_for_repo(worker_hint_paths, repository.repo_id))
+    for raw_path in mandatory:
+        path = _safe_file(root, raw_path)
+        if path is not None:
+            selected[(repository.repo_id, raw_path)] = path
+    for changed in repository.changed_paths:
+        directory = PurePosixPath(changed).parent.as_posix()
+        for path in _safe_directory_files(root, directory):
+            if path.suffix.lower() in _SNAPSHOT_SUFFIXES:
+                selected[(repository.repo_id, path.relative_to(root).as_posix())] = path
+    for path in _safe_directory_files(root, "."):
+        if path.suffix.lower() in _CONFIG_SUFFIXES:
+            selected[(repository.repo_id, path.name)] = path
+    return selected
+
+
+def _files_within_result_limit(
+    selected: dict[tuple[str, str], Path],
+) -> list[VerifyEvidenceFile]:
     files: list[VerifyEvidenceFile] = []
     total = 0
     for (repo_id, rel_path), path in sorted(selected.items()):
@@ -327,25 +347,47 @@ def _request_candidates(
 
 def _file_candidates(target: str, roots: dict[str, Path]) -> list[VerifyEvidenceFile]:
     normalized = _safe_target(target)
-    selected: dict[tuple[str, str], Path] = {}
-    for repo_id, root in roots.items():
-        exact = _safe_file(root, normalized)
-        if exact is not None:
-            selected[(repo_id, normalized)] = exact
+    selected = _exact_file_candidates(normalized, roots)
     if not selected:
-        for repo_id, root in roots.items():
-            for path in _snapshot_files(root):
-                rel = path.relative_to(root).as_posix()
-                if fnmatch.fnmatch(rel, normalized):
-                    selected[(repo_id, rel)] = path
+        selected = _matching_file_candidates(normalized, roots)
     if not selected:
-        lowered = normalized.lower()
-        for repo_id, root in roots.items():
-            for path in _snapshot_files(root):
-                rel = path.relative_to(root).as_posix()
-                if lowered in rel.lower():
-                    selected[(repo_id, rel)] = path
+        selected = _substring_file_candidates(normalized, roots)
     return _files_from_paths(selected)
+
+
+def _exact_file_candidates(
+    normalized: str, roots: dict[str, Path]
+) -> dict[tuple[str, str], Path]:
+    return {
+        (repo_id, normalized): exact
+        for repo_id, root in roots.items()
+        if (exact := _safe_file(root, normalized)) is not None
+    }
+
+
+def _matching_file_candidates(
+    normalized: str, roots: dict[str, Path]
+) -> dict[tuple[str, str], Path]:
+    return {
+        (repo_id, relative): path
+        for repo_id, root in roots.items()
+        for path in _snapshot_files(root)
+        if fnmatch.fnmatch(
+            (relative := path.relative_to(root).as_posix()), normalized
+        )
+    }
+
+
+def _substring_file_candidates(
+    normalized: str, roots: dict[str, Path]
+) -> dict[tuple[str, str], Path]:
+    lowered = normalized.lower()
+    return {
+        (repo_id, relative): path
+        for repo_id, root in roots.items()
+        for path in _snapshot_files(root)
+        if lowered in (relative := path.relative_to(root).as_posix()).lower()
+    }
 
 
 def _text_candidates(

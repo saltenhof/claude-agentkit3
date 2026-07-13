@@ -123,6 +123,15 @@ class ImplementationConfig:
     evidence_preparation: VerifyEvidencePreparationCoordinator | None = None
 
 
+@dataclass(frozen=True)
+class _EvidencePhasePreparation:
+    """Prepared evidence state or a terminal phase-boundary failure."""
+
+    state: PhaseState
+    manifest: dict[str, object] | None = None
+    failure: HandlerResult | None = None
+
+
 class ImplementationPhaseHandler:
     """Run implementation and its internal QA-subflow."""
 
@@ -235,80 +244,20 @@ class ImplementationPhaseHandler:
         qa_rounds = state.memory.implementation.qa_feedback_rounds
         attempt_nr = qa_rounds + 1
         structural_completion_sync_point_id = f"phase_completion:{flow.run_id}"
-        prepared_manifest: dict[str, object] | None = None
-        if self._config.evidence_preparation is None:
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=(
-                    "VERIFY_EVIDENCE_PREPARATION_UNAVAILABLE: no coordinator configured",
-                ),
-                updated_state=_state_with_payload(
-                    state,
-                    QaCycleStatus.ESCALATED,
-                    _verify_context_for(qa_rounds),
-                ),
-            )
-        else:
-            from agentkit.backend.verify_system.evidence.assembler import (
-                EvidenceAssemblyError,
-            )
-            from agentkit.backend.verify_system.evidence.preflight_sender import (
-                PreflightReviewSenderError,
-            )
-
-            try:
-                evidence_inputs = _verify_evidence_inputs(
-                    ctx,
-                    run_id=flow.run_id,
-                    implementation_attempt=attempt_nr,
-                    owner_session_id=owner_session_id,
-                    ownership_epoch=expected_ownership_epoch,
-                    story_dir=s_dir,
-                )
-                wait_cursor = (
-                    state.payload.verify_evidence_wait
-                    if isinstance(state.payload, ImplementationPayload)
-                    else None
-                )
-                with bind_ownership_fence_scope(
-                    project_key=ctx.project_key,
-                    story_id=ctx.story_id,
-                    run_id=flow.run_id,
-                    owner_session_id=owner_session_id,
-                    expected_ownership_epoch=expected_ownership_epoch,
-                ):
-                    preparation = self._config.evidence_preparation.advance(
-                        evidence_inputs, wait_cursor
-                    )
-            except (EvidenceAssemblyError, PreflightReviewSenderError, ValueError) as exc:
-                return HandlerResult(
-                    status=PhaseStatus.FAILED,
-                    errors=(f"VERIFY_EVIDENCE_PREPARATION_FAILED: {exc}",),
-                    updated_state=_state_with_payload(
-                        state,
-                        QaCycleStatus.ESCALATED,
-                        _verify_context_for(qa_rounds),
-                    ),
-                )
-            if preparation.waiting:
-                assert preparation.cursor is not None  # noqa: S101 - typed outcome
-                return HandlerResult(
-                    status=PhaseStatus.PAUSED,
-                    yield_status="awaiting_edge_provisioning",
-                    updated_state=_state_with_payload(
-                        state,
-                        QaCycleStatus.IDLE,
-                        _verify_context_for(qa_rounds),
-                        verify_evidence_wait=preparation.cursor,
-                    ),
-                )
-            if preparation.manifest is None:
-                return HandlerResult(
-                    status=PhaseStatus.FAILED,
-                    errors=("VERIFY_EVIDENCE_PREPARATION_FAILED: bundle missing",),
-                )
-            prepared_manifest = preparation.manifest.model_dump(mode="json")
-            state = _clear_verify_evidence_wait(state)
+        evidence = self._prepare_evidence(
+            ctx,
+            state,
+            story_dir=s_dir,
+            run_id=flow.run_id,
+            implementation_attempt=attempt_nr,
+            qa_rounds=qa_rounds,
+            owner_session_id=owner_session_id,
+            ownership_epoch=expected_ownership_epoch,
+        )
+        if evidence.failure is not None:
+            return evidence.failure
+        prepared_manifest = evidence.manifest
+        state = evidence.state
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,
@@ -553,6 +502,84 @@ class ImplementationPhaseHandler:
             errors=tuple(_feedback_errors(outcome)),
             artifacts_produced=tuple(dict.fromkeys(artifacts)),
             updated_state=remediation_state,
+        )
+
+    def _prepare_evidence(
+        self,
+        ctx: StoryContext,
+        state: PhaseState,
+        *,
+        story_dir: Path,
+        run_id: str,
+        implementation_attempt: int,
+        qa_rounds: int,
+        owner_session_id: str,
+        ownership_epoch: int,
+    ) -> _EvidencePhasePreparation:
+        """Advance one claim-bound evidence checkpoint without sleeping."""
+        coordinator = self._config.evidence_preparation
+        if coordinator is None:
+            return _evidence_failure(
+                state,
+                qa_rounds,
+                "VERIFY_EVIDENCE_PREPARATION_UNAVAILABLE: no coordinator configured",
+            )
+        from agentkit.backend.verify_system.evidence.assembler import (
+            EvidenceAssemblyError,
+        )
+        from agentkit.backend.verify_system.evidence.preflight_sender import (
+            PreflightReviewSenderError,
+        )
+
+        try:
+            inputs = _verify_evidence_inputs(
+                ctx,
+                run_id=run_id,
+                implementation_attempt=implementation_attempt,
+                owner_session_id=owner_session_id,
+                ownership_epoch=ownership_epoch,
+                story_dir=story_dir,
+            )
+            with bind_ownership_fence_scope(
+                project_key=ctx.project_key,
+                story_id=ctx.story_id,
+                run_id=run_id,
+                owner_session_id=owner_session_id,
+                expected_ownership_epoch=ownership_epoch,
+            ):
+                preparation = coordinator.advance(
+                    inputs, _verify_evidence_wait_cursor(state)
+                )
+        except (EvidenceAssemblyError, PreflightReviewSenderError, ValueError) as exc:
+            return _evidence_failure(
+                state,
+                qa_rounds,
+                f"VERIFY_EVIDENCE_PREPARATION_FAILED: {exc}",
+            )
+        if preparation.waiting:
+            assert preparation.cursor is not None  # noqa: S101 - typed outcome
+            return _EvidencePhasePreparation(
+                state=state,
+                failure=HandlerResult(
+                    status=PhaseStatus.PAUSED,
+                    yield_status="awaiting_edge_provisioning",
+                    updated_state=_state_with_payload(
+                        state,
+                        QaCycleStatus.IDLE,
+                        _verify_context_for(qa_rounds),
+                        verify_evidence_wait=preparation.cursor,
+                    ),
+                ),
+            )
+        if preparation.manifest is None:
+            return _evidence_failure(
+                state,
+                qa_rounds,
+                "VERIFY_EVIDENCE_PREPARATION_FAILED: bundle missing",
+            )
+        return _EvidencePhasePreparation(
+            state=_clear_verify_evidence_wait(state),
+            manifest=preparation.manifest.model_dump(mode="json"),
         )
 
     def on_exit(self, _ctx: StoryContext, _envelope: PhaseEnvelope) -> None:
@@ -1047,6 +1074,7 @@ def _state_with_payload(
                 qa_feedback_rounds=qa_feedback_rounds,
             ),
         )
+    retained_wait = _retained_verify_evidence_wait(state, verify_evidence_wait)
     return evolve_phase_state(
         state,
         phase="implementation",
@@ -1058,15 +1086,7 @@ def _state_with_payload(
             qa_cycle_id=qa_cycle_id,
             evidence_epoch=evidence_epoch,
             evidence_fingerprint=evidence_fingerprint,
-            verify_evidence_wait=(
-                verify_evidence_wait
-                if verify_evidence_wait is not None
-                else (
-                    state.payload.verify_evidence_wait
-                    if isinstance(state.payload, ImplementationPayload)
-                    else None
-                )
-            ),
+            verify_evidence_wait=retained_wait,
         ),
         memory=memory,
         pause_reason=state.pause_reason,
@@ -1087,6 +1107,42 @@ def _clear_verify_evidence_wait(state: PhaseState) -> PhaseState:
                 update={"verify_evidence_wait": None}
             )
         }
+    )
+
+
+def _retained_verify_evidence_wait(
+    state: PhaseState,
+    supplied: VerifyEvidenceWaitCursor | None,
+) -> VerifyEvidenceWaitCursor | None:
+    if supplied is not None:
+        return supplied
+    if isinstance(state.payload, ImplementationPayload):
+        return state.payload.verify_evidence_wait
+    return None
+
+
+def _verify_evidence_wait_cursor(
+    state: PhaseState,
+) -> VerifyEvidenceWaitCursor | None:
+    if isinstance(state.payload, ImplementationPayload):
+        return state.payload.verify_evidence_wait
+    return None
+
+
+def _evidence_failure(
+    state: PhaseState, qa_rounds: int, message: str
+) -> _EvidencePhasePreparation:
+    return _EvidencePhasePreparation(
+        state=state,
+        failure=HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(message,),
+            updated_state=_state_with_payload(
+                state,
+                QaCycleStatus.ESCALATED,
+                _verify_context_for(qa_rounds),
+            ),
+        ),
     )
 
 

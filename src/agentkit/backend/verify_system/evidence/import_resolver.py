@@ -121,27 +121,27 @@ class ImportResolver:
         for repo_id, paths in changed_files_by_repo.items():
             for path in paths:
                 for result in self.resolve(repo_id, path):
-                    if result.target_repo_id is None or result.target_file is None:
-                        continue
-                    key = (result.target_repo_id, result.target_file.as_posix())
-                    file = self._files.get(key)
-                    if file is None:
-                        continue
-                    candidate = BundleEntry(
-                        repo_id=key[0],
-                        path=result.target_file,
-                        authority=AuthorityClass.SECONDARY_CONTEXT,
-                        confidence=result.confidence.value,
-                        reason="Resolved import from Stage-2 import resolver",
-                        size=file.size,
-                        content=file.content,
-                    )
-                    current = entries.get(key)
-                    if current is None or _confidence_rank_value(
-                        candidate.confidence
-                    ) > _confidence_rank_value(current.confidence):
-                        entries[key] = candidate
+                    candidate = self._entry_for_result(result)
+                    if candidate is not None:
+                        _retain_stronger_entry(entries, candidate)
         return tuple(entries[key] for key in sorted(entries))
+
+    def _entry_for_result(self, result: ResolvedImport) -> BundleEntry | None:
+        if result.target_repo_id is None or result.target_file is None:
+            return None
+        key = (result.target_repo_id, result.target_file.as_posix())
+        file = self._files.get(key)
+        if file is None:
+            return None
+        return BundleEntry(
+            repo_id=key[0],
+            path=result.target_file,
+            authority=AuthorityClass.SECONDARY_CONTEXT,
+            confidence=result.confidence.value,
+            reason="Resolved import from Stage-2 import resolver",
+            size=file.size,
+            content=file.content,
+        )
 
     @classmethod
     def from_collected_files(
@@ -318,37 +318,53 @@ class ImportResolver:
             candidates = self._java_import_candidates(statement)
             results.extend(self._results(repo_id, path, match.group(0), candidates))
         package = _java_package(content)
-        if package is not None:
-            references = set(JAVA_TYPE_REFERENCE.findall(content)) - set(JAVA_CLASS_DECL.findall(content))
-            for candidate_repo, candidate_path in self._java_index().get(package, []):
-                if candidate_path != path and PurePosixPath(candidate_path).stem in references:
-                    results.append(
-                        ResolvedImport(
-                            repo_id,
-                            Path(path),
-                            candidate_repo,
-                            Path(candidate_path),
-                            f"same-package:{PurePosixPath(candidate_path).stem}",
-                            ConfidenceLabel.SAME_PACKAGE_HEURISTIC,
-                        )
-                    )
+        results.extend(self._same_package_results(repo_id, path, content, package))
         packages = set(_spring_packages(content))
         if package is not None and SPRING_MARKER.search(content):
             packages.add(package)
-        for scan_package in packages:
-            for candidate_repo, candidate_path in self._java_index().get(scan_package, []):
-                if candidate_path != path:
-                    results.append(
-                        ResolvedImport(
-                            repo_id,
-                            Path(path),
-                            candidate_repo,
-                            Path(candidate_path),
-                            "spring-scan",
-                            ConfidenceLabel.SPRING_SCAN_HEURISTIC,
-                        )
-                    )
+        results.extend(self._spring_results(repo_id, path, packages))
         return _unique_results(results)
+
+    def _same_package_results(
+        self, repo_id: str, path: str, content: str, package: str | None
+    ) -> list[ResolvedImport]:
+        if package is None:
+            return []
+        references = set(JAVA_TYPE_REFERENCE.findall(content)) - set(
+            JAVA_CLASS_DECL.findall(content)
+        )
+        return [
+            ResolvedImport(
+                repo_id,
+                Path(path),
+                candidate_repo,
+                Path(candidate_path),
+                f"same-package:{PurePosixPath(candidate_path).stem}",
+                ConfidenceLabel.SAME_PACKAGE_HEURISTIC,
+            )
+            for candidate_repo, candidate_path in self._java_index().get(package, [])
+            if candidate_path != path
+            and PurePosixPath(candidate_path).stem in references
+        ]
+
+    def _spring_results(
+        self, repo_id: str, path: str, packages: set[str]
+    ) -> list[ResolvedImport]:
+        return [
+            ResolvedImport(
+                repo_id,
+                Path(path),
+                candidate_repo,
+                Path(candidate_path),
+                "spring-scan",
+                ConfidenceLabel.SPRING_SCAN_HEURISTIC,
+            )
+            for scan_package in packages
+            for candidate_repo, candidate_path in self._java_index().get(
+                scan_package, []
+            )
+            if candidate_path != path
+        ]
 
     def _java_index(self) -> dict[str, list[tuple[str, str]]]:
         if self._java_packages is None:
@@ -422,6 +438,17 @@ def _join(root: str, child: str) -> str:
 
 def _unique_candidates(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
     return sorted(set(items))
+
+
+def _retain_stronger_entry(
+    entries: dict[tuple[str, str], BundleEntry], candidate: BundleEntry
+) -> None:
+    key = (candidate.repo_id, candidate.path.as_posix())
+    current = entries.get(key)
+    if current is None or _confidence_rank_value(
+        candidate.confidence
+    ) > _confidence_rank_value(current.confidence):
+        entries[key] = candidate
 
 
 def _unique_results(results: Iterable[ResolvedImport]) -> list[ResolvedImport]:

@@ -103,26 +103,29 @@ def parse_test_command(target: str) -> VerifyTestCommand:
 def _validate_pytest_arguments(arguments: list[str]) -> None:
     expect_value = False
     for argument in arguments:
-        if expect_value:
-            if not argument or argument.startswith("-"):
-                raise ValueError("pytest option requires a bounded value")
-            expect_value = False
-            continue
-        if argument in _SIMPLE_FLAGS:
-            continue
-        if argument in _VALUE_FLAGS:
-            expect_value = True
-            continue
-        if any(argument.startswith(f"{flag}=") for flag in _VALUE_FLAGS):
-            continue
-        if argument.startswith("-"):
-            raise ValueError(f"pytest option is not whitelisted: {argument}")
-        path_part = argument.split("::", maxsplit=1)[0]
-        path = PurePosixPath(path_part.replace("\\", "/"))
-        if path.is_absolute() or ".." in path.parts:
-            raise ValueError("pytest target must stay inside the story worktree")
+        expect_value = _validate_pytest_argument(argument, expect_value)
     if expect_value:
         raise ValueError("pytest option value is missing")
+
+
+def _validate_pytest_argument(argument: str, expect_value: bool) -> bool:
+    if expect_value:
+        if not argument or argument.startswith("-"):
+            raise ValueError("pytest option requires a bounded value")
+        return False
+    if argument in _SIMPLE_FLAGS or any(
+        argument.startswith(f"{flag}=") for flag in _VALUE_FLAGS
+    ):
+        return False
+    if argument in _VALUE_FLAGS:
+        return True
+    if argument.startswith("-"):
+        raise ValueError(f"pytest option is not whitelisted: {argument}")
+    path_part = argument.split("::", maxsplit=1)[0]
+    path = PurePosixPath(path_part.replace("\\", "/"))
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError("pytest target must stay inside the story worktree")
+    return False
 
 
 __all__ = [

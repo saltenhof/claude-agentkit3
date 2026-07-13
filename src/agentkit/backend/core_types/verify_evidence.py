@@ -16,6 +16,7 @@ VERIFY_EVIDENCE_RESULT_TYPE: Literal["verify_evidence_report"] = (
 )
 MAX_EVIDENCE_FILE_BYTES = 350 * 1024
 MAX_EVIDENCE_RESULT_BYTES = 2 * 1024 * 1024
+SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
 
 class VerifyEvidenceStage(StrEnum):
@@ -49,38 +50,8 @@ class VerifyTestCommand(BaseModel):
         cls, arguments: tuple[str, ...]
     ) -> tuple[str, ...]:
         expect_value = False
-        simple_flags = {"-q", "-v", "-vv", "-x", "-s", "--quiet"}
-        value_flags = {"-k", "-m", "--maxfail", "--tb"}
         for argument in arguments:
-            if len(argument) > 512:
-                raise ValueError("pytest argument exceeds the bounded length")
-            if any(token in argument for token in ("\n", "\r", ";", "|", ">", "<")):
-                raise ValueError("pytest argument contains a shell operator")
-            if expect_value:
-                if not argument or argument.startswith("-"):
-                    raise ValueError("pytest option requires a bounded value")
-                expect_value = False
-                continue
-            if argument in simple_flags:
-                continue
-            if argument in value_flags:
-                expect_value = True
-                continue
-            if any(argument.startswith(f"{flag}=") for flag in value_flags):
-                continue
-            if argument.startswith("-"):
-                raise ValueError(f"pytest option is not whitelisted: {argument}")
-            path = PurePosixPath(
-                argument.split("::", maxsplit=1)[0].replace("\\", "/")
-            )
-            windows_path = PureWindowsPath(argument.split("::", maxsplit=1)[0])
-            if (
-                path.is_absolute()
-                or windows_path.is_absolute()
-                or bool(windows_path.drive)
-                or ".." in path.parts
-            ):
-                raise ValueError("pytest target must stay inside the worktree")
+            expect_value = _validate_test_argument(argument, expect_value)
         if expect_value:
             raise ValueError("pytest option value is missing")
         return arguments
@@ -165,7 +136,7 @@ class VerifyEvidenceFile(BaseModel):
     path: str = Field(min_length=1)
     content: str = Field(max_length=MAX_EVIDENCE_FILE_BYTES)
     size: int = Field(ge=0, le=MAX_EVIDENCE_FILE_BYTES)
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    sha256: str = Field(pattern=SHA256_PATTERN)
 
     @field_validator("path")
     @classmethod
@@ -237,10 +208,10 @@ class CollectVerifyEvidenceCommandPayload(BaseModel):
     project_key: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
     implementation_attempt: int = Field(ge=1)
-    batch_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    generation: str = Field(pattern=r"^[0-9a-f]{64}$")
-    candidate_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    request_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    batch_id: str = Field(pattern=SHA256_PATTERN)
+    generation: str = Field(pattern=SHA256_PATTERN)
+    candidate_digest: str = Field(pattern=SHA256_PATTERN)
+    request_digest: str = Field(pattern=SHA256_PATTERN)
     preflight_template_version: int = Field(ge=1)
     deadline_at: datetime
     repositories: tuple[VerifyEvidenceRepository, ...] = Field(min_length=1)
@@ -253,7 +224,7 @@ class CollectVerifyEvidenceCommandPayload(BaseModel):
     preflight_attempt_id: str | None = Field(default=None, max_length=256)
     preflight_checkpoint_state: Literal["started", "ready"] | None = None
     preflight_request_hash: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{64}$"
+        default=None, pattern=SHA256_PATTERN
     )
     raw_preflight_response: str | None = Field(default=None, max_length=262_144)
     base_manifest: dict[str, object] | None = None
@@ -281,41 +252,96 @@ class CollectVerifyEvidenceCommandPayload(BaseModel):
 
     @model_validator(mode="after")
     def _stage_fields_match(self) -> CollectVerifyEvidenceCommandPayload:
-        dynamic_fields = (
-            self.preflight_attempt_id,
-            self.preflight_checkpoint_state,
-            self.preflight_request_hash,
-        )
         if self.stage is VerifyEvidenceStage.BASE_COLLECTION:
-            if (
-                self.requests
-                or self.preflight_requests
-                or any(value is not None for value in dynamic_fields)
-                or self.raw_preflight_response is not None
-                or self.base_manifest is not None
-            ):
-                raise ValueError("base_collection cannot carry preflight requests")
-        elif any(value is None for value in dynamic_fields):
-            raise ValueError("dynamic_requests requires a preflight attempt")
-        elif self.preflight_checkpoint_state == "started":
-            if (
-                self.requests
-                or self.preflight_requests
-                or self.raw_preflight_response is not None
-                or self.base_manifest is not None
-            ):
-                raise ValueError("a started preflight attempt cannot carry a response")
-        elif self.raw_preflight_response is None or self.base_manifest is None:
-            raise ValueError("a ready preflight checkpoint requires response and manifest")
-        if self.spawn_worktree_repo not in {
-            repo.repo_id for repo in self.repositories
-        }:
-            raise ValueError("spawn_worktree_repo must be in repositories")
-        repo_ids = {repo.repo_id for repo in self.repositories}
-        for hint in self.worker_hint_paths:
-            if ":" in hint and hint.split(":", 1)[0] not in repo_ids:
-                raise ValueError("worker hint references an unknown repository")
+            _validate_base_payload(self)
+        else:
+            _validate_dynamic_payload(self)
+        _validate_repository_bindings(self)
         return self
+
+
+def _validate_base_payload(payload: CollectVerifyEvidenceCommandPayload) -> None:
+    dynamic_fields = (
+        payload.preflight_attempt_id,
+        payload.preflight_checkpoint_state,
+        payload.preflight_request_hash,
+    )
+    if (
+        payload.requests
+        or payload.preflight_requests
+        or any(value is not None for value in dynamic_fields)
+        or payload.raw_preflight_response is not None
+        or payload.base_manifest is not None
+    ):
+        raise ValueError("base_collection cannot carry preflight requests")
+
+
+def _validate_dynamic_payload(payload: CollectVerifyEvidenceCommandPayload) -> None:
+    dynamic_fields = (
+        payload.preflight_attempt_id,
+        payload.preflight_checkpoint_state,
+        payload.preflight_request_hash,
+    )
+    if any(value is None for value in dynamic_fields):
+        raise ValueError("dynamic_requests requires a preflight attempt")
+    if payload.preflight_checkpoint_state == "started":
+        if (
+            payload.requests
+            or payload.preflight_requests
+            or payload.raw_preflight_response is not None
+            or payload.base_manifest is not None
+        ):
+            raise ValueError("a started preflight attempt cannot carry a response")
+        return
+    if payload.raw_preflight_response is None or payload.base_manifest is None:
+        raise ValueError("a ready preflight checkpoint requires response and manifest")
+
+
+def _validate_repository_bindings(
+    payload: CollectVerifyEvidenceCommandPayload,
+) -> None:
+    repo_ids = {repo.repo_id for repo in payload.repositories}
+    if payload.spawn_worktree_repo not in repo_ids:
+        raise ValueError("spawn_worktree_repo must be in repositories")
+    for hint in payload.worker_hint_paths:
+        if ":" in hint and hint.split(":", 1)[0] not in repo_ids:
+            raise ValueError("worker hint references an unknown repository")
+
+
+def _validate_test_argument(argument: str, expect_value: bool) -> bool:
+    simple_flags = {"-q", "-v", "-vv", "-x", "-s", "--quiet"}
+    value_flags = {"-k", "-m", "--maxfail", "--tb"}
+    if len(argument) > 512:
+        raise ValueError("pytest argument exceeds the bounded length")
+    if any(token in argument for token in ("\n", "\r", ";", "|", ">", "<")):
+        raise ValueError("pytest argument contains a shell operator")
+    if expect_value:
+        if not argument or argument.startswith("-"):
+            raise ValueError("pytest option requires a bounded value")
+        return False
+    if argument in simple_flags or any(
+        argument.startswith(f"{flag}=") for flag in value_flags
+    ):
+        return False
+    if argument in value_flags:
+        return True
+    if argument.startswith("-"):
+        raise ValueError(f"pytest option is not whitelisted: {argument}")
+    _validate_test_target(argument)
+    return False
+
+
+def _validate_test_target(argument: str) -> None:
+    raw_path = argument.split("::", maxsplit=1)[0]
+    path = PurePosixPath(raw_path.replace("\\", "/"))
+    windows_path = PureWindowsPath(raw_path)
+    if (
+        path.is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+        or ".." in path.parts
+    ):
+        raise ValueError("pytest target must stay inside the worktree")
 
 
 class VerifyEvidenceReport(BaseModel):
@@ -325,10 +351,10 @@ class VerifyEvidenceReport(BaseModel):
 
     result_type: Literal["verify_evidence_report"] = VERIFY_EVIDENCE_RESULT_TYPE
     stage: VerifyEvidenceStage
-    batch_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    generation: str = Field(pattern=r"^[0-9a-f]{64}$")
-    candidate_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    request_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    batch_id: str = Field(pattern=SHA256_PATTERN)
+    generation: str = Field(pattern=SHA256_PATTERN)
+    candidate_digest: str = Field(pattern=SHA256_PATTERN)
+    request_digest: str = Field(pattern=SHA256_PATTERN)
     finding_code: str | None = Field(default=None, max_length=128)
     files: tuple[VerifyEvidenceFile, ...] = ()
     observations: tuple[VerifyEvidenceObservation, ...] = ()

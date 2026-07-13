@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -169,10 +169,7 @@ class VerifyEvidencePreparationCoordinator:
     ) -> EvidencePreparationInput:
         """Bind the sanctioned AG3-147 inventory before edge collection."""
         if self._change_evidence_port is None:
-            return replace(
-                inputs,
-                worker_hint_paths=_worker_hints(inputs),
-            )
+            return _with_bound_inventory(inputs, inputs.repositories)
         contexts = {
             repository.repo_id: RepoContext(
                 repo_id=repository.repo_id,
@@ -200,11 +197,7 @@ class VerifyEvidencePreparationCoordinator:
                     }
                 )
             )
-        return replace(
-            inputs,
-            repositories=tuple(repositories),
-            worker_hint_paths=_worker_hints(inputs),
-        )
+        return _with_bound_inventory(inputs, tuple(repositories))
 
     def _commission_base(
         self,
@@ -252,20 +245,13 @@ class VerifyEvidencePreparationCoordinator:
             item.repo_id: RepoContext(repo_id=item.repo_id, repo_path=Path(item.repo_id))
             for item in inputs.repositories
         }
+        collection_finding = _base_collection_finding(report)
         assembly = EvidenceAssembler(
             repos,
             collected_files=files,
             change_evidence_port=_ReportedChangeEvidencePort(payload.repositories),
             import_evidence_provider=ImportResolver.from_collected_files(files),
-            collection_finding=(
-                report.finding_code
-                if report is not None and report.finding_code is not None
-                else (
-                    None
-                    if report is not None
-                    else "EDGE_EVIDENCE_TIMEOUT: base collection"
-                )
-            ),
+            collection_finding=collection_finding,
         ).assemble(story_dir=inputs.story_dir, evidence_epoch=self._now())
         return self._checkpoint_preflight(inputs, payload.candidate_digest, assembly.manifest)
 
@@ -505,6 +491,12 @@ def _cursor_matches(
     )
 
 
+def _base_collection_finding(report: VerifyEvidenceReport | None) -> str | None:
+    if report is None:
+        return "EDGE_EVIDENCE_TIMEOUT: base collection"
+    return report.finding_code
+
+
 def _candidate_digest(
     repositories: tuple[VerifyEvidenceRepository, ...],
     worker_hint_paths: tuple[str, ...],
@@ -523,6 +515,25 @@ def _candidate_digest(
 def _worker_hints(inputs: EvidencePreparationInput) -> tuple[str, ...]:
     discovered = EvidenceAssembler.collect_worker_hint_paths(inputs.story_dir)
     return tuple(sorted({*inputs.worker_hint_paths, *discovered}))
+
+
+def _with_bound_inventory(
+    inputs: EvidencePreparationInput,
+    repositories: tuple[VerifyEvidenceRepository, ...],
+) -> EvidencePreparationInput:
+    return EvidencePreparationInput(
+        project_key=inputs.project_key,
+        story_id=inputs.story_id,
+        run_id=inputs.run_id,
+        implementation_attempt=inputs.implementation_attempt,
+        owner_session_id=inputs.owner_session_id,
+        ownership_epoch=inputs.ownership_epoch,
+        repositories=repositories,
+        spawn_worktree_repo=inputs.spawn_worktree_repo,
+        story_dir=inputs.story_dir,
+        repository_paths=inputs.repository_paths,
+        worker_hint_paths=_worker_hints(inputs),
+    )
 
 
 def _request_digest(requests: tuple[ReviewerRequest, ...]) -> str:

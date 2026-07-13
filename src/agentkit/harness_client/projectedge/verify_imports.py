@@ -66,7 +66,9 @@ def _python_targets(
                 posixpath.normpath(f"{parent}/{candidate}")
                 for candidate in tuple(candidates)
             )
-        targets.update(key for key in snapshot if key[1] in candidates)
+        targets.update(
+            key for key in snapshot if key[0] == repo_id and key[1] in candidates
+        )
     return targets
 
 
