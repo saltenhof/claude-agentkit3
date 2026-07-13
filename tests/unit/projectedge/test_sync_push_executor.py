@@ -112,14 +112,16 @@ def _project_config(project_root: Path, repo_names: list[str]) -> ProjectConfig:
 def _payload(
     branch: str = _BRANCH, *, base_branch: str = "main"
 ) -> SyncPushCommandPayload:
-    return SyncPushCommandPayload(
-        story_id=_STORY_ID,
-        project_key="test-project",
-        run_id="run-1",
-        repo_id="api",
-        branch=branch,
-        base_branch=base_branch,
-    )
+    values: dict[str, object] = {
+        "story_id": _STORY_ID,
+        "project_key": "test-project",
+        "run_id": "run-1",
+        "repo_id": "api",
+        "branch": branch,
+    }
+    if base_branch != "main":
+        values["base_branch"] = base_branch
+    return SyncPushCommandPayload.model_validate(values)
 
 
 def _context(
