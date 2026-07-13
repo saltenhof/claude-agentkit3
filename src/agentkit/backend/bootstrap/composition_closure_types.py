@@ -9,7 +9,7 @@ from agentkit.backend.closure.merge_sequence import (
     RepoRunners,
     SanityGatePort,
 )
-from agentkit.backend.closure.multi_repo_saga import GitBackend as RepoGitBackend
+from agentkit.backend.closure.multi_repo_saga import GitReadBackend as RepoGitBackend
 from agentkit.backend.closure.phase import (
     ClosurePhaseHandler,
     ClosureProgressStore,

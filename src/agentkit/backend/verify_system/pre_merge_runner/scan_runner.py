@@ -74,8 +74,6 @@ from agentkit.backend.verify_system.sonarqube_gate.adapter import (
 from agentkit.integration_clients.sonar import SonarApiError
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from agentkit.backend.config.models import SonarQubeConfig
     from agentkit.backend.verify_system.pre_merge_runner.ci_run import (
         CandidateRunCache,
@@ -103,22 +101,6 @@ class TreeHashResolver(Protocol):
 
 
 @dataclass(frozen=True)
-class GitTreeHashResolver:
-    """Productive :class:`TreeHashResolver` over ``agentkit.backend.utils.git``.
-
-    Attributes:
-        repo_root: Root of the git repository holding the candidate commit.
-    """
-
-    repo_root: Path
-
-    def __call__(self, commit_sha: str) -> str:
-        from agentkit.backend.utils.git import tree_hash_of_commit
-
-        return tree_hash_of_commit(self.repo_root, commit_sha)
-
-
-@dataclass(frozen=True)
 class CiSonarScanRunner:
     """Productive :class:`PreMergeScanPort` over a shared CI run + Sonar client.
 
@@ -131,15 +113,15 @@ class CiSonarScanRunner:
         config: The resolved ``sonarqube`` config stanza.
         ledger: The accepted-exception ledger actually used for this analysis
             (its content hash is bound into the attestation, FIX-4).
-        tree_resolver: Resolves ``tree_hash`` from the proven candidate commit
-            (``git rev-parse <commit>^{tree}``, FIX-4) — never a local HEAD.
+        tree_resolver: Deprecated injected test seam. Productive closure trusts
+            only the Edge-reported ``candidate.tree_hash`` and never re-measures.
     """
 
     run_cache: CandidateRunCache
     client: SonarClient
     config: SonarQubeConfig
     ledger: AcceptedExceptionLedger
-    tree_resolver: TreeHashResolver
+    tree_resolver: TreeHashResolver | None = None
 
     def produce_attestation(self, candidate: CandidateRef) -> ScanOutcome:
         """Execute a scan on the candidate and return a proven outcome.
@@ -224,13 +206,7 @@ class CiSonarScanRunner:
                 f"ceTaskId={run.ce_task_id!r} (FK-33 §33.6.3, fail-closed — "
                 "never a placeholder scanner version in a produced attestation)"
             )
-        try:
-            tree_hash = self.tree_resolver(candidate.commit_sha)
-        except Exception as exc:  # noqa: BLE001 — any resolver failure fails closed
-            raise SonarApiError(
-                f"could not resolve tree hash for {candidate.commit_sha!r} "
-                f"(FIX-4, fail-closed — no empty tree stamping): {exc}"
-            ) from exc
+        tree_hash = candidate.tree_hash
         if not tree_hash:
             raise SonarApiError(
                 f"empty tree hash for {candidate.commit_sha!r} "
@@ -306,4 +282,4 @@ def _check_built_commit(run: CiRunResult, commit_sha: str) -> ScanOutcome | None
     return None
 
 
-__all__ = ["CiSonarScanRunner", "GitTreeHashResolver", "TreeHashResolver"]
+__all__ = ["CiSonarScanRunner", "TreeHashResolver"]

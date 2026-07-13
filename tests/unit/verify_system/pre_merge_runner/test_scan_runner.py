@@ -9,19 +9,12 @@ logic runs for real. Covers FIX-1 (attestation surfaced + complete), FIX-2
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING
-
 from agentkit.backend.config.models import SonarQubeConfig
 from agentkit.backend.verify_system.pre_merge_runner.ci_run import CiRunUnavailableError
 from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
 from agentkit.backend.verify_system.pre_merge_runner.scan_runner import (
     CiSonarScanRunner,
-    GitTreeHashResolver,
 )
-
-if TYPE_CHECKING:
-    import pytest
 
 from .fakes import (
     FAKE_TREE_HASH,
@@ -326,29 +319,9 @@ class TestNegativePaths:
         # No CI run is triggered for an empty candidate commit.
         assert backend.calls == []
 
-class TestGitTreeHashResolver:
-    def test_delegates_to_git_tree_hash_of_commit(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The productive resolver delegates to ``utils.git.tree_hash_of_commit``."""
-        import agentkit.backend.utils.git as git_utils
-
-        seen: dict[str, object] = {}
-
-        def _fake(repo_root: Path, commit_sha: str) -> str:
-            seen["repo_root"] = repo_root
-            seen["commit"] = commit_sha
-            return "treeXYZ"
-
-        monkeypatch.setattr(git_utils, "tree_hash_of_commit", _fake)
-        resolver = GitTreeHashResolver(repo_root=Path("/repo"))
-        assert resolver(_SHA) == "treeXYZ"
-        assert seen == {"repo_root": Path("/repo"), "commit": _SHA}
-
-
-class TestNegativePathsTreeResolver:
-    def test_tree_resolver_failure_fails_closed(self) -> None:
-        """FIX-4: an unresolvable tree hash never stamps an empty tree."""
+class TestEdgeReportedTreeBinding:
+    def test_backend_tree_resolver_is_not_called(self) -> None:
+        """AG3-152: Dim-9 verifies the Edge hash and never re-measures git."""
         backend = FakeCiBackend(result=make_ci_result())
         client = FakeSonarClient(analyzed_revision=_SHA)
 
@@ -363,7 +336,5 @@ class TestNegativePathsTreeResolver:
             tree_resolver=_boom,
         )
         outcome = runner.produce_attestation(_candidate())
-        assert outcome.produced is False
-        assert outcome.attestation is None
-        assert outcome.reason is not None
-        assert "sonar_unreachable" in outcome.reason
+        assert outcome.produced is True
+        assert outcome.tree_hash == _candidate().tree_hash

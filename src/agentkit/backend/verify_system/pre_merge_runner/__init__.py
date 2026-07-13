@@ -47,7 +47,6 @@ from agentkit.backend.verify_system.pre_merge_runner.runtime_wiring import (
 )
 from agentkit.backend.verify_system.pre_merge_runner.scan_runner import (
     CiSonarScanRunner,
-    GitTreeHashResolver,
     TreeHashResolver,
 )
 
@@ -62,7 +61,6 @@ __all__ = [
     "CiRunResult",
     "CiRunUnavailableError",
     "CiSonarScanRunner",
-    "GitTreeHashResolver",
     "JenkinsCiBackend",
     "PreMergeRunnerUnavailableError",
     "PreMergeScanPort",

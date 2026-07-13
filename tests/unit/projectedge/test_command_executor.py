@@ -427,14 +427,14 @@ def test_preflight_probe_after_provision_reports_branch_and_marker(tmp_path: Pat
 # ---------------------------------------------------------------------------
 
 
-def test_registered_but_unexecutable_kind_yields_error_result(tmp_path: Path) -> None:
+def test_merge_local_bad_payload_yields_error_result(tmp_path: Path) -> None:
     config = _project_config(tmp_path, ["api"])
     command = _command("merge_local", {"repo_id": "api"})
 
     result = execute_command(command, project_config=config, project_root=tmp_path)
 
     assert isinstance(result, CommandErrorResult)
-    assert result.error_code == "unsupported_command_kind"
+    assert result.error_code == "command_execution_failed"
 
 
 def test_execution_failure_yields_error_result_not_exception(tmp_path: Path) -> None:

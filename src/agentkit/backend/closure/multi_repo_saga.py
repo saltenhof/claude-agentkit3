@@ -6,7 +6,6 @@ AK2 reference: ``T:/codebase/claude-agentkit/agentkit/worktree/merge.py``
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
@@ -16,7 +15,6 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     ClosureProgress,
     MultiRepoClosureState,
 )
-from agentkit.backend.utils.git import remove_worktree
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -63,35 +61,18 @@ class GitCommandResult:
         return self.returncode == 0
 
 
-class GitBackend(Protocol):
-    """Git side-effect port for the closure saga."""
+class GitReadBackend(Protocol):
+    """Read-only Git command port for non-merge evidence consumers."""
 
     def run(self, repo: ClosureRepo, *args: str) -> GitCommandResult:
         """Run one git command in a participating repository."""
 
+
+class GitBackend(GitReadBackend, Protocol):
+    """Git side-effect port retained only for injected legacy saga tests."""
+
     def remove_worktree(self, repo: ClosureRepo) -> None:
         """Remove one repo's story worktree idempotently."""
-
-
-class SubprocessGitBackend:
-    """Git backend using subprocess and ``git worktree remove``."""
-
-    def run(self, repo: ClosureRepo, *args: str) -> GitCommandResult:
-        result = subprocess.run(
-            ["git", "-C", str(repo.command_cwd), *args],
-            capture_output=True,
-            text=True,
-        )
-        return GitCommandResult(
-            returncode=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
-        )
-
-    def remove_worktree(self, repo: ClosureRepo) -> None:
-        if repo.worktree_path is None:
-            return
-        remove_worktree(repo.repo_root, repo.worktree_path)
 
 
 @dataclass(frozen=True)
@@ -128,7 +109,7 @@ def pre_merge_check(
 ) -> list[str]:
     """Return repos whose story branch is not ff-mergeable to origin/base."""
 
-    git = backend or SubprocessGitBackend()
+    git = _require_backend(backend)
     failed: list[str] = []
     story_branch = _story_branch(story_id)
     origin_base = f"origin/{base}"
@@ -154,7 +135,7 @@ def push_story_branches(
 ) -> SagaStageResult:
     """Push all story branches, stopping on the first failed repo."""
 
-    git = backend or SubprocessGitBackend()
+    git = _require_backend(backend)
     pushed: list[str] = []
     story_branch = _story_branch(story_id)
     state = multi_repo or MultiRepoClosureState()
@@ -199,7 +180,7 @@ def local_ff_merge_with_rollback(
 ) -> SagaStageResult:
     """Fast-forward all repos locally, rolling back prior repos on failure."""
 
-    git = backend or SubprocessGitBackend()
+    git = _require_backend(backend)
     state = multi_repo or MultiRepoClosureState()
     current_progress = _ensure_story_branch_pushed(progress)
     story_branch = _story_branch(story_id)
@@ -272,7 +253,7 @@ def push_main(
 ) -> SagaStageResult:
     """Push all target branches, recording partial-push state on failure."""
 
-    git = backend or SubprocessGitBackend()
+    git = _require_backend(backend)
     state = multi_repo or MultiRepoClosureState()
     current_progress = _ensure_story_branch_pushed(progress)
     pushed: list[str] = []
@@ -330,7 +311,7 @@ def teardown_worktrees(
     """Remove all story worktrees idempotently."""
 
     del story_id
-    git = backend or SubprocessGitBackend()
+    git = _require_backend(backend)
     for repo in repos:
         git.remove_worktree(repo)
 
@@ -344,7 +325,7 @@ def run_multi_repo_closure(
 ) -> MultiRepoSagaResult:
     """Run the full five-stage multi-repo closure saga."""
 
-    git = backend or SubprocessGitBackend()
+    git = _require_backend(backend)
     progress = ClosureProgress()
     state = MultiRepoClosureState()
     stages: list[SagaStageResult] = []
@@ -460,6 +441,13 @@ class _RollbackResult:
 
 def _story_branch(story_id: str) -> str:
     return f"story/{story_id}"
+
+
+def _require_backend(backend: GitBackend | None) -> GitBackend:
+    """Require explicit Git-port injection; backend production has no default."""
+    if backend is None:
+        raise ValueError("closure Git operations require an explicit edge-side backend")
+    return backend
 
 
 def _ensure_merge_prerequisites(progress: ClosureProgress | None) -> ClosureProgress:
@@ -591,11 +579,11 @@ def _command_error(repo: ClosureRepo, action: str, result: GitCommandResult) -> 
 __all__ = [
     "ClosureRepo",
     "GitBackend",
+    "GitReadBackend",
     "GitCommandResult",
     "MultiRepoSagaResult",
     "SagaStage",
     "SagaStageResult",
-    "SubprocessGitBackend",
     "local_ff_merge_with_rollback",
     "pre_merge_check",
     "push_main",

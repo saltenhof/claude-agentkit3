@@ -371,7 +371,8 @@ def _run_commands(
 
     Fetches this session's open commands, executes provision/teardown/
     preflight_probe, the official ``sync_push`` Edge-Push-Gate path, AND the
-    ``takeover_reconcile`` quarantine/reprovision path. The push path uses the
+    ``takeover_reconcile`` quarantine/reprovision path and atomic ``merge_local``
+    closure transport. The push path uses the
     backend-managed service identity and only the official ``story/{id}`` ref
     (FK-15 §15.5.4). All execute dev-locally, and the loop
     reports each result with the edge's own ``op_id``. The push mechanic is the

@@ -15,6 +15,7 @@ from agentkit.harness_client.projectedge.command_executor import (
     execute_sync_push,
     process_open_commands,
 )
+from agentkit.harness_client.projectedge.merge_local import execute_merge_local
 from agentkit.harness_client.projectedge.reconcile import (
     TakeoverReconcileExecution,
     execute_takeover_reconcile,
@@ -40,6 +41,7 @@ __all__ = [
     "TakeoverReconcileExecution",
     "build_project_edge_client",
     "execute_command",
+    "execute_merge_local",
     "execute_sync_push",
     "execute_takeover_reconcile",
     "process_open_commands",

@@ -12,16 +12,10 @@ from agentkit.backend.bootstrap.composition_governance import build_integrity_ga
 from agentkit.backend.bootstrap.composition_verify import _SubprocessGitChangeEvidenceProvider, build_push_verification_port
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from agentkit.backend.bootstrap import composition_closure_types as closure_types
     from agentkit.backend.bootstrap import composition_project_types as project_types
     from agentkit.backend.bootstrap import composition_verify_types as verify_types
 
-
-#: Test-file path markers used to count test files in a changeset (FK-27
-#: ``test.count``): a changed path is a test file when its name matches.
-_TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
 
 def build_closure_phase_handler(
     config: object,
@@ -115,7 +109,16 @@ def build_closure_phase_handler(
     config.scan_port = primary.scan_port
     config.build_test_port = primary.build_test_port
     config.repo_runners = repo_runners
-    config.sanity_port = _build_sanity_gate_port(ci_config)
+    from agentkit.backend.closure.edge_merge import (
+        ClosureEntryPushVerificationPort,
+        QueueMergeLocalCommandPort,
+    )
+    from agentkit.backend.control_plane.repository import EdgeCommandRepository
+
+    config.merge_local_port = QueueMergeLocalCommandPort(
+        edge_commands=EdgeCommandRepository()
+    )
+    config.push_verification_port = ClosureEntryPushVerificationPort()
     config.doc_fidelity_port = _build_doc_fidelity_feedback_port(layer2_llm_client)
     config.vectordb_sync_port = _build_vectordb_sync_port()
     config.guard_deactivation_port = _build_guard_deactivation_port(base_dir, project_key=project_key)
@@ -377,72 +380,6 @@ def _build_per_repo_runners(
     return runners, resolved_applicability
 
 
-def _build_sanity_gate_port(ci_config: object | None) -> closure_types.SanityGatePort:
-    """Build the fast-mode Sanity-Gate seam (FK-29 §29.1a.6, FIX-6).
-
-    Wires the real subprocess git backend so the adapter genuinely confirms the
-    two git-mechanic predicates (worktree clean + pre-merge rebase onto
-    ``origin/main`` OK). The third predicate ("tests green") is wired to the SAME
-    real AG3-056 Build/Test capability the standard barrier uses, via
-    :func:`build_fast_test_runner` (FIX-6 -- one tests-green truth, not a stub).
-    When CI is DECLARED absent (no ``ci`` stanza / ``ci.available == false``) no
-    real runner exists, so ``test_runner`` stays ``None`` and the gate fails
-    closed after the git checks (FAIL-CLOSED -- a fast story whose tests cannot be
-    confirmed escalates; the floor is non-disableable, NO ERROR BYPASSING).
-    """
-    from agentkit.backend.closure.multi_repo_saga import SubprocessGitBackend
-    from agentkit.backend.closure.runtime_ports import ProductiveSanityGatePort
-
-    return ProductiveSanityGatePort(
-        git_backend=SubprocessGitBackend(),
-        test_runner=build_fast_test_runner(ci_config),
-    )
-
-
-def build_fast_test_runner(
-    ci_config: object | None,
-) -> Callable[[Path], tuple[bool, str | None]] | None:
-    """Build the fast-mode tests-green floor runner (AG3-018 FIX-6, FK-24 §24.3.4).
-
-    Wraps the REAL AG3-056 commit-bound :class:`BuildTestPort` (``CiBuildTestRunner``
-    over the project's CI) as the ``Callable[[Path], tuple[bool, str | None]]``
-    shape consumed by BOTH the fast QA-subflow floor (``build_verify_system
-    fast_test_runner``) and the closure Sanity-Gate
-    (``ProductiveSanityGatePort.test_runner``) -- ONE tests-green truth, not a
-    second mechanism, not a stub.
-
-    Args:
-        ci_config: The resolved ``ci`` (Jenkins) config stanza, or ``None``.
-
-    Returns:
-        * ``None`` when CI is DECLARED absent (no ``ci`` stanza /
-          ``ci.available == false``): no real runner exists, so the fast floor is
-          unconfirmable and the consumer fails closed (the non-disableable floor).
-        * a :class:`CiBuildTestFastRunner` over the real Build/Test port when CI
-          is applicable. An applicable-but-unreachable CI raises
-          ``PreMergeRunnerUnavailableError`` (fail-closed; never a silent skip).
-    """
-    from agentkit.backend.closure.multi_repo_saga import SubprocessGitBackend
-    from agentkit.backend.closure.runtime_ports import CiBuildTestFastRunner
-    from agentkit.backend.config.models import JenkinsConfig
-    from agentkit.backend.verify_system.pre_merge_runner.runtime_wiring import (
-        build_build_test_runner,
-    )
-
-    typed_ci = ci_config if isinstance(ci_config, JenkinsConfig) else None
-    if typed_ci is None or not typed_ci.available:
-        return None
-    # ``repo_root`` is unused by the build/test facet (it needs no tree/ledger
-    # read); the candidate's tree is resolved per-run from the story worktree.
-    build_test_port = build_build_test_runner(typed_ci, Path.cwd())
-    if build_test_port is None:  # pragma: no cover - guarded by the check above
-        return None
-    return CiBuildTestFastRunner(
-        build_test_port=build_test_port,
-        git_backend=SubprocessGitBackend(),
-    )
-
-
 def _build_doc_fidelity_feedback_port(
     layer2_llm_client: verify_types.LlmClient | None = None,
 ) -> closure_types.DocFidelityFeedbackPort:
@@ -501,120 +438,6 @@ def _build_guard_deactivation_port(store_dir: Path, *, project_key: str) -> clos
         project_root=store_dir,
     )
     return ProductiveGuardDeactivationPort(governance)
-
-
-def build_structural_build_test_port(
-    ci_config: object | None,
-    story_dir: Path,
-) -> verify_types.BuildTestEvidencePort:
-    """Build the REAL Layer-1 build/test evidence port (FIX-1, FK-27 §27.4.2).
-
-    REUSES the AG3-056 commit-bound :class:`CiBuildTestRunner` (the same CI
-    Build/Test capability the closure pre-merge barrier + the fast-mode floor
-    use -- ONE build/test truth, NO new dependency). The runner reports ONE
-    green/red verdict for the integrated candidate commit, which is exactly the
-    truth ``build.compile`` AND ``build.test_execution`` (both BLOCKING) need: a
-    CI-green run proves the build compiled and the tests passed for that commit.
-    The MAJOR ``test.count`` is derived from the SYSTEM ``git diff`` (system
-    evidence, not a worker claim).
-
-    Args:
-        ci_config: The resolved ``ci`` (Jenkins) config stanza, or ``None``.
-        story_dir: The story working directory (git HEAD + diff source).
-
-    Returns:
-        * the fail-closed absent port when CI is DECLARED absent (no ``ci``
-          stanza / ``ci.available == false``): the build/test evidence is
-          unconfirmable so ``build.compile`` / ``build.test_execution`` FAIL
-          closed (NO ERROR BYPASSING; never a fabricated green).
-        * a :class:`_CiBuildTestEvidenceAdapter` over the real Build/Test port
-          when CI is applicable. An applicable-but-unreachable CI raises
-          ``PreMergeRunnerUnavailableError`` (fail-closed; never a silent skip).
-    """
-    from agentkit.backend.config.models import JenkinsConfig
-    from agentkit.backend.verify_system.pre_merge_runner.runtime_wiring import (
-        build_build_test_runner,
-    )
-    from agentkit.backend.verify_system.structural.checks import ABSENT_BUILD_TEST_PORT
-
-    typed_ci = ci_config if isinstance(ci_config, JenkinsConfig) else None
-    if typed_ci is None or not typed_ci.available:
-        return ABSENT_BUILD_TEST_PORT
-    build_test_port = build_build_test_runner(typed_ci, story_dir)
-    if build_test_port is None:  # pragma: no cover - guarded by the check above
-        return ABSENT_BUILD_TEST_PORT
-    from agentkit.backend.closure.multi_repo_saga import SubprocessGitBackend
-
-    return _CiBuildTestEvidenceAdapter(
-        build_test_port=build_test_port,
-        git_backend=SubprocessGitBackend(),
-    )
-
-
-@dataclass(frozen=True)
-class _CiBuildTestEvidenceAdapter:
-    """Adapt the AG3-056 ``BuildTestPort`` to the Layer-1 ``BuildTestEvidencePort``.
-
-    Resolves the story worktree's current HEAD into the AG3-056
-    :class:`CandidateRef` and runs the commit-bound Build/Test. The CI run's
-    single green/red verdict maps to BOTH ``build_ok`` and ``tests_green`` (a
-    CI-green run proves the build compiled and tests passed for that commit). The
-    test-file count is the SYSTEM ``git diff`` test-file count (system evidence).
-    Coverage is reported as confirmed ONLY by the CI run's green (the AG3-056
-    runner does not expose a separate coverage number; a green CI run executed
-    the suite -- coverage_report_present mirrors the green run, threshold is left
-    to the project CI). A red/unreadable run fails closed (``build_ok=False``).
-
-    Attributes:
-        build_test_port: The real AG3-056 commit-bound Build/Test port.
-        git_backend: Git read port to resolve the worktree HEAD + diff.
-    """
-
-    build_test_port: verify_types.BuildTestPort
-    git_backend: closure_types.RepoGitBackend
-
-    def evaluate(self, story_dir: Path) -> verify_types.BuildTestEvidence | None:
-        """Run the commit-bound Build/Test for the worktree HEAD (fail-closed)."""
-        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
-        from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
-        from agentkit.backend.verify_system.structural.checks import BuildTestEvidence
-
-        repo = ClosureRepo(name=story_dir.name, repo_root=story_dir)
-        branch = self._read(repo, "rev-parse", "--abbrev-ref", "HEAD")
-        commit = self._read(repo, "rev-parse", "HEAD")
-        tree = self._read(repo, "rev-parse", "HEAD^{tree}")
-        if branch is None or commit is None or tree is None:
-            return None  # HEAD unresolvable -> evidence unconfirmable (fail-closed)
-        outcome = self.build_test_port.run(CandidateRef(branch=branch, commit_sha=commit, tree_hash=tree))
-        test_file_count = self._diff_test_file_count(repo)
-        return BuildTestEvidence(
-            build_ok=outcome.green,
-            tests_green=outcome.green,
-            test_file_count=test_file_count,
-            coverage_report_present=outcome.green,
-            coverage_meets_threshold=outcome.green,
-            detail=outcome.reason,
-        )
-
-    def _diff_test_file_count(self, repo: object) -> int:
-        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
-
-        assert isinstance(repo, ClosureRepo)  # noqa: S101 - caller passes ClosureRepo
-        out = self._read(repo, "diff", "--name-only", "origin/main...HEAD")
-        if out is None:
-            out = self._read(repo, "diff", "--name-only", "HEAD")
-        if not out:
-            return 0
-        return sum(1 for line in out.splitlines() if any(marker in line for marker in _TEST_FILE_MARKERS))
-
-    def _read(self, repo: object, *args: str) -> str | None:
-        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
-
-        assert isinstance(repo, ClosureRepo)  # noqa: S101 - caller passes ClosureRepo
-        result = self.git_backend.run(repo, *args)
-        if not result.ok or not result.stdout.strip():
-            return None
-        return result.stdout.strip()
 
 
 def build_structural_are_provider(

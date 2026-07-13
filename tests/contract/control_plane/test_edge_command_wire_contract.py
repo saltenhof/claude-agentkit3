@@ -1,6 +1,6 @@
 """Contract pins for the Edge-Command-Queue wire vocabulary (FK-91 §91.1b, AG3-145 AC9).
 
-Pins: the six command kinds, the three result types, the quarantine detail
+Pins: the command kinds, named result types, the quarantine detail
 shape and the named takeover error states -- the closed, contract-pinned wire
 vocabulary every sibling story (AG3-147/151/152) builds against. Also pins the
 ``edge_command_records`` row shape (field-exact, no TTL/expiry column) mirroring
@@ -20,6 +20,10 @@ from agentkit.backend.control_plane.models import (
     CommandErrorResult,
     EdgeCommandResultRequest,
     EdgeFreezeStateView,
+    MergeLocalCommandPayload,
+    MergeLocalRepoReport,
+    MergeLocalReport,
+    MergeLocalRepository,
     PreflightProbeCommandPayload,
     PreflightProbeReport,
     ProvisionWorktreeCommandPayload,
@@ -55,10 +59,10 @@ def test_seven_command_kinds_are_pinned() -> None:
 
 
 @pytest.mark.contract
-def test_only_merge_local_remains_registered_but_not_executable() -> None:
-    """AG3-151 makes takeover reconcile executable; AG3-152 owns merge local."""
+def test_every_registered_command_kind_is_executable() -> None:
+    """AG3-152 closes the final registered-but-unexecutable command gap."""
     assert ec.is_known_command_kind("merge_local") is True
-    assert ec.is_executable_command_kind("merge_local") is False
+    assert ec.is_executable_command_kind("merge_local") is True
     assert ec.is_executable_command_kind("sync_push") is True
     assert ec.is_executable_command_kind("takeover_reconcile") is True
     assert ec.is_executable_command_kind("reset_worktree") is True
@@ -109,6 +113,9 @@ def test_push_status_report_pins_its_field_shape() -> None:
         "boundary_id",
         "boundary_epoch",
         "ownership_epoch",
+        "tree_hash",
+        "worktree_clean",
+        "base_ancestor",
     }
     # It stays optional so the AG3-145 foundation shape (no head) still validates.
     assert PushStatusReport(repo_id="repo-a", push_outcome="behind_remote").head_sha is None
@@ -139,12 +146,52 @@ def test_worktree_report_pins_its_field_shape_incl_worktree_root() -> None:
 
 
 @pytest.mark.contract
-def test_result_types_constant_matches_the_three_pinned_models() -> None:
+def test_result_types_constant_matches_the_pinned_models() -> None:
     assert {
         "branch_ref_report",
         "push_status_report",
         "worktree_report",
+        "merge_local_report",
     } == ec.RESULT_TYPES
+
+
+@pytest.mark.contract
+def test_merge_local_wire_contract_is_field_exact_and_path_free() -> None:
+    payload = MergeLocalCommandPayload(
+        story_id="AG3-152",
+        project_key="tenant-a",
+        run_id="run-1",
+        repositories=[MergeLocalRepository(repo_id="api")],
+        mode="standard",
+        expected_candidate_commit="a" * 40,
+        expected_candidate_tree_hash="b" * 40,
+    )
+    assert "locked_sha" not in payload.model_dump(mode="json")
+    assert "repo_root" not in payload.model_dump_json()
+    report = MergeLocalReport(
+        outcome="merged",
+        escalated=False,
+        merged_main_sha="a" * 40,
+        repositories=[
+            MergeLocalRepoReport(
+                repo_id="api",
+                outcome="merged",
+                pushed=True,
+                merged=True,
+                locked_sha="c" * 40,
+                pre_merge_sha="c" * 40,
+                merged_main_sha="a" * 40,
+            )
+        ],
+    )
+    request = EdgeCommandResultRequest(
+        project_key="tenant-a",
+        story_id="AG3-152",
+        session_id="session-a",
+        op_id="op-merge",
+        result=report,
+    )
+    assert request.result.result_type == "merge_local_report"
 
 
 @pytest.mark.contract
@@ -273,6 +320,7 @@ def test_command_payload_shapes_are_pinned() -> None:
     assert provision.base_ref == "main"  # default
     assert set(provision.model_dump(mode="json")) == {
         "story_id", "project_key", "run_id", "repo_id", "branch", "base_ref",
+        "reuse_existing_branch",
     }
     teardown = TeardownWorktreeCommandPayload(
         story_id="AG3-100", repo_id="api", branch="story/AG3-100"
@@ -304,6 +352,21 @@ def test_command_payload_shapes_are_pinned() -> None:
         (
             {"result_type": "worktree_report", "repo_id": "repo-a", "outcome": "no_op"},
             WorktreeReport,
+        ),
+        (
+            {
+                "result_type": "merge_local_report",
+                "outcome": "already_merged",
+                "repositories": [
+                    {
+                        "repo_id": "repo-a",
+                        "outcome": "already_merged",
+                        "merged": True,
+                    }
+                ],
+                "escalated": False,
+            },
+            MergeLocalReport,
         ),
         (
             {"result_type": "preflight_probe_report", "repo_id": "repo-a", "branch_present": False},

@@ -6,7 +6,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from agentkit.backend.bootstrap.composition_closure import build_fast_test_runner as build_fast_test_runner
+    from agentkit.backend.bootstrap.composition_implementation_evidence import build_fast_test_runner as build_fast_test_runner
     from agentkit.backend.bootstrap.composition_pipeline import build_pipeline_engine as build_pipeline_engine
     from agentkit.backend.bootstrap.composition_project import (
         build_dashboard_service as build_dashboard_service,
@@ -31,10 +31,13 @@ _EXPORT_MODULE_NAMES = {
     "agentkit.backend.bootstrap.composition_closure": (
         "ClosureConfigUnavailableError", "_build_doc_fidelity_feedback_port", "_build_guard_counter_flush_port",
         "_build_guard_deactivation_port", "_build_mode_lock_release_port", "_build_per_repo_runners",
-        "_build_pre_merge_runners", "_build_sanity_gate_port", "_build_telemetry_evidence_port",
-        "_build_vectordb_sync_port", "_CiBuildTestEvidenceAdapter", "_RequirementsCoverageAreProvider",
+        "_build_pre_merge_runners", "_build_telemetry_evidence_port",
+        "_build_vectordb_sync_port", "_RequirementsCoverageAreProvider",
         "_resolve_pre_merge_configs", "build_closure_phase_handler", "build_failure_corpus",
-        "build_fast_test_runner", "build_structural_are_provider", "build_structural_build_test_port",
+        "build_structural_are_provider",
+    ),
+    "agentkit.backend.bootstrap.composition_implementation_evidence": (
+        "_CiBuildTestEvidenceAdapter", "build_fast_test_runner", "build_structural_build_test_port",
     ),
     "agentkit.backend.bootstrap.composition_config": ("_project_config_present",),
     "agentkit.backend.bootstrap.composition_exploration": (

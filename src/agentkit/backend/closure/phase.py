@@ -17,6 +17,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from agentkit.backend.closure.edge_merge import (
+    EdgeCandidateEvidence,
+    EdgeMergeState,
+    apply_merge_local_report,
+)
 from agentkit.backend.closure.execution_report.records import ExecutionReport
 from agentkit.backend.closure.execution_report.writer import write_execution_report
 from agentkit.backend.closure.gates import (
@@ -73,6 +78,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from agentkit.backend.artifacts import ArtifactManager
+    from agentkit.backend.closure.edge_merge import MergeLocalCommandPort
     from agentkit.backend.closure.gates import TelemetryEvidencePort
     from agentkit.backend.closure.merge_sequence import (
         BuildTestPort,
@@ -92,7 +98,11 @@ if TYPE_CHECKING:
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.service import StoryService
-    from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidencePort
+    from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
+    from agentkit.backend.verify_system.structural.system_evidence import (
+        ChangeEvidencePort,
+        PushVerificationPort,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +224,8 @@ class ClosureConfig:
     change_evidence_port: ChangeEvidencePort | None = None
     telemetry_evidence_port: TelemetryEvidencePort | None = None
     guard_counter_flush_port: GuardCounterFlushPort | None = None
+    merge_local_port: MergeLocalCommandPort | None = None
+    push_verification_port: PushVerificationPort | None = None
 
 
 class ClosurePhaseHandler:
@@ -559,8 +571,7 @@ class ClosurePhaseHandler:
             return config_error
         # ``_require_merge_collaborators`` validated the non-optional collaborators
         # above; bind them to locals so no ``type: ignore`` is needed (FIX-8).
-        integrity_gate, sanity_port, artifact_manager = _require_merge_locals(cfg)
-        git_backend = _git_backend_for(cfg)
+        integrity_gate, artifact_manager = _require_merge_locals(cfg)
 
         # Step 2: Finding-Resolution-Gate (skipped on resume if already merged --
         # handled by the caller's ``merge_done`` guard; not separately
@@ -613,46 +624,19 @@ class ClosurePhaseHandler:
                 ),
             )
 
-        # Step 3: Pre-Merge-Scan-and-Merge-Block (candidate-ref push -> scan ->
-        # gate -> main-CAS merge).
-        # FIX-4/E5: the block calls ``checkpoint`` IMMEDIATELY after each durable
-        # side-effect (story_branch_pushed after the candidate-ref push,
-        # integrity_passed after Dim 1-9 PASS, merge_done after the CAS), so a
-        # crash mid-side-effect
-        # never marks the next one done and ``on_resume`` continues from the right
-        # substate (no double-merge). Each closure-side checkpoint is the merge of
-        # the block's reached booleans onto the current progress.
-        store = self._store()
-        carried = _Carrier(progress)
-
-        def _checkpoint(block_progress: ClosureProgress) -> None:
-            carried.progress = _persist_block_progress(
-                store, source_state, carried.progress, block_progress
+        if cfg.git_backend is not None:
+            return self._run_injected_standard_merge(
+                ctx, s_dir, source_state, progress, integrity_gate
             )
-
-        block = run_pre_merge_and_merge_block(
+        return self._run_edge_merge(
             ctx,
-            story_dir=s_dir,
-            repos=_resolve_repos(cfg, s_dir),
+            s_dir,
+            source_state,
+            progress,
+            run_id=run_id,
+            verify_integrity=True,
             integrity_gate=integrity_gate,
-            scan_port=cfg.scan_port,
-            build_test_port=cfg.build_test_port,
-            sanity_port=sanity_port,
-            applicability=cfg.merge_applicability,
-            sonar_config=cfg.sonar_config,
-            git_backend=git_backend,
-            checkpoint=_checkpoint,
-            progress=progress,
-            repo_runners=_resolve_repo_runners(cfg),
         )
-        # Persist the durable checkpoints the block reached (idempotent with the
-        # in-flight checkpoints above), BEFORE deciding the verdict.
-        progress = _persist_block_progress(
-            store, source_state, carried.progress, block.progress
-        )
-        if block.status is MergeBlockStatus.ESCALATED:
-            return self._escalated(ctx, source_state, progress, tuple(block.errors))
-        return progress
 
     def _run_fast_merge_block(
         self,
@@ -671,31 +655,205 @@ class ClosurePhaseHandler:
         does NOT take ``integrity_gate`` -- removing the ``type: ignore`` that
         passing an optional gate into the standard entrypoint required.
         """
+        if self._config.git_backend is not None:
+            return self._run_injected_fast_merge(ctx, s_dir, source_state, progress)
+        run_id = _resolve_run_id_fail_closed(s_dir)
+        if run_id is None:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                ("cannot resolve run scope for edge merge commissioning",),
+            )
+        return self._run_edge_merge(
+            ctx,
+            s_dir,
+            source_state,
+            progress,
+            run_id=run_id,
+            verify_integrity=False,
+            integrity_gate=None,
+        )
+
+    def _run_edge_merge(  # noqa: PLR0911 -- one fail-closed return per boundary
+        self,
+        ctx: StoryContext,
+        s_dir: Path,
+        source_state: PhaseState,
+        progress: ClosureProgress,
+        *,
+        run_id: str,
+        verify_integrity: bool,
+        integrity_gate: IntegrityGate | None,
+    ) -> ClosureProgress | HandlerResult:
+        """Verify the edge candidate, then commission/consume ``merge_local``."""
+        from agentkit.backend.core_types import PauseReason
+        from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
+
         cfg = self._config
-        if cfg.sanity_port is None:
+        port = cfg.merge_local_port
+        push_verification = cfg.push_verification_port
+        if port is None or push_verification is None:
             return HandlerResult(
                 status=PhaseStatus.FAILED,
-                errors=(
-                    "Closure fast-mode sanity_port not wired (use "
-                    "build_closure_phase_handler)",
-                ),
+                errors=("Closure edge merge collaborators are not wired",),
             )
-        git_backend = _git_backend_for(cfg)
+        repo_ids = _resolve_repo_ids(ctx, cfg, s_dir)
+        if len(repo_ids) != 1:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                ("merge_local preserves the >=2-repository fail-closed boundary",),
+            )
+        if not push_verification.confirm_story_pushed(s_dir):
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                ("merge_local requires the passed AG3-147 closure-entry push checkpoint",),
+            )
+        candidate = port.candidate(
+            project_key=ctx.project_key,
+            story_id=ctx.story_id,
+            run_id=run_id,
+            repo_id=repo_ids[0],
+        )
+        if candidate is None:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                ("verified push has no edge-reported candidate commit/tree binding",),
+            )
+        candidate_error = _validate_edge_candidate(candidate)
+        if candidate_error is not None:
+            return self._escalated(
+                ctx, source_state, progress, (candidate_error,)
+            )
+        store = self._store()
+        if not progress.story_branch_pushed:
+            progress = _persist(
+                store, source_state, progress, story_branch_pushed=True
+            )
+        candidate_ref = CandidateRef(
+            branch=f"story/{ctx.story_id}",
+            commit_sha=candidate.commit_sha,
+            tree_hash=candidate.tree_hash,
+        )
+        if not progress.integrity_passed:
+            build_error = _verify_edge_build(cfg, candidate_ref)
+            if build_error is not None:
+                return self._escalated(
+                    ctx, source_state, progress, (build_error,)
+                )
+            if verify_integrity:
+                gate_error = _verify_edge_integrity(
+                    cfg, s_dir, ctx, candidate_ref, integrity_gate
+                )
+                if gate_error is not None:
+                    return self._escalated(
+                        ctx, source_state, progress, (gate_error,)
+                    )
+            progress = _persist(
+                store, source_state, progress, integrity_passed=True
+            )
+        outcome = port.execute(
+            project_key=ctx.project_key,
+            story_id=ctx.story_id,
+            run_id=run_id,
+            repo_ids=repo_ids,
+            candidate=candidate,
+            mode="fast" if _is_fast_mode(ctx) else "standard",
+        )
+        if outcome.state is EdgeMergeState.PENDING:
+            return HandlerResult(
+                status=PhaseStatus.PAUSED,
+                yield_status=PauseReason.AWAITING_EDGE_PROVISIONING.value,
+            )
+        if outcome.state is EdgeMergeState.ESCALATED or outcome.report is None:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                (outcome.detail or "edge merge_local escalated",),
+            )
+        progress, multi_repo = apply_merge_local_report(progress, outcome.report)
+        store.save_state(
+            evolve_phase_state(
+                source_state,
+                phase="closure",
+                status=PhaseStatus.IN_PROGRESS,
+                payload=ClosurePayload(progress=progress, multi_repo=multi_repo),
+                pause_reason=None,
+            )
+        )
+        return progress
+
+    def _run_injected_standard_merge(
+        self,
+        ctx: StoryContext,
+        story_dir: Path,
+        source_state: PhaseState,
+        progress: ClosureProgress,
+        integrity_gate: IntegrityGate,
+    ) -> ClosureProgress | HandlerResult:
+        """Preserve the explicit fake-Git unit-test seam; production never wires it."""
+        cfg = self._config
         store = self._store()
         carried = _Carrier(progress)
 
-        def _checkpoint(block_progress: ClosureProgress) -> None:
+        def checkpoint(block_progress: ClosureProgress) -> None:
+            carried.progress = _persist_block_progress(
+                store, source_state, carried.progress, block_progress
+            )
+
+        block = run_pre_merge_and_merge_block(
+            ctx,
+            story_dir=story_dir,
+            repos=_resolve_repos(cfg, story_dir),
+            integrity_gate=integrity_gate,
+            scan_port=cfg.scan_port,
+            build_test_port=cfg.build_test_port,
+            sanity_port=_require_injected_sanity(cfg),
+            applicability=cfg.merge_applicability,
+            sonar_config=cfg.sonar_config,
+            git_backend=_git_backend_for(cfg),
+            checkpoint=checkpoint,
+            progress=progress,
+            repo_runners=_resolve_repo_runners(cfg),
+        )
+        progress = _persist_block_progress(
+            store, source_state, carried.progress, block.progress
+        )
+        if block.status is MergeBlockStatus.ESCALATED:
+            return self._escalated(ctx, source_state, progress, tuple(block.errors))
+        return progress
+
+    def _run_injected_fast_merge(
+        self,
+        ctx: StoryContext,
+        story_dir: Path,
+        source_state: PhaseState,
+        progress: ClosureProgress,
+    ) -> ClosureProgress | HandlerResult:
+        """Preserve fast-mode fake-Git unit tests; production uses Project Edge."""
+        cfg = self._config
+        store = self._store()
+        carried = _Carrier(progress)
+
+        def checkpoint(block_progress: ClosureProgress) -> None:
             carried.progress = _persist_block_progress(
                 store, source_state, carried.progress, block_progress
             )
 
         block = run_fast_merge_block(
             ctx,
-            story_dir=s_dir,
-            repos=_resolve_repos(cfg, s_dir),
-            sanity_port=cfg.sanity_port,
-            git_backend=git_backend,
-            checkpoint=_checkpoint,
+            story_dir=story_dir,
+            repos=_resolve_repos(cfg, story_dir),
+            sanity_port=_require_injected_sanity(cfg),
+            git_backend=_git_backend_for(cfg),
+            checkpoint=checkpoint,
             progress=progress,
         )
         progress = _persist_block_progress(
@@ -943,12 +1101,20 @@ def _require_merge_collaborators(cfg: ClosureConfig) -> HandlerResult | None:
     ``PreMergeRunnerUnavailableError`` (fail-closed) before building the handler.
     The barrier itself fail-closes if exactly one of the two is wired.
     """
+    edge_ports: tuple[tuple[str, object | None], ...] = (
+        ()
+        if cfg.git_backend is not None
+        else (
+            ("merge_local_port", cfg.merge_local_port),
+            ("push_verification_port", cfg.push_verification_port),
+        )
+    )
     missing = [
         name
         for name, value in (
             ("integrity_gate", cfg.integrity_gate),
-            ("sanity_port", cfg.sanity_port),
             ("artifact_manager", cfg.artifact_manager),
+            *edge_ports,
         )
         if value is None
     ]
@@ -963,11 +1129,94 @@ def _require_merge_collaborators(cfg: ClosureConfig) -> HandlerResult | None:
     return None
 
 
+def _require_injected_sanity(cfg: ClosureConfig) -> SanityGatePort:
+    """Return the explicit fake-Git test seam's sanity port."""
+    if cfg.sanity_port is None:
+        raise AssertionError("the injected fake-Git test seam requires sanity_port")
+    return cfg.sanity_port
+
+
 def _resolve_repos(cfg: ClosureConfig, s_dir: Path) -> tuple[ClosureRepo, ...]:
     """Resolve the participating repos (single-repo => one-element saga list)."""
     if cfg.repos:
         return cfg.repos
     return (ClosureRepo(name=s_dir.name, repo_root=s_dir),)
+
+
+def _resolve_repo_ids(
+    ctx: StoryContext, cfg: ClosureConfig, s_dir: Path
+) -> tuple[str, ...]:
+    """Resolve repository identities without deriving physical paths."""
+    if ctx.participating_repos:
+        return tuple(ctx.participating_repos)
+    if cfg.repos:
+        return tuple(repo.name for repo in cfg.repos)
+    return (s_dir.name,)
+
+
+def _validate_edge_candidate(candidate: EdgeCandidateEvidence) -> str | None:
+    """Enforce edge-reported clean/contains-main candidate preconditions."""
+    if not candidate.worktree_clean:
+        return "edge-reported merge candidate worktree is not clean"
+    if not candidate.base_ancestor:
+        return "edge-reported merge candidate does not contain closure-entry main"
+    return None
+
+
+def _verify_edge_build(
+    cfg: ClosureConfig, candidate: CandidateRef
+) -> str | None:
+    """Run the commit-bound CI facet against an edge-reported candidate."""
+    if cfg.build_test_port is None:
+        return "pre-merge Build/Test runner is not wired (fail-closed)"
+    outcome = cfg.build_test_port.run(candidate)
+    if outcome.green:
+        return None
+    return outcome.reason or "integrated-candidate Build/Test was not green"
+
+
+def _verify_edge_integrity(
+    cfg: ClosureConfig,
+    story_dir: Path,
+    ctx: StoryContext,
+    candidate: CandidateRef,
+    integrity_gate: IntegrityGate | None,
+) -> str | None:
+    """Verify scan binding and Integrity-Gate without re-measuring git."""
+    from agentkit.backend.config.models import SonarQubeConfig
+    from agentkit.backend.governance.integrity_gate.dim9_sonar import FreshAttestation
+
+    if integrity_gate is None:
+        return "Closure integrity gate is not wired"
+    fresh = None
+    if cfg.merge_applicability is MergeApplicability.FULL:
+        if cfg.scan_port is None:
+            return "pre-merge scan runner is not wired (fail-closed)"
+        scan = cfg.scan_port.produce_attestation(candidate)
+        if (
+            not scan.produced
+            or scan.commit_sha != candidate.commit_sha
+            or scan.tree_hash != candidate.tree_hash
+            or scan.attestation is None
+        ):
+            return scan.reason or "scan commit/tree binding does not match edge candidate"
+        sonar_config = (
+            cfg.sonar_config
+            if isinstance(cfg.sonar_config, SonarQubeConfig)
+            else None
+        )
+        fresh = FreshAttestation(
+            attestation=scan.attestation,
+            expected_main_revision=candidate.commit_sha,
+            config=sonar_config,
+            gate_outcome=scan.gate_outcome,
+        )
+    gate = integrity_gate.evaluate(
+        story_dir, ctx.story_type, fresh_attestation=fresh
+    )
+    if gate.passed:
+        return None
+    return gate.failure_reason or "IntegrityGate did not pass"
 
 
 def _resolve_repo_runners(cfg: ClosureConfig) -> Mapping[Path, RepoRunners] | None:
@@ -1050,7 +1299,7 @@ def _bind_story_metrics_fence_scope(
 
 def _require_merge_locals(
     cfg: ClosureConfig,
-) -> tuple[IntegrityGate, SanityGatePort, ArtifactManager]:
+) -> tuple[IntegrityGate, ArtifactManager]:
     """Return the merge collaborators as non-optional locals (FIX-8).
 
     ``_require_merge_collaborators`` has already rejected an unwired config, so
@@ -1058,12 +1307,11 @@ def _require_merge_locals(
     ``type: ignore`` casts the runtime-None checks did not narrow.
     """
     integrity_gate = cfg.integrity_gate
-    sanity_port = cfg.sanity_port
     artifact_manager = cfg.artifact_manager
-    if integrity_gate is None or sanity_port is None or artifact_manager is None:
+    if integrity_gate is None or artifact_manager is None:
         msg = "merge collaborators must be validated before _require_merge_locals"
         raise AssertionError(msg)
-    return integrity_gate, sanity_port, artifact_manager
+    return integrity_gate, artifact_manager
 
 
 def _require_finalization_locals(

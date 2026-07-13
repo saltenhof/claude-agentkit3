@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.closure.multi_repo_saga import (
     ClosureRepo,
-    SubprocessGitBackend,
     local_ff_merge_with_rollback,
     push_story_branches,
     teardown_worktrees,
@@ -276,8 +275,8 @@ def run_pre_merge_and_merge_block(  # noqa: PLR0913 -- a fail-closed barrier wir
             fresh-attestation Dim-9 version-drift check (§35.2.4a item 5). The
             composition root resolves it (truth boundary); ``None`` only for a
             declared-absent scan (no attestation -> no drift check needed).
-        git_backend: Optional git backend for the barrier + the saga (stubbed in
-            tests; the real subprocess backend in production).
+        git_backend: Explicit Git port retained for pure legacy contract tests;
+            productive Closure never wires it after AG3-152.
 
     Returns:
         A :class:`MergeBlockResult`.
@@ -419,7 +418,7 @@ def _resume_merge_only(
         return _escalated(
             progress, "no participating repo for the recovery merge resume"
         )
-    git = git_backend or SubprocessGitBackend()
+    git = _require_git_backend(git_backend)
     candidates = _capture_resume_candidates(git, repos)
     if isinstance(candidates, MergeBlockResult):
         return candidates
@@ -468,6 +467,13 @@ def _no_checkpoint(progress: ClosureProgress) -> None:
     del progress
 
 
+def _require_git_backend(git_backend: GitBackend | None) -> GitBackend:
+    """Require explicit test/edge injection; backend production has no Git default."""
+    if git_backend is None:
+        raise ValueError("merge sequence requires an explicit edge-side Git backend")
+    return git_backend
+
+
 def _run_standard_block(
     ctx: StoryContext,
     *,
@@ -506,7 +512,7 @@ def _run_standard_block(
             ClosureProgress(),
             "no participating repo for the integrated-candidate barrier",
         )
-    git = git_backend or SubprocessGitBackend()
+    git = _require_git_backend(git_backend)
 
     candidates = _prepare_block_candidates(
         ctx,
@@ -784,7 +790,7 @@ def _run_fast_block(
     resume = _resume_merge_only(ctx, repos, progress, git_backend, checkpoint)
     if resume is not None:
         return resume
-    git = git_backend or SubprocessGitBackend()
+    git = _require_git_backend(git_backend)
     candidates: list[tuple[ClosureRepo, IntegratedCandidate]] = []
     for repo in repos:
         sanity = sanity_port.evaluate(story_dir, ctx.story_type)

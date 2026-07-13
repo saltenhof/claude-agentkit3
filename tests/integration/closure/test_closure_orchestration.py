@@ -20,6 +20,7 @@ from tests.unit.closure.closure_fakes import (
     NoOpStoryService,
     RecordingBuildTestPort,
     RecordingIntegrityGate,
+    RecordingSanityPort,
     RecordingScanPort,
     StubGitBackend,
 )
@@ -216,7 +217,8 @@ def test_composition_root_wires_all_collaborators(tmp_path: Path) -> None:
     # scan_port / build_test_port are the AG3-056 runners; for a project with no
     # resolvable ci stanza they are a DECLARED-ABSENT None (not a failure). The
     # always-present finalization + gate collaborators must be wired.
-    assert config.sanity_port is not None
+    assert config.merge_local_port is not None
+    assert config.push_verification_port is not None
     assert config.doc_fidelity_port is not None
     assert config.vectordb_sync_port is not None
     assert config.guard_deactivation_port is not None
@@ -272,6 +274,7 @@ def test_e2e_impl_closure_completes(tmp_path: Path) -> None:
     config.repo_runners = None
     config.integrity_gate = RecordingIntegrityGate()  # type: ignore[assignment]
     config.git_backend = git
+    config.sanity_port = RecordingSanityPort()
     # AG3-081: the Telemetry-Evidence-Block (FK-68 §68.4) is a separate boundary
     # (covered by its own tests); this e2e test deliberately has no project config
     # so it stubs the block to a vacuous PASS, exactly like the scan/integrity/git
@@ -426,6 +429,7 @@ def test_impl_closure_completes_via_real_story_service(tmp_path: Path) -> None:
     config.repo_runners = None
     config.integrity_gate = RecordingIntegrityGate()  # type: ignore[assignment]
     config.git_backend = git
+    config.sanity_port = RecordingSanityPort()
     config.telemetry_evidence_port = ABSENT_TELEMETRY_EVIDENCE_PORT
     config.merge_applicability = MergeApplicability.FULL
 
@@ -460,6 +464,7 @@ def test_e2e_integrity_fail_aborts_before_main_update(tmp_path: Path) -> None:
         passed=False, failure_reason="SONAR_NOT_GREEN"
     )
     config.git_backend = git
+    config.sanity_port = RecordingSanityPort()
     # AG3-081: stub the Telemetry-Evidence-Block to PASS so this test isolates the
     # IntegrityGate-FAIL path (the telemetry block has its own coverage).
     config.telemetry_evidence_port = ABSENT_TELEMETRY_EVIDENCE_PORT

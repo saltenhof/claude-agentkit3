@@ -36,7 +36,6 @@ from agentkit.backend.verify_system.pre_merge_runner.ci_run import (
 )
 from agentkit.backend.verify_system.pre_merge_runner.scan_runner import (
     CiSonarScanRunner,
-    GitTreeHashResolver,
 )
 from agentkit.backend.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
 
@@ -210,7 +209,6 @@ def _build_scan_runner(
         client=client,
         config=sonar_config,
         ledger=_load_ledger(repo_root),
-        tree_resolver=GitTreeHashResolver(repo_root=repo_root),
     )
 
 

@@ -88,6 +88,11 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
+    from agentkit.backend.closure.edge_merge import (
+        EdgeCandidateEvidence,
+        EdgeMergeOutcome,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -348,6 +353,39 @@ class _RecordingTelemetryEvidencePort:
         return self._verdict
 
 
+class _BlockedPushVerification:
+    def confirm_story_pushed(self, story_dir: Path) -> bool:
+        del story_dir
+        return False
+
+
+class _NeverCommissionMergeLocal:
+    def __init__(self) -> None:
+        self.candidate_calls = 0
+        self.execute_calls = 0
+
+    def candidate(
+        self, *, project_key: str, story_id: str, run_id: str, repo_id: str
+    ) -> EdgeCandidateEvidence | None:
+        del project_key, story_id, run_id, repo_id
+        self.candidate_calls += 1
+        return None
+
+    def execute(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        repo_ids: tuple[str, ...],
+        candidate: EdgeCandidateEvidence,
+        mode: str,
+    ) -> EdgeMergeOutcome:
+        del project_key, story_id, run_id, repo_ids, candidate, mode
+        self.execute_calls += 1
+        raise AssertionError("merge_local must not be commissioned")
+
+
 def _impl_config(
     s_dir: Path,
     *,
@@ -396,6 +434,29 @@ def _impl_config(
 
 
 class TestImplClosureHappyPath:
+    def test_unverified_closure_entry_never_commissions_merge_local(
+        self, tmp_path: Path
+    ) -> None:
+        s_dir = _prepare_impl_story(tmp_path)
+        manager = build_artifact_manager(s_dir)
+        _write_all_layer2(
+            manager, story_id="TEST-001", run_id=_run_id_for("TEST-001")
+        )
+        config = _impl_config(s_dir)
+        merge_port = _NeverCommissionMergeLocal()
+        config.git_backend = None
+        config.merge_local_port = merge_port
+        config.push_verification_port = _BlockedPushVerification()
+
+        result = ClosurePhaseHandler(config).on_enter(
+            _make_ctx(project_root=tmp_path),
+            PhaseEnvelopeStore.make_fresh_envelope(_make_state()),
+        )
+
+        assert result.status is PhaseStatus.ESCALATED
+        assert merge_port.candidate_calls == 0
+        assert merge_port.execute_calls == 0
+
     def test_impl_closure_completes_and_calls_all_capabilities(
         self, tmp_path: Path
     ) -> None:

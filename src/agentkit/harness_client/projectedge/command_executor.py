@@ -9,10 +9,8 @@ against the REAL git repo, and reports the typed result with the edge's OWN
 
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
 ``sync_push`` (AG3-147), ``takeover_reconcile`` (AG3-151), and
-``reset_worktree`` (AG3-154) are executed here.
-The remaining registered kind (``merge_local``, owned by AG3-152) yields a
-deterministic :class:`CommandErrorResult`, never a silent
-no-op (Scope item 4). The edge derives the physical repo path from its LOCAL
+``reset_worktree`` (AG3-154) and ``merge_local`` (AG3-152) are executed here.
+The edge derives the physical repo path from its LOCAL
 project config, never from the backend (FK-10 §10.2.4a).
 """
 
@@ -34,6 +32,7 @@ from agentkit.backend.control_plane.edge_commands import is_executable_command_k
 from agentkit.backend.control_plane.models import (
     CommandErrorResult,
     EdgeCommandResultRequest,
+    MergeLocalCommandPayload,
     PreflightProbeCommandPayload,
     PreflightProbeReport,
     ProjectEdgeSyncRequest,
@@ -51,6 +50,7 @@ from agentkit.backend.control_plane.push_sync import (
     official_story_ref,
 )
 from agentkit.backend.utils.io import atomic_write_text
+from agentkit.harness_client.projectedge.merge_local import execute_merge_local
 from agentkit.harness_client.projectedge.reconcile import (
     TakeoverReconcileExecution,
     execute_takeover_reconcile,
@@ -221,16 +221,43 @@ def execute_provision_worktree(
     """
     repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
     worktree_path = repo_root / "worktrees" / payload.story_id
-    _require_git(
-        _run_git(
-            repo_root,
+    if payload.reuse_existing_branch and worktree_path.is_dir():
+        resolved = worktree_path.resolve(strict=True)
+        _require_registered_linked_worktree(repo_root, resolved)
+        return WorktreeReport(
+            repo_id=payload.repo_id,
+            outcome="no_op",
+            worktree_root=str(resolved),
+            branch=payload.branch,
+            head_sha=_current_head_sha(resolved),
+            marker_present=_read_story_marker(resolved) is not None,
+        )
+    if payload.reuse_existing_branch:
+        remote_branch = f"origin/{payload.branch}"
+        _require_git(
+            _run_git(repo_root, "fetch", "origin", payload.branch),
+            "fetch pushed story branch for reprovision",
+        )
+        branch_present, _head = _probe_branch(repo_root, payload.branch)
+        if not branch_present:
+            _require_git(
+                _run_git(repo_root, "branch", payload.branch, remote_branch),
+                "create local story branch from pushed ref",
+            )
+    add_args = (
+        ("worktree", "add", str(worktree_path), payload.branch)
+        if payload.reuse_existing_branch
+        else (
             "worktree",
             "add",
             str(worktree_path),
             "-b",
             payload.branch,
             payload.base_ref,
-        ),
+        )
+    )
+    _require_git(
+        _run_git(repo_root, *add_args),
         "worktree add",
     )
     _write_story_marker(
@@ -527,6 +554,22 @@ def execute_sync_push(
         repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
         worktree_path = repo_root / "worktrees" / payload.story_id
         head_sha = _current_head_sha(worktree_path)
+        tree = _run_git(worktree_path, "rev-parse", "HEAD^{tree}")
+        _require_git(tree, "rev-parse HEAD^{tree}")
+        tree_hash = tree.stdout.strip()
+        status = _run_git(worktree_path, "status", "--porcelain")
+        _require_git(status, "status --porcelain")
+        fetch_main = _run_git(worktree_path, "fetch", "origin", "main")
+        base_ancestor = fetch_main.returncode == 0 and (
+            _run_git(
+                worktree_path,
+                "merge-base",
+                "--is-ancestor",
+                "origin/main",
+                head_sha,
+            ).returncode
+            == 0
+        )
         outcome = _push_official_ref(
             worktree_path,
             story_id=payload.story_id,
@@ -537,7 +580,14 @@ def execute_sync_push(
             return _sync_push_report(payload, "behind_remote", head_sha=head_sha)
     except EdgeGitError:
         return _sync_push_report(payload, "behind_remote", head_sha=None)
-    return _sync_push_report(payload, outcome, head_sha=head_sha)
+    return _sync_push_report(
+        payload,
+        outcome,
+        head_sha=head_sha,
+        tree_hash=tree_hash,
+        worktree_clean=not status.stdout.strip(),
+        base_ancestor=base_ancestor,
+    )
 
 
 def _push_official_ref(
@@ -582,6 +632,9 @@ def _sync_push_report(
     push_outcome: Literal["pushed", "behind_remote"],
     *,
     head_sha: str | None,
+    tree_hash: str | None = None,
+    worktree_clean: bool | None = None,
+    base_ancestor: bool | None = None,
 ) -> PushStatusReport:
     """Build the boundary-tagged ``sync_push`` result."""
 
@@ -589,6 +642,9 @@ def _sync_push_report(
         repo_id=payload.repo_id,
         push_outcome=push_outcome,
         head_sha=head_sha,
+        tree_hash=tree_hash,
+        worktree_clean=worktree_clean,
+        base_ancestor=base_ancestor,
         boundary_type=payload.boundary_type,
         boundary_id=payload.boundary_id,
         boundary_epoch=payload.boundary_epoch,
@@ -621,8 +677,7 @@ def execute_command(
 ) -> EdgeCommandResultPayload | TakeoverReconcileExecution:
     """Dispatch ONE command to its executor and return the typed result payload.
 
-    A kind outside the edge's executable set (``merge_local`` or an unknown
-    kind) yields a deterministic
+    A kind outside the edge's executable set yields a deterministic
     :class:`CommandErrorResult` -- NEVER a silent no-op (Scope item 4). A
     ``sync_push`` needs the :class:`SyncPushContext` (client + identity); without
     it the command is a fail-closed ``sync_push_context_missing`` error, never a
@@ -698,6 +753,12 @@ def _dispatch_executable(
     if command.command_kind == "takeover_reconcile":
         return execute_takeover_reconcile(
             TakeoverReconcileCommandPayload.model_validate(command.payload),
+            project_config=project_config,
+            project_root=project_root,
+        )
+    if command.command_kind == "merge_local":
+        return execute_merge_local(
+            MergeLocalCommandPayload.model_validate(command.payload),
             project_config=project_config,
             project_root=project_root,
         )

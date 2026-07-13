@@ -994,6 +994,7 @@ class ProvisionWorktreeCommandPayload(BaseModel):
     repo_id: str = Field(min_length=1)
     branch: str = Field(min_length=1)
     base_ref: str = Field(min_length=1, default="main")
+    reuse_existing_branch: bool = False
 
 
 class TeardownWorktreeCommandPayload(BaseModel):
@@ -1058,6 +1059,34 @@ class SyncPushCommandPayload(BaseModel):
     ownership_epoch: int | None = Field(default=None, ge=1)
 
 
+class MergeLocalRepository(BaseModel):
+    """One repository participating in an edge-local closure merge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repo_id: str = Field(min_length=1)
+
+
+class MergeLocalCommandPayload(BaseModel):
+    """Atomic post-gate ``merge_local`` command executed by Project Edge.
+
+    ``locked_sha`` is intentionally absent: the executor captures it freshly at
+    execution time. Physical paths are also absent and are resolved only from
+    the edge-local project configuration.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_id: str = Field(min_length=1, pattern=r"^[^/\\]+$")
+    project_key: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    repositories: list[MergeLocalRepository] = Field(min_length=1)
+    base_branch: str = Field(default="main", pattern=r"^[A-Za-z0-9._/-]+$")
+    mode: Literal["standard", "fast"]
+    expected_candidate_commit: str = Field(min_length=1)
+    expected_candidate_tree_hash: str = Field(min_length=1)
+
+
 class TakeoverReconcileCommandPayload(BaseModel):
     """Backend-commissioned reconcile contract for one transferred repo."""
 
@@ -1104,6 +1133,58 @@ class PushStatusReport(BaseModel):
     boundary_id: str | None = None
     boundary_epoch: int | None = Field(default=None, ge=1)
     ownership_epoch: int | None = Field(default=None, ge=1)
+    tree_hash: str | None = None
+    worktree_clean: bool | None = None
+    base_ancestor: bool | None = None
+
+
+class MergeLocalRepoReport(BaseModel):
+    """Per-repository audit state returned by ``merge_local``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repo_id: str = Field(min_length=1)
+    outcome: Literal["merged", "already_merged", "rolled_back", "failed"]
+    pushed: bool = False
+    merged: bool = False
+    rolled_back: bool = False
+    locked_sha: str | None = None
+    pre_merge_sha: str | None = None
+    merged_main_sha: str | None = None
+
+
+class MergeLocalReport(BaseModel):
+    """Typed result of one atomic edge-local closure merge execution."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal["merge_local_report"] = "merge_local_report"
+    outcome: Literal["merged", "already_merged", "escalated"]
+    repositories: list[MergeLocalRepoReport] = Field(min_length=1)
+    escalated: bool
+    merged_main_sha: str | None = None
+    failure_code: Literal[
+        "multi_repo_not_supported",
+        "worktree_identity_invalid",
+        "candidate_mismatch",
+        "candidate_not_fast_forward",
+        "cas_contention",
+        "local_merge_failed",
+        "rollback_failed",
+        "teardown_failed",
+    ] | None = None
+    detail: str = ""
+
+    @model_validator(mode="after")
+    def _validate_outcome(self) -> MergeLocalReport:
+        """Keep success/escalation fields internally consistent."""
+        if self.escalated != (self.outcome == "escalated"):
+            raise ValueError("escalated must match outcome")
+        if self.escalated and self.failure_code is None:
+            raise ValueError("an escalated merge_local report requires failure_code")
+        if not self.escalated and self.failure_code is not None:
+            raise ValueError("a successful merge_local report cannot carry failure_code")
+        return self
 
 
 class WorktreeReport(BaseModel):
@@ -1244,6 +1325,7 @@ EdgeCommandResultPayload = Annotated[
     BranchRefReport
     | PushStatusReport
     | WorktreeReport
+    | MergeLocalReport
     | PreflightProbeReport
     | TakeoverQuarantineDetail
     | TakeoverErrorResult

@@ -2,7 +2,7 @@
 
 These adapters fulfil the closure collaborator Protocols
 (``merge_sequence``/``post_merge_finalization``) by CONSUMING the existing
-capabilities at the real external boundaries (git, the verify-system level-4
+capabilities at the real external boundaries (the verify-system level-4
 evaluator, the VectorDB sync, the governance top surface). They build NO second
 merge/gate/Sonar/lock truth -- each is a thin seam.
 
@@ -21,7 +21,6 @@ wiring point. The handler never builds these itself (DI / truth boundary).
 from __future__ import annotations
 
 import logging
-import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -39,65 +38,8 @@ if TYPE_CHECKING:
     from agentkit.backend.story_context_manager.types import StoryType
     from agentkit.backend.verify_system.conformance_service import FidelityResult
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
-    from agentkit.backend.verify_system.pre_merge_runner.contract import BuildTestPort
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class CiBuildTestFastRunner:
-    """Fast-mode tests-green floor runner over the REAL AG3-056 Build/Test port.
-
-    FK-24 §24.3.4 (AG3-018, FIX-6): the fast-mode tests-green floor is the SAME
-    real tests-green capability the standard closure barrier uses -- the AG3-056
-    commit-bound :class:`BuildTestPort` (``CiBuildTestRunner`` over the project's
-    CI). NOT a second tests-green truth, NOT a stub. This adapter exposes that
-    port as the ``Callable[[Path], tuple[bool, str | None]]`` shape both the fast
-    QA-subflow floor (``build_verify_system fast_test_runner``) and the closure
-    Sanity-Gate (``ProductiveSanityGatePort.test_runner``) consume.
-
-    It resolves the story working tree's current ``HEAD`` (branch + commit +
-    tree) into the AG3-056 :class:`CandidateRef` and runs Build/Test against
-    exactly that commit. A red/aborted/unreachable run is ``(False, reason)``
-    (fail-closed -- the floor is non-disableable, NO ERROR BYPASSING). The git
-    HEAD cannot be read => fail-closed too (a fast story whose tested revision is
-    unknown must not pass the floor).
-
-    Attributes:
-        build_test_port: The real AG3-056 commit-bound Build/Test port.
-        git_backend: The git side-effect port used to resolve the worktree HEAD.
-    """
-
-    build_test_port: BuildTestPort
-    git_backend: GitBackend
-
-    def __call__(self, story_dir: Path) -> tuple[bool, str | None]:
-        """Run Build/Test on the story worktree's current HEAD (fail-closed)."""
-        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
-        from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
-
-        repo = ClosureRepo(name=story_dir.name, repo_root=story_dir)
-        branch = self._read(repo, "rev-parse", "--abbrev-ref", "HEAD")
-        commit = self._read(repo, "rev-parse", "HEAD")
-        tree = self._read(repo, "rev-parse", "HEAD^{tree}")
-        if commit is None or tree is None or branch is None:
-            return (
-                False,
-                "fast-mode tests-green floor: cannot resolve the story worktree "
-                "HEAD (branch/commit/tree) to run Build/Test -> fail-closed",
-            )
-        candidate = CandidateRef(branch=branch, commit_sha=commit, tree_hash=tree)
-        outcome = self.build_test_port.run(candidate)
-        if outcome.green:
-            return (True, None)
-        return (False, outcome.reason or "fast-mode Build/Test was not green")
-
-    def _read(self, repo: ClosureRepo, *args: str) -> str | None:
-        """Run a read-only git command, returning its stdout or ``None`` on error."""
-        result = self.git_backend.run(repo, *args)
-        if not result.ok or not result.stdout.strip():
-            return None
-        return result.stdout.strip()
 
 
 @dataclass(frozen=True)
@@ -122,8 +64,8 @@ class ProductiveSanityGatePort:
     the adapter confirms all three predicates.
 
     Attributes:
-        git_backend: The git side-effect port (the real subprocess backend in
-            production; stubbed at the git boundary in tests).
+        git_backend: An explicitly injected legacy-test Git port. Productive
+            Closure never wires this adapter after AG3-152.
         test_runner: Optional fast-mode test runner returning ``(green, reason)``.
             ``None`` => the tests-green predicate is unconfirmable (AG3-018 not
             yet wired) and the gate fails closed after the git checks.
@@ -340,7 +282,10 @@ def _run_feedback_fidelity_conformance(
         project_root=project_root,
         story_type=ctx.story_type.value,
         module=ctx.participating_repos[0] if ctx.participating_repos else "*",
-        subject=_read_final_diff(project_root),
+        subject=(
+            f"Merged edge candidate for {ctx.story_id}. Physical diff acquisition "
+            "is edge-resident; backend feedback evaluation must not re-read Git."
+        ),
         story_description=ctx.title,
         tags=("feedback", "document-fidelity"),
         qa_cycle_round=1,
@@ -364,28 +309,6 @@ def _run_id_for_feedback(story_dir: Path) -> str:
     except Exception:  # noqa: BLE001 -- non-blocking fallback correlation
         return "feedback-fidelity"
     return str(getattr(scope, "run_id", None) or "feedback-fidelity")
-
-
-def _read_final_diff(project_root: Path) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(project_root), "diff", "--stat", "HEAD~1..HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        detail = subprocess.run(
-            ["git", "-C", str(project_root), "diff", "HEAD~1..HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-        if detail.returncode == 0 and detail.stdout.strip():
-            return detail.stdout
-        return result.stdout
-    return "No final git diff could be resolved for feedback_fidelity."
 
 
 @dataclass(frozen=True)
@@ -619,7 +542,6 @@ class ProductiveModeLockReleasePort:
 
 
 __all__ = [
-    "CiBuildTestFastRunner",
     "ProductiveDocFidelityFeedbackPort",
     "ProductiveGuardCounterFlushPort",
     "ProductiveGuardDeactivationPort",

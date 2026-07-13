@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 
 from agentkit.backend.control_plane.models import (
     EdgeCommandResultRequest,
+    MergeLocalRepoReport,
+    MergeLocalReport,
     TakeoverErrorResult,
     WorktreeReport,
 )
@@ -360,6 +362,42 @@ def test_submit_result_ex_owner_is_rejected_with_ownership_transferred_untouched
     stored = edge_repo.load_command("cmd-1")
     assert stored is not None
     assert stored.status == "delivered"  # untouched -- NO state write
+
+
+def test_merge_local_result_from_ex_owner_has_no_control_effect() -> None:
+    """AG3-152 AC6: Rule-15 fencing applies unchanged to merge_local reports."""
+    edge_repo = _default_di_edge_command_repository()
+    edge_repo.insert_command(
+        _command(status="delivered", command_kind="merge_local")
+    )
+    service = _service(
+        active=_ownership_record(owner="sess-NEW-OWNER", epoch=2),
+        edge_command_repository=edge_repo,
+    )
+    request = EdgeCommandResultRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-A",
+        op_id="op-merge",
+        result=MergeLocalReport(
+            outcome="merged",
+            escalated=False,
+            merged_main_sha="a" * 40,
+            repositories=[
+                MergeLocalRepoReport(
+                    repo_id="repo-a", outcome="merged", merged=True
+                )
+            ],
+        ),
+    )
+
+    result = service.submit_command_result("cmd-1", request)
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    stored = edge_repo.load_command("cmd-1")
+    assert stored is not None
+    assert stored.status == "delivered"
 
 
 def test_submit_result_commit_time_fence_violation_releases_claim_no_write() -> None:

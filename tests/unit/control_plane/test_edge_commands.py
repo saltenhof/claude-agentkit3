@@ -21,8 +21,8 @@ def test_all_command_kinds_pins_the_seven_registered_kinds() -> None:
     } == ec.ALL_COMMAND_KINDS
 
 
-def test_executable_command_kinds_includes_recovery_reset() -> None:
-    """Recovery reset and takeover reconcile have productive edge executors."""
+def test_executable_command_kinds_includes_merge_local() -> None:
+    """Every registered command kind now has a productive edge executor."""
     assert {
         "provision_worktree",
         "teardown_worktree",
@@ -30,8 +30,9 @@ def test_executable_command_kinds_includes_recovery_reset() -> None:
         "sync_push",
         "takeover_reconcile",
         "reset_worktree",
+        "merge_local",
     } == ec.EXECUTABLE_COMMAND_KINDS
-    assert ec.EXECUTABLE_COMMAND_KINDS < ec.ALL_COMMAND_KINDS
+    assert ec.EXECUTABLE_COMMAND_KINDS == ec.ALL_COMMAND_KINDS
 
 
 def test_all_command_statuses_has_no_wall_clock_expiry_member() -> None:
@@ -51,11 +52,12 @@ def test_open_command_statuses_are_exactly_the_non_terminal_ones() -> None:
     assert ec.OPEN_COMMAND_STATUSES < ec.ALL_COMMAND_STATUSES
 
 
-def test_result_types_pins_the_three_named_report_shapes() -> None:
+def test_result_types_pins_the_four_named_report_shapes() -> None:
     assert {
         "branch_ref_report",
         "push_status_report",
         "worktree_report",
+        "merge_local_report",
     } == ec.RESULT_TYPES
 
 

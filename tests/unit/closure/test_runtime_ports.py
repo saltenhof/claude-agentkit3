@@ -17,9 +17,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from agentkit.backend.bootstrap.composition_implementation_evidence import (
+    CiBuildTestFastRunner,
+)
 from agentkit.backend.closure.multi_repo_saga import GitCommandResult
 from agentkit.backend.closure.runtime_ports import (
-    CiBuildTestFastRunner,
     ProductiveDocFidelityFeedbackPort,
     ProductiveSanityGatePort,
     ProductiveVectorDbSyncPort,

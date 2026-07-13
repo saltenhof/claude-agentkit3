@@ -103,13 +103,7 @@ _GIT_INVOCATION_FORMS = (
 #: mapped to its owner. AC11 "no unassigned finding" == this set equals the
 #: scanned set (:func:`_git_subprocess_sites`), each with an explicit owner.
 _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
-    # The utils.git primitives (remove_worktree + tree_hash_of_commit) the
-    # AG3-152 closure/merge block still consumes; create_worktree/branch_exists
-    # were removed.
-    "utils/git.py": "AG3-152 (remove_worktree + tree_hash_of_commit primitives)",
-    # AG3-152 closure/merge git block (push / merge / teardown / diff / HEAD reads).
-    "closure/multi_repo_saga.py": "AG3-152 (SubprocessGitBackend closure saga)",
-    "closure/runtime_ports.py": "AG3-152 (closure git diff reads)",
+    "bootstrap/composition_git.py": "implementation/structural system evidence (not closure merge)",
     "verify_system/sonarqube_gate/runtime_wiring.py": "AG3-152 (worktree-HEAD attestation reads)",
     # AG3-147 retargeted QA-cycle fingerprinting off backend-local git; it now
     # hashes reported pushed heads / compare evidence, so no inventory entry
@@ -135,17 +129,13 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
 #: The utils.git worktree/tree-hash primitives the AG3-152 closure/merge block
 #: still consumes on the backend -- the ONLY sanctioned backend importers of
 #: ``agentkit.backend.utils.git`` after this story.
-_UTILS_GIT_REMAINING_CONSUMERS: dict[str, str] = {
-    "closure/multi_repo_saga.py": "AG3-152",  # remove_worktree (teardown_worktrees)
-    "verify_system/pre_merge_runner/scan_runner.py": "AG3-152",  # tree_hash_of_commit
-}
+_UTILS_GIT_REMAINING_CONSUMERS: dict[str, str] = {}
 
 #: Files that legitimately call ``remove_worktree`` after this story -- the
 #: AG3-152 closure teardown + its duck-type backend check. The reset-detach and
 #: setup-failure cleanup no longer appear here (they commission a
 #: ``teardown_worktree`` edge command instead).
 _REMOVE_WORKTREE_CALLERS: dict[str, str] = {
-    "utils/git.py": "primitive-definition",
     "closure/multi_repo_saga.py": "AG3-152",
     "closure/phase.py": "AG3-152",  # hasattr(backend, "remove_worktree") duck check
 }
@@ -156,14 +146,28 @@ _REMOVE_WORKTREE_CALLERS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def test_utils_git_no_longer_defines_worktree_provisioning_primitives() -> None:
-    """``create_worktree`` / ``branch_exists`` were removed from ``utils.git``."""
-    source = (_BACKEND_ROOT / "utils" / "git.py").read_text(encoding="utf-8")
-    assert "def create_worktree(" not in source
-    assert "def branch_exists(" not in source
-    # The AG3-152 primitives it still owns are retained.
-    assert "def remove_worktree(" in source
-    assert "def tree_hash_of_commit(" in source
+def test_backend_git_utility_module_is_deleted() -> None:
+    """AG3-152 leaves no physical Git helper in the backend utility package."""
+    assert not (_BACKEND_ROOT / "utils" / "git.py").exists()
+
+
+def test_closure_merge_runtime_has_no_physical_git_adapter() -> None:
+    """AG3-152 AC-1: productive Closure cannot reach a local Git subprocess."""
+    closure_sources = {
+        _rel(path): path.read_text(encoding="utf-8")
+        for path in (_BACKEND_ROOT / "closure").rglob("*.py")
+    }
+    closure_sources["bootstrap/composition_closure.py"] = (
+        _BACKEND_ROOT / "bootstrap" / "composition_closure.py"
+    ).read_text(encoding="utf-8")
+    forbidden = ("subprocess.run", "SubprocessGitBackend")
+    hits = {
+        path: token
+        for path, source in closure_sources.items()
+        for token in forbidden
+        if token in source
+    }
+    assert hits == {}, f"physical Git remains reachable from Closure: {hits}"
 
 
 def test_state_backend_worktree_repository_is_deleted() -> None:

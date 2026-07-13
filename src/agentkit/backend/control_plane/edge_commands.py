@@ -10,8 +10,8 @@ vocabulary shared by both sides of the wire (backend command creation +
 
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
 ``sync_push`` (AG3-147), ``takeover_reconcile`` (AG3-151), and
-``reset_worktree`` (AG3-154) are executed by the edge. ``merge_local`` remains
-registered for AG3-152. An edge that
+``reset_worktree`` (AG3-154) and ``merge_local`` (AG3-152) are executed by the
+edge. An edge that
 receives a command of a kind outside :data:`EXECUTABLE_COMMAND_KINDS` reports a
 deterministic error result -- never a silent no-op (Scope item 4).
 """
@@ -44,9 +44,8 @@ __all__ = (
 )
 
 #: FK-91 §91.1b "initial command kinds": the closed set of command kinds the
-#: Edge-Command-Queue can carry. Six total; five are executed (see
-#: :data:`EXECUTABLE_COMMAND_KINDS`) and ``merge_local`` remains registered for
-#: AG3-152.
+#: Edge-Command-Queue can carry. Every registered kind has a productive edge
+#: executor.
 CommandKind = Literal[
     "provision_worktree",
     "teardown_worktree",
@@ -70,8 +69,7 @@ ALL_COMMAND_KINDS: frozenset[str] = frozenset(
 )
 
 #: The productive edge executors: the AG3-145 worktree/preflight trio, AG3-147
-#: ``sync_push``, and AG3-151 ``takeover_reconcile``. Any remaining registered
-#: kind is a deterministic error result at the edge.
+#: ``sync_push``, AG3-151 ``takeover_reconcile``, and AG3-152 ``merge_local``.
 EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(
     {
         "provision_worktree",
@@ -80,6 +78,7 @@ EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(
         "sync_push",
         "takeover_reconcile",
         "reset_worktree",
+        "merge_local",
     }
 )
 
@@ -101,11 +100,21 @@ ALL_COMMAND_STATUSES: frozenset[str] = frozenset(
 #: indefinitely, never silently dropped by a status sweep).
 OPEN_COMMAND_STATUSES: frozenset[str] = frozenset({"created", "delivered"})
 
-#: FK-91 §91.1b "Result-Typen": the three named report shapes.
-ResultType = Literal["branch_ref_report", "push_status_report", "worktree_report"]
+#: FK-91 §91.1b named report shapes, including the closure merge report.
+ResultType = Literal[
+    "branch_ref_report",
+    "push_status_report",
+    "worktree_report",
+    "merge_local_report",
+]
 
 RESULT_TYPES: frozenset[str] = frozenset(
-    {"branch_ref_report", "push_status_report", "worktree_report"}
+    {
+        "branch_ref_report",
+        "push_status_report",
+        "worktree_report",
+        "merge_local_report",
+    }
 )
 
 #: FK-91 §91.1b / FK-30 §30.6.3: the named takeover-family error states,
@@ -133,7 +142,7 @@ def is_known_command_kind(kind: str) -> bool:
 
 
 def is_executable_command_kind(kind: str) -> bool:
-    """Return whether ``kind`` has a productive edge executor in THIS story.
+    """Return whether ``kind`` has a productive edge executor.
 
     An edge dispatch loop uses this to decide between running an executor and
     reporting the deterministic "unsupported command kind" error result
