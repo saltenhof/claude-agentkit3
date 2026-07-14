@@ -2,12 +2,42 @@ story_id: AG3-158
 title: "Konzept-Decision-Record-Gate (W4): P3-Durchsetzung — Konzeptdiff an normativen Dokumenten erfordert Decision-Record-Referenz (Commit-Konvention + deterministischer Check)"
 type: implementation
 status: completed
-# CLOSED 2026-07-14: deterministic W4 gate with pure injected ConceptDiff core,
+completed_at: "2026-07-13T23:20:00Z"
+# CLOSED 2026-07-14 at main@8b424f562eea720843db1a44b9a32024d7de7880 (origin matches).
+# Deterministic W4 gate with pure injected ConceptDiff core,
 # thin base..head git adapter, fail-closed body-line heuristic, non-bypassing
 # Format-Only marker, both record satisfaction paths, canonical frontmatter
 # validation, dogfood record, Jenkins stage, and AC1-5 unit/integration coverage.
 # Whole-story multi-model review converged to PASS after adversarial fixes for
 # scope-boundary renames and Markdown/frontmatter boundary parsing.
+# ORCHESTRATOR ADJUDICATION (independent, not a worker self-report): every
+# non-mechanical surface read at code and confirmed correct + fail-closed --
+# (1) the critical non-bypass invariant: first_record_requiring_line short-circuits
+# `if normative: return normative[0]` BEFORE the allow_ambiguous check, so a
+# Concept-Format-Only marker can never wave through a NORMATIVE_MODAL_RE hit
+# (decision_record_heuristic.py:43-47); (2) empty Format-Only reason grants no
+# downgrade (any(reasons) is falsy) AND raises EMPTY_FORMAT_ONLY_REASON
+# (decision_record.py:35,83-94); (3) scope filter excludes decisions/ + non-concept
+# (:97-98); (4) trailer/record validation is path-traversal-safe (parent must be
+# exactly decisions/), CRLF-tolerant, case-sensitive, and matches the precedent
+# frontmatter schema (decision_record_records.py); (5) diff/body extraction is
+# deterministic (difflib autojunk=False) with correct frontmatter + code-fence
+# exclusion (decision_record_diff.py); (6) NORMATIVE_MODAL_RE lifted to a single
+# source (normativity.py) with check_concept_frontmatter L20 importing it -- no
+# regression (88 docs green); (7) dogfood record frontmatter matches the two
+# precedents exactly and satisfies the gate via path (a). The git-subprocess
+# adapter (T) is proven by the tmp-repo integration test (CLI exit 1) + Jenkins on
+# the real introduction range. Direct code-adjudication stood in for a separate
+# Fable finale given the risk class (deterministic repo/CI tool, no runtime/fence/
+# data-loss surface). Evidence on 8b424f56: Jenkins #1904 SUCCESS (built exact SHA),
+# Sonar gate OK / violations 0 / critical 0 / blocker 0 / security_hotspots 0 /
+# new_violations 0, coverage 90.9 (new 90.9); local ex-e2e 9468 passed / 14 skipped,
+# coverage 91.70%, ruff clean, mypy strict native + --platform linux clean (907
+# files); all SIX concept gates green on Windows incl. the new W4 gate PASS on its
+# own introduction range (HEAD^..HEAD); 32 focused unit+integration tests green
+# (Windows). Mirrored WARNING (out of lane, tech-debt #20): 12 pre-existing
+# randomization-dependent unclosed-SQLite ResourceWarnings in unchanged runtime
+# tests -- AG3-158 touches no SQLite code; Jenkins stays green.
 phase: closure
 created: "2026-07-02"
 size: S
