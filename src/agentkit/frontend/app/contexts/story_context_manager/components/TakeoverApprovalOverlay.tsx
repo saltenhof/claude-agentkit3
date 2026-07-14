@@ -36,7 +36,7 @@ export function TakeoverApprovalOverlay({
     );
 
   return (
-    <section className="takeover-overlay" role="dialog" aria-modal="true" aria-labelledby="takeover-title">
+    <dialog className="takeover-overlay" open aria-labelledby="takeover-title">
       <header>
         <AlertTriangle size={22} />
         <div>
@@ -84,6 +84,6 @@ export function TakeoverApprovalOverlay({
           Angezeigte Challenge bestätigen
         </button>
       </footer>
-    </section>
+    </dialog>
   );
 }

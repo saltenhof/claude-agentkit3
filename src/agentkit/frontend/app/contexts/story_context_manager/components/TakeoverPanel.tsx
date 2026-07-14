@@ -64,7 +64,7 @@ export function TakeoverPanel({ approval, edgeStates }: Readonly<TakeoverPanelPr
           return (
             <li key={state} data-active={signal === true} data-known={signal !== undefined}>
               <strong>{state}</strong>
-              <span>{signal === undefined ? 'Signal unbekannt – blockierend (fail-closed).' : signal ? 'Aktiv – blockierend.' : 'Nicht aktiv.'}</span>
+              <span>{edgeStateMessage(signal)}</span>
               <small>{EDGE_RESOLUTION[state]}</small>
             </li>
           );
@@ -72,4 +72,11 @@ export function TakeoverPanel({ approval, edgeStates }: Readonly<TakeoverPanelPr
       </ul>
     </section>
   );
+}
+
+function edgeStateMessage(signal: boolean | undefined): string {
+  if (signal === undefined) {
+    return 'Signal unbekannt – blockierend (fail-closed).';
+  }
+  return signal ? 'Aktiv – blockierend.' : 'Nicht aktiv.';
 }

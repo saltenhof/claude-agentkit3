@@ -96,6 +96,10 @@ from agentkit.backend.control_plane_http.responses import (
 from agentkit.backend.control_plane_http.routes_config import (
     ControlPlaneApplicationRoutes as ControlPlaneApplicationRoutes,
 )
+from agentkit.backend.control_plane_http.startup import run_pre_serve_startup
+from agentkit.backend.control_plane_http.takeover_dispatch import (
+    TakeoverFrontendDispatcher,
+)
 from agentkit.backend.control_plane_http.takeover_handlers import (
     dispatch_project_edge_takeover_post,
 )
@@ -385,8 +389,9 @@ class ControlPlaneApplication(
         self._task_management_routes = (
             r.task_management_routes or _build_default_task_management_routes()
         )
-        self._takeover_approval_routes = (
-            r.takeover_approval_routes or _build_default_takeover_approval_routes()
+        self._takeover_frontend_dispatcher = TakeoverFrontendDispatcher(
+            r.takeover_approval_routes or _build_default_takeover_approval_routes(),
+            self._telemetry_routes,
         )
 
     def ensure_version_handshake(self) -> None:
@@ -420,29 +425,7 @@ class ControlPlaneApplication(
         Fail-closed (AC9): any failure propagates uncaught -- the process never
         reaches ``serve_forever()`` with an unclear claim inventory.
         """
-        from agentkit.backend.control_plane.instance_identity import (
-            resolve_backend_instance_identity,
-        )
-        from agentkit.backend.control_plane.repository import (
-            BackendInstanceIdentityRepository,
-        )
-        from agentkit.backend.control_plane.startup_reconcile import (
-            run_startup_reconciliation,
-        )
-
-        identity = resolve_backend_instance_identity(BackendInstanceIdentityRepository())
-        run_startup_reconciliation(
-            self._runtime_service.repository,
-            identity,
-            object_claim_repo=self._runtime_service.object_claim_repository,
-        )
-        self._runtime_service.bind_instance_identity(identity)
-        logger.info(
-            "Startup reconciliation complete for backend instance %s "
-            "(incarnation %d); listener may accept requests.",
-            identity.backend_instance_id,
-            identity.instance_incarnation,
-        )
+        run_pre_serve_startup(self._runtime_service)
 
     def handle_request(
         self,
@@ -517,13 +500,13 @@ class ControlPlaneApplication(
         mutation handlers (other BCs' mutation endpoints are unaffected — they
         still decode and dispatch their bodies normally).
         """
+        takeover_response = self._takeover_frontend_dispatcher.handle(
+            method, route_path, query, correlation_id, auth_result,
+        )
+        if takeover_response is not None:
+            return takeover_response
         if method == "GET":
-            return self._handle_get_request(
-                route_path,
-                query,
-                correlation_id,
-                auth_result,
-            )
+            return self._handle_get_request(route_path, query, correlation_id)
         if method == "DELETE":
             return self._handle_delete_request(route_path, body, correlation_id)
         read_only_block = _read_only_method_not_allowed(
@@ -531,13 +514,6 @@ class ControlPlaneApplication(
         )
         if read_only_block is not None:
             return read_only_block
-        if self._takeover_approval_routes.matches(route_path):
-            return _error_response(
-                HTTPStatus.METHOD_NOT_ALLOWED,
-                error_code="method_not_allowed",
-                message="Method not allowed",
-                correlation_id=correlation_id,
-            )
         payload = _decode_json_body(body, correlation_id)
         if isinstance(payload, HttpResponse):
             return payload
@@ -559,7 +535,6 @@ class ControlPlaneApplication(
         route_path: str,
         query: dict[str, list[str]],
         correlation_id: str,
-        auth_result: AuthResult | None,
     ) -> HttpResponse:
         # Version compat window (non-project-scoped, read-only, handshake-exempt
         # to avoid the hen-and-egg trap; FK-91 §91.1a / FK-10 §10.2.7):
@@ -619,23 +594,10 @@ class ControlPlaneApplication(
         if concept_response is not None:
             return _concept_response_to_http_response(concept_response)
 
-        takeover_approval_response = self._takeover_approval_routes.handle_get(
-            route_path,
-            correlation_id,
-            auth_result,
+        # Telemetry SSE routes (project-scoped /v1/projects/{key}/events):
+        telemetry_response = self._telemetry_routes.handle_get(
+            route_path, query, correlation_id,
         )
-        if takeover_approval_response is not None:
-            return takeover_approval_response
-
-        # Telemetry SSE routes (project-scoped plus cross-project governance):
-        if route_path == "/v1/events/governance":
-            telemetry_response = self._telemetry_routes.handle_get(
-                route_path, query, correlation_id, auth_result,
-            )
-        else:
-            telemetry_response = self._telemetry_routes.handle_get(
-                route_path, query, correlation_id,
-            )
         if telemetry_response is not None:
             return _telemetry_response_to_http_response(telemetry_response)
 
