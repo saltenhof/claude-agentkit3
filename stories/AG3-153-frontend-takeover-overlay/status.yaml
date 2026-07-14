@@ -15,5 +15,8 @@ size: L
 # Cockpit-Takeover-Sicht mit SHA/Push-Frische statt Dirty-Stand (SOLL-164)
 # + 4 Edge-Zustaende. Der Transfer-Kern bleibt AG3-148; diese Story liefert
 # die globalen Read-/SSE-BFF-Flaechen und deren Frontend-Konsum.
+# Completion review: AG3-151 persists/returns the four edge-state families only
+# through ProjectEdge command/bundle surfaces. No strategist-readable cockpit
+# read source exposes all four, so the panel remains fail-closed unknown.
 depends_on: ["AG3-144", "AG3-148", "AG3-151"]
 unblocks: []

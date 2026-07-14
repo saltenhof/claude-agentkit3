@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from http import HTTPStatus
 
@@ -16,6 +17,7 @@ from agentkit.backend.control_plane.records import (
     TakeoverChallengeRepoRecord,
 )
 from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
+from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.store.takeover_approval_read_repository import (
     StateBackendTakeoverApprovalReadSource,
 )
@@ -110,6 +112,58 @@ def test_global_reads_reject_missing_session_and_project_token_before_postgres_a
 
     assert response is not None and response.status_code == HTTPStatus.FORBIDDEN
     assert json.loads(response.body)["error_code"] == "forbidden"
+
+
+@pytest.mark.parametrize(
+    ("inconsistency", "expected_reason"),
+    [
+        ("dangling_challenge", "missing_joined_challenge"),
+        ("terminal_challenge", "challenge_not_pending"),
+    ],
+)
+def test_inconsistent_approval_row_is_omitted_logged_and_does_not_dos_endpoint(
+    postgres_backend_env: object,
+    caplog: pytest.LogCaptureFixture,
+    inconsistency: str,
+    expected_reason: str,
+) -> None:
+    del postgres_backend_env
+    _insert_pair("valid", TakeoverApprovalStatus.PENDING)
+    _insert_pair("inconsistent", TakeoverApprovalStatus.PENDING)
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- corruption fixture
+        if inconsistency == "dangling_challenge":
+            conn.execute(
+                "UPDATE takeover_approvals SET challenge_ref = ? WHERE approval_id = ?",
+                ("challenge-missing", "approval-inconsistent"),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE takeover_challenges
+                SET status = 'denied', decided_at = ?, terminal_op_id = ?
+                WHERE challenge_id = ?
+                """,
+                (_NOW.isoformat(), "op-inconsistent-deny", "challenge-inconsistent"),
+            )
+    routes = TakeoverApprovalRoutes(StateBackendTakeoverApprovalReadSource())
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="agentkit.backend.state_backend.persistence_mappers._takeover_approval_read",
+    ):
+        response = routes.handle_get(
+            "/v1/governance/takeover-approvals",
+            "corr-inconsistent",
+            AuthResult(auth_kind="strategist_session", session_id="human-reviewer"),
+        )
+
+    assert response is not None and response.status_code == HTTPStatus.OK
+    assert [item["approval_id"] for item in json.loads(response.body)["approvals"]] == [
+        "approval-valid",
+    ]
+    assert "takeover_approval_row_omitted" in caplog.text
+    assert "approval-inconsistent" in caplog.text
+    assert expected_reason in caplog.text
 
 
 def _insert_pair(suffix: str, status: TakeoverApprovalStatus) -> None:

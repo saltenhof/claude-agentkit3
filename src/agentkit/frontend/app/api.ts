@@ -130,6 +130,7 @@ export class ApiClient {
       `/v1/project-edge/story-runs/${encodeURIComponent(context.run_id)}/ownership/takeover-request`,
       {
         method: 'POST',
+        headers: { 'X-Project-Key': context.project_key },
         body: JSON.stringify({
           project_key: context.project_key,
           story_id: context.story_id,
@@ -148,6 +149,7 @@ export class ApiClient {
       `/v1/project-edge/story-runs/${encodeURIComponent(approval.run_id)}/ownership/takeover-confirm`,
       {
         method: 'POST',
+        headers: { 'X-Project-Key': approval.project_key },
         body: JSON.stringify({
           project_key: approval.project_key,
           story_id: approval.story_id,
@@ -164,6 +166,7 @@ export class ApiClient {
       `/v1/project-edge/story-runs/${encodeURIComponent(approval.run_id)}/ownership/takeover-deny`,
       {
         method: 'POST',
+        headers: { 'X-Project-Key': approval.project_key },
         body: JSON.stringify({
           project_key: approval.project_key,
           story_id: approval.story_id,

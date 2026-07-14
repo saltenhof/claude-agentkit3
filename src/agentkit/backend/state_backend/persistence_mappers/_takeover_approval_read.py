@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agentkit.backend.control_plane.ownership_transfer import LOSS_CORRIDOR_TEXT
@@ -14,6 +15,8 @@ from agentkit.backend.control_plane.takeover_approval_read import (
 
 from ._control_plane import takeover_approval_row_to_record, takeover_challenge_row_to_record
 
+logger = logging.getLogger(__name__)
+
 
 def takeover_approval_read_rows_to_response(
     rows: list[dict[str, Any]],
@@ -25,10 +28,12 @@ def takeover_approval_read_rows_to_response(
         approval = takeover_approval_row_to_record(row)
         challenge_row = row.get("challenge_row")
         if not isinstance(challenge_row, dict):
-            raise ValueError("takeover approval read requires one joined challenge row")
+            _log_omitted_approval(approval.approval_id, "missing_joined_challenge")
+            continue
         challenge = takeover_challenge_row_to_record(challenge_row)
         if challenge.status != "pending":
-            raise ValueError("an open takeover approval requires a pending challenge")
+            _log_omitted_approval(approval.approval_id, "challenge_not_pending")
+            continue
         approvals.append(
             TakeoverApprovalRequest(
                 approval_id=approval.approval_id,
@@ -66,6 +71,14 @@ def takeover_approval_read_rows_to_response(
             )
         )
     return TakeoverApprovalsResponse(approvals=approvals, challenges=challenges)
+
+
+def _log_omitted_approval(approval_id: str, reason: str) -> None:
+    logger.warning(
+        "takeover_approval_row_omitted approval_id=%s reason=%s",
+        approval_id,
+        reason,
+    )
 
 
 __all__ = ["takeover_approval_read_rows_to_response"]

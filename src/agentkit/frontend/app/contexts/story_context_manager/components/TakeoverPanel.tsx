@@ -33,10 +33,11 @@ export function TakeoverPanel({ approval, edgeStates }: Readonly<TakeoverPanelPr
       <h3><LockKeyhole size={16} /> Eigentumslage</h3>
       <dl className="takeover-facts">
         <div><dt>Owner-Session</dt><dd>{approval?.owner_session_id ?? 'unbekannt'}</dd></div>
-        <div><dt>Principal</dt><dd>unbekannt</dd></div>
+        <div><dt>Principal</dt><dd>{approval?.requested_by_principal ?? 'unbekannt'}</dd></div>
         <div><dt>Ownership-Epoche</dt><dd>{approval?.ownership_epoch ?? 'unbekannt'}</dd></div>
+        <div><dt>Binding-Version</dt><dd>{approval?.binding_version ?? 'unbekannt'}</dd></div>
         <div><dt>Phase</dt><dd>{approval?.phase ?? 'unbekannt'}</dd></div>
-        <div><dt>Offene op_ids</dt><dd>{approval?.open_operation_ids.join(', ') || 'keine gemeldet'}</dd></div>
+        <div><dt>Offene op_ids</dt><dd>{openOperationIds(approval)}</dd></div>
         <div><dt>Zuletzt aktiv</dt><dd>{approval?.last_api_contact_at ?? 'unbekannt'}</dd></div>
       </dl>
       <p className="takeover-info">„Zuletzt aktiv“ ist reine Information. Inaktivität ist keine Diagnose und löst niemals einen Takeover aus.</p>
@@ -79,4 +80,11 @@ function edgeStateMessage(signal: boolean | undefined): string {
     return 'Signal unbekannt – blockierend (fail-closed).';
   }
   return signal ? 'Aktiv – blockierend.' : 'Nicht aktiv.';
+}
+
+function openOperationIds(approval: TakeoverApprovalRequest | null): string {
+  if (approval === null) {
+    return 'unbekannt';
+  }
+  return approval.open_operation_ids.join(', ') || 'keine gemeldet';
 }

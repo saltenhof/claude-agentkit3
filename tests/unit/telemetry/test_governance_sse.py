@@ -2,27 +2,31 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import TYPE_CHECKING
 
 import pytest
 
 from agentkit.backend.auth.middleware import AuthResult
 from agentkit.backend.control_plane.ownership import TakeoverApprovalStatus
 from agentkit.backend.control_plane.records import TakeoverApprovalRecord
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.http.routes import TelemetryRoutes
 from agentkit.backend.telemetry.sse_stream import (
     iter_governance_sse_stream,
     parse_governance_topics,
 )
 
-if TYPE_CHECKING:
-    from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
-
 
 class _ApprovalSource:
-    def __init__(self, approval: TakeoverApprovalRecord) -> None:
+    def __init__(
+        self,
+        approval: TakeoverApprovalRecord | None,
+        *,
+        approval_events: list[ExecutionEventRecord] | None = None,
+    ) -> None:
         self.approval = approval
+        self.approval_events = approval_events or []
         self.scopes: list[str | None] = []
+        self.global_event_reads = 0
 
     def events_for_project(self, project_key: str, *, limit: int = 200) -> list[ExecutionEventRecord]:
         del project_key, limit
@@ -32,7 +36,16 @@ class _ApprovalSource:
         self, project_key: str | None,
     ) -> tuple[TakeoverApprovalRecord, ...]:
         self.scopes.append(project_key)
-        return (self.approval,)
+        return (self.approval,) if self.approval is not None else ()
+
+    def takeover_approval_events_global(
+        self,
+        *,
+        limit: int = 200,
+    ) -> list[ExecutionEventRecord]:
+        del limit
+        self.global_event_reads += 1
+        return self.approval_events
 
 
 def test_governance_stream_reads_all_projects_through_none_scope() -> None:
@@ -48,6 +61,21 @@ def test_governance_stream_reads_all_projects_through_none_scope() -> None:
     assert source.scopes == [None]
     assert b'"project_key": "tenant-y"' in chunk
     assert b'"approval_id": "approval-y"' in chunk
+
+
+def test_governance_stream_includes_cross_project_approval_change_events() -> None:
+    source = _ApprovalSource(None, approval_events=[_approval_changed_event()])
+    stream = iter_governance_sse_stream(
+        source=source,
+        topics={"governance"},
+        poll_interval_seconds=0,
+    )
+
+    chunk = next(stream)
+
+    assert source.global_event_reads == 1
+    assert b'"event_type": "takeover_approval_changed"' in chunk
+    assert b'"project_key": "tenant-y"' in chunk
 
 
 def test_governance_topic_filter_is_fail_closed() -> None:
@@ -112,4 +140,19 @@ def _approval() -> TakeoverApprovalRecord:
         status=TakeoverApprovalStatus.PENDING,
         requested_at=datetime(2026, 7, 14, 10, 0, tzinfo=UTC),
         expires_at=datetime(2026, 7, 14, 10, 15, tzinfo=UTC),
+    )
+
+
+def _approval_changed_event() -> ExecutionEventRecord:
+    return ExecutionEventRecord(
+        project_key="tenant-y",
+        story_id="AG3-153",
+        run_id="run-y",
+        event_id="event-denied-y",
+        event_type="takeover_approval_changed",
+        occurred_at=datetime(2026, 7, 14, 10, 5, tzinfo=UTC),
+        source_component="story-lifecycle",
+        severity="info",
+        phase="ownership",
+        payload={"approval_id": "approval-y", "status": "denied"},
     )

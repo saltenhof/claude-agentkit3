@@ -424,6 +424,9 @@ from ._runtime_rows import (
     load_execution_event_rows as load_execution_event_rows,
 )
 from ._runtime_rows import (
+    load_execution_event_rows_by_type_global as load_execution_event_rows_by_type_global,
+)
+from ._runtime_rows import (
     load_execution_event_rows_for_project_global as load_execution_event_rows_for_project_global,
 )
 from ._runtime_rows import (

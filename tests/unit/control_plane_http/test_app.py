@@ -721,6 +721,72 @@ def test_human_takeover_confirm_constructs_attested_command() -> None:
     assert command.confirmed_by_principal.value == "human_cli"
 
 
+@pytest.mark.parametrize(
+    ("action", "payload", "expected_call"),
+    [
+        (
+            "takeover-confirm",
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "op_id": "op-spa-confirm",
+                "challenge_id": "challenge-100",
+                "reason": "confirm",
+            },
+            "confirm_calls",
+        ),
+        (
+            "takeover-deny",
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "op_id": "op-spa-deny",
+                "approval_id": "approval-100",
+                "reason": "deny",
+            },
+            "deny_calls",
+        ),
+    ],
+)
+def test_spa_takeover_decisions_use_cookie_csrf_and_approval_project_attestation(
+    action: str,
+    payload: dict[str, object],
+    expected_call: str,
+) -> None:
+    runtime = _FakeTakeoverRuntime()
+    auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
+    session = auth.session_store.create()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=auth,
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path=f"/v1/project-edge/story-runs/run-100/ownership/{action}",
+        body=json.dumps(payload).encode(),
+        request_headers={
+            "Cookie": f"{AuthMiddleware.session_cookie_name()}={session.session_id}",
+            AuthMiddleware.csrf_header_name(): session.csrf_token,
+            "X-Project-Key": "tenant-a",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert len(getattr(runtime, expected_call)) == 1
+
+
 def test_token_takeover_request_derives_agent_principal_from_auth_not_body() -> None:
     tokens = _InMemoryTokenRepository()
     issued = issue_project_api_token(

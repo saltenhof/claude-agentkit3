@@ -142,6 +142,9 @@ from ._runtime_rows import (
     load_execution_event_rows as load_execution_event_rows,
 )
 from ._runtime_rows import (
+    load_execution_event_rows_by_type_global as load_execution_event_rows_by_type_global,
+)
+from ._runtime_rows import (
     load_execution_event_rows_for_project_global as load_execution_event_rows_for_project_global,
 )
 from ._runtime_rows import (
@@ -368,6 +371,7 @@ __all__: tuple[
         "load_artifact_record_payload_for_scope",
         "load_attempt_rows",
         "load_execution_event_rows",
+        "load_execution_event_rows_by_type_global",
         "load_execution_event_rows_for_project_global",
         "load_execution_event_rows_global",
         "load_flow_execution_row",

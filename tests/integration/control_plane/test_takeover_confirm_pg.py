@@ -138,6 +138,9 @@ from agentkit.backend.state_backend.store.freeze_repository import (
     FreezeRepository,
     LocalFreezeJsonExport,
 )
+from agentkit.backend.state_backend.store.telemetry_read_repository import (
+    StateBackendProjectTelemetryEventSource,
+)
 from agentkit.backend.state_backend.story_closure_store import (
     upsert_push_barrier_verdict_global,
     upsert_push_freshness_record_global,
@@ -187,6 +190,7 @@ from agentkit.backend.story_split import (
 )
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.telemetry.sse_stream import iter_governance_sse_stream
 from agentkit.harness_client.projectedge import (
     HttpsJsonTransport,
     LocalEdgePublisher,
@@ -3060,7 +3064,7 @@ def test_t4_expired_approval_confirm_rejects_and_only_lazy_expiry_is_written(
 
 
 @pytest.mark.integration
-def test_human_bff_takeover_deny_persists_denied_event_and_blocks_later_confirm(
+def test_human_bff_takeover_deny_reaches_global_governance_stream_and_blocks_confirm(
     postgres_backend_env: object,
     tmp_path: Path,
 ) -> None:
@@ -3127,6 +3131,19 @@ def test_human_bff_takeover_deny_persists_denied_event_and_blocks_later_confirm(
         story_id,
         run_id,
         EventType.TAKEOVER_APPROVAL_CHANGED,
+    )
+    governance_stream = iter_governance_sse_stream(
+        source=StateBackendProjectTelemetryEventSource(),
+        topics={"governance"},
+        heartbeat_interval_seconds=0,
+        poll_interval_seconds=0,
+    )
+    global_chunks = [next(governance_stream) for _ in approval_events]
+    assert any(
+        b'"event_type": "takeover_approval_changed"' in chunk
+        and b'"status": "denied"' in chunk
+        and f'"project_key": "{_PROJECT}"'.encode() in chunk
+        for chunk in global_chunks
     )
     denied_events = [
         event

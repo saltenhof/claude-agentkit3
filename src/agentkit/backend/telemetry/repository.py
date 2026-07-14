@@ -57,3 +57,11 @@ class ProjectTelemetryEventSource(Protocol):
     ) -> tuple[TakeoverApprovalRecord, ...]:
         """Return pending approvals for one project or all projects."""
         ...
+
+    def takeover_approval_events_global(
+        self,
+        *,
+        limit: int = 200,
+    ) -> list[ExecutionEventRecord]:
+        """Return recent cross-project takeover approval change events."""
+        ...

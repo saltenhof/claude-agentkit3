@@ -26,6 +26,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     list_pending_takeover_approvals_global,
 )
 from agentkit.backend.state_backend.telemetry_event_store import (
+    load_execution_events_by_type_global,
     load_execution_events_for_project_global,
 )
 
@@ -58,6 +59,17 @@ class StateBackendProjectTelemetryEventSource:
     ) -> tuple[TakeoverApprovalRecord, ...]:
         """Return pending approvals for one project or all projects."""
         return list_pending_takeover_approvals_global(project_key)
+
+    def takeover_approval_events_global(
+        self,
+        *,
+        limit: int = 200,
+    ) -> list[ExecutionEventRecord]:
+        """Return recent cross-project takeover approval change events."""
+        return load_execution_events_by_type_global(
+            "takeover_approval_changed",
+            limit=limit,
+        )
 
 
 __all__ = ["StateBackendProjectTelemetryEventSource"]

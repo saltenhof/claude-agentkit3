@@ -677,6 +677,16 @@ def load_execution_event_rows_for_project_global(
     return [dict(row) for row in reversed(rows)]
 
 
+def load_execution_event_rows_by_type_global(
+    event_type: str,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Reject the Postgres-only cross-project governance event read."""
+    del event_type, limit
+    raise RuntimeError("Takeover governance event reads require PostgreSQL")
+
+
 # ---------------------------------------------------------------------------
 # StoryMetricsRecord rows
 # ---------------------------------------------------------------------------

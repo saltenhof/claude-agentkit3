@@ -199,6 +199,11 @@ def iter_governance_sse_stream(
             allowed=allowed,
             seen_event_ids=seen_event_ids,
         )
+        yield from _iter_global_takeover_approval_events(
+            source=source,
+            allowed=allowed,
+            seen_event_ids=seen_event_ids,
+        )
         current_time = time.monotonic()
         if current_time - last_heartbeat >= heartbeat_interval_seconds:
             yield render_heartbeat()
@@ -247,7 +252,33 @@ def _iter_project_execution_events(
     allowed: frozenset[ProjectSseTopic],
     seen_event_ids: set[str],
 ) -> Iterator[bytes]:
-    for record in source.events_for_project(project_key):
+    yield from _iter_execution_events(
+        source.events_for_project(project_key),
+        allowed=allowed,
+        seen_event_ids=seen_event_ids,
+    )
+
+
+def _iter_global_takeover_approval_events(
+    *,
+    source: ProjectTelemetryEventSource,
+    allowed: frozenset[ProjectSseTopic],
+    seen_event_ids: set[str],
+) -> Iterator[bytes]:
+    yield from _iter_execution_events(
+        source.takeover_approval_events_global(),
+        allowed=allowed,
+        seen_event_ids=seen_event_ids,
+    )
+
+
+def _iter_execution_events(
+    records: Iterable[ExecutionEventRecord],
+    *,
+    allowed: frozenset[ProjectSseTopic],
+    seen_event_ids: set[str],
+) -> Iterator[bytes]:
+    for record in records:
         if record.event_id in seen_event_ids:
             continue
         seen_event_ids.add(record.event_id)

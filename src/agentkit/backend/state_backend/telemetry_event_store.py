@@ -112,6 +112,21 @@ def load_execution_events_for_project_global(
     return [mappers.execution_event_row_to_record(row) for row in rows]
 
 
+def load_execution_events_by_type_global(
+    event_type: str,
+    *,
+    limit: int | None = None,
+) -> list[ExecutionEventRecord]:
+    """Load recent execution events of one type across all projects."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    rows = _backend_module().load_execution_event_rows_by_type_global(
+        event_type,
+        limit=limit,
+    )
+    return [mappers.execution_event_row_to_record(row) for row in rows]
+
+
 def load_last_adjudication_ts(
     story_dir: Path,
     *,
@@ -298,6 +313,7 @@ __all__ = [
     "append_execution_event_global",
     "load_execution_events",
     "load_execution_events_global",
+    "load_execution_events_by_type_global",
     "load_execution_events_for_project_global",
     "load_last_adjudication_ts",
     "purge_execution_events",

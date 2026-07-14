@@ -15,6 +15,7 @@ from agentkit.backend.state_backend.persistence_mappers import (
     takeover_approval_to_row,
     takeover_challenge_to_row,
 )
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.sse_stream import (
     iter_governance_sse_stream,
     iter_project_sse_stream,
@@ -43,6 +44,35 @@ class _Source:
             return (self.approval,)
         return ()
 
+    def takeover_approval_events_global(
+        self, *, limit: int = 200,
+    ) -> list[ExecutionEventRecord]:
+        del limit
+        return []
+
+
+class _ChangedEventSource:
+    def __init__(self, event: ExecutionEventRecord) -> None:
+        self.event = event
+
+    def events_for_project(
+        self, project_key: str, *, limit: int = 200,
+    ) -> list[ExecutionEventRecord]:
+        del limit
+        return [self.event] if project_key == self.event.project_key else []
+
+    def pending_takeover_approvals_for_project(
+        self, project_key: str | None,
+    ) -> tuple[TakeoverApprovalRecord, ...]:
+        del project_key
+        return ()
+
+    def takeover_approval_events_global(
+        self, *, limit: int = 200,
+    ) -> list[ExecutionEventRecord]:
+        del limit
+        return [self.event]
+
 
 def test_global_and_project_stream_use_byte_identical_takeover_envelope() -> None:
     approval, _ = _records()
@@ -50,6 +80,21 @@ def test_global_and_project_stream_use_byte_identical_takeover_envelope() -> Non
 
     project_chunk = next(iter_project_sse_stream(
         project_key="tenant-y", source=source, topics={"governance"}, poll_interval_seconds=0,
+    ))
+    global_chunk = next(iter_governance_sse_stream(
+        source=source, topics={"governance"}, poll_interval_seconds=0,
+    ))
+
+    assert global_chunk == project_chunk
+
+
+def test_global_and_project_stream_use_byte_identical_approval_change_envelope() -> None:
+    event = _approval_changed_event()
+    source = _ChangedEventSource(event)
+
+    project_chunk = next(iter_project_sse_stream(
+        project_key="tenant-y", source=source, topics={"governance"},
+        poll_interval_seconds=0,
     ))
     global_chunk = next(iter_governance_sse_stream(
         source=source, topics={"governance"}, poll_interval_seconds=0,
@@ -89,6 +134,7 @@ def test_frontend_commands_and_ui_contract_are_pinned_without_js_runner() -> Non
 
     assert "takeover-request" in api_source and "reason" in api_source and "makeOpId()" in api_source
     assert "takeover-confirm" in api_source and "challenge_id: approval.challenge_id" in api_source
+    assert api_source.count("'X-Project-Key': approval.project_key") == 2
     takeover_types = (
         root / "src/agentkit/frontend/app/contexts/story_context_manager/takeoverTypes.ts"
     ).read_text(encoding="utf-8")
@@ -141,6 +187,11 @@ def test_shell_overlay_and_takeover_cockpit_ui_contract_are_source_pinned() -> N
         ]
     )
     assert "Signal unbekannt – blockierend (fail-closed)." in panel_source
+    assert "approval?.requested_by_principal ?? 'unbekannt'" in panel_source
+    assert "approval.repo_push_status.map" in panel_source
+    assert "<dt>Principal</dt><dd>unbekannt</dd>" not in panel_source
+    assert "if (approval === null)" in panel_source
+    assert "return 'unbekannt';" in panel_source
 
 
 def _records() -> tuple[TakeoverApprovalRecord, TakeoverChallengeRecord]:
@@ -163,3 +214,13 @@ def _records() -> tuple[TakeoverApprovalRecord, TakeoverChallengeRecord]:
         open_operation_ids=("op-running",), takeover_history_refs=("transfer-1",),
     )
     return approval, challenge
+
+
+def _approval_changed_event() -> ExecutionEventRecord:
+    return ExecutionEventRecord(
+        project_key="tenant-y", story_id="AG3-153", run_id="run-y",
+        event_id="event-denied-y", event_type="takeover_approval_changed",
+        occurred_at=datetime(2026, 7, 14, 10, 5, tzinfo=UTC),
+        source_component="story-lifecycle", severity="info", phase="ownership",
+        payload={"approval_id": "approval-y", "status": "denied"},
+    )
