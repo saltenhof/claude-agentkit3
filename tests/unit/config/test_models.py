@@ -367,6 +367,21 @@ class TestAreSectionRequiredWhenEnabled:
         assert cfg.are is not None
         assert cfg.are.mcp_server == "https://are.example.com/mcp"
 
+    def test_are_module_scope_map_is_preserved(self) -> None:
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="P",
+            repositories=[],
+            pipeline=_opt_out_pipeline(features=Features(are=True, multi_llm=False)),
+            are=AreConfig(
+                mcp_server="https://are.example.com/mcp",
+                module_scope_map={"app": "scope-a"},
+            ),
+        )
+
+        assert cfg.are is not None
+        assert cfg.are.module_scope_map == {"app": "scope-a"}
+
 class TestSonarqubeDeclaredExplicitly:
     """AG3-052 E6 / FK-03 §3: code-producing project must declare sonarqube."""
 

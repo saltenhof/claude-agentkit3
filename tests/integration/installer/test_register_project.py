@@ -36,7 +36,6 @@ from agentkit.backend.installer.registration import (
     RuntimeProfile,
 )
 from agentkit.backend.installer.runner import (
-    _CI_CHECKPOINT_ID,
     MANDATORY_SKILLS,
     PROMPT_MANIFEST_FILENAME,
     InstallConfig,
@@ -290,16 +289,8 @@ def test_install_persists_project_registration(tmp_path: Path) -> None:
     assert len(cp7) == 1
     assert cp7[0].status is CheckpointStatus.CREATED
 
-    # AG3-056 WARNING-2: the orthogonal CI preflight result is RECORDED by the
-    # install façade. This config opts out of CI (ci_available=False) => SKIPPED
-    # with a machine-readable reason.
-    ci_cp = [r for r in result.checkpoint_results if r.checkpoint == _CI_CHECKPOINT_ID]
-    assert len(ci_cp) == 1
-    assert ci_cp[0].status is CheckpointStatus.SKIPPED
-    assert ci_cp[0].reason == "not_applicable"
-    # AG3-088: CP 10d is a branch-gated checkpoint (branch_sonarqube_enabled). With
-    # sonarqube_available=False the sonar branch does NOT fire, so CP 10d never runs
-    # and contributes no result (the applicability decision is now the flow branch).
+    # AG3-132: the combined third-system checkpoint is branch-gated. With both
+    # Sonar and Jenkins consciously unavailable it does not contact the backend.
     sonar_cp = [
         r for r in result.checkpoint_results if r.checkpoint == nid.CP_10D_SONARQUBE
     ]

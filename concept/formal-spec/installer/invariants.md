@@ -56,7 +56,22 @@ invariants:
     rule: creating default-scaffold repository directories must fail closed when an existing non-empty directory has an incompatible Git state; existing valid Git repository directories are skipped unchanged on rerun
   - id: installer.invariant.cp10d_branch_plugin_selftest_uses_operational_ci_scan_path
     scope: integration-precondition
-    rule: when sonarqube.available is true and CI is declared available, the CP 10d Community-Branch-Plugin conformance self-test must provision a throwaway Sonar project bound to the dedicated CP10d self-test quality gate, execute scans through the configured Jenkins pipeline, and read the Jenkins-archived scanner report-task; the installer host must not require a local sonar-scanner binary for the normative production path
+    rule: when explicitly requested, the backend-owned Community-Branch-Plugin conformance self-test must provision a throwaway Sonar project bound to the dedicated self-test quality gate, execute scans through the configured Jenkins pipeline, and read the Jenkins-archived scanner report-task; the dev installer host must not require a local sonar-scanner binary or a Sonar/Jenkins client
+  - id: installer.invariant.third_party_validation_is_backend_owned
+    scope: integration-precondition
+    rule: register-project and verify-project must request the synchronous typed Sonar/Jenkins/feature-gated-ARE verdict only through the official Project Edge Client and the project-scoped Control-Plane route; the dev process must instantiate no Sonar or Jenkins client and must have no direct fallback or second transport
+  - id: installer.invariant.third_party_secrets_never_cross_the_wire
+    scope: secrets
+    rule: third-system configuration crossing Dev to Core carries token_env references only; the backend resolves them in its own environment and redacts resolved tokens and authorization headers from responses, details, telemetry, and logs
+  - id: installer.invariant.local_sonar_profile_check_stays_dev_side
+    scope: filesystem
+    rule: the default Sonar quality-profile file-existence check remains a dev-local pre-send configuration validation, while third-system probes run only in the backend; no dev repo_root is sent to the backend
+  - id: installer.invariant.heavy_self_test_is_explicit_async_only
+    scope: integration-precondition
+    rule: branch-plugin conformance is started only by the explicit project-scoped on-demand command, returns 202 plus op_id, persists one idempotent ControlPlaneOperationRecord lifecycle, and is never triggered implicitly by register-project or verify-project
+  - id: installer.invariant.third_party_validation_fails_closed
+    scope: integration-precondition
+    rule: an unreachable backend or any applicable unreachable or invalid third system produces a visible failed checkpoint and nonzero installer outcome; no dev-side fallback, bypass, or silent skip is legal
   - id: installer.invariant.bundle_bindings_are_version_pinned
     scope: bundle-binding
     rule: skill and prompt bindings must point to one concrete immutable bundle version and never to a live source checkout or latest alias
@@ -65,7 +80,7 @@ invariants:
     rule: detected project-specific customizations must be preserved or explicitly surfaced and may never be silently overwritten by an installer rerun or upgrade
   - id: installer.invariant.verify_project_is_read_only
     scope: verification
-    rule: verify-project may inspect registration state but must not mutate configuration, backend registration rows, or bundle bindings
+    rule: verify-project may inspect registration state and run backend-mediated live reachability reads, but must not mutate configuration, backend registration rows, bundle bindings, or third systems and must never start the heavy branch-plugin self-test
   - id: installer.invariant.dry_run_never_mutates_runtime_or_project_state
     scope: dry-run
     rule: a dry-run may preview checkpoint work but may not change project files, backend state, hooks, or bindings

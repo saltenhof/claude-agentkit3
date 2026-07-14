@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
     from agentkit.backend.control_plane_http.permission_routes import PermissionRoutes
     from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
+    from agentkit.backend.control_plane_http.third_party_validation_routes import ThirdPartyValidationRoutes
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
@@ -169,3 +170,14 @@ def _build_default_read_model_routes() -> ReadModelRoutes:
     from agentkit.backend.bootstrap.composition_root import build_project_read_model_routes
 
     return build_project_read_model_routes()
+
+
+def _build_default_third_party_validation_routes() -> ThirdPartyValidationRoutes:
+    """Build installer mediation through the backend composition root."""
+    from agentkit.backend.bootstrap.composition_root import (
+        build_third_party_preflight_service,
+    )
+    from agentkit.backend.control_plane_http.third_party_validation_routes import (
+        ThirdPartyValidationRoutes,
+    )
+    return ThirdPartyValidationRoutes(build_third_party_preflight_service())

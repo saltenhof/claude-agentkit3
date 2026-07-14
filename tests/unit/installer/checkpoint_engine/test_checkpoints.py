@@ -11,13 +11,17 @@ ARE-scope paths (pending_selection / resolved / are_disabled).
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from tests.unit.installer.checkpoint_engine.conftest import (
     InMemoryRegistrationRepo,
     make_config,
 )
 
+from agentkit.backend.control_plane.third_party_models import (
+    ThirdPartyValidationRequest,
+    ThirdPartyValidationResponse,
+)
 from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     REASON_REPO_UNREACHABLE,
     cp01_package_check,
@@ -48,6 +52,28 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
+
+    from agentkit.harness_client.projectedge.client import ProjectEdgeClient
+
+
+class _PassingAreProjectEdge:
+    """Typed backend verdict seam for the ARE-only full-flow unit test."""
+
+    def validate_third_party(
+        self, *, project_key: str, request: ThirdPartyValidationRequest
+    ) -> ThirdPartyValidationResponse:
+        assert project_key == "proj"
+        return ThirdPartyValidationResponse.model_validate(
+            {
+                "op_id": request.op_id,
+                "status": "PASS",
+                "systems": [
+                    {"system": "sonar", "status": "SKIPPED", "detail": "not applicable"},
+                    {"system": "jenkins", "status": "SKIPPED", "detail": "not applicable"},
+                    {"system": "are", "status": "PASS", "detail": "probe verdict"},
+                ],
+            }
+        )
 
 
 def _ctx(config: object, mode: ExecutionMode, **kw: object) -> object:
@@ -220,6 +246,7 @@ def test_cp10_are_only_registers_are_mcp_in_target_mcp_json(
         features_vectordb=False,
         are_module_scope_map={"app": "scope-a"},
     )
+    config.project_edge_client = cast("ProjectEdgeClient", _PassingAreProjectEdge())
     result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
     assert result.success
     mcp_path = root / ".mcp.json"

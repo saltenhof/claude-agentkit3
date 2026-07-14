@@ -3,8 +3,7 @@
 Covers three review findings:
 
 * FIX 1 (AC1): ``install_agentkit`` is a PURE delegation façade — it contains
-  no post-engine checkpoint orchestration; the AG3-056 CI preflight is owned by
-  the engine path (``run_checkpoint_install``) and still runs there.
+  no post-engine checkpoint orchestration.
 * FIX 2 (AC10-AC12): CP 8 must perform ZERO mutation in dry_run AND verify —
   including the central prompt-bundle store (``_ensure_prompt_bundle_store_entry``
   must not run in a read-only mode).
@@ -31,6 +30,7 @@ from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
 )
 from agentkit.backend.installer.checkpoint_engine.context import ScopeInteractionMode
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.checkpoint_engine.node_ids import CP_10D_SONARQUBE
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_ALREADY_SATISFIED,
     REASON_PLANNED_NO_MUTATION,
@@ -82,57 +82,10 @@ def test_install_agentkit_facade_only_delegates() -> None:
     assert not leaked, f"façade still orchestrates: {sorted(leaked)}"
 
 
-def test_engine_path_runs_ci_preflight_in_register(
+def test_engine_does_not_run_third_party_checkpoint_when_all_systems_opt_out(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
-    """AC1: the CI preflight runs via the ENGINE path (run_checkpoint_install).
-
-    With ``ci_available=False`` (test default) the preflight is SKIPPED/
-    not_applicable, but it is still APPENDED by the engine path — proving the
-    engine owns it (the façade no longer adds it).
-    """
-    from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
-        run_checkpoint_install,
-    )
-
-    root = tmp_path / "proj"
-    root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
-    )
-    result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
-    assert result.success
-    ci = [
-        r
-        for r in (result.checkpoint_results or ())
-        if r.checkpoint == "ci_preflight_jenkins_precondition"
-    ]
-    assert ci, "engine path did not append the CI preflight result"
-    assert ci[0].status is CheckpointStatus.SKIPPED
-    assert ci[0].reason == "not_applicable"
-
-
-def test_install_agentkit_appends_ci_via_engine(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
-    """AC1: the façade still yields the CI preflight (inherited from the engine)."""
-    from agentkit.backend.installer.runner import install_agentkit
-
-    root = tmp_path / "proj"
-    root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
-    )
-    result = install_agentkit(config)
-    assert result.success
-    checkpoints = {r.checkpoint for r in (result.checkpoint_results or ())}
-    assert "ci_preflight_jenkins_precondition" in checkpoints
-
-
-def test_engine_does_not_run_ci_preflight_in_read_only(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
-    """The engine never hits the live CI boundary in dry_run/verify (FK-50 §50.2)."""
+    """The branch omits CP10d when every third system is consciously absent."""
     from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
         run_checkpoint_install,
     )
@@ -145,7 +98,7 @@ def test_engine_does_not_run_ci_preflight_in_read_only(
     for mode in (ExecutionMode.DRY_RUN, ExecutionMode.VERIFY):
         result = run_checkpoint_install(config, mode=mode)
         checkpoints = {r.checkpoint for r in (result.checkpoint_results or ())}
-        assert "ci_preflight_jenkins_precondition" not in checkpoints, mode
+        assert CP_10D_SONARQUBE not in checkpoints, mode
 
 
 # --------------------------------------------------------------------------- #

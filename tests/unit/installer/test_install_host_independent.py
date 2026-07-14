@@ -18,10 +18,14 @@ and CLI tests.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from tests.fixtures.git_repo import ensure_git_repo
 
+from agentkit.backend.control_plane.third_party_models import (
+    ThirdPartyValidationRequest,
+    ThirdPartyValidationResponse,
+)
 from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
@@ -35,6 +39,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.installer.registration import ProjectRegistration
+    from agentkit.harness_client.projectedge.client import ProjectEdgeClient
 
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
@@ -104,6 +109,33 @@ class _RecordingSkills:
         del skill_name, project_root
 
 
+class _ProjectEdgeBoundary:
+    """Deterministic ProjectEdge seam for host-independent installer tests."""
+
+    def __init__(self, failure: Exception | None = None) -> None:
+        self.failure = failure
+        self.requests: list[ThirdPartyValidationRequest] = []
+
+    def validate_third_party(
+        self, *, project_key: str, request: ThirdPartyValidationRequest
+    ) -> ThirdPartyValidationResponse:
+        assert project_key == "host-indep"
+        self.requests.append(request)
+        if self.failure is not None:
+            raise self.failure
+        return ThirdPartyValidationResponse.model_validate(
+            {
+                "op_id": request.op_id,
+                "status": "PASS",
+                "systems": [
+                    {"system": "sonar", "status": "SKIPPED", "detail": "not applicable"},
+                    {"system": "jenkins", "status": "PASS", "detail": "probe verdict"},
+                    {"system": "are", "status": "SKIPPED", "detail": "not applicable"},
+                ],
+            }
+        )
+
+
 def _config(
     tmp_path: Path,
     skills: object,
@@ -154,12 +186,8 @@ def test_full_install_glue_runs_and_binds_all_mandatory(tmp_path: Path) -> None:
     assert any("project.yaml" in c for c in created)
 
 
-def test_full_install_aborts_when_ci_available_without_client(tmp_path: Path) -> None:
-    """FIX-5 end-to-end: an available:true CI with no ci_client ABORTS install.
-
-    The CI preflight is wired into ``install_agentkit`` exactly like CP 10d; a
-    real CI trigger must never be promised against an unverified Jenkins.
-    """
+def test_full_install_aborts_when_third_party_backend_is_unreachable(tmp_path: Path) -> None:
+    """An applicable CI preflight fails closed when ProjectEdge is unavailable."""
     import pytest
 
     from agentkit.backend.exceptions import InstallationError
@@ -167,35 +195,24 @@ def test_full_install_aborts_when_ci_available_without_client(tmp_path: Path) ->
     skills = _RecordingSkills()
     store = _FakeStore(tmp_path / "bundles")
     config = _config(tmp_path, skills, store)
-    # Re-declare CI as present but inject no Jenkins client => fail-closed abort.
     config.ci_available = True
-    with pytest.raises(InstallationError, match="CI .Jenkins. precondition FAILED"):
+    edge = _ProjectEdgeBoundary(OSError("control plane refused connection"))
+    config.project_edge_client = cast("ProjectEdgeClient", edge)
+    with pytest.raises(InstallationError, match="Third-party validation backend is unreachable"):
         install_agentkit(config)
 
 
-def test_full_install_passes_ci_preflight_with_working_client(tmp_path: Path) -> None:
-    """FIX-5 end-to-end: an available:true CI with a working client install OK."""
-    from dataclasses import dataclass
-
-    @dataclass(frozen=True)
-    class _Resp:
-        json_body: dict[str, object]
-
-    class _OkJenkins:
-        def whoami(self) -> _Resp:
-            return _Resp({"id": "ak3"})
-
-        def job_exists(self, pipeline: str) -> _Resp:
-            del pipeline
-            return _Resp({"name": "ak3-pre-merge"})
-
+def test_full_install_passes_ci_preflight_with_backend_verdict(tmp_path: Path) -> None:
+    """An applicable CI preflight consumes the backend-owned PASS verdict."""
     skills = _RecordingSkills()
     store = _FakeStore(tmp_path / "bundles")
     config = _config(tmp_path, skills, store)
     config.ci_available = True
-    config.ci_client = _OkJenkins()  # type: ignore[assignment]
+    edge = _ProjectEdgeBoundary()
+    config.project_edge_client = cast("ProjectEdgeClient", edge)
     result = install_agentkit(config)
     assert result.success
+    assert len(edge.requests) == 1
 
 
 def test_install_then_uninstall_removes_artifacts(tmp_path: Path) -> None:

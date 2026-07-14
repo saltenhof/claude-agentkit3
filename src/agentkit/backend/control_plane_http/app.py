@@ -61,6 +61,7 @@ from agentkit.backend.control_plane_http.default_routes import (
     _build_default_takeover_approval_routes,
     _build_default_task_management_routes,
     _build_default_telemetry_routes,
+    _build_default_third_party_validation_routes,
 )
 from agentkit.backend.control_plane_http.edge_read_handlers import (
     _handle_get_open_commands,
@@ -71,6 +72,7 @@ from agentkit.backend.control_plane_http.edge_read_handlers import (
     _read_only_method_not_allowed,
 )
 from agentkit.backend.control_plane_http.governance_mediation import _GovernanceMediationHandlers
+from agentkit.backend.control_plane_http.installer_routes import InstallerDispatchMixin
 from agentkit.backend.control_plane_http.responses import (
     HttpResponse as HttpResponse,
 )
@@ -147,6 +149,16 @@ class _StoryDashboardHandlersMixin:
         _story_service: StoryService
         _story_routes: StoryContextRoutes
         _dashboard_service: DashboardService
+
+    def _resolve_dashboard_service(
+        self, dashboard_service: DashboardService | None
+    ) -> DashboardService:
+        """Return the injected dashboard service or build the default."""
+        if dashboard_service is not None:
+            return dashboard_service
+        from agentkit.backend.bootstrap.composition_root import build_dashboard_service
+
+        return build_dashboard_service(self._story_service)
 
     def _handle_get_stories(
         self,
@@ -302,7 +314,7 @@ class _StoryDashboardHandlersMixin:
 
 
 class ControlPlaneApplication(
-    _StoryDashboardHandlersMixin, _GovernanceMediationHandlers
+    _StoryDashboardHandlersMixin, InstallerDispatchMixin, _GovernanceMediationHandlers
 ):
     """Route and validate HTTP requests for the control plane (FK-72 §72.8.2).
 
@@ -348,16 +360,6 @@ class ControlPlaneApplication(
         ).window
         self._init_bc_routes(r)
 
-    def _resolve_dashboard_service(
-        self, dashboard_service: DashboardService | None
-    ) -> DashboardService:
-        """Return the injected dashboard service, else build the default (S3776 split)."""
-        if dashboard_service is not None:
-            return dashboard_service
-        from agentkit.backend.bootstrap.composition_root import build_dashboard_service
-
-        return build_dashboard_service(self._story_service)
-
     def _init_default_routes(
         self,
         r: ControlPlaneApplicationRoutes,
@@ -396,6 +398,10 @@ class ControlPlaneApplication(
         )
         self._permission_routes = (
             r.permission_routes or _build_default_permission_routes()
+        )
+        self._third_party_validation_routes = (
+            r.third_party_validation_routes
+            or _build_default_third_party_validation_routes()
         )
 
     def ensure_version_handshake(self) -> None:
@@ -515,6 +521,11 @@ class ControlPlaneApplication(
             )
             if permission_response is not None:
                 return permission_response
+            third_party_response = self._third_party_validation_routes.handle_get(
+                route_path, correlation_id,
+            )
+            if third_party_response is not None:
+                return third_party_response
             return self._handle_get_request(route_path, query, correlation_id)
         if method == "DELETE":
             return self._handle_delete_request(route_path, body, correlation_id)
@@ -742,11 +753,11 @@ class ControlPlaneApplication(
         if auth_response is not None:
             return _auth_response_to_http_response(auth_response)
 
-        project_response = self._project_routes.handle_post(
+        installer_response = self._dispatch_installer_post(
             route_path, payload, correlation_id,
         )
-        if project_response is not None:
-            return _project_response_to_http_response(project_response)
+        if installer_response is not None:
+            return installer_response
 
         # NOTE: story_routes.handle_post is NOT called with the raw route_path.
         # Story mutations are only reachable via project-scoped paths (AC2/AC3).

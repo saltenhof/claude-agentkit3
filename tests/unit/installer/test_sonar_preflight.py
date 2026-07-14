@@ -1,8 +1,8 @@
 """Unit tests for the SonarQube installer CP 10d preconditions (FK-50, AC7).
 
 The external HTTP boundary is stubbed (MOCKS-Ausnahme); the precondition
-logic runs for real. Covers SKIPPED-vs-FAILED per case + the
-branch-plugin conformance self-test.
+logic runs for real. The local profile check and light server probes are
+deliberately tested as separate responsibilities.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from agentkit.backend.installer.integration_checkpoints import (
 from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
     ADMINISTER_ISSUES,
     CheckpointStatus,
+    SonarPreflightResult,
+    check_default_profile,
 )
 from agentkit.integration_clients.sonar import SonarApiError, SonarHttpResponse
 
@@ -57,12 +59,10 @@ def _profile(tmp_path: Path) -> SonarQubeConfig:
     )
 
 
-def _check(config: SonarQubeConfig, tmp_path: Path, **kw: object):  # type: ignore[no-untyped-def]
+def _check(config: SonarQubeConfig, **kw: object) -> SonarPreflightResult:
     defaults: dict[str, object] = {
         "client": _StubSonarClient(),
-        "repo_root": tmp_path,
         "token_permissions": _TOKEN_OK,
-        "branch_plugin_self_test": lambda _client: True,
     }
     defaults.update(kw)
     return check_sonarqube_preconditions(config, **defaults)  # type: ignore[arg-type]
@@ -74,9 +74,7 @@ class TestNotApplicable:
         result = check_sonarqube_preconditions(
             config,
             client=None,
-            repo_root=tmp_path,
             token_permissions=frozenset(),
-            branch_plugin_self_test=None,
         )
         assert result.status == CheckpointStatus.SKIPPED
         assert result.reason == "not_applicable"
@@ -84,39 +82,38 @@ class TestNotApplicable:
 
 class TestApplicableFailClosed:
     def test_all_preconditions_pass(self, tmp_path: Path) -> None:
-        result = _check(_profile(tmp_path), tmp_path)
+        result = _check(_profile(tmp_path))
         assert result.status == CheckpointStatus.PASS
 
     def test_unreachable_fails(self, tmp_path: Path) -> None:
-        result = _check(_profile(tmp_path), tmp_path, client=_StubSonarClient(reachable=False))
+        result = _check(_profile(tmp_path), client=_StubSonarClient(reachable=False))
         assert result.status == CheckpointStatus.FAILED
         assert result.reason == "unreachable"
 
     def test_version_too_low_fails(self, tmp_path: Path) -> None:
-        result = _check(_profile(tmp_path), tmp_path, client=_StubSonarClient(version="9.9"))
+        result = _check(_profile(tmp_path), client=_StubSonarClient(version="9.9"))
         assert result.status == CheckpointStatus.FAILED
         assert result.reason == "version_too_low"
 
     def test_missing_administer_issues_fails(self, tmp_path: Path) -> None:
         result = _check(
-            _profile(tmp_path), tmp_path, token_permissions=frozenset({"Execute Analysis"})
+            _profile(tmp_path), token_permissions=frozenset({"Execute Analysis"})
         )
         assert result.status == CheckpointStatus.FAILED
         assert result.reason == "token_role_insufficient"
 
     def test_branch_plugin_missing_fails(self, tmp_path: Path) -> None:
         result = _check(
-            _profile(tmp_path), tmp_path, client=_StubSonarClient(plugin_version=None)
+            _profile(tmp_path), client=_StubSonarClient(plugin_version=None)
         )
         assert result.status == CheckpointStatus.FAILED
         assert result.reason == "branch_plugin_missing"
 
-    def test_branch_plugin_self_test_failure_fails(self, tmp_path: Path) -> None:
-        result = _check(
-            _profile(tmp_path), tmp_path, branch_plugin_self_test=lambda _client: False
-        )
-        assert result.status == CheckpointStatus.FAILED
-        assert result.reason == "branch_plugin_self_test_failed"
+    def test_light_preflight_never_accepts_a_heavy_self_test_callback(
+        self, tmp_path: Path
+    ) -> None:
+        result = _check(_profile(tmp_path))
+        assert result.status == CheckpointStatus.PASS
 
     def test_missing_default_profile_fails(self, tmp_path: Path) -> None:
         config = SonarQubeConfig(
@@ -126,12 +123,13 @@ class TestApplicableFailClosed:
             token_env="SONARQUBE_TOKEN",
             scanner_version="5.0.1",
         )
-        result = _check(config, tmp_path)
+        result = check_default_profile(config, tmp_path)
+        assert result is not None
         assert result.status == CheckpointStatus.FAILED
         assert result.reason == "default_profile_missing"
 
     def test_missing_dependency_when_applicable_fails(self, tmp_path: Path) -> None:
-        result = _check(_profile(tmp_path), tmp_path, client=None)
+        result = _check(_profile(tmp_path), client=None)
         assert result.status == CheckpointStatus.FAILED
         assert result.reason == "missing_dependency"
 

@@ -149,21 +149,68 @@ scenarios:
       status: installer.status.failed
     requires:
       - installer.invariant.default_scaffold_existing_repo_dirs_fail_closed
-  - id: installer.scenario.sonar-ci-selftest-uses-jenkins
+  - id: installer.scenario.third-party-light-validation-is-backend-mediated
     start:
-      status: installer.status.requested
+      status: installer.status.project_registered
     trace:
-      - command: installer.command.register-project
+      - command: installer.command.validate-third-party
         parameters:
-          sonarqube_available: true
-          ci_available: true
-          cp10d_selftest_runner: jenkins
+          project_key: acme-trading
+          sonar_token_env: SONARQUBE_TOKEN
+          ci_token_env: JENKINS_TOKEN
     expected_end:
       status: installer.status.verified
       cp10d:
-        scanner_host: jenkins_agent
-        installer_host_local_sonar_scanner_required: false
+        verdict: PASS
+        dev_sonar_client_constructed: false
+        dev_jenkins_client_constructed: false
+        heavy_self_test_started: false
     requires:
+      - installer.invariant.third_party_validation_is_backend_owned
+      - installer.invariant.third_party_secrets_never_cross_the_wire
+      - installer.invariant.local_sonar_profile_check_stays_dev_side
+  - id: installer.scenario.third-party-backend-unreachable-fails
+    start:
+      status: installer.status.project_registered
+    trace:
+      - command: installer.command.validate-third-party
+        parameters:
+          backend_reachable: false
+    expected_end:
+      status: installer.status.failed
+      exit_nonzero: true
+      dev_fallback_used: false
+    requires:
+      - installer.invariant.third_party_validation_fails_closed
+  - id: installer.scenario.third-party-system-unreachable-fails
+    start:
+      status: installer.status.project_registered
+    trace:
+      - command: installer.command.validate-third-party
+        parameters:
+          sonar_reachable: false
+    expected_end:
+      status: installer.status.failed
+      error_code: sonar_unreachable
+    requires:
+      - installer.invariant.third_party_validation_fails_closed
+  - id: installer.scenario.branch-plugin-selftest-explicit-async
+    start:
+      status: installer.status.bindings_applied
+    trace:
+      - command: installer.command.run-branch-plugin-self-test
+        parameters:
+          op_id: branch-self-test-1
+      - command: installer.command.run-branch-plugin-self-test
+        parameters:
+          op_id: branch-self-test-1
+    expected_end:
+      status: installer.status.verified
+      operation_status: succeeded
+      operation_rows: 1
+      jenkins_scan_count: 2
+    requires:
+      - installer.invariant.heavy_self_test_is_explicit_async_only
       - installer.invariant.cp10d_branch_plugin_selftest_uses_operational_ci_scan_path
   - id: installer.scenario.idempotent-rerun-converges
     start:

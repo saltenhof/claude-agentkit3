@@ -332,6 +332,8 @@ sequenceDiagram
     M->>INS: agentkit register-project --gh-owner acme --gh-repo platform
     INS->>BE: Projekt registrieren / Konfiguration validieren (REST)
     BE->>STATE: Projekt-Record schreiben (nur Backend, I1)
+    INS->>BE: Dritt-System-Referenzen validieren (Project Edge Client, REST /v1)
+    Note over INS,BE: Dev sendet nur token_env-Referenzen; Backend loest Secrets in eigener Umgebung auf und probt Sonar/Jenkins/ARE
     INS->>PROJ: .agentkit/config/project.yaml + harness-spezifische Settings (z. B. .claude/settings.json, FK-76 §76.5)
     INS->>PROJ: harness-spezifische Skill-Links (Symlink/Junction) auf Bundle-Version
     INS->>PROJ: tools/agentkit/ Project-Edge-Launcher (REST-Client) binden
@@ -352,9 +354,9 @@ Pflicht-Infrastrukturdienste benötigt (Weaviate).
 | Agent-Harness (Claude Code oder Codex; FK-76) | Pflicht (mindestens einer) | Voraussetzung (nicht geprüft) |
 | LLM-Hub (Unified REST) | Pflicht: Drehscheibe muss mind. zwei verschiedene LLM-Modelle zusätzlich zu Claude bereitstellen (Schicht 2 fordert verschiedene Modelle für QA-Review und Semantic Review) | Integrity-Gate bei Closure prüft konfigurierte `llm_roles` gegen Telemetrie |
 | Weaviate + MCP-Wrapper | Pflicht | Installer Checkpoint 9 |
-| ARE (MCP, **vom Backend** vermittelt) | Optional (`are: true`) | Installer prüft Erreichbarkeit des MCP-Servers |
-| SonarQube (Community Build ≥ `min_version`, **vom Backend** vermittelt) | **Pflicht fuer codeproduzierende Projekte mit `sonarqube.available: true`** (`sonarqube.enabled: true`; impl/bugfix-Stories); Optional fuer reine Concept-/Research-Projekte **sowie fuer Projekte mit `sonarqube.available: false`** (dann ist das Gate NOT_APPLICABLE, FK-33 §33.6.5 — Betreiber akzeptiert bewusst keine Sonar-Durchsetzung) | Installer Checkpoint CP 10d (Verfuegbarkeit + Mindestversion + Creds) **plus Jenkins-basierter Branch-Plugin-Conformance-Self-Test** (FK-50); Gate-Semantik FK-33 §33.6.3 |
-| └─ Community Branch Plugin | **Pflicht (Sub-Abhaengigkeit von SonarQube)** — Community Edition hat keine native Branch-Analyse; ohne Plugin ist das Green-Gate auf Branches/Pre-Merge nicht durchsetzbar (FK-33 §33.6.3) | Installer CP 10d: Plugin-Existenz + Mindestversion + Conformance-Self-Test ueber den konfigurierten Jenkins-Scanpfad (nur dann Trust-A-faehig) |
+| ARE (MCP, **vom Backend** vermittelt) | Optional (`features.are: true`) | CP 10d ruft den authentifizierten ARE-Health-Read ueber den Backend-Service auf; kein Dev-seitiger ARE-Reachability-Client |
+| SonarQube (Community Build ≥ `min_version`, **vom Backend** vermittelt) | **Pflicht fuer codeproduzierende Projekte mit `sonarqube.available: true`** (`sonarqube.enabled: true`; impl/bugfix-Stories); Optional fuer reine Concept-/Research-Projekte **sowie fuer Projekte mit `sonarqube.available: false`** (dann ist das Gate NOT_APPLICABLE, FK-33 §33.6.5 — Betreiber akzeptiert bewusst keine Sonar-Durchsetzung) | Installer CP 10d konsumiert synchron den Backend-Entscheid fuer Erreichbarkeit, Mindestversion, Token-Rolle und Plugin-Praesenz. Der schwere Jenkins-basierte Branch-Plugin-Conformance-Self-Test ist eine explizite on-demand `202`-Operation, niemals implizit in Register/Verify (FK-50); Gate-Semantik FK-33 §33.6.3 bleibt unveraendert. |
+| └─ Community Branch Plugin | **Pflicht (Sub-Abhaengigkeit von SonarQube)** — Community Edition hat keine native Branch-Analyse; ohne Plugin ist das Green-Gate auf Branches/Pre-Merge nicht durchsetzbar (FK-33 §33.6.3) | Installer CP 10d: Backend-prueft Plugin-Existenz + Mindestversion. Trust-A-Conformance wird separat on-demand ueber den konfigurierten Jenkins-Scanpfad geprueft. |
 
 **LLM-Modell-Anforderung im Detail:**
 

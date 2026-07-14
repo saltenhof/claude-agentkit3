@@ -67,21 +67,14 @@ if TYPE_CHECKING:
     # ``agentkit.backend.skills.bundle_store`` submodule (exposure=internal). The public
     # package re-exports ``SkillBundleStore``/``SkillProfile``/``Skills``.
     from agentkit.backend.config.models import ProjectConfig
-    from agentkit.backend.installer.integration_checkpoints.ci_preflight import (
-        CiPreflightResult,
-    )
-    from agentkit.backend.installer.integration_checkpoints.scanner_harness import ScanRunner
-    from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
-        BranchPluginSelfTest,
-        SonarPreflightResult,
-    )
+    from agentkit.backend.control_plane.third_party_models import ThirdPartyValidationRequest
+    from agentkit.backend.installer.integration_checkpoints.sonar_preflight import SonarPreflightResult
     from agentkit.backend.installer.registration import CheckpointResult, RuntimeProfile
     from agentkit.backend.installer.repo_probe import RepoExistenceProbe
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.skills import SkillBundleStore, SkillProfile, Skills
-    from agentkit.integration_clients.jenkins import JenkinsClient
-    from agentkit.integration_clients.sonar import SonarClient
+    from agentkit.harness_client.projectedge.client import ProjectEdgeClient
 
 
 
@@ -164,28 +157,12 @@ class InstallConfig:
     skill_bundle_store: SkillBundleStore | None = None
     skill_profile: SkillProfile | None = None
     skill_bundle_ids: dict[str, str] | None = None
-    # AG3-052 (FK-50 CP 10d): the SonarQube precondition checkpoint runs
-    # applicability-conditional. With ``available: false`` it is SKIPPED and
-    # needs no collaborators. With ``available: true`` it is fail-closed and
-    # needs a connected ``SonarClient``, the token's effective permissions and
-    # the branch-plugin conformance self-test. In production that self-test is
-    # run through the configured Jenkins pre-merge pipeline, so the scanner
-    # lives on the Jenkins agent rather than on the operator machine. When
-    # ``available: true`` and the verification cannot be carried out, CP 10d
-    # FAILs closed and ABORTS the install — there is no
-    # ``verification_deferred`` escape hatch (a green gate must never be armed
-    # against an unverified Sonar, FK-50 §50.6).
-    #
-    # ``sonar_branch_plugin_self_test`` lets a caller inject a fully-prebuilt
-    # self-test (e.g. tests stubbing the HTTP boundary); when it is ``None`` the
-    # installer assembles the productive one from ``sonar_client`` + ``ci_client``.
-    sonar_client: SonarClient | None = None
-    sonar_token_permissions: frozenset[str] | None = None
-    sonar_branch_plugin_self_test: BranchPluginSelfTest | None = None
-    # Legacy/dev-only fallback: production CLI wiring does not require or create
-    # a local scanner runner. Kept so focused tests can inject the scanner
-    # boundary without a live Jenkins.
-    sonar_scan_runner: ScanRunner | None = None
+    # AG3-132: installer-side code carries no third-system clients. The official
+    # ProjectEdge client is the sole Dev->Core seam; focused tests may inject it,
+    # while production resolves it from control-plane.json at CP 10d.
+    project_edge_client: ProjectEdgeClient | None = None
+    control_plane_base_url: str = "https://127.0.0.1:9080"
+    control_plane_ca_file: str | None = None
     # AG3-052 Design-Decision (FK-03 §3): the scaffold default for a
     # code-producing project is ``sonarqube.available: true`` — the green gate
     # is a mandatory runtime dependency and an install must DECLARE Sonar
@@ -218,16 +195,6 @@ class InstallConfig:
     ci_base_url: str = "http://localhost:8080"
     ci_token_env: str = "JENKINS_TOKEN"
     ci_pipeline: str = "ak3-pre-merge"
-    # AG3-056 (FK-50 CP, FIX-5): the CI (Jenkins) precondition checkpoint runs
-    # applicability-conditional, exactly like the Sonar CP 10d check. With
-    # ``ci.available: false`` it is SKIPPED and needs no collaborator. With
-    # ``ci.available: true`` it is fail-closed and needs a connected
-    # ``JenkinsClient`` to verify reachability + token + pipeline existence;
-    # when it is ``None`` (and the stanza is available) the checkpoint FAILs
-    # closed (``missing_dependency``) and the install ABORTS — a real CI
-    # trigger must never be promised against an unverified Jenkins. Only the
-    # LIVE Jenkins server is OOS: the operator/CI injects ``ci_client``.
-    ci_client: JenkinsClient | None = None
     # AG3-039 (FK-50 §50.3 CP 7): the State-Backend project-registration port.
     # The installer (BC 12) depends only on the
     # ``ProjectRegistrationRepository`` Protocol; the productive
@@ -256,6 +223,8 @@ class InstallConfig:
     # ``module_scope_map``) written into project.yaml. The installer is the
     # write-owner of the ARE-scope mapping (FK-50 §50.3 CP 5); CP 10c consumes it.
     are_mcp_server: str | None = None
+    are_rest_base_url: str | None = None
+    are_token_env: str | None = None
     are_module_scope_map: dict[str, str] | None = None
     # AG3-088 (FK-50 §50.3 CP 2): an injectable GitHub-repo existence probe. The
     # CP 2 checkpoint runs ``gh repo view`` via this probe; the productive CLI
@@ -460,6 +429,10 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
             "mcp_server": config.are_mcp_server or "http://localhost:8090",
             "module_scope_map": dict(config.are_module_scope_map or {}),
         }
+        if config.are_rest_base_url:
+            are_section["rest_base_url"] = config.are_rest_base_url
+        if config.are_token_env:
+            are_section["token_env"] = config.are_token_env
         data["are"] = are_section
 
     return data
@@ -688,13 +661,15 @@ def _write_installed_manifest(
     return str(manifest_path.relative_to(target_root))
 
 
-def _write_control_plane_config(target_root: Path) -> str | None:
+def _write_control_plane_config(
+    target_root: Path, config: InstallConfig
+) -> str | None:
     config_path = control_plane_config_path(target_root)
     content = (
         json.dumps(
             {
-                "base_url": "https://127.0.0.1:9080",
-                "ca_file": None,
+                "base_url": config.control_plane_base_url,
+                "ca_file": config.control_plane_ca_file,
             },
             indent=2,
             sort_keys=True,
@@ -1205,29 +1180,13 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
 
     _bind_resolved_skills(skills, resolved_skill_bundles, root, config)
 
-    control_plane_config = _write_control_plane_config(root)
+    control_plane_config = _write_control_plane_config(root, config)
     if control_plane_config is not None:
         created.append(control_plane_config)
     codex_settings = write_codex_settings(root)
     if codex_settings is not None and codex_settings not in created:
         created.append(codex_settings)
     return created
-
-
-def run_ci_preflight_checkpoint_result(
-    config: InstallConfig, yaml_data: dict[str, object]
-) -> CheckpointResult:
-    """Run the orthogonal CI (Jenkins) preflight and map it to a result.
-
-    AG3-056 (FIX-5): the CI pre-merge precondition is applicability-conditional
-    and NOT one of the FK-50 §50.3 twelve checkpoints. It is preserved here as a
-    standalone precondition the productive ``install_agentkit`` façade still
-    enforces (ZERO DEBT — the closure pre-merge barrier must not be promised an
-    unverified Jenkins). A FAILED applicable result raises and aborts; PASS /
-    SKIPPED is recorded.
-    """
-    ci_cp = _run_ci_preflight(config, yaml_data)
-    return _ci_cp_to_checkpoint_result(ci_cp)
 
 
 def install_agentkit(config: InstallConfig) -> InstallResult:
@@ -1643,154 +1602,138 @@ def _run_cp10d_sonarqube(
     root: Path,
     yaml_data: dict[str, object],
 ) -> SonarPreflightResult:
-    """Run the FK-50 CP 10d SonarQube precondition checkpoint (fail-closed).
-
-    Parses the written ``sonarqube`` stanza into a ``SonarQubeConfig`` and
-    runs :func:`check_sonarqube_preconditions`:
-
-    * ``available: false`` => SKIPPED (``reason=not_applicable``), no Sonar
-      collaborators needed.
-    * ``available: true`` => the fail-closed checks run; a FAILED result
-      raises ``InstallationError`` and ABORTS the install (FK-50 §50.6 — the
-      green gate must not be armed against an unverifiable Sonar). There is
-      NO ``verification_deferred`` escape hatch (AG3-052 E5): if the
-      verification cannot be carried out — no ``sonar_client``, no
-      branch-plugin self-test (neither injected nor assemblable from Jenkins),
-      or any failing probe — CP 10d is FAILED and the install aborts.
-
-    Productive branch-plugin self-test (AG3-052 E5): when the caller does not
-    inject a pre-built ``sonar_branch_plugin_self_test`` but supplies
-    ``sonar_client`` + ``ci_client`` + ``ci_pipeline``, the installer assembles
-    the PRODUCTIVE :class:`JenkinsBranchPluginSelfTestHarness` and drives the
-    FK-50 §50.3 conformance steps through it
-    (``run_branch_plugin_conformance_self_test``). The scanner is an
-    operational dependency of the Jenkins agent, not of the installer host.
-
-    Args:
-        config: The install configuration (carries the Sonar collaborators).
-        root: Project root (resolves the default-profile path).
-        yaml_data: The project.yaml mapping just written (source of the
-            ``sonarqube`` stanza).
-
-    Returns:
-        The :class:`SonarPreflightResult` (SKIPPED when not applicable, else
-        PASS — a FAILED result raises before returning).
-
-    Raises:
-        InstallationError: When an APPLICABLE checkpoint FAILs (fail-closed).
-    """
+    """Run local profile validation, then consume the backend light verdict."""
     from agentkit.backend.config.models import SonarQubeConfig
-    from agentkit.backend.installer.integration_checkpoints import (
-        check_sonarqube_preconditions,
-    )
     from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
         CheckpointStatus,
         SonarPreflightResult,
+        check_default_profile,
     )
 
-    pipeline = yaml_data.get("pipeline", {})
-    stanza = pipeline.get("sonarqube") if isinstance(pipeline, dict) else None
-    if not isinstance(stanza, dict):
-        # No sonarqube stanza written (non-code-producing scaffold) => the
-        # gate is not-applicable; CP 10d is a no-op SKIP.
-        return SonarPreflightResult(
-            status=CheckpointStatus.SKIPPED, reason="not_applicable"
+    pipeline = yaml_data.get("pipeline")
+    sonar_stanza = pipeline.get("sonarqube") if isinstance(pipeline, dict) else None
+    if isinstance(sonar_stanza, dict) and bool(sonar_stanza.get("available", True)):
+        local_failure = check_default_profile(
+            SonarQubeConfig.model_validate(sonar_stanza), root
         )
+        if local_failure is not None:
+            raise _third_party_installation_error(local_failure.reason, local_failure.details)
 
-    sonar_config = SonarQubeConfig.model_validate(stanza)
-    self_test = _resolve_branch_plugin_self_test(config)
-    result = check_sonarqube_preconditions(
-        sonar_config,
-        client=config.sonar_client,
-        repo_root=root,
-        token_permissions=config.sonar_token_permissions or frozenset(),
-        branch_plugin_self_test=self_test,
-    )
-    if result.status == CheckpointStatus.FAILED:
+    request = _third_party_validation_request(config, yaml_data)
+    try:
+        client = config.project_edge_client or _build_project_edge_client(root)
+        verdict = client.validate_third_party(
+            project_key=config.project_key,
+            request=request,
+        )
+    except Exception as exc:
         raise InstallationError(
-            "FK-50 CP 10d SonarQube precondition FAILED: "
-            f"{result.reason} ({'; '.join(result.details)}). The green gate "
-            "must not be armed against an unverifiable Sonar (FK-50 §50.6). "
-            "Fix the precondition, or set sonarqube.available=false to opt out.",
+            f"Third-party validation backend is unreachable: {exc}",
             detail={
-                "cause": "SonarPreconditionFailed",
-                "reason": result.reason,
-                "details": list(result.details),
+                "cause": "ThirdPartyValidationBackendUnavailable",
+                "error_code": "third_party_backend_unreachable",
             },
-        )
-    return result
+        ) from exc
+    details = tuple(
+        f"{item.system}: {item.status}"
+        + (f" ({item.error_code})" if item.error_code else "")
+        + (f" - {item.detail}" if item.detail else "")
+        for item in verdict.systems
+    )
+    if verdict.status == "FAILED":
+        raise _third_party_installation_error(verdict.error_code, details)
+    sonar = next(item for item in verdict.systems if item.system == "sonar")
+    return SonarPreflightResult(
+        status=CheckpointStatus.SKIPPED if sonar.status == "SKIPPED" else CheckpointStatus.PASS,
+        reason="not_applicable" if sonar.status == "SKIPPED" else None,
+        details=details,
+    )
 
 
-def _run_ci_preflight(
+def _third_party_validation_request(
     config: InstallConfig,
     yaml_data: dict[str, object],
-) -> CiPreflightResult:
-    """Run the CI (Jenkins) precondition checkpoint (AG3-056 FIX-5, fail-closed).
-
-    Parses the written ``ci`` stanza into a ``JenkinsConfig`` and runs
-    :func:`check_ci_preconditions`, mirroring the Sonar CP 10d discipline:
-
-    * ``available: false`` => SKIPPED (``reason=not_applicable``), no Jenkins
-      collaborator needed.
-    * ``available: true`` => fail-closed checks (reachable, token
-      authenticates, pipeline exists). A FAILED result raises
-      ``InstallationError`` and ABORTS the install — the closure pre-merge
-      barrier (AG3-053) must not be promised a real CI trigger against an
-      unverified Jenkins. There is NO escape hatch: a missing ``ci_client``
-      on an ``available: true`` stanza FAILs closed (``missing_dependency``).
-
-    Args:
-        config: The install configuration (carries the ``ci_client``).
-        yaml_data: The project.yaml mapping just written (source of the
-            ``ci`` stanza).
-
-    Returns:
-        The :class:`CiPreflightResult` (SKIPPED when not applicable, else PASS
-        — a FAILED result raises before returning).
-
-    Raises:
-        InstallationError: When an APPLICABLE checkpoint FAILs (fail-closed).
-    """
-    from agentkit.backend.config.models import JenkinsConfig
-    from agentkit.backend.installer.integration_checkpoints import (
-        CiPreflightResult,
-        check_ci_preconditions,
-    )
-    from agentkit.backend.installer.integration_checkpoints.ci_preflight import (
-        CheckpointStatus,
+) -> ThirdPartyValidationRequest:
+    """Build a secret-reference-only ProjectEdge request from project config."""
+    from agentkit.backend.control_plane.third_party_models import (
+        AreValidationConfig,
+        CiValidationConfig,
+        SonarValidationConfig,
+        ThirdPartyValidationRequest,
     )
 
-    pipeline = yaml_data.get("pipeline", {})
-    stanza = pipeline.get("ci") if isinstance(pipeline, dict) else None
-    if not isinstance(stanza, dict):
-        # No ci stanza written (non-code-producing scaffold) => the runner is
-        # not-applicable; the checkpoint is a no-op SKIP.
-        return CiPreflightResult(
-            status=CheckpointStatus.SKIPPED, reason="not_applicable"
-        )
+    pipeline = yaml_data.get("pipeline")
+    pipeline_data = pipeline if isinstance(pipeline, dict) else {}
+    sonar_data = pipeline_data.get("sonarqube")
+    sonar = sonar_data if isinstance(sonar_data, dict) else {}
+    plugins = sonar.get("plugins")
+    branch = plugins.get("community_branch") if isinstance(plugins, dict) else None
+    ci_data = pipeline_data.get("ci")
+    ci = ci_data if isinstance(ci_data, dict) else {}
+    features = pipeline_data.get("features")
+    are_enabled = bool(features.get("are", False)) if isinstance(features, dict) else False
+    are_data = yaml_data.get("are")
+    are = are_data if isinstance(are_data, dict) else {}
+    request_data = {
+        "sonar": SonarValidationConfig(
+            available=bool(sonar.get("available", False)),
+            enabled=bool(sonar.get("enabled", False)),
+            base_url=_optional_str(sonar.get("base_url")),
+            token_env=_optional_str(sonar.get("token_env")),
+            min_version=str(sonar.get("min_version", "26.4")),
+            branch_plugin_min_version=str(
+                branch.get("min_version", "1.23.0") if isinstance(branch, dict) else "1.23.0"
+            ),
+            scanner_version=_optional_str(sonar.get("scanner_version")),
+        ),
+        "ci": CiValidationConfig(
+            available=bool(ci.get("available", False)),
+            enabled=bool(ci.get("enabled", False)),
+            base_url=_optional_str(ci.get("base_url")),
+            token_env=_optional_str(ci.get("token_env")),
+            user=str(ci.get("user", "")),
+            pipeline=_optional_str(ci.get("pipeline")),
+        ),
+        "are": AreValidationConfig(
+            enabled=are_enabled,
+            base_url=_optional_str(are.get("rest_base_url")),
+            token_env=_optional_str(are.get("token_env")),
+        ),
+    }
+    canonical = json.dumps(
+        {"project_key": config.project_key, **request_data},
+        sort_keys=True,
+        default=lambda value: value.model_dump(mode="json"),
+    )
+    op_id = f"third-party-validation-{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"
+    return ThirdPartyValidationRequest(op_id=op_id, **request_data)
 
-    ci_config = JenkinsConfig.model_validate(stanza)
-    result = check_ci_preconditions(ci_config, client=config.ci_client)
-    if result.status == CheckpointStatus.FAILED:
-        raise InstallationError(
-            "AG3-056 CI (Jenkins) precondition FAILED: "
-            f"{result.reason} ({'; '.join(result.details)}). The closure "
-            "pre-merge barrier must not be promised a real CI trigger against "
-            "an unverifiable Jenkins. Fix the precondition, or set "
-            "ci.available=false to opt out.",
-            detail={
-                "cause": "CiPreconditionFailed",
-                "reason": result.reason,
-                "details": list(result.details),
-            },
-        )
-    return result
+
+def _optional_str(value: object) -> str | None:
+    return str(value) if value is not None and str(value) else None
+
+
+def _build_project_edge_client(root: Path) -> ProjectEdgeClient:
+    from agentkit.harness_client.projectedge.runtime import build_project_edge_client
+
+    return build_project_edge_client(root)
+
+
+def _third_party_installation_error(
+    error_code: str | None, details: tuple[str, ...]
+) -> InstallationError:
+    return InstallationError(
+        "Backend third-party validation FAILED: " + "; ".join(details),
+        detail={
+            "cause": "ThirdPartyValidationFailed",
+            "error_code": error_code or "third_party_validation_failed",
+            "details": list(details),
+        },
+    )
 
 
 #: Stable checkpoint id for the AG3-052 CP 10d SonarQube precondition.
 _SONAR_CHECKPOINT_ID = "cp_10d_sonarqube_precondition"
-#: Stable checkpoint id for the AG3-056 CI (Jenkins) precondition (FIX-5).
-_CI_CHECKPOINT_ID = "ci_preflight_jenkins_precondition"
 
 
 def _preflight_to_checkpoint_result(
@@ -1835,82 +1778,6 @@ def _sonar_cp_to_checkpoint_result(result: SonarPreflightResult) -> CheckpointRe
         reason=result.reason,
         details=result.details,
     )
-
-
-def _ci_cp_to_checkpoint_result(result: CiPreflightResult) -> CheckpointResult:
-    """Record the AG3-056 CI preflight outcome as a ``CheckpointResult`` (FIX-5)."""
-    return _preflight_to_checkpoint_result(
-        _CI_CHECKPOINT_ID,
-        status=result.status,
-        reason=result.reason,
-        details=result.details,
-    )
-
-
-def _resolve_branch_plugin_self_test(
-    config: InstallConfig,
-) -> BranchPluginSelfTest | None:
-    """Resolve the CP 10d branch-plugin conformance self-test (AG3-052 E5).
-
-    Precedence:
-
-    1. an explicitly injected ``sonar_branch_plugin_self_test`` (tests stub
-       the HTTP boundary inside it);
-    2. otherwise, when ``sonar_client`` + ``ci_client`` + ``ci_pipeline`` are
-       present, the PRODUCTIVE :class:`JenkinsBranchPluginSelfTestHarness`
-       drives the self-test through the configured Jenkins pipeline;
-    3. otherwise, an explicitly injected ``sonar_scan_runner`` may be used as a
-       dev/test fallback;
-    4. otherwise ``None`` — which makes ``check_sonarqube_preconditions`` FAIL
-       closed (``missing_dependency``) for an ``available: true`` config (no
-       silent skip, FK-50 §50.6).
-
-    Args:
-        config: The install configuration carrying the Sonar collaborators.
-
-    Returns:
-        A ``BranchPluginSelfTest`` callable, or ``None`` when no verification
-        can be assembled.
-    """
-    if config.sonar_branch_plugin_self_test is not None:
-        return config.sonar_branch_plugin_self_test
-    from agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test import (
-        run_branch_plugin_conformance_self_test,
-    )
-
-    if (
-        config.sonar_client is not None
-        and config.ci_client is not None
-        and config.ci_pipeline
-    ):
-        from agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness import (
-            JenkinsBranchPluginSelfTestHarness,
-        )
-
-        jenkins_harness = JenkinsBranchPluginSelfTestHarness(
-            sonar_client=config.sonar_client,
-            jenkins_client=config.ci_client,
-            pipeline=config.ci_pipeline,
-        )
-
-        def _jenkins_self_test(client: SonarClient) -> bool:
-            return run_branch_plugin_conformance_self_test(client, jenkins_harness)
-
-        return _jenkins_self_test
-
-    if config.sonar_client is None or config.sonar_scan_runner is None:
-        return None
-    from agentkit.backend.installer.integration_checkpoints.scanner_harness import (
-        SonarClientScannerHarness,
-    )
-
-    scan_runner = config.sonar_scan_runner
-
-    def _self_test(client: SonarClient) -> bool:
-        harness = SonarClientScannerHarness(client=client, scan_runner=scan_runner)
-        return run_branch_plugin_conformance_self_test(client, harness)
-
-    return _self_test
 
 
 def uninstall_agentkit(project_root: Path) -> UninstallResult:

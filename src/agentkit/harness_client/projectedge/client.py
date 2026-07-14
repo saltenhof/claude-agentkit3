@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,6 +32,12 @@ from agentkit.backend.control_plane.models import (
     TakeoverConfirmRequest,
     TakeoverReconcileWorktreeRequest,
     TakeoverRequest,
+)
+from agentkit.backend.control_plane.third_party_models import (
+    BranchPluginSelfTestOperation,
+    BranchPluginSelfTestRequest,
+    ThirdPartyValidationRequest,
+    ThirdPartyValidationResponse,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.utils.io import atomic_write_text
@@ -677,6 +684,67 @@ class ProjectEdgeClient:
             action="start",
             request=request,
         )
+
+    def validate_third_party(
+        self,
+        *,
+        project_key: str,
+        request: ThirdPartyValidationRequest,
+    ) -> ThirdPartyValidationResponse:
+        """Consume the backend-owned synchronous third-system verdict."""
+        project_segment = urllib.parse.quote(project_key, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=(f"/v1/projects/{project_segment}/installation/third-party-validation"),
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return ThirdPartyValidationResponse.model_validate(data)
+
+    def start_branch_plugin_self_test(
+        self,
+        *,
+        project_key: str,
+        request: BranchPluginSelfTestRequest,
+    ) -> BranchPluginSelfTestOperation:
+        """Start the explicit backend-owned heavy conformance operation."""
+        project_segment = urllib.parse.quote(project_key, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=(f"/v1/projects/{project_segment}/installation/branch-plugin-self-test"),
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return BranchPluginSelfTestOperation.model_validate(data)
+
+    def reconcile_branch_plugin_self_test(
+        self, op_id: str
+    ) -> BranchPluginSelfTestOperation:
+        """Read one self-test through the canonical operation endpoint."""
+        op_segment = urllib.parse.quote(op_id, safe="")
+        data = self._transport.send(
+            method="GET",
+            path=f"/v1/project-edge/operations/{op_segment}",
+        )
+        data.pop("correlation_id", None)
+        return BranchPluginSelfTestOperation.model_validate(data)
+
+    def poll_branch_plugin_self_test(
+        self,
+        op_id: str,
+        *,
+        timeout_seconds: float = 1800.0,
+        poll_interval_seconds: float = 1.0,
+    ) -> BranchPluginSelfTestOperation:
+        """Poll until the explicit self-test reaches a terminal verdict."""
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            result = self.reconcile_branch_plugin_self_test(op_id)
+            if result.status != "accepted":
+                return result
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"branch-plugin self-test {op_id!r} did not finish")
+            time.sleep(poll_interval_seconds)
 
     def resume_phase(
         self,

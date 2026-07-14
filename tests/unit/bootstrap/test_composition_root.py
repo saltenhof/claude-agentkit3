@@ -788,7 +788,9 @@ def test_build_structural_are_provider_activation() -> None:
     assert provider_on.is_enabled is True
 
 
-def test_are_client_construction_from_project_config(tmp_path: Path) -> None:
+def test_are_client_construction_from_project_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from agentkit.backend.bootstrap.composition_root import (
         build_are_client_from_project_config,
         build_structural_are_provider,
@@ -818,12 +820,13 @@ def test_are_client_construction_from_project_config(tmp_path: Path) -> None:
             are=AreConfig(
                 mcp_server="are-mcp",
                 rest_base_url=rest_base_url,
-                auth_token="token",
+                token_env="ARE_TOKEN",
             )
             if enabled
             else None,
         )
 
+    monkeypatch.setenv("ARE_TOKEN", "token")
     off_client = build_are_client_from_project_config(_project(None, enabled=False))
     assert off_client is None
 
@@ -870,9 +873,10 @@ def test_build_setup_phase_handler_wires_are_bundle_loader(
         are=AreConfig(
             mcp_server="are-mcp",
             rest_base_url="https://are.example.com",
-            auth_token="token",
+            token_env="ARE_TOKEN",
         ),
     )
+    monkeypatch.setenv("ARE_TOKEN", "token")
     monkeypatch.setattr(cr, "load_project_config", lambda _root: project, raising=False)
     monkeypatch.setattr(
         "agentkit.backend.config.loader.load_project_config",

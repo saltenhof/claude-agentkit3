@@ -539,7 +539,7 @@ Nur wenn `features.are: true`.
 
 **Idempotenz:** Nur fehlende/unmapped Einträge werden abgefragt.
 
-### CP 10d: SonarQube-Verfügbarkeit + Branch-Plugin + Conformance-Self-Test
+### CP 10d: Backend-vermittelte Dritt-System-Validierung
 
 **Applicability zuerst (FK-33 §33.6.5):** Ist `sonarqube.available: false`
 (FK-03 — Projekt/Host deklariert *kein* Sonar; auch fuer codeproduzierende
@@ -561,14 +561,14 @@ fail-closed diese Cross-Field-Verletzung statt eines generischen
 Missing-Dependency-Fehlers. Danach ist dieser Checkpoint die **fail-closed
 Umgebungs-Vorbedingung** des SonarQube-Green-Gates (FK-33 §33.6.3). Stil
 analog zum Weaviate-/MCP-Checkpoint: fehlt dann eine harte Voraussetzung
-(Server unerreichbar, Branch-Plugin fehlt, Conformance-Self-Test scheitert),
+(Backend oder Server unerreichbar, Branch-Plugin fehlt),
 **bricht der Installer ab (FAILED)** — er verweigert die Registrierung, statt
 ein Projekt mit deklariertem, aber nicht durchsetzbarem Gate zuzulassen.
 „Abwesend ≠ kaputt"
 (FK-33 §33.6.5): NOT_APPLICABLE bei `available: false`, FAILED nur bei
 `available: true` mit gebrochener Voraussetzung.
 
-**1. Verfuegbarkeit / Mindestversion / Erreichbarkeit + Creds:**
+**1. Synchrone leichte Validierung:**
 
 - SonarQube unter `sonarqube.base_url` erreichbar (`/api/system/status`)
 - Server-Version `>= sonarqube.min_version`
@@ -581,32 +581,39 @@ ein Projekt mit deklariertem, aber nicht durchsetzbarem Gate zuzulassen.
 
 Fehlt eines davon → **FAILED, Installation abbrechen**.
 
-Der CLI-Installer ist die produktive Kompositionsgrenze fuer diese
-Vorbedingungen. Ein normaler `agentkit install` darf nicht darauf angewiesen
-sein, dass Tests `sonar_client`, `ci_client` oder einen
-Branch-Plugin-Self-Test injizieren. Er konsumiert lokale Secret-/Env-Werte
-(`SONAR_URL`, `SONAR_USER`, `SONAR_PASSWORD` oder `SONARQUBE_TOKEN` /
-`SONAR_TOKEN`, `JENKINS_URL`, `JENKINS_USER`, `JENKINS_API_TOKEN` /
-`JENKINS_PASSWORD`) und baut daraus die produktiven Adapter. Der Scanner wird
-im Normalfall **nicht** auf dem Installer-Rechner vorausgesetzt. CP 10d nutzt
-den konfigurierten operativen Scan-Ausfuehrungspfad: Bei `ci.available: true`
-triggert der Installer den Jenkins-Pipeline-Job im CP10d-Self-Test-Modus; der
-Jenkins-Agent fuehrt den SonarScanner aus und archiviert
-`.scannerwork/report-task.txt` sowie einen Scanner-Version-Nachweis
-(`.scannerwork/sonar-scanner-version.txt`, alternativ ein vom Jenkins-Run
-exponierter `SONAR_SCANNER_VERSION`-Wert). Fehlt der
-Jenkins-Client/Pipeline-Zugriff, liefert der Job keine auswertbare Analyse oder
-keinen Scanner-Version-Nachweis, ist das ein fail-closed CP-10d-Fehler. Ein
-lokaler Scanner ist nur ein explizit injizierbarer Dev-/Test-Fallback, keine
-normative Installationsvoraussetzung.
+Der Backend-`ThirdPartyPreflightService` ist die einzige produktive
+Kompositions- und Semantikgrenze fuer Dritt-System-Probes. `register-project`
+und `verify-project` senden ueber den offiziellen Project Edge Client an
+`POST /v1/projects/{project_key}/installation/third-party-validation`; eine
+unskopierte Variante existiert nicht. Die Control Plane prueft Projekt-Token,
+Tenant-Scope, Versions-Handshake und `op_id`-Idempotenz, loest danach die
+`token_env`-Referenzen in ihrer **eigenen** Umgebung auf und fuehrt Sonar-,
+Jenkins- und bei `features.are: true` ARE-Probes aus. Die Antwort ist ein
+typisierter fail-closed Gesamtentscheid mit Einzelresultat und `error_code` je
+System. Weder Secret-Werte noch Authorization-Header duerfen Wire, Detail,
+Telemetrie oder Logs verlassen.
 
-**2. Branch-Plugin-Conformance-Self-Test (Pflicht):**
+Der Dev-Prozess instanziiert keinen Sonar-/Jenkins-Client und besitzt keinen
+Fallback auf direkte Dritt-System-Zugriffe. Die einzige lokale Ausnahme ist
+die reine Pre-Send-Konfigurationspruefung, dass
+`sonarqube.quality_gate.default_profile` unter dem Projektroot existiert; sie
+ist kein Reachability-Probe. Ein `repo_root` wird deshalb niemals an den
+Backend-Service uebertragen. `verify-project` darf dieselben leichten Live-
+Reads ausfuehren, bleibt aber frei von Dritt-System-Mutationen.
+
+**2. Branch-Plugin-Conformance-Self-Test (explizit, on-demand):**
 
 Das Community Branch Plugin ist **inoffiziell**. Es ist nur dann
 **Trust-A-faehig** (blocking, FK-33 §33.5.1), wenn dieser Self-Test
-besteht. Er laeuft **bei der Installation UND nach jedem
-SonarQube-/Plugin-Upgrade** (Upgrade ist ein erneuter Trigger dieses
-Checkpoints). Ablauf auf einem **wegwerfbaren Mini-Projekt**. Dieses
+besteht. Die schwere, mutierende Pruefung laeuft **niemals implizit** bei
+`register-project` oder `verify-project` und ist kein Bestandteil von
+`verify-project`. Sie wird explizit on-demand ueber
+`POST /v1/projects/{project_key}/installation/branch-plugin-self-test`
+gestartet. Die Control Plane antwortet `202` plus `op_id`, persistiert den
+Lebenszyklus als `ControlPlaneOperationRecord` und der Project Edge Client
+pollt ueber `GET /v1/project-edge/operations/{op_id}`. Wiederholung derselben
+`op_id` ist idempotent und startet keine zweite Ausfuehrung. Ablauf auf einem
+**wegwerfbaren Mini-Projekt**. Dieses
 Mini-Projekt wird unmittelbar nach dem Anlegen an ein dediziertes, vom
 Installer provisioniertes Quality Gate `AgentKit3 CP10d Self-Test Gate`
 gebunden. Dieses Gate gehoert nur zum CP10d-Self-Test und ersetzt oder
@@ -651,10 +658,10 @@ Damit testet CP 10d denselben operativen Boundary-Typ wie spaetere
 Pre-Merge-Scans: Jenkins erzeugt die Analyse, AgentKit verifiziert die
 Attestation.
 
-Scheitert ein Schritt → **FAILED**: das Plugin verhaelt sich nicht
-gatebar, das Green-Gate darf nicht als Trust-A-Stage scharf geschaltet
-werden. Der Installer verweigert die Registrierung mit explizitem
-Hinweis auf den fehlgeschlagenen Conformance-Schritt.
+Scheitert ein Schritt, terminalisiert die Operation mit `failed` und
+maschinenlesbarem `error_code`: das Plugin verhaelt sich nicht gatebar und
+darf nicht als Trust-A-Stage scharf geschaltet werden. Dieser on-demand-
+Entscheid veraendert nicht die unveraenderte Gate-Semantik in FK-33/FK-27.
 
 **3. Config-Drift-Behandlung (Policy-Change → voller main-Rescan):**
 
@@ -725,7 +732,10 @@ Read-only Validierung aller vorherigen Checkpoints:
   (`.claude/settings.json`, `.codex/config.toml` o.ae.)?
 - Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
-- SonarQube erreichbar, Mindestversion erfuellt, Community Branch Plugin vorhanden und Conformance-Self-Test bestanden, Config-Hash == registrierter Erwartungswert — **nur wenn `sonarqube.available: true` UND `sonarqube.enabled: true`**; bei `sonarqube.available: false` ist CP 10d NOT_APPLICABLE (FK-33 §33.6.5)
+- Backend-vermittelte leichte Sonar-/Jenkins- und feature-gated ARE-Probes
+  bestanden; bei Sonar insbesondere Erreichbarkeit, Mindestversion, Token-Rolle
+  und Branch-Plugin-Praesenz. Der schwere Conformance-Self-Test wird von
+  `verify-project` **nicht** gestartet.
 
 **Ergebnis:** PASS oder Liste von Problemen.
 
@@ -800,9 +810,10 @@ nicht zulaessig.
 | Link (Symlink/Junction) kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |
 | Bestehende Config mit inkompatiblem Schema | CP 5 | Migration versuchen (Kap. 51), bei Scheitern FAILED |
 | `sonarqube.available: false` (Projekt deklariert kein Sonar, auch fuer codeproduzierende Projekte zulaessig) | CP 10d | `SKIPPED` mit `reason="not_applicable"` (§50.4) — Checkpoint uebersprungen, kein FAILED (FK-33 §33.6.5, *bewusst-abwesend* ≠ *kaputt*) |
+| Control Plane fuer Dritt-System-Validierung nicht erreichbar | CP 10d | FAILED, kein direkter Dev-Fallback |
 | SonarQube nicht erreichbar / Version < `min_version` / Creds ungueltig (bei `available: true`) | CP 10d | FAILED, Installation abbrechen |
 | Community Branch Plugin fehlt oder Version zu niedrig | CP 10d | FAILED — Green-Gate nicht durchsetzbar |
-| Branch-Plugin-Conformance-Self-Test scheitert | CP 10d | FAILED — Plugin nicht Trust-A-faehig, Gate darf nicht scharf geschaltet werden |
+| Expliziter Branch-Plugin-Conformance-Self-Test scheitert | On-demand Operation | Operation terminal `failed` — Plugin nicht Trust-A-faehig, Gate darf nicht scharf geschaltet werden; keine implizite Register-/Verify-Ausfuehrung |
 | Config-Drift erkannt (manuelle Admin-Aenderung an Gate/Profil/Scope/New-Code) | CP 10d | Policy-Change → vollstaendiger main-Rescan erforderlich, Erwartungswert erst nach Gruen aktualisieren |
 
 **Bei FAILED:** Alle vorherigen Checkpoints waren erfolgreich und

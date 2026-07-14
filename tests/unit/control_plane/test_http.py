@@ -45,6 +45,25 @@ from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 if TYPE_CHECKING:
     import pytest
 
+    from agentkit.backend.control_plane_http.third_party_validation_routes import (
+        ThirdPartyValidationRoutes,
+    )
+
+
+class _AbstainingThirdPartyValidationRoutes:
+    """Keep legacy-operation unit tests isolated from productive persistence."""
+
+    def handle_get(self, route_path: str, correlation_id: str) -> None:
+        del route_path, correlation_id
+
+
+def _legacy_operation_routes() -> ControlPlaneApplicationRoutes:
+    return ControlPlaneApplicationRoutes(
+        third_party_validation_routes=cast(
+            "ThirdPartyValidationRoutes", _AbstainingThirdPartyValidationRoutes()
+        )
+    )
+
 
 def _runtime_result() -> ControlPlaneMutationResult:
     now = datetime(2026, 4, 22, 10, 0, tzinfo=UTC)
@@ -620,6 +639,7 @@ def test_post_closure_complete_returns_created() -> None:
 def test_get_operation_returns_ok() -> None:
     runtime = _FakeRuntimeService()
     app = ControlPlaneApplication(
+        routes=_legacy_operation_routes(),
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
@@ -638,6 +658,7 @@ def test_get_operation_returns_ok() -> None:
 
 def test_get_missing_operation_returns_not_found() -> None:
     app = ControlPlaneApplication(
+        routes=_legacy_operation_routes(),
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
