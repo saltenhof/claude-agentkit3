@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.bootstrap import composition_project_types as project_types
     from agentkit.backend.bootstrap import composition_verify_types as verify_types
+    from agentkit.backend.governance.ccag.permission_service import PermissionService
 
 
 def build_sonar_gate_port(
@@ -521,4 +522,18 @@ def build_setup_config_for_run(ctx: project_types.StoryContext, *, project_root:
     return SetupConfig(
         project_root=project_root,
         create_worktree=_story_is_github_backed(ctx),
+    )
+def build_permission_service() -> PermissionService:
+    """Build the governance owner with canonical Postgres adapters."""
+    from agentkit.backend.governance.ccag.permission_service import PermissionService
+    from agentkit.backend.state_backend.store.permission_lease_repository import (
+        StateBackendPermissionLeaseRepository,
+    )
+    from agentkit.backend.state_backend.store.permission_request_repository import (
+        StateBackendPermissionRequestRepository,
+    )
+
+    return PermissionService(
+        StateBackendPermissionRequestRepository(),
+        StateBackendPermissionLeaseRepository(),
     )

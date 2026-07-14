@@ -9,6 +9,12 @@ from ._closure import (
     push_freshness_record_to_row as push_freshness_record_to_row,
     push_freshness_row_to_record as push_freshness_row_to_record,
 )
+from ._ccag_permissions import (
+    permission_lease_row_to_record as permission_lease_row_to_record,
+    permission_lease_to_row as permission_lease_to_row,
+    permission_request_row_to_record as permission_request_row_to_record,
+    permission_request_to_row as permission_request_to_row,
+)
 from ._common import cast_json_record as cast_json_record, dump_json as dump_json, load_json as load_json
 from ._control_plane import (
     backend_instance_identity_row_to_record as backend_instance_identity_row_to_record,

@@ -19,6 +19,7 @@ configuration is the control-plane base URL from
 from __future__ import annotations
 
 import json
+import os
 import ssl
 import urllib.parse
 from typing import TYPE_CHECKING
@@ -26,6 +27,13 @@ from typing import TYPE_CHECKING
 from agentkit.backend.control_plane.models import (
     GuardCounterMutationAccepted,
     GuardCounterMutationRequest,
+    PermissionLeaseConsumeRequest,
+    PermissionLeaseGrantRequest,
+    PermissionLeaseView,
+    PermissionRequestOpenRequest,
+    PermissionRequestResolveRequest,
+    PermissionRequestsResponse,
+    PermissionRequestView,
     TelemetryEventAccepted,
     TelemetryEventIngestRequest,
     TelemetryEventQueryResponse,
@@ -40,10 +48,14 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.harness_client.projectedge.client import ControlPlaneTransport
+    from agentkit.harness_client.projectedge.permission_projection import LocalPermissionStateProjection
 
 _GUARD_COUNTER_PATH = "/v1/governance/guard-counters"
 _WORKER_HEALTH_PATH = "/v1/governance/worker-health"
 _TELEMETRY_EVENTS_PATH = "/v1/telemetry/events"
+_PERMISSION_REQUESTS_PATH = "/v1/governance/permission-requests"
+_PERMISSION_LEASES_PATH = "/v1/governance/permission-leases"
+_PROJECT_API_TOKEN_ENV = "AGENTKIT_PROJECT_API_TOKEN"
 #: Error code the core returns when a story detail read finds no record.
 _STORY_NOT_FOUND_CODE = "story_not_found"
 
@@ -51,7 +63,10 @@ _STORY_NOT_FOUND_CODE = "story_not_found"
 class GovernanceEdgeClient:
     """Thin REST client for the hook's canonical governance state operations."""
 
-    def __init__(self, *, transport: ControlPlaneTransport) -> None:
+    def __init__(
+        self, *, transport: ControlPlaneTransport,
+        permission_projection: LocalPermissionStateProjection | None = None,
+    ) -> None:
         """Bind the client to a control-plane JSON transport.
 
         Args:
@@ -60,6 +75,7 @@ class GovernanceEdgeClient:
                 stack across every Dev->Core call (AC6).
         """
         self._transport = transport
+        self._permission_projection = permission_projection
 
     # ------------------------------------------------------------------
     # Guard-invocation counter (FK-61 §61.4.3) -- non-blocking volume KPI.
@@ -84,6 +100,77 @@ class GovernanceEdgeClient:
         )
         data.pop("correlation_id", None)
         return GuardCounterMutationAccepted.model_validate(data)
+
+    def open_permission_request(
+        self, request: PermissionRequestOpenRequest
+    ) -> PermissionRequestView:
+        """Open one canonical permission request through the backend."""
+        data = self._transport.send(
+            method="POST", path=_PERMISSION_REQUESTS_PATH,
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        response = PermissionRequestView.model_validate(data)
+        self.read_permission_requests(
+            project_key=response.project_key, story_id=response.story_id,
+            run_id=response.run_id,
+        )
+        return response
+
+    def read_permission_requests(
+        self, *, project_key: str, story_id: str, run_id: str
+    ) -> PermissionRequestsResponse:
+        """Read the hook token's run-scoped canonical permission requests."""
+        query = urllib.parse.urlencode(
+            {"project_key": project_key, "story_id": story_id, "run_id": run_id}
+        )
+        data = self._transport.send(
+            method="GET", path=f"{_PERMISSION_REQUESTS_PATH}?{query}",
+        )
+        data.pop("correlation_id", None)
+        response = PermissionRequestsResponse.model_validate(data)
+        if self._permission_projection is not None:
+            open_ids = tuple(
+                item.request_id for item in response.requests if item.status == "pending"
+            )
+            self._permission_projection.write_requests(
+                project_key, story_id, run_id, open_ids
+            )
+        return response
+
+    def consume_permission_lease(self, lease_id: str) -> PermissionLeaseView:
+        """Consume one use of a canonical permission lease."""
+        request = PermissionLeaseConsumeRequest(lease_id=lease_id)
+        data = self._transport.send(
+            method="POST", path=_PERMISSION_LEASES_PATH,
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return PermissionLeaseView.model_validate(data)
+
+    def resolve_permission_request(
+        self, request: PermissionRequestResolveRequest
+    ) -> PermissionRequestView:
+        """Resolve a canonical request through a strategist-bound transport."""
+        data = self._transport.send(
+            method="POST",
+            path=_PERMISSION_REQUESTS_PATH,
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return PermissionRequestView.model_validate(data)
+
+    def grant_permission_lease(
+        self, request: PermissionLeaseGrantRequest
+    ) -> PermissionLeaseView:
+        """Grant a canonical lease through a strategist-bound transport."""
+        data = self._transport.send(
+            method="POST",
+            path=_PERMISSION_LEASES_PATH,
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return PermissionLeaseView.model_validate(data)
 
     # ------------------------------------------------------------------
     # Worker-health (FK-30 §30.10) -- fail-closed gate operation.
@@ -229,6 +316,10 @@ def build_governance_edge_client(project_root: Path) -> GovernanceEdgeClient:
     Returns:
         A configured :class:`GovernanceEdgeClient`.
     """
+    from agentkit.backend.config.loader import load_project_config
+    from agentkit.harness_client.projectedge.permission_projection import (
+        LocalPermissionStateProjection,
+    )
     from agentkit.harness_client.projectedge.runtime import (
         _read_bound_skill_bundle_version,
     )
@@ -245,7 +336,10 @@ def build_governance_edge_client(project_root: Path) -> GovernanceEdgeClient:
             base_url=str(config["base_url"]),
             ssl_context=ssl_context,
             skill_bundle_version=_read_bound_skill_bundle_version(project_root),
+            bearer_token=os.environ.get(_PROJECT_API_TOKEN_ENV),
+            project_key=load_project_config(project_root).project_key,
         ),
+        permission_projection=LocalPermissionStateProjection(project_root),
     )
 
 

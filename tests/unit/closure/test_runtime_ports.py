@@ -274,28 +274,43 @@ def test_vectordb_sync_is_nonblocking_warning(tmp_path: Path) -> None:
 class _RecordingModeLockRepo:
     """Recording mode-lock repository double (release path)."""
 
-    released: list[tuple[str, str]] = field(default_factory=list)
+    released: list[tuple[str, str, str]] = field(default_factory=list)
+    holder: object | None = None
 
-    def release(self, project_key: str, mode: str) -> object:
-        self.released.append((project_key, mode))
+    def read_holder(self, project_key: str, story_id: str, run_id: str) -> object | None:
+        del project_key, story_id, run_id
+        return self.holder
+
+    def release(self, project_key: str, story_id: str, run_id: str) -> object:
+        self.released.append((project_key, story_id, run_id))
         return object()
 
 
-def test_mode_lock_release_no_marker_is_noop(tmp_path: Path) -> None:
+def test_mode_lock_release_no_marker_is_noop(tmp_path: Path, monkeypatch: object) -> None:
     """A story that never acquired (no marker) owes no release (idempotent)."""
     from agentkit.backend.closure.runtime_ports import ProductiveModeLockReleasePort
 
     repo = _RecordingModeLockRepo()
     port = ProductiveModeLockReleasePort(mode_lock_repo=repo)  # type: ignore[arg-type]
 
-    released, warning = port.release(tmp_path, "proj")
+    from agentkit.backend.state_backend.scope import RuntimeStateScope
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
+        lambda story_dir: RuntimeStateScope(
+            project_key="proj", story_id="AG3-131", story_dir=story_dir, run_id="run-1"
+        ),
+    )
+    released, warning = port.release(tmp_path, "proj", "AG3-131")
 
     assert released is True
     assert warning is None
     assert repo.released == []
 
 
-def test_mode_lock_release_uses_acquired_mode_from_marker(tmp_path: Path) -> None:
+def test_mode_lock_release_uses_acquired_mode_from_marker(
+    tmp_path: Path, monkeypatch: object
+) -> None:
     """The release uses the mode recorded in the durable acquire marker."""
     from agentkit.backend.closure.runtime_ports import ProductiveModeLockReleasePort
     from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
@@ -303,11 +318,24 @@ def test_mode_lock_release_uses_acquired_mode_from_marker(tmp_path: Path) -> Non
     )
 
     record_mode_lock_acquired(tmp_path, mode="fast")
-    repo = _RecordingModeLockRepo()
+    from agentkit.backend.state_backend.scope import RuntimeStateScope
+    from agentkit.backend.state_backend.store.mode_lock_repository import (
+        ModeLockHolderRecord,
+    )
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
+        lambda story_dir: RuntimeStateScope(
+            project_key="proj", story_id="AG3-131", story_dir=story_dir, run_id="run-1"
+        ),
+    )
+    repo = _RecordingModeLockRepo(
+        holder=ModeLockHolderRecord("proj", "AG3-131", "run-1", "fast", "now")
+    )
     port = ProductiveModeLockReleasePort(mode_lock_repo=repo)  # type: ignore[arg-type]
 
-    released, warning = port.release(tmp_path, "proj")
+    released, warning = port.release(tmp_path, "proj", "AG3-131")
 
     assert released is True
     assert warning is None
-    assert repo.released == [("proj", "fast")]
+    assert repo.released == [("proj", "AG3-131", "run-1")]

@@ -7,8 +7,7 @@ Public surface:
     :class:`~agentkit.backend.governance.ccag.runtime.CcagPermissionRuntime` — evaluate(HookEvent) -> CcagDecision
     :class:`~agentkit.backend.governance.ccag.runtime.CcagDecision` — decision result
     :class:`~agentkit.backend.governance.ccag.runtime.CcagDecisionKind` — decision enum
-    :class:`~agentkit.backend.governance.ccag.leases.PermissionLeaseStore` — consume-once leases
-    :class:`~agentkit.backend.governance.ccag.requests.PermissionRequestStore` — pending requests
+    :class:`~agentkit.backend.governance.ccag.permission_service.PermissionService` — central lifecycle owner
 
 See FK-42 for the full specification.
 """
@@ -20,11 +19,10 @@ from agentkit.backend.governance.ccag.leases import (
     LeaseExpiredError,
     LeaseNotFoundError,
     PermissionLease,
-    PermissionLeaseStore,
 )
+from agentkit.backend.governance.ccag.permission_service import PermissionService
 from agentkit.backend.governance.ccag.requests import (
     PermissionRequest,
-    PermissionRequestStore,
 )
 from agentkit.backend.governance.ccag.runtime import (
     CcagDecision,
@@ -40,7 +38,6 @@ __all__ = [
     "LeaseExpiredError",
     "LeaseNotFoundError",
     "PermissionLease",
-    "PermissionLeaseStore",
+    "PermissionService",
     "PermissionRequest",
-    "PermissionRequestStore",
 ]

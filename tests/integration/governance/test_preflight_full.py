@@ -142,8 +142,8 @@ def test_multiple_failures_still_run_all_ten_checks(tmp_path: Path) -> None:
     (residue / "leftover.json").write_text("{}", encoding="utf-8")
 
     # Competing FAST mode-lock held by another standard run (Check 10 fail).
-    ModeLockRepository(tmp_path).set_lock(
-        _PROJECT, active_mode="fast", holder_count=1, updated_at=_TS
+    ModeLockRepository(tmp_path).acquire(
+        _PROJECT, "AG3-COMPETING", "run-competing", "fast"
     )
     mode_lock = ModeLockRepository(tmp_path).read_lock(_PROJECT)
 

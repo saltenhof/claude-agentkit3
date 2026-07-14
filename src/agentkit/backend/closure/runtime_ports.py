@@ -527,21 +527,32 @@ class ProductiveModeLockReleasePort:
 
     mode_lock_repo: ModeLockRepository
 
-    def release(self, story_dir: Path, project_key: str) -> tuple[bool, str | None]:
+    def release(
+        self, story_dir: Path, project_key: str, story_id: str
+    ) -> tuple[bool, str | None]:
         """Release this story's mode-lock holder; non-blocking Warning on error."""
         from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
             acquired_mode,
             clear_mode_lock_marker,
         )
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
 
-        mode = acquired_mode(story_dir)
-        if mode is None:
-            # This story never acquired the lock (e.g. standalone/legacy run, or
-            # acquire was skipped), OR a prior release already cleared the marker
-            # (resumed closure) -> no release owed (idempotent no-op).
-            return (True, None)
         try:
-            self.mode_lock_repo.release(project_key, mode)
+            run_id = resolve_runtime_scope(story_dir).run_id
+        except Exception as exc:  # noqa: BLE001 -- surfaced as a closure Warning
+            return (False, f"mode-lock run scope unavailable: {exc}")
+        if not run_id:
+            return (False, "mode-lock run scope unavailable")
+        holder = self.mode_lock_repo.read_holder(project_key, story_id, run_id)
+        mode = acquired_mode(story_dir)
+        if holder is None and mode is None:
+            return (True, None)
+        if holder is None or mode != holder.mode:
+            return (False, "mode-lock projection missing or divergent")
+        try:
+            self.mode_lock_repo.release(project_key, story_id, run_id)
         except Exception as exc:  # noqa: BLE001 -- non-blocking post-close step
             logger.warning(
                 "mode-lock release failed for project=%s mode=%s: %s",

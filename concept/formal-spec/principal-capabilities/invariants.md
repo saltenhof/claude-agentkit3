@@ -79,5 +79,17 @@ invariants:
   - id: principal-capabilities.invariant.no_auto_rule_promotion_from_permission_request
     scope: governance
     rule: a permission request approval may issue at most a scoped lease by default and must never silently create a persistent ccag rule
+  - id: principal-capabilities.invariant.permission_state_has_central_owner
+    scope: governance
+    rule: permission requests permission leases and project mode lock holder identities are canonical only in the central postgres owner and local files are discardable short ttl read projections
+  - id: principal-capabilities.invariant.permission_projection_fails_closed
+    scope: governance
+    rule: a missing stale or divergent local permission or mode lock projection blocks the run and may never become a fallback authority
+  - id: principal-capabilities.invariant.permission_decision_auth_is_split
+    scope: governance
+    rule: matching project api tokens may open read and consume permission state while only an authenticated strategist session may resolve requests or grant leases and authorization precedes mutation
+  - id: principal-capabilities.invariant.permission_grant_does_not_resume_run
+    scope: governance
+    rule: granting a permission lease creates only the scoped lease and never resumes or otherwise advances the story run
 ```
 <!-- FORMAL-SPEC:END -->

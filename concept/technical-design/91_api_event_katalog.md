@@ -52,6 +52,8 @@ formal_refs:
   - formal.story-reset.events
   - formal.principal-capabilities.commands
   - formal.principal-capabilities.events
+  - formal.principal-capabilities.entities
+  - formal.principal-capabilities.invariants
   - formal.operating-modes.commands
   - formal.operating-modes.events
   - formal.execution-planning.state-machine
@@ -76,7 +78,7 @@ formal_refs:
 
 ## 91.1a Service-API-Endpunkte (Control Plane)
 
-<!-- PROSE-FORMAL: formal.frontend-contracts.entities, formal.frontend-contracts.commands, formal.frontend-contracts.invariants -->
+<!-- PROSE-FORMAL: formal.frontend-contracts.entities, formal.frontend-contracts.commands, formal.frontend-contracts.invariants, formal.principal-capabilities.entities, formal.principal-capabilities.commands, formal.principal-capabilities.invariants -->
 
 Die Service-API ist der **normative Standard-Zugriffspfad** fuer
 alle Agents und den Orchestrator-Skill. Agents verwenden
@@ -117,6 +119,9 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/governance/worker-health` | `GET` | Kanonischen Worker-Health-State einer `(story_id, worker_id)`-Sicht lesen; fail-closed Gate-Operation (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129) |
 | `/v1/governance/takeover-approvals` | `GET` | Projektuebergreifender, read-only Initial-GET offener Takeover-Freigaben fuer den Lossy-Re-Sync des globalen Overlays; Strategen-Cookie-only, formal: `frontend-contracts.entity.takeover_approval_request` (FK-91 §91.8.2, FK-72 §72.14.7) |
 | `/v1/governance/worker-health` | `POST` | Kanonischen Worker-Health-State server-vermittelt schreiben; fail-closed Gate-Operation (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129). Der Save ist ein **idempotenter Upsert** auf `(story_id, worker_id)` — ein Retry ueberschreibt denselben State (harmlos), daher kein separates `op_id` noetig |
+| `/v1/governance/permission-requests` | `GET` | Run-skopierte kanonische Permission-Requests lesen und abgelaufene offene Requests lazy deterministisch als `expired` mit `resolution=denied` materialisieren; ausschliesslich passendes `project_api_token`, lokale Request-Dateien sind nur kurzlebige Read-Projektionen (FK-10 §10.1.0 I5, FK-55 §55.10.4a/§55.10.9a, AG3-131) |
+| `/v1/governance/permission-requests` | `POST` | Operation `open`: auditierbaren Request als passendes `project_api_token` zentral oeffnen; Operation `resolve`: `approved` oder `denied` ausschliesslich als Strategen-Cookie-Session entscheiden. Die Auth-Pruefung erfolgt vor jeder Mutation; Persistenzfehler blockieren sichtbar fail-closed (FK-42 §42.5, FK-55 §55.10.4, AG3-131) |
+| `/v1/governance/permission-leases` | `POST` | Operation `grant`: ausschliesslich als Strategen-Cookie-Session eine an den genehmigten Request gebundene, ablaufende Lease mit `max_uses` erzeugen, ohne Auto-Resume; Operation `consume`: als passendes `project_api_token` genau eine Nutzung atomar verbrauchen. Auth-Pruefung erfolgt vor Mutation; Postgres ist der einzige Owner (FK-55 §55.9a, AG3-131) |
 | `/v1/projects/{project_key}/stories/{story_id}` | `GET` | Projekt-skopierte Story-Detailansicht (`StoryDetail`→`StorySummary`, inkl. Wire-Key `story_type`); vom Governance-Hook als **server-vermittelter Story-Typ-Read** konsumiert (FK-24 §24.3.2, FK-10 §10.1.0 I1, AG3-129) — fehlender Record ⇒ `404 story_not_found` ⇒ Hook fail-closed UNRESOLVED |
 | `/v1/projects/{project_key}/planning/dependency-graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen (FK-72 §72.8.2) |
 | `/v1/projects/{project_key}/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |

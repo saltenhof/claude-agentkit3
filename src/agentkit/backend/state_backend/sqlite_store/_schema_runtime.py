@@ -747,6 +747,64 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (project_key)
         );
 
+        -- AG3-131 test-parallel schema. Postgres remains canonical.
+        CREATE TABLE IF NOT EXISTS project_mode_lock_holders (
+            project_key    TEXT NOT NULL,
+            story_id       TEXT NOT NULL,
+            run_id         TEXT NOT NULL,
+            mode           TEXT NOT NULL CHECK (mode IN ('standard', 'fast')),
+            acquired_at    TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id, run_id),
+            FOREIGN KEY (project_key) REFERENCES project_mode_lock(project_key)
+                ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS ccag_permission_requests (
+            request_id          TEXT PRIMARY KEY,
+            project_key         TEXT NOT NULL,
+            story_id            TEXT NOT NULL,
+            run_id              TEXT NOT NULL,
+            principal_type      TEXT NOT NULL,
+            tool_name           TEXT NOT NULL,
+            operation_class     TEXT NOT NULL,
+            path_classes        TEXT NOT NULL,
+            request_fingerprint TEXT NOT NULL,
+            status              TEXT NOT NULL CHECK (status IN (
+                'pending', 'approved', 'denied', 'expired'
+            )),
+            requested_at        TEXT NOT NULL,
+            expires_at          TEXT NOT NULL,
+            resolution          TEXT,
+            decided_at          TEXT,
+            decision_note       TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS ccag_permission_requests_scope_idx
+            ON ccag_permission_requests (project_key, story_id, run_id, status);
+
+        CREATE TABLE IF NOT EXISTS ccag_permission_leases (
+            lease_id            TEXT PRIMARY KEY,
+            request_ref         TEXT NOT NULL REFERENCES ccag_permission_requests(request_id),
+            project_key         TEXT NOT NULL,
+            story_id            TEXT NOT NULL,
+            run_id              TEXT NOT NULL,
+            principal_type      TEXT NOT NULL,
+            tool_name           TEXT NOT NULL,
+            operation_class     TEXT NOT NULL,
+            path_classes        TEXT NOT NULL,
+            request_fingerprint TEXT NOT NULL,
+            max_uses            INTEGER NOT NULL DEFAULT 1 CHECK (max_uses > 0),
+            consumed            INTEGER NOT NULL DEFAULT 0 CHECK (
+                consumed >= 0 AND consumed <= max_uses
+            ),
+            issued_at           TEXT NOT NULL,
+            expires_at          TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ccag_permission_leases_binding_idx
+            ON ccag_permission_leases (
+                project_key, story_id, run_id, principal_type, tool_name,
+                operation_class, request_fingerprint
+            );
+
         -- AG3-039 (FK-50 §50.3 CP 7, formal.installer.entities
         -- §project-registration): project_registry. Test-parallel path to
         -- postgres_schema.sql (Postgres is canonical).

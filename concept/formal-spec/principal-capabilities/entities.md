@@ -78,9 +78,12 @@ entities:
       - operation_class
       - path_classes
       - request_fingerprint
+      - status
       - requested_at
       - expires_at
       - resolution
+      - decided_at
+      - decision_note
   - id: principal-capabilities.entity.permission-lease
     identity: lease_id
     attributes:
@@ -94,6 +97,7 @@ entities:
       - path_classes
       - request_fingerprint
       - max_uses
+      - consumed
       - issued_at
       - expires_at
 ```

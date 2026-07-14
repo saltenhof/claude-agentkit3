@@ -32,8 +32,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentkit.backend.governance.ccag import leases as ccag_leases
-from agentkit.backend.governance.ccag import requests as ccag_requests
 from agentkit.backend.state_backend import sqlite_store
 from agentkit.backend.state_backend.store import (
     artifact_repository,
@@ -133,11 +131,9 @@ class _RaisingConnection:
 
 
 # Every fixed SQLite connect helper, with how to call it. ``dir`` helpers take a
-# store/story directory; ``file`` helpers (CCAG) take the DB file path.
+# store/story directory.
 _SQLITE_CONNECT_HELPERS: list[tuple[str, Any, str]] = [
     ("sqlite_store._connect", sqlite_store._connect, "dir"),
-    ("ccag.leases._connect", ccag_leases._connect, "file"),
-    ("ccag.requests._connect", ccag_requests._connect, "file"),
     (
         "artifact_repository._sqlite_connect",
         artifact_repository._sqlite_connect,

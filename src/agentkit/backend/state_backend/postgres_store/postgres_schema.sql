@@ -1276,6 +1276,66 @@
             PRIMARY KEY (project_key)
         );
 
+        -- AG3-131: authoritative holder identity for project_mode_lock. The
+        -- parent row is the lock summary; this set is the recovery truth.
+        CREATE TABLE IF NOT EXISTS project_mode_lock_holders (
+            project_key    TEXT NOT NULL,
+            story_id       TEXT NOT NULL,
+            run_id         TEXT NOT NULL,
+            mode           TEXT NOT NULL CHECK (mode IN ('standard', 'fast')),
+            acquired_at    TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (project_key, story_id, run_id),
+            FOREIGN KEY (project_key) REFERENCES project_mode_lock(project_key)
+                ON DELETE CASCADE
+        );
+
+        -- AG3-131 / FK-55 §55.9a: canonical CCAG permission runtime state.
+        CREATE TABLE IF NOT EXISTS ccag_permission_requests (
+            request_id          TEXT PRIMARY KEY,
+            project_key         TEXT NOT NULL,
+            story_id            TEXT NOT NULL,
+            run_id              TEXT NOT NULL,
+            principal_type      TEXT NOT NULL,
+            tool_name           TEXT NOT NULL,
+            operation_class     TEXT NOT NULL,
+            path_classes        JSONB NOT NULL,
+            request_fingerprint TEXT NOT NULL,
+            status              TEXT NOT NULL CHECK (status IN (
+                'pending', 'approved', 'denied', 'expired'
+            )),
+            requested_at        TIMESTAMPTZ NOT NULL,
+            expires_at          TIMESTAMPTZ NOT NULL,
+            resolution          TEXT,
+            decided_at          TIMESTAMPTZ,
+            decision_note       TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS ccag_permission_requests_scope_idx
+            ON ccag_permission_requests (project_key, story_id, run_id, status);
+
+        CREATE TABLE IF NOT EXISTS ccag_permission_leases (
+            lease_id            TEXT PRIMARY KEY,
+            request_ref         TEXT NOT NULL REFERENCES ccag_permission_requests(request_id),
+            project_key         TEXT NOT NULL,
+            story_id            TEXT NOT NULL,
+            run_id              TEXT NOT NULL,
+            principal_type      TEXT NOT NULL,
+            tool_name           TEXT NOT NULL,
+            operation_class     TEXT NOT NULL,
+            path_classes        JSONB NOT NULL,
+            request_fingerprint TEXT NOT NULL,
+            max_uses            INTEGER NOT NULL DEFAULT 1 CHECK (max_uses > 0),
+            consumed            INTEGER NOT NULL DEFAULT 0 CHECK (
+                consumed >= 0 AND consumed <= max_uses
+            ),
+            issued_at           TIMESTAMPTZ NOT NULL,
+            expires_at          TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ccag_permission_leases_binding_idx
+            ON ccag_permission_leases (
+                project_key, story_id, run_id, principal_type, tool_name,
+                operation_class, request_fingerprint
+            );
+
         -- AG3-039 (FK-50 §50.3 CP 7, formal.installer.entities
         -- §project-registration): project_registry. Canonical State-Backend
         -- registration written by Installer Checkpoint 7. Schema/DB owner

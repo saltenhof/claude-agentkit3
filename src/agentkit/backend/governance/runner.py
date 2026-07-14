@@ -8,6 +8,8 @@ information is collected.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -1817,12 +1819,16 @@ def _run_capability_enforcement(
     if result.outcome is EnforcementOutcome.UNKNOWN_PERMISSION:
         # FK-55 §55.6.1 mode-specific (AG3-032 ERROR C / FK-55 §55.10.1/§55.10.4):
         # an UNKNOWN tool resolves by the THREE locally-derived mode buckets.
-        return _resolve_mode_scoped_block(context, event, result.verdict, project_root)
+        return _resolve_mode_scoped_block(
+            context, event, result.verdict, result.hull, project_root
+        )
     if result.outcome is EnforcementOutcome.UNRESOLVED:
         # A non-mutating unclassifiable / target-less event resolves by the SAME
         # three mode buckets (FK-55 §55.10.2 / §55.6.1 mode-specific): a binding-
         # invalid edge must fail-closed here too — it must NOT defer to CCAG.
-        return _resolve_mode_scoped_block(context, event, result.verdict, project_root)
+        return _resolve_mode_scoped_block(
+            context, event, result.verdict, result.hull, project_root
+        )
     return None
 
 
@@ -1891,6 +1897,7 @@ def _resolve_mode_scoped_block(
     context: _CapabilityContext,
     event: HookEvent,
     verdict: object,
+    hull: CapabilityHull | None,
     project_root: Path,
 ) -> HookDecision | None:
     """Resolve an UNKNOWN_PERMISSION / UNRESOLVED outcome by execution-mode bucket.
@@ -1910,7 +1917,9 @@ def _resolve_mode_scoped_block(
       This is the ONLY bucket that may defer to CCAG / an external prompt.
     """
     if context.is_story_execution:
-        return _block_with_permission_request(event, verdict, project_root)
+        return _block_with_permission_request(
+            event, verdict, project_root, context=context, hull=hull
+        )
     if context.is_binding_invalid:
         return _binding_invalid_block(context.block_reason)
     return None
@@ -1949,6 +1958,9 @@ def _block_with_permission_request(
     event: HookEvent,
     verdict: object,
     project_root: Path,
+    *,
+    context: _CapabilityContext | None = None,
+    hull: CapabilityHull | None = None,
 ) -> HookDecision:
     """Open a permission_request (story_execution) and return a blocking verdict.
 
@@ -1960,32 +1972,76 @@ def _block_with_permission_request(
     mode. A failure to persist the request must not turn the fail-closed BLOCK
     into a fault that escapes — it stays a deterministic BLOCK.
     """
-    from agentkit.backend.governance.ccag.runtime import CcagPermissionRuntime
+    from agentkit.backend.control_plane.models import PermissionRequestOpenRequest
 
-    request_id: str | None = None
+    resolved = context or _resolve_capability_context(event, project_root=project_root)
+    resolved_hull = hull or _resolve_capability_hull(event, project_root=project_root)
+    request_id = str(uuid4())
     try:
-        request = CcagPermissionRuntime(
-            request_db_path=project_root / _AGENTKIT_DIR_NAME / "ccag" / "ccag_requests.db"
-        ).open_permission_request(event)
-        request_id = request.request_id
-    except Exception:  # noqa: BLE001
-        # FAIL-CLOSED: persisting the audit request is best-effort; the block
-        # stands regardless. The block reason already carries the rule id.
-        request_id = None
+        if (
+            resolved.project_key is None
+            or resolved.story_id is None
+            or resolved.run_id is None
+            or resolved_hull is None
+        ):
+            raise RuntimeError("canonical permission request context is incomplete")
+        request = PermissionRequestOpenRequest(
+            request_id=request_id,
+            project_key=resolved.project_key,
+            story_id=resolved.story_id,
+            run_id=resolved.run_id,
+            principal_type=resolved_hull.principal_type,
+            tool_name=_event_tool(event),
+            operation_class=resolved_hull.operation_class,
+            path_classes=resolved_hull.path_classes,
+            request_fingerprint=_permission_request_fingerprint(event, resolved_hull),
+            ttl_seconds=_permission_request_ttl_s(project_root),
+        )
+        persisted = _governance_edge_client(project_root).open_permission_request(request)
+        request_id = persisted.request_id
+    except Exception as exc:  # noqa: BLE001 -- converted to a visible hard block
+        reason = getattr(verdict, "reason", "capability denied")
+        rule_id = getattr(verdict, "rule_id", None)
+        return GuardVerdict.block(
+            "principal_capability",
+            ViolationType.UNAUTHORIZED_OPERATION,
+            f"{reason}; canonical permission request persistence failed closed: {exc}",
+            detail={
+                "capability_rule_id": rule_id,
+                "permission_request_persist_failed": True,
+                "fault_class": type(exc).__name__,
+            },
+        )
     reason = getattr(verdict, "reason", "capability denied")
     rule_id = getattr(verdict, "rule_id", None)
     detail: dict[str, object] = {
         "capability_rule_id": rule_id,
-        "permission_request_opened": request_id is not None,
+        "permission_request_opened": True,
+        "permission_request_id": request_id,
     }
-    if request_id is not None:
-        detail["permission_request_id"] = request_id
     return GuardVerdict.block(
         "principal_capability",
         ViolationType.UNAUTHORIZED_OPERATION,
         reason,
         detail=detail,
     )
+
+
+def _permission_request_fingerprint(
+    event: HookEvent, hull: CapabilityHull
+) -> str:
+    """Return a deterministic binding fingerprint for one permission case."""
+    payload = {
+        "operation": event.operation,
+        "operation_args": event.operation_args,
+        "principal_type": hull.principal_type,
+        "operation_class": hull.operation_class,
+        "path_classes": hull.path_classes,
+    }
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _capability_block(verdict: object) -> HookDecision:
@@ -2038,7 +2094,9 @@ class _CapabilityContext:
     """
 
     execution_mode: str
+    project_key: str | None
     story_id: str | None
+    run_id: str | None
     scope_roots: list[str] | None
     block_reason: str | None = None
     binding_revocation_reason: str | None = None
@@ -2093,7 +2151,9 @@ def _resolve_capability_context(
     if resolved.bundle is None or resolved.bundle.session is None:
         return _CapabilityContext(
             execution_mode=resolved.operating_mode,
+            project_key=None,
             story_id=None,
+            run_id=None,
             scope_roots=None,
             block_reason=resolved.block_reason,
         )
@@ -2105,7 +2165,9 @@ def _resolve_capability_context(
     )
     return _CapabilityContext(
         execution_mode=resolved.operating_mode,
+        project_key=session.project_key,
         story_id=session.story_id,
+        run_id=session.run_id,
         scope_roots=list(session.worktree_roots),
         block_reason=resolved.block_reason,
         binding_revocation_reason=(
@@ -2154,10 +2216,7 @@ def _run_ccag_hook(event: HookEvent, *, project_root: Path) -> HookDecision:
     _escalate_expired_permission_requests(event, project_root=project_root)
 
     hull = _resolve_capability_hull(event, project_root=project_root)
-    runtime = CcagPermissionRuntime(
-        request_db_path=_ccag_request_db_path(project_root),
-        request_ttl_s=_permission_request_ttl_s(project_root),
-    )
+    runtime = CcagPermissionRuntime()
     decision = runtime.evaluate(event, capability_hull=hull)
 
     if decision.kind == CcagDecisionKind.BLOCK_BY_RULE:
@@ -2171,21 +2230,13 @@ def _run_ccag_hook(event: HookEvent, *, project_root: Path) -> HookDecision:
             },
         )
 
-    # allow or unknown_permission → allow at the GuardVerdict level
-    # For unknown_permission in story_execution, the PermissionRequest was
-    # already created by CcagPermissionRuntime._handle_unknown(); the CLI
-    # entry points can inspect the decision.kind for exit code decisions.
+    if decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION:
+        context = _resolve_capability_context(event, project_root=project_root)
+        if context.is_story_execution:
+            return _block_with_permission_request(
+                event, decision, project_root, context=context, hull=hull
+            )
     return GuardVerdict.allow("ccag_gatekeeper")
-
-
-def _ccag_request_db_path(project_root: Path) -> Path:
-    """Return the canonical CCAG permission-request store path (single owner).
-
-    The escalator and the CCAG runtime MUST read/write the SAME store so the
-    TTL-expiry escalation inspects exactly the requests CCAG creates — no second
-    request truth (FIX THE MODEL). Mirrors ``_block_with_permission_request``.
-    """
-    return project_root / _AGENTKIT_DIR_NAME / "ccag" / "ccag_requests.db"
 
 
 def _escalate_expired_permission_requests(
@@ -2218,20 +2269,33 @@ def _escalate_expired_permission_requests(
     scope = _guard_counter_scope(event, project_root=project_root)
     if scope is None:
         return False
-    _project_key, story_id = scope
+    project_key, story_id = scope
     try:
-        from agentkit.backend.governance.ccag.expiry import PermissionExpiryEscalator
-        from agentkit.backend.governance.ccag.requests import PermissionRequestStore
+        from agentkit.backend.governance.ccag.expiry import escalate_run_to_phase_state
         from agentkit.backend.state_backend.store.phase_envelope_repository import (
             StateBackendPhaseEnvelopeRepository,
         )
-
-        request_store = PermissionRequestStore(_ccag_request_db_path(project_root))
+        resolved = _commit_hook_scope(event, project_root=project_root)
+        if resolved is None:
+            return False
+        _project_key, _story_id, run_id = resolved
+        requests = _governance_edge_client(project_root).read_permission_requests(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+        if not any(item.status == "expired" for item in requests.requests):
+            return False
         phase_state_port = StateBackendPhaseEnvelopeRepository(
             project_root / "stories" / story_id
         )
-        escalator = PermissionExpiryEscalator(request_store, phase_state_port)
-        return escalator.expire_and_escalate(story_id)
+        from agentkit.backend.pipeline_engine.phase_executor.models import PhaseName
+        state = phase_state_port.load_state(story_id, PhaseName.IMPLEMENTATION)
+        if state is None:
+            return False
+        escalated = escalate_run_to_phase_state(state)
+        if escalated is state:
+            return False
+        phase_state_port.save_state(escalated)
+        return True
     except Exception:  # noqa: BLE001 -- lazy escalation is best-effort; never crash CCAG
         logger.warning(
             "permission-request TTL escalation failed for story_id=%s "

@@ -45,7 +45,7 @@ commands:
       - principal-capabilities.event.capability_allowed
       - principal-capabilities.event.capability_denied
   - id: principal-capabilities.command.open-permission-request
-    signature: internal open audit-ready permission request for unknown permission in story execution
+    signature: POST /v1/governance/permission-requests operation open with matching project_api_token
     allowed_statuses:
       - principal-capabilities.status.story_scoped
     requires:
@@ -87,7 +87,7 @@ commands:
       - principal-capabilities.event.conflict_freeze_released
       - principal-capabilities.event.official_service_path_completed
   - id: principal-capabilities.command.approve-permission-request
-    signature: agentkit approve-permission-request --request <request_id>
+    signature: POST /v1/governance/permission-requests operation resolve approved with strategist session
     allowed_statuses:
       - principal-capabilities.status.permission_pending
     requires:
@@ -97,15 +97,33 @@ commands:
       - principal-capabilities.invariant.no_auto_rule_promotion_from_permission_request
     emits:
       - principal-capabilities.event.permission_request_approved
-      - principal-capabilities.event.permission_lease_issued
   - id: principal-capabilities.command.reject-permission-request
-    signature: agentkit reject-permission-request --request <request_id>
+    signature: POST /v1/governance/permission-requests operation resolve denied with strategist session
     allowed_statuses:
       - principal-capabilities.status.permission_pending
     requires:
       - principal-capabilities.invariant.permission_request_approval_requires_human_cli
     emits:
       - principal-capabilities.event.permission_request_rejected
+  - id: principal-capabilities.command.grant-permission-lease
+    signature: POST /v1/governance/permission-leases operation grant with strategist session
+    allowed_statuses:
+      - principal-capabilities.status.released
+    requires:
+      - principal-capabilities.invariant.permission_leases_are_scoped_and_expiring
+      - principal-capabilities.invariant.permission_decision_auth_is_split
+      - principal-capabilities.invariant.permission_grant_does_not_resume_run
+    emits:
+      - principal-capabilities.event.permission_lease_issued
+  - id: principal-capabilities.command.consume-permission-lease
+    signature: POST /v1/governance/permission-leases operation consume with matching project_api_token
+    allowed_statuses:
+      - principal-capabilities.status.released
+    requires:
+      - principal-capabilities.invariant.permission_leases_are_scoped_and_expiring
+      - principal-capabilities.invariant.permission_state_has_central_owner
+    emits:
+      - principal-capabilities.event.permission_lease_consumed
   - id: principal-capabilities.command.expire-permission-request
     signature: internal expire open permission request after ttl without human decision
     allowed_statuses:

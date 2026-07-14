@@ -17,6 +17,8 @@ _EXPORT_MODULES = (
     "._ownership_rows",
     "._control_plane_rows",
     "._takeover_rows",
+    "._ccag_request_rows",
+    "._ccag_lease_rows",
     "._recovery_rows",
     "._qa_artifact_rows",
     "._purge_rows",

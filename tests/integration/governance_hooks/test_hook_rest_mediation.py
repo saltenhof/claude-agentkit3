@@ -64,7 +64,7 @@ def _capability_allows(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _publish_story_binding(project_root: Path, worktree: str) -> None:
-    now = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)
+    now = datetime.now(UTC)
     bundle = EdgeBundle(
         current=EdgePointer(
             project_key=_PROJECT,

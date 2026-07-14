@@ -54,6 +54,8 @@ events:
     role: governance
   - id: principal-capabilities.event.permission_lease_issued
     role: lifecycle
+  - id: principal-capabilities.event.permission_lease_consumed
+    role: lifecycle
   - id: principal-capabilities.event.external_permission_interference_detected
     role: audit
 ```

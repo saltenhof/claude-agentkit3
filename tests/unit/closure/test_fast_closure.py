@@ -92,9 +92,11 @@ class _RecordingModeLockReleasePort:
 
     released: bool = True
     warning: str | None = None
-    calls: list[tuple[str, str]] = field(default_factory=list)
+    calls: list[tuple[str, str, str]] = field(default_factory=list)
 
-    def release(self, story_dir: Path, project_key: str) -> tuple[bool, str | None]:
+    def release(
+        self, story_dir: Path, project_key: str, story_id: str
+    ) -> tuple[bool, str | None]:
         from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
             acquired_mode,
             clear_mode_lock_marker,
@@ -103,7 +105,7 @@ class _RecordingModeLockReleasePort:
         if acquired_mode(story_dir) is None:
             # No marker -> no release owed (idempotent no-op; resume safety).
             return (True, None)
-        self.calls.append((str(story_dir), project_key))
+        self.calls.append((str(story_dir), project_key, story_id))
         clear_mode_lock_marker(story_dir)
         return (self.released, self.warning)
 

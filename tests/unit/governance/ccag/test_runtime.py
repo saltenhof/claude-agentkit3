@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from agentkit.backend.governance.ccag.requests import PermissionRequestStore
 from agentkit.backend.governance.ccag.runtime import (
     _AI_AUGMENTED,
     _INTERACTIVE_AGENT,
@@ -179,43 +178,27 @@ class TestBlockRule:
 
 
 # ---------------------------------------------------------------------------
-# Unknown in story_execution -> unknown_permission + PermissionRequest
+# Unknown remains fail-closed; the runner opens the central request through REST
 # ---------------------------------------------------------------------------
 
 
 class TestUnknownPermissionStoryExecution:
-    def test_unknown_creates_permission_request(self, tmp_path: Path) -> None:
+    def test_unknown_defers_request_creation_to_central_runner(self, tmp_path: Path) -> None:
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
-        db_path = tmp_path / "requests.db"
-        request_store = PermissionRequestStore(db_path)
-        runtime = CcagPermissionRuntime(
-            rules_dir=rules_dir,
-            request_store=request_store,
-        )
+        runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(
             command="some-unknown-command",
             operating_mode="story_execution",
         )
         decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
-        assert decision.permission_request is not None
-        req_id = decision.permission_request.request_id
-
-        # Request appears in state backend
-        loaded = request_store.load(req_id)
-        assert loaded is not None
-        assert loaded.status == "pending"
-        assert loaded.tool_name == "Bash"
+        assert decision.permission_request is None
 
     def test_unknown_no_request_in_ai_augmented(self, tmp_path: Path) -> None:
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
-        request_store = PermissionRequestStore(tmp_path / "requests.db")
-        runtime = CcagPermissionRuntime(
-            rules_dir=rules_dir,
-            request_store=request_store,
-        )
+        runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(
             command="some-unknown-command",
             operating_mode="ai_augmented",
@@ -260,17 +243,14 @@ class TestModePaths:
     def test_story_execution_mode(self, tmp_path: Path) -> None:
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
-        runtime = CcagPermissionRuntime(
-            rules_dir=rules_dir,
-            request_store=PermissionRequestStore(tmp_path / "db.db"),
-        )
+        runtime = CcagPermissionRuntime(rules_dir=rules_dir)
         event = _make_event(
             command="unknown-cmd",
             operating_mode="story_execution",
         )
         decision = runtime.evaluate(event, capability_hull=_hull())
         assert decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION
-        assert decision.permission_request is not None  # request created
+        assert decision.permission_request is None  # runner owns central creation
 
     def test_ai_augmented_mode(self, tmp_path: Path) -> None:
         rules_dir = tmp_path / "rules"

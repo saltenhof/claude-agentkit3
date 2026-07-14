@@ -16,6 +16,7 @@ HTTP handler calls, minus the socket hop.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -26,6 +27,10 @@ from agentkit.backend.control_plane.guard_counter import (
 from agentkit.backend.control_plane.models import (
     GuardCounterMutationAccepted,
     GuardCounterMutationRequest,
+    PermissionLeaseView,
+    PermissionRequestOpenRequest,
+    PermissionRequestsResponse,
+    PermissionRequestView,
     TelemetryEventAccepted,
     TelemetryEventIngestRequest,
     TelemetryEventQueryResponse,
@@ -61,6 +66,38 @@ class LoopbackGovernanceClient:
 
     def __init__(self, project_root: Path) -> None:
         self._project_root = project_root
+        self._permission_requests: list[PermissionRequestView] = []
+
+    def open_permission_request(
+        self, request: PermissionRequestOpenRequest
+    ) -> PermissionRequestView:
+        """Exercise the runner contract without a productive local writer."""
+        now = datetime.now(UTC)
+        view = PermissionRequestView(
+            **request.model_dump(exclude={"operation", "ttl_seconds"}),
+            status="pending",
+            requested_at=now,
+            expires_at=now + timedelta(seconds=request.ttl_seconds),
+        )
+        self._permission_requests.append(view)
+        return view
+
+    def read_permission_requests(
+        self, *, project_key: str, story_id: str, run_id: str
+    ) -> PermissionRequestsResponse:
+        """Return only the requested canonical scope in the loopback."""
+        return PermissionRequestsResponse(
+            requests=tuple(
+                item
+                for item in self._permission_requests
+                if (item.project_key, item.story_id, item.run_id)
+                == (project_key, story_id, run_id)
+            )
+        )
+
+    def consume_permission_lease(self, lease_id: str) -> PermissionLeaseView:
+        """Reject absent loopback leases; productive consumption is PG-tested."""
+        raise RuntimeError(f"permission lease {lease_id!r} is unavailable")
 
     def mutate_guard_counter(
         self, request: GuardCounterMutationRequest

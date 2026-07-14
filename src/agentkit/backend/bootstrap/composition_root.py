@@ -6,6 +6,9 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from agentkit.backend.bootstrap.composition_governance import (
+        build_permission_service as build_permission_service,
+    )
     from agentkit.backend.bootstrap.composition_implementation_evidence import build_fast_test_runner as build_fast_test_runner
     from agentkit.backend.bootstrap.composition_pipeline import build_pipeline_engine as build_pipeline_engine
     from agentkit.backend.bootstrap.composition_project import (
@@ -52,7 +55,7 @@ _EXPORT_MODULE_NAMES = {
         "_build_dim9_sonar_port", "_load_sonar_config", "_load_story_context_for_gate", "_story_is_github_backed",
         "build_are_client_from_project_config", "build_integrity_gate", "build_setup_config_for_run",
         "build_setup_edge_provisioning_coordinator", "build_setup_fence_scope_binder", "build_setup_phase_handler",
-        "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port",
+        "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_permission_service",
     ),
     "agentkit.backend.bootstrap.composition_pipeline": (
         "_UnresolvedSetupCoordinatesHandler", "build_pipeline_engine", "build_pipeline_handler_registry",
@@ -92,7 +95,7 @@ _PUBLIC_NAMES = (
     "build_projection_accessor", "build_push_barrier_evidence", "build_runtime_execution_purge_port",
     "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler",
     "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider",
-    "build_takeover_approval_read_source",
+    "build_takeover_approval_read_source", "build_permission_service",
     "build_structural_build_test_port", "build_verify_system", "cli_load_story_context",
     "cli_load_execution_events_for_project_global", "cli_read_phase_state_record",
 )

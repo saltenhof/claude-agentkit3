@@ -20,7 +20,7 @@ from agentkit.backend.governance.setup_preflight_gate.phase import (
     SetupPhaseHandler,
 )
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockConflictError
+from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockConflictError, ModeLockHolderRecord
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryMode
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
@@ -34,21 +34,35 @@ class _RecordingModeLockRepo:
     """Recording mode-lock repository double (acquire path)."""
 
     conflict: bool = False
-    acquired: list[tuple[str, str]] = field(default_factory=list)
-    released: list[tuple[str, str]] = field(default_factory=list)
+    acquired: list[tuple[str, str, str, str]] = field(default_factory=list)
+    released: list[tuple[str, str, str]] = field(default_factory=list)
+    holders: dict[tuple[str, str, str], ModeLockHolderRecord] = field(
+        default_factory=dict
+    )
 
     def read_lock(self, project_key: str) -> object:
         del project_key
         return None
 
-    def acquire(self, project_key: str, mode: str) -> object:
+    def read_holder(
+        self, project_key: str, story_id: str, run_id: str
+    ) -> ModeLockHolderRecord | None:
+        return self.holders.get((project_key, story_id, run_id))
+
+    def acquire(
+        self, project_key: str, story_id: str, run_id: str, mode: str
+    ) -> object:
         if self.conflict:
             raise ModeLockConflictError("opposite mode held")
-        self.acquired.append((project_key, mode))
+        self.acquired.append((project_key, story_id, run_id, mode))
+        self.holders[(project_key, story_id, run_id)] = ModeLockHolderRecord(
+            project_key, story_id, run_id, mode, "now"
+        )
         return object()
 
-    def release(self, project_key: str, mode: str) -> object:
-        self.released.append((project_key, mode))
+    def release(self, project_key: str, story_id: str, run_id: str) -> object:
+        self.released.append((project_key, story_id, run_id))
+        self.holders.pop((project_key, story_id, run_id), None)
         return object()
 
 
@@ -82,9 +96,9 @@ def _ctx(mode: WireStoryMode) -> StoryContext:
 def test_acquire_fast_records_mode_and_marker(tmp_path: Path) -> None:
     repo = _RecordingModeLockRepo()
     handler = _handler(repo, tmp_path)
-    err = handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path)  # noqa: SLF001
+    err = handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path, "run-1")  # noqa: SLF001
     assert err is None
-    assert repo.acquired == [("proj", "fast")]
+    assert repo.acquired == [("proj", "AG3-018", "run-1", "fast")]
     assert mode_lock_acquired(tmp_path) is True
     assert acquired_mode(tmp_path) == "fast"
 
@@ -92,29 +106,61 @@ def test_acquire_fast_records_mode_and_marker(tmp_path: Path) -> None:
 def test_acquire_standard_records_standard(tmp_path: Path) -> None:
     repo = _RecordingModeLockRepo()
     handler = _handler(repo, tmp_path)
-    err = handler._acquire_mode_lock(_ctx(WireStoryMode.STANDARD), tmp_path)  # noqa: SLF001
+    err = handler._acquire_mode_lock(_ctx(WireStoryMode.STANDARD), tmp_path, "run-1")  # noqa: SLF001
     assert err is None
-    assert repo.acquired == [("proj", "standard")]
+    assert repo.acquired == [("proj", "AG3-018", "run-1", "standard")]
 
 
 def test_acquire_is_idempotent_per_story(tmp_path: Path) -> None:
     repo = _RecordingModeLockRepo()
     handler = _handler(repo, tmp_path)
-    handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path)  # noqa: SLF001
+    handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path, "run-1")  # noqa: SLF001
     # A re-run (durable marker present) must NOT double-acquire.
-    handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path)  # noqa: SLF001
-    assert repo.acquired == [("proj", "fast")]
+    handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path, "run-1")  # noqa: SLF001
+    assert repo.acquired == [("proj", "AG3-018", "run-1", "fast"), ("proj", "AG3-018", "run-1", "fast")]
 
 
 def test_acquire_conflict_fails_closed(tmp_path: Path) -> None:
     repo = _RecordingModeLockRepo(conflict=True)
     handler = _handler(repo, tmp_path)
-    err = handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path)  # noqa: SLF001
+    err = handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path, "run-1")  # noqa: SLF001
     assert err is not None
     assert err.status is PhaseStatus.FAILED
     assert any("no_competing_story_mode_active" in e for e in err.errors)
     # No marker written when the acquire failed.
     assert mode_lock_acquired(tmp_path) is False
+
+
+def test_missing_marker_with_central_holder_fails_closed(tmp_path: Path) -> None:
+    repo = _RecordingModeLockRepo()
+    repo.holders[("proj", "AG3-018", "run-1")] = ModeLockHolderRecord(
+        "proj", "AG3-018", "run-1", "fast", "now"
+    )
+    err = _handler(repo, tmp_path)._acquire_mode_lock(  # noqa: SLF001
+        _ctx(WireStoryMode.FAST), tmp_path, "run-1"
+    )
+    assert err is not None
+    assert err.status is PhaseStatus.FAILED
+    assert err.errors == ("mode_lock_projection_missing_or_divergent",)
+    assert repo.acquired == []
+
+
+def test_divergent_marker_never_overrides_central_holder(tmp_path: Path) -> None:
+    from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
+        record_mode_lock_acquired,
+    )
+
+    repo = _RecordingModeLockRepo()
+    repo.holders[("proj", "AG3-018", "run-1")] = ModeLockHolderRecord(
+        "proj", "AG3-018", "run-1", "fast", "now"
+    )
+    record_mode_lock_acquired(tmp_path, mode="standard")
+    err = _handler(repo, tmp_path)._acquire_mode_lock(  # noqa: SLF001
+        _ctx(WireStoryMode.FAST), tmp_path, "run-1"
+    )
+    assert err is not None
+    assert err.status is PhaseStatus.FAILED
+    assert err.errors == ("mode_lock_projection_missing_or_divergent",)
 
 
 def test_compensate_releases_freshly_acquired_holder(tmp_path: Path) -> None:
@@ -126,12 +172,12 @@ def test_compensate_releases_freshly_acquired_holder(tmp_path: Path) -> None:
     repo = _RecordingModeLockRepo()
     handler = _handler(repo, tmp_path)
     ctx = _ctx(WireStoryMode.FAST)
-    assert handler._acquire_mode_lock(ctx, tmp_path) is None  # noqa: SLF001
-    assert repo.acquired == [("proj", "fast")]
+    assert handler._acquire_mode_lock(ctx, tmp_path, "run-1") is None  # noqa: SLF001
+    assert repo.acquired == [("proj", "AG3-018", "run-1", "fast")]
     assert mode_lock_acquired(tmp_path) is True
     # Simulate the on_enter compensation after begin_progress failed.
-    handler._compensate_mode_lock(ctx, tmp_path)  # noqa: SLF001
-    assert repo.released == [("proj", "fast")]
+    handler._compensate_mode_lock(ctx, tmp_path, "run-1")  # noqa: SLF001
+    assert repo.released == [("proj", "AG3-018", "run-1")]
     # Marker cleared -> Closure owes no further release (no double-release).
     assert mode_lock_acquired(tmp_path) is False
     assert acquired_mode(tmp_path) is None
@@ -145,6 +191,6 @@ def test_acquire_skipped_without_repository(tmp_path: Path) -> None:
             del story_dir, ctx
 
     handler = SetupPhaseHandler(cfg, context_repository=_Ctx())  # type: ignore[arg-type]
-    err = handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path)  # noqa: SLF001
+    err = handler._acquire_mode_lock(_ctx(WireStoryMode.FAST), tmp_path, "run-1")  # noqa: SLF001
     assert err is None
     assert mode_lock_acquired(tmp_path) is False

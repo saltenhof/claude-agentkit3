@@ -17,6 +17,8 @@ _EXPORT_MODULES = (
     "._ownership_rows",
     "._purge_rows",
     "._backend_checks",
+    "._ccag_request_rows",
+    "._ccag_lease_rows",
 )
 
 _EXPORTED_CONSTANTS = {

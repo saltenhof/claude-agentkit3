@@ -6,16 +6,11 @@ re-entered Setup must not double-acquire (double-increment the holder count) and
 a resumed Closure must not double-release (drive the count below the true number
 of holders).
 
-This module owns a tiny per-story durable JSON marker under the story's
-state-backend dir recording that THIS story acquired the lock (and for which
-mode). Setup writes it after a successful atomic ``acquire``; Closure reads it to
-decide whether a ``release`` is owed and which mode to release. The marker is the
-recovery truth that pairs an acquire with exactly one release.
-
-The marker is a small operational sidecar (not story/QA truth); it lives in the
-ephemeral state-backend dir and is keyed per story, so it never becomes a second
-authoritative state of the mode-lock itself (the ``project_mode_lock`` row is the
-authority; this only records THIS story's holder participation).
+This module owns a discardable, short-TTL read projection of the mode held by a
+story-run. The canonical recovery truth is the central
+``project_mode_lock_holders`` row. Setup and Closure compare this projection with
+that row and fail closed when it is missing or divergent; they never fall back to
+the marker as authoritative state.
 """
 
 from __future__ import annotations
@@ -41,7 +36,7 @@ def _marker_path(story_dir: Path) -> Path:
 
 
 def mode_lock_acquired(story_dir: Path) -> bool:
-    """Whether this story already acquired the project mode-lock (durable).
+    """Whether the local mode-lock read projection exists.
 
     Args:
         story_dir: The story working directory.
@@ -73,7 +68,7 @@ def acquired_mode(story_dir: Path) -> str | None:
 
 
 def record_mode_lock_acquired(story_dir: Path, *, mode: str) -> None:
-    """Write the durable acquire marker after a successful atomic ``acquire``.
+    """Write the discardable projection after a successful central acquire.
 
     Args:
         story_dir: The story working directory.

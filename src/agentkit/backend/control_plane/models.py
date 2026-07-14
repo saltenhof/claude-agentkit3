@@ -159,6 +159,100 @@ class TelemetryEventQueryResponse(BaseModel):
     events: list[dict[str, object]] = Field(default_factory=list)
 
 
+class PermissionRequestOpenRequest(BaseModel):
+    """Hook request to open a canonical permission request."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    operation: Literal["open"] = "open"
+    request_id: str = Field(min_length=1)
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    principal_type: str = Field(min_length=1)
+    tool_name: str = Field(min_length=1)
+    operation_class: str = Field(min_length=1)
+    path_classes: tuple[str, ...] = Field(min_length=1)
+    request_fingerprint: str = Field(min_length=1)
+    ttl_seconds: int = Field(default=1800, ge=1)
+
+
+class PermissionRequestResolveRequest(BaseModel):
+    """Strategist decision for one canonical permission request."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    operation: Literal["resolve"] = "resolve"
+    request_id: str = Field(min_length=1)
+    resolution: Literal["approved", "denied"]
+    decision_note: str = ""
+
+
+class PermissionLeaseGrantRequest(BaseModel):
+    """Strategist grant of a scoped permission lease."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    operation: Literal["grant"] = "grant"
+    lease_id: str = Field(min_length=1)
+    request_ref: str = Field(min_length=1)
+    max_uses: int = Field(default=1, ge=1)
+    ttl_seconds: int = Field(default=1800, ge=1)
+
+
+class PermissionLeaseConsumeRequest(BaseModel):
+    """Hook request to consume one canonical lease use."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    operation: Literal["consume"] = "consume"
+    lease_id: str = Field(min_length=1)
+
+
+class PermissionRequestView(BaseModel):
+    """External read model for a canonical permission request."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    request_id: str
+    project_key: str
+    story_id: str
+    run_id: str
+    principal_type: str
+    tool_name: str
+    operation_class: str
+    path_classes: tuple[str, ...]
+    request_fingerprint: str
+    status: Literal["pending", "approved", "denied", "expired"]
+    requested_at: datetime
+    expires_at: datetime
+    resolution: Literal["approved", "denied"] | None = None
+    decided_at: datetime | None = None
+    decision_note: str = ""
+
+
+class PermissionRequestsResponse(BaseModel):
+    """Run-scoped permission-request inbox response."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    requests: tuple[PermissionRequestView, ...] = ()
+
+
+class PermissionLeaseView(BaseModel):
+    """External read model for a canonical permission lease."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    lease_id: str
+    request_ref: str
+    project_key: str
+    story_id: str
+    run_id: str
+    principal_type: str
+    tool_name: str
+    operation_class: str
+    path_classes: tuple[str, ...]
+    request_fingerprint: str
+    max_uses: int
+    consumed: int
+    issued_at: datetime
+    expires_at: datetime
+
+
 class ApiErrorResponse(BaseModel):
     """Stable error contract for control-plane HTTP responses."""
 

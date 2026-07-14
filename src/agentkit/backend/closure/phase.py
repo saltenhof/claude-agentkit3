@@ -134,7 +134,9 @@ class ModeLockReleasePort(Protocol):
     finds no marker and never double-releases the holder count.
     """
 
-    def release(self, story_dir: Path, project_key: str) -> tuple[bool, str | None]:
+    def release(
+        self, story_dir: Path, project_key: str, story_id: str
+    ) -> tuple[bool, str | None]:
         """Release this story's mode-lock holder; ``(released, warning)``."""
         ...
 
@@ -927,7 +929,7 @@ class ClosurePhaseHandler:
         if port is None:
             return ()
         try:
-            released, warning = port.release(s_dir, ctx.project_key)
+            released, warning = port.release(s_dir, ctx.project_key, ctx.story_id)
         except Exception as exc:  # noqa: BLE001 -- non-blocking post-close step
             logger.warning(
                 "mode-lock release failed for story=%s: %s", ctx.story_id, exc

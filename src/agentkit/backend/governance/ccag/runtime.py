@@ -10,7 +10,7 @@ Evaluation order (FK-42 §42.2.1 / F-42-015):
     1. Block rules  → ``block_by_rule``
     2. Allow rules  → ``allow``
     3. No match:
-       - ``story_execution`` mode → ``unknown_permission`` + PermissionRequest created
+       - ``story_execution`` mode → ``unknown_permission``; runner opens centrally
        - ``ai_augmented`` / ``interactive_agent`` mode → ``unknown_permission``
          (caller may show host prompt dialog)
 
@@ -20,7 +20,7 @@ have absolute priority.  CCAG only evaluates calls that passed all guards.
 
 Operating modes (FK-42 §42.2.5):
     - ``story_execution``: autonomous pipeline execution.
-      No host-prompt dialog possible.  Unknown → ``unknown_permission`` + request.
+      No host-prompt dialog possible. Unknown is opened centrally by the runner.
     - ``ai_augmented``:   human is present and supervising.
       Unknown → ``unknown_permission`` (caller shows dialog).
     - ``interactive_agent``: interactive session.
@@ -37,17 +37,11 @@ the last line of defence, but CCAG itself must not silently permit.
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from agentkit.backend.governance.ccag.requests import (
-    DEFAULT_TTL_SECONDS,
-    PermissionRequest,
-    PermissionRequestStore,
-)
 from agentkit.backend.governance.ccag.rules import (
     CcagRuleSet,
     load_rules,
@@ -55,7 +49,7 @@ from agentkit.backend.governance.ccag.rules import (
 )
 
 if TYPE_CHECKING:
-    from agentkit.backend.governance.ccag.leases import PermissionLeaseStore
+    from agentkit.backend.governance.ccag.permission_records import PermissionRequestRecord
     from agentkit.backend.governance.guard_evaluation import HookEvent
     from agentkit.backend.governance.principal_capabilities import CapabilityHull
 
@@ -90,15 +84,15 @@ class CcagDecision:
         kind: One of ``allow``, ``block_by_rule``, ``unknown_permission``.
         matched_rule_id: Rule ID that produced the decision (``None`` for unknown).
         reason: Human-readable explanation.
-        permission_request: Created ``PermissionRequest`` when kind is
-            ``unknown_permission`` in ``story_execution`` mode.
+        permission_request: Reserved compatibility field. Central creation is
+            backend-owned, so runtime evaluation leaves it ``None``.
         detail: Structured detail dict for audit logging.
     """
 
     kind: CcagDecisionKind
     matched_rule_id: str | None = None
     reason: str = ""
-    permission_request: PermissionRequest | None = None
+    permission_request: PermissionRequestRecord | None = None
     detail: dict[str, object] = field(default_factory=dict)
 
     @property
@@ -145,7 +139,7 @@ class CcagDecision:
         cls,
         tool_name: str,
         operating_mode: str,
-        permission_request: PermissionRequest | None = None,
+        permission_request: PermissionRequestRecord | None = None,
     ) -> CcagDecision:
         """Factory: produce an unknown_permission decision.
 
@@ -236,7 +230,7 @@ class CcagPermissionRuntime:
     This is the top-level surface of the CCAG sub-component.  It:
     - Loads CCAG rules from YAML files on every call (no cache).
     - Evaluates block rules first, then allow rules.
-    - In ``story_execution`` mode, creates a PermissionRequest for unknown
+    - In ``story_execution`` mode, returns unknown for central request creation
       permissions instead of asking the human interactively.
     - In ``ai_augmented`` / ``interactive_agent`` mode, returns
       ``unknown_permission`` so the adapter can show a host dialog.
@@ -244,46 +238,16 @@ class CcagPermissionRuntime:
     Args:
         rules_dir: Path to the CCAG rules directory.
             Defaults to ``.agentkit/ccag/rules/`` relative to CWD.
-        lease_store: Pre-built :class:`PermissionLeaseStore`.  When
-            ``None``, leases are not checked (no lease support).
-        request_store: Pre-built :class:`PermissionRequestStore`.  When
-            ``None``, requests are created but not persisted.
-        request_db_path: Path to the SQLite DB for permission requests.
-            Used only when ``request_store`` is ``None``.  Defaults to a
-            file next to the rules directory.
+        Permission persistence is deliberately absent from this evaluator.
+        The hook runner opens canonical requests through the injected REST edge.
     """
 
     def __init__(
         self,
         *,
         rules_dir: Path | str | None = None,
-        lease_store: PermissionLeaseStore | None = None,
-        request_store: PermissionRequestStore | None = None,
-        request_db_path: Path | None = None,
-        request_ttl_s: int = DEFAULT_TTL_SECONDS,
     ) -> None:
         self._rules_dir = Path(rules_dir) if rules_dir is not None else None
-        self._lease_store = lease_store
-        self._request_store = request_store
-        self._request_db_path = request_db_path
-        # FK-93 §93.5a / AG3-086: the permission-request TTL is the typed config
-        # value (``permissions.request_ttl_s``, default 1800). Injected as a plain
-        # int by the runner edge; the runtime never imports config.
-        self._request_ttl_s = request_ttl_s
-
-    def _get_request_store(self) -> PermissionRequestStore:
-        """Return or lazily create the PermissionRequestStore."""
-        if self._request_store is not None:
-            return self._request_store
-        # Lazy default: sibling DB next to rules dir
-        if self._request_db_path is not None:
-            db_path = self._request_db_path
-        elif self._rules_dir is not None:
-            db_path = self._rules_dir.parent / "ccag_requests.db"
-        else:
-            db_path = Path.cwd() / ".agentkit" / "ccag" / "ccag_requests.db"
-        self._request_store = PermissionRequestStore(db_path)
-        return self._request_store
 
     def evaluate(
         self,
@@ -408,8 +372,8 @@ class CcagPermissionRuntime:
     ) -> CcagDecision:
         """Handle the no-match case per operating mode (FK-42 §42.2.5).
 
-        In ``story_execution`` mode: create a PermissionRequest in the
-        state-backend (blocks the call deterministically).
+        In ``story_execution`` mode: return a fail-closed unknown decision; the
+        runner opens the canonical request through backend REST.
         In other modes: return ``unknown_permission`` so the adapter may
         present a host dialog.
 
@@ -423,15 +387,8 @@ class CcagPermissionRuntime:
             A ``CcagDecision`` with kind ``unknown_permission``.
         """
         if operating_mode == _STORY_EXECUTION:
-            req = self._create_permission_request(
-                tool_name=tool_name,
-                tool_input=tool_input,
-                hook_event=hook_event,
-            )
             return CcagDecision.unknown(
-                tool_name=tool_name,
-                operating_mode=operating_mode,
-                permission_request=req,
+                tool_name=tool_name, operating_mode=operating_mode
             )
 
         # ai_augmented / interactive_agent: no request created, caller
@@ -439,60 +396,6 @@ class CcagPermissionRuntime:
         return CcagDecision.unknown(
             tool_name=tool_name,
             operating_mode=operating_mode,
-        )
-
-    def open_permission_request(self, hook_event: HookEvent) -> PermissionRequest:
-        """Open + persist a permission request for an unknown permission.
-
-        FK-55 §55.6.1 / formal ``principal-capabilities.command.open-permission-
-        request``: in ``story_execution`` mode a tool call may never hang on a
-        native host prompt — the hook blocks and emits an auditable
-        ``permission_request_opened`` instead. This is the surface the capability
-        runner calls when its locally-derived execution mode is
-        ``story_execution`` and the operation is an UNKNOWN_PERMISSION (or an
-        UNRESOLVED non-actionable event inside a run). Request ownership stays
-        here (the single owner of permission requests), not in the runner.
-
-        Args:
-            hook_event: The harness-neutral hook event whose permission is open.
-
-        Returns:
-            The created + persisted :class:`PermissionRequest`.
-        """
-        return self._create_permission_request(
-            tool_name=self._tool_name_from_event(hook_event),
-            tool_input=dict(hook_event.operation_args),
-            hook_event=hook_event,
-        )
-
-    def _create_permission_request(
-        self,
-        *,
-        tool_name: str,
-        tool_input: dict[str, object],
-        hook_event: HookEvent,
-    ) -> PermissionRequest:
-        """Create and persist a PermissionRequest in the state-backend.
-
-        Args:
-            tool_name: The tool name.
-            tool_input: The tool input dict.
-            hook_event: The original hook event for context.
-
-        Returns:
-            The created :class:`PermissionRequest`.
-        """
-        fingerprint = " ".join(f"{k}:{v}" for k, v in tool_input.items())
-        request_id = str(uuid.uuid4())
-        store = self._get_request_store()
-        return store.create(
-            request_id=request_id,
-            tool_name=tool_name,
-            tool_input_fingerprint=fingerprint[:512],  # truncate for storage
-            story_id=str(hook_event.session_id or ""),
-            run_id=str(hook_event.session_id or ""),
-            operating_mode="story_execution",
-            ttl_seconds=self._request_ttl_s,
         )
 
     @staticmethod

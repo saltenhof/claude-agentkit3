@@ -151,12 +151,17 @@ def test_disowned_overlay_is_wired_through_real_runner_and_resolver(
     new_owner_mutation = mutation.model_copy(
         update={"session_id": "sess-new-owner"},
     )
-    assert run_hook(
+    new_owner_verdict = run_hook(
         "ccag_gatekeeper",
         new_owner_mutation,
         phase="pre",
         project_root=tmp_path,
-    ).allowed
+    )
+    # Ownership is valid again, but an unknown mutation remains fail-closed and
+    # opens a canonical permission request; ownership transfer is not an allow.
+    assert new_owner_verdict.allowed is False
+    assert new_owner_verdict.detail is not None
+    assert new_owner_verdict.detail["permission_request_opened"] is True
 
 
 def test_disowned_deny_is_not_official_service_path_override_convertible(

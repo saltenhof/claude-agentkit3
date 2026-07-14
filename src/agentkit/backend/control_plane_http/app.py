@@ -51,6 +51,7 @@ from agentkit.backend.control_plane_http.default_routes import (
     _build_default_concept_routes,
     _build_default_hub_routes,
     _build_default_kpi_analytics_routes,
+    _build_default_permission_routes,
     _build_default_planning_routes,
     _build_default_project_routes,
     _build_default_read_model_routes,
@@ -393,6 +394,9 @@ class ControlPlaneApplication(
             r.takeover_approval_routes or _build_default_takeover_approval_routes(),
             self._telemetry_routes,
         )
+        self._permission_routes = (
+            r.permission_routes or _build_default_permission_routes()
+        )
 
     def ensure_version_handshake(self) -> None:
         """Guarantee a fail-closed handshake middleware on the production listener.
@@ -506,6 +510,11 @@ class ControlPlaneApplication(
         if takeover_response is not None:
             return takeover_response
         if method == "GET":
+            permission_response = self._permission_routes.handle_get(
+                route_path, query, correlation_id, auth_result,
+            )
+            if permission_response is not None:
+                return permission_response
             return self._handle_get_request(route_path, query, correlation_id)
         if method == "DELETE":
             return self._handle_delete_request(route_path, body, correlation_id)
@@ -834,6 +843,11 @@ class ControlPlaneApplication(
         correlation_id: str,
         auth_result: AuthResult | None,
     ) -> HttpResponse | None:
+        permission_response = self._permission_routes.handle_post(
+            route_path, payload, correlation_id, auth_result,
+        )
+        if permission_response is not None:
+            return permission_response
         takeover_response = dispatch_project_edge_takeover_post(
             route_path=route_path,
             payload=payload,

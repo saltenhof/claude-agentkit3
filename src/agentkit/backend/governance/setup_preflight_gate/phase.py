@@ -351,7 +351,7 @@ class SetupPhaseHandler:
         # within bounds; the acquire-first ordering and fresh-acquire compensation
         # semantics are documented on that helper.
         lock_error = self._acquire_lock_and_begin_progress(
-            enriched, s_dir, story_service
+            enriched, s_dir, story_service, run_id
         )
         if lock_error is not None:
             # The worktree was already provisioned by the edge above; a lock /
@@ -372,6 +372,7 @@ class SetupPhaseHandler:
         enriched: StoryContext,
         s_dir: Path,
         story_service: StoryService,
+        run_id: str,
     ) -> HandlerResult | None:
         """Acquire the project mode-lock, then transition the story to In Progress.
 
@@ -391,20 +392,16 @@ class SetupPhaseHandler:
             A terminal :class:`HandlerResult` on acquire/begin failure, or
             ``None`` on success (the caller proceeds to COMPLETED).
         """
-        from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
-            mode_lock_acquired,
-        )
-
-        freshly_acquired = (
-            self._mode_lock_repo is not None and not mode_lock_acquired(s_dir)
-        )
-        acquire_error = self._acquire_mode_lock(enriched, s_dir)
+        freshly_acquired = self._mode_lock_repo is not None and self._mode_lock_repo.read_holder(
+            enriched.project_key, enriched.story_id, run_id
+        ) is None
+        acquire_error = self._acquire_mode_lock(enriched, s_dir, run_id)
         if acquire_error is not None:
             return acquire_error
         begin_error = _begin_progress(story_service, enriched.story_id)
         if begin_error is not None:
             if freshly_acquired:
-                self._compensate_mode_lock(enriched, s_dir)
+                self._compensate_mode_lock(enriched, s_dir, run_id)
             return begin_error
         return None
 
@@ -431,7 +428,7 @@ class SetupPhaseHandler:
         )
 
     def _acquire_mode_lock(
-        self, enriched: StoryContext, s_dir: Path
+        self, enriched: StoryContext, s_dir: Path, run_id: str
     ) -> HandlerResult | None:
         """Atomically acquire the project mode-lock (FK-24 §24.3.3, AG3-018).
 
@@ -451,25 +448,42 @@ class SetupPhaseHandler:
         """
         from agentkit.backend.governance.errors import ModeLockConflictError
         from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
-            mode_lock_acquired,
+            acquired_mode,
             record_mode_lock_acquired,
         )
 
         if self._mode_lock_repo is None:
             return None
-        if mode_lock_acquired(s_dir):
-            return None
+        holder = self._mode_lock_repo.read_holder(
+            enriched.project_key, enriched.story_id, run_id
+        )
+        projected_mode = acquired_mode(s_dir)
+        if holder is not None and projected_mode != holder.mode:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=("mode_lock_projection_missing_or_divergent",),
+            )
+        if holder is None and projected_mode is not None:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=("mode_lock_projection_diverges_from_central_holder",),
+            )
         try:
-            self._mode_lock_repo.acquire(enriched.project_key, enriched.mode.value)
+            self._mode_lock_repo.acquire(
+                enriched.project_key, enriched.story_id, run_id, enriched.mode.value
+            )
         except ModeLockConflictError as exc:
             return HandlerResult(
                 status=PhaseStatus.FAILED,
                 errors=(f"no_competing_story_mode_active: {exc}",),
             )
-        record_mode_lock_acquired(s_dir, mode=enriched.mode.value)
+        if projected_mode is None:
+            record_mode_lock_acquired(s_dir, mode=enriched.mode.value)
         return None
 
-    def _compensate_mode_lock(self, enriched: StoryContext, s_dir: Path) -> None:
+    def _compensate_mode_lock(
+        self, enriched: StoryContext, s_dir: Path, run_id: str
+    ) -> None:
         """Release a freshly-acquired holder + clear the marker (FIX-3 compensation).
 
         Run only when this Setup run freshly acquired the mode-lock but a
@@ -490,7 +504,9 @@ class SetupPhaseHandler:
         if self._mode_lock_repo is None:
             return
         try:
-            self._mode_lock_repo.release(enriched.project_key, enriched.mode.value)
+            self._mode_lock_repo.release(
+                enriched.project_key, enriched.story_id, run_id
+            )
         except Exception as exc:  # noqa: BLE001 -- best-effort compensation
             logger.warning(
                 "mode-lock compensation release failed for story=%s: %s",

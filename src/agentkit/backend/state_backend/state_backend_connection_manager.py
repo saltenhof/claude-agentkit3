@@ -55,6 +55,11 @@ def _require_control_plane_backend() -> None:
         )
 
 
+def _require_postgres_control_plane_backend() -> None:
+    """Fail closed unless the canonical Postgres control plane is active."""
+    _require_control_plane_backend()
+
+
 def save_backend_instance_identity_global(
     record: BackendInstanceIdentityRecord,
 ) -> None:
