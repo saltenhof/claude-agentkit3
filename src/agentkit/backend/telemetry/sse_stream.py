@@ -72,6 +72,17 @@ def parse_project_topics(raw_topics: str | None) -> frozenset[ProjectSseTopic]:
     return frozenset(topics or PROJECT_SSE_TOPICS)
 
 
+def parse_governance_topics(raw_topics: str | None) -> frozenset[ProjectSseTopic]:
+    """Parse the governance-only cross-project topic filter."""
+    if raw_topics is None or not raw_topics.strip():
+        return frozenset({"governance"})
+    topics = parse_project_topics(raw_topics)
+    invalid = topics - {"governance"}
+    if invalid:
+        raise ValueError(f"Unknown SSE topic: {', '.join(sorted(invalid))}")
+    return topics
+
+
 def project_event_to_sse(record: ExecutionEventRecord) -> SseEnvelope:
     """Convert one execution-event record into a project SSE envelope."""
     topic = _topic_for_record(record)
@@ -170,6 +181,31 @@ def iter_project_sse_stream(
         time.sleep(poll_interval_seconds)
 
 
+def iter_governance_sse_stream(
+    *,
+    source: ProjectTelemetryEventSource,
+    topics: Iterable[ProjectSseTopic],
+    heartbeat_interval_seconds: float = 30.0,
+    poll_interval_seconds: float = 1.0,
+) -> Iterator[bytes]:
+    """Yield the lossy cross-project governance approval stream."""
+    allowed = frozenset(topics)
+    seen_event_ids: set[str] = set()
+    last_heartbeat = 0.0
+    while True:
+        yield from _iter_pending_takeover_approval_events(
+            project_key=None,
+            source=source,
+            allowed=allowed,
+            seen_event_ids=seen_event_ids,
+        )
+        current_time = time.monotonic()
+        if current_time - last_heartbeat >= heartbeat_interval_seconds:
+            yield render_heartbeat()
+            last_heartbeat = current_time
+        time.sleep(poll_interval_seconds)
+
+
 def _topic_for_record(record: ExecutionEventRecord) -> ProjectSseTopic:
     payload_topic = record.payload.get("topic")
     if isinstance(payload_topic, str) and payload_topic in PROJECT_SSE_TOPICS:
@@ -189,7 +225,7 @@ def _topic_for_record(record: ExecutionEventRecord) -> ProjectSseTopic:
 
 def _iter_pending_takeover_approval_events(
     *,
-    project_key: str,
+    project_key: str | None,
     source: ProjectTelemetryEventSource,
     allowed: frozenset[ProjectSseTopic],
     seen_event_ids: set[str],
@@ -246,7 +282,9 @@ __all__ = [
     "PROJECT_SSE_TOPICS",
     "ProjectSseTopic",
     "SseEnvelope",
+    "iter_governance_sse_stream",
     "iter_project_sse_stream",
+    "parse_governance_topics",
     "parse_project_topics",
     "project_event_to_sse",
     "render_heartbeat",

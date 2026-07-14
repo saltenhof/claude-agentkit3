@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.middleware import AuthMiddleware
     from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+    from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
@@ -105,6 +106,17 @@ def _build_default_telemetry_routes() -> TelemetryRoutes:
     # adapter wiring — inject the ``ProjectTelemetryEventSource`` port; the
     # telemetry BC no longer self-instantiates a state-backend adapter.
     return TelemetryRoutes(build_project_telemetry_event_source())
+
+
+def _build_default_takeover_approval_routes() -> TakeoverApprovalRoutes:
+    from agentkit.backend.bootstrap.composition_root import (
+        build_takeover_approval_read_source,
+    )
+    from agentkit.backend.control_plane_http.takeover_approval_routes import (
+        TakeoverApprovalRoutes,
+    )
+
+    return TakeoverApprovalRoutes(build_takeover_approval_read_source())
 
 
 def _build_default_auth_routes(auth_middleware: AuthMiddleware | None) -> AuthRoutes:

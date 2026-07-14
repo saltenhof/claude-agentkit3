@@ -399,6 +399,15 @@ def list_pending_takeover_approvals_global(
     return tuple(mappers.takeover_approval_row_to_record(row) for row in rows)
 
 
+def list_open_takeover_approval_requests_global() -> Any:
+    """Return the cross-project frontend approval/challenge read response."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    rows = _backend_module().list_open_takeover_approval_request_rows_global()
+    return mappers.takeover_approval_read_rows_to_response(rows)
+
+
 def backend_has_valid_context(story_dir: Path) -> bool:
     """Return whether the story has a readable canonical context."""
     return load_story_context(story_dir) is not None
@@ -432,5 +441,6 @@ __all__ = [
     "load_takeover_approval_for_challenge_global",
     "update_takeover_approval_status_global",
     "list_pending_takeover_approvals_global",
+    "list_open_takeover_approval_requests_global",
     "backend_has_valid_context",
 ]

@@ -8,6 +8,11 @@ import type { DependencyEdge, ExecutionInputSnapshot, ExecutionLimits } from './
 import type { HubSession, HubStatusSnapshot } from './contexts/multi_llm_hub/types';
 import type { ProjectModeLock, ProjectSummary, StoryCounters } from './contexts/project_management/types';
 import type { StoryDetail, StorySummary } from './contexts/story_context_manager/types';
+import { TakeoverApprovalOverlay } from './contexts/story_context_manager/components/TakeoverApprovalOverlay';
+import type {
+  TakeoverApprovalRequest,
+  TakeoverChallengeNotice,
+} from './contexts/story_context_manager/takeoverTypes';
 
 const CSRF_STORAGE_KEY = 'agentkit.csrf';
 
@@ -25,6 +30,7 @@ export interface AppData {
   hubError: string | null;
   selectedStory: StoryDetail | null;
   selectedStoryId: string | null;
+  selectedTakeoverApproval: TakeoverApprovalRequest | null;
   viewMode: ViewMode;
   loading: boolean;
   offline: boolean;
@@ -63,6 +69,10 @@ export function App(): ReactElement {
   const [loading, setLoading] = useState<boolean>(true);
   const [offline, setOffline] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [takeoverApprovals, setTakeoverApprovals] = useState<TakeoverApprovalRequest[]>([]);
+  const [takeoverChallenges, setTakeoverChallenges] = useState<TakeoverChallengeNotice[]>([]);
+  const [takeoverBusy, setTakeoverBusy] = useState(false);
+  const [takeoverError, setTakeoverError] = useState<string | null>(null);
 
   const selectedProject = projects.find((project) => project.project_key === selectedProjectKey) ?? null;
   const selectedProjectRef = useRef<ProjectSummary | null>(selectedProject);
@@ -74,6 +84,8 @@ export function App(): ReactElement {
     setAuthenticated(false);
     setSelectedStory(null);
     setSelectedStoryId(null);
+    setTakeoverApprovals([]);
+    setTakeoverChallenges([]);
   }, []);
 
   const api = useMemo(
@@ -179,6 +191,17 @@ export function App(): ReactElement {
     }
   }, [api, loadProjectData, loadProjectNeutralData]);
 
+  const loadTakeoverApprovals = useCallback(async (): Promise<void> => {
+    try {
+      const response = await api.takeoverApprovals();
+      setTakeoverApprovals(response.approvals);
+      setTakeoverChallenges(response.challenges);
+      setTakeoverError(null);
+    } catch (err) {
+      setTakeoverError(errorMessage(err, 'Takeover-Freigaben konnten nicht geladen werden.'));
+    }
+  }, [api]);
+
   useEffect(() => {
     const onHashChange = (): void => {
       setViewMode(viewModeFromHash(globalThis.location.hash));
@@ -257,6 +280,72 @@ export function App(): ReactElement {
     };
   }, [api, selectedProjectKey, selectedStoryId]);
 
+  useEffect(() => {
+    if (!authenticated) {
+      return undefined;
+    }
+    let closed = false;
+    const source = new EventSource('/v1/events/governance?topics=governance', {
+      withCredentials: true,
+    });
+    const resync = (): void => {
+      if (!closed) {
+        loadTakeoverApprovals().catch(() => undefined);
+      }
+    };
+    const onGovernanceEvent = (event: MessageEvent<string>): void => {
+      try {
+        const payload = JSON.parse(event.data) as { event_type?: string };
+        if (payload.event_type === 'takeover_approval_changed' || payload.event_type === 'pending_takeover_approval') {
+          resync();
+        }
+      } catch {
+        setTakeoverError('Ungültiges Governance-Event – Freigabe bleibt fail-closed.');
+      }
+    };
+    source.onmessage = onGovernanceEvent;
+    source.addEventListener('governance', onGovernanceEvent);
+    source.onopen = resync;
+    source.onerror = () => {
+      setTakeoverError('Governance-Stream getrennt – Re-Sync beim Wiederverbinden ausstehend.');
+    };
+    return () => {
+      closed = true;
+      source.removeEventListener('governance', onGovernanceEvent);
+      source.close();
+    };
+  }, [authenticated, loadTakeoverApprovals]);
+
+  const confirmTakeover = useCallback(async (approval: TakeoverApprovalRequest): Promise<void> => {
+    setTakeoverBusy(true);
+    setTakeoverError(null);
+    try {
+      const result = await api.confirmStoryRunTakeover(approval);
+      if (result.status === 'rejected') {
+        throw new ApiError('Takeover-Challenge wurde abgewiesen.', 409, result.error_code ?? 'conflict');
+      }
+      await loadTakeoverApprovals();
+    } catch (err) {
+      setTakeoverError(errorMessage(err, 'Takeover konnte nicht bestätigt werden.'));
+      await loadTakeoverApprovals();
+    } finally {
+      setTakeoverBusy(false);
+    }
+  }, [api, loadTakeoverApprovals]);
+
+  const denyTakeover = useCallback(async (approval: TakeoverApprovalRequest): Promise<void> => {
+    setTakeoverBusy(true);
+    setTakeoverError(null);
+    try {
+      await api.denyStoryRunTakeover(approval, 'Denied from AgentKit UI');
+      await loadTakeoverApprovals();
+    } catch (err) {
+      setTakeoverError(errorMessage(err, 'Takeover konnte nicht abgelehnt werden.'));
+    } finally {
+      setTakeoverBusy(false);
+    }
+  }, [api, loadTakeoverApprovals]);
+
   const actions: AppActions = useMemo(
     () => ({
       login: async (username: string, password: string) => {
@@ -278,6 +367,8 @@ export function App(): ReactElement {
           setModeLock(null);
           setHubStatus(null);
           setHubSessions([]);
+          setTakeoverApprovals([]);
+          setTakeoverChallenges([]);
         }
       },
       selectProject: (projectKey: string) => {
@@ -336,17 +427,34 @@ export function App(): ReactElement {
     hubError,
     selectedStory,
     selectedStoryId,
+    selectedTakeoverApproval:
+      takeoverApprovals.find((approval) => approval.story_id === selectedStoryId) ?? null,
     viewMode,
     loading,
     offline,
     error,
   };
 
+  const overlayApproval = takeoverApprovals[0] ?? null;
+  const overlayChallenge = overlayApproval === null
+    ? null
+    : takeoverChallenges.find((challenge) => challenge.challenge_id === overlayApproval.challenge_id) ?? null;
+
   return (
     <Shell
       actions={actions}
       authenticated={authenticated || csrfToken !== null}
       data={data}
+      overlay={overlayApproval === null ? null : (
+        <TakeoverApprovalOverlay
+          approval={overlayApproval}
+          busy={takeoverBusy}
+          challenge={overlayChallenge}
+          error={takeoverError}
+          onConfirm={confirmTakeover}
+          onDeny={denyTakeover}
+        />
+      )}
     />
   );
 }

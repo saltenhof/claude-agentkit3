@@ -72,3 +72,8 @@ def load_story_execution_lock_global_row(
     if row is None:
         return None
     return dict(row)
+
+
+def list_open_takeover_approval_request_rows_global() -> list[dict[str, Any]]:
+    """Reject the Postgres-only control-plane approval read on SQLite."""
+    raise RuntimeError("Takeover approval reads require the PostgreSQL control plane")

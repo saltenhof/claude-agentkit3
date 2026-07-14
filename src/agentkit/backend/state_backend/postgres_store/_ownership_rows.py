@@ -1266,6 +1266,26 @@ def list_pending_takeover_approval_rows_global(project_key: str | None = None) -
     return [dict(row) for row in rows]
 
 
+def list_open_takeover_approval_request_rows_global() -> list[dict[str, Any]]:
+    """Join cross-project open approvals to their current challenge."""
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT approvals.*, to_jsonb(challenges) AS challenge_row
+            FROM takeover_approvals approvals
+            LEFT JOIN takeover_challenges challenges
+              ON challenges.challenge_id = approvals.challenge_ref
+            WHERE approvals.status = 'pending'
+               OR (
+                    approvals.status = 'approved'
+                AND (challenges.status = 'pending' OR challenges.challenge_id IS NULL)
+               )
+            ORDER BY approvals.requested_at, approvals.approval_id
+            """,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def list_verified_push_barrier_verdicts_for_run_global_row(
     project_key: str,
     story_id: str,

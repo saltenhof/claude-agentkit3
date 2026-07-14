@@ -3,13 +3,18 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 
 import type { AppActions } from '../../App';
+import { TakeoverPanel } from '../../contexts/story_context_manager/components/TakeoverPanel';
+import type { TakeoverApprovalRequest } from '../../contexts/story_context_manager/takeoverTypes';
 import type { StoryDetail } from '../../contexts/story_context_manager/types';
+
+type InspectorTab = 'spec' | 'evidence' | 'kpi' | 'flow' | 'takeover';
 
 interface DetailInspectorProps {
   detail: StoryDetail | null;
   loading: boolean;
   onClose: () => void;
   actions: AppActions;
+  takeoverApproval: TakeoverApprovalRequest | null;
 }
 
 export function DetailInspector({
@@ -17,8 +22,9 @@ export function DetailInspector({
   loading,
   onClose,
   actions,
+  takeoverApproval,
 }: Readonly<DetailInspectorProps>): ReactElement {
-  const [tab, setTab] = useState<'spec' | 'evidence' | 'kpi' | 'flow'>('spec');
+  const [tab, setTab] = useState<InspectorTab>('spec');
   const [draftTitle, setDraftTitle] = useState('');
 
   if (loading) {
@@ -100,6 +106,7 @@ export function DetailInspector({
         <button type="button" data-active={tab === 'evidence'} onClick={() => setTab('evidence')}>Ergebnis</button>
         <button type="button" data-active={tab === 'kpi'} onClick={() => setTab('kpi')}>KPIs</button>
         <button type="button" data-active={tab === 'flow'} onClick={() => setTab('flow')}>Ablauf</button>
+        <button type="button" data-active={tab === 'takeover'} onClick={() => setTab('takeover')}>Takeover</button>
       </nav>
 
       <div className="inspector-body">
@@ -137,6 +144,7 @@ export function DetailInspector({
             <List values={detail.phases.map((phase) => `${phase.state}: ${phase.label}`)} empty="keine Phasen" />
           </section>
         )}
+        {tab === 'takeover' && <TakeoverPanel approval={takeoverApproval} />}
       </div>
     </aside>
   );

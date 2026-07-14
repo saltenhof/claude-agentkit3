@@ -53,7 +53,7 @@ class ProjectTelemetryEventSource(Protocol):
 
     def pending_takeover_approvals_for_project(
         self,
-        project_key: str,
+        project_key: str | None,
     ) -> tuple[TakeoverApprovalRecord, ...]:
-        """Return pending takeover approvals for the project governance topic."""
+        """Return pending approvals for one project or all projects."""
         ...

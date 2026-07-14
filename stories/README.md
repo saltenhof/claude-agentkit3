@@ -387,7 +387,7 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-150 | Freeze-Admission-Blocker (`freeze_epoch`) | M | blocked | 149 |
 | AG3-151 | Takeover-Reconcile + Quarantäne + Edge-Zustände | L | blocked | 145, 148, 149, 150 |
 | AG3-152 | merge_local-Umzug (Closure via Edge) | M | **completed** | 145, 147 |
-| AG3-153 | Frontend Takeover (globaler governance-Stream, Overlay, Cockpit) | L | blocked | 144, 148, 151 |
+| AG3-153 | Frontend Takeover (globaler governance-Stream, Overlay, Cockpit) | L | **completed** | 144, 148, 151 |
 | AG3-154 | CLI/Admin-Kommandos + Edge-Tool (inkl. recover-story) | M | **ready** | 138, 145, 148 |
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
 | AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | **completed** | 144, 145 |

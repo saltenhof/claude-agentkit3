@@ -426,6 +426,15 @@ def build_project_telemetry_event_source() -> project_types.ProjectTelemetryEven
     return StateBackendProjectTelemetryEventSource()
 
 
+def build_takeover_approval_read_source() -> project_types.TakeoverApprovalReadSource:
+    """Wire the cross-project approval read port to its productive adapter."""
+    from agentkit.backend.state_backend.store.takeover_approval_read_repository import (
+        StateBackendTakeoverApprovalReadSource,
+    )
+
+    return StateBackendTakeoverApprovalReadSource()
+
+
 def build_dashboard_service(
     story_service: project_types.StoryService,
     store_dir: Path | None = None,

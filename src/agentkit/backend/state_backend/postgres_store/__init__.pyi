@@ -214,6 +214,9 @@ from ._ownership_rows import (
     list_and_ack_open_edge_command_records_global_row as list_and_ack_open_edge_command_records_global_row,
 )
 from ._ownership_rows import (
+    list_open_takeover_approval_request_rows_global as list_open_takeover_approval_request_rows_global,
+)
+from ._ownership_rows import (
     list_orphaned_object_mutation_claims_global_row as list_orphaned_object_mutation_claims_global_row,
 )
 from ._ownership_rows import (

@@ -34,9 +34,10 @@ interface ShellProps {
   authenticated: boolean;
   data: AppData;
   actions: AppActions;
+  overlay: ReactNode;
 }
 
-export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): ReactElement {
+export function Shell({ authenticated, data, actions, overlay }: Readonly<ShellProps>): ReactElement {
   const [query, setQuery] = useState('');
   const [kanbanStoryIdFilter, setKanbanStoryIdFilter] = useState('');
   const [kanbanStatusFilter, setKanbanStatusFilter] = useState<StoryStatusFilter>('all');
@@ -134,8 +135,11 @@ export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): R
           detail={data.selectedStory}
           loading={data.selectedStory === null}
           onClose={() => actions.selectStory(null)}
+          takeoverApproval={data.selectedTakeoverApproval}
         />
       )}
+
+      <div className="shell-overlay-region" aria-live="assertive">{overlay}</div>
     </main>
   );
 }

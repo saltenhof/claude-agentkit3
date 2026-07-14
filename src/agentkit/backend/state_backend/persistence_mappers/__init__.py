@@ -81,6 +81,9 @@ from ._telemetry import (
     story_metrics_row_to_record as story_metrics_row_to_record,
     story_metrics_to_row as story_metrics_to_row,
 )
+from ._takeover_approval_read import (
+    takeover_approval_read_rows_to_response as takeover_approval_read_rows_to_response,
+)
 from ._verify import (
     build_qa_finding_rows as build_qa_finding_rows,
     build_qa_layer_payload_rows as build_qa_layer_payload_rows,

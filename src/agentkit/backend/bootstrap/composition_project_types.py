@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from agentkit.backend.config.models import ConformanceConfig, RepositoryConfig
+from agentkit.backend.control_plane.takeover_approval_repository import TakeoverApprovalReadSource
 from agentkit.backend.execution_planning.persistence.accessor import PlanningProjectionAccessor
 from agentkit.backend.failure_corpus import FailureCorpus
 from agentkit.backend.kpi_analytics import KpiAnalytics
@@ -64,4 +65,5 @@ __all__ = [
     "StorySplitRequest",
     "StoryType",
     "TaskManagementRoutes",
+    "TakeoverApprovalReadSource",
 ]

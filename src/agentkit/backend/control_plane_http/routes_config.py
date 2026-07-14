@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.auth.http.routes import AuthRoutes
     from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
+    from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
@@ -45,3 +46,4 @@ class ControlPlaneApplicationRoutes:
     kpi_analytics_routes: KpiAnalyticsRoutes | None = None
     read_model_routes: ReadModelRoutes | None = None
     task_management_routes: TaskManagementRoutes | None = None
+    takeover_approval_routes: TakeoverApprovalRoutes | None = None

@@ -1843,6 +1843,155 @@ button:disabled {
   line-height: 1.45;
 }
 
+.shell-overlay-region {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.shell-overlay-region:empty {
+  display: none;
+}
+
+.takeover-overlay {
+  display: grid;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  gap: 16px;
+  padding: 22px;
+  overflow: auto;
+  border: 1px solid #a56b22;
+  border-radius: 10px;
+  background: #17191e;
+  box-shadow: 0 22px 80px rgb(0 0 0 / 70%);
+  pointer-events: auto;
+}
+
+.takeover-overlay header,
+.takeover-overlay footer,
+.loss-corridor strong,
+.takeover-panel h3,
+.takeover-history {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.takeover-overlay header span,
+.takeover-facts dt,
+.takeover-edge-states small {
+  color: var(--ak-text-muted);
+  font-size: 11px;
+}
+
+.takeover-overlay h2 {
+  margin: 3px 0 0;
+  font-size: 20px;
+}
+
+.takeover-overlay footer {
+  justify-content: flex-end;
+}
+
+.takeover-overlay footer button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--ak-border);
+  border-radius: 7px;
+  color: var(--ak-text);
+  background: #242933;
+}
+
+.takeover-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.takeover-facts div,
+.takeover-repos li,
+.takeover-edge-states li {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border-radius: 7px;
+  background: #12161c;
+}
+
+.takeover-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ak-text);
+}
+
+.loss-corridor {
+  padding: 14px;
+  border: 1px solid #a56b22;
+  border-radius: 8px;
+  background: #31240f;
+  color: #ffe1a3;
+}
+
+.loss-corridor p,
+.loss-corridor li,
+.takeover-info,
+.takeover-blocking,
+.takeover-error {
+  line-height: 1.5;
+}
+
+.takeover-blocking,
+.takeover-error {
+  padding: 10px;
+  border: 1px solid #8b3f3d;
+  border-radius: 7px;
+  color: #ffb6b3;
+  background: #321719;
+}
+
+.takeover-panel,
+.takeover-repos,
+.takeover-edge-states {
+  display: grid;
+  gap: 10px;
+}
+
+.takeover-history {
+  padding: 12px;
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  background: #191d25;
+}
+
+.takeover-history strong {
+  margin-left: auto;
+  color: var(--ak-accent-text);
+  font-size: 20px;
+}
+
+.takeover-repos,
+.takeover-edge-states {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.takeover-repos span,
+.takeover-edge-states span,
+.takeover-edge-states small {
+  overflow-wrap: anywhere;
+}
+
+.takeover-edge-states li[data-known="false"],
+.takeover-edge-states li[data-active="true"] {
+  border: 1px solid #8b3f3d;
+  background: #2b1517;
+}
+
 .login-page {
   display: grid;
   min-height: 100vh;

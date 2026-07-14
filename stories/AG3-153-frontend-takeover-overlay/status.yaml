@@ -1,17 +1,19 @@
 story_id: AG3-153
 title: "Frontend Takeover: globaler governance-Stream (GET /v1/events/governance), benutzeruebergreifender Freigabe-Overlay mit Verlustkorridor-Pflichttext, Cockpit-Takeover-Sicht (SHA/Push-Frische, 4 Edge-Zustaende), Wire-Commands + Read-Model"
 type: implementation
-status: ready
+status: completed
 # Unblocked 2026-07-13: all deps completed (AG3-144, AG3-148, AG3-151).
 # Status was stale at `blocked` while deps had already closed.
 phase: setup
 created: "2026-07-02"
+completed_at: "2026-07-14T07:40:49.7926743+02:00"
 size: L
 # Herkunft: GAP-ST-10 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
 # Frontend-Anteil des Ownership-Transfers: projektuebergreifender
 # governance-Stream (K3, Commit 1bb4ed8a), globaler benutzeruebergreifender
 # Freigabe-Overlay in der App-Shell (Slot-Prinzip FK-72 §72.4),
 # Cockpit-Takeover-Sicht mit SHA/Push-Frische statt Dirty-Stand (SOLL-164)
-# + 4 Edge-Zustaende. NUR Konsum + Darstellung; Backend = AG3-148.
+# + 4 Edge-Zustaende. Der Transfer-Kern bleibt AG3-148; diese Story liefert
+# die globalen Read-/SSE-BFF-Flaechen und deren Frontend-Konsum.
 depends_on: ["AG3-144", "AG3-148", "AG3-151"]
 unblocks: []

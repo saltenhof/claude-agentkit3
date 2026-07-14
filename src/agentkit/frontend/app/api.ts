@@ -2,6 +2,12 @@ import type { ExecutionInputSnapshot, ExecutionLimits, DependencyEdge } from './
 import type { HubSession, HubStatusSnapshot } from './contexts/multi_llm_hub/types';
 import type { ProjectModeLock, ProjectSummary, StoryCounters } from './contexts/project_management/types';
 import type { StoryDetail, StorySummary } from './contexts/story_context_manager/types';
+import type {
+  TakeoverApprovalRequest,
+  TakeoverApprovalsResponse,
+  TakeoverMutationResult,
+  TakeoverRequestContext,
+} from './contexts/story_context_manager/takeoverTypes';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -110,6 +116,63 @@ export class ApiClient {
   async hubSessions(): Promise<HubSession[]> {
     const payload = await this.request<{ sessions: HubSession[] }>('/v1/hub/sessions');
     return payload.sessions;
+  }
+
+  async takeoverApprovals(): Promise<TakeoverApprovalsResponse> {
+    return this.request<TakeoverApprovalsResponse>('/v1/governance/takeover-approvals');
+  }
+
+  async requestStoryRunTakeover(
+    context: TakeoverRequestContext,
+    reason: string,
+  ): Promise<TakeoverMutationResult> {
+    return this.request<TakeoverMutationResult>(
+      `/v1/project-edge/story-runs/${encodeURIComponent(context.run_id)}/ownership/takeover-request`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          project_key: context.project_key,
+          story_id: context.story_id,
+          session_id: context.session_id,
+          principal_type: 'human_cli',
+          worktree_roots: context.worktree_roots,
+          reason,
+          op_id: makeOpId(),
+        }),
+      },
+    );
+  }
+
+  async confirmStoryRunTakeover(approval: TakeoverApprovalRequest): Promise<TakeoverMutationResult> {
+    return this.request<TakeoverMutationResult>(
+      `/v1/project-edge/story-runs/${encodeURIComponent(approval.run_id)}/ownership/takeover-confirm`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          project_key: approval.project_key,
+          story_id: approval.story_id,
+          challenge_id: approval.challenge_id,
+          reason: approval.reason,
+          op_id: makeOpId(),
+        }),
+      },
+    );
+  }
+
+  async denyStoryRunTakeover(approval: TakeoverApprovalRequest, reason: string): Promise<TakeoverMutationResult> {
+    return this.request<TakeoverMutationResult>(
+      `/v1/project-edge/story-runs/${encodeURIComponent(approval.run_id)}/ownership/takeover-deny`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          project_key: approval.project_key,
+          story_id: approval.story_id,
+          approval_id: approval.approval_id,
+          reason,
+          op_id: makeOpId(),
+        }),
+      },
+    );
   }
 
   async approveStory(projectKey: string, storyId: string): Promise<StorySummary> {

@@ -21,6 +21,9 @@ if TYPE_CHECKING:
         build_story_read_service as build_story_read_service,
     )
     from agentkit.backend.bootstrap.composition_project import (
+        build_takeover_approval_read_source as build_takeover_approval_read_source,
+    )
+    from agentkit.backend.bootstrap.composition_project import (
         build_task_management_routes as build_task_management_routes,
     )
 
@@ -59,7 +62,8 @@ _EXPORT_MODULE_NAMES = {
         "build_kpi_analytics", "build_kpi_analytics_read_facade", "build_project_read_model_routes",
         "build_project_repository", "build_project_telemetry_event_source", "build_story_exit_service",
         "build_story_read_service", "build_story_reset_service", "build_story_split_service",
-        "build_task_management_routes", "cli_load_story_context", "cli_read_phase_state_record",
+        "build_task_management_routes", "build_takeover_approval_read_source",
+        "cli_load_story_context", "cli_read_phase_state_record",
     ),
     "agentkit.backend.bootstrap.composition_state": (
         "build_phase_envelope_store", "build_phase_state_residue_probe", "build_planning_projection_accessor",
@@ -88,6 +92,7 @@ _PUBLIC_NAMES = (
     "build_projection_accessor", "build_push_barrier_evidence", "build_runtime_execution_purge_port",
     "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler",
     "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider",
+    "build_takeover_approval_read_source",
     "build_structural_build_test_port", "build_verify_system", "cli_load_story_context",
     "cli_load_execution_events_for_project_global", "cli_read_phase_state_record",
 )

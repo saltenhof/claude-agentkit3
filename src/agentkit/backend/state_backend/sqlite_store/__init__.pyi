@@ -46,6 +46,9 @@ from ._connection import (
     _connect as _connect,
 )
 from ._ownership_rows import (
+    list_open_takeover_approval_request_rows_global as list_open_takeover_approval_request_rows_global,
+)
+from ._ownership_rows import (
     load_story_execution_lock_global_row as load_story_execution_lock_global_row,
 )
 from ._ownership_rows import (
@@ -395,6 +398,7 @@ __all__: tuple[
         "load_story_dependency_rows",
         "load_story_dependency_rows_for_story",
         "load_story_execution_lock_global_row",
+        "list_open_takeover_approval_request_rows_global",
         "load_story_metrics_rows",
         "max_adjudication_occurred_at",
         "persist_closure_report_row",
