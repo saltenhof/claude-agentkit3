@@ -32,6 +32,10 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+TOOLS_ROOT = Path(__file__).resolve().parents[2] / "tools"
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -46,12 +50,6 @@ DOMAIN_REGISTRY_PATH = META_ROOT / "domain-registry.yaml"
 POLICY_REGISTRY_PATH = META_ROOT / "policy-registry.yaml"
 INDEX_PATH = TECH_ROOT / "00_index.md"
 
-NORMATIVE_MODAL_RE = re.compile(
-    r"\b(muss(?:t|en)?|darf\s+nur|sind?\s+pflicht|"
-    r"single\s+source\s+of\s+truth|verboten|fail[-\s]closed|"
-    r"shall|must)\b",
-    re.IGNORECASE,
-)
 CONTRACT_ANCHOR_RE = re.compile(r"<!--\s*CONTRACT-ANCHOR:\s*([^>]+?)\s*-->", re.IGNORECASE)
 
 CONCEPT_ID_RE = re.compile(r"^(FK|DK)-\d{2}$")
@@ -654,6 +652,8 @@ def lint_l20_implicit_leakage(
     domains: dict[str, DomainEntry],
     report: LintReport,
 ) -> None:
+    from concept_compiler.normativity import NORMATIVE_MODAL_RE
+
     if not domains:
         return
     # Collect all internal terms grouped by domain

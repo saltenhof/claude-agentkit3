@@ -1,7 +1,8 @@
 story_id: AG3-159
 title: "Konzept-Authority-Prosa-Prüfung (W2): LLM-Bewertung + deterministische Policy — normative Aussagen je Chunk klassifizieren, Scope-Abgleich gegen Authority/defers_to, nightly + vor Konzept-Merges"
 type: implementation
-status: blocked
+status: ready
+# Unblocked 2026-07-14: sequence predecessor AG3-158 is completed.
 phase: setup
 created: "2026-07-02"
 size: L

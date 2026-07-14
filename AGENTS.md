@@ -61,6 +61,15 @@ Auftraggeber iterieren.
   `scripts/ci/compile_formal_specs.py` muessen gruen sein. Der
   pre-commit Hook (`.githooks/pre-commit`) erzwingt das lokal, wenn
   `git config core.hookspath .githooks` gesetzt ist.
+- Normative Konzept-Aenderungen brauchen entweder ein schema-konformes
+  Record im selben Diff oder den Commit-Trailer
+  `Concept-Decision: YYYY-MM-DD-<slug>` zu einem bestehenden Record.
+  `Concept-Format-Only: <reason>` gilt nur fuer uneindeutige
+  Tippfehler-/Format-Aenderungen und hebt normative Modalmarker nie auf.
+- W4-Review-Checkliste: Impact-Sweep und Betroffenheitsmatrix im Record
+  pruefen, danach Record-im-Diff oder gueltigen `Concept-Decision`-
+  Trailer sowie den gruenen `check_concept_decision_record.py`-Lauf
+  bestaetigen.
 
 Den Repo-Zustand niemals so lassen, dass Jenkins oder das
 Sonar-Quality-Gate rot wird.

@@ -67,7 +67,7 @@ PY
                 deleteDir()
                 sh '''
                     rm -rf agentkit-src
-                    git clone --depth 1 --branch main --single-branch https://github.com/saltenhof/claude-agentkit3.git agentkit-src
+                    git clone --branch main --single-branch https://github.com/saltenhof/claude-agentkit3.git agentkit-src
                     git -C agentkit-src rev-parse HEAD
                     git -C agentkit-src show --no-patch --oneline HEAD
                     grep -R -n "agentkit_postgres_schema_ddl" agentkit-src/src/agentkit/backend/state_backend/postgres_store
@@ -286,6 +286,21 @@ PY
                         set -e
                         . .venv/bin/activate
                         PYTHONPATH=src python scripts/ci/check_concept_reference_integrity.py
+                    '''
+                }
+            }
+        }
+
+        stage('Concept Decision Record') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
+            steps {
+                dir('agentkit-src') {
+                    sh '''
+                        . .venv/bin/activate
+                        PYTHONPATH=src python scripts/ci/check_concept_decision_record.py \
+                            --base "${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-HEAD~1}"
                     '''
                 }
             }

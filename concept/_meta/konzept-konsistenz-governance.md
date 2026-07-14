@@ -200,6 +200,27 @@ Record-Referenz in der Commit-Message → Befund). Reine
 Tippfehler-/Format-Fixes sind ausgenommen (Abgrenzung: keine
 Aenderung an normativen Saetzen).
 
+Die maschinenlesbare Commit-Konvention lautet
+`Concept-Decision: YYYY-MM-DD-<slug>`; der Wert ist der
+case-sensitive Dateiname-Stamm des Records und darf alternativ die
+Endung `.md` tragen. Mehrere Trailer sind erlaubt. Die Pflicht ist
+erfuellt, wenn entweder (a) derselbe Diff mindestens ein neu
+angelegtes oder geaendertes, schema-konform benanntes Record enthaelt
+oder (b) ein `Concept-Decision`-Trailer auf ein bestehendes,
+schema-konform benanntes Record verweist. Tote oder falsch benannte
+Referenzen sind ERROR.
+
+Ein nichtleerer Trailer `Concept-Format-Only: <Begruendung>` darf
+ausschliesslich einen sonst uneindeutigen Textdiff als reinen
+Tippfehler-/Format-Fix kennzeichnen. Ein leerer Grund ist ERROR. Der
+Marker hebt einen Treffer auf einen normativen Modalmarker niemals
+auf; eine solche Aenderung braucht weiterhin ein Decision-Record.
+Das Gate bewertet dafuer nur geaenderte Koerperzeilen ausserhalb von
+Frontmatter und Code-Fences. Whitespace, reine Interpunktion sowie
+reine Anker-/Linkziel-Aenderungen sind sicher nicht normativ; ein
+Modalmarker ist normativ und jeder andere substantielle Textdiff
+bleibt fail-closed uneindeutig.
+
 ## 6. Betriebsmodell
 
 - **W1 ist Pflichtgate** in derselben CI-Stufe wie die bestehenden
@@ -213,7 +234,10 @@ Aenderung an normativen Saetzen).
   Baseline-Eintrag. Baselines ohne Begruendung sind unzulaessig.
 - **W4 wirkt im Review** (Checkliste + deterministischer Check) und
   gilt ab Inkrafttreten dieses Dokuments auch manuell — unabhaengig
-  vom Implementierungsstand des Checks.
+  vom Implementierungsstand des Checks. Die Review-Checkliste prueft
+  bei jeder normativen Konzeptaenderung das Record mit Impact-Sweep
+  und Betroffenheitsmatrix sowie genau einen der beiden W4-
+  Erfuellungswege (Record im Diff oder gueltiger Commit-Trailer).
 - LLM-gestuetzte Werkzeuge (W2/W3) muessen ihre Prompts/Modelle
   versionieren und Befunde idempotent referenzieren, damit Baselines
   stabil bleiben.

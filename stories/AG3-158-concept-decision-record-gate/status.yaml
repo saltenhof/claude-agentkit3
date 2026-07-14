@@ -1,10 +1,14 @@
 story_id: AG3-158
 title: "Konzept-Decision-Record-Gate (W4): P3-Durchsetzung — Konzeptdiff an normativen Dokumenten erfordert Decision-Record-Referenz (Commit-Konvention + deterministischer Check)"
 type: implementation
-status: ready
-# Unblocked 2026-07-13: dep AG3-157 closed (unblocks AG3-158 per its status.yaml).
-# Status was stale at `blocked` while the dep had already closed.
-phase: setup
+status: completed
+# CLOSED 2026-07-14: deterministic W4 gate with pure injected ConceptDiff core,
+# thin base..head git adapter, fail-closed body-line heuristic, non-bypassing
+# Format-Only marker, both record satisfaction paths, canonical frontmatter
+# validation, dogfood record, Jenkins stage, and AC1-5 unit/integration coverage.
+# Whole-story multi-model review converged to PASS after adversarial fixes for
+# scope-boundary renames and Markdown/frontmatter boundary parsing.
+phase: closure
 created: "2026-07-02"
 size: S
 # Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-
