@@ -2,11 +2,51 @@ story_id: AG3-153
 title: "Frontend Takeover: globaler governance-Stream (GET /v1/events/governance), benutzeruebergreifender Freigabe-Overlay mit Verlustkorridor-Pflichttext, Cockpit-Takeover-Sicht (SHA/Push-Frische, 4 Edge-Zustaende), Wire-Commands + Read-Model"
 type: implementation
 status: completed
+phase: closure
 # Unblocked 2026-07-13: all deps completed (AG3-144, AG3-148, AG3-151).
-# Status was stale at `blocked` while deps had already closed.
-phase: setup
 created: "2026-07-02"
-completed_at: "2026-07-14T07:40:49.7926743+02:00"
+completed_at: "2026-07-14T06:15:00Z"
+# CLOSED 2026-07-14 at main@16f269021b55b5525ce090cee0f1fc124078224c (origin matches).
+# Cross-project governance SSE GET /v1/events/governance (generalizes
+# iter_project_sse_stream, SAME byte-identical envelope, no second event def),
+# strategist-cookie-only read model + read-only initial-GET, App-Shell overlay
+# slot + TakeoverApprovalOverlay (loss-corridor mandatory text unabridged, no
+# bypass) + cockpit TakeoverPanel (per-repo SHA/push-freshness, NO dirty field,
+# 4 edge states fail-closed, takeover history), wire-commands request/confirm
+# (+deny) with challenge_reissued two-step + human-exclusive 403, §91.1a nachzug
+# + dogfood decision-record. Auth is fail-CLOSED: a dedicated TakeoverFrontend
+# dispatcher threads auth_result into the GET path (which otherwise lacks it) and
+# both new GETs reject non-strategist sessions BEFORE any Postgres read / stream
+# start. Landed initial impl (1a3cdfc0), then a whole-story orchestrator-adjudicated
+# Fable finale caught TWO acceptance-critical ERRORs the impl + its tests + the
+# first orchestrator adjudication missed (both fail-closed in DIRECTION — no
+# security hole — but the core deliverable was a dead-end): ERROR-1 the overlay
+# confirm/deny always 403'd on the project-scope fence because the strategist
+# session on /v1/project-edge/... paths yields project_key=None and api.ts sent no
+# X-Project-Key -> fixed by attesting the approval's own project_key via
+# X-Project-Key (fence UNCHANGED, not relaxed); ERROR-2 iter_governance_sse_stream
+# emitted only pending snapshots, never takeover_approval_changed, so status
+# changes were invisible on the global stream (AC1 + formal Emissionspflicht
+# unmet) -> fixed by adding the cross-project execution-event leg reusing the
+# shared envelope (byte-identity preserved). Also W2 (one inconsistent approval row
+# 503'd the whole endpoint -> now omitted+logged takeover_approval_row_omitted,
+# valid approvals still served, validation not relaxed) and W1 (cockpit now binds
+# real approval data: principal, repo_push_status, open_operation_ids, history).
+# Honest cross-story gaps documented, NOT faked: (a) no strategist-readable read
+# source exposes all four AG3-151 edge-state families (AG3-151 surfaces them only
+# via ProjectEdge command/bundle) -> the cockpit stays fail-closed "unknown"; (b)
+# last_api_contact_at is structurally null because TakeoverChallengeRecord does not
+# persist last_owner_api_contact_at (WARNING-3, filed as an AG3-148 persistence
+# follow-up). Evidence on 16f26902: Jenkins #1915 SUCCESS (built exact SHA), Sonar
+# gate OK / violations 0 / critical 0 / security_hotspots 0, coverage 90.8; local
+# ex-e2e 9488 passed / 14 skipped, coverage 91.70%, ruff clean, mypy strict native
+# + --platform linux clean (914 files), frontend tsc -b && vite build clean (1681
+# modules, independently run since Jenkins has no frontend stage), 6 concept gates
+# green (Windows) incl. W4 on the §91.1a change, 189 focused takeover tests green
+# (Windows). Two orchestrator-adjudicated Fable rounds; both ERROR fixes confirmed
+# fail-CLOSED at code (fence intact, envelope byte-identical, omit-only-the-bad-row).
+# Frontend test infra (vitest) deliberately OUT of scope (separate scope, per the
+# i18n carve-out): UI ACs covered by Python contract pins + tsc/vite build.
 size: L
 # Herkunft: GAP-ST-10 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
 # Frontend-Anteil des Ownership-Transfers: projektuebergreifender
