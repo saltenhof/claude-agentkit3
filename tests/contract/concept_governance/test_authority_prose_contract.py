@@ -42,6 +42,7 @@ def test_finding_and_baseline_key_contract_is_exact() -> None:
     }
     assert set(BaselineEntry.model_fields) == {
         "code", "doc", "anchor", "assertion", "scope", "prompt_version", "model", "reason",
+        "related_loci", "formalization_check",
     }
     finding = AuthorityFinding(
         code="UNAUTHORIZED_SCOPE_ASSERTION", doc="d.md", anchor="a", assertion="x",

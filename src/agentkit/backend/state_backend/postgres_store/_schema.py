@@ -187,11 +187,18 @@ def _takeover_approval_challenge_ref_unique_present(conn: _CompatConnection) -> 
     row = conn.execute(
         """
         SELECT 1
-        FROM pg_indexes
-        WHERE schemaname = current_schema()
-          AND tablename = 'takeover_approvals'
-          AND indexname = 'takeover_approvals_challenge_ref_uidx'
-          AND left(indexdef, 19) = 'CREATE UNIQUE INDEX'
+        FROM pg_class AS index_relation
+        JOIN pg_namespace AS namespace
+          ON namespace.oid = index_relation.relnamespace
+        JOIN pg_index AS index_metadata
+          ON index_metadata.indexrelid = index_relation.oid
+        JOIN pg_class AS table_relation
+          ON table_relation.oid = index_metadata.indrelid
+         AND table_relation.relnamespace = namespace.oid
+        WHERE namespace.nspname = current_schema()
+          AND table_relation.relname = 'takeover_approvals'
+          AND index_relation.relname = 'takeover_approvals_challenge_ref_uidx'
+          AND index_metadata.indisunique
         """,
     ).fetchone()
     return row is not None

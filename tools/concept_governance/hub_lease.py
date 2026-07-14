@@ -25,6 +25,7 @@ def acquire_epoch_lease(
     hub: HubClientProtocol,
     models: tuple[HubBackendName, ...],
     owner: str,
+    description: str,
     epoch: int,
 ) -> HubSessionLease:
     """Acquire exactly one slot for every configured backend in an epoch."""
@@ -32,7 +33,7 @@ def acquire_epoch_lease(
         try:
             lease = hub.acquire(
                 owner=owner,
-                description=f"concept authority prose epoch {epoch}",
+                description=f"{description} epoch {epoch}",
                 llms=list(models),
                 timeout=ACQUIRE_TIMEOUT_SECONDS,
             )

@@ -21,6 +21,7 @@ class HubBatchSession:
         models: tuple[HubBackendName, ...],
         *,
         owner: str,
+        description: str = "concept authority prose",
         epoch_chunk_limit: int | None = None,
     ) -> None:
         """Initialize the closed epoch lifecycle."""
@@ -30,6 +31,7 @@ class HubBatchSession:
         self._hub = hub
         self._models = models
         self._owner = owner
+        self._description = description
         self._limit = limit
         self._lease: HubSessionLease | None = None
         self._active = False
@@ -89,7 +91,9 @@ class HubBatchSession:
 
     def _acquire(self) -> None:
         self._epoch += 1
-        self._lease = acquire_epoch_lease(self._hub, self._models, self._owner, self._epoch)
+        self._lease = acquire_epoch_lease(
+            self._hub, self._models, self._owner, self._description, self._epoch
+        )
         self._completed = 0
         self._fence += 1
 

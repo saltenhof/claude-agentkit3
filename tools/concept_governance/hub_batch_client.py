@@ -18,7 +18,7 @@ class HubBatchLlmClient:
         self._model = model
 
     def complete(self, *, role: str, prompt: str) -> str:
-        """Send the prompt on the shared session for the W2 role."""
-        if role != "concept_authority_prose":
+        """Send a supported governance prompt on the shared session."""
+        if role not in {"concept_authority_prose", "concept_scope_consistency"}:
             raise ValueError(f"unsupported governance role: {role}")
         return self._session.send(self._model, prompt)

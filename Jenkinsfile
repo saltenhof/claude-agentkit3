@@ -327,6 +327,27 @@ PY
             }
         }
 
+        stage('Concept Scope Consistency Nightly (non-blocking)') {
+            when {
+                expression { params.agentkit_mode == 'nightly' }
+            }
+            steps {
+                dir('agentkit-src') {
+                    sh '''
+                        . .venv/bin/activate
+                        set +e
+                        LLM_HUB_URL=http://host.docker.internal:9600 \
+                            python scripts/ci/check_concept_scope_consistency.py
+                        W3_EXIT=$?
+                        if [ "$W3_EXIT" -ne 0 ]; then
+                            echo "[ERROR] W3 reported untriaged or operational findings; nightly stage remains non-blocking by design."
+                        fi
+                        exit 0
+                    '''
+                }
+            }
+        }
+
         stage('Concept Contract Checks') {
             when {
                 expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }

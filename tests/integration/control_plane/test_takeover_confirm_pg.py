@@ -268,8 +268,10 @@ def test_takeover_approval_unique_migration_rejects_existing_duplicate_links(
     ):  # noqa: SLF001 -- migration transaction
         # Everything stays in this transaction. The expected exception rolls back
         # both the index drop and duplicate fixtures, so parallel workers never see
-        # a catalog mutation and cannot race pg_indexes relation OIDs.
+        # a catalog mutation. The canary uses an exact current-schema catalog probe,
+        # so another worker dropping its own schema cannot invalidate a foreign OID.
         conn.execute("DROP INDEX takeover_approvals_challenge_ref_uidx")
+        assert postgres_store._schema_is_bootstrapped(conn) is False  # noqa: SLF001
         for approval_id in ("approval-duplicate-a", "approval-duplicate-b"):
             conn.execute(
                 """

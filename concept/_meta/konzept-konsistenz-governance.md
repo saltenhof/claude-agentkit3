@@ -238,6 +238,16 @@ bleibt fail-closed uneindeutig.
   die in dieser Range geaenderten Konzeptdokumente. W2 bleibt wegen des
   LLM-Aufrufs ausserhalb der blockierenden Push-CI und laeuft im Jenkins-
   Nightly explizit nicht blockierend.
+- Der dokumentierte W3-Aufruf vor der Landung lautet
+  `python scripts/ci/check_concept_scope_consistency.py --scope "<authority_over-scope>"`;
+  `--scope` wird fuer mehrere betroffene Scopes
+  wiederholt. Der Lauf invertiert die repo-lokalen Authority-Metadaten in
+  geschlossene Scope-Sets und klassifiziert jedes Set bzw. jede stabile
+  Partition mit genau einem Hub-Aufruf. W3 bleibt wie W2 ausserhalb der
+  blockierenden Push-CI und laeuft im Jenkins-Nightly explizit nicht
+  blockierend. Unvollstaendige Sweeps sind ERROR; ein W3-Baseline-Eintrag
+  ist nur mit der P4-Formalisierungspruefung (Ja/Nein plus Begruendung)
+  gueltig.
 - **W4 wirkt im Review** (Checkliste + deterministischer Check) und
   gilt ab Inkrafttreten dieses Dokuments auch manuell — unabhaengig
   vom Implementierungsstand des Checks. Die Review-Checkliste prueft

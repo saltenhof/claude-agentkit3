@@ -75,6 +75,16 @@ Auftraggeber iterieren.
   `python scripts/ci/check_concept_authority_prose.py --mode pre-merge
   --base "${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-HEAD~1}"`. Neue Befunde sind
   ERROR bis zum Fix oder einem konkret begruendeten Baseline-Eintrag.
+- Vor der Landung normativer Konzeptaenderungen W3 fuer jeden betroffenen
+  `authority_over`-Scope ausfuehren; `--scope` darf fuer mehrere Scopes
+  wiederholt werden:
+  `python scripts/ci/check_concept_scope_consistency.py --scope "<authority_over-scope>"`.
+  W3 ruft den Hub nie in der
+  blockierenden Push-CI auf; der ungefilterte Nightly-Lauf bleibt explizit
+  nicht blockierend. Neue W3-Befunde sind ERROR bis zum Fix oder einem
+  begruendeten Eintrag in derselben Governance-Baseline wie W2; jeder
+  W3-Baseline-Eintrag braucht die P4-Formalisierungspruefung mit Ja/Nein und
+  konkreter Begruendung.
 
 Den Repo-Zustand niemals so lassen, dass Jenkins oder das
 Sonar-Quality-Gate rot wird.

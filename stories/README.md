@@ -518,7 +518,7 @@ technisch, die übrigen sind ausgewiesene Sequenz-Kanten).
 | AG3-157 | W1 `concept-reference-integrity` — deterministisches CI-Pflichtgate (Querverweis-Auflösbarkeit, §-Anker, formal.*-IDs, Pfade; + `defers_to`-Scope-Zyklen-Semantik) | M | **completed** | — |
 | AG3-158 | W4 `concept-decision-record-gate` — P3-Durchsetzung (Konzeptdiff ⇒ Decision-Record) | S | **completed** | 157 (Sequenz) |
 | AG3-159 | W2 `concept-authority-prose` — LLM-Bewertung + deterministische Policy (unzuständige normative Behauptungen) | L | **completed** | 158 (Sequenz) |
-| AG3-160 | W3 `concept-scope-consistency` — LLM-Sweep pro Scope (Widerspruchssuche auf kleinen Mengen) | M | **ready** | 159 (technisch) |
+| AG3-160 | W3 `concept-scope-consistency` — LLM-Sweep pro Scope (Widerspruchssuche auf kleinen Mengen) | M | **completed** | 159 (technisch) |
 
 ## 7. Konzept- und Guardrail-Bezug
 

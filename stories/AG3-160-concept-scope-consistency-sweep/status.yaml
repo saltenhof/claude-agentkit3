@@ -1,10 +1,24 @@
 story_id: AG3-160
 title: "Konzept-Scope-Konsistenz-Sweep (W3): LLM-Sweep pro authority_over-Scope — alle Aussagen-Chunks eines Scopes als geschlossenes Set auf Widersprüche prüfen (nightly, Baseline wie W2)"
 type: implementation
-status: ready
-# Unblocked 2026-07-14: technical predecessor AG3-159 is completed.
-phase: setup
+status: completed
+# Completed 2026-07-14: deterministic authority-scope inversion and stable
+# non-truncating partitions feed exactly one structured Hub call per partition.
+# The deterministic policy validates quoted loci against the closed input and is
+# the sole owner of SCOPE_CONTRADICTION severity. W2 and W3 share the version-1
+# justified baseline; W3 entries require related loci plus the mandatory P4
+# formalization_check yes/no decision and reason. Transport, parse, prompt-I/O,
+# foreign-quote, and incomplete paths are named and discard partial results.
+# Nightly wiring is non-blocking and scope-filtered pre-merge use is documented.
+# Fixed-answer tests cover AC1-AC6/AC8, including exact call-count equality and
+# no cross-scope pairs. Bounded real-Hub smoke evidence is at
+# var/evidence/AG3-160-real-hub-smoke.log: final successful one-set/one-partition
+# runs on chatgpt, gemini, grok, and qwen; kimi was intentionally excluded.
+# Baseline remains empty. Full ex-e2e: 9538 passed, 14 skipped; coverage 91.70%;
+# Ruff, native/Linux mypy, W1/W4 and all concept gates green.
+phase: closure
 created: "2026-07-02"
+completed_at: "2026-07-14T13:43:04Z"
 size: M
 # Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-
 # governance.md) §5/W3, §6 Betriebsmodell, §7 Fahrplan Punkt 4; PO-Freigabe
