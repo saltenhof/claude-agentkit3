@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from concept_ingester.discovery import ConceptChunk
@@ -20,4 +20,34 @@ class AuthorityProseEvaluator(Protocol):
 
     def evaluate(self, chunk: ConceptChunk, vocabulary: tuple[str, ...]) -> ChunkClassification:
         """Return a typed classification for one chunk."""
+        ...
+
+
+@runtime_checkable
+class BatchAuthorityProseEvaluator(AuthorityProseEvaluator, Protocol):
+    """Evaluator that owns one external lease for a complete corpus run."""
+
+    def __enter__(self) -> BatchAuthorityProseEvaluator:
+        """Acquire resources for the corpus batch."""
+        ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        """Release batch resources even when evaluation fails."""
+        ...
+
+
+class EvaluationBatchLifecycle(Protocol):
+    """Lifecycle seam used by productive routed evaluators."""
+
+    def open(self) -> None:
+        """Acquire the batch resource."""
+        ...
+
+    def close(self) -> None:
+        """Release the batch resource best-effort."""
         ...

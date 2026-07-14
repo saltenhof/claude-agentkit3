@@ -10,7 +10,7 @@ from concept_governance.chunks import load_chunks
 from concept_governance.evaluator_pool import RoutedAuthorityProseEvaluator
 from concept_governance.models import PROMPT_VERSION, ChunkClassification
 from concept_governance.runner import run_authority_check
-from concept_governance.transport import MODEL_ENV, build_hub_evaluator
+from concept_governance.transport import DEFAULT_MODELS, MODEL_ENV, build_hub_evaluator
 from tests.unit.tools.concept_governance.helpers import write_doc, write_empty_baseline
 
 from agentkit.integration_clients.multi_llm_hub.errors import HubUnavailableError
@@ -64,11 +64,12 @@ def test_chunk_uuid_routes_to_same_backend_family(tmp_path: Path) -> None:
     assert models == ["chatgpt", "grok", "kimi"]
 
 
-def test_default_pool_uses_stable_non_gemini_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_pool_uses_four_healthy_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(MODEL_ENV, raising=False)
     evaluator = build_hub_evaluator()
     assert evaluator.parallelism == 1
-    assert evaluator.model == "chatgpt"
+    assert evaluator.model == "governance-pool/v1"
+    assert DEFAULT_MODELS == ("chatgpt", "gemini", "grok", "qwen")
 
 
 def test_routed_failure_reports_actual_backend(tmp_path: Path) -> None:

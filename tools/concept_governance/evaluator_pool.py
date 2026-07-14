@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from concept_ingester.discovery import ConceptChunk
 
     from concept_governance.models import ChunkClassification
-    from concept_governance.port import AuthorityProseEvaluator
+    from concept_governance.port import AuthorityProseEvaluator, EvaluationBatchLifecycle
 
 
 class RoutedAuthorityProseEvaluator:
@@ -20,6 +20,7 @@ class RoutedAuthorityProseEvaluator:
         self,
         evaluators: dict[str, tuple[AuthorityProseEvaluator, ...]],
         route_models: tuple[str, ...],
+        lifecycle: EvaluationBatchLifecycle | None = None,
     ) -> None:
         """Build queues whose repeated route entries weight backend capacity."""
         if not route_models or any(model not in evaluators for model in route_models):
@@ -31,8 +32,26 @@ class RoutedAuthorityProseEvaluator:
                 pool.put(evaluator)
             self._pools[model] = pool
         self._route_models = route_models
-        self.parallelism = sum(len(slots) for slots in evaluators.values())
+        self._lifecycle = lifecycle
+        self.parallelism = 1 if lifecycle is not None else sum(len(slots) for slots in evaluators.values())
         self._model = route_models[0] if len(set(route_models)) == 1 else "governance-pool/v1"
+
+    def __enter__(self) -> RoutedAuthorityProseEvaluator:
+        """Open the optional productive batch lifecycle."""
+        if self._lifecycle is not None:
+            self._lifecycle.open()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        """Close the optional productive batch lifecycle."""
+        del exc_type, exc_value, traceback
+        if self._lifecycle is not None:
+            self._lifecycle.close()
 
     @property
     def model(self) -> str:

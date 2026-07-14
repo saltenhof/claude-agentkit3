@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClientError
+from agentkit.integration_clients.multi_llm_hub.errors import MultiLlmHubError
 from concept_governance.baseline import BaselineError, load_baseline
 from concept_governance.baseline_policy import apply_baseline
 from concept_governance.chunks import load_chunks
 from concept_governance.execution import EvaluationRunError, collect_findings
 from concept_governance.models import PROMPT_VERSION, AuthorityFinding, AuthorityRunResult
+from concept_governance.port import BatchAuthorityProseEvaluator
 from concept_governance.vocabulary import load_scope_vocabulary
 
 if TYPE_CHECKING:
@@ -39,9 +42,15 @@ def run_authority_check(
     except (OSError, ValueError) as exc:
         return _failed("DISCOVERY_FAILURE", str(exc), evaluator.model, concept_root.as_posix())
     try:
-        raw_findings = collect_findings(chunks, evaluator, vocabulary, parallelism)
+        if isinstance(evaluator, BatchAuthorityProseEvaluator):
+            with evaluator:
+                raw_findings = collect_findings(chunks, evaluator, vocabulary, parallelism)
+        else:
+            raw_findings = collect_findings(chunks, evaluator, vocabulary, parallelism)
     except EvaluationRunError as exc:
         return _chunk_failure(exc.code, str(exc), exc.model, exc.chunk)
+    except (LlmClientError, MultiLlmHubError, TimeoutError) as exc:
+        return _failed("EVALUATION_TRANSPORT_FAILURE", str(exc), evaluator.model, concept_root.as_posix())
     findings = apply_baseline(raw_findings, baseline, baseline_doc, included_docs)
     return AuthorityRunResult(findings=findings)
 

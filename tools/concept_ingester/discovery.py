@@ -268,9 +268,9 @@ def _formal_owner_from_prose_refs(
     if folder_projection is not None and rel_path is not None:
         folder = _formal_folder_of(rel_path)
         if folder is not None:
-            entry = folder_projection.by_folder.get(folder)
-            if entry is not None:
-                return entry
+            folder_entry = folder_projection.by_folder.get(folder)
+            if folder_entry is not None:
+                return folder_entry
 
     if not isinstance(prose_refs, list):
         return ("", False, "", "")
@@ -280,11 +280,11 @@ def _formal_owner_from_prose_refs(
         cid = _prose_ref_to_concept_id(str(raw))
         if cid is None:
             continue
-        entry = projection.by_doc.get(cid)
-        if entry is None:
+        projection_entry = projection.by_doc.get(cid)
+        if projection_entry is None:
             contributions.append(("", True, "", ""))
         else:
-            domain, surface, display = entry
+            domain, surface, display = projection_entry
             contributions.append((domain, False, surface, display))
 
     if not contributions:
@@ -513,7 +513,7 @@ def _build_doc_view(
             for item in (glossary_block.get("exported_terms") or [])
             if isinstance(item, dict) and _string(item.get("id"))
         )
-        if has_glossary
+        if glossary_block is not None
         else ()
     )
 
