@@ -32,8 +32,6 @@ _cmd_failure_corpus = _failure_corpus_commands._cmd_failure_corpus
 _setup_failure_corpus_subparsers = _failure_corpus_commands._setup_failure_corpus_subparsers
 
 _build_engine_config = _installer_commands._build_engine_config
-_split_jenkins_url = _installer_commands._split_jenkins_url
-_wire_live_install_integrations = _installer_commands._wire_live_install_integrations
 
 _prepare_phase_call = _operator_recovery_commands._prepare_phase_call
 
@@ -60,8 +58,6 @@ __all__ = [
     "_invoke_control_plane_phase",
     "_prepare_phase_call",
     "_setup_failure_corpus_subparsers",
-    "_split_jenkins_url",
-    "_wire_live_install_integrations",
     "main",
 ]
 

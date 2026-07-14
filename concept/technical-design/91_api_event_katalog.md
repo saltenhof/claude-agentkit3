@@ -107,6 +107,8 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/projects/{project_key}/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
+| `/v1/projects/{project_key}/installation/third-party-validation` | `POST` | Synchrone, read-only Dritt-System-Probes fuer Sonar, Jenkins und feature-gated ARE ueber den Backend-`ThirdPartyPreflightService`. Request traegt `op_id` und ausschliesslich `token_env`-Referenzen; Response traegt Gesamtentscheid sowie typisiertes Einzelresultat/`error_code` je System. Projekt-Token, Tenant-Scope, Versions-Handshake und Regel-5-Idempotenz sind Pflicht; eine unskopierte Variante existiert nicht. |
+| `/v1/projects/{project_key}/installation/branch-plugin-self-test` | `POST` | Explizite on-demand Annahme des schweren, mutierenden Branch-Plugin-Conformance-Self-Tests. Antwort `202` plus `op_id`; Lebenszyklus im `ControlPlaneOperationRecord`, Poll ueber `/v1/project-edge/operations/{op_id}`. Niemals implizit durch `register-project` oder `verify-project`. |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-request` | `POST` | Expliziten Ownership-Transfer (Takeover) fuer einen aktiven Story-Run anfragen (formal: `operating-modes.command.request-run-ownership-takeover`). Antwort ist nie der Vollzug, sondern eine von zwei Varianten: menschlich initiierte Requests (`human_cli`/UI via BFF) erhalten einen versionierten **Challenge** (`offered`: Eigentumslage inkl. `owner_session_id`, `ownership_epoch`, `binding_version`, Phasenstand, Anzeigedaten aus dem Owner-BC); agenteninitiierte Requests erhalten deterministisch **`pending_human_approval`** (Vollzug erfordert menschliche Frontend-Freigabe; Ausgang beobachtbar ueber `GET /v1/project-edge/operations/{op_id}`). Jede Anfrage traegt eine Begruendungspflicht (auditiert) |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm` | `POST` | Takeover per Referenz auf die gespeicherte Challenge vollziehen (formal: `operating-modes.command.confirm-run-ownership-takeover`; Klasse `admin_transition`, FK-55 §55.5). Payload: `challenge_id` (Selektor) + Audit-Metadaten (`op_id`, `reason`, `source_component`) — kein Challenge-Echo, keine Identitaets- oder Entscheidungsfelder im Body; der CAS laeuft serverseitig gegen die persistierte Challenge-Basis (`owner_session_id`/`ownership_epoch`/`binding_version`, FK-56 §56.13a). Antworten: Vollzug; **`challenge_reissued`** (Challenge-TTL abgelaufen, Approval gueltig, Eigentumslage unveraendert — frische Challenge in der Antwort, Vollzug erst per zweitem Confirm mit neuem `op_id`); Fehlerbild bei invalidiertem/veraltetem Challenge (zwischenzeitlicher Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt): deterministischer fail-closed Fehlschlag ohne Vollzug, Challenge terminal `invalidated` — erneuter Request gegen die aktuelle Eigentumslage noetig |
 | `/v1/project-edge/story-runs/{run_id}/ownership/recover` | `POST` | Explizite Crash-Recovery-Akquisition (formal: `operating-modes.command.recover-run-ownership`, Klasse `admin_transition`): ausschliesslich ein attestierter `human_cli` mit Pflicht-`reason`, client-beigestelltem `op_id` und typisierter `worktree_disposition` (`adopt` oder `reset`, Default `adopt`) darf den exakt einen aktiven, durch `{run_id}` bezeichneten Ownership-Record atomar superseden. Der alte Record wird im selben UoW `transferred`, seine Bindung mit `recovery_superseded` widerrufen und ein neuer Run auf denselben `worktree_roots` mit `acquired_via=recovery` angelegt. `adopt` uebernimmt den Worktree unveraendert; `reset` beauftragt im selben UoW pro teilnehmendem Repo einen Edge-Auftrag `reset_worktree`, der den vorhandenen Worktree auf dessen eigenes `HEAD` zuruecksetzt und unversionierte Dateien entfernt. Das Backend fuehrt dabei kein Git aus. Aktive Freeze-Zustaende, eine offene `takeover_reconcile`-Obligation, eine laufende Story-Mutation oder fehlende/konkurrierende aktive Ownership blockieren fail-closed; Recovery loest keinen Freeze. Agent-Principals erhalten deterministisch `recovery_requires_human_cli` und werden nicht in die Approval-Queue aufgenommen. |
@@ -171,6 +173,10 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    `session.json`, den `story_execution`-Lock und alle fuer lokale
    Guard-Entscheidungen erforderlichen Zusatzlocks wie
    `qa_artifact_write`.
+   Die beiden Installer-Validierungsendpunkte sind keine Story-/Session-
+   Mutation und erzeugen deshalb kein Edge-Materialisierungs-Bundle: ihr
+   vollstaendiges Resultat ist der typisierte Validierungsentscheid bzw. der
+   ueber `op_id` lesbare Operation-Record.
 5. Jeder mutierende Endpoint muss `op_id` als Idempotenzschluessel
    akzeptieren; Wiederholungen mit derselben `op_id` duerfen keine
    zweite Mutation erzeugen. Das `op_id` wird **vom Client
@@ -256,6 +262,10 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     (verifiziert 2026-07-04; die frueher hier normierte
     `(project_key)`-Serialisierung, Lock-Set-Erwerbsordnung und
     Queue-Fairness waren mechanik ohne Aufrufer und sind entfallen).
+    Die projekt-skopierten Installer-Validierungen mutieren keine Story und
+    nehmen keinen Story-Claim. Ihre Exactly-once-/In-Flight-Serialisierung ist
+    ausschliesslich an das client-beigestellte `op_id` im gemeinsamen
+    `ControlPlaneOperationRecord` gebunden.
 14. **Synchrone Umsetzung, Rekonsiliierung bei Verbindungsabbruch.**
     Objekt-serialisierte Mutationen sind wo moeglich kurz und
     transaktional. Laenger laufende Umsetzungsarbeit (z. B. LLM-Phasen
@@ -273,6 +283,12 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     `GET /v1/project-edge/operations/{op_id}`, Regel 17) und holt das
     Ergebnis nach; die User-Story ist dabei der stabile Wiederaufsetz-
     Anker.
+    Diese Regel verbietet asynchrone **Story-Umsetzung**. Der explizite
+    Branch-Plugin-Conformance-Self-Test ist eine nicht-story-skopierte,
+    projektbezogene Infrastrukturpruefung und die eng begrenzte Ausnahme:
+    `202`-Annahme, bounded Backend-Executor, persistierter
+    `ControlPlaneOperationRecord` und client-getriebenes Polling. Er darf
+    niemals eine Story-Mutation oder implizite Register-/Verify-Arbeit tragen.
 15. **Fencing des Abschluss-Commits gegen den aktiven Ownership-Record
     (Lease).** Der Abschluss-Commit einer mutierenden Story-Operation ist
     gegen den **aktiven Ownership-Record der Story** gefenct: haelt die

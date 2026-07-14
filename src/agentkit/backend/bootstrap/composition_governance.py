@@ -323,6 +323,8 @@ def build_setup_preflight_gate() -> verify_types.SetupContextRepository:
 def build_are_client_from_project_config(project_config: object) -> object | None:
     """Construct the ARE client from the single ProjectConfig ARE truth."""
 
+    import os
+
     from agentkit.backend.config.models import ProjectConfig
     from agentkit.backend.requirements_coverage.are_client import AreClient
 
@@ -333,9 +335,14 @@ def build_are_client_from_project_config(project_config: object) -> object | Non
         return None
     if project_config.are is None or not project_config.are.rest_base_url:
         return None
+    token = (
+        os.environ.get(project_config.are.token_env)
+        if project_config.are.token_env
+        else None
+    )
     return AreClient(
         project_config.are.rest_base_url,
-        project_config.are.auth_token,
+        token,
     )
 
 

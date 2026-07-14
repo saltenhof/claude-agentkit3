@@ -121,14 +121,15 @@ class AreConfig(BaseModel):
     Attributes:
         mcp_server: MCP server endpoint for the ARE integration.
         rest_base_url: Optional REST base URL for ``AreClient`` (FK-40 §40.4).
-        auth_token: Optional bearer token for ARE API authentication.
+        token_env: Optional backend environment-variable reference for ARE API
+            authentication. Secret values never belong in project config.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     mcp_server: str
     rest_base_url: str | None = None
-    auth_token: str | None = None
+    token_env: str | None = None
 
 
 _SEMVER_RE = re.compile(r"^\d+(\.\d+)*$")

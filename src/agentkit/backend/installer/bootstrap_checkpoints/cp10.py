@@ -444,7 +444,7 @@ def _unmapped_are_items(context: CheckpointContext) -> set[str]:
 
 
 def cp10d_sonarqube(context: CheckpointContext) -> CheckpointResult:
-    """CP 10d — SonarQube availability + branch-plugin conformance (sonar only).
+    """CP 10d — backend-mediated light Sonar/Jenkins/ARE validation.
 
     Behaviour transferred from ``_run_cp10d_sonarqube`` /
     ``_sonar_cp_to_checkpoint_result`` (AG3-052). Skipped when the sonar branch
@@ -452,8 +452,8 @@ def cp10d_sonarqube(context: CheckpointContext) -> CheckpointResult:
     raises ``InstallationError`` and aborts the install (FK-50 §50.6); the
     SKIPPED/PASS outcome is recorded as a :class:`CheckpointResult`.
 
-    Dry-run/verify never run the live probes (read-only); they report the
-    planned applicability outcome.
+    Dry-run reports a plan. Verify runs the same read-only live probes as
+    register, but never starts the side-effecting conformance self-test.
     """
     from agentkit.backend.installer.runner import (
         _run_cp10d_sonarqube,
@@ -463,8 +463,7 @@ def cp10d_sonarqube(context: CheckpointContext) -> CheckpointResult:
     start = time.monotonic()
     yaml_data = context.run_state.project_yaml or {}
 
-    if not context.mode.mutations_allowed:
-        # Read-only: do not hit the live Sonar boundary. Report applicability.
+    if is_dry_run(context.mode):
         if not context.sonarqube_enabled:
             return _skipped(
                 nid.CP_10D_SONARQUBE,
@@ -473,17 +472,10 @@ def cp10d_sonarqube(context: CheckpointContext) -> CheckpointResult:
                 reason=REASON_INAPPLICABLE,
                 start=start,
             )
-        detail = "Would run SonarQube availability + branch-plugin conformance probes."
-        if is_dry_run(context.mode):
-            return planned_result(
-                nid.CP_10D_SONARQUBE,
-                planned_status=CheckpointStatus.PASS,
-                detail=detail,
-                start=start,
-            )
-        return make_result(
+        detail = "Would request backend-owned light Sonar/Jenkins/ARE validation."
+        return planned_result(
             nid.CP_10D_SONARQUBE,
-            status=CheckpointStatus.PASS,
+            planned_status=CheckpointStatus.PASS,
             detail=detail,
             start=start,
         )

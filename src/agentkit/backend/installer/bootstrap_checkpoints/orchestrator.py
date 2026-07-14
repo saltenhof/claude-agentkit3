@@ -41,10 +41,13 @@ def _resolve_features(config: InstallConfig) -> tuple[bool, bool, bool]:
     ``sonarqube_available`` (CP 10d applicability axis). ``features.are`` also
     implies the ``are`` runtime profile when the operator did not pin one.
     """
+    third_party_enabled = bool(
+        config.sonarqube_available or config.ci_available or config.features_are
+    )
     return (
         bool(config.features_vectordb),
         bool(config.features_are),
-        bool(config.sonarqube_available),
+        third_party_enabled,
     )
 
 
@@ -140,16 +143,6 @@ def run_checkpoint_install(
     engine = build_checkpoint_engine()
     results: tuple[CheckpointResult, ...] = engine.run(context)
 
-    # AG3-056 CI (Jenkins) precondition — the engine OWNS this orthogonal
-    # precondition (AG3-088 AC1: the ``install_agentkit`` façade carries NO
-    # checkpoint orchestration of its own). It is not one of the FK-50 §50.3
-    # twelve CP nodes, but it IS a fail-closed install precondition (the closure
-    # pre-merge barrier must never be promised an unverified Jenkins, ZERO DEBT).
-    # It runs ONLY in the mutating REGISTER mode after the 12 CPs succeeded, and
-    # ONLY when no CP FAILED (a FAILED register run already aborts). Read-only
-    # modes (dry_run/verify) do not hit the live Jenkins boundary (FK-50 §50.2).
-    results = _append_ci_preflight(config, context, results)
-
     failed = [r for r in results if r.status is CheckpointStatus.FAILED]
     errors = tuple(
         (r.detail or r.reason or f"{r.checkpoint} failed.") for r in failed
@@ -161,35 +154,6 @@ def run_checkpoint_install(
         errors=errors,
         checkpoint_results=tuple(results),
     )
-
-
-def _append_ci_preflight(
-    config: InstallConfig,
-    context: CheckpointContext,
-    results: tuple[CheckpointResult, ...],
-) -> tuple[CheckpointResult, ...]:
-    """Append the AG3-056 CI (Jenkins) preflight result in REGISTER mode.
-
-    Engine-owned orthogonal precondition (AG3-088 AC1): kept out of the FK-50
-    §50.3 CP spine but enforced by the engine path so the façade delegates only.
-    It runs after a clean 12-CP register run; a FAILED CI preflight raises and
-    aborts (the productive install keeps its fail-closed CI precondition). The
-    project.yaml is read from the run-state CP 5 published (single source — no
-    re-derivation), with a deterministic rebuild fallback only if CP 5 did not
-    publish it. Read-only modes never touch the live Jenkins boundary.
-    """
-    if not context.mode.mutations_allowed:
-        return results
-    if any(r.status is CheckpointStatus.FAILED for r in results):
-        return results
-    from agentkit.backend.installer.runner import (
-        _build_project_yaml,
-        run_ci_preflight_checkpoint_result,
-    )
-
-    yaml_data = context.run_state.project_yaml or _build_project_yaml(config)
-    ci_result = run_ci_preflight_checkpoint_result(config, yaml_data)
-    return (*results, ci_result)
 
 
 def _checkpoint_ids(results: tuple[CheckpointResult, ...]) -> tuple[str, ...]:

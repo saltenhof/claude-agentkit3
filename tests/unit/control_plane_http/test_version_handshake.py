@@ -510,6 +510,8 @@ def test_route_classifier_required_set() -> None:
         "/v1/telemetry/events",
         "/v1/project-edge/sync",
         "/v1/project-edge/operations/op-1",
+        "/v1/projects/p/installation/third-party-validation",
+        "/v1/projects/p/installation/branch-plugin-self-test",
         "/v1/story-runs/r1/phases/implementation/start",
         # AG3-130 (Codex N2): resume is a phase mutation of the story-runs family
         # and MUST be handshake-gated like start/complete/fail (bare + scoped forms).

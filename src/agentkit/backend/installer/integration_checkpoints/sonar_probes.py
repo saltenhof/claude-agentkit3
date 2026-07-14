@@ -17,9 +17,6 @@ from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
 
 if TYPE_CHECKING:
     from agentkit.backend.config.models import SonarQubeConfig
-    from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
-        BranchPluginSelfTest,
-    )
     from agentkit.integration_clients.sonar import SonarClient
 
 _COMMUNITY_BRANCH_PLUGIN_KEYS = frozenset(
@@ -67,12 +64,11 @@ def verify_token_role(token_permissions: frozenset[str]) -> SonarPreflightResult
     return None
 
 
-def verify_branch_plugin(
+def verify_branch_plugin_presence(
     client: SonarClient,
     config: SonarQubeConfig,
-    branch_plugin_self_test: BranchPluginSelfTest,
 ) -> SonarPreflightResult | None:
-    """Verify the Community Branch Plugin is present, recent, and conformant."""
+    """Verify the Community Branch Plugin is present and recent."""
     response = client.installed_plugins()
     plugins = response.json_body.get("plugins", [])
     plugin = _find_branch_plugin(plugins)
@@ -90,12 +86,6 @@ def verify_branch_plugin(
             reason="branch_plugin_too_low",
             details=(f"branch plugin {installed} < min_version {required}",),
         )
-    if not branch_plugin_self_test(client):
-        return SonarPreflightResult(
-            status=CheckpointStatus.FAILED,
-            reason="branch_plugin_self_test_failed",
-            details=("branch-plugin conformance self-test did not pass",),
-        )
     return None
 
 
@@ -109,7 +99,7 @@ def _find_branch_plugin(plugins: object) -> dict[str, object] | None:
 
 
 __all__ = [
-    "verify_branch_plugin",
+    "verify_branch_plugin_presence",
     "verify_reachable_version",
     "verify_token_role",
 ]

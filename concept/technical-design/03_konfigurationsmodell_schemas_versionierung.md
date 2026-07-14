@@ -167,8 +167,9 @@ assertion_governance:
   require_assertion_review: false
 
 are:
-  enabled: false              # ARE ist optional
   mcp_server: "are-server"    # MCP-Server-Name (registriert in .mcp.json)
+  rest_base_url: "http://localhost:8090" # authentifizierter Health-Read im Backend
+  token_env: "ARE_TOKEN"      # Referenz; Secret wird nur im Backend aufgeloest
 
 governance:
   risk_threshold: 30          # Risikoscore-Schwelle für Incident-Kandidat
@@ -245,7 +246,7 @@ Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
 | `base_url` | str (URL) | SonarQube-Server-Endpunkt (Default-Port 9901, FK-10 §10.7.2). |
 | `min_version` | str (SemVer) | Mindestversion SonarQube Community Build. Niedrigere Server-Version → Installer-FAIL (FK-50). |
 
-| `token_env` | str | Name der ENV-Variable bzw. des Secret-Store-Schluessels mit dem Sonar-Token. **Kein Inline-Token** (Secret-Hygiene, FK-33 §33.3.2 `security.secrets`). |
+| `token_env` | str | Name der ENV-Variable bzw. des Secret-Store-Schluessels mit dem Sonar-Token. **Kein Inline-Token** (Secret-Hygiene, FK-33 §33.3.2 `security.secrets`). Die Control Plane loest die Referenz in ihrer eigenen Umgebung auf; der Installer liest oder uebertraegt den Secret-Wert nicht. |
 | `plugins.community_branch.min_version` | str (SemVer) | Mindestversion des **Community Branch Plugin** (harte Abhaengigkeit, da Community Edition keine native Branch-Analyse hat; FK-33 §33.6.3). |
 | `quality_gate.default_profile` | str (Pfad) | Verweis auf das ausgelieferte Default-Quality-Gate-Profil unter `bundles/target_project/` (SSOT). Traegt BEIDE Conditions: New-Code UND Overall-Code (FK-33 §33.6.3 Overall-Code-Invariante). |
 | `quality_gate.overrides_allowed` | bool | Ob der Projektverantwortliche das Default-Profil durch ein eigenes Regelwerk ersetzen darf (Default `true`). |
@@ -260,6 +261,16 @@ Sonar als APPLICABLE deklarieren und den operativen CI/Jenkins-Pfad
 gleichzeitig als abwesend deklarieren. Wer keinen Jenkins-Pfad betreibt,
 muss fuer codeproduzierende Projekte entweder CI bereitstellen oder
 `sonarqube.available: false` als bewussten Sonar-Opt-out setzen.
+
+**Secret-Referenz-Grenze fuer Dritt-Systeme:** Die `token_env`-Felder
+von SonarQube, CI/Jenkins und ARE sind ausschliesslich Namen. Bei der
+backend-vermittelten Installer-Validierung (FK-50 §50.3 CP 10d) traegt
+der Request nur diese Referenzen; `ThirdPartyPreflightService` loest sie
+mit der Backend-Umgebung auf. Inline-Token sind schemawidrig. Aufgeloeste
+Werte duerfen weder Response-/Error-Details noch Telemetrie oder Logs
+erreichen. `features.are` bestimmt die Anwendbarkeit der ARE-Probe;
+`are.rest_base_url` und `are.token_env` sind bei aktivierter Probe
+erforderlich.
 
 **Pydantic v2-Validierung** (`SonarQubeConfig` als frozen-Modell,
 `extra="forbid"`, eingebunden in `PipelineConfig`):

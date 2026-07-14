@@ -61,6 +61,7 @@ from agentkit.backend.control_plane_http.default_routes import (
     _build_default_takeover_approval_routes,
     _build_default_task_management_routes,
     _build_default_telemetry_routes,
+    _build_default_third_party_validation_routes,
 )
 from agentkit.backend.control_plane_http.edge_read_handlers import (
     _handle_get_open_commands,
@@ -397,6 +398,10 @@ class ControlPlaneApplication(
         self._permission_routes = (
             r.permission_routes or _build_default_permission_routes()
         )
+        self._third_party_validation_routes = (
+            r.third_party_validation_routes
+            or _build_default_third_party_validation_routes()
+        )
 
     def ensure_version_handshake(self) -> None:
         """Guarantee a fail-closed handshake middleware on the production listener.
@@ -515,6 +520,11 @@ class ControlPlaneApplication(
             )
             if permission_response is not None:
                 return permission_response
+            third_party_response = self._third_party_validation_routes.handle_get(
+                route_path, correlation_id,
+            )
+            if third_party_response is not None:
+                return third_party_response
             return self._handle_get_request(route_path, query, correlation_id)
         if method == "DELETE":
             return self._handle_delete_request(route_path, body, correlation_id)
@@ -742,11 +752,11 @@ class ControlPlaneApplication(
         if auth_response is not None:
             return _auth_response_to_http_response(auth_response)
 
-        project_response = self._project_routes.handle_post(
+        installer_response = self._dispatch_installer_post(
             route_path, payload, correlation_id,
         )
-        if project_response is not None:
-            return _project_response_to_http_response(project_response)
+        if installer_response is not None:
+            return installer_response
 
         # NOTE: story_routes.handle_post is NOT called with the raw route_path.
         # Story mutations are only reachable via project-scoped paths (AC2/AC3).
@@ -834,6 +844,22 @@ class ControlPlaneApplication(
             error_code="not_found",
             message=_NOT_FOUND_MESSAGE,
             correlation_id=correlation_id,
+        )
+
+    def _dispatch_installer_post(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        """Dispatch project registration and installer mediation writes."""
+        project_response = self._project_routes.handle_post(
+            route_path, payload, correlation_id,
+        )
+        if project_response is not None:
+            return _project_response_to_http_response(project_response)
+        return self._third_party_validation_routes.handle_post(
+            route_path, payload, correlation_id,
         )
 
     def _dispatch_project_edge_post(

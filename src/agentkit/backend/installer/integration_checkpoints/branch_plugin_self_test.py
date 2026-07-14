@@ -4,7 +4,7 @@ The Community Branch Plugin is INOFFICIAL and only Trust-A-capable
 (blocking, FK-33 §33.5.1) when this conformance self-test passes. It runs
 at install time AND after every SonarQube-/plugin upgrade.
 
-This is the PRODUCTIVE runner (no attrappe): it drives the FK-50 §50.3
+This is the productive on-demand backend runner: it drives the FK-50 §50.3
 conformance steps against a throwaway mini-project through the thin
 ``integrations.sonar`` client. Live-server provisioning (creating the
 scanner run, deleting the project) is operational and is supplied via the
@@ -22,8 +22,8 @@ Steps (FK-50 §50.3 CP 10d.2), all must pass:
 4. verify the quality gate by ``analysisId`` (never ``projectKey``);
 5. delete the throwaway project.
 
-Any failed step -> the self-test returns ``False`` (the plugin is not
-gateable; the installer FAILs CP 10d and refuses to arm the green gate).
+Any failed step -> the self-test returns ``False`` and the explicit operation
+terminalizes as failed. Register and verify never invoke it implicitly.
 """
 
 from __future__ import annotations

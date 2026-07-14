@@ -32,12 +32,12 @@ unresolved_references:
     reason: Declared generated read-only artifact; it is intentionally not source-controlled.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/03_konfigurationsmodell_schemas_versionierung.md
-    line: 420
+    line: 431
     reference: tools/qa/schemas
     reason: Installer target-project location, not a source-repository location.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/10_runtime_deployment_speicher.md
-    line: 392
+    line: 394
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
@@ -107,7 +107,7 @@ unresolved_references:
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 726
+    line: 733
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH

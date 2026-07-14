@@ -45,6 +45,9 @@ _EXPORT_MODULE_NAMES = {
     "agentkit.backend.bootstrap.composition_implementation_evidence": (
         "_CiBuildTestEvidenceAdapter", "build_fast_test_runner", "build_structural_build_test_port",
     ),
+    "agentkit.backend.bootstrap.composition_installer": (
+        "build_third_party_preflight_service",
+    ),
     "agentkit.backend.bootstrap.composition_config": ("_project_config_present",),
     "agentkit.backend.bootstrap.composition_exploration": (
         "_build_exploration_drafting", "_StateBackendDeclaredImpactReader", "_UnavailableFineDesignEvaluator",
@@ -96,6 +99,7 @@ _PUBLIC_NAMES = (
     "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler",
     "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider",
     "build_takeover_approval_read_source", "build_permission_service",
+    "build_third_party_preflight_service",
     "build_structural_build_test_port", "build_verify_system", "cli_load_story_context",
     "cli_load_execution_events_for_project_global", "cli_read_phase_state_record",
 )

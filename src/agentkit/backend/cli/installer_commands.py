@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import urlsplit, urlunsplit
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from agentkit.backend.installer.runner import InstallConfig
-    from agentkit.integration_clients.sonar import SonarClient
 
 
 def add_installer_parsers(
@@ -245,7 +241,6 @@ def _cmd_install(args: argparse.Namespace) -> int:
         # conscious opt-out. The CI preflight then verifies fail-closed or SKIPs.
         ci_available=args.ci_available,
     )
-    _wire_live_install_integrations(config)
     try:
         result = install_agentkit(config)
     except InstallationError as exc:
@@ -263,131 +258,6 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
     print(f"Install failed: {'; '.join(result.errors)}", file=sys.stderr)
     return 1
-
-
-def _wire_live_install_integrations(config: InstallConfig) -> None:
-    """Attach productive Sonar/Jenkins clients for CLI installs when configured.
-
-    The installer preflight checks are intentionally fail-closed. The CLI is the
-    production composition boundary for a normal ``agentkit install`` invocation,
-    so it must build the live adapters from environment/secret-store variables
-    instead of relying on tests to inject them.
-    """
-    _wire_sonar_install_integration(config)
-    _wire_ci_install_integration(config)
-    _wire_branch_plugin_self_test_integration(config)
-
-
-def _wire_sonar_install_integration(config: InstallConfig) -> None:
-    if not bool(getattr(config, "sonarqube_available", False)):
-        return
-
-    sonar_url = os.environ.get("SONAR_URL")
-    if sonar_url:
-        config.sonarqube_base_url = sonar_url.rstrip("/")
-
-    token_env = _first_present_env_name(
-        "SONARQUBE_TOKEN",
-        "SONAR_TOKEN",
-        "SONAR_PASSWORD",
-    )
-    if token_env is not None:
-        config.sonarqube_token_env = token_env
-
-    base_url = str(config.sonarqube_base_url or "")
-    resolved_token_env = str(config.sonarqube_token_env or "")
-    token = os.environ.get(resolved_token_env, "")
-    if base_url and token:
-        from agentkit.integration_clients.sonar import SonarClient
-
-        sonar_user = os.environ.get("SONAR_USER", "")
-        config.sonar_client = SonarClient(base_url, token, user=sonar_user)
-        if sonar_user.lower() == "admin":
-            from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
-                ADMINISTER_ISSUES,
-            )
-
-            config.sonar_token_permissions = frozenset({ADMINISTER_ISSUES})
-
-
-def _wire_ci_install_integration(config: InstallConfig) -> None:
-    if not bool(getattr(config, "ci_available", False)):
-        return
-
-    jenkins_url = os.environ.get("JENKINS_URL")
-    if jenkins_url:
-        base_url, pipeline = _split_jenkins_url(jenkins_url)
-        config.ci_base_url = base_url
-        if pipeline:
-            config.ci_pipeline = pipeline
-
-    token_env = _first_present_env_name(
-        "JENKINS_API_TOKEN", "JENKINS_TOKEN", "JENKINS_PASSWORD"
-    )
-    if token_env is not None:
-        config.ci_token_env = token_env
-
-    base_url = str(config.ci_base_url or "")
-    resolved_token_env = str(config.ci_token_env or "")
-    token = os.environ.get(resolved_token_env, "")
-    if base_url and token:
-        from agentkit.integration_clients.jenkins import JenkinsClient
-
-        config.ci_client = JenkinsClient(
-            base_url,
-            token,
-            user=os.environ.get("JENKINS_USER", ""),
-        )
-
-
-def _wire_branch_plugin_self_test_integration(config: InstallConfig) -> None:
-    if config.sonar_branch_plugin_self_test is not None:
-        return
-    if not bool(getattr(config, "sonarqube_available", False)):
-        return
-    if not bool(getattr(config, "ci_available", False)):
-        return
-    if config.sonar_client is None or config.ci_client is None or not config.ci_pipeline:
-        return
-
-    from agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test import (
-        run_branch_plugin_conformance_self_test,
-    )
-    from agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness import (
-        JenkinsBranchPluginSelfTestHarness,
-    )
-
-    harness = JenkinsBranchPluginSelfTestHarness(
-        sonar_client=config.sonar_client,
-        jenkins_client=config.ci_client,
-        pipeline=config.ci_pipeline,
-    )
-
-    def _self_test(client: SonarClient) -> bool:
-        return run_branch_plugin_conformance_self_test(client, harness)
-
-    config.sonar_branch_plugin_self_test = _self_test
-
-
-def _first_present_env_name(*names: str) -> str | None:
-    for name in names:
-        if os.environ.get(name):
-            return name
-    return None
-
-
-def _split_jenkins_url(raw_url: str) -> tuple[str, str | None]:
-    """Return ``(jenkins_base_url, job_name)`` from root or job URLs."""
-    parsed = urlsplit(raw_url.rstrip("/"))
-    parts = [part for part in parsed.path.split("/") if part]
-    job_name: str | None = None
-    if "job" in parts:
-        job_index = parts.index("job")
-        if job_index + 1 < len(parts):
-            job_name = parts[job_index + 1]
-            parts = parts[:job_index]
-    base_path = "/" + "/".join(parts) if parts else ""
-    return urlunsplit((parsed.scheme, parsed.netloc, base_path, "", "")), job_name
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
@@ -583,7 +453,6 @@ def _cmd_register_project(args: argparse.Namespace) -> int:
     config = _build_engine_config(args)
     if config is None:
         return 1
-    _wire_live_install_integrations(config)  # type: ignore[arg-type]
     mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
     try:
         result = run_checkpoint_install(config, mode=mode)  # type: ignore[arg-type]
@@ -610,7 +479,6 @@ def _cmd_verify_project(args: argparse.Namespace) -> int:
     config = _build_engine_config(args)
     if config is None:
         return 1
-    _wire_live_install_integrations(config)  # type: ignore[arg-type]
     try:
         result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)  # type: ignore[arg-type]
     except ProjectError as exc:

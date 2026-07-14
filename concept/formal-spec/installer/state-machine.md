@@ -32,6 +32,7 @@ states:
   - id: installer.status.config_prepared
   - id: installer.status.project_registered
   - id: installer.status.bindings_applied
+  - id: installer.status.third_party_validated
   - id: installer.status.verified
     terminal: true
   - id: installer.status.dry_run_completed
@@ -62,8 +63,12 @@ transitions:
     from: installer.status.project_registered
     to: installer.status.bindings_applied
     guard: installer.invariant.bundle_bindings_are_version_pinned
-  - id: installer.transition.bindings_applied_to_verified
+  - id: installer.transition.bindings_applied_to_third_party_validated
     from: installer.status.bindings_applied
+    to: installer.status.third_party_validated
+    guard: installer.invariant.third_party_validation_is_backend_owned
+  - id: installer.transition.third_party_validated_to_verified
+    from: installer.status.third_party_validated
     to: installer.status.verified
     guard: installer.invariant.verify_project_is_read_only
   - id: installer.transition.preconditions_checked_to_dry_run_completed
@@ -95,5 +100,7 @@ compound_rules:
     description: Verification may confirm or reject registration state, but may not create or mutate bundle bindings or project registration rows.
   - id: installer.rule.project-structure-prepared-may-be-empty
     description: The project-structure step always records the scaffold decision; when default_project_structure is false it creates no target-project domain directories.
+  - id: installer.rule.self-test-operation-does-not-transition-registration
+    description: The explicit branch-plugin self-test lifecycle is accepted/succeeded/failed in one ControlPlaneOperationRecord and does not transition the installer registration state or run implicitly during register or verify.
 ```
 <!-- FORMAL-SPEC:END -->

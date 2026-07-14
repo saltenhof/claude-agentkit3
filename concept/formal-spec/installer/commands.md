@@ -37,7 +37,8 @@ commands:
     requires:
       - installer.invariant.system_installation_precedes_project_registration
       - installer.invariant.register_project_is_idempotent
-      - installer.invariant.cp10d_branch_plugin_selftest_uses_operational_ci_scan_path
+      - installer.invariant.third_party_validation_is_backend_owned
+      - installer.invariant.third_party_secrets_never_cross_the_wire
       - installer.invariant.project_edge_launcher_is_adapter_only
     emits:
       - installer.event.registration.requested
@@ -60,9 +61,34 @@ commands:
       - installer.status.verified
     requires:
       - installer.invariant.verify_project_is_read_only
+      - installer.invariant.third_party_validation_is_backend_owned
     emits:
       - installer.event.registration.verified
       - installer.event.registration.failed
+  - id: installer.command.validate-third-party
+    signature: POST /v1/projects/{project_key}/installation/third-party-validation {op_id, sonar token_env reference, ci token_env reference, feature-gated are token_env reference}
+    allowed_statuses:
+      - installer.status.project_registered
+      - installer.status.third_party_validated
+      - installer.status.failed
+    requires:
+      - installer.invariant.third_party_validation_is_backend_owned
+      - installer.invariant.third_party_secrets_never_cross_the_wire
+      - installer.invariant.third_party_validation_fails_closed
+      - installer.invariant.local_sonar_profile_check_stays_dev_side
+    emits:
+      - installer.event.registration.failed
+  - id: installer.command.run-branch-plugin-self-test
+    signature: POST /v1/projects/{project_key}/installation/branch-plugin-self-test {op_id, sonar token_env reference, ci token_env reference}; poll GET /v1/project-edge/operations/{op_id}
+    allowed_statuses:
+      - installer.status.project_registered
+      - installer.status.bindings_applied
+      - installer.status.third_party_validated
+      - installer.status.verified
+    requires:
+      - installer.invariant.heavy_self_test_is_explicit_async_only
+      - installer.invariant.cp10d_branch_plugin_selftest_uses_operational_ci_scan_path
+      - installer.invariant.third_party_secrets_never_cross_the_wire
   - id: installer.command.rebind-bundles
     signature: internal installer bundle rebind during upgrade or cleanup
     allowed_statuses:

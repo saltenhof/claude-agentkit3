@@ -200,9 +200,10 @@ def test_structural_are_provider_gets_configured_are_client(
         are=AreConfig(
             mcp_server="are-mcp",
             rest_base_url="https://are.example.com",
-            auth_token="token",
+            token_env="ARE_TOKEN",
         ),
     )
+    monkeypatch.setenv("ARE_TOKEN", "token")
     monkeypatch.setattr("agentkit.backend.config.loader.load_project_config", lambda _root: project)
 
     ctx = StoryContext(
