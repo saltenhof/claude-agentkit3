@@ -185,9 +185,19 @@ selbst semantisch gefunden werden muss (§5/W2). Ist-Zustand (verifiziert
 6. **Fail-closed-Betrieb:** Hub nicht erreichbar, Timeout oder nicht
    parsebare LLM-Antwort → benannter Lauf-Befund mit Exit-Code ≠ 0; kein
    Teil-Ergebnis mutiert die Baseline; kein „leerer PASS".
-7. **Erst-Baseline begründet:** Der Erstlauf auf `main` ist triagiert:
-   jeder Bestands-Befund ist entweder behoben oder mit Begründung
-   gebaselinet (ZERO DEBT: keine unbegründeten Restposten).
+7. **Reale End-to-End-Verifikation per Smoke-Test (kein Vollkorpus-Lasttest):**
+   Das Werkzeug wird gegen den echten Multi-LLM-Hub an einer **Handvoll**
+   Chunks (Größenordnung 10–20, deterministisch ausgewählt) nachgewiesen —
+   Lease-Lebenszyklus, Antwort-Parsing, Scope-Vokabular-Abgleich und
+   Policy-Entscheidung funktionieren end-to-end über die verfügbaren
+   Backends. Der Smoke-Test darf iteriert werden (bei Bedarf weitere ~10–20
+   Calls), aber es wird **kein** Vollkorpus-Durchlauf über alle H2-Chunks als
+   Abnahme-Gate verlangt. **Baseline startet leer** (`entries: []`) als
+   ehrlicher Startzustand — kein Schuldposten. Die Befüllung des Bestands
+   erfolgt **inkrementell** (META §6/§7: „kein Big-Bang"; Bestandsverstöße
+   werden beim nightly-Lauf bzw. beim nächsten fachlichen Anfassen sichtbar
+   und dann begründet gebaselinet oder behoben) — ein separater
+   Betriebsvorgang, nicht Teil der Abnahme dieser Werkzeug-Story.
 8. **Betriebsverdrahtung:** Nightly-Lauf und Vor-Merge-Aufruf sind
    verdrahtet und dokumentiert; die reguläre blocking CI-Stufe bleibt
    unverändert (W1/W4 sind dort; W2 ist nightly + vor Konzept-Merges,

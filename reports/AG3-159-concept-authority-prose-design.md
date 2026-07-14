@@ -109,16 +109,20 @@ wedge the run — target only healthy backends / a configured governance pool.
   docs in the range) in AGENTS.md next to the sibling-gate notes + governance §6. The regular blocking
   CI stage set stays exactly as-is.
 
-## 10. First-baseline (AC7) — document existing state with GENUINE reasons, NO big-bang
-The worker runs W2 once locally against the full corpus (hub reachable), triages EVERY finding: fix
-the doc OR add a justified baseline entry. Remediation of legacy P1/P2 violations is explicitly OUT of
-scope (story "Out of Scope"); the first baseline DOCUMENTS the existing state with a real per-entry
-`reason`. **ZERO DEBT adjudication gate (orchestrator):** report the baseline size and the full entry
-list; each `reason` must be a genuine, specific justification (why this assertion is acceptable / why
-it is a known-accepted existing state / why it is an LLM false-positive), NOT a rubber-stamp
-("existing", "accepted"). Rubber-stamp reasons are ZERO-DEBT violations and will be rejected. If the
-first run surfaces a very large number of genuine violations such that honest triage is infeasible
-within one story, STOP and report to the PO before committing a mass baseline — do not paper over it.
+## 10. Real verification = SMOKE TEST, not a full-corpus load test (AC7, RESCOPED 2026-07-14, PO-authorized)
+CORRECTION of the original freeze (which wrongly mandated a full-corpus ~1271-call first-baseline sweep
+as a closure gate — that conflated "the tool works" with "the whole corpus has been measured", and it
+contradicts META §6/§7 "kein Big-Bang / incremental"). The tool is DEVELOPED with ZERO hub calls
+(fixed evaluations). Real end-to-end proof = a bounded SMOKE TEST: run W2 against the real hub over a
+HANDFUL of chunks (~10-20, deterministically selected) proving lease lifecycle + parse + scope-vocab +
+policy end-to-end over the available backends (chatgpt/gemini/grok/qwen; skip kimi 402). Iterating the
+smoke test (another ~10-20 calls) is fine. NO full-corpus run is a closure gate. The baseline starts
+EMPTY (`entries: []`) as an honest start state — NOT a debt item. Bestand population is INCREMENTAL
+(nightly / next-time-a-doc-is-touched → then justified-baseline or fix), a separate operational
+activity, not this tool-story's acceptance. The transport still uses the robust epoch-rotation model
+(bounded lease epochs, fresh conversation per epoch, one lease per backend, checkpoint, fencing) so the
+eventual nightly/incremental runs are sound — but its closure proof is the smoke test, not a 1271-call
+sweep.
 
 ## 11. Tests (AC1-6) — deterministic, no live hub in CI
 Policy/core unit tests inject a scripted fake `AuthorityProseEvaluator` (fixed classifications, no
