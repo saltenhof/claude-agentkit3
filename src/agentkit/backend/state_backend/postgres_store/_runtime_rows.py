@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
     from ._compat import _CompatConnection
 
+_LIMIT_CLAUSE = "LIMIT ?"
+
 
 def save_phase_state_row(story_dir: Path, row: dict[str, Any]) -> None:
     """Persist a phase-state row dict to the database and projection file."""
@@ -642,7 +644,7 @@ def load_execution_event_rows_global(
         params.append(event_type)
     limit_clause = ""
     if limit is not None:
-        limit_clause = "LIMIT ?"
+        limit_clause = _LIMIT_CLAUSE
         params.append(limit)
     where_clause = f"WHERE {' AND '.join(clauses)}"
     with _connect_global() as conn:
@@ -673,7 +675,7 @@ def load_execution_event_rows_for_project_global(
     params: list[object] = [project_key]
     limit_clause = ""
     if limit is not None:
-        limit_clause = "LIMIT ?"
+        limit_clause = _LIMIT_CLAUSE
         params.append(limit)
     with _connect_global() as conn:
         rows = conn.execute(
@@ -702,7 +704,7 @@ def load_execution_event_rows_by_type_global(
     params: list[object] = [event_type]
     limit_clause = ""
     if limit is not None:
-        limit_clause = "LIMIT ?"
+        limit_clause = _LIMIT_CLAUSE
         params.append(limit)
     with _connect_global() as conn:
         rows = conn.execute(
