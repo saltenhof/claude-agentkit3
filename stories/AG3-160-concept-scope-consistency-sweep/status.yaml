@@ -16,6 +16,24 @@ status: completed
 # runs on chatgpt, gemini, grok, and qwen; kimi was intentionally excluded.
 # Baseline remains empty. Full ex-e2e: 9538 passed, 14 skipped; coverage 91.70%;
 # Ruff, native/Linux mypy, W1/W4 and all concept gates green.
+# CLOSED 2026-07-14 at main@5bf6a0ea6c4e18907f6d7433cb859aa8229b27ef (origin matches).
+# ORCHESTRATOR ADJUDICATION (independent): "the LLM never decides" is STRUCTURALLY
+# enforced -- the classification input model (scope_contracts.py:45) deliberately has
+# NO verdict field, so the LLM cannot express PASS/ERROR; scope_policy.py owns
+# SCOPE_CONTRADICTION deterministically; the regex fallback (parser.py:59) rejects
+# verdict tokens. Bounded-by-design confirmed: exactly one Hub call per scope-set/
+# partition, never chunk-pairs, never cross-scope. Shared W2/W3 baseline is empty
+# (honest start). AC7 proven by a bounded real-hub SMOKE TEST (4 scope-sets, one per
+# backend chatgpt/gemini/grok/qwen, kimi excluded) at
+# var/evidence/AG3-160-real-hub-smoke.log; two iterative first attempts fail-closed
+# correctly against real LLM misbehavior (gemini invalid chunk_id -> strict
+# validation; qwen fabricated quote -> policy stayed strict, retry passed) -- the
+# "a handful more calls" model, NOT a full all-scopes sweep as a gate (AG3-159 lesson
+# applied up front). A real parallel Postgres catalog race surfaced by the full suite
+# was fixed at its schema owner + a migration test. Independent CI: Jenkins #1921
+# SUCCESS (built exact SHA), Sonar gate OK / 0 / 0 / 0; local W2+W3 50 passed + 6
+# concept gates green (Windows). CONCEPT-GATE SEQUENCE COMPLETE: W1 (AG3-157) / W4
+# (AG3-158) / W2 (AG3-159) / W3 (AG3-160) all landed.
 phase: closure
 created: "2026-07-02"
 completed_at: "2026-07-14T13:43:04Z"
