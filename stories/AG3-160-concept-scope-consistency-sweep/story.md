@@ -156,9 +156,15 @@ widersprechen sich welche?"). Ist-Zustand (verifiziert 2026-07-02):
 6. **Vollständigkeit des Sweeps fail-closed:** Bleibt ein Scope-Set
    ungeprüft (Partition fehlgeschlagen, Timeout), ist der Lauf als
    unvollständig benannt (Exit-Code ≠ 0) — kein stilles Auslassen.
-7. **Erst-Einführung triagiert:** Der Erstlauf auf `main` ist triagiert
-   (Fix / begründete Baseline / benannter Formalisierungs-Kandidat je
-   Fund); Nightly-Verdrahtung steht.
+7. **Reale End-to-End-Verifikation per Smoke-Test (kein Vollkorpus-Sweep als Gate):**
+   Das Werkzeug wird gegen den echten Hub an einer **Handvoll** Scope-Sets
+   nachgewiesen (Set-Bildung → Sweep → Parsing → Policy end-to-end,
+   verfügbare Backends). Iterierbar bei Bedarf. Es wird **kein** Sweep über
+   *alle* Scopes als Abnahme-Gate verlangt. **Baseline startet leer** (ehrlicher
+   Startzustand, W2-Mechanik). Die Triage des Bestands erfolgt **inkrementell**
+   (nightly / vor Landung normativer Änderungen für die betroffenen Scopes;
+   META §6/§7 „kein Big-Bang") — ein separater Betriebsvorgang, nicht Teil der
+   Abnahme dieser Werkzeug-Story. Nightly-Verdrahtung steht.
 8. Coverage ≥ 85 % gehalten; `mypy` strict (inkl. `--platform linux`) und
    `ruff` ohne neue Ausnahmen; ARCH-55 (englische Bezeichner,
    Befund-Codes, Baseline-/Triage-Feldnamen).
