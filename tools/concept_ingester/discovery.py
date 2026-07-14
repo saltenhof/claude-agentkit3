@@ -22,7 +22,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from tools.concept_ingester.schema import SCHEMA_PROJECTION_VERSION
+
+from .schema import SCHEMA_PROJECTION_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

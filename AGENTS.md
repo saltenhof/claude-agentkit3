@@ -70,6 +70,11 @@ Auftraggeber iterieren.
   pruefen, danach Record-im-Diff oder gueltigen `Concept-Decision`-
   Trailer sowie den gruenen `check_concept_decision_record.py`-Lauf
   bestaetigen.
+- Vor der Landung normativer Konzeptaenderungen W2 gegen die geaenderte
+  Range ausfuehren (LLM-gestuetzt, daher bewusst kein blocking Push-Gate):
+  `python scripts/ci/check_concept_authority_prose.py --mode pre-merge
+  --base "${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-HEAD~1}"`. Neue Befunde sind
+  ERROR bis zum Fix oder einem konkret begruendeten Baseline-Eintrag.
 
 Den Repo-Zustand niemals so lassen, dass Jenkins oder das
 Sonar-Quality-Gate rot wird.

@@ -231,7 +231,13 @@ bleibt fail-closed uneindeutig.
 - **W2/W3 laufen nightly** und zusaetzlich vor der Landung normativer
   Konzeptaenderungen. Neue Befunde sind ERROR, bis sie triagiert
   sind; Triage-Ergebnis ist entweder Fix oder begruendeter
-  Baseline-Eintrag. Baselines ohne Begruendung sind unzulaessig.
+  Baseline-Eintrag. Baselines ohne Begruendung sind unzulaessig. Der
+  dokumentierte W2-Aufruf vor der Landung lautet
+  `python scripts/ci/check_concept_authority_prose.py --mode pre-merge
+  --base "${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-HEAD~1}"`; er bewertet nur
+  die in dieser Range geaenderten Konzeptdokumente. W2 bleibt wegen des
+  LLM-Aufrufs ausserhalb der blockierenden Push-CI und laeuft im Jenkins-
+  Nightly explizit nicht blockierend.
 - **W4 wirkt im Review** (Checkliste + deterministischer Check) und
   gilt ab Inkrafttreten dieses Dokuments auch manuell — unabhaengig
   vom Implementierungsstand des Checks. Die Review-Checkliste prueft
