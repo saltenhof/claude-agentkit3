@@ -2,9 +2,42 @@ story_id: AG3-131
 title: "CCAG-Permission-Requests/Leases und Mode-Lock zentral im Backend-State (kein projektlokaler Owner)"
 type: implementation
 status: completed
-phase: setup
+phase: closure
 created: "2026-06-29"
-completed_at: "2026-07-14T17:12:05Z"
+completed_at: "2026-07-14T17:55:00Z"
+# CLOSED 2026-07-14 at main@3f086ce3d812ddf93c26107dc05bdffb8fe1f831 (origin matches).
+# CCAG permission requests/leases + project mode-lock HOLDER identity relocated from
+# project-local SQLite/marker to central Postgres ownership (FK-10 I5). Central tables
+# ccag_permission_requests / ccag_permission_leases match the principal-capabilities
+# formal-spec entities (added the fields SQLite lacked: operation_class, path_classes,
+# request_fingerprint, principal_type, resolution, request_ref, max_uses). Mode-lock
+# holder identity in a child table, INSERT/DELETE atomic in the same CAS tx (advisory
+# lock / BEGIN IMMEDIATE), re-entry idempotent, holder_count derived in lockstep. Hook
+# is REST requester (GovernanceEdgeClient); AUTH SPLIT is fail-closed: open/consume =
+# project_api_token, resolve/grant = strategist BFF only, rejected BEFORE any mutation.
+# The old best-effort no-op (permission_request_opened=False swallowing a persist error)
+# is ELIMINATED -> visible fail-closed (permission_request_persist_failed + fault_class).
+# Local files (ccag_requests.db, lease SQLite, mode-lock marker, permission_state.json)
+# are discardable read projections; missing/divergent -> fail-closed, no local-truth
+# fallback. Lazy expiry -> deterministic central DENIED. W4 dogfood decision-record for
+# the 91/formal-spec edits. Landed initial impl (7b74d320, Jenkins #1924); a whole-story
+# orchestrator-adjudicated Fable finale returned CLOSE-READY (no fail-open / no second
+# truth / no auth-escalation; all 6 surfaces confirmed) with TWO WARNINGs fixed in the
+# finale pass (3f086ce3): W1 the open path did a projection-writing follow-up read that
+# misclassified a SUCCESSFUL central persist as persist_failed and re-minted duplicate
+# requests -> removed (request_id now from the POST response; genuine persist/REST
+# failure still visibly fail-closed); W2 the deleted TTL->ESCALATED integration proof
+# restored as a REST-path real-PG test + the token-missing escalation degradation made
+# OBSERVABLE (named log marker permission_request_ttl_escalation_degraded), still
+# best-effort. ORCHESTRATOR ADJUDICATION (independent; the worker's finale report was a
+# truncated 'failed' turn AFTER landing -- verified everything myself): W1/W2 fixes
+# confirmed fail-closed at code; git main==origin==3f086ce3 clean. Evidence: Jenkins
+# #1925 SUCCESS (built exact SHA), Sonar gate OK / violations 0 / critical 0 /
+# security_hotspots 0; #1924 real-PG block 2011 passed; local ex-e2e 9510 passed /
+# 14 skipped, coverage 91.68%, ruff + mypy strict native + --platform linux clean
+# (935 files); 6 concept gates + 140 CCAG/permission/mode-lock unit tests green
+# (Windows). Deferred NITs filed: lease-consume fingerprint binding (follow-up story
+# that makes leases effective); strategist inbox GET (frontend story, §2.2).
 size: L
 depends_on:
   - AG3-129
