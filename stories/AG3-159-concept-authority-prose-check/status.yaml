@@ -13,6 +13,27 @@ completed_at: "2026-07-14T10:37:51Z"
 # coverage 91.70%; ruff clean; mypy native + Linux clean (914 files); all six
 # concept/architecture gates PASS. A discovered SQLite first-bootstrap race was
 # fixed at its schema owner and its concurrency regression passed 20/20 repeats.
+# CLOSED 2026-07-14 at main@a2ac56717076dad9b0def67c1caf253ebe57a7b9 (origin matches).
+# ORCHESTRATOR ADJUDICATION (independent): the correctness invariant "the LLM never
+# decides" is verified at code -- evaluate_policy (tools/concept_governance/policy.py)
+# uses the LLM classification ONLY as input (which scopes are asserted); the PASS/
+# finding decision is a pure deterministic comparison (scope not in vocabulary ->
+# UNKNOWN_SCOPE_MENTION; scope not in authorized -> UNAUTHORIZED_SCOPE_ASSERTION;
+# authorized = authority_over UNION scope-qualified defers_to). Fail-closed on
+# unknown/unauthorized. Baseline is an honest empty start (entries: []). Real-hub
+# smoke evidence at var/evidence/AG3-159-real-hub-smoke-balanced.log. Independent CI:
+# Jenkins #1920 SUCCESS (built exact SHA), Sonar gate OK / violations 0 / critical 0 /
+# security_hotspots 0, coverage 90.8; local W2 29 passed + 6 concept gates green
+# (Windows). AC7 RESCOPE (PO-authorized 2026-07-14): the original full-corpus ~1271-
+# call first-baseline sweep was removed as a closure gate -- it conflated "the tool
+# works" with "the whole corpus measured" and contradicted META 6/7 "kein Big-Bang".
+# Two execution walls exposed why a single 1271-prompt run is unsound (pool capacity,
+# then single-conversation session accumulation); the sound epoch-rotation transport
+# is kept for the nightly/incremental runs. Real proof is now the bounded smoke test;
+# Bestand baselining is incremental (nightly / next-touch), a separate operational
+# activity. My original design freeze mandated the full-corpus sweep -- that was my
+# misjudgment, corrected in reports/AG3-159-concept-authority-prose-design.md section 10.
+# AG3-160 (W3) unblocked (consumes the W2 chunk-classification + baseline mechanic).
 phase: closure
 created: "2026-07-02"
 size: L
