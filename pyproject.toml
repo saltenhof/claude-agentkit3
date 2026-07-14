@@ -36,6 +36,9 @@ dev = [
     "types-PyYAML>=6.0",
     "ruff>=0.4",
     "pre-commit>=3.7",
+    # Discovery is the deterministic W2 source; its package projects the
+    # optional schema types at import time but never connects to an index.
+    "weaviate-client>=4.0",
 ]
 
 [project.scripts]

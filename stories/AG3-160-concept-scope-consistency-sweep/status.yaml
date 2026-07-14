@@ -1,7 +1,8 @@
 story_id: AG3-160
 title: "Konzept-Scope-Konsistenz-Sweep (W3): LLM-Sweep pro authority_over-Scope — alle Aussagen-Chunks eines Scopes als geschlossenes Set auf Widersprüche prüfen (nightly, Baseline wie W2)"
 type: implementation
-status: blocked
+status: ready
+# Unblocked 2026-07-14: technical predecessor AG3-159 is completed.
 phase: setup
 created: "2026-07-02"
 size: M

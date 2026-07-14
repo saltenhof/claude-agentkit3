@@ -12,16 +12,16 @@ collections are kept in sync:
 
 from __future__ import annotations
 
-from tools.concept_ingester.config import IngesterConfig
-from tools.concept_ingester.discovery import (
+from .config import IngesterConfig
+from .discovery import (
     ConceptChunk,
     DiscoveryResult,
     GlossaryTerm,
     discover,
     discover_chunks,
 )
-from tools.concept_ingester.ingester import IngestReport, IngestStrategy, run_ingest
-from tools.concept_ingester.schema import (
+from .ingester import IngestReport, IngestStrategy, run_ingest
+from .schema import (
     CHUNK_COLLECTION_NAME,
     COLLECTION_NAME,
     GLOSSARY_COLLECTION_NAME,

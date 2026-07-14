@@ -17,13 +17,14 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 import weaviate
-from tools.concept_ingester.config import IngesterConfig
-from tools.concept_ingester.discovery import (
+
+from .config import IngesterConfig
+from .discovery import (
     ConceptChunk,
     GlossaryTerm,
     discover,
 )
-from tools.concept_ingester.schema import (
+from .schema import (
     CHUNK_COLLECTION_NAME,
     GLOSSARY_COLLECTION_NAME,
     drop_all_collections,

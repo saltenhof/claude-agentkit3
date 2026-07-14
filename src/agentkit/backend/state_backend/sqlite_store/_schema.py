@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from threading import Lock
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -12,8 +13,22 @@ from ._story_identity import _story_number_from_id
 if TYPE_CHECKING:
     import sqlite3
 
+_SCHEMA_BOOTSTRAP_LOCK = Lock()
+
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Serialize the canonical schema bootstrap within one process."""
+    with _SCHEMA_BOOTSTRAP_LOCK:
+        try:
+            _ensure_schema_locked(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
+    """Apply the canonical schema while the bootstrap lock is held."""
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS story_contexts (

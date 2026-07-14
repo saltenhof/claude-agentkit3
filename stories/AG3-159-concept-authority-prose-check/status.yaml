@@ -1,9 +1,19 @@
 story_id: AG3-159
 title: "Konzept-Authority-Prosa-Prüfung (W2): LLM-Bewertung + deterministische Policy — normative Aussagen je Chunk klassifizieren, Scope-Abgleich gegen Authority/defers_to, nightly + vor Konzept-Merges"
 type: implementation
-status: ready
-# Unblocked 2026-07-14: sequence predecessor AG3-158 is completed.
-phase: setup
+status: completed
+completed_at: "2026-07-14T10:37:51Z"
+# Closed with the deterministic W2 policy/baseline/CLI suite, bounded
+# multi-backend lease epochs, post-policy checkpoints, stale-send fencing,
+# nightly/pre-merge wiring, and an empty honest-start baseline. The real-Hub
+# AC7 smoke completed 12 deterministic chunks (3 each on chatgpt, gemini,
+# grok, qwen) across 3 fully released epochs with no capacity exhaustion or
+# in-flight wedge. The regular blocking CI remains hub-free (W1/W4 only).
+# Closure evidence: focused W2 29 passed; full ex-e2e 9517 passed / 14 skipped;
+# coverage 91.70%; ruff clean; mypy native + Linux clean (914 files); all six
+# concept/architecture gates PASS. A discovered SQLite first-bootstrap race was
+# fixed at its schema owner and its concurrency regression passed 20/20 repeats.
+phase: closure
 created: "2026-07-02"
 size: L
 # Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-

@@ -2,18 +2,18 @@ pipeline {
     agent any
 
     options {
-        timeout(time: 90, unit: 'MINUTES')
+        timeout(time: 300, unit: 'MINUTES')
         ansiColor('xterm')
         timestamps()
         disableConcurrentBuilds()
     }
 
     triggers {
-        cron('H * * * *')
+        cron('H H * * *')
     }
 
     parameters {
-        string(name: 'agentkit_mode', defaultValue: 'ci', description: 'AgentKit pipeline mode')
+        string(name: 'agentkit_mode', defaultValue: 'nightly', description: 'AgentKit pipeline mode')
         string(name: 'sonar_project_key', defaultValue: 'claude-agentkit3', description: 'CP10d self-test Sonar project key')
         string(name: 'sonar_branch', defaultValue: 'main', description: 'CP10d self-test Sonar branch')
     }
@@ -301,6 +301,27 @@ PY
                         . .venv/bin/activate
                         PYTHONPATH=src python scripts/ci/check_concept_decision_record.py \
                             --base "${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-HEAD~1}"
+                    '''
+                }
+            }
+        }
+
+        stage('Concept Authority Prose Nightly (non-blocking)') {
+            when {
+                expression { params.agentkit_mode == 'nightly' }
+            }
+            steps {
+                dir('agentkit-src') {
+                    sh '''
+                        . .venv/bin/activate
+                        set +e
+                        LLM_HUB_URL=http://host.docker.internal:9600 \
+                            python scripts/ci/check_concept_authority_prose.py --mode nightly
+                        W2_EXIT=$?
+                        if [ "$W2_EXIT" -ne 0 ]; then
+                            echo "[ERROR] W2 reported untriaged or operational findings; nightly stage remains non-blocking by design."
+                        fi
+                        exit 0
                     '''
                 }
             }
