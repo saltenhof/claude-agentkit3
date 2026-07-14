@@ -10,6 +10,7 @@ from ._connection import _connect
 _COLUMNS = """request_id, project_key, story_id, run_id, principal_type,
 tool_name, operation_class, path_classes, request_fingerprint, status,
 requested_at, expires_at, resolution, decided_at, decision_note"""
+_SELECT_BY_ID = "SELECT * FROM ccag_permission_requests WHERE request_id = ?"
 
 
 def insert_ccag_permission_request_global_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -22,10 +23,7 @@ def insert_ccag_permission_request_global_row(row: dict[str, Any]) -> dict[str, 
             "ON CONFLICT (request_id) DO NOTHING",
             values,
         )
-        stored = conn.execute(
-            "SELECT * FROM ccag_permission_requests WHERE request_id = ?",
-            (row["request_id"],),
-        ).fetchone()
+        stored = conn.execute(_SELECT_BY_ID, (row["request_id"],)).fetchone()
     if stored is None:
         raise RuntimeError("permission request insert did not materialize a row")
     return dict(stored)
@@ -37,9 +35,7 @@ def load_ccag_permission_request_global_row(
     """Load one request after lazy expiry materialization."""
     with _connect(_project_store_dir(None)) as conn:
         _expire(conn, now, "request_id = ?", (request_id,))
-        row = conn.execute(
-            "SELECT * FROM ccag_permission_requests WHERE request_id = ?", (request_id,)
-        ).fetchone()
+        row = conn.execute(_SELECT_BY_ID, (request_id,)).fetchone()
     return dict(row) if row is not None else None
 
 
@@ -68,9 +64,7 @@ def resolve_ccag_permission_request_global_row(
             "decided_at = ?, decision_note = ? WHERE request_id = ? AND status = 'pending'",
             (status, resolution, now, note, request_id),
         )
-        row = conn.execute(
-            "SELECT * FROM ccag_permission_requests WHERE request_id = ?", (request_id,)
-        ).fetchone()
+        row = conn.execute(_SELECT_BY_ID, (request_id,)).fetchone()
     return dict(row) if row is not None else None
 
 

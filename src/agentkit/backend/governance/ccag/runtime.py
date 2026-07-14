@@ -386,6 +386,7 @@ class CcagPermissionRuntime:
         Returns:
             A ``CcagDecision`` with kind ``unknown_permission``.
         """
+        del tool_input, hook_event
         if operating_mode == _STORY_EXECUTION:
             return CcagDecision.unknown(
                 tool_name=tool_name, operating_mode=operating_mode

@@ -10,6 +10,7 @@ from ._connection import _connect
 _COLUMNS = """lease_id, request_ref, project_key, story_id, run_id,
 principal_type, tool_name, operation_class, path_classes, request_fingerprint,
 max_uses, consumed, issued_at, expires_at"""
+_SELECT_BY_ID = "SELECT * FROM ccag_permission_leases WHERE lease_id = ?"
 
 
 def insert_ccag_permission_lease_global_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -21,9 +22,7 @@ def insert_ccag_permission_lease_global_row(row: dict[str, Any]) -> dict[str, An
             "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (lease_id) DO NOTHING", values
         )
-        stored = conn.execute(
-            "SELECT * FROM ccag_permission_leases WHERE lease_id = ?", (row["lease_id"],)
-        ).fetchone()
+        stored = conn.execute(_SELECT_BY_ID, (row["lease_id"],)).fetchone()
     if stored is None:
         raise RuntimeError("permission lease insert did not materialize a row")
     return dict(stored)
@@ -32,9 +31,7 @@ def insert_ccag_permission_lease_global_row(row: dict[str, Any]) -> dict[str, An
 def load_ccag_permission_lease_global_row(lease_id: str) -> dict[str, Any] | None:
     """Load one canonical permission lease."""
     with _connect(_project_store_dir(None)) as conn:
-        row = conn.execute(
-            "SELECT * FROM ccag_permission_leases WHERE lease_id = ?", (lease_id,)
-        ).fetchone()
+        row = conn.execute(_SELECT_BY_ID, (lease_id,)).fetchone()
     return dict(row) if row is not None else None
 
 
@@ -50,7 +47,5 @@ def consume_ccag_permission_lease_global_row(
         ).fetchone()
         applied = row is not None
         if not applied:
-            row = conn.execute(
-                "SELECT * FROM ccag_permission_leases WHERE lease_id = ?", (lease_id,)
-            ).fetchone()
+            row = conn.execute(_SELECT_BY_ID, (lease_id,)).fetchone()
     return (dict(row) if row is not None else None, applied)

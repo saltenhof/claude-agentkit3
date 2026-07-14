@@ -8,7 +8,6 @@ from agentkit.backend.control_plane_http._permission_lease_routes import Permiss
 from agentkit.backend.control_plane_http._permission_request_routes import PermissionRequestRoutes
 from agentkit.backend.control_plane_http._permission_route_common import permission_error
 from agentkit.backend.exceptions import ConfigError
-from agentkit.backend.governance.ccag.permission_errors import PermissionStateError
 
 if TYPE_CHECKING:
     from agentkit.backend.auth.middleware import AuthResult
@@ -32,7 +31,7 @@ class PermissionRoutes:
             return None
         try:
             return self._requests.handle_get(query, correlation_id, auth)
-        except (ConfigError, PermissionStateError, RuntimeError, TypeError, ValueError) as exc:
+        except (ConfigError, RuntimeError, TypeError, ValueError) as exc:
             return permission_error(exc, correlation_id)
 
     def handle_post(
@@ -45,7 +44,7 @@ class PermissionRoutes:
                 return self._requests.handle_post(payload, correlation_id, auth)
             if route_path == self._leases.path:
                 return self._leases.handle_post(payload, correlation_id, auth)
-        except (ConfigError, PermissionStateError, RuntimeError, TypeError, ValueError) as exc:
+        except (ConfigError, RuntimeError, TypeError, ValueError) as exc:
             return permission_error(exc, correlation_id)
         return None
 

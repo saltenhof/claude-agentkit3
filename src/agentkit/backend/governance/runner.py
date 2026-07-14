@@ -8,8 +8,6 @@ information is collected.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import os
 from dataclasses import dataclass
@@ -19,10 +17,20 @@ from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from agentkit.backend.governance import rest_edge
+from agentkit.backend.governance.capability_blocks import (
+    binding_invalid_block as _binding_invalid_block,
+)
+from agentkit.backend.governance.capability_blocks import (
+    capability_block as _capability_block,
+)
+from agentkit.backend.governance.capability_blocks import (
+    capability_fault_block as _capability_fault_block,
+)
 from agentkit.backend.governance.errors import LockRecordNotFoundError
 from agentkit.backend.governance.guard_system.records import GuardDecision, GuardDecisionOutcome
 from agentkit.backend.governance.hook_registration import HookId
 from agentkit.backend.governance.locks import DeactivationResult, LockRecordId
+from agentkit.backend.governance.permission_request_block import open_permission_request_block
 from agentkit.backend.governance.principal_capabilities.operations import (
     WEB_FETCH,
     WEB_SEARCH,
@@ -1925,35 +1933,6 @@ def _resolve_mode_scoped_block(
     return None
 
 
-def _binding_invalid_block(reason: str | None) -> HookDecision:
-    """Fail-closed HARD BLOCK for an inconsistent story-execution binding.
-
-    FK-55 §55.10.1/§55.10.4 (FK-56 §51 "broken binding must not degrade to free
-    mode", FK-59 §175 "binding_invalid is not a normal third mode"): when a
-    story-execution lock/session exists but is inconsistent, an unknown /
-    unresolved permission must NOT open a grantable in-story permission_request
-    and must NOT defer to CCAG. It is a deterministic ``principal_capability``
-    BLOCK whose ``detail`` carries the specific resolver ``block_reason``.
-
-    Args:
-        reason: The ``ProjectEdgeResolver`` block reason (e.g.
-            ``worktree_root_mismatch``), or ``None`` if not available.
-
-    Returns:
-        A blocking :class:`~agentkit.backend.governance.protocols.GuardVerdict`.
-    """
-    return GuardVerdict.block(
-        "principal_capability",
-        ViolationType.UNAUTHORIZED_OPERATION,
-        f"operating_mode binding_invalid: {reason or 'inconsistent_story_binding'}",
-        detail={
-            "capability_rule_id": "FK-55-55.10.1/55.10.4",
-            "operating_mode": "binding_invalid",
-            "block_reason": reason,
-        },
-    )
-
-
 def _block_with_permission_request(
     event: HookEvent,
     verdict: object,
@@ -1972,106 +1951,17 @@ def _block_with_permission_request(
     mode. A failure to persist the request must not turn the fail-closed BLOCK
     into a fault that escapes — it stays a deterministic BLOCK.
     """
-    from agentkit.backend.control_plane.models import PermissionRequestOpenRequest
-
     resolved = context or _resolve_capability_context(event, project_root=project_root)
     resolved_hull = hull or _resolve_capability_hull(event, project_root=project_root)
-    request_id = str(uuid4())
-    try:
-        if (
-            resolved.project_key is None
-            or resolved.story_id is None
-            or resolved.run_id is None
-            or resolved_hull is None
-        ):
-            raise RuntimeError("canonical permission request context is incomplete")
-        request = PermissionRequestOpenRequest(
-            request_id=request_id,
-            project_key=resolved.project_key,
-            story_id=resolved.story_id,
-            run_id=resolved.run_id,
-            principal_type=resolved_hull.principal_type,
-            tool_name=_event_tool(event),
-            operation_class=resolved_hull.operation_class,
-            path_classes=resolved_hull.path_classes,
-            request_fingerprint=_permission_request_fingerprint(event, resolved_hull),
-            ttl_seconds=_permission_request_ttl_s(project_root),
-        )
-        persisted = _governance_edge_client(project_root).open_permission_request(request)
-        request_id = persisted.request_id
-    except Exception as exc:  # noqa: BLE001 -- converted to a visible hard block
-        reason = getattr(verdict, "reason", "capability denied")
-        rule_id = getattr(verdict, "rule_id", None)
-        return GuardVerdict.block(
-            "principal_capability",
-            ViolationType.UNAUTHORIZED_OPERATION,
-            f"{reason}; canonical permission request persistence failed closed: {exc}",
-            detail={
-                "capability_rule_id": rule_id,
-                "permission_request_persist_failed": True,
-                "fault_class": type(exc).__name__,
-            },
-        )
-    reason = getattr(verdict, "reason", "capability denied")
-    rule_id = getattr(verdict, "rule_id", None)
-    detail: dict[str, object] = {
-        "capability_rule_id": rule_id,
-        "permission_request_opened": True,
-        "permission_request_id": request_id,
-    }
-    return GuardVerdict.block(
-        "principal_capability",
-        ViolationType.UNAUTHORIZED_OPERATION,
-        reason,
-        detail=detail,
-    )
-
-
-def _permission_request_fingerprint(
-    event: HookEvent, hull: CapabilityHull
-) -> str:
-    """Return a deterministic binding fingerprint for one permission case."""
-    payload = {
-        "operation": event.operation,
-        "operation_args": event.operation_args,
-        "principal_type": hull.principal_type,
-        "operation_class": hull.operation_class,
-        "path_classes": hull.path_classes,
-    }
-    canonical = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), default=str
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
-
-
-def _capability_block(verdict: object) -> HookDecision:
-    """Translate a capability DENY verdict into a blocking GuardVerdict."""
-    reason = getattr(verdict, "reason", "capability denied")
-    rule_id = getattr(verdict, "rule_id", None)
-    return GuardVerdict.block(
-        "principal_capability",
-        ViolationType.UNAUTHORIZED_OPERATION,
-        reason,
-        detail={"capability_rule_id": rule_id},
-    )
-
-
-def _capability_fault_block(exc: Exception) -> HookDecision:
-    """Map a capability-layer fault to a hard fail-closed BLOCK (ERROR 6).
-
-    FK-55 §55.10.5 / FK-31 §31.2.7: a stale / missing / corrupt dual freeze
-    context (or any other capability-layer wiring fault) must surface as a
-    deterministic ``principal_capability`` BLOCK, not as an escaping runtime
-    exception. The fault class is recorded in ``detail`` for the audit trail.
-    """
-    return GuardVerdict.block(
-        "principal_capability",
-        ViolationType.UNAUTHORIZED_OPERATION,
-        f"capability evaluation failed fail-closed: {exc}",
-        detail={
-            "capability_rule_id": "FK-55-55.10.5",
-            "fault_class": type(exc).__name__,
-        },
+    return open_permission_request_block(
+        event,
+        verdict,
+        project_key=resolved.project_key,
+        story_id=resolved.story_id,
+        run_id=resolved.run_id,
+        hull=resolved_hull,
+        client_factory=lambda: _governance_edge_client(project_root),
+        ttl_seconds=_permission_request_ttl_s(project_root),
     )
 
 
