@@ -2188,7 +2188,7 @@ def _escalate_expired_permission_requests(
         return True
     except Exception:  # noqa: BLE001 -- lazy escalation is best-effort; never crash CCAG
         logger.warning(
-            "permission-request TTL escalation failed for story_id=%s "
+            "permission_request_ttl_escalation_degraded story_id=%s "
             "(best-effort lazy materialisation; CCAG decision unaffected)",
             story_id,
             exc_info=True,

@@ -110,12 +110,7 @@ class GovernanceEdgeClient:
             payload=request.model_dump(mode="json"),
         )
         data.pop("correlation_id", None)
-        response = PermissionRequestView.model_validate(data)
-        self.read_permission_requests(
-            project_key=response.project_key, story_id=response.story_id,
-            run_id=response.run_id,
-        )
-        return response
+        return PermissionRequestView.model_validate(data)
 
     def read_permission_requests(
         self, *, project_key: str, story_id: str, run_id: str
