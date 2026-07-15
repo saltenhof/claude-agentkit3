@@ -1,10 +1,48 @@
 story_id: AG3-132
 title: "Backend besitzt die Drittsystem-Erreichbarkeits-Validierung; Installer prueft nicht mehr direkt (I2)"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+completed_at: "2026-07-15T02:20:00Z"
 created: "2026-06-29"
 size: L
+# CLOSED 2026-07-15 at main@130226a7f0aacca5c07dc9fc6407f098fb96cf87 (origin matches).
+# Third-system reachability validation (Sonar/Jenkins/ARE) relocated from the dev-side
+# installer into a backend CORE service (ThirdPartyPreflightService under installer/,
+# thin control_plane_http/third_party_validation_routes.py; project-scoped route
+# POST /v1/projects/{key}/installation/third-party-validation -- CP7 registration
+# precedes CP10d so the tenant exists -> free 404/archived-guard/project_api_token).
+# The BACKEND reaches the systems (FK-10 I2); the installer removed its dev-side
+# SonarClient/JenkinsClient and consumes the fail-closed verdict. Light validation is
+# synchronous; the heavy branch-plugin conformance self-test is an on-demand async op
+# (202+op_id, bounded executor), never implicit on register, not triggered by
+# verify-project. Secrets: config carries only token_env REFERENCES; the backend
+# resolves os.environ.get in its own env; dedicated third_party_redaction.py scrubs
+# every error/detail path. The local default-profile file check stayed dev-side (not a
+# third-system reach). FK-50 §50.2/§50.3 + formal-spec/installer + FK-91 §91.1a +
+# FK-03 (are.enabled->features.are) + FK-10 nachzug with a W4 dogfood record; gate
+# semantics (FK-33/FK-27) untouched; phase-side gate drivers untouched. Landed impl
+# (a73cdfb2, Jenkins #1929) with the pre-concept-merge W2/W3 edit-diligence adjudicated
+# (governance ruling: pre-merge W2/W3 = no edit-INTRODUCED violation over changed
+# scopes, NOT a full-corpus sweep; one real conflict found+fixed; W2/W3 gate-usability
+# issues filed as task #39). A whole-story orchestrator-adjudicated Fable finale then
+# caught a BLOCKING fail-OPEN that green CI + code-adjudication missed (Defect A): the
+# config-deterministic op_id + terminal memoization made the LIVE read-only probe cache
+# its verdict forever -> verify-project returned a stale PASS having probed nothing
+# (fail-open) and a committed FAILED bricked register-retry-after-fix. Fixed in the
+# finale (130226a7): the light validation now does IN-FLIGHT dedup only (release, no
+# finalize) so every register/verify RE-PROBES live; a probe error still fails closed
+# (FAILED); legacy committed verdicts are never replayed; heavy-self-test idempotency +
+# all secret/redaction guards unchanged. Plus WARNING-B (verify now COLLECTS a FAILED
+# third-party verdict as a checkpoint result instead of raising, exit!=0 preserved) and
+# WARNING-C (no-dev-client pin strengthened to the engine path). ORCHESTRATOR
+# ADJUDICATION (independent): Defect-A fix confirmed fail-CLOSED at code (re-probe, no
+# reverse fail-open); secret-no-wire + redaction + I2-no-dev-client confirmed. Evidence
+# on 130226a7: Jenkins #1931 SUCCESS (built exact SHA), Sonar gate OK / violations 0 /
+# critical 0 / security_hotspots 0; local ex-e2e 9513 passed / 14 skipped, coverage
+# 91.68%, ruff + mypy strict native + --platform linux clean (947 files); 6 concept
+# gates + 38 third-party tests green (Windows). Deferred (out of scope, noted): async-op
+# strand-until-reconcile + cross-project operation-GET NITs.
 # NEU GESCHNITTEN (nach FK-72-§72.8.2-Erdung, Commit 95d5ac1) + Codex-reviewed
 # (results/ag3-132-recut-review-codex.md: "umsetzbar nach Nachschaerfungen" —
 # eingearbeitet). Alter verify/closure-http-Mediations-Zuschnitt verworfen
