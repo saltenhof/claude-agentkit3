@@ -76,11 +76,15 @@ class ThirdPartyPreflightService:
         request: ThirdPartyValidationRequest,
         correlation_id: str,
     ) -> ThirdPartyValidationResponse:
-        """Persist and replay one synchronous typed validation verdict."""
+        """Deduplicate an in-flight light probe without memoizing its verdict."""
         identity = _validation_identity(project_key, request, correlation_id)
         outcome = self._guard.claim(identity)
         if isinstance(outcome, ReplayOutcome):
-            return ThirdPartyValidationResponse.model_validate(outcome.result_payload)
+            # Pre-AG3-132-fix rows may contain a terminal light verdict. A read-only
+            # reachability probe is live environment state, not a mutation result:
+            # replaying that payload would fail open after a PASS or brick retries
+            # after a FAILED verdict. Ignore the legacy payload and probe again.
+            return self.validate(request)
         if isinstance(outcome, InFlightOutcome):
             raise ThirdPartyOperationConflictError(
                 "operation_in_flight", "validation operation is already running"
@@ -96,13 +100,13 @@ class ThirdPartyPreflightService:
         if not isinstance(outcome, FreshClaim):
             raise ThirdPartyServiceUnavailableError("unexpected operation-claim outcome")
         try:
-            result = self.validate(request)
-        except Exception:
+            return self.validate(request)
+        finally:
+            # The light-validation guard is only a concurrent-work fence. PASS and
+            # FAILED are both read observations and must never become terminal,
+            # permanently replayable operation results. Heavy self-test claims keep
+            # their existing finalize/replay mutation semantics below.
             self._guard.release(identity, outcome)
-            raise
-        if not self._guard.finalize(identity, outcome, result.model_dump(mode="json")):
-            raise ThirdPartyServiceUnavailableError("validation finalize lost its claim")
-        return result
 
     def start_self_test(
         self, project_key: str, request: BranchPluginSelfTestRequest

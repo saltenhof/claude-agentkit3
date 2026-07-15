@@ -21,6 +21,7 @@ import json
 import time
 from typing import TYPE_CHECKING
 
+from agentkit.backend.exceptions import InstallationError
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
 from agentkit.backend.installer.checkpoint_engine.context import ScopeInteractionMode
 from agentkit.backend.installer.checkpoint_engine.reasons import (
@@ -489,7 +490,24 @@ def cp10d_sonarqube(context: CheckpointContext) -> CheckpointResult:
             start=start,
         )
 
-    sonar_result = _run_cp10d_sonarqube(context.config, context.project_root, yaml_data)
+    try:
+        sonar_result = _run_cp10d_sonarqube(
+            context.config, context.project_root, yaml_data
+        )
+    except InstallationError as exc:
+        if context.mode.mutations_allowed:
+            raise
+        error_code = str(exc.detail.get("error_code", "third_party_validation_failed"))
+        raw_details = exc.detail.get("details")
+        detail_items = raw_details if isinstance(raw_details, list) else [str(exc)]
+        details = tuple(str(item) for item in detail_items)
+        return make_result(
+            nid.CP_10D_SONARQUBE,
+            status=CheckpointStatus.FAILED,
+            detail="; ".join(details),
+            reason=error_code,
+            start=start,
+        )
     mapped = _sonar_cp_to_checkpoint_result(sonar_result)
     # Re-stamp the checkpoint id to the canonical CP 10d node id (the transferred
     # helper uses the legacy id); behaviour/status/reason are preserved.

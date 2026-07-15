@@ -11,7 +11,7 @@ from agentkit.backend.control_plane.third_party_models import (
     ThirdPartyValidationRequest,
     ThirdPartyValidationResponse,
 )
-from agentkit.backend.exceptions import InstallationError
+from agentkit.backend.exceptions import ControlPlaneApiError, InstallationError
 from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10d_sonarqube
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
@@ -140,6 +140,30 @@ def test_cp10d_fails_closed_when_backend_is_unreachable(tmp_path: Path) -> None:
         _run_cp10d_sonarqube(_config(tmp_path, edge), tmp_path, _yaml())
 
     assert caught.value.detail["error_code"] == "third_party_backend_unreachable"
+
+
+def test_cp10d_distinguishes_backend_http_rejection_from_transport_failure(
+    tmp_path: Path,
+) -> None:
+    """A reachable backend's HTTP error retains its structured taxonomy."""
+    _profile(tmp_path)
+    edge = _ProjectEdgeBoundary(
+        failure=ControlPlaneApiError(
+            "project token is invalid",
+            error_code="unauthorized",
+            correlation_id="corr-http",
+            http_status=401,
+        )
+    )
+
+    with pytest.raises(InstallationError) as caught:
+        _run_cp10d_sonarqube(_config(tmp_path, edge), tmp_path, _yaml())
+
+    assert caught.value.detail == {
+        "cause": "ThirdPartyValidationBackendHttpError",
+        "error_code": "unauthorized",
+        "http_status": 401,
+    }
 
 
 def test_cp10d_fails_closed_on_structured_system_failure(tmp_path: Path) -> None:

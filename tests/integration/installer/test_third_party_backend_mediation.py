@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import threading
 import urllib.request
@@ -25,8 +26,16 @@ from agentkit.backend.control_plane_http.third_party_validation_routes import (
 )
 from agentkit.backend.control_plane_http.version_handshake import VersionHandshakeMiddleware
 from agentkit.backend.exceptions import InstallationError
+from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
+    run_checkpoint_install,
+)
 from agentkit.backend.installer.bounded_executor import BoundedThreadExecutor
-from agentkit.backend.installer.checkpoint_engine.node_ids import CP_10D_SONARQUBE
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.checkpoint_engine.node_ids import (
+    CP_10D_SONARQUBE,
+    CP_11_GIT_HOOKS_AND_CLAUDE,
+    CP_12_VERIFY_REGISTRATION,
+)
 from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
@@ -193,8 +202,19 @@ def _install_config(
 def test_register_project_reaches_real_route_and_backend_preflight(
     tmp_path: Path,
     mediated_control_plane: tuple[str, str, FakeThirdPartyClientFactory],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Register traverses CP7, HTTP middleware/route, service, and real probes."""
+    """The engine constructs third-system clients only behind the backend route."""
+
+    def _forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the installer engine constructed a dev-side client")
+
+    monkeypatch.setattr(
+        "agentkit.integration_clients.sonar.SonarClient.__init__", _forbidden
+    )
+    monkeypatch.setattr(
+        "agentkit.integration_clients.jenkins.JenkinsClient.__init__", _forbidden
+    )
     base_url, token, clients = mediated_control_plane
     root = tmp_path / "tenant-a"
     root.mkdir()
@@ -220,10 +240,95 @@ def test_register_project_reaches_real_route_and_backend_preflight(
     )
     request = _third_party_validation_request(config, yaml_data)
     record = load_control_plane_operation_global(request.op_id)
-    assert record is not None
-    assert record.operation_kind == "third_party_validation"
-    assert record.status == "committed"
-    assert record.request_body_hash is not None
+    assert record is None, "read-only validation must release its in-flight claim"
+
+
+@pytest.mark.integration
+def test_verify_reprobes_when_external_state_flips_from_pass_to_unreachable(
+    tmp_path: Path,
+    mediated_control_plane: tuple[str, str, FakeThirdPartyClientFactory],
+) -> None:
+    """A later verify observes live Sonar state instead of replaying register PASS."""
+    base_url, token, clients = mediated_control_plane
+    root = tmp_path / "tenant-a"
+    root.mkdir()
+    ensure_git_repo(root)
+    _default_profile(root)
+    store = _bundle_store(tmp_path)
+    config = _install_config(root, store, _project_edge(root, base_url, token), base_url)
+    assert install_agentkit(config).success
+
+    clients.sonar_client.reachable = False
+    verified = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)
+
+    cp10d = next(
+        item
+        for item in verified.checkpoint_results or ()
+        if item.checkpoint == CP_10D_SONARQUBE
+    )
+    assert verified.success is False
+    assert cp10d.status is CheckpointStatus.FAILED
+    assert "sonar_unreachable" in (cp10d.detail or "")
+    assert clients.sonar_constructions == 2
+
+
+@pytest.mark.integration
+def test_register_retry_reprobes_after_failed_external_state_is_fixed(
+    tmp_path: Path,
+    mediated_control_plane: tuple[str, str, FakeThirdPartyClientFactory],
+) -> None:
+    """A failed register verdict cannot permanently brick identical config."""
+    base_url, token, clients = mediated_control_plane
+    clients.sonar_client.reachable = False
+    root = tmp_path / "tenant-a"
+    root.mkdir()
+    ensure_git_repo(root)
+    _default_profile(root)
+    store = _bundle_store(tmp_path)
+    config = _install_config(root, store, _project_edge(root, base_url, token), base_url)
+
+    with pytest.raises(InstallationError, match="sonar_unreachable"):
+        install_agentkit(config)
+    clients.sonar_client.reachable = True
+
+    retried = install_agentkit(config)
+
+    assert retried.success is True
+    assert clients.sonar_constructions == 2
+
+
+@pytest.mark.integration
+def test_verify_collects_failed_third_party_verdict_and_later_checkpoints(
+    tmp_path: Path,
+    mediated_control_plane: tuple[str, str, FakeThirdPartyClientFactory],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify reports later checkpoints and exits nonzero after failed CP10d."""
+    from agentkit.backend.cli.installer_commands import _cmd_verify_project
+
+    base_url, token, clients = mediated_control_plane
+    root = tmp_path / "tenant-a"
+    root.mkdir()
+    ensure_git_repo(root)
+    _default_profile(root)
+    store = _bundle_store(tmp_path)
+    config = _install_config(root, store, _project_edge(root, base_url, token), base_url)
+    assert install_agentkit(config).success
+    clients.sonar_client.reachable = False
+    monkeypatch.setattr(
+        "agentkit.backend.cli.installer_commands._build_engine_config",
+        lambda _args: config,
+    )
+
+    exit_code = _cmd_verify_project(argparse.Namespace(project_root=str(root)))
+
+    output = capsys.readouterr().out
+    assert exit_code != 0
+    assert f"{CP_10D_SONARQUBE}: failed" in output
+    assert CP_11_GIT_HOOKS_AND_CLAUDE in output
+    assert CP_12_VERIFY_REGISTRATION in output
+    assert clients.sonar_constructions == 2
 
 
 @pytest.mark.integration
@@ -248,11 +353,7 @@ def test_system_unreachable_verdict_passes_through_real_route_fail_closed(
     )
     request = _third_party_validation_request(config, yaml_data)
     record = load_control_plane_operation_global(request.op_id)
-    assert record is not None
-    assert record.response_payload["status"] == "FAILED"
-    systems = record.response_payload["systems"]
-    assert isinstance(systems, list)
-    assert systems[0]["error_code"] == "sonar_unreachable"
+    assert record is None, "failed read-only validation must also release its claim"
 
 
 def _self_test_request() -> BranchPluginSelfTestRequest:

@@ -1604,6 +1604,7 @@ def _run_cp10d_sonarqube(
 ) -> SonarPreflightResult:
     """Run local profile validation, then consume the backend light verdict."""
     from agentkit.backend.config.models import SonarQubeConfig
+    from agentkit.backend.exceptions import ControlPlaneApiError
     from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
         CheckpointStatus,
         SonarPreflightResult,
@@ -1626,6 +1627,16 @@ def _run_cp10d_sonarqube(
             project_key=config.project_key,
             request=request,
         )
+    except ControlPlaneApiError as exc:
+        raise InstallationError(
+            f"Third-party validation backend rejected the request with "
+            f"HTTP {exc.http_status}: {exc}",
+            detail={
+                "cause": "ThirdPartyValidationBackendHttpError",
+                "error_code": exc.error_code,
+                "http_status": exc.http_status,
+            },
+        ) from exc
     except Exception as exc:
         raise InstallationError(
             f"Third-party validation backend is unreachable: {exc}",
