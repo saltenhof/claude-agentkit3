@@ -271,18 +271,32 @@ def _ag3_137_binding_constraints_present(conn: _CompatConnection) -> bool:
 
 
 def _verify_evidence_command_kind_present(conn: _CompatConnection) -> bool:
-    """Return whether the queue constraint accepts the AG3-156 command kind."""
+    """Return whether the queue constraint accepts the AG3-156 command kind.
+
+    Resolve the target relation before deparsing any constraint.  A global
+    ``pg_class.relname`` scan is unsafe while another schema is being dropped:
+    PostgreSQL may evaluate ``pg_get_constraintdef()`` for a same-named foreign
+    relation before applying the namespace join, and that relation's OID can
+    disappear concurrently.  The materialized target set contains only the
+    stable relation in ``current_schema()``, so foreign worker DDL is irrelevant.
+    """
     row = conn.execute(
         """
+        WITH target_constraints AS MATERIALIZED (
+            SELECT c.oid
+            FROM pg_constraint c
+            WHERE c.conrelid = to_regclass(
+                    quote_ident(current_schema()) || '.edge_command_records'
+                  )
+              AND c.contype = 'c'
+        ), constraint_definitions AS (
+            SELECT pg_get_constraintdef(oid) AS definition
+            FROM target_constraints
+        )
         SELECT 1
-        FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE n.nspname = current_schema()
-          AND t.relname = 'edge_command_records'
-          AND c.contype = 'c'
-          AND position('command_kind' in pg_get_constraintdef(c.oid)) > 0
-          AND position('collect_verify_evidence' in pg_get_constraintdef(c.oid)) > 0
+        FROM constraint_definitions
+        WHERE position('command_kind' in definition) > 0
+          AND position('collect_verify_evidence' in definition) > 0
         """
     ).fetchone()
     return row is not None
@@ -335,13 +349,11 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "DO $$ "
             "DECLARE kind_constraint text; "
             "BEGIN "
-            "IF to_regclass('edge_command_records') IS NULL THEN RETURN; END IF; "
+            "IF to_regclass(quote_ident(current_schema()) || '.edge_command_records') IS NULL "
+            "THEN RETURN; END IF; "
             "SELECT c.conname INTO kind_constraint "
             "FROM pg_constraint c "
-            "JOIN pg_class t ON t.oid = c.conrelid "
-            "JOIN pg_namespace n ON n.oid = t.relnamespace "
-            "WHERE n.nspname = current_schema() "
-            "AND t.relname = 'edge_command_records' "
+            "WHERE c.conrelid = to_regclass(quote_ident(current_schema()) || '.edge_command_records') "
             "AND c.contype = 'c' "
             "AND position('command_kind' in pg_get_constraintdef(c.oid)) > 0 "
             "LIMIT 1; "
@@ -360,13 +372,11 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "DO $$ "
             "DECLARE status_constraint text; "
             "BEGIN "
-            "IF to_regclass('edge_command_records') IS NULL THEN RETURN; END IF; "
+            "IF to_regclass(quote_ident(current_schema()) || '.edge_command_records') IS NULL "
+            "THEN RETURN; END IF; "
             "SELECT c.conname INTO status_constraint "
             "FROM pg_constraint c "
-            "JOIN pg_class t ON t.oid = c.conrelid "
-            "JOIN pg_namespace n ON n.oid = t.relnamespace "
-            "WHERE n.nspname = current_schema() "
-            "AND t.relname = 'edge_command_records' "
+            "WHERE c.conrelid = to_regclass(quote_ident(current_schema()) || '.edge_command_records') "
             "AND c.contype = 'c' "
             "AND position('status' in pg_get_constraintdef(c.oid)) > 0 "
             "LIMIT 1; "
@@ -383,13 +393,11 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "DO $$ "
             "DECLARE boundary_constraint text; "
             "BEGIN "
-            "IF to_regclass('push_barrier_verdicts') IS NULL THEN RETURN; END IF; "
+            "IF to_regclass(quote_ident(current_schema()) || '.push_barrier_verdicts') IS NULL "
+            "THEN RETURN; END IF; "
             "SELECT c.conname INTO boundary_constraint "
             "FROM pg_constraint c "
-            "JOIN pg_class t ON t.oid = c.conrelid "
-            "JOIN pg_namespace n ON n.oid = t.relnamespace "
-            "WHERE n.nspname = current_schema() "
-            "AND t.relname = 'push_barrier_verdicts' "
+            "WHERE c.conrelid = to_regclass(quote_ident(current_schema()) || '.push_barrier_verdicts') "
             "AND c.contype = 'c' "
             "AND position('boundary_type' in pg_get_constraintdef(c.oid)) > 0 "
             "LIMIT 1; "
