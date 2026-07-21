@@ -261,6 +261,46 @@ Repo-lokale Codex-Hooks laufen nur in **trusted** `.codex`-Layern; nicht-managed
 Hooks werden uebersprungen. Die tatsaechliche Trust-Aktivierung ist
 Installer-Sache (FK-50/FK-51); FK-76 bildet die Aktivierungsgrenze ab.
 
+### 76.5.4 MCP-Server-Registrierung
+
+Neben den Hook-Settings materialisiert die Installation die **Registrierung von
+MCP-Servern** pro Harness. Wie bei den Hook-Settings ownt FK-76 das
+harness-spezifische **Format**; das *Ob/Wann* der Registrierung und die
+Conformance-Vorbedingung liegen beim Installer (FK-50 §50.3 CP 10).
+
+**Claude Code — `.mcp.json` (Referenzvertrag):** projektlokale `.mcp.json` im
+Zielprojekt-Root. Jeder von AK3 gewuenschte Server ist **erforderlich**
+(fail-closed, wenn ein erforderlicher Server fehlt oder nicht lauffaehig ist);
+ein **semantischer Merge** erhaelt fremde `mcpServers`-Eintraege; unparsebare oder
+konfligierende Konfiguration ist ein harter Fehler ohne Mutation; **niemals** wird
+die Benutzer-/Globalkonfiguration angefasst. Owner des Merge- und
+Conformance-Vertrags ist FK-50 §50.3 CP 10.
+
+**Codex — `.codex/config.toml` (Spiegelung des `.mcp.json`-Vertrags):** Codex
+registriert MCP-Server projektlokal in `.codex/config.toml` (extern von OpenAI
+dokumentiertes Format). Je Server eine Tabelle `[mcp_servers.<id>]` mit den
+Feldern `command`, `args`, `cwd`, `env` und `required = true`. Es gelten dieselben
+Vertragsregeln wie fuer Claude Code:
+
+- **Projektlokal:** Es wird ausschliesslich die `.codex/config.toml` im
+  Zielprojekt-Root geschrieben; **niemals** die Benutzer-/Globalkonfiguration
+  (`~/.codex/`).
+- **Semantischer Merge:** Fremde Tabellen (auch fremde `[mcp_servers.<id>]`
+  anderer Herkunft) und fremde Top-Level-Keys bleiben unveraendert erhalten; ein
+  reiner Textueberschreib oder Last-wins-Merge ist unzulaessig.
+- **Fail-closed:** unparsebare TOML, ein nicht-tabellenfoermiger
+  `mcp_servers`-Eintrag oder ein Konflikt mit einem bestehenden, fremd belegten
+  Server-Namen ist ein harter Fehler ohne Mutation — kein stiller Passthrough,
+  keine Teilschreibung.
+- **`required = true`:** Ein als erforderlich registrierter Server, der fehlt oder
+  die Conformance-Vorbedingung (FK-50 §50.3 CP 10) nicht besteht, blockiert
+  fail-closed.
+
+Diese Codex-Registrierung ist die **explizite Spiegelung** des
+Claude-Code-`.mcp.json`-Vertrags auf das Codex-native Konfigurationsformat;
+Formatabweichungen werden im Adapter typisiert abgebildet, ohne die
+Vertragssemantik zu veraendern.
+
 ## 76.6 Hybrid-Form: Sub-Agent ueber zweiten Harness
 
 Ein Harness-Adapter kann einen **anderen Harness** als Sub-Agent spawnen

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/declassification-receipt.schema.json",
+  "title": "declassification/<receipt_id>.json \u2014 digest-bound declassification (FK-78 section 78.13)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "source_path",
+    "source_digest",
+    "output_path",
+    "output_digest",
+    "rules_applied",
+    "target_class",
+    "approved_by_principal",
+    "approved_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^RCP-[0-9a-f]{8}-\\d{4,}$"
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "output_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "output_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rules_applied": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "target_class": {
+      "type": "string",
+      "enum": [
+        "open",
+        "internal"
+      ]
+    },
+    "approved_by_principal": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$"
+    },
+    "approved_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+    }
+  }
+}

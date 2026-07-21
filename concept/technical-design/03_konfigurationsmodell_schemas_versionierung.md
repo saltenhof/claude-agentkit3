@@ -225,6 +225,13 @@ Source-Bereich des Root-Repositories. Bei `true` darf `codebase_dir` im
 Root-Repository ignoriert werden, weil die darunterliegenden Code-
 Repository-Unterordner eigenstaendig versioniert werden.
 
+`features.vectordb` ist **deprecated**: Die VektorDB ist Pflichtinfrastruktur
+(FK-13 §13.1). Der Schluessel bleibt nur noch als **Migrations-Konfigschluessel**
+erhalten; in einem unterstuetzten Zielprojekt ist `features.vectordb: false` ein
+harter Konfigurationsfehler, kein Abschaltpfad. Die Code-seitige Entfernung des
+Optionalitaetszweigs (Installer, FK-50 CP 10/10a) ist einer spaeteren Story
+vorbehalten.
+
 Bundle-/install-spezifische Pfade (z. B. der Skill-Bundle-Root mit den
 Prompt-Templates) sind **kein** `project.yaml`-Feld: sie sind Bindungs-/
 Installationszustand (FK-43 §43.4.1, `.installed-manifest.json`) und

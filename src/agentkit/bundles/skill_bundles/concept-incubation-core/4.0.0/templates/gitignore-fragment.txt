@@ -1,0 +1,5 @@
+# Concept-Incubator (FK-78): Locks und Secrets sind nie versioniert
+concept-incubator/locks/
+concept-incubator/runs/*/secrets/
+# Lokale Overlays sensibler Register (FK-78 §78.13)
+concept-incubator/runs/*/artifact-register.local.tsv

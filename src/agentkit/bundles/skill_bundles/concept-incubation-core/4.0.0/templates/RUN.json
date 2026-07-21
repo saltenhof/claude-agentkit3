@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "<YYYY-MM-DD>-<slug>-<uuid8>",
+  "title": "<short title>",
+  "profile": "LIGHT_INCUBATION",
+  "state": "FRAMING",
+  "state_revision": 1,
+  "lease_fencing_token": 1,
+  "current_round": 0,
+  "base_revision": {
+    "kind": "git",
+    "value": "<commit-sha>"
+  },
+  "data_class": "sensitive",
+  "actor": {
+    "role": "council-orchestrator",
+    "harness": "<claude-code|codex>",
+    "model": "<model-id>",
+    "principal_id": "<principal>",
+    "session_ref": "<opaque>"
+  },
+  "participants": [],
+  "register_digests": {
+    "corpus_baseline": null,
+    "source_intake_input_head": null,
+    "source_intake_final_head": null,
+    "source_register_input": null,
+    "source_units_input": null,
+    "claims_inventory_input": null,
+    "derived_claims": null,
+    "disposition_ledger": null,
+    "source_register_final": null,
+    "source_units_final": null,
+    "atom_register": null
+  },
+  "blocked": null,
+  "recheck": null,
+  "last_completed_action": "run-created",
+  "next_action": "freeze-baseline",
+  "updated_at": "<iso-utc>"
+}

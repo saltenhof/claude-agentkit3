@@ -1,0 +1,23 @@
+story_id: AG3-175
+story_title_short: "dual-harness-registration"
+title: "Projektlokale MCP-Registrierung fuer Claude Code UND Codex (Mini-Story): ein Writer je Harness nach verankertem FK-76-Vertrag, Registrierung erst nach bestandenem Conformance-Check, nie Userspace"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-21"
+size: M  # von S angehoben (Review 175-P2-1): semantischer TOML-Writer mit
+         # Foreign-Data-Erhalt, Zwei-Dateien-Koordination und Conformance-
+         # Bindung. Scope unveraendert, kein weiterer Schnitt. Review-Budget
+         # bleibt EINE Runde.
+# Herkunft: PO-Neuschnitt 2026-07-21. Der einzige harness-spezifische Anteil
+# des VektorDB-Vorhabens — im Kern nur die Registrierung. Der PO hat dafuer
+# EINE Review-Runde festgelegt.
+# ATTN Council-Orchestrator: MAXIMAL EINE Codex-Review-Runde fuer diese Story.
+# Findings danach einarbeiten, keine weitere Runde. Der Umfang ist bewusst
+# klein gehalten, damit das haltbar ist.
+# Der Registrierungsvertrag fuer beide Harnesse ist vorab verankert:
+# FK-76 §76.5.4 (Decision Record 2026-07-21-vectordb-edge-sharpening.md,
+# Rand 4). Der generische Conformance-Check als Registrierungsvorbedingung
+# stammt aus AG3-164.
+depends_on: ["AG3-164", "AG3-174"]
+unblocks: ["AG3-176"]

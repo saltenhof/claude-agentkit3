@@ -32,6 +32,21 @@ REASON_ALREADY_SATISFIED: Final = "already_satisfied"
 #: tell "planned, not executed" from a real mutation result.
 REASON_PLANNED_NO_MUTATION: Final = "planned_no_mutation"
 
+# CP 10 MCP conformance failures (AG3-164 / FK-50 §50.3 CP 10). Configured but
+# non-runnable servers are FAILED (not SKIPPED); SKIPPED remains only for
+# feature-off / consciously-absent cases.
+REASON_MCP_COMMAND_NOT_FOUND: Final = "mcp_command_not_found"
+REASON_MCP_PROCESS_EXITED: Final = "mcp_process_exited"
+REASON_MCP_TIMEOUT: Final = "mcp_timeout"
+REASON_MCP_PROTOCOL_ERROR: Final = "mcp_protocol_error"
+REASON_MCP_TOOLS_LIST_EMPTY: Final = "mcp_tools_list_empty"
+#: CP 10: process-tree control plane failed (job/group create, assign, terminate).
+REASON_MCP_PROCESS_CONTROL_ERROR: Final = "mcp_process_control_error"
+#: CP 10: target-project ``.mcp.json`` is present but not strictly loadable or
+#: has an invalid configuration shape (duplicate names, non-JSON constants,
+#: non-object root / ``mcpServers``). Distinct from wire ``mcp_protocol_error``.
+REASON_MCP_CONFIGURATION_INVALID: Final = "mcp_configuration_invalid"
+
 #: ``detail`` plan marker prefix carried by every dry-run ``CheckpointResult``
 #: (story §2.1.3) so a consumer can detect a plan result without re-deriving the
 #: mode. Kept distinct from the ``reason`` token (which is absent on a planned
@@ -45,6 +60,13 @@ __all__ = [
     "REASON_ALREADY_SATISFIED",
     "REASON_ARE_DISABLED",
     "REASON_INAPPLICABLE",
+    "REASON_MCP_COMMAND_NOT_FOUND",
+    "REASON_MCP_CONFIGURATION_INVALID",
+    "REASON_MCP_PROCESS_CONTROL_ERROR",
+    "REASON_MCP_PROCESS_EXITED",
+    "REASON_MCP_PROTOCOL_ERROR",
+    "REASON_MCP_TIMEOUT",
+    "REASON_MCP_TOOLS_LIST_EMPTY",
     "REASON_PENDING_SELECTION",
     "REASON_PLANNED_NO_MUTATION",
     "REASON_RESERVED",

@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/projection-manifest.schema.json",
+  "title": "concept/_meta/projection-manifest.json \u2014 corpus-wide assertion register (FK-78 section 78.12)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "scope_id",
+          "lifecycle",
+          "lifecycle_source",
+          "assertion_source",
+          "assertion_status",
+          "required_projections",
+          "blockers",
+          "last_run_id",
+          "last_promotion_manifest"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "covered_scope_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": [
+              "current",
+              "draft",
+              "deprecated",
+              "superseded"
+            ]
+          },
+          "lifecycle_source": {
+            "type": "object",
+            "required": [
+              "decision_id",
+              "path",
+              "digest",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "decision_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "accepted",
+                  "rejected",
+                  "superseded"
+                ]
+              }
+            }
+          },
+          "assertion_source": {
+            "type": "object",
+            "required": [
+              "path",
+              "digest"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "digest": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "assertion_status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "blocked_projection",
+              "deprecated",
+              "superseded"
+            ]
+          },
+          "required_projections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "target",
+                "target_mode",
+                "target_digest",
+                "receipt_ref",
+                "equivalence_status"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "formal",
+                    "prose",
+                    "registry",
+                    "support",
+                    "test-oracle"
+                  ]
+                },
+                "target": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "target_mode": {
+                  "type": "string",
+                  "enum": [
+                    "markdown-section",
+                    "whole-file",
+                    "structured-selector",
+                    "directory-tree"
+                  ]
+                },
+                "selector": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "target_digest": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "receipt_ref": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
+                "equivalence_status": {
+                  "type": "string",
+                  "enum": [
+                    "unreviewed",
+                    "equivalent",
+                    "disagrees",
+                    "stale",
+                    "blocked_missing_target"
+                  ]
+                }
+              }
+            }
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "reason",
+                "owner",
+                "visible_anchor"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "owner": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "visible_anchor": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "last_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{8}$"
+          },
+          "last_promotion_manifest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "path",
+                  "digest"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -18,6 +18,10 @@ dependencies = [
     "psycopg-pool>=3.2",
     "pyyaml>=6.0",
     "psutil>=5.9",
+    # Official MCP Python SDK — runtime contract oracle for installer
+    # conformance payload validation (AG3-164). Hard dependency: no optional
+    # import / soft fallback at the registration gate.
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]

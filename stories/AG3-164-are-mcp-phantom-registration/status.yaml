@@ -1,0 +1,31 @@
+story_id: AG3-164
+story_title_short: "are-mcp-phantom-registration"
+title: "Generischer MCP-Conformance-Check als Registrierungsvorbedingung (Prozessstart mit Timeout, initialize, tools/list) und ehrliches Fehlschlagen der ARE-Phantomregistrierung"
+type: implementation
+status: in_progress
+phase: setup
+created: "2026-07-20"
+size: M
+# Herkunft: Ist-Stand-Befund 2026-07-20; Codex-Review review-codex.md P1-2
+# (beide urspruenglich angebotenen Aufloesungen — Eintrag entfernen bzw. als
+# "sichtbare Luecke" normieren — wurden als unzulaenglich zurueckgewiesen);
+# review-2-codex.md neues P1-3 (AG3-163 und AG3-164 teilten denselben
+# CP10-Startbarkeitsbelang; blosses Aufloesen eines Kommandos ist falsches
+# Gruen; Groesse damit M statt S).
+# Befund: cp10.py:76-82 registriert bei features.are: true den Server-Key
+# "are-mcp" mit dem Kommando "agentkit-are-mcp". Dieser Konsolen-Befehl ist
+# nicht in pyproject.toml [project.scripts] registriert und existiert nicht.
+# Der Installer schreibt damit einen toten Eintrag und meldet Erfolg.
+# PO-Entscheidung E7 (verbindlich): AG3-164 ist ALLEINIGER Owner des
+# generischen Checks. Erfolg heisst mindestens Prozessstart mit Timeout,
+# MCP initialize und tools/list. Die Registrierung wird erst NACH bestandenem
+# Check geschrieben. Die Oberflaechen-/Registrierungsstory (AG3-168) haengt
+# von AG3-164 ab und konsumiert den Check, praegt ihn nicht neu aus.
+# Unabhaengig startbar (keine Kante in die VektorDB-Kette).
+# Landeblocker AG3-172: die Pflichtsuite ist wegen einer Postgres-Schema-/
+# Katalog-Race unter xdist nicht deterministisch (Vorbestandsdefekt, in
+# review-5-codex.md diagnostiziert, in review-6-codex.md als autoritative
+# Kante verlangt). AG3-164-Code ist davon nicht die Ursache, darf aber nicht
+# auf einem nicht-hermetischen Arbeitsbaum landen.
+depends_on: ["AG3-172"]
+unblocks: ["AG3-168", "AG3-171"]

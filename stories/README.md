@@ -520,6 +520,44 @@ technisch, die übrigen sind ausgewiesene Sequenz-Kanten).
 | AG3-159 | W2 `concept-authority-prose` — LLM-Bewertung + deterministische Policy (unzuständige normative Behauptungen) | L | **completed** | 158 (Sequenz) |
 | AG3-160 | W3 `concept-scope-consistency` — LLM-Sweep pro Scope (Widerspruchssuche auf kleinen Mengen) | M | **completed** | 159 (technisch) |
 
+### 6.10 VektorDB-Retrieval und MCP-Auslieferung (AG3-174..176, +164/172/173)
+
+Eigener Strang aus FK-13 (`13_retrieval_vektordb_wissenszugriff.md`,
+`status: active`). AK3 liefert Zielprojekten semantische Suche ueber Stories
+UND Konzepte als projektlokalen MCP-Server (Claude Code + Codex).
+
+**Konzeptarbeit ist vorab mit dem PO erfolgt und verankert** — die fuenf
+FK-Raender (Feature-Flag-Pflicht, Quelle->Tool, Tokenizer-Asset,
+Codex-MCP-Vertrag, Shadow-Replace Bounded-Window) im Decision Record
+`concept/_meta/decisions/2026-07-21-vectordb-edge-sharpening.md`. Die Storys
+leiten daraus ab, sie entscheiden nichts neu. **E2E-Tests sind nicht
+Story-Inhalt** — sie erfolgen nachgelagert mit dem PO.
+
+Dieser Schnitt ersetzt den frueheren, ueberteilten Schnitt (AG3-161..171);
+dessen Reviewkette liegt als Provenienz in
+`AG3-174-vectordb-retrieval-engine/cut-history/`.
+
+| ID | Inhalt | Typ | Groesse | Status | depends_on |
+|----|--------|-----|---------|--------|------------|
+| AG3-164 | Generischer MCP-Conformance-Check; ARE-Phantomregistrierung ehrlich rot | harnessuebergreifend | M | code-freigegeben (`review-11-codex.md`), Landung wartet auf AG3-172 | 172 |
+| AG3-174 | Retrieval-Engine: Packaging, Bindung, Ingest-SSOT, Schema, alle Ingest-Pfade, concept_validate+Build, concept_sync (Bounded-Window), Resolver, MCP-Server mit 5 Tools | harnessuebergreifend | L | ready | — |
+| AG3-175 | Projektlokale Registrierung Claude Code + Codex, ein Writer je Harness, erst nach Conformance | harness-spezifisch (Mini) | S | blocked | 164, 174 |
+| AG3-176 | Installer-Integration: Preflight, CP10a-Erstindex, Producer, atomare Pflichtaktivierung, Skill ohne stillen Fallback | harnessuebergreifend | M | blocked | 174, 175 |
+| AG3-172 | Bug: Postgres-Schema-/Katalog-Race unter xdist (Landevoraussetzung fuer den ganzen Strang) | Hygiene | M | ready | — |
+| AG3-173 | ARE-MCP-Server implementieren (macht den von 164 rot gemachten Pfad gruen) | eigene Faehigkeit | L | blocked | 164 |
+
+Gueltige Linearisierung des Suchteils: `174 -> 175 -> 176`. AG3-172 landet
+unabhaengig und ist Landevoraussetzung fuer alles auf hermetischer
+Pflichtsuite. AG3-173 (ARE) laeuft neben dem Suchteil.
+
+**Zwei Eigenheiten:**
+1. **AG3-175 ist auf eine Codex-Review-Runde begrenzt** (PO-Vorgabe): der
+   harness-spezifische Anteil ist bewusst klein gehalten.
+2. **AG3-176 traegt die atomare Aktivierungskante**: der optionale
+   Installer-Ast faellt erst, wenn Server, Registrierung und Erstindex im
+   selben landbaren Stand vorliegen — nie ein Zwischenstand mit
+   Phantomeintrag oder Ausfall.
+
 ## 7. Konzept- und Guardrail-Bezug
 
 - **Konzepte** unter `concept/` sind die Quelle der Wahrheit fuer

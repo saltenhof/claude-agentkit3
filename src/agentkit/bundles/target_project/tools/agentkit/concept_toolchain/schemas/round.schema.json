@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/round.schema.json",
+  "title": "rounds/r<N>/ROUND.json \u2014 dispatch/receipt/seal state (FK-78 section 78.6)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "round",
+    "participants",
+    "sealed",
+    "seal"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{8}$"
+    },
+    "round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "participant_id",
+          "dispatch",
+          "receipt",
+          "outcome",
+          "outcome_reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "participant_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "dispatch": {
+            "type": "object",
+            "required": [
+              "sent_at",
+              "prompt_digest",
+              "input_digests"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "sent_at": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+              },
+              "prompt_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "input_digests": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "receipt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "received_at",
+                  "proposal_digest"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "received_at": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+                  },
+                  "proposal_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "received",
+              "timeout",
+              "failed",
+              "excluded"
+            ]
+          },
+          "outcome_reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "sealed": {
+      "type": "boolean"
+    },
+    "seal": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "sealed_at",
+            "sealed_proposal_digests"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "sealed_at": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+            },
+            "sealed_proposal_digests": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

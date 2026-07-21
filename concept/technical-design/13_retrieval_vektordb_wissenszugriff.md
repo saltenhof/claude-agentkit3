@@ -40,6 +40,13 @@ Konzepten.
 | **Kontext-Selektion (P6)** | Relevante Regeln und Wissensabschnitte für eine Rolle | Gefiltertes Kontextpaket für Agent-Prompt | FK-04-021 bis FK-04-023 |
 
 > VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
+> Der Konfigschluessel `features.vectordb` ist damit nur noch ein
+> **deprecateter Migrations-Konfigschluessel**: In einem unterstuetzten
+> Zielprojekt ist `features.vectordb: false` ein harter Konfigurationsfehler,
+> kein Abschaltpfad. Die Code-seitige Entfernung des Optionalitaetszweigs im
+> Installer (§13.7.1, FK-50 CP 10/10a) ist einer spaeteren Story vorbehalten;
+> bis dahin bleibt der `false`-Zweig ausschliesslich als deprecateter Uebergang
+> bestehen.
 
 ## 13.2 Technologie-Stack
 
@@ -72,6 +79,17 @@ services:
       ENABLE_CUDA: 0  # CPU-only
 ```
 
+**Tokenizer-Bereitstellung (fail-closed):** Das Modell
+`sentence-transformers/all-MiniLM-L6-v2` wird mit einer **gepinnten Modell- und
+Tokenizer-Revision** betrieben. Der Tokenizer (`tokenizer.json` samt Vokabular)
+wird als **versioniertes Package-Asset** ausgeliefert — analog zu den
+versionierten, unveraenderlichen Bundle-Assets (FK-43) — mit einem **gebundenen
+Digest** (SHA-256). Vor Nutzung wird der Digest gegen den gepinnten Sollwert
+geprueft. **Fail-closed:** Fehlt das Asset oder weicht der Digest ab, bricht der
+Lauf hart ab (§13.8). Es gibt **keine** Laufzeit-Netzabholung des Tokenizers und
+**keinen** zeichenbasierten Ersatz — ein stiller Fallback auf schlechtere
+Tokenisierung ist unzulaessig.
+
 ## 13.3 Datenmodell
 
 ### 13.3.1 Weaviate-Collection: `StoryContext`
@@ -96,9 +114,16 @@ services:
 | Quelle | Source-Type | Ingestion-Trigger |
 |--------|-----------|-------------------|
 | Story-Artefakte (`stories/*/story.md`) | `story` | `story_sync` MCP-Tool (manuell oder periodisch) |
-| Konzept-Dokumente (`concepts/`) | `concept` | `story_sync` MCP-Tool |
+| Konzept-Dokumente (`concepts/`) | `concept` | `concept_sync` MCP-Tool (§13.9.5) |
 | Research-Ergebnisse (`stories/*/`) | `research` | `story_sync` MCP-Tool |
-| Architektur-Dokumente | `concept` | `story_sync` MCP-Tool |
+| Architektur-Dokumente | `concept` | `concept_sync` MCP-Tool (§13.9.5) |
+
+Massgeblich ist die spezifischere Tool-Trennung in §13.9.5: Konzept- und
+Architekturquellen (`source_type="concept"`) laufen ueber `concept_sync` /
+`concept_search`, Story- und Research-Quellen ueber `story_sync` /
+`story_search`. Die fruehere pauschale `story_sync`-Nennung fuer Konzeptquellen
+war eine Vereinfachung vor Einfuehrung der konzeptspezifischen Tools (§13.9.2:
+„Trennung auf Tool-Ebene").
 
 ### 13.3.3 Chunking-Strategie
 
@@ -166,8 +191,8 @@ Chunks.
 
 ### 13.4.3 Registrierung
 
-Der MCP-Server wird bei Installation (Checkpoint 9) in
-`.mcp.json` registriert:
+Der MCP-Server wird bei Installation (Checkpoint 10) in
+`.mcp.json` registriert (FK-50 ist Checkpoint-Autoritaet: CP 10):
 
 ```json
 {
@@ -265,7 +290,7 @@ nach Ähnlichkeit finden.
 
 | Trigger | Methode | Vollständig/Inkrementell |
 |---------|--------|------------------------|
-| Installation (Checkpoint 9) | `story_sync(full_reindex=true)` | Vollständig |
+| Installation (Checkpoint 10a) | `story_sync(full_reindex=true)` | Vollständig |
 | Manuell (Agent oder Mensch) | `story_sync` MCP-Tool | Inkrementell (Hash-basiert) |
 | Story-Closure (Postflight) | `story_sync` automatisch, async | Inkrementell |
 
@@ -595,7 +620,7 @@ kein Prozessschritt würde sie nutzen.
 | Artefakt / Aktion | Verantwortlicher | Trigger | Befähigung |
 |--------------------|-----------------|---------|------------|
 | INDEX.yaml + concept_graph.json | **Post-Commit-Hook** (§30.5.4a) | Automatisch nach jedem Commit mit Änderungen unter dem konfigurierten `concepts_dir` | Pfadbasiertes Dispatching erkennt `concepts_dir`; `concept build` ist deterministisch, kein LLM, ~1s Laufzeit |
-| VectorDB-Sync (Erstindizierung) | **Installer** (CP 9a) | Einmalig bei Installation/Upgrade | Checkpoint-Engine (VektorDB ist Pflicht) |
+| VectorDB-Sync (Erstindizierung) | **Installer** (CP 10a) | Einmalig bei Installation/Upgrade | Checkpoint-Engine (VektorDB ist Pflicht) |
 | VectorDB-Sync (laufend) | **Post-Commit-Hook** (§30.5.4a) | Nach `concept build` | `concept build --sync`; bei VectorDB-Ausfall: Fehler protokolliert |
 | VectorDB-Sync (manuell) | **Operator / Agent** | CLI `concept sync` oder MCP-Tool | Expliziter Aufruf |
 | Freshness-Gate | **create-userstory Skill** | Vor Story-Erstellung | Vergleicht `corpus_revision` gegen Datei-Stand; Hard Stop bei Stale |
@@ -613,7 +638,7 @@ Validierung zuständig — er erzeugt keine Artefakte.
 
 | Trigger | Methode | Voll/Inkrementell |
 |---------|--------|-------------------|
-| Installation (CP 9) | `concept_sync(full_reindex=true)` | Vollständig |
+| Installation (CP 10a) | `concept_sync(full_reindex=true)` | Vollständig |
 | Manuell | `concept_sync` MCP-Tool oder CLI | Inkrementell (Hash-basiert) |
 | Nach Corpus Build | Post-Commit-Hook via `concept build --sync` | Inkrementell |
 
@@ -621,10 +646,19 @@ Validierung zuständig — er erzeugt keine Artefakte.
 gesamtes Dokument) entscheidet ob Re-Chunking nötig ist. Chunk-Hash
 (SHA-256 pro Chunk) für inkrementellen Upsert.
 
-**Update-Strategie:** Full-Replace mit Shadow-Replace pro Dokument:
-1. Neue Chunks schreiben (deterministische UUIDs)
+**Update-Strategie:** Full-Replace mit Shadow-Replace pro Dokument. Der Replace
+ist **nicht** transaktional atomar — Weaviate garantiert das nicht nativ —,
+sondern **generationskonsistent mit kurzem Umschaltfenster**:
+1. Neue Generation der Chunks schreiben (deterministische UUIDs)
 2. Validierung
-3. Alte Chunks löschen
+3. Alte Generation der Chunks löschen
+
+Waehrend des kurzen Umschaltfensters zwischen Schritt 1 und 3 koennen
+nebenlaeufige Leser einen Uebergangsstand sehen. Der Abschluss der Umschaltung
+wird ueber `corpus_revision` markiert. An dieser Stelle gibt es **keinen**
+transaktionalen CAS-Mechanismus und **keinen** Generations-Zeiger; die
+Konsistenzgarantie ist bewusst auf „generationskonsistent mit kurzem
+Umschaltfenster" abgeschwaecht (PO-Entscheidung).
 
 **Freshness-Indikator:** `corpus_revision` (nicht mtime — Datei-
 system-Timestamps sind bei Git-Operationen unzuverlässig).

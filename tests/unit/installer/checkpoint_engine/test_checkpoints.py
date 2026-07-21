@@ -232,10 +232,14 @@ def test_cp10_skipped_when_both_features_off(
     assert not (root / ".mcp.json").exists()
 
 
-def test_cp10_are_only_registers_are_mcp_in_target_mcp_json(
+def test_cp10_are_only_fails_without_phantom_are_mcp_entry(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
-    """AC9c/AC10: ARE-only profile registers the ARE-MCP server in .mcp.json."""
+    """AG3-164 AC1/AC2: ARE-only profile fails honestly; no phantom are-mcp write.
+
+    ``agentkit-are-mcp`` is not a registered console script, so conformance
+    fails closed and CP 10 must not write a dead ``.mcp.json`` entry.
+    """
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
@@ -248,12 +252,25 @@ def test_cp10_are_only_registers_are_mcp_in_target_mcp_json(
     )
     config.project_edge_client = cast("ProjectEdgeClient", _PassingAreProjectEdge())
     result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
-    assert result.success
+    assert result.success is False
     mcp_path = root / ".mcp.json"
-    assert mcp_path.is_file()
-    servers = json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]
-    assert "are-mcp" in servers
-    assert "story-knowledge-base" not in servers
+    if mcp_path.is_file():
+        servers = json.loads(mcp_path.read_text(encoding="utf-8")).get("mcpServers", {})
+        assert "are-mcp" not in servers
+    # Direct CP 10 outcome: command-not-found, no partial write.
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
+        cp05_pipeline_config,
+    )
+    from agentkit.backend.installer.checkpoint_engine.reasons import (
+        REASON_MCP_COMMAND_NOT_FOUND,
+    )
+
+    ctx = build_checkpoint_context(config, ExecutionMode.REGISTER)
+    cp05_pipeline_config(ctx)
+    cp10_result = cp10_mcp_registration(ctx)
+    assert cp10_result.status is CheckpointStatus.FAILED
+    assert cp10_result.reason == REASON_MCP_COMMAND_NOT_FOUND
+    assert not (root / ".mcp.json").exists()
 
 
 def test_cp10_does_not_write_mcp_json_in_dry_run_or_verify(
@@ -296,12 +313,47 @@ def _are_ctx(
         repositories=repositories,
     )
     ctx = build_checkpoint_context(config, mode, scope_interaction_mode=interaction)
-    # Publish project.yaml + register the ARE-MCP server (CP 10 precondition).
-    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
-    from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
+    # Publish project.yaml, then run the real CP 10 predecessor with a
+    # conforming ARE-MCP substitute (AG3-164). Product ``agentkit-are-mcp``
+    # does not exist; the fixture builder routes desired servers to the
+    # minimal real MCP test server so CP 10c consumes genuine predecessor
+    # state rather than hand-written production JSON.
+    import sys
+    from pathlib import Path
+
+    from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
+        cp05_pipeline_config,
+    )
+    from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
+        cp10_mcp_registration,
+    )
 
     cp05_pipeline_config(ctx)
-    cp10_mcp_registration(ctx)
+    if mode.mutations_allowed:
+        repo_root = Path(__file__).resolve().parents[4]
+        minimal = repo_root / "tests" / "fixtures" / "minimal_mcp_server.py"
+        original = cp10_mod._desired_mcp_servers
+
+        def _are_via_test_server(context: object) -> dict[str, object]:
+            return {
+                "are-mcp": {
+                    "type": "stdio",
+                    "command": sys.executable,
+                    "args": [str(minimal)],
+                }
+            }
+
+        cp10_mod._desired_mcp_servers = _are_via_test_server  # type: ignore[assignment]
+        try:
+            cp10_result = cp10_mcp_registration(ctx)
+        finally:
+            cp10_mod._desired_mcp_servers = original  # type: ignore[assignment]
+        assert cp10_result.status in (
+            CheckpointStatus.CREATED,
+            CheckpointStatus.UPDATED,
+            CheckpointStatus.PASS,
+        ), cp10_result
     return ctx
 
 

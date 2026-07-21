@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "<run_id>",
+  "owner": { "principal_id": "<principal>", "harness": "<harness>", "session_ref": "<opaque>" },
+  "fencing_token": 1,
+  "acquired_at": "<iso-utc>",
+  "ttl_seconds": 3600,
+  "released": false
+}

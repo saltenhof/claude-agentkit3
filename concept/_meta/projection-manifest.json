@@ -1,0 +1,250 @@
+{
+  "schema_version": "1.0.0",
+  "entries": [
+    {
+      "scope_id": "concept-incubation-technical",
+      "covered_scope_ids": [
+        "incubator-artifact-schemas",
+        "promotion-closure",
+        "projection-manifest-format",
+        "concept-toolchain"
+      ],
+      "lifecycle": "current",
+      "lifecycle_source": {
+        "decision_id": "2026-07-19-concept-incubation-support",
+        "path": "concept/_meta/decisions/2026-07-19-concept-incubation-support.md",
+        "digest": "acd27b4f0d8cbf1774faf1cf1b1e728f7c9805fc7c897a69f899722effbd9f30",
+        "status": "accepted"
+      },
+      "assertion_source": {
+        "path": "concept/technical-design/78_concept_incubation_process.md",
+        "digest": "7b2818c3f6ca91272d4a2a4bc0a877d32560b27c705906998ec4c6e42b27f6e5"
+      },
+      "assertion_status": "blocked_projection",
+      "required_projections": [
+        {
+          "kind": "formal",
+          "target": "formal.concept-incubation.entities",
+          "target_mode": "whole-file",
+          "target_digest": "2d299e8d5dcd154a74b5cee1e7fd267c8f3edcb07b9142616ab82ee99f34b5f5",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "formal",
+          "target": "formal.concept-incubation.state-machine",
+          "target_mode": "whole-file",
+          "target_digest": "cf604111f923cdc1c9936b4c4fdb8810e3c023fd70eefa69f91525d9a40850df",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "formal",
+          "target": "formal.concept-incubation.commands",
+          "target_mode": "whole-file",
+          "target_digest": "fd54c917611649283191d707147599593a9e7f800665b54c88fec9bed3509094",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "formal",
+          "target": "formal.concept-incubation.events",
+          "target_mode": "whole-file",
+          "target_digest": "a3c5e97340376da52532bc46cdb4010835af0cfa79714416769b63ba942511a0",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "formal",
+          "target": "formal.concept-incubation.invariants",
+          "target_mode": "whole-file",
+          "target_digest": "81540551c5a7e5d82b3c982741c623e5e698a4f62befaed3c4ed323f3bf0acae",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "formal",
+          "target": "formal.concept-incubation.scenarios",
+          "target_mode": "whole-file",
+          "target_digest": "53380233c24fa0c5c713bfc89f77e18e0cdcee950269cc80991ed04aec7c516f",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "registry",
+          "target": "concept/technical-design/_meta/domain-registry.yaml#concept-incubation",
+          "target_mode": "structured-selector",
+          "selector": "domains[id=concept-incubation]",
+          "target_digest": "ae861c0cab1e6d17cb2c049950ac03e3262d885f59d86ca7dd162691d5020dc7",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "registry",
+          "target": "concept/technical-design/_meta/bounded-contexts.yaml#concept-incubation",
+          "target_mode": "structured-selector",
+          "selector": "bounded_contexts[id=concept-incubation]",
+          "target_digest": "afd993e8ac05114beac4f0bb1b4b87c26fcc3f4e2159a3681c75ca5e39fc9829",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "concept/technical-design/_meta/module-registry.yaml",
+          "target_mode": "whole-file",
+          "target_digest": "defb645af54985ea96d4066335d36b7cd59ff4898d91166207fb86e3429edd05",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "concept/technical-design/_meta/policy-registry.yaml",
+          "target_mode": "whole-file",
+          "target_digest": "a40b97310c8ffbf66a80b69a6667368c2d608e3bbc4f54ba7d8ef06cb0b47f52",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "concept/_meta/concept-governance.json",
+          "target_mode": "whole-file",
+          "target_digest": "62f0f65298824816e289d9aba6bf5d2b8fd1a04a2c02eb65a8b25f4c2691822b",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "PROJECT_STRUCTURE.md",
+          "target_mode": "whole-file",
+          "target_digest": "de0824886ba4ec60c18caab079033ee3ab98254df25fc81023f9eb0e504a38ce",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "src/agentkit/bundles/target_project/tools/agentkit/concept_toolchain",
+          "target_mode": "directory-tree",
+          "target_digest": "77994d7cf1c0e87205b1b1b98220052b6dc816a758f8a92b478f2fe331b9d541",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "src/agentkit/bundles/skill_bundles/concept-incubation-core/4.0.0",
+          "target_mode": "directory-tree",
+          "target_digest": "3d9d067854faefdaea9b853a7d48feabdcc71d20a04c3d5e0dbefdeea48ddb63",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        }
+      ],
+      "blockers": [
+        {
+          "reason": "Bootstrap run without schema-conform registers: receipt files in this run would not constitute closure evidence (FK-78 \u00a778.11/\u00a778.12). Resolution requires a dedicated schema-conform projection-audit run using the finished toolchain.",
+          "owner": "council-orchestrator (founding run 2026-07-19-conception-support-b4a7d375)",
+          "visible_anchor": "concept-incubator/runs/2026-07-19-conception-support-b4a7d375/README.md#sichtbare-blocker-anker-fuer-projection-manifestjson"
+        }
+      ],
+      "last_run_id": "2026-07-19-conception-support-b4a7d375",
+      "last_promotion_manifest": null
+    },
+    {
+      "scope_id": "conception-process",
+      "covered_scope_ids": [
+        "concept-incubation-domain",
+        "council-roles"
+      ],
+      "lifecycle": "current",
+      "lifecycle_source": {
+        "decision_id": "2026-07-19-concept-incubation-support",
+        "path": "concept/_meta/decisions/2026-07-19-concept-incubation-support.md",
+        "digest": "acd27b4f0d8cbf1774faf1cf1b1e728f7c9805fc7c897a69f899722effbd9f30",
+        "status": "accepted"
+      },
+      "assertion_source": {
+        "path": "concept/domain-design/16-konzeption-und-konzeptinkubation.md",
+        "digest": "e4ab83da9fa3dee50bef4671332166f3ec91b980d268a84d7e6945c294e9b687"
+      },
+      "assertion_status": "blocked_projection",
+      "required_projections": [
+        {
+          "kind": "prose",
+          "target": "concept/technical-design/78_concept_incubation_process.md",
+          "target_mode": "whole-file",
+          "target_digest": "7b2818c3f6ca91272d4a2a4bc0a877d32560b27c705906998ec4c6e42b27f6e5",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "CLAUDE.md",
+          "target_mode": "whole-file",
+          "target_digest": "3ba7b83cb59afec7a8c827d119943f933736844e56cdcbeae7adb67bef40db49",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "support",
+          "target": "concept/domain-design/00-uebersicht.md",
+          "target_mode": "whole-file",
+          "target_digest": "49affd0b207af499ac5da08d2fbf70eb058bc7905f493c2b6bd58c60d5d96fb3",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        }
+      ],
+      "blockers": [
+        {
+          "reason": "Bootstrap run without schema-conform registers: receipt files in this run would not constitute closure evidence (FK-78 \u00a778.11/\u00a778.12). Resolution requires a dedicated schema-conform projection-audit run using the finished toolchain.",
+          "owner": "council-orchestrator (founding run 2026-07-19-conception-support-b4a7d375)",
+          "visible_anchor": "concept-incubator/runs/2026-07-19-conception-support-b4a7d375/README.md#sichtbare-blocker-anker-fuer-projection-manifestjson"
+        }
+      ],
+      "last_run_id": "2026-07-19-conception-support-b4a7d375",
+      "last_promotion_manifest": null
+    },
+    {
+      "scope_id": "assertion-authority",
+      "covered_scope_ids": [
+        "projection-status-semantics"
+      ],
+      "lifecycle": "current",
+      "lifecycle_source": {
+        "decision_id": "2026-07-19-concept-incubation-support",
+        "path": "concept/_meta/decisions/2026-07-19-concept-incubation-support.md",
+        "digest": "acd27b4f0d8cbf1774faf1cf1b1e728f7c9805fc7c897a69f899722effbd9f30",
+        "status": "accepted"
+      },
+      "assertion_source": {
+        "path": "concept/_meta/assertion-authority.md",
+        "digest": "1b063765c5f8c54a36e43262ec5c9ec5a27c375dedc72676fd5de5d86fcaa720"
+      },
+      "assertion_status": "blocked_projection",
+      "required_projections": [
+        {
+          "kind": "prose",
+          "target": "concept/formal-spec/00_meta/meta-contract.md",
+          "target_mode": "whole-file",
+          "target_digest": "82b90cdd6246ec651380818a0a94706617e4c6afecf7118e8cbc5577910f3a2d",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        },
+        {
+          "kind": "formal",
+          "target": "formal.concept-incubation.invariants",
+          "target_mode": "whole-file",
+          "target_digest": "81540551c5a7e5d82b3c982741c623e5e698a4f62befaed3c4ed323f3bf0acae",
+          "receipt_ref": null,
+          "equivalence_status": "unreviewed"
+        }
+      ],
+      "blockers": [
+        {
+          "reason": "Bootstrap run without schema-conform registers: receipt files in this run would not constitute closure evidence (FK-78 \u00a778.11/\u00a778.12). Resolution requires a dedicated schema-conform projection-audit run using the finished toolchain.",
+          "owner": "council-orchestrator (founding run 2026-07-19-conception-support-b4a7d375)",
+          "visible_anchor": "concept-incubator/runs/2026-07-19-conception-support-b4a7d375/README.md#sichtbare-blocker-anker-fuer-projection-manifestjson"
+        }
+      ],
+      "last_run_id": "2026-07-19-conception-support-b4a7d375",
+      "last_promotion_manifest": null
+    }
+  ]
+}

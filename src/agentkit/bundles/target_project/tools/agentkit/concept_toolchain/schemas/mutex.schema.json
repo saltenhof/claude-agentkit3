@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/mutex.schema.json",
+  "title": "RUN.mutex \u2014 mutation mutex payload with owner nonce and heartbeat (FK-78 section 78.4)",
+  "type": "object",
+  "required": [
+    "owner_principal",
+    "owner_session",
+    "nonce",
+    "acquired_at",
+    "heartbeat_at",
+    "ttl_seconds"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "owner_principal": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$"
+    },
+    "owner_session": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 1
+    },
+    "acquired_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+    },
+    "heartbeat_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

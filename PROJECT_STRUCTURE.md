@@ -33,7 +33,8 @@ Die Codebase ist in drei Ebenen entkoppelt:
 | `src/agentkit/` | AgentKit-Produkt-Source | Einziger Ort fuer Produktionscode und paketierte AgentKit-Artefakte. Darunter nur Deployment Units. |
 | `tests/` | Alle Tests | Vier Ebenen: `unit/`, `integration/`, `contract/`, `e2e/`. Details unten. |
 | `stories/` | Story-Artefakte | Hier landen Story-bezogene Arbeitsergebnisse waehrend der Ausfuehrung. |
-| `concept/` | Autoritative Fachkonzepte | Nur Markdown. Aenderungen nur mit explizitem User-Consent. |
+| `concept/` | Autoritative Fachkonzepte | Nur Markdown; einzige Ausnahme sind schema-validierte Registry-/Manifest-Dateien unter `concept/_meta/` (z. B. `projection-manifest.json`, `concept-governance.json`, Baselines) gemaess FK-78. Aenderungen nur mit explizitem User-Consent. |
+| `concept-incubator/` | Werkstatt der Konzeptwelt (FK-78) | Inkubationslaeufe, Proposals, Synthesen, Promotionsakten. Niemals normative Wahrheit; Schema-gebunden; VCS-Aufnahme klassenbasiert (sensible Inhalte bleiben lokal). |
 | `guardrails/` | Architektur- und Test-Guardrails | Nur Markdown. Von `CLAUDE.md` als verbindlich referenziert. |
 | `prompts/` | Repo-eigene Agent-Briefing-Prompts | Onboarding-/Briefing-Prompts (z.B. `agent-onboarding.md`, `bc-glossary-briefing.md`). NICHT die deploybaren Bundle-Prompts unter `src/agentkit/bundles/`. |
 | `docs/` | Publizierte Entwicklerdoku | Architecture, API, Guides, ADRs. |
@@ -272,6 +273,7 @@ bundles/
     tools/
       agentkit/
         projectedge.py  # Zielprojekt-Code (kein AgentKit3-Produktionscode)
+        concept_toolchain/  # Deploybare Konzept-Gates + Inkubator-/Promotions-Checker (FK-78; stdlib-only Zielprojekt-Code)
 ```
 
 **Regeln:**

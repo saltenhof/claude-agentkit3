@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/lock-evidence.schema.json",
+  "title": "promotion/lock-evidence.json \u2014 orchestrator-side git-remote CAS evidence (FK-78 section 78.11)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "backend",
+    "remote",
+    "refs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "git-remote"
+      ]
+    },
+    "remote": {
+      "type": "string",
+      "minLength": 1
+    },
+    "refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "scope_id",
+          "ref",
+          "expected_ref",
+          "old_oid",
+          "new_oid",
+          "observed_oid",
+          "lock_blob_digest",
+          "fencing_token",
+          "ttl_seconds",
+          "acquired_at",
+          "attested_by_principal",
+          "attested_by_session",
+          "verified_at"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ref": {
+            "type": "string",
+            "pattern": "^refs/"
+          },
+          "expected_ref": {
+            "type": "string",
+            "pattern": "^refs/"
+          },
+          "old_oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+          },
+          "new_oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+          },
+          "observed_oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+          },
+          "lock_blob_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "fencing_token": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ttl_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "acquired_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+          },
+          "attested_by_principal": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$"
+          },
+          "attested_by_session": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verified_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+          }
+        }
+      }
+    }
+  }
+}

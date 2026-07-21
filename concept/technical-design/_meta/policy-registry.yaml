@@ -69,6 +69,24 @@ policies:
       niemals fachliche Wahrheit. Externe Systeme liefern Eingabe, nicht
       operative Wahrheit waehrend eines Runs.
 
+  - id: policy.concept-consistency-governance
+    title: Konzept-Konsistenz-Governance (P1-P5)
+    source_doc: concept/_meta/konzept-konsistenz-governance.md
+    summary: >
+      Single-Assertion, Authority-Bindung der Prosa, Blast-Radius-Pflicht
+      mit Decision Record und Betroffenheitsmatrix, Widersprueche als
+      Formalisierungssignal, Referenz-Integritaet. Verstoesse sind ERROR.
+
+  - id: policy.assertion-authority
+    title: Assertion-Authority- und Projektions-Vertrag
+    source_doc: concept/_meta/assertion-authority.md
+    summary: >
+      Eine angenommene Entscheidung setzt das Ziel; ausfuehrbar ist nur
+      eine aktive, nachweislich aequivalente Projektion; Widerspruch oder
+      fehlende Pflichtprojektion blockiert den Scope (disagreement
+      blocks). Statussemantik fuer assertion_status und
+      equivalence_status.
+
   - id: policy.no-error-bypassing
     title: No Error Bypassing
     source_doc: CLAUDE.md#no-error-bypassing

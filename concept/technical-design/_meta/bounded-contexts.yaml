@@ -279,6 +279,38 @@ bounded_contexts:
       - Publikation von Warnings/Infos (kein Benachrichtigungskanal)
       - Defekt-Log (failure-corpus)
 
+  - id: concept-incubation
+    responsibility: >
+      Corpus-weite, vor-storyliche Evolution der normativen Konzeptwelt:
+      Blueprint-Struktur, Konzeptinkubator (Gremienverfahren mit
+      unabhaengigen Multi-Modell-Proposals, Konvergenzrunden, Synthese)
+      und verlustfreie, mechanisch geprüfte Promotion in die normative
+      Welt. Operationalisiert via Skills + deploybarer Toolchain, nicht
+      via Backend.
+    owns:
+      - IncubationRun
+      - CouncilRole (Council-Orchestrator, Gremiums-Worker)
+      - RoundSeal
+      - SourceUnit
+      - ClaimInventory
+      - DispositionLedger
+      - CoverageRegister (Source-/Normative-Coverage)
+      - AtomRegister
+      - PromotionManifest
+      - ProjectionReceipt
+      - ProjectionManifest (korpusweit, concept/_meta)
+      - ArtifactRegister (Provenienz + Datenklassen)
+      - DeclassificationReceipt
+      - IncubationFinding
+      - ScopeLock
+      - WriterLease
+    excluded:
+      - storylokales Fine Design / Change-Frame / Design-Freeze (exploration-and-design)
+      - Skill-Format, Bundles, Bindung (agent-skills)
+      - Harness-Adapter und Settings (harness-integration)
+      - Guard-Enforcement zur Laufzeit (governance-and-guards; concept-incubation liefert nur Regeldefinitionen)
+      - Story-Erstellung und -Ableitung (story-lifecycle)
+
 
 # ----------------------------------------------------------------------
 # Querschnittliche Ebenen — keine BCs

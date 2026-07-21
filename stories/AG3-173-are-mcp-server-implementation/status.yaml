@@ -1,0 +1,26 @@
+story_id: AG3-173
+story_title_short: "are-mcp-server-implementation"
+title: "ARE-MCP-Server implementieren: den in FK-03/FK-50 an features.are gebundenen agentkit-are-mcp-Befehl bereitstellen, damit die von AG3-164 ehrlich rot gemachte Registrierung real wird"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-21"
+size: L
+# Herkunft: AG3-164 hat die Phantomregistrierung des ARE-MCP-Servers ehrlich
+# rot gemacht — CP10 registriert bei features.are: true den Befehl
+# agentkit-are-mcp, der nicht existiert, und der generische
+# MCP-Conformance-Check laesst die Registrierung nun fail-closed scheitern,
+# statt einen toten Eintrag zu schreiben. Damit ist der Defekt sichtbar und
+# ehrlich, aber die Faehigkeit fehlt weiterhin. Der unabhaengige Reviewer
+# (stories/AG3-164-are-mcp-phantom-registration/review-9-codex.md) verlangt
+# vor Abschluss von AG3-164 eine reale Folge-Story-ID mit Owner als
+# Auflösungspfad — sonst bliebe der bewusst rot gemachte ARE-Pfad ohne
+# belastbare Aufloesung.
+# Scope-Grenze: AG3-164 baute ausschliesslich den generischen Guard und machte
+# ARE ehrlich rot. DIESE Story baut den ARE-Server selbst, sodass die
+# Registrierung den Conformance-Check besteht (Prozessstart, initialize,
+# tools/list) und agentkit-are-mcp in pyproject.toml [project.scripts] existiert.
+# depends_on AG3-164: der generische Conformance-Check ist die Abnahme, gegen
+# die dieser Server bestehen muss.
+depends_on: ["AG3-164"]
+unblocks: []

@@ -1,0 +1,22 @@
+story_id: AG3-174
+story_title_short: "vectordb-retrieval-engine"
+title: "VektorDB-Retrieval-Engine (harnessuebergreifend): Packaging, Projektbindung, generischer Ingest-Kern, StoryContext-Schema, Story-/Research-/Concept-Ingest, concept_validate + Corpus-Build, concept_sync (generationskonsistent, Bounded-Window), Authority-Resolver, MCP-Server mit den fuenf FK-13-Tools"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-21"
+size: L
+# Herkunft: Neuschnitt des VektorDB-Vorhabens nach PO-Vorgabe (Speed,
+# weniger Storys). Ersetzt den alten Schnitt AG3-161..171 (Historie in
+# cut-history/). Konzeptarbeit ist vorab mit dem PO erfolgt und normativ
+# verankert: Decision Record 2026-07-21-vectordb-edge-sharpening.md schliesst
+# die fuenf FK-Raender (Feature-Flag-Pflicht, Quelle->Tool, Tokenizer-Asset,
+# Codex-MCP-Vertrag, Shadow-Replace Bounded-Window). Diese Story leitet daraus
+# ab, sie entscheidet nichts neu.
+# Dies ist die erste von zwei harnessuebergreifenden Storys (Engine +
+# Integration). E2E-Retrieval-Nachweis ist NICHT Teil der Story — er erfolgt
+# nachgelagert mit dem PO.
+# Landevoraussetzung (kein depends_on-Gate auf den Bau): AG3-172 muss vor dem
+# Merge gelandet sein (hermetische Pflichtsuite).
+depends_on: []
+unblocks: ["AG3-175", "AG3-176"]

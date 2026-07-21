@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/scope-lock.schema.json",
+  "title": "locks/<scope>.<hash8>.lock.json \u2014 filesystem scope-lock blob (FK-78 section 78.11)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scope_id",
+    "locked_by_run",
+    "fencing_token",
+    "backend",
+    "acquired_at",
+    "ttl_seconds"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "scope_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "locked_by_run": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{8}$"
+    },
+    "fencing_token": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "filesystem",
+        "git-remote"
+      ]
+    },
+    "acquired_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

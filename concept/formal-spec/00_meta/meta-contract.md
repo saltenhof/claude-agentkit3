@@ -30,11 +30,17 @@ Es gelten zwei unterschiedliche Wahrheitsbereiche:
 2. `concept/formal-spec/` normiert alle diskreten, maschinenpruefbaren
    Aussagen.
 
-Bei Konflikten gilt:
+Bei Konflikten gilt die Statussemantik des Assertion-Authority-Vertrags
+(`concept/_meta/assertion-authority.md`):
 
-- Fuer maschinenpruefbare Aussagen gewinnt `formal-spec/`.
 - Fuer Rationale, Trade-offs, Heuristiken, UX, offene Risiken und
   ausserhalb des Modells liegende Aspekte bleibt die Prosa autoritativ.
+- Fuer maschinenpruefbare Aussagen gewinnt keine Ebene still
+  ("disagreement blocks"): Widerspricht die formale Projektion der
+  angenommenen Entscheidung bzw. Prosa, ist sie veraltet oder fehlt sie,
+  ist der betroffene Scope `blocked_projection` — der Konflikt wird
+  adjudiziert, nicht wegpriorisiert. Ausfuehrbar ist nur eine aktive,
+  nachweislich aequivalente Projektion.
 
 ## 3. Was zwingend formal werden muss
 
@@ -188,6 +194,14 @@ Deshalb gelten diese Regeln:
 ## 10. Generate-vs-Source-of-Truth
 
 Generierte oder abgeleitete Artefakte sind nie autoritativ.
+
+Enge Ausnahme (FK-78 §78.2/§78.12): schema-validierte Registry-/
+Manifest-Dateien unter `concept/_meta/` (insbesondere
+`projection-manifest.json`, `concept-governance.json`, Gate-Baselines)
+duerfen unter `concept/` leben. Ihre deklarierten Felder sind normative
+Eingaben; ihre abgeleiteten Statusfelder sind verifier-geprüfte
+Materialisierungen und keine unabhaengige Autoritaet. Frei generierte
+Ableitungen gehoeren weiterhin nach `var/`.
 
 Dazu gehoeren insbesondere:
 

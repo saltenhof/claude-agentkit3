@@ -212,6 +212,12 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 |----------|-----------|--------|
 | `77_task_management.md` | task-management | Task-Entity, Lifecycle (open→done/dismissed), n:m-Verlinkung zu Stories/Tasks, Producer, Speicher; nicht AK3-gemanagte Handlungspunkte (Merker oder leichtgewichtige Aufgaben), nie Benachrichtigung |
 
+## 20a. BC: concept-incubation
+
+| Dokument | BC/Domain | Inhalt |
+|----------|-----------|--------|
+| `78_concept_incubation_process.md` | concept-incubation | Blueprint-Topologie der Konzeptwelt, Concept-Incubator (Lauf-Lifecycle, Rollen/Principals, Runden + Round-Seal, zweistufiger Source-Freeze, Source-Units, Claim-Inventar/Dispositions-Ledger, Atomregister, Receipts, Diff-Hunk-Reverse-Trace, Scope-Locks), korpusweites Projektionsmanifest, Datenklassen/Declassification, deploybare Concept-Toolchain (SMY, CLI-Vertrag, Semantik-Gates), Skill-Auslieferung |
+
 ## 21. Frontend-Architektur und Foundation-Adapter (cross_cutting)
 
 | Dokument | BC/Domain | Inhalt |

@@ -26,7 +26,6 @@ from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     DRY_RUN_PLAN_MARKER,
-    REASON_PLANNED_NO_MUTATION,
     REASON_VECTORDB_DISABLED,
 )
 from agentkit.backend.installer.registration import CheckpointStatus
@@ -89,6 +88,11 @@ def test_cp10b_created_with_vectordb(
 def test_cp10_dry_run_plan_contract_with_vectordb(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
+    """Dry-run is pure plan derivation: no process start, no write (FK-50 §50.2)."""
+    from agentkit.backend.installer.checkpoint_engine.reasons import (
+        REASON_PLANNED_NO_MUTATION,
+    )
+
     ctx = _ctx(
         tmp_path, registration_repo, mode=ExecutionMode.DRY_RUN, features_vectordb=True
     )

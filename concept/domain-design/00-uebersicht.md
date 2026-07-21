@@ -54,6 +54,7 @@ Bei Konflikten zwischen Operationalisierung und Kernauftrag gilt der Kernauftrag
 | 13 | [13-kpis-und-optimierung.md](13-kpis-und-optimierung.md) | KPIs und nachgelagerte Optimierung |
 | 14 | [14-project-management.md](14-project-management.md) | Project-Management (Project-Entitaet, ID-Praefix-Schema, Konfiguration) |
 | 15 | [15-task-management.md](15-task-management.md) | Task-Management (Tasks, Lifecycle, Verlinkung zu Stories/Tasks) |
+| 16 | [16-konzeption-und-konzeptinkubation.md](16-konzeption-und-konzeptinkubation.md) | Konzeption und Konzeptinkubation (Blueprint, Inkubator, verlustfreie Promotion) |
 
 ---
 
@@ -158,7 +159,7 @@ Berichte erzeugen.
 
 ## 4. Säulen im Überblick
 
-AgentKit adressiert diese Herausforderungen über neun Säulen:
+AgentKit adressiert diese Herausforderungen über zehn Säulen:
 
 **4.1 Spezialisierte Rollen und LLM-Einsatz** (→ [01-rollen-und-llm-einsatz.md](01-rollen-und-llm-einsatz.md)).
 Systemische Qualität entsteht aus dem Zusammenspiel spezialisierter Rollen
@@ -238,7 +239,17 @@ Persistenz und LLM-gestützter Regelgenerierung senkt Permission-Reibung.
 Spezialisierte Skills standardisieren komplexe Aufgaben und heben die
 Ergebnisqualität.
 
-Jede Säule wird in den Teilkonzepten 01 bis 09 im Detail beschrieben.
+**4.10 Konzeption und Konzeptinkubation** (→ [16-konzeption-und-konzeptinkubation.md](16-konzeption-und-konzeptinkubation.md)).
+Die der Story-Welt vorgelagerte Konzeptionsphase erhaelt einen normativ
+definierten Prozess: Blueprint-Struktur der Konzeptwelt, Konsistenzhaltung
+der Ebenen, und die Weiterentwicklung grosser Konzeptbestaende ueber den
+Konzeptinkubator — ein Gremienverfahren mit unabhaengigen Multi-Modell-
+Proposals, Konvergenzrunden, Synthese und mechanisch geprüfter,
+verlustfreier Promotion in die normative Welt. Operationalisiert durch
+Skills und eine deploybare deterministische Toolchain, nicht durch die
+Backend-Applikation.
+
+Jede Säule wird in den Teilkonzepten 01 bis 09 sowie 16 im Detail beschrieben.
 
 ## 5. Die 4-Phasen-Pipeline mit QA-Subflow innerhalb Implementation
 

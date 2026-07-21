@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/coverage-plan.schema.json",
+  "title": "baseline/coverage-plan.json \u2014 FULL_ATOM worker packages (FK-78 section 78.6)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "packages",
+    "integration_package_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{8}$"
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "package_id",
+          "description",
+          "paths",
+          "assigned_participants",
+          "redundancy"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "package_id": {
+            "type": "string",
+            "pattern": "^PKG-[0-9a-f]{8}-\\d{2,}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "assigned_participants": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            }
+          },
+          "redundancy": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "integration_package_id": {
+      "type": "string",
+      "pattern": "^PKG-[0-9a-f]{8}-\\d{2,}$"
+    }
+  }
+}

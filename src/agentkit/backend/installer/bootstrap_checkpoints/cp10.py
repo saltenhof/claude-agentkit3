@@ -28,6 +28,8 @@ from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_ALREADY_SATISFIED,
     REASON_ARE_DISABLED,
     REASON_INAPPLICABLE,
+    REASON_MCP_CONFIGURATION_INVALID,
+    REASON_MCP_PROTOCOL_ERROR,
     REASON_PENDING_SELECTION,
     REASON_VECTORDB_DISABLED,
 )
@@ -36,7 +38,19 @@ from agentkit.backend.installer.checkpoint_engine.result_builder import (
     make_result,
     planned_result,
 )
+from agentkit.backend.installer.mcp_conformance import (
+    McpServerCommand,
+    check_mcp_conformance,
+    server_command_from_mcp_entry,
+)
 from agentkit.backend.installer.registration import CheckpointStatus
+from agentkit.backend.installer.strict_json import (
+    contains_lone_surrogate,
+    contains_non_finite_float,
+    exceeds_max_json_nesting,
+    reject_duplicate_object_pairs,
+    reject_non_json_constant,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -55,6 +69,72 @@ REASON_ARE_MCP_MISSING = "are_mcp_server_missing"
 def _target_mcp_json_path(project_root: Path) -> Path:
     """Return the TARGET-project ``.mcp.json`` path (deployed file, story §6)."""
     return project_root / ".mcp.json"
+
+
+def _load_target_mcp_json(
+    mcp_path: Path,
+) -> tuple[dict[str, object] | None, str | None]:
+    """Strict-load the target-project ``.mcp.json`` (fail-closed merge contract).
+
+    Returns:
+        ``({}, None)`` when the file is absent (empty root for merge).
+        ``(root, None)`` when the file is present and structurally valid.
+        ``(None, detail)`` when the file is present but invalid — caller must
+        return named ``FAILED`` without mutation or conformance start.
+
+    Rejects: invalid UTF-8, decoder recursion, excessive nesting (shared
+    ceiling, iterative check — same class later serialisation would risk),
+    duplicate object names at every level, non-JSON constants
+    (``NaN``/``Infinity``/``-Infinity``), non-finite floats, lone UTF-16
+    surrogates, a non-object root, a present ``mcpServers`` that is not a JSON
+    object, and any ``mcpServers`` value that is not itself a JSON object.
+    Does not silently last-wins or rewrite shape. ``MemoryError`` is not
+    swallowed.
+    """
+    if not mcp_path.is_file():
+        return {}, None
+    try:
+        text = mcp_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        return None, f"target .mcp.json is not valid UTF-8: {exc}"
+    except OSError as exc:
+        return None, f"cannot read target .mcp.json: {exc}"
+    try:
+        loaded: object = json.loads(
+            text,
+            parse_constant=reject_non_json_constant,
+            object_pairs_hook=reject_duplicate_object_pairs,
+        )
+    except json.JSONDecodeError as exc:
+        return None, f"target .mcp.json is not strict JSON: {exc.msg}"
+    except RecursionError:
+        return None, "target .mcp.json nesting exceeds decoder limits"
+    if not isinstance(loaded, dict):
+        return None, (
+            "target .mcp.json root must be a JSON object; "
+            f"got {type(loaded).__name__}"
+        )
+    # Iterative post-decode checks — never RecursionError on mid-depth trees.
+    if exceeds_max_json_nesting(loaded):
+        return None, "target .mcp.json nesting exceeds validation limits"
+    if contains_non_finite_float(loaded):
+        return None, "target .mcp.json contains a non-finite JSON number"
+    if contains_lone_surrogate(loaded):
+        return None, "target .mcp.json contains a lone UTF-16 surrogate"
+    if "mcpServers" in loaded:
+        servers = loaded["mcpServers"]
+        if not isinstance(servers, dict):
+            return None, (
+                "target .mcp.json key 'mcpServers' must be a JSON object; "
+                f"got {type(servers).__name__}"
+            )
+        for name, entry in servers.items():
+            if not isinstance(entry, dict):
+                return None, (
+                    f"target .mcp.json server entry {name!r} must be a JSON "
+                    f"object; got {type(entry).__name__}"
+                )
+    return {str(k): v for k, v in loaded.items()}, None
 
 
 def _desired_mcp_servers(context: CheckpointContext) -> dict[str, object]:
@@ -101,7 +181,18 @@ def _merge_mcp_servers(
     """
     root = dict(existing)
     servers_raw = root.get("mcpServers")
-    servers = dict(servers_raw) if isinstance(servers_raw, dict) else {}
+    # Callers must pass a root from ``_load_target_mcp_json``: when present,
+    # ``mcpServers`` is a dict. Never silently replace a non-object value.
+    if servers_raw is None:
+        servers: dict[str, object] = {}
+    elif isinstance(servers_raw, dict):
+        servers = dict(servers_raw)
+    else:
+        msg = (
+            "mcpServers must be a JSON object after strict load; "
+            f"got {type(servers_raw).__name__}"
+        )
+        raise TypeError(msg)
     changed = False
     for key, value in desired.items():
         if servers.get(key) != value:
@@ -153,10 +244,20 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
     """CP 10 — register MCP servers in the target ``.mcp.json`` (FK-50 §50.3).
 
     Runs when ``features.vectordb: true`` OR ``features.are: true``. Both off ->
-    ``SKIPPED``/``reason=vectordb_disabled`` (no server to register). Writes the
-    target-project ``.mcp.json`` in register mode only; dry-run/verify never
-    touch any file (story AC10). The AK3-repo-own ``.mcp.json`` is never touched
-    (this path resolves the TARGET project root).
+    ``SKIPPED``/``reason=vectordb_disabled`` (no server to register).
+
+    In **register** mode every desired server is probed with the generic MCP
+    conformance check (process start, ``initialize``, non-empty ``tools/list``)
+    **immediately before** any write. Failure is ``FAILED`` with a
+    machine-readable reason; no partial write.
+
+    Dry-run is pure plan derivation (no process start). Verify is read-only
+    configuration shape / desired-vs-actual diff (no process start). An active
+    MCP health probe in dry-run/verify is out of scope for AG3-164.
+
+    Writes the target-project ``.mcp.json`` in register mode only; dry-run/verify
+    never touch any file (story AC10). The AK3-repo-own ``.mcp.json`` is never
+    touched (this path resolves the TARGET project root).
     """
     start = time.monotonic()
     if not context.vectordb_enabled and not context.are_enabled:
@@ -171,14 +272,25 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
 
     desired = _desired_mcp_servers(context)
     mcp_path = _target_mcp_json_path(context.project_root)
-    existing_root: dict[str, object] = {}
-    if mcp_path.is_file():
-        loaded = json.loads(mcp_path.read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            existing_root = loaded
+    existing_root, load_error = _load_target_mcp_json(mcp_path)
+    if load_error is not None:
+        # Invalid existing config: named FAILED in all modes, no mutation,
+        # no conformance start (AC 8 merge contract / FAIL-CLOSED).
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"Target .mcp.json is invalid; refusing registration without "
+                f"mutation: {load_error}."
+            ),
+            reason=REASON_MCP_CONFIGURATION_INVALID,
+            start=start,
+        )
+    assert existing_root is not None  # load_error is None ⇒ root is a dict
     merged, changed = _merge_mcp_servers(existing_root, desired)
     server_keys = sorted(desired)
 
+    # Dry-run / verify: side-effect-free plan or status only (FK-50 §50.2).
     if not context.mode.mutations_allowed:
         return _cp10_plan_result(
             mcp_present=mcp_path.is_file(),
@@ -186,6 +298,18 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
             server_keys=server_keys,
             mcp_name=mcp_path.name,
             dry_run=is_dry_run(context.mode),
+            start=start,
+        )
+
+    # REGISTER only: live conformance immediately before any write.
+    conformance_failure = _conformance_gate(desired, cwd=context.project_root)
+    if conformance_failure is not None:
+        reason, detail = conformance_failure
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=detail,
+            reason=reason,
             start=start,
         )
 
@@ -207,13 +331,69 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
     )
 
 
+def _conformance_gate(
+    desired: dict[str, object],
+    *,
+    cwd: Path,
+) -> tuple[str, str] | None:
+    """Run the generic MCP conformance check for every desired server entry.
+
+    Returns ``(reason, detail)`` on the first failure; ``None`` when all
+    servers pass. Never writes configuration. Order is sorted by server key
+    for deterministic failure reporting.
+    """
+    for key in sorted(desired):
+        entry = desired[key]
+        if not isinstance(entry, dict):
+            return (
+                REASON_MCP_PROTOCOL_ERROR,
+                f"MCP server entry {key!r} is not an object; refusing registration.",
+            )
+        try:
+            cmd: McpServerCommand = server_command_from_mcp_entry(entry)
+        except ValueError as exc:
+            return (
+                REASON_MCP_PROTOCOL_ERROR,
+                f"MCP server entry {key!r} is invalid: {exc}",
+            )
+        # Bind cwd so relative module paths resolve against the target project.
+        bound = McpServerCommand(
+            command=cmd.command,
+            args=cmd.args,
+            env=cmd.env,
+            cwd=cwd,
+        )
+        try:
+            result = check_mcp_conformance(bound)
+        except Exception as exc:  # noqa: BLE001 — CP10 boundary: named FAILED
+            return (
+                REASON_MCP_PROTOCOL_ERROR,
+                f"MCP conformance internal fault for server {key!r}: {exc}. "
+                "Registration was not written.",
+            )
+        if not result.ok:
+            reason = (
+                result.reason.value if result.reason is not None else REASON_MCP_PROTOCOL_ERROR
+            )
+            detail = (
+                f"MCP conformance failed for server {key!r}: {result.detail} "
+                "Registration was not written."
+            )
+            return reason, detail
+    return None
+
+
 def _write_mcp_json(
     mcp_path: Path, root: dict[str, object], context: CheckpointContext
 ) -> None:
-    """Atomically write the target-project ``.mcp.json`` (register mode only)."""
+    """Atomically write the target-project ``.mcp.json`` (register mode only).
+
+    ``allow_nan=False`` is defense in depth: non-finite numbers must never be
+    re-emitted into the target project configuration.
+    """
     from agentkit.backend.installer.file_ops import atomic_write_text
 
-    content = json.dumps(root, indent=2, sort_keys=True) + "\n"
+    content = json.dumps(root, indent=2, sort_keys=True, allow_nan=False) + "\n"
     atomic_write_text(mcp_path, content)
     rel = str(mcp_path.relative_to(context.project_root))
     if rel not in context.run_state.created_files:
@@ -303,7 +483,19 @@ def cp10c_are_scope_validation(context: CheckpointContext) -> CheckpointResult:
 
     # Hard precondition (CP 10 ARE-MCP): the flow orders CP 10 before CP 10c, so
     # the ARE-MCP server must be registered in the target .mcp.json.
-    if not _are_mcp_registered(context):
+    are_registered, mcp_config_error = _are_mcp_registered(context)
+    if mcp_config_error is not None:
+        return make_result(
+            nid.CP_10C_ARE_SCOPE_VALIDATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                "Target .mcp.json is invalid; CP 10c cannot verify the ARE-MCP "
+                f"precondition: {mcp_config_error}."
+            ),
+            reason=REASON_MCP_CONFIGURATION_INVALID,
+            start=start,
+        )
+    if not are_registered:
         return make_result(
             nid.CP_10C_ARE_SCOPE_VALIDATION,
             status=CheckpointStatus.FAILED,
@@ -398,22 +590,33 @@ def cp10c_are_scope_validation(context: CheckpointContext) -> CheckpointResult:
     )
 
 
-def _are_mcp_registered(context: CheckpointContext) -> bool:
+def _are_mcp_registered(
+    context: CheckpointContext,
+) -> tuple[bool, str | None]:
     """Return whether the ARE-MCP server is present in the target ``.mcp.json``.
 
-    Register mode reads the file CP 10 just wrote. In read-only modes the file
-    may not exist (CP 10 did not write); the precondition is then satisfied iff
-    CP 10 WOULD have registered it (ARE enabled), so the read-only CP 10c never
-    falsely FAILs on a clean dry-run/verify.
+    Returns ``(registered, config_error)``. ``config_error`` is set when the
+    existing file fails the shared strict loader — callers must report
+    ``mcp_configuration_invalid`` rather than ``are_mcp_server_missing``.
+
+    When the file **exists**, every mode (REGISTER / DRY_RUN / VERIFY) uses
+    ``_load_target_mcp_json`` so shape/parse failures surface as
+    ``mcp_configuration_invalid``. When the file is **absent**, read-only modes
+    derive the precondition from ``are_enabled`` (what CP 10 would register);
+    register mode reports not registered.
     """
-    if not context.mode.mutations_allowed:
-        return context.are_enabled
     mcp_path = _target_mcp_json_path(context.project_root)
     if not mcp_path.is_file():
-        return False
-    loaded = json.loads(mcp_path.read_text(encoding="utf-8"))
-    servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
-    return isinstance(servers, dict) and _ARE_MCP_SERVER in servers
+        if not context.mode.mutations_allowed:
+            return context.are_enabled, None
+        return False, None
+    loaded, load_error = _load_target_mcp_json(mcp_path)
+    if load_error is not None:
+        return False, load_error
+    assert loaded is not None
+    servers = loaded.get("mcpServers")
+    registered = isinstance(servers, dict) and _ARE_MCP_SERVER in servers
+    return registered, None
 
 
 def _unmapped_are_items(context: CheckpointContext) -> set[str]:

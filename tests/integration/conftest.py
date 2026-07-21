@@ -54,6 +54,8 @@ _POSTGRES_INDEPENDENT_INTEGRATION_NODEIDS: tuple[str, ...] = (
 _POSTGRES_INDEPENDENT_INTEGRATION_FILES: tuple[str, ...] = (
     "/integration/pipeline_engine/test_blocked_exit.py",
     "/integration/pipeline_engine/test_orchestrator_trennlinie.py",
+    # AG3-164: real-subprocess MCP + InMemoryRegistrationRepo — no StateBackend.
+    "/integration/installer/test_mcp_conformance.py",
 )
 
 

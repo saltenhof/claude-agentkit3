@@ -1,0 +1,29 @@
+story_id: AG3-172
+story_title_short: "postgres-schema-xdist-race"
+title: "Bug: nicht-deterministische Pflichtsuite — Postgres-Schema-/Katalog-Race unter xdist (could not open relation with OID) in _verify_evidence_command_kind_present"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-21"
+size: M
+# Herkunft: Waehrend der Abnahme von AG3-164 gemeldeter, nicht reproduzierbar
+# roter Pflichtlauf (drei aufeinanderfolgende Laeufe desselben Arbeitsbaums:
+# 1 failed / 3 errors / gruen). Diagnose durch den unabhaengigen Reviewer in
+# stories/AG3-164-are-mcp-phantom-registration/review-5-codex.md, Vorrangbefund
+# P0-1.
+# Befund: Vorbestandsdefekt im Postgres-Test-/Schema-Pfad, NICHT durch AG3-164
+# verursacht. Unter paralleler Ausfuehrung verschwindet waehrend
+# _verify_evidence_command_kind_present() eine Constraint-OID zwischen
+# Katalogabfrage und pg_get_constraintdef(c.oid); psycopg meldet
+# "could not open relation with OID ...".
+# Reproduktion (Reviewer, Seed 3250338151): vier von acht identischen
+# Wiederholungen von
+#   pytest -n 2 --dist loadfile --randomly-seed=3250338151
+#     tests/integration/installer/test_third_party_backend_mediation.py
+#     tests/integration/installer/test_upgrade_entry.py
+# scheitern. Serieller Lauf mit zehn festen Seeds bleibt gruen.
+# Landungsrelevanz: blockiert AG3-164. Eine nicht-deterministische
+# Pflichtsuite ist unter FAIL-CLOSED und ZERO DEBT kein zulaessiger
+# Abschlusszustand — unabhaengig davon, welche Story den Defekt aufgedeckt hat.
+depends_on: []
+unblocks: ["AG3-164"]

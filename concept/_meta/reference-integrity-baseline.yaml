@@ -22,17 +22,17 @@ unresolved_references:
     reason: Language-agnostic Java test-layout example, not an AK3 repo path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/00_index.md
-    line: 405
+    line: 411
     reference: concept/technical-design/_meta/glossary-overview.md
     reason: Declared generated read-only artifact; it is intentionally not source-controlled.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/00_index.md
-    line: 407
+    line: 413
     reference: concept/technical-design/_meta/glossary-reverse-index.md
     reason: Declared generated read-only artifact; it is intentionally not source-controlled.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/03_konfigurationsmodell_schemas_versionierung.md
-    line: 431
+    line: 438
     reference: tools/qa/schemas
     reason: Installer target-project location, not a source-repository location.
   - code: UNRESOLVED_REPO_PATH
@@ -42,7 +42,7 @@ unresolved_references:
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/13_retrieval_vektordb_wissenszugriff.md
-    line: 89
+    line: 107
     reference: stories/ODIN-042/story.md
     reason: Illustrative target-project story instance, not a repository fixture.
   - code: UNRESOLVED_REPO_PATH
@@ -100,16 +100,7 @@ unresolved_references:
     line: 459
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
-  - code: UNRESOLVED_REPO_PATH
-    path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 516
-    reference: tools/hooks/pre-commit
-    reason: Materialized target-project hook location, not its bundle source path.
-  - code: UNRESOLVED_REPO_PATH
-    path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 733
-    reference: tools/agentkit
-    reason: Materialized target-project launcher location, not its bundle source path.
+
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/51_upgrade_migration_customization_preservation.md
     line: 200
@@ -122,12 +113,12 @@ unresolved_references:
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/76_agent_harness_integration.md
-    line: 289
+    line: 329
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/76_agent_harness_integration.md
-    line: 291
+    line: 331
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
@@ -265,6 +256,11 @@ unresolved_references:
     line: 302
     reference: prompts/...
     reason: Illustrative deployed prompt-subtree placeholder, not a literal repository path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/78_concept_incubation_process.md
+    line: 831
+    reference: tools/agentkit/concept_toolchain
+    reason: Installer target-project location, not a source-repository location.
 document_cycles:
   - documents:
       - DK-09
@@ -277,6 +273,12 @@ document_cycles:
       - FK-77
     reason: >-
       The cross-layer task-management documents delegate distinct domain and
+      technical scopes; no identical scope participates in the cycle.
+  - documents:
+      - DK-16
+      - FK-78
+    reason: >-
+      The cross-layer concept-incubation documents delegate distinct domain and
       technical scopes; no identical scope participates in the cycle.
   - documents:
       - FK-01

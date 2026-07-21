@@ -470,8 +470,22 @@ kanonischen Zustand und keine kopierten Skill-/Prompt-Quellen tragen.
 
 ### CP 10: MCP-Server
 
-Nur wenn `features.vectordb: true`. Registriert den
-Story-Knowledge-Base MCP-Server in `.mcp.json`:
+Läuft wenn `features.vectordb: true` **oder** `features.are: true`.
+Beide aus → `SKIPPED` mit `reason=vectordb_disabled` (*bewusst-abwesend*,
+kein Server zu registrieren).
+
+> **Deprecation (FK-13 §13.1):** Die VektorDB ist Pflichtinfrastruktur; die
+> Optionalitaet von `features.vectordb` und der zugehoerige Flow-Zweig
+> `branch_vectordb_enabled` sind **deprecated**. In einem unterstuetzten
+> Zielprojekt ist `features.vectordb: false` ein harter Konfigurationsfehler,
+> kein regulaerer Abschaltpfad. Der bestehende
+> `SKIPPED`/`vectordb_disabled`-Pfad bleibt bis zur Code-seitigen Entfernung des
+> Optionalitaetszweigs (spaetere Story) ausschliesslich als deprecateter
+> Uebergang erhalten; die ARE-Optionalitaet (`features.are`) ist davon
+> unberuehrt.
+
+Registriert die gewünschten MCP-Server in der **Zielprojekt**-`.mcp.json`
+(Merge/UPSERT; fremde `mcpServers`-Einträge bleiben erhalten):
 
 ```json
 {
@@ -479,16 +493,102 @@ Story-Knowledge-Base MCP-Server in `.mcp.json`:
     "story-knowledge-base": {
       "type": "stdio",
       "command": "python",
-      "args": ["{agentkit_path}/vectordb/mcp_server.py"],
-      "env": { ... }
+      "args": ["-m", "agentkit.backend.vectordb.mcp_server"]
+    },
+    "are-mcp": {
+      "type": "stdio",
+      "command": "agentkit-are-mcp",
+      "args": [],
+      "env": { "ARE_MCP_SERVER": "..." }
     }
   }
 }
 ```
 
-Auch ARE-MCP-Server wenn `features.are: true`.
+- Story-Knowledge-Base nur bei `features.vectordb: true`.
+- ARE-MCP-Server nur bei `features.are: true` (FK-03 §3.1 bindet
+  `are.mcp_server` an `features.are`).
 
-**Idempotenz:** Prüft ob Server bereits registriert ist.
+#### Conformance-Vorbedingung (nur REGISTER, vor dem Write)
+
+Im mutierenden **Register**-Pfad prüft CP 10 **unmittelbar vor** dem
+Schreiben jeden gewünschten Server mit dem **generischen**
+MCP-Conformance-Check (servertyp-unabhängig; kennt weder ARE noch
+VektorDB — nur Kommando, Argumente, `cwd`, Umgebung):
+
+1. Kommando auflösbar (Interpreter/Konsolenbefehl; relative Pfade gegen
+   Zielprojekt-`cwd`)
+2. **Prozessstart** mit monotoner Deadline und plattformspezifischer
+   Prozessbaum-Klammer (POSIX: Process-Group; Windows: Job Object mit
+   Kill-on-close, Root **CREATE_SUSPENDED → Job-Assign → Resume** so dass
+   Kinder nicht vor Job-Mitgliedschaft entkommen; PID+Create-Time-Identität
+   mit Revalidierung unmittelbar vor Kill). Kann die Klammer nicht
+   hergestellt oder terminiert werden → `FAILED` /
+   `mcp_process_control_error` (fail-closed, kein Snapshot-Fallback).
+3. MCP **initialize** über stdio: JSON-RPC 2.0 (disjunkte
+   Request/Response/Notification-Varianten, striktes UTF-8), unterstützte
+   `protocolVersion`, `capabilities.tools` als Objekt (nicht null),
+   `serverInfo.name/version`
+   <!-- REF-INTEGRITY:IGNORE-LINE MCP method name tools/list is not a repo path -->
+4. **tools/list** (MCP-Methode): wohlgeformte, **nicht leere** Tool-Liste;
+   jedes Tool mit nichtleerem `name` und Objekt-`inputSchema`
+5. Prozessbaum wird in jedem Ausgang sauber beendet (Job/Group + tracked
+   Identitäten). Vom Gesamtbudget ist ein Teardown-Anteil reserviert;
+   Handshake, Pump-Joins und Tree-Waits nutzen nur das jeweils verbleibende
+   monotone Budget. Der synchrone OS-`Popen`-Aufruf selbst ist auf manchen
+   Plattformen nicht unterbrechbar und liegt ausserhalb dieses Budgets.
+
+**Erfolgsbegriff ist hart:** blosses „Kommando löst auf“ genügt **nicht**.
+Strukturell ungültiges Pseudo-MCP, sterbende Prozesse und Timeouts sind
+`FAILED`. Die Registrierung wird **ausschliesslich nach** bestandenem
+Check geschrieben — kein Teil-Schreiben, kein Warnpfad.
+
+| `reason` (maschinenlesbar, ARCH-55) | Bedeutung |
+|-------------------------------------|-----------|
+| `mcp_command_not_found` | Kommando nicht auflösbar / Start schlägt fehl |
+| `mcp_process_exited` | Prozess gestartet und vor Handshake beendet |
+| `mcp_timeout` | Timeout während Handshake (Teardown-Reserve bleibt erhalten) |
+| `mcp_protocol_error` | Kein gültiges MCP (JSON-RPC / UTF-8 / Initialize / Tools-Schema) |
+| `mcp_tools_list_empty` | gültige, aber leere tools/list-Antwort |
+| `mcp_process_control_error` | Prozessklammer (Job/Group) nicht herstellbar oder nicht terminierbar |
+| `mcp_configuration_invalid` | Vorhandene Ziel-`.mcp.json` ist nicht strikt ladbar oder strukturell ungültig (UTF-8-/Parser-Fehler inkl. Recursion, doppelte Namen, Nicht-JSON-Konstanten, Surrogates, Nicht-Objekt-Root/`mcpServers`/Server-Eintrag); kein Merge, keine Mutation — getrennt von Wire-`mcp_protocol_error` |
+
+**`SKIPPED` vs. `FAILED` (CP 10):**
+
+| Situation | Status | `reason` |
+|-----------|--------|----------|
+| `features.vectordb: false` **und** `features.are: false` | `SKIPPED` | `vectordb_disabled` (*bewusst-abwesend*) |
+| Feature an, Server konfiguriert, aber nicht lauffähig / kein MCP (Register) | `FAILED` | einer der `mcp_*`-Codes oben |
+
+**Dry-run / Verify (Modusvertrag unverändert, FK-50 §50.2):** Dry-run ist
+reine Planableitung ohne Prozessstart. Verify prüft read-only
+Konfigurationsshape und Soll/Ist-Differenz der `.mcp.json`-Einträge —
+ebenfalls **ohne** fremde Prozesse zu starten. Ein aktiver MCP-Healthcheck
+in Dry-run/Verify ist **nicht** Teil dieses Checkpoints (eigene normative
+Entscheidung mit Security-Impact, nicht AG3-164).
+
+**Bestehende `.mcp.json` (Merge-Vertrag, alle Modi):** Vor Merge, Plan und
+Conformance wird die vorhandene Ziel-`.mcp.json` mit einem **strikt fail-closed
+Loader** gelesen (gleiche Funktion in CP 10 und der ARE-MCP-Präsenzprüfung in
+CP 10c): ungültiges UTF-8, Parser-`RecursionError`, übermässige Verschachtelung
+(gemeinsame iterative Tiefengrenze — unterhalb der CPython-Rekursion; schliesst
+die Zone, in der der Decoder noch lädt, aber rekursive Nachprüfungen
+scheitern würden), doppelte Objektnamen auf jeder Ebene, Nicht-JSON-Konstanten
+(`NaN`/`Infinity`/`-Infinity`), nicht-endliche Floats, isolierte
+UTF-16-Surrogates, Nicht-Objekt-Root, ein vorhandenes `mcpServers`, das kein
+Objekt ist, sowie **jeder** `mcpServers`-Wert, der kein Objekt ist, sind
+`FAILED` / `mcp_configuration_invalid` **ohne Mutation** und **ohne**
+Conformance-Start. Ist die Datei vorhanden, prüft die ARE-MCP-Präsenz
+(`_are_mcp_registered`) sie in **jedem** Modus mit demselben Loader; nur bei
+**fehlender** Datei leiten DRY_RUN/VERIFY die Präsenz aus `features.are` ab.
+Schreiben nutzt `allow_nan=False` (Defense in Depth); bei Fehler bleibt die
+Datei byte-identisch. Fremdeinträge werden nur aus einem gültigen Root
+erhalten — stille Last-wins- oder Shape-Ersetzung ist verboten. Wire- und
+Config-Loader teilen die reinen JSON-/Unicode-Hilfen (Duplikate,
+Nicht-JSON-Konstanten, Non-finite, Surrogates, iterative Nesting-Grenze).
+
+**Idempotenz:** Nach bestandenem Register-Check: UPSERT der gewünschten
+Server; bereits identische Einträge → `PASS` (Conformance erneut bestanden).
 
 ### CP 10a: ConceptContext-Properties und Erstindizierung
 
@@ -513,9 +613,11 @@ bereits indizierte Konzepte (Hash-basiert).
 ### CP 10b: Concept-Validation-Hook
 
 Registriert den konzeptspezifischen Pre-Commit-Hook (Kap. 13.9.9)
-in `tools/hooks/pre-commit`. Der Hook führt bei Änderungen unter dem
-konfigurierten `concepts_dir` (Default `concepts/`) die
-Validierungs-Suite `concept_validate --staged` aus.
+in der materialisierten Zielprojekt-Hook-Datei pre-commit
+(relativ zum Zielprojekt, nicht Repo-Root; materialisiert unter tools/hooks).
+Der Hook führt bei Änderungen unter dem konfigurierten `concepts_dir`
+(Default `concepts/`) die Validierungs-Suite `concept_validate --staged`
+aus.
 
 Die bestehende Secret-Detection (Kap. 15.5.2) bleibt global aktiv
 und wird durch die pfadbasierte Dispatching-Logik nicht berührt.
@@ -730,7 +832,8 @@ Read-only Validierung aller vorherigen Checkpoints:
   harness-eigenes Aequivalent; FK-76)?
 - Alle Hooks registriert — **pro unterstuetztem Harness**
   (`.claude/settings.json`, `.codex/config.toml` o.ae.)?
-- Alle erwarteten `tools/agentkit/`-Wrapper vorhanden?
+- Alle erwarteten Zielprojekt-Wrapper unter tools/agentkit vorhanden
+  (materialisierte Zielprojekt-Launcher, nicht Repo-Pfad)?
 - ARE-Scope-Zuordnung vollständig? (alle Code-Repos haben `are_scope`, alle Modul-Werte gemappt — nur wenn `features.are: true`)
 - Backend-vermittelte leichte Sonar-/Jenkins- und feature-gated ARE-Probes
   bestanden; bei Sonar insbesondere Erreichbarkeit, Mindestversion, Token-Rolle
@@ -809,6 +912,9 @@ nicht zulaessig.
 | State-Backend nicht erreichbar | CP 7 | FAILED |
 | Link (Symlink/Junction) kann nicht angelegt oder aktualisiert werden | CP 8 | FAILED |
 | Bestehende Config mit inkompatiblem Schema | CP 5 | Migration versuchen (Kap. 51), bei Scheitern FAILED |
+| MCP-Kommando nicht aufloesbar / Prozess stirbt / Timeout / kein MCP / leere Toolliste / Prozessklammer | CP 10 | `FAILED` mit `reason` aus dem Conformance-Katalog (`mcp_command_not_found`, `mcp_process_exited`, `mcp_timeout`, `mcp_protocol_error`, `mcp_tools_list_empty`, `mcp_process_control_error`) — keine Registrierung, kein Teil-Schreiben (§50.3 CP 10) |
+| Vorhandene Ziel-`.mcp.json` strikt unlesbar oder shape-ungueltig (UTF-8/Recursion/Surrogates, doppelte Namen, Nicht-JSON-Konstanten, Nicht-Objekt-Root/`mcpServers`/Server-Eintrag) | CP 10 (alle Modi); CP 10c ARE-MCP-Pruefung in jedem Modus bei vorhandener Datei | `FAILED` mit `reason=mcp_configuration_invalid` — keine Mutation, kein Conformance-Start, Datei bleibt byte-identisch (§50.3 CP 10 Merge-Vertrag); nicht als `mcp_protocol_error` umdeuten |
+| `features.vectordb: false` und `features.are: false` (kein MCP-Server gewuenscht) | CP 10 | `SKIPPED` mit `reason=vectordb_disabled` — *bewusst-abwesend*, nicht FAILED |
 | `sonarqube.available: false` (Projekt deklariert kein Sonar, auch fuer codeproduzierende Projekte zulaessig) | CP 10d | `SKIPPED` mit `reason="not_applicable"` (§50.4) — Checkpoint uebersprungen, kein FAILED (FK-33 §33.6.5, *bewusst-abwesend* ≠ *kaputt*) |
 | Control Plane fuer Dritt-System-Validierung nicht erreichbar | CP 10d | FAILED, kein direkter Dev-Fallback |
 | SonarQube nicht erreichbar / Version < `min_version` / Creds ungueltig (bei `available: true`) | CP 10d | FAILED, Installation abbrechen |

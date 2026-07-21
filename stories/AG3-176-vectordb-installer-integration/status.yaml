@@ -1,0 +1,22 @@
+story_id: AG3-176
+story_title_short: "vectordb-installer-integration"
+title: "VektorDB-Installer-Integration (harnessuebergreifend): Endpunkt-Preflight fail-closed (kein Default-Fallback), strikte Config-Grenze, CP10a-Receipts, CP10b feuernde Pre-Commit-/Post-Commit-Installation, laufende Sync-Producer, schnittkonsistente Pflichtaktivierung (features.vectordb deprecaten), Skill-Auslieferung ohne stillen Fallback"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-21"
+size: L  # von M angehoben (Review Schnitt-/Groessenurteil): nach vollstaendiger
+         # Ring-/Hook-Integration (CP10b/Pre-Commit, Post-Commit build->sync,
+         # CP10a-Receipts, strikte Config-/Preflight-Grenzen) faktisch L.
+         # Schnitt unveraendert, keine Neuaufteilung.
+# Herkunft: PO-Neuschnitt 2026-07-21. Zweite von zwei harnessuebergreifenden
+# Storys. Verdrahtet die Engine (AG3-174) und die Registrierung (AG3-175) in
+# den Installer und macht die Faehigkeit im Zielprojekt real und pflichtig.
+# Aktivierung ist die schnittkonsistente (gemeinsam landende) Schnittkante,
+# KEINE transaktionale Laufzeitatomizitaet (Review 176-P2-1): erst wenn Server, Registrierung
+# und Erstindex stehen, wird der optionale Installer-Ast entfernt — es darf
+# nie einen Stand mit Phantomeintrag oder flaechendeckendem Ausfall geben.
+# Die Feature-Flag-Pflicht ist normativ vorab verankert (Decision Record
+# 2026-07-21, Rand 1); diese Story zieht den Code nach.
+depends_on: ["AG3-174", "AG3-175"]
+unblocks: []

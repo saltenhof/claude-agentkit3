@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/request-pack.schema.json",
+  "title": "semantic/requests/*.json \u2014 semantic-gate request pack (FK-78 section 78.14)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "gate",
+    "scope_id",
+    "base_revision",
+    "template_id",
+    "template_digest",
+    "chunks",
+    "request_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "gate": {
+      "type": "string",
+      "enum": [
+        "authority-prose",
+        "scope-consistency"
+      ]
+    },
+    "scope_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_revision": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "git",
+            "digest"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "template_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "template_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "chunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "locator",
+          "digest"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "request_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

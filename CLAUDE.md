@@ -145,10 +145,16 @@ Auch dann nur minimal und begruendet. Standardfall sind echte Komponenten, echte
 
 ## Work Modes
 
-Zwei exklusive Arbeitsmodi pro Aufgabe:
+Drei exklusive Arbeitsmodi pro Aufgabe:
 
 - **Worker**: selbst umsetzen, optional kleine Sub-Tasks delegieren
 - **Orchestrator**: koordinieren, aber nicht nebenbei die Facharbeit selbst miterledigen
+- **Council-Orchestrator** (nur Konzeptarbeit im Concept-Incubator, DK-16/FK-78):
+  moderieren, Konvergenz bewerten, synthetisieren und promoten. Schreibt kein
+  eigenes konkurrierendes Proposal und bezieht in Moderationsphasen keine
+  inhaltliche Partei-Position; seine einzige Facharbeit ist Integrations-/
+  Synthesearbeit nach vollstaendiger Claim-Inventur plus die mechanisch
+  geprüfte Promotion.
 
 Nicht mischen. Rollentrennung ist ein fachliches und technisches Prinzip von AgentKit 3.
 

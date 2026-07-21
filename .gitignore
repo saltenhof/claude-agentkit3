@@ -72,3 +72,10 @@ mcps/
 terminals/
 story/
 tools/cloc-*.exe
+
+# Concept-Incubator (FK-78): Locks und Secrets sind nie versioniert
+concept-incubator/locks/
+concept-incubator/runs/*/secrets/
+concept-incubator/runs/*/RUN.mutex
+concept-incubator/locks/*.takeover
+concept-incubator/runs/*/artifact-register.local.tsv

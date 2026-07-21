@@ -203,11 +203,44 @@ def _are_ctx_complete(
     ctx = build_checkpoint_context(
         config, mode, scope_interaction_mode=ScopeInteractionMode.AGENTIC
     )
-    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
-    from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
+    import sys
+    from pathlib import Path
+
+    from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
+        cp05_pipeline_config,
+    )
+    from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
+        cp10_mcp_registration,
+    )
+    from agentkit.backend.installer.registration import CheckpointStatus
 
     cp05_pipeline_config(ctx)
-    cp10_mcp_registration(ctx)
+    # Real CP 10 predecessor with a conforming test MCP server (AG3-164 P1-2).
+    if mode.mutations_allowed:
+        repo_root = Path(__file__).resolve().parents[4]
+        minimal = repo_root / "tests" / "fixtures" / "minimal_mcp_server.py"
+        original = cp10_mod._desired_mcp_servers
+
+        def _are_via_test_server(_context: object) -> dict[str, object]:
+            return {
+                "are-mcp": {
+                    "type": "stdio",
+                    "command": sys.executable,
+                    "args": [str(minimal)],
+                }
+            }
+
+        cp10_mod._desired_mcp_servers = _are_via_test_server  # type: ignore[assignment]
+        try:
+            cp10_result = cp10_mcp_registration(ctx)
+        finally:
+            cp10_mod._desired_mcp_servers = original  # type: ignore[assignment]
+        assert cp10_result.status in (
+            CheckpointStatus.CREATED,
+            CheckpointStatus.UPDATED,
+            CheckpointStatus.PASS,
+        ), cp10_result
     return ctx
 
 

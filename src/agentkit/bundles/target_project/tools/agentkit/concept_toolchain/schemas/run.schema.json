@@ -1,0 +1,423 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentkit.dev/schemas/concept-toolchain/run.schema.json",
+  "title": "RUN.json \u2014 authoritative incubation-run state (FK-78 section 78.4)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "title",
+    "profile",
+    "state",
+    "state_revision",
+    "lease_fencing_token",
+    "current_round",
+    "base_revision",
+    "data_class",
+    "actor",
+    "participants",
+    "register_digests",
+    "blocked",
+    "recheck",
+    "last_completed_action",
+    "next_action",
+    "updated_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{8}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "LIGHT_INCUBATION",
+        "FULL_ATOM"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "FRAMING",
+        "STAFFING",
+        "PROPOSING",
+        "CONVERGING",
+        "SYNTHESIZING",
+        "DECIDING",
+        "PROMOTING",
+        "PROMOTION_FAILED",
+        "BLOCKED",
+        "RECHECK",
+        "CLOSED",
+        "ABORTED"
+      ]
+    },
+    "state_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "lease_fencing_token": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "current_round": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "base_revision": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "git",
+            "digest"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "data_class": {
+      "type": "string",
+      "enum": [
+        "open",
+        "internal",
+        "sensitive"
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "role",
+        "harness",
+        "model",
+        "principal_id",
+        "session_ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "harness": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "principal_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$"
+        },
+        "session_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "participant_id",
+          "model",
+          "backend",
+          "spawn_mode",
+          "principal_id",
+          "session_ref",
+          "data_release",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "participant_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "backend": {
+            "type": "string",
+            "minLength": 1
+          },
+          "spawn_mode": {
+            "type": "string",
+            "enum": [
+              "harness-bridge",
+              "llm-hub",
+              "subagent",
+              "cli-resume"
+            ]
+          },
+          "principal_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*$"
+          },
+          "session_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "data_release": {
+            "type": "object",
+            "required": [
+              "max_data_class",
+              "source_ids",
+              "package_ids",
+              "approved_by_user"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "max_data_class": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "internal",
+                  "sensitive"
+                ]
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^SRC-[0-9a-f]{8}-\\d{4,}$"
+                }
+              },
+              "package_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^PKG-[0-9a-f]{8}-\\d{2,}$"
+                }
+              },
+              "approved_by_user": {
+                "type": "boolean"
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "failed",
+              "replaced",
+              "withdrawn"
+            ]
+          }
+        }
+      }
+    },
+    "register_digests": {
+      "type": "object",
+      "required": [
+        "corpus_baseline",
+        "source_intake_input_head",
+        "source_intake_final_head",
+        "source_register_input",
+        "source_units_input",
+        "claims_inventory_input",
+        "derived_claims",
+        "disposition_ledger",
+        "source_register_final",
+        "source_units_final",
+        "atom_register"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "corpus_baseline": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_intake_input_head": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_intake_final_head": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_register_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_units_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "claims_inventory_input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "derived_claims": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "disposition_ledger": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_register_final": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_units_final": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "atom_register": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "blocked": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "reason",
+            "since_state"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "since_state": {
+              "type": "string",
+              "enum": [
+                "FRAMING",
+                "STAFFING",
+                "PROPOSING",
+                "CONVERGING",
+                "SYNTHESIZING",
+                "DECIDING",
+                "PROMOTING",
+                "PROMOTION_FAILED",
+                "BLOCKED",
+                "RECHECK",
+                "CLOSED",
+                "ABORTED"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "recheck": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "drifted_paths",
+            "detected_in_state"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "drifted_paths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "detected_in_state": {
+              "type": "string",
+              "enum": [
+                "FRAMING",
+                "STAFFING",
+                "PROPOSING",
+                "CONVERGING",
+                "SYNTHESIZING",
+                "DECIDING",
+                "PROMOTING",
+                "PROMOTION_FAILED",
+                "BLOCKED",
+                "RECHECK",
+                "CLOSED",
+                "ABORTED"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "last_completed_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "next_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z$"
+    }
+  }
+}

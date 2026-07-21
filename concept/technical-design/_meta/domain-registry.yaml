@@ -164,3 +164,9 @@ domains:
       - DK-15
       - FK-77
 
+  - id: concept-incubation
+    display_name: Konzeption und Konzeptinkubation (Blueprint, Inkubator, Promotion)
+    contract_docs:
+      - DK-16
+      - FK-78
+

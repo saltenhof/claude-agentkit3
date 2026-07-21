@@ -10,6 +10,7 @@ modules:
 - closure-sequence
 - compaction
 - concept-catalog
+- concept-incubation
 - configuration
 - conformance
 - control-plane-design-system

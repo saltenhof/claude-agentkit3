@@ -16,6 +16,10 @@ Dieses Dokument legt die verbindliche Dateisyntax fuer
 Die Syntax muss:
 
 - mit dem Guardrail `concept/` = Markdown-only kompatibel bleiben
+  (einzige Ausnahme: schema-validierte, verifier-geprüfte
+  Registry-/Manifest-Dateien unter `concept/_meta/` gemaess FK-78 §78.2 —
+  sie sind normative Eingaben bzw. geprüfte Materialisierungen, keine
+  freien Generate)
 - fuer Menschen lesbar sein
 - fuer den Compiler deterministisch parsebar sein
 - Prosa und normative Semantik sauber trennen
