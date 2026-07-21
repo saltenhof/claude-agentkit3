@@ -726,7 +726,7 @@ angelegt-oder-wiederverwendet, nicht pro Session entfernt):
 `postgresql://agentkit:agentkit@127.0.0.1:55442/<db>` (vom Host) bzw.
 `postgresql://agentkit:agentkit@host.docker.internal:55442/<db>` (aus
 einem Container heraus). Diese lokale Instanz ist strikt getrennt von
-der CI-Postgres-Instanz (`agentkit-postgres-ci`), die nur
+der CI-Postgres-Instanz (`seu-ci-postgres`), die nur
 Docker-intern im gemeinsamen Netz liegt (kein veroeffentlichter
 Host-Port) und ausschliesslich von Jenkins genutzt wird.
 
