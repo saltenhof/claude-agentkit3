@@ -162,8 +162,8 @@ PY
                         # build container is attached to the same user-defined Docker network as
                         # ``seu-ci-postgres``.
                         export AGENTKIT_STATE_BACKEND=postgres
-                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@seu-ci-postgres:55432/${DB_NAME}"
-                        export AGENTKIT_PG_ADMIN_DSN="postgresql://agentkit:agentkit@seu-ci-postgres:55432/postgres"
+                        export AGENTKIT_STATE_DATABASE_URL="postgresql://ci:ci@seu-ci-postgres:55432/${DB_NAME}"
+                        export AGENTKIT_PG_ADMIN_DSN="postgresql://ci:ci@seu-ci-postgres:55432/postgres"
                         python - <<'PY'
 from __future__ import annotations
 
