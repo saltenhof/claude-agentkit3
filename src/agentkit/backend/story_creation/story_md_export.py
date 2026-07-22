@@ -157,18 +157,41 @@ def _render_body(story: Story, spec: StorySpecification | None) -> str:
 
 
 def _story_index_objects(story: Story, spec: StorySpecification | None) -> list[dict[str, object]]:
-    """Build the indexing payload chunks (FK-21 §21.11.4)."""
-    return [
-        {
-            "story_id": story.story_display_id,
-            "title": story.title,
-            "problem": spec.need if spec is not None else "",
-            "solution": spec.solution if spec is not None else "",
+    """Build the indexing payload chunks (FK-21 §21.11.4 / FK-13 §13.3.1).
+
+    Full StoryContext fields including ``content``, ``project_id``,
+    ``content_hash``, ``source_type`` and deterministic ``chunk_uuid``.
+    """
+    from agentkit.backend.vectordb.ingest.builders import build_story_export_chunks
+
+    body_parts: list[str] = []
+    if spec is not None:
+        if spec.need:
+            body_parts.append(f"## Problemstellung\n\n{spec.need}")
+        if spec.solution:
+            body_parts.append(f"## Loesungsansatz\n\n{spec.solution}")
+    body = "\n\n".join(body_parts) if body_parts else story.title
+    project_id = getattr(story, "project_key", None) or getattr(story, "project_id", None) or ""
+    if not project_id or not isinstance(project_id, str):
+        raise VectorDbError(
+            "story export indexing requires story.project_key "
+            "(no invented 'default' project_id, R15)."
+        )
+    source_file = f"stories/{story.story_display_id}/story.md"
+    records = build_story_export_chunks(
+        project_id=str(project_id),
+        story_id=story.story_display_id,
+        title=story.title,
+        body=body,
+        source_file=source_file,
+        meta={
+            "status": getattr(getattr(story, "status", None), "value", "") or "",
             "story_type": story.story_type.value,
             "module": story.module,
             "epic": story.epic,
-        }
-    ]
+        },
+    )
+    return [r.to_properties() for r in records]
 
 
 def _validate_frontmatter(text: str) -> str | None:

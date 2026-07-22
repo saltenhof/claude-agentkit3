@@ -1,0 +1,10 @@
+{
+  "bundle_id": "create-userstory-core",
+  "bundle_version": "5.0.0",
+  "manifest_digest": "d7f33274c41468febe6efa643bd70418fb8b4091e36cef40ffae3767980b0ca6",
+  "profile": "CORE",
+  "skill_name": "create-userstory",
+  "variants": {
+    "CORE": "create-userstory"
+  }
+}

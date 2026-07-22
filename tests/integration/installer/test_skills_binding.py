@@ -87,6 +87,9 @@ def _make_config(
     skill_bundle_ids: dict[str, str] | None = None,
 ) -> InstallConfig:
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_key="skills-it",
         project_name="skills-it",
         project_root=root,

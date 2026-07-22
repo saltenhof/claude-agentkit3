@@ -418,11 +418,10 @@ def _build_doc_fidelity_feedback_port(
 
 
 def _build_vectordb_sync_port() -> closure_types.VectorDbSyncPort:
-    """Build the VectorDB sync seam (FK-13 §13.7.1, fire-and-forget, non-blocking).
+    """Build the VectorDB sync seam (FK-13 §13.7.1, non-blocking, AG3-176 AC5).
 
-    Triggers an async ``story_sync``. The VectorDB integration is not yet
-    available in the target project; the seam is honest non-blocking — it records
-    a human Warning when the sync cannot be triggered (the STEP still runs).
+    Triggers ``story_sync`` via the AG3-174 engine (port only). Closure stays
+    non-blocking; failures are logged observably.
     """
     from agentkit.backend.closure.runtime_ports import ProductiveVectorDbSyncPort
 

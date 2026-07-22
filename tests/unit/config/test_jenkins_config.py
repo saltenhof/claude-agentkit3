@@ -34,6 +34,11 @@ def _project(ci: object) -> ProjectConfig:
         pipeline={  # type: ignore[arg-type]
             "config_version": SUPPORTED_CONFIG_VERSION,
             "features": {"multi_llm": False},
+            "vectordb": {
+                "host": "weaviate.test.local",
+                "port": 19903,
+                "grpc_port": 50051,
+            },
             "sonarqube": _OPT_OUT_SONAR,
             "ci": ci,
         },
@@ -81,6 +86,7 @@ class TestCiCodeProducingRule:
                 pipeline={  # type: ignore[arg-type]
                     "config_version": SUPPORTED_CONFIG_VERSION,
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "sonarqube": _OPT_OUT_SONAR,
                 },
             )
@@ -129,6 +135,7 @@ class TestCiCodeProducingRule:
             pipeline={  # type: ignore[arg-type]
                 "config_version": SUPPORTED_CONFIG_VERSION,
                 "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
             },
         )
         assert cfg.pipeline.ci is None

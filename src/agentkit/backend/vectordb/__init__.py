@@ -1,11 +1,13 @@
-"""App-layer VectorDB readiness shim (FK-21 §21.11.4).
-
-Canonical FK module path ``agentkit.backend.vectordb.wait_for_weaviate``: the
-"ready / not ready" business rule lives here, NOT in ``integrations/``. The
-shim consumes the thin Weaviate adapter and maps readiness to a process exit
-code (0 ready / 1 not, fail-closed).
-"""
+"""VectorDB app-layer package (FK-13): schema, binding, ingest, corpus, MCP."""
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from agentkit.backend.vectordb.project_binding import ProjectBinding, bind_project
+from agentkit.backend.vectordb.schema import STORY_COLLECTION, ensure_story_context_schema
+
+__all__ = [
+    "STORY_COLLECTION",
+    "ProjectBinding",
+    "bind_project",
+    "ensure_story_context_schema",
+]

@@ -110,6 +110,7 @@ def _write_project_config(project_root: Path, remotes: dict[str, Path]) -> None:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                 },
             }
         ),

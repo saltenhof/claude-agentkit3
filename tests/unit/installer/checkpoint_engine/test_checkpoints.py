@@ -153,12 +153,30 @@ def test_cp03_and_cp04_are_reserved(
 # --------------------------------------------------------------------------- #
 
 
+def _stub_cp10_mcp_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub dual-harness MCP probe so full-flow unit installs stay offline."""
+    import agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp as cp10_mod
+    from agentkit.backend.installer.mcp_conformance.types import McpConformanceResult
+
+    monkeypatch.setattr(
+        cp10_mod,
+        "check_mcp_conformance",
+        lambda cmd, **kwargs: McpConformanceResult(
+            ok=True,
+            reason=None,
+            detail="stubbed ok",
+            tool_names=("story_search", "concept_search"),
+        ),
+    )
+
+
 def test_cp08_calls_prompt_runtime_update_binding(
     tmp_path: Path,
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC6: CP 8 invokes PromptRuntime.update_binding (the second binding path)."""
+    _stub_cp10_mcp_ok(monkeypatch)
     calls: list[tuple[str, str]] = []
     from agentkit.backend.prompt_runtime.runtime import PromptRuntime
 
@@ -186,6 +204,7 @@ def test_cp09_calls_governance_register_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC7: CP 9 invokes Governance.register_hooks."""
+    _stub_cp10_mcp_ok(monkeypatch)
     calls: list[int] = []
     from agentkit.backend.governance.runner import Governance
 
@@ -212,34 +231,45 @@ def test_cp09_calls_governance_register_hooks(
 # --------------------------------------------------------------------------- #
 
 
-def test_cp10_skipped_when_both_features_off(
+def test_cp10_no_longer_skips_when_features_vectordb_flag_false(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
-    """AC9c: both features off -> SKIPPED/reason=vectordb_disabled, no .mcp.json."""
+    """AG3-176 AC6: VectorDB is mandatory — no SKIPPED/vectordb_disabled path.
+
+    Even when InstallConfig.features_vectordb is False, the orchestrator
+    forces vectordb_enabled=True and CP10 attempts registration (may fail
+    closed on preflight/conformance, but never SKIPPED for optional-off).
+    """
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
         root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
     )
     ctx = _ctx(config, ExecutionMode.REGISTER)
-    # CP 5 must publish project.yaml on the run-state for CP 10 to read it.
+    assert ctx.vectordb_enabled is True  # type: ignore[attr-defined]
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
 
     cp05_pipeline_config(ctx)  # type: ignore[arg-type]
     result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.SKIPPED
-    assert result.reason == REASON_VECTORDB_DISABLED
-    assert not (root / ".mcp.json").exists()
+    assert result.status is not CheckpointStatus.SKIPPED
+    assert result.reason != REASON_VECTORDB_DISABLED
 
 
 def test_cp10_are_only_fails_without_phantom_are_mcp_entry(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AG3-164 AC1/AC2: ARE-only profile fails honestly; no phantom are-mcp write.
+    """AG3-164 AC1/AC2: ARE profile fails honestly when MCP is not runnable.
 
-    ``agentkit-are-mcp`` is not a registered console script, so conformance
-    fails closed and CP 10 must not write a dead ``.mcp.json`` entry.
+    AG3-176: VectorDB is mandatory — dual-harness probes story-kb first.
+    Real conformance (not the unit stub) fails closed; no phantom write.
     """
+    import agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp as cp10_mod
+    from agentkit.backend.installer.mcp_conformance import check_mcp_conformance
+
+    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", check_mcp_conformance)
+
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
@@ -257,7 +287,6 @@ def test_cp10_are_only_fails_without_phantom_are_mcp_entry(
     if mcp_path.is_file():
         servers = json.loads(mcp_path.read_text(encoding="utf-8")).get("mcpServers", {})
         assert "are-mcp" not in servers
-    # Direct CP 10 outcome: command-not-found, no partial write.
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp05_pipeline_config,
     )
@@ -321,7 +350,7 @@ def _are_ctx(
     import sys
     from pathlib import Path
 
-    from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+    from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp as cp10_mod
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp05_pipeline_config,
     )

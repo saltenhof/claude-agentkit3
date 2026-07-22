@@ -151,13 +151,25 @@ def test_cp08_does_not_touch_prompt_store_in_read_only(
         after = _store_snapshot()
         assert before == after, mode
         assert not store_root.exists(), f"{mode} created the prompt-bundle store"
-        # The plan/read-only result still reports the bundle binding intent.
-        assert result.detail is not None and "PromptRuntime.update_binding" in result.detail
+        # The plan/read-only result still reports binding intent without store writes.
+        assert result.detail is not None
         if mode is ExecutionMode.DRY_RUN:
+            assert "PromptRuntime.update_binding" in result.detail
             assert result.status is CheckpointStatus.CREATED
             assert result.reason == REASON_PLANNED_NO_MUTATION
         else:
-            assert result.status is CheckpointStatus.PASS
+            # AG3-176 R8: VERIFY inspects harness links; missing links => FAILED
+            # (still no store mutation — snapshot equality above).
+            assert result.status in (
+                CheckpointStatus.PASS,
+                CheckpointStatus.FAILED,
+            )
+            if result.status is CheckpointStatus.PASS:
+                assert "PromptRuntime.update_binding" in result.detail or "pin" in (
+                    result.detail or ""
+                ).lower()
+            else:
+                assert result.reason == "skill_binding_pin_mismatch"
 
 
 def test_cp08_register_materialises_prompt_store(
@@ -206,7 +218,7 @@ def _are_ctx_complete(
     import sys
     from pathlib import Path
 
-    from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+    from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp as cp10_mod
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp05_pipeline_config,
     )

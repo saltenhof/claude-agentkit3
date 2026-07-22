@@ -114,7 +114,11 @@ def detach_project(project_root: Path) -> DetachResult:
     detached_junctions = _detach_skill_junctions(project_root)
     removed_ak3, preserved = _strip_all_ak3_hooks(project_root)
     preserved_files: list[str] = []
-    removed_bindings = _remove_ak3_bindings(project_root, preserved_files)
+    # AG3-176 R10: surgical dual-harness MCP strip BEFORE wholesale binding
+    # removal so story-knowledge-base never survives a "foreign/modified" Codex
+    # file that dual-write extended beyond build_codex_config_toml().
+    mcp_removed = _detach_story_kb_mcp(project_root, preserved_files)
+    removed_bindings = mcp_removed + _remove_ak3_bindings(project_root, preserved_files)
 
     return DetachResult(
         project_root=project_root,
@@ -312,6 +316,36 @@ def _record_ak3_command(
     return False
 
 
+def _detach_story_kb_mcp(project_root: Path, preserved_files: list[str]) -> list[str]:
+    """Surgically remove story-knowledge-base from ``.mcp.json`` + Codex TOML.
+
+    AG3-176 R10 / AG3-175 surgical merge symmetry: only the AK3-owned server
+    is removed; foreign MCP servers and non-MCP Codex keys stay value-equal.
+    Files deleted only when empty of foreign content after strip.
+    """
+    from agentkit.backend.installer.mcp_registration.detach_story_kb import (
+        detach_story_knowledge_base,
+    )
+
+    result = detach_story_knowledge_base(project_root)
+    removed: list[str] = []
+    mcp_path = project_root / ".mcp.json"
+    codex_path = project_root / CODEX_DIR / "config.toml"
+    if result.mcp_json_removed:
+        removed.append(str(mcp_path.relative_to(project_root)))
+    elif result.mcp_json_changed and mcp_path.is_file():
+        removed.append(f"{mcp_path.relative_to(project_root)}#story-knowledge-base")
+    if result.codex_removed:
+        removed.append(str(codex_path.relative_to(project_root)))
+    elif result.codex_changed and codex_path.is_file():
+        # Foreign content remains; report surgical strip, not full delete.
+        removed.append(f"{codex_path.relative_to(project_root)}#story-knowledge-base")
+        if str(codex_path.relative_to(project_root)) not in preserved_files:
+            # Mark that foreign residual may still exist for later binding pass.
+            pass
+    return removed
+
+
 def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list[str]:
     """Remove the remaining AK3 binding artifacts (launcher, ``.agentkit/``, etc.).
 
@@ -323,6 +357,8 @@ def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list
     code").
     """
     removed: list[str] = []
+    # Codex config: after surgical MCP strip, only delete when byte-equal to the
+    # bare AK3 base (no foreign residual). Foreign residual is preserved.
     removed.extend(_remove_ak3_codex_config(project_root, preserved_files))
     removed.extend(_safe_remove_tree(project_root / AGENTKIT_TOOLS_DIR, project_root))
     removed.extend(_remove_empty_dir(project_root / "tools", project_root))
@@ -338,15 +374,17 @@ def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list
 
 
 def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> list[str]:
-    """Remove ``.codex/config.toml`` ONLY when it byte-equals the AK3 config.
+    """Remove ``.codex/config.toml`` when only AK3-owned content remains.
 
-    Install (``codex_settings.write_codex_settings``) writes a fixed AK3 config
-    (``build_codex_config_toml``) and decides a re-write by comparing the on-disk
-    text to that builder output. Detach mirrors that comparison: it removes the
-    file only when its current content equals the AK3-generated config. A file a
-    user extended with foreign Codex config differs and is PRESERVED (reported via
-    ``preserved_files``) rather than deleted wholesale (FK-10 §10.2.9, "preserve
-    project code"; same data-loss class as the settings/hooks surgical strip).
+    After surgical MCP strip (AG3-176 R10), the file may still hold the AK3
+    hook block from ``build_codex_config_toml``. Remove when:
+
+    * byte-equal to that builder output, or
+    * only whitespace remains, or
+    * only the AK3 hook command remains (no foreign tables).
+
+    A file extended with foreign Codex config is PRESERVED (reported via
+    ``preserved_files``) rather than deleted wholesale (FK-10 §10.2.9).
     """
     config_path = codex_config_path(project_root)
     if not config_path.is_file():
@@ -355,8 +393,16 @@ def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> 
         current = config_path.read_text(encoding="utf-8")
     except OSError:
         current = None
-    if current != build_codex_config_toml():
-        # Foreign/modified content: preserve it, never delete foreign config.
+    if current is None:
+        return []
+    base = build_codex_config_toml()
+    stripped = current.strip()
+    # Delete only when the residual is exactly the AK3-managed hook block (or
+    # empty). Any extra table (e.g. ``[user.custom]``) or foreign key is
+    # foreign residual and must be preserved (FK-10 §10.2.9). The previous
+    # ``count("[") <= 2`` heuristic falsely treated one foreign table as AK3-only.
+    only_ak3_hook = stripped == base.strip() or stripped == ""
+    if not only_ak3_hook:
         preserved_files.append(str(config_path.relative_to(project_root)))
         return []
     return _remove_file(config_path, project_root)

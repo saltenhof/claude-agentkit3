@@ -9,10 +9,9 @@ Exit 1 -> Weaviate is NOT reachable within the timeout (fail-closed). The
           VectorDB is mandatory infrastructure (FK-13 §13.2 / §13.8); the
           consuming story-creation flow MUST abort, never continue without it.
 
-This is a thin app-layer shim: the "ready / not ready" decision lives here, not
-in ``integrations/``. It consumes :class:`WeaviateStoryAdapter` and a factory
-seam so the success and failure paths stay testable with a double at the adapter
-boundary (mocks exception).
+Project-bound resolution (``--project-root``) is **fail-closed without
+localhost defaults** (AG3-176 AC1). Only the explicitly project-less diagnose
+CLI path may use documented localhost defaults.
 """
 
 from __future__ import annotations
@@ -33,14 +32,21 @@ if TYPE_CHECKING:
 #: Default readiness timeout in seconds (FK-21 §21.11.4: ``--timeout 10``).
 DEFAULT_TIMEOUT_SECONDS: Final[int] = 10
 
-#: Default Weaviate host when ``vectordb.host`` is not configured.
+#: Documented defaults for the **project-less diagnose CLI path only**.
 DEFAULT_HOST: Final[str] = "localhost"
-
-#: Default Weaviate port when ``vectordb.port`` is not configured.
 DEFAULT_PORT: Final[int] = 8080
 
 #: Seconds between readiness probes while waiting.
 _POLL_INTERVAL_SECONDS: Final[float] = 0.5
+
+
+class ProjectEndpointResolutionError(Exception):
+    """Raised when project-bound host/port cannot be resolved fail-closed."""
+
+    def __init__(self, reason: str, detail: str) -> None:
+        self.reason = reason
+        self.detail = detail
+        super().__init__(f"{reason}: {detail}")
 
 
 def _default_adapter_factory(host: str, port: int) -> WeaviateStoryAdapter:
@@ -91,11 +97,13 @@ def wait_for_weaviate(
 
 
 def _resolve_host_port(project_root: str | None) -> tuple[str, int]:
-    """Resolve Weaviate ``(host, port)`` from the consumed ``vectordb`` config.
+    """Resolve Weaviate ``(host, port)`` for CLI use.
 
-    The ``vectordb`` config stanza is owned exclusively by AG3-070; this shim
-    only CONSUMES it. When no project config is resolvable (e.g. a bare
-    readiness probe outside a project), the documented localhost defaults apply.
+    * ``project_root is None`` — project-less diagnose path: documented
+      localhost defaults apply.
+    * ``project_root`` set — project-bound path: load config fail-closed;
+      **no** localhost/default fallback when config is missing, invalid, or
+      incomplete (AG3-176 AC1).
 
     Args:
         project_root: Optional project root carrying
@@ -103,27 +111,38 @@ def _resolve_host_port(project_root: str | None) -> tuple[str, int]:
 
     Returns:
         The resolved ``(host, port)`` pair.
+
+    Raises:
+        ProjectEndpointResolutionError: On the project-bound path when the
+            endpoint cannot be resolved without inventing defaults.
     """
     if project_root is None:
         return DEFAULT_HOST, DEFAULT_PORT
+
     from pathlib import Path
 
     from agentkit.backend.config.loader import load_project_config
     from agentkit.backend.exceptions import AgentKitError
+    from agentkit.backend.vectordb.endpoint_preflight import (
+        EndpointPreflightError,
+        resolve_endpoint_from_project_config,
+    )
 
     try:
         config = load_project_config(Path(project_root))
-    except (AgentKitError, OSError):
-        # No resolvable project config (missing / invalid project.yaml) => fall
-        # back to the documented localhost defaults. The readiness probe itself
-        # still fails closed if Weaviate is genuinely unreachable.
-        return DEFAULT_HOST, DEFAULT_PORT
-    vectordb = config.pipeline.vectordb
-    if vectordb is None:
-        return DEFAULT_HOST, DEFAULT_PORT
-    host = vectordb.host if vectordb.host else DEFAULT_HOST
-    port = vectordb.port if vectordb.port is not None else DEFAULT_PORT
-    return host, port
+    except (AgentKitError, OSError) as exc:
+        raise ProjectEndpointResolutionError(
+            "configuration_invalid",
+            f"cannot load project config for VectorDB endpoint at "
+            f"{project_root!r}: {exc} (no localhost default on project path, "
+            "AG3-176 AC1)",
+        ) from exc
+
+    try:
+        endpoint = resolve_endpoint_from_project_config(config)
+    except EndpointPreflightError as exc:
+        raise ProjectEndpointResolutionError(exc.reason, exc.detail) from exc
+    return endpoint.host, endpoint.http_port
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -155,7 +174,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=None, help="Override Weaviate port.")
     args = parser.parse_args(argv)
 
-    host, port = _resolve_host_port(args.project_root)
+    try:
+        host, port = _resolve_host_port(args.project_root)
+    except ProjectEndpointResolutionError as exc:
+        print(
+            f"Weaviate endpoint resolution failed ({exc.reason}): {exc.detail}",
+            file=sys.stderr,
+        )
+        return 1
     if args.host is not None:
         host = args.host
     if args.port is not None:

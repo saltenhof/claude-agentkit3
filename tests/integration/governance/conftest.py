@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.support.installer_offline_stubs import install_offline_vectordb_stubs
 
 from agentkit.backend.control_plane.guard_counter import (
     ControlPlaneGuardCounterService,
@@ -59,6 +60,12 @@ from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def _offline_vectordb_installer_seams(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AG3-176: install-driven governance e2e stays offline at CP10 seams."""
+    install_offline_vectordb_stubs(monkeypatch)
 
 
 class LoopbackGovernanceClient:

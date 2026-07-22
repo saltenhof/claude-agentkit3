@@ -2,8 +2,25 @@ story_id: AG3-174
 story_title_short: "vectordb-retrieval-engine"
 title: "VektorDB-Retrieval-Engine (harnessuebergreifend): Packaging, Projektbindung, generischer Ingest-Kern, StoryContext-Schema, Story-/Research-/Concept-Ingest, concept_validate + Corpus-Build, concept_sync (generationskonsistent, Bounded-Window), Authority-Resolver, MCP-Server mit den fuenf FK-13-Tools"
 type: implementation
-status: ready
-phase: setup
+status: in_progress
+phase: implementation
+# CODE-REVIEW BESTANDEN (2026-07-21). 4 Codex-Adversarial-Runden
+# (review-1..4-codex.md): alle 19 Findings (8 BLOCKER + 11 MAJOR) an der Wurzel
+# geschlossen, inkl. der zentralen fail-closed/„geerbte-Nachsicht"-Achse. Die
+# zwei Tail-Reste (R07-Counter-Klasse an allen Shapes, R11 Error-Routing) vom
+# Orchestrator selbst verifiziert: Zielmodul 33 passed, ruff+mypy sauber (eigener
+# Lauf). Grok = Implementer, Codex = adversarialer Reviewer, Orchestrator hat
+# das Killer-Modul unabhaengig gefahren (gegen False-Green).
+# Orchestrator-Derivationen (keine PO-Konzeptentscheidung, aus kanonischer Norm):
+# (a) R17 — SSOT-Kern unter backend/concept_catalog/corpus/, NICHT Top-Level
+# agentkit/concepts/ (PROJECT_STRUCTURE); (b) R01/R15 — Corpus-Scope strikt aus
+# ProjectConfig.concepts_dir + .conceptignore (FK-13 §13.9.13); (c) W-SCOPE-001
+# fundamentale Scopes werden vom Ziel-Corpus deklariert (_meta/fundamental_scopes.yaml),
+# nicht von der Engine hardcodiert.
+# OFFEN bis Closure (Orchestrator-owned, NICHT Grok): R18 AG3-172-Landesperre als
+# echtes Merge-Gate; volle pytest-Suite + Sonar als Closure-Gate; FK-13 §13.6
+# P6-Consumer als benannter Folge-Owner (nachgelagerte Story).
+# NICHT auf done setzen bis Closure-Gate + AG3-172 gelandet.
 created: "2026-07-21"
 size: L
 # Herkunft: Neuschnitt des VektorDB-Vorhabens nach PO-Vorgabe (Speed,

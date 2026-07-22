@@ -73,6 +73,7 @@ def _write_valid_config(project_root: Path, *, config_version: str = "3.0") -> P
                 "pipeline": {
                     "config_version": config_version,
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "sonarqube": {"available": False, "enabled": False},
                     "ci": {"available": False, "enabled": False},
                 },

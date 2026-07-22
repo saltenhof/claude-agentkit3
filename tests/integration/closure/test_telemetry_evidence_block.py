@@ -65,6 +65,7 @@ def _write_project_config(project_root: Path) -> None:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "telemetry": {
                         "web_call_limit": _WEB_BUDGET,
                         "web_call_warning": 1,

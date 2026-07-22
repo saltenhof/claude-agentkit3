@@ -11,8 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import yaml
-
 from agentkit.backend.config.defaults import (
     DEFAULT_MAX_FEEDBACK_ROUNDS,
     DEFAULT_MAX_REMEDIATION_ROUNDS,
@@ -218,6 +216,12 @@ class InstallConfig:
     # to features.are only); both off -> CP 10 SKIPPED (vectordb_disabled).
     features_vectordb: bool = False
     features_are: bool = False
+    # AG3-175: optional Weaviate endpoint for dual-harness MCP Spec env
+    # (PROJECT_ID + endpoint). When unset, CP 10 resolves from project.yaml
+    # ``vectordb`` / environment. No silent localhost default at registration.
+    weaviate_host: str | None = None
+    weaviate_http_port: int | None = None
+    weaviate_grpc_port: int | None = None
     # AG3-088 (FK-50 §50.3 CP 10c): optional ARE config consumed when
     # ``features_are`` is True — the ``are`` stanza (incl. ``mcp_server`` and the
     # ``module_scope_map``) written into project.yaml. The installer is the
@@ -355,14 +359,13 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         # Operators who are not yet ready for multi-LLM routing must consciously
         # set multi_llm: false and remove the llm_roles stanza — a deliberate opt-
         # out, not an automatic install default.
-        # AG3-088 (FK-03 §3.1): the installer CONSUMES the feature decision and
-        # writes the resulting ``features.vectordb``/``features.are`` flags so the
-        # checkpoint flow's vectordb/ARE branch nodes route consistently with the
-        # persisted config. Defaults to False (core profile, no vectordb).
+        # AG3-176 AC6 / Decision Record Rand 1: VectorDB is mandatory
+        # infrastructure. ``features.vectordb`` is always written as true;
+        # false is a hard configuration error on load. ARE remains optional.
         "features": {
             "multi_repo": multi_repo,
             "multi_llm": True,
-            "vectordb": config.features_vectordb,
+            "vectordb": True,
             "are": config.features_are,
         },
         "llm_roles": {
@@ -379,6 +382,19 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         "exploration_mode": True,
         "verify_layers": list(DEFAULT_VERIFY_LAYERS),
     }
+    # Required VectorDB endpoint stanza (no localhost default). Taken from the
+    # install config when the operator supplied it; otherwise omitted so
+    # config-load / CP10 preflight fail closed with a named error (AG3-176 AC1).
+    if (
+        config.weaviate_host
+        and config.weaviate_http_port is not None
+        and config.weaviate_grpc_port is not None
+    ):
+        pipeline["vectordb"] = {
+            "host": config.weaviate_host,
+            "port": config.weaviate_http_port,
+            "grpc_port": config.weaviate_grpc_port,
+        }
     # FK-03 §3 / AG3-052 (E6 + Design-Decision): a code-producing project must
     # declare the ``sonarqube`` stanza EXPLICITLY — never rely on omission
     # (config-load rejects a code-producing project with an omitted stanza).
@@ -540,6 +556,15 @@ def _ensure_prompt_bundle_store_entry(
     return canonical_root, manifest, manifest_text
 
 
+#: Relative paths (POSIX) owned by surgical harness writers — never blind-copy.
+#:
+#: ``.codex/config.toml`` is co-owned by :func:`write_codex_settings` (hooks)
+#: and dual-harness MCP registration (``[mcp_servers.story-knowledge-base]``).
+#: Overwriting with the bundled hooks-only template strips MCP on re-install
+#: and falsely re-lists the file as created (AG3-175/176 idempotency).
+_SURGICAL_HARNESS_CONFIG_RELS: frozenset[str] = frozenset({".codex/config.toml"})
+
+
 def _deploy_static_resource_files(
     resources_dir: Path,
     target_root: Path,
@@ -549,6 +574,8 @@ def _deploy_static_resource_files(
     for item in sorted(resources_dir.rglob("*")):
         rel = item.relative_to(resources_dir)
         if rel.parts[0] == "templates" or item.is_dir():
+            continue
+        if rel.as_posix() in _SURGICAL_HARNESS_CONFIG_RELS:
             continue
 
         target = target_root / rel
@@ -705,8 +732,29 @@ def _write_text_if_changed(path: Path, content: str) -> bool:
 
 
 def _write_yaml_if_changed(path: Path, data: dict[str, object]) -> bool:
+    """Write YAML only when content changes.
+
+    AG3-176 R1: comparison uses the strict loader (no last-wins safe_load path
+    for decisioning). On load failure of an existing file, refuse silent
+    overwrite — raise so the caller fails closed.
+    """
     if path.is_file():
-        existing = yaml.safe_load(path.read_text(encoding="utf-8"))
+        from agentkit.backend.config.strict_yaml import StrictYamlError, strict_load_yaml
+
+        try:
+            existing = strict_load_yaml(path.read_text(encoding="utf-8"))
+        except (StrictYamlError, UnicodeDecodeError, OSError) as exc:
+            from agentkit.backend.exceptions import InstallationError
+
+            raise InstallationError(
+                f"configuration_invalid: existing {path} is not strictly "
+                f"readable; refusing overwrite: {exc}",
+                detail={
+                    "error_code": "configuration_invalid",
+                    "config_path": str(path),
+                    "error": str(exc),
+                },
+            ) from exc
         if existing == data:
             return False
     atomic_write_yaml(path, data)

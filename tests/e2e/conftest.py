@@ -52,6 +52,9 @@ def installed_project(tmp_path: Path) -> Path:
     project_dir.mkdir()
     install_agentkit(
         InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
             project_key="test-project",
             project_name="test-project",
             project_root=project_dir,

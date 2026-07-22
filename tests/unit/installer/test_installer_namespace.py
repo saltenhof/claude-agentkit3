@@ -112,7 +112,10 @@ def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
         # AG3-056 (FIX-5): no live Jenkins here => conscious opt-out so the CI
         # preflight SKIPS.
         ci_available=False,
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
     result = install_agentkit(config)
 
     assert result.success is True

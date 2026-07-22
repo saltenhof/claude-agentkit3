@@ -124,6 +124,9 @@ def _seed_approved_story(
 def _install(project_root: Path) -> None:
     install_agentkit(
         InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
             project_key=_PROJECT,
             project_name=_PROJECT,
             project_root=project_root,

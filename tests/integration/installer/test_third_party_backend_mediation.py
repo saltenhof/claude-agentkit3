@@ -183,6 +183,9 @@ def _install_config(
         binding_repo=StateBackendSkillBindingRepository(root),
     )
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_key="tenant-a",
         project_name="Tenant A",
         project_root=root,

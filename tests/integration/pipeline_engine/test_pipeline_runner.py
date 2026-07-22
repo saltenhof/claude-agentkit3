@@ -102,6 +102,9 @@ def _install_project(project_dir: Path) -> None:
     ensure_git_repo(project_dir)
     install_result = install_agentkit(
         InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
             project_key=project_dir.name,
             project_name=project_dir.name,
             project_root=project_dir,

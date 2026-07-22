@@ -136,6 +136,9 @@ def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
         binding_repo=StateBackendSkillBindingRepository(root),
     )
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_key=root.stem,
         project_name=root.stem,
         project_root=root,
@@ -351,6 +354,9 @@ def _real_bundle_install_config(root: Path, *, store: SkillBundleStore) -> Insta
         binding_repo=StateBackendSkillBindingRepository(root),
     )
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_key=root.stem,
         project_name=root.stem,
         project_root=root,

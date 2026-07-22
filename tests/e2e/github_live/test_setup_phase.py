@@ -53,6 +53,9 @@ class TestSetupPhaseE2E:
         # 1. Install AgentKit
         install_agentkit(
             InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
                 project_key="test",
                 project_name="test",
                 project_root=tmp_path,
@@ -132,6 +135,9 @@ class TestSetupPhaseE2E:
         """
         install_agentkit(
             InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
                 project_key="test",
                 project_name="test",
                 project_root=tmp_path,

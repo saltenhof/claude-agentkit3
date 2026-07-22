@@ -20,15 +20,22 @@ dependencies = [
     "psutil>=5.9",
     # Official MCP Python SDK — runtime contract oracle for installer
     # conformance payload validation (AG3-164). Hard dependency: no optional
-    # import / soft fallback at the registration gate.
+    # import / soft fallback at the registration gate. Also powers the
+    # story-knowledge-base MCP server (FK-13 §13.2 / AG3-174).
     "mcp>=1.0",
+    # Weaviate story-knowledge-base runtime (FK-13 §13.2). Mandatory
+    # infrastructure — hard dependency, no optional extra path for production.
+    "weaviate-client>=4.9,<5.0",
+    # Model-bound tokenizer runtime for chunk boundary checks (FK-13 §13.2 /
+    # Decision Record 2026-07-21). Pinned exact version; no transformers.
+    "tokenizers==0.21.0",
 ]
 
 [project.optional-dependencies]
-# Weaviate story-knowledge-base runtime (FK-13 §13.2). Optional: the integration
-# adapter guards the import and fails closed when the package is absent.
+# Back-compat alias: weaviate is now a hard dependency (AG3-174 / FK-13 §13.2).
+# Kept so existing install instructions `pip install 'agentkit[weaviate]'` still work.
 weaviate = [
-    "weaviate-client>=4.0",
+    "weaviate-client>=4.9,<5.0",
 ]
 dev = [
     "pytest>=8.0",
@@ -40,18 +47,21 @@ dev = [
     "types-PyYAML>=6.0",
     "ruff>=0.4",
     "pre-commit>=3.7",
-    # Discovery is the deterministic W2 source; its package projects the
-    # optional schema types at import time but never connects to an index.
-    "weaviate-client>=4.0",
 ]
 
 [project.scripts]
 agentkit = "agentkit.backend.cli.main:main"
 agentkit-hook-claude = "agentkit.harness_client.harness_adapters.claude_code:main"
 agentkit-hook-codex = "agentkit.harness_client.harness_adapters.codex.cli:main"
+agentkit-concept = "agentkit.backend.concept_catalog.cli:main"
+agentkit-mcp-story-kb = "agentkit.backend.vectordb.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentkit"]
+
+# Versioned tokenizer package assets (FK-13 §13.2 / AG3-174).
+[tool.hatch.build.targets.wheel.force-include]
+"src/agentkit/backend/vectordb/assets" = "agentkit/backend/vectordb/assets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -87,12 +97,16 @@ packages = ["agentkit"]
 mypy_path = ["src", "tools"]
 plugins = ["pydantic.mypy"]
 
-# Weaviate is an OPTIONAL, untyped dependency (FK-13 §13.2). The integration
-# adapter guards its import; mypy must not fail when the package (or its stubs)
-# is absent. This is the documented optional-dependency seam, not a blanket
-# silence — only the ``weaviate.*`` namespace is exempted.
+# Weaviate is a hard dependency but untyped (FK-13 §13.2 / AG3-174). The
+# integration adapter guards its import shape; only the ``weaviate.*``
+# namespace is exempted from missing-import errors.
 [[tool.mypy.overrides]]
 module = ["weaviate.*"]
+ignore_missing_imports = true
+
+# HuggingFace ``tokenizers`` ships without py.typed (AG3-174 tokenizer asset).
+[[tool.mypy.overrides]]
+module = ["tokenizers", "tokenizers.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

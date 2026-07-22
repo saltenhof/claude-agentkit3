@@ -30,7 +30,11 @@ def build_codex_config_toml() -> str:
 
 
 def write_codex_settings(project_root: Path) -> str | None:
-    """Write ``.codex/config.toml`` if it is missing or stale.
+    """Write ``.codex/config.toml`` if it is missing or lacks the AK3 hook.
+
+    Surgical (AG3-175/176): when the file already contains the AgentKit hook
+    command, leave the full document untouched so dual-write MCP tables
+    (``[mcp_servers.story-knowledge-base]``) are never clobbered on re-install.
 
     Returns:
         The relative path when the file changed, otherwise ``None``.
@@ -38,8 +42,16 @@ def write_codex_settings(project_root: Path) -> str | None:
 
     config_path = codex_config_path(project_root)
     content = build_codex_config_toml()
-    if config_path.is_file() and config_path.read_text(encoding="utf-8") == content:
-        return None
+    if config_path.is_file():
+        try:
+            current = config_path.read_text(encoding="utf-8")
+        except OSError:
+            current = ""
+        if current == content:
+            return None
+        # Already has the AK3 hook entry — do not overwrite foreign / MCP spans.
+        if CODEX_HOOK_COMMAND in current and "[hooks.pre_tool_use]" in current:
+            return None
     atomic_write_text(config_path, content)
     return str(config_path.relative_to(project_root))
 

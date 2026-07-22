@@ -46,6 +46,14 @@ REASON_MCP_PROCESS_CONTROL_ERROR: Final = "mcp_process_control_error"
 #: has an invalid configuration shape (duplicate names, non-JSON constants,
 #: non-object root / ``mcpServers``). Distinct from wire ``mcp_protocol_error``.
 REASON_MCP_CONFIGURATION_INVALID: Final = "mcp_configuration_invalid"
+#: CP 10 dual-harness (AG3-175): I/O failure after the first of the two
+#: harness files was written; best-effort rollback applied from the bound
+#: before-image. Honest incomplete state — not a cross-file atomic transaction.
+REASON_REGISTRATION_INCOMPLETE: Final = "registration_incomplete"
+#: CP 10 dual-harness (AG3-175): the probed ``McpServerSpec`` digest no longer
+#: matches the object about to be projected/written (post-probe mutation or
+#: re-derivation). Write is refused (digest-/value-equal binding).
+REASON_MCP_PROBE_BINDING_MISMATCH: Final = "mcp_probe_binding_mismatch"
 
 #: ``detail`` plan marker prefix carried by every dry-run ``CheckpointResult``
 #: (story §2.1.3) so a consumer can detect a plan result without re-deriving the
@@ -62,6 +70,7 @@ __all__ = [
     "REASON_INAPPLICABLE",
     "REASON_MCP_COMMAND_NOT_FOUND",
     "REASON_MCP_CONFIGURATION_INVALID",
+    "REASON_MCP_PROBE_BINDING_MISMATCH",
     "REASON_MCP_PROCESS_CONTROL_ERROR",
     "REASON_MCP_PROCESS_EXITED",
     "REASON_MCP_PROTOCOL_ERROR",
@@ -69,6 +78,7 @@ __all__ = [
     "REASON_MCP_TOOLS_LIST_EMPTY",
     "REASON_PENDING_SELECTION",
     "REASON_PLANNED_NO_MUTATION",
+    "REASON_REGISTRATION_INCOMPLETE",
     "REASON_RESERVED",
     "REASON_VECTORDB_DISABLED",
 ]

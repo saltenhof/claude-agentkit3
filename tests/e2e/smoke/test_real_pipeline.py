@@ -152,6 +152,9 @@ class TestRealPipelineE2E:
         _init_project_repo(project_dir)
         install_agentkit(
             InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
                 project_key="e2e-test",
                 project_name="e2e-test",
                 project_root=project_dir,
@@ -247,6 +250,9 @@ class TestRealPipelineE2E:
         _init_project_repo(project_dir)
         install_agentkit(
             InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
                 project_key="e2e-test",
                 project_name="e2e-test",
                 project_root=project_dir,

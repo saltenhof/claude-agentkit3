@@ -37,8 +37,11 @@ from agentkit.backend.config import (
     SUPPORTED_CONFIG_VERSION,
     PipelineConfig,
     ProjectConfig,
+    VectorDbConfig,
     load_project_config,
 )
+
+_TEST_VDB = VectorDbConfig(host="weaviate.test.local", port=19903, grpc_port=50051)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -136,7 +139,7 @@ def test_pipeline_config_explicit_version_is_supported() -> None:
     from agentkit.backend.config.models import Features
 
     cfg = PipelineConfig(
-        config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+        config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False), vectordb=_TEST_VDB
     )
     assert cfg.config_version == SUPPORTED_CONFIG_VERSION, (
         f"PipelineConfig config_version should be '{SUPPORTED_CONFIG_VERSION}', "
@@ -160,6 +163,7 @@ def test_loader_exposes_config_version(tmp_path: Path) -> None:
         "pipeline": {
             "config_version": "3.0",
             "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
         },
     }
     (config_dir / "project.yaml").write_text(yaml.dump(data), encoding="utf-8")

@@ -56,8 +56,10 @@ class _FakeClient:
         search_mode: str,
         project_id: str,
         limit: int,
+        filters: Mapping[str, object] | None = None,
+        source_types: Sequence[str] | None = None,
     ) -> Sequence[Mapping[str, object]]:
-        del collection, query, search_mode, project_id, limit
+        del collection, query, search_mode, project_id, limit, filters, source_types
         if self._raise_on_search:
             raise RuntimeError("connection refused")
         return self._hits
@@ -67,11 +69,35 @@ class _FakeClient:
         *,
         collection: str,
         objects: Sequence[Mapping[str, object]],
+        uuids: Sequence[str] | None = None,
     ) -> int:
-        del collection
+        del collection, uuids
         if self._raise_on_upsert:
             raise RuntimeError("write rejected")
         return len(objects)
+
+    def delete_by_filter(
+        self,
+        *,
+        collection: str,
+        project_id: str,
+        source_types: Sequence[str] | None = None,
+        source_file: str | None = None,
+        generation_id_not: str | None = None,
+    ) -> int:
+        del collection, project_id, source_types, source_file, generation_id_not
+        return 0
+
+    def fetch(
+        self,
+        *,
+        collection: str,
+        project_id: str,
+        source_types: Sequence[str] | None = None,
+        filters: Mapping[str, object] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        del collection, project_id, source_types, filters
+        return []
 
 
 def test_is_ready_true() -> None:
@@ -93,8 +119,24 @@ def test_is_ready_transport_fault_fails_closed() -> None:
 def test_story_search_coerces_hits() -> None:
     client = _FakeClient(
         hits=[
-            {"story_id": "AG3-001", "title": "T1", "score": 0.91, "snippet": "s1"},
-            {"story_id": "AG3-002", "title": "T2", "score": 0.42, "snippet": "s2"},
+            {
+                "story_id": "AG3-001",
+                "title": "T1",
+                "score": 0.91,
+                "snippet": "s1",
+                "project_id": "AG3",
+                "source_type": "story",
+                "section_heading": "Intro",
+            },
+            {
+                "story_id": "AG3-002",
+                "title": "T2",
+                "score": 0.42,
+                "snippet": "s2",
+                "project_id": "AG3",
+                "source_type": "story",
+                "section_heading": "Body",
+            },
         ]
     )
     adapter = WeaviateStoryAdapter(client)
@@ -206,7 +248,18 @@ class _FakeQuery:
         self.last_kwargs: dict[str, object] = {}
 
     def hybrid(self, **kwargs: object) -> _FakeResponse:
-        self.last_kwargs = kwargs
+        self.last_kwargs = dict(kwargs)
+        self.last_kwargs["mode"] = "hybrid"
+        return self._response
+
+    def near_text(self, **kwargs: object) -> _FakeResponse:
+        self.last_kwargs = dict(kwargs)
+        self.last_kwargs["mode"] = "vector"
+        return self._response
+
+    def bm25(self, **kwargs: object) -> _FakeResponse:
+        self.last_kwargs = dict(kwargs)
+        self.last_kwargs["mode"] = "keyword"
         return self._response
 
 
@@ -220,13 +273,19 @@ class _FakeBatchCtx:
     def __exit__(self, *exc: object) -> bool:
         return False
 
-    def add_object(self, *, properties: dict[str, object]) -> None:
-        self.added.append(properties)
+    def add_object(
+        self, *, properties: dict[str, object], uuid: str | None = None
+    ) -> None:
+        row = dict(properties)
+        if uuid is not None:
+            row["_uuid"] = uuid
+        self.added.append(row)
 
 
 class _FakeBatch:
     def __init__(self, ctx: _FakeBatchCtx) -> None:
         self._ctx = ctx
+        self.failed_objects: list[object] = []
 
     def dynamic(self) -> _FakeBatchCtx:
         return self._ctx
@@ -304,9 +363,16 @@ def test_real_client_search_maps_properties_and_score(
         _FakeResponse(
             [
                 _FakeObj(
-                    {"story_id": "AG3-001", "title": "T1", "snippet": "s1"}, 0.88
+                    {
+                        "story_id": "AG3-001",
+                        "title": "T1",
+                        "snippet": "s1",
+                        "project_id": "AG3",
+                        "source_type": "story",
+                        "section_heading": "Intro",
+                    },
+                    0.88,
                 ),
-                _FakeObj({"story_id": "AG3-002", "title": "T2"}, None),
             ]
         )
     )
@@ -316,12 +382,52 @@ def test_real_client_search_maps_properties_and_score(
 
     hits = adapter.story_search("q", project_id="AG3", limit=20)
 
-    assert [h.story_id for h in hits] == ["AG3-001", "AG3-002"]
+    assert [h.story_id for h in hits] == ["AG3-001"]
     assert hits[0].score == pytest.approx(0.88)
-    assert hits[1].score == pytest.approx(0.0)  # missing score => 0.0
     assert connection.collections.requested == ["StoryContext"]
     assert query.last_kwargs["query"] == "q"
     assert query.last_kwargs["limit"] == 20
+    assert query.last_kwargs["mode"] == "hybrid"
+
+
+def test_real_client_missing_score_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NEGATIVE: missing score is a hard error (no default 0.0)."""
+    _install_fake_filter(monkeypatch)
+    query = _FakeQuery(
+        _FakeResponse([_FakeObj({"story_id": "AG3-002", "title": "T2"}, None)])
+    )
+    collection = _FakeCollection(query=query, batch=_FakeBatch(_FakeBatchCtx()))
+    connection = _FakeConnection(collection)
+    adapter = WeaviateStoryAdapter(_real_client(connection))  # type: ignore[arg-type]
+    with pytest.raises(VectorDbUnavailableError):
+        adapter.story_search("q", project_id="AG3", limit=20)
+
+
+def test_search_mode_vector_and_keyword_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_filter(monkeypatch)
+    query = _FakeQuery(
+        _FakeResponse(
+            [
+                _FakeObj(
+                    {
+                        "story_id": "A",
+                        "title": "T",
+                        "snippet": "s",
+                        "project_id": "P",
+                        "source_type": "story",
+                        "section_heading": "H",
+                    },
+                    0.5,
+                )
+            ]
+        )
+    )
+    collection = _FakeCollection(query=query, batch=_FakeBatch(_FakeBatchCtx()))
+    adapter = WeaviateStoryAdapter(_real_client(_FakeConnection(collection)))  # type: ignore[arg-type]
+    adapter.story_search("q", project_id="P", search_mode="vector")
+    assert query.last_kwargs["mode"] == "vector"
+    adapter.story_search("q", project_id="P", search_mode="keyword")
+    assert query.last_kwargs["mode"] == "keyword"
 
 
 def test_real_client_upsert_counts_objects() -> None:

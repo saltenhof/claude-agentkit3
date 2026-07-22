@@ -183,9 +183,17 @@ class TestVariantDirForUsesManifestKeys:
                 features=Features(multi_llm=False),
                 sonarqube=SonarQubeConfig(available=False, enabled=False),
                 ci=JenkinsConfig(available=False, enabled=False),
+                vectordb={  # type: ignore[arg-type]
+                    "host": "weaviate.test.local",
+                    "port": 19903,
+                    "grpc_port": 50051,
+                },
             ),
         )
         install_config = InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
             project_key="proj", project_name="Proj", project_root=root
         )
         vd = _materialized_variant_dir_for(

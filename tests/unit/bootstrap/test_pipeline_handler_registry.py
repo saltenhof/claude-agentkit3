@@ -243,6 +243,7 @@ def _write_project_config(
         payload["pipeline"] = {
             "config_version": "3.0",
             "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
             "sonarqube": {"available": False, "enabled": False},
             "ci": {"available": False, "enabled": False},
         }

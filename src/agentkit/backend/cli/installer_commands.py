@@ -219,6 +219,28 @@ def _cmd_install(args: argparse.Namespace) -> int:
     # binding. A normal ``agentkit install`` therefore binds all four; if the
     # systemwide skill-bundle store has not been provisioned the install fails
     # closed with InstallationError(cause=BundleNotFound) (AC#7).
+    # AG3-176: VectorDB endpoint for project.yaml (no localhost invent). Prefer
+    # explicit flags, else env (WEAVIATE_HOST / AK3_WEAVIATE_*), else omit so
+    # CP10 fails closed on register without a silent default.
+    import os
+
+    weaviate_host = getattr(args, "weaviate_host", None) or os.environ.get(
+        "WEAVIATE_HOST"
+    ) or os.environ.get("AK3_WEAVIATE_HOST")
+    http_raw = getattr(args, "weaviate_http_port", None) or os.environ.get(
+        "WEAVIATE_HTTP_PORT"
+    ) or os.environ.get("AK3_WEAVIATE_HTTP_PORT")
+    grpc_raw = getattr(args, "weaviate_grpc_port", None) or os.environ.get(
+        "WEAVIATE_GRPC_PORT"
+    ) or os.environ.get("AK3_WEAVIATE_GRPC_PORT")
+    def _parse_port(raw: object) -> int | None:
+        if raw is None or raw == "":
+            return None
+        return int(str(raw))
+
+    weaviate_http_port = _parse_port(http_raw)
+    weaviate_grpc_port = _parse_port(grpc_raw)
+
     config = InstallConfig(
         project_key=args.project_key,
         project_name=args.project_name,
@@ -240,6 +262,9 @@ def _cmd_install(args: argparse.Namespace) -> int:
         # AG3-056 (FIX-5): default ci.available:true; --no-ci-available is the
         # conscious opt-out. The CI preflight then verifies fail-closed or SKIPs.
         ci_available=args.ci_available,
+        weaviate_host=weaviate_host if isinstance(weaviate_host, str) else None,
+        weaviate_http_port=weaviate_http_port,
+        weaviate_grpc_port=weaviate_grpc_port,
     )
     try:
         result = install_agentkit(config)
@@ -387,6 +412,22 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
     if repositories and not bool(getattr(args, "multi_repo", False)):
         print("--code-repo requires --multi-repo.", file=sys.stderr)
         return None
+    import os
+
+    weaviate_host = getattr(args, "weaviate_host", None) or os.environ.get(
+        "WEAVIATE_HOST"
+    ) or os.environ.get("AK3_WEAVIATE_HOST")
+    http_raw = getattr(args, "weaviate_http_port", None) or os.environ.get(
+        "WEAVIATE_HTTP_PORT"
+    ) or os.environ.get("AK3_WEAVIATE_HTTP_PORT")
+    grpc_raw = getattr(args, "weaviate_grpc_port", None) or os.environ.get(
+        "WEAVIATE_GRPC_PORT"
+    ) or os.environ.get("AK3_WEAVIATE_GRPC_PORT")
+    def _parse_port(raw: object) -> int | None:
+        if raw is None or raw == "":
+            return None
+        return int(str(raw))
+
     return InstallConfig(
         project_key=args.project_key,
         project_name=args.project_name,
@@ -396,6 +437,9 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
         repositories=repositories,
         github_owner=github_owner,
         github_repo=github_repo,
+        weaviate_host=weaviate_host if isinstance(weaviate_host, str) else None,
+        weaviate_http_port=_parse_port(http_raw),
+        weaviate_grpc_port=_parse_port(grpc_raw),
         # CP 2 probes the live GitHub repo via the productive gh probe (FK-50
         # §50.3 CP 2 / §50.6); a missing/unreachable repo FAILs closed.
         repo_existence_probe=GhCliRepoExistenceProbe(),

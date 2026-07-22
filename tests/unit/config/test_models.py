@@ -17,6 +17,7 @@ from agentkit.backend.config.models import (
     RepositoryConfig,
     ReviewConfig,
     SonarQubeConfig,
+    VectorDbConfig,
     _coerce_path,
 )
 
@@ -27,17 +28,27 @@ _OPT_OUT_SONAR = SonarQubeConfig(available=False, enabled=False)
 #: AG3-056: a code-producing project must likewise DECLARE the ci stanza
 #: explicitly. Tests not about the runner declare an explicit opt-out.
 _OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
+_TEST_VDB = VectorDbConfig(host="weaviate.test.local", port=19903, grpc_port=50051)
 
 
 def _opt_out_pipeline(**kwargs: object) -> PipelineConfig:
     """Build a PipelineConfig with explicit config_version, sonarqube + ci opt-outs.
 
-    Uses ``features=Features(multi_llm=False)`` by default for fixtures that do
+    Uses ``features=Features(multi_llm=False), vectordb=_TEST_VDB`` by default for fixtures that do
     not test multi-LLM behaviour (single-LLM mode, no llm_roles required).
+    VectorDB is mandatory (AG3-176): supplies a default endpoint stanza.
     """
-    from agentkit.backend.config.models import SUPPORTED_CONFIG_VERSION, Features
+    from agentkit.backend.config.models import (
+        SUPPORTED_CONFIG_VERSION,
+        Features,
+        VectorDbConfig,
+    )
 
     kwargs.setdefault("features", Features(multi_llm=False))
+    kwargs.setdefault(
+        "vectordb",
+        VectorDbConfig(host="weaviate.test.local", port=19903, grpc_port=50051),
+    )
     return PipelineConfig(  # type: ignore[arg-type]
         config_version=SUPPORTED_CONFIG_VERSION,
         sonarqube=_OPT_OUT_SONAR,
@@ -51,7 +62,7 @@ class TestPipelineConfig:
 
     def test_defaults(self) -> None:
         cfg = PipelineConfig(  # type: ignore[call-arg]
-            config_version="3.0", features=Features(multi_llm=False)
+            config_version="3.0", features=Features(multi_llm=False), vectordb=_TEST_VDB
         )
         assert cfg.max_feedback_rounds == 3
         assert cfg.max_remediation_rounds == 2
@@ -66,7 +77,7 @@ class TestPipelineConfig:
     def test_custom_values(self) -> None:
         cfg = PipelineConfig(  # type: ignore[call-arg]
             config_version=SUPPORTED_CONFIG_VERSION,
-            features=Features(multi_llm=False),
+            features=Features(multi_llm=False), vectordb=_TEST_VDB,
             max_feedback_rounds=5,
             max_remediation_rounds=1,
             exploration_mode=False,
@@ -89,14 +100,14 @@ class TestPipelineConfig:
         # AG3-036 §2.1.5 / FIX-2: review.required_roles is the authoritative
         # source for ReviewGuard; default is empty (no mandatory coverage).
         cfg = PipelineConfig(  # type: ignore[call-arg]
-            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False), vectordb=_TEST_VDB
         )
         assert cfg.review.required_roles == []
 
     def test_review_required_roles_custom(self) -> None:
         cfg = PipelineConfig(  # type: ignore[call-arg]
             config_version=SUPPORTED_CONFIG_VERSION,
-            features=Features(multi_llm=False),
+            features=Features(multi_llm=False), vectordb=_TEST_VDB,
             review=ReviewConfig(required_roles=["qa", "security"]),
         )
         assert cfg.review.required_roles == ["qa", "security"]
@@ -353,6 +364,9 @@ class TestAreSectionRequiredWhenEnabled:
                 pipeline=PipelineConfig(  # type: ignore[call-arg]
                     config_version=SUPPORTED_CONFIG_VERSION,
                     features=Features(are=True, multi_llm=False),
+                    vectordb=_TEST_VDB,
+                    sonarqube=_OPT_OUT_SONAR,
+                    ci=_OPT_OUT_CI,
                 ),
             )
 
@@ -399,7 +413,7 @@ class TestSonarqubeDeclaredExplicitly:
                 # pipeline provided but sonarqube stanza omitted — fail-closed
                 pipeline=PipelineConfig(  # type: ignore[call-arg]
                     config_version=SUPPORTED_CONFIG_VERSION,
-                    features=Features(multi_llm=False),
+                    features=Features(multi_llm=False), vectordb=_TEST_VDB,
                     ci=_OPT_OUT_CI,
                     # sonarqube intentionally absent
                 ),
@@ -425,7 +439,7 @@ class TestSonarqubeDeclaredExplicitly:
                 repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
                 pipeline=PipelineConfig(  # type: ignore[call-arg]
                     config_version=SUPPORTED_CONFIG_VERSION,
-                    features=Features(multi_llm=False),
+                    features=Features(multi_llm=False), vectordb=_TEST_VDB,
                     sonarqube=SonarQubeConfig(
                         available=True,
                         enabled=True,
@@ -445,7 +459,7 @@ class TestSonarqubeDeclaredExplicitly:
             repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
             pipeline=PipelineConfig(  # type: ignore[call-arg]
                 config_version=SUPPORTED_CONFIG_VERSION,
-                features=Features(multi_llm=False),
+                features=Features(multi_llm=False), vectordb=_TEST_VDB,
                 sonarqube=SonarQubeConfig(
                     available=True,
                     enabled=True,
@@ -480,7 +494,7 @@ class TestSonarqubeDeclaredExplicitly:
             story_types=["concept", "research"],
             pipeline=PipelineConfig(  # type: ignore[call-arg]
                 config_version=SUPPORTED_CONFIG_VERSION,
-                features=Features(multi_llm=False),
+                features=Features(multi_llm=False), vectordb=_TEST_VDB,
             ),
         )
         assert cfg.pipeline.sonarqube is None

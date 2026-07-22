@@ -375,6 +375,9 @@ class TestInstallFreshFailClosed:
         """Install into non-existent directory raises :class:`ProjectError`."""
         root = _as_path(tmp_path)
         config = InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
             project_name="test",
             project_key="test",
             project_root=root / "nope",
@@ -417,6 +420,9 @@ def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     # CONSCIOUS opt-out (``ci_available=False``) explicitly.
     kwargs.setdefault("ci_available", False)
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_root=project_root,
         **kwargs,
     )

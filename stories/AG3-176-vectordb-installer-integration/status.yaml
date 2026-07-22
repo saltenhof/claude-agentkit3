@@ -2,8 +2,8 @@ story_id: AG3-176
 story_title_short: "vectordb-installer-integration"
 title: "VektorDB-Installer-Integration (harnessuebergreifend): Endpunkt-Preflight fail-closed (kein Default-Fallback), strikte Config-Grenze, CP10a-Receipts, CP10b feuernde Pre-Commit-/Post-Commit-Installation, laufende Sync-Producer, schnittkonsistente Pflichtaktivierung (features.vectordb deprecaten), Skill-Auslieferung ohne stillen Fallback"
 type: implementation
-status: blocked
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-07-21"
 size: L  # von M angehoben (Review Schnitt-/Groessenurteil): nach vollstaendiger
          # Ring-/Hook-Integration (CP10b/Pre-Commit, Post-Commit build->sync,

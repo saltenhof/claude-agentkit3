@@ -218,24 +218,54 @@ class ProductiveDocFidelityFeedbackPort:
 
 @dataclass(frozen=True)
 class ProductiveVectorDbSyncPort:
-    """VectorDB sync seam (FK-13 §13.7.1, fire-and-forget, non-blocking).
+    """VectorDB sync seam (FK-13 §13.7.1, non-blocking, AG3-176 AC5/R7).
 
-    Triggers an async ``story_sync`` so the freshly closed story is searchable.
-    The VectorDB integration is not yet available in the target project (FK-13);
-    the step is MANDATORY but NON-BLOCKING: this seam records a human Warning when
-    the sync cannot be triggered (never a silent skip; the STEP still runs).
+    Submits ``story_sync`` to a lifecycle-owned :class:`SyncTaskRegistry`
+    (task id + observable status). Closure returns after successful queue
+    handoff — not after an untracked daemon thread start.
     """
 
     def trigger_sync(
         self, ctx: StoryContext, story_dir: Path
     ) -> tuple[bool, str | None]:
-        """Trigger the (async) VectorDB sync; non-blocking Warning when absent."""
-        del ctx, story_dir
-        return (
-            False,
-            "VectorDB sync (story_sync, FK-13 §13.7.1) has no productive "
-            "integration yet -- closed story not yet indexed for retrieval",
+        """Queue story_sync; return ``(queued, warning)``."""
+        import logging
+        from pathlib import Path
+
+        from agentkit.backend.vectordb.sync_task_registry import (
+            get_sync_task_registry,
+            run_story_sync_work,
         )
+
+        logger = logging.getLogger(__name__)
+        project_root = getattr(ctx, "project_root", None)
+        if project_root is None:
+            project_root = story_dir.parent.parent if story_dir else None
+        if project_root is None:
+            msg = (
+                "VectorDB story_sync cannot start: missing project_root on "
+                "StoryContext and story_dir (FK-13 §13.7.1, non-blocking warning)"
+            )
+            logger.warning(msg)
+            return False, msg
+
+        root = Path(project_root)
+        try:
+            registry = get_sync_task_registry()
+            task_id = registry.submit(lambda: run_story_sync_work(root))
+        except Exception as exc:  # noqa: BLE001 -- non-blocking warning
+            msg = (
+                f"VectorDB story_sync failed to queue: {exc} "
+                "(FK-13 §13.7.1, non-blocking warning)"
+            )
+            logger.warning(msg)
+            return False, msg
+        logger.info(
+            "VectorDB story_sync task queued task_id=%s project_root=%s",
+            task_id,
+            root,
+        )
+        return True, None
 
 
 def _run_feedback_fidelity_conformance(

@@ -12,7 +12,6 @@ Implements the four top-level methods defined in FK-43 §43.1 and FK-50 CP8:
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -85,14 +84,12 @@ def _verify_manifest_digest(
     will tighten this by sourcing the expected digest from the bundle-store
     pin record.
     """
-    import json
+    from agentkit.backend.skills.manifest_digest import compute_manifest_digest
 
     expected = bundle_info.get("manifest_digest")
     if not isinstance(expected, str):
         return
-    payload_without_digest = {k: v for k, v in bundle_info.items() if k != "manifest_digest"}
-    canonical = json.dumps(payload_without_digest, sort_keys=True).encode("utf-8")
-    actual = hashlib.sha256(canonical).hexdigest()
+    actual = compute_manifest_digest(bundle_info)
     if actual == expected:
         return
     raise SkillBundleDigestMismatchError(

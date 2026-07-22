@@ -37,6 +37,7 @@ from agentkit.backend.config.models import (
     StageOverrideConfig,
     TelemetryConfig,
     VectorDbConfig,
+    require_installer_vectordb_endpoint,
 )
 from agentkit.backend.config.worker_health import WorkerHealthConfig
 
@@ -68,4 +69,5 @@ __all__ = [
     "WorkerHealthConfig",
     "find_project_root",
     "load_project_config",
+    "require_installer_vectordb_endpoint",
 ]

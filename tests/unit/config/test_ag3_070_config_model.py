@@ -42,6 +42,8 @@ from agentkit.backend.config.models import (
 )
 from agentkit.backend.exceptions import ConfigError
 
+_TEST_VDB = VectorDbConfig(host="weaviate.test.local", port=19903, grpc_port=50051)
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -53,15 +55,22 @@ _OPT_OUT_SONAR = SonarQubeConfig(available=False, enabled=False)
 _OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
 
 
+_DEFAULT_VECTORDB = VectorDbConfig(
+    host="weaviate.test.local", port=19903, grpc_port=50051
+)
+
+
 def _minimal_pipeline(**kwargs: Any) -> PipelineConfig:
     """Build a PipelineConfig with explicit config_version, sonarqube + ci opt-outs.
 
-    ``features=Features(multi_llm=False)`` is the default for fixtures that do
+    ``features=Features(multi_llm=False), vectordb=_TEST_VDB`` is the default for fixtures that do
     not test multi-LLM behaviour (single-LLM mode, no llm_roles required).
-    Override by passing ``features=Features(multi_llm=True)`` + ``llm_roles=...``
+    VectorDB is mandatory (AG3-176): a default endpoint stanza is supplied.
+    Override by passing ``features=Features(multi_llm=True), vectordb=_TEST_VDB`` + ``llm_roles=...``
     when the test genuinely exercises multi-LLM paths.
     """
     kwargs.setdefault("features", Features(multi_llm=False))
+    kwargs.setdefault("vectordb", _DEFAULT_VECTORDB)
     return PipelineConfig(  # type: ignore[arg-type]
         config_version=SUPPORTED_CONFIG_VERSION,
         sonarqube=_OPT_OUT_SONAR,
@@ -108,13 +117,18 @@ class TestConfigVersionField:
         hard error, not a warning.
         """
         with pytest.raises(ValidationError) as exc_info:
-            PipelineConfig(features=Features(multi_llm=False))  # type: ignore[call-arg]
+            PipelineConfig(
+                features=Features(multi_llm=False), vectordb=_TEST_VDB,
+            )  # type: ignore[call-arg]
         # Must be a validation error about the missing required field
         assert "config_version" in str(exc_info.value)
 
     def test_explicit_3_0_accepted(self) -> None:
         """Explicit 'config_version: 3.0' is accepted."""
-        cfg = PipelineConfig(config_version="3.0", features=Features(multi_llm=False))
+        cfg = PipelineConfig(
+            config_version="3.0",
+            features=Features(multi_llm=False), vectordb=_TEST_VDB,
+        )
         assert cfg.config_version == "3.0"
 
     def test_unknown_version_raises_value_error(self) -> None:
@@ -175,7 +189,15 @@ class TestConfigVersionField:
                 "project_name": "P",
                 "repositories": [],
                 "story_types": ["concept"],
-                "pipeline": {"config_version": "3.0", "features": {"multi_llm": False}},
+                "pipeline": {
+                    "config_version": "3.0",
+                    "features": {"multi_llm": False},
+                    "vectordb": {
+                        "host": "weaviate.test.local",
+                        "port": 19903,
+                        "grpc_port": 50051,
+                    },
+                },
             },
         )
         cfg = load_project_config(tmp_path)
@@ -217,12 +239,12 @@ class TestFeaturesConfig:
     """AC2: Features carries six flags + cross-field e2e_assertions requires db."""
 
     def test_default_flags(self) -> None:
-        """Features defaults: are/multi_repo/vectordb/db/e2e_assertions=False,
-        multi_llm=True (FK-01 §1.3 P5 / FK-03 §3.1 mandate), telemetry=True."""
+        """Features defaults: vectordb=True (mandatory, AG3-176);
+        are/multi_repo/db/e2e_assertions=False; multi_llm=True; telemetry=True."""
         f = Features()
         assert f.are is False
         assert f.multi_repo is False
-        assert f.vectordb is False
+        assert f.vectordb is True  # Decision Record Rand 1 / AG3-176: missing=active
         assert f.multi_llm is True  # FK-01 §1.3 P5 / FK-03 §3.1: default True
         assert f.telemetry is True
         assert f.db is False
@@ -296,12 +318,13 @@ class TestMultiLlmAndLlmRoles:
                 config_version=SUPPORTED_CONFIG_VERSION,
                 features=Features(multi_llm=True),
                 llm_roles=None,
+                vectordb=_TEST_VDB,
             )
 
     def test_multi_llm_false_without_llm_roles_ok(self) -> None:
         """multi_llm=False without llm_roles is valid (single-LLM path)."""
         cfg = PipelineConfig(
-            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False), vectordb=_TEST_VDB
         )
         assert cfg.llm_roles is None
 
@@ -316,7 +339,7 @@ class TestMultiLlmAndLlmRoles:
         )
         cfg = PipelineConfig(
             config_version=SUPPORTED_CONFIG_VERSION,
-            features=Features(multi_llm=True),
+            features=Features(multi_llm=True), vectordb=_TEST_VDB,
             llm_roles=roles,
         )
         assert cfg.llm_roles is not None
@@ -416,7 +439,7 @@ class TestOrchestratorGuardConfig:
     def test_pipeline_config_has_orchestrator_guard(self) -> None:
         """PipelineConfig carries orchestrator_guard stanza."""
         cfg = PipelineConfig(
-            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False), vectordb=_TEST_VDB
         )
         assert isinstance(cfg.orchestrator_guard, OrchestratorGuardConfig)
         assert cfg.orchestrator_guard.blocked_paths == []
@@ -450,7 +473,7 @@ class TestPolicyConfig:
     def test_pipeline_config_has_policy(self) -> None:
         """PipelineConfig carries threshold policy stanza with correct defaults."""
         cfg = PipelineConfig(
-            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False), vectordb=_TEST_VDB
         )
         assert isinstance(cfg.policy, PipelinePolicyConfig)
         assert cfg.policy.major_threshold == 3
@@ -460,38 +483,57 @@ class TestVectorDbConfig:
     """AC4: vectordb stanza with FK-03 defaults."""
 
     def test_defaults(self) -> None:
-        """VectorDbConfig defaults: similarity_threshold=0.7, max_llm_candidates=5."""
-        cfg = VectorDbConfig()
+        """VectorDbConfig requires host/port/grpc_port; threshold defaults apply."""
+        cfg = VectorDbConfig(host="weaviate.test.local", port=19903, grpc_port=50051)
         assert cfg.similarity_threshold == 0.7
         assert cfg.max_llm_candidates == 5
-        assert cfg.host is None
-        assert cfg.port is None
+        assert cfg.host == "weaviate.test.local"
+        assert cfg.port == 19903
+        assert cfg.grpc_port == 50051
 
     def test_custom_values(self) -> None:
         """VectorDbConfig accepts custom similarity threshold and candidates."""
         cfg = VectorDbConfig(
             similarity_threshold=0.85,
             max_llm_candidates=10,
-            host="localhost",
+            host="weaviate.internal",
             port=8080,
+            grpc_port=50051,
         )
         assert cfg.similarity_threshold == 0.85
         assert cfg.max_llm_candidates == 10
-        assert cfg.host == "localhost"
+        assert cfg.host == "weaviate.internal"
         assert cfg.port == 8080
+        assert cfg.grpc_port == 50051
 
     def test_is_frozen(self) -> None:
         """VectorDbConfig is frozen."""
-        cfg = VectorDbConfig()
+        cfg = VectorDbConfig(host="weaviate.test.local", port=19903, grpc_port=50051)
         with pytest.raises(ValidationError):
             cfg.similarity_threshold = 0.5  # type: ignore[misc]
 
-    def test_pipeline_config_vectordb_defaults_none(self) -> None:
-        """PipelineConfig.vectordb defaults to None (not required unless vectordb feature on)."""
+    def test_pipeline_config_allows_missing_vectordb_stanza(self) -> None:
+        """AG3-176 scope: model does NOT require vectordb stanza globally.
+
+        Endpoint duty is the installer boundary
+        (``require_installer_vectordb_endpoint``), not every ProjectConfig load.
+        """
         cfg = PipelineConfig(
-            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
         )
+        assert cfg.features.vectordb is True
         assert cfg.vectordb is None
+
+    def test_pipeline_config_accepts_vectordb_when_present(self) -> None:
+        """When present, vectordb stanza is strictly typed."""
+        cfg = PipelineConfig(
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
+            vectordb=_TEST_VDB,
+        )
+        assert cfg.vectordb is not None
+        assert cfg.vectordb.host == "weaviate.test.local"
 
 
 class TestTelemetryConfig:
@@ -521,7 +563,7 @@ class TestTelemetryConfig:
     def test_pipeline_config_has_telemetry(self) -> None:
         """PipelineConfig carries telemetry stanza with correct defaults."""
         cfg = PipelineConfig(
-            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False), vectordb=_TEST_VDB
         )
         assert isinstance(cfg.telemetry, TelemetryConfig)
         assert cfg.telemetry.web_call_limit == 200
@@ -559,7 +601,7 @@ class TestGovernanceConfig:
     def test_pipeline_config_has_governance(self) -> None:
         """PipelineConfig carries governance stanza with correct defaults."""
         cfg = PipelineConfig(
-            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
+            config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False), vectordb=_TEST_VDB
         )
         assert isinstance(cfg.governance, GovernanceConfig)
         assert cfg.governance.risk_threshold == 30
@@ -695,7 +737,7 @@ class TestPipelineConfigRejectsUnknownFields:
         with pytest.raises(ValidationError):
             PipelineConfig(  # type: ignore[call-arg]
                 config_version=SUPPORTED_CONFIG_VERSION,
-                features=Features(multi_llm=False),
+                features=Features(multi_llm=False), vectordb=_TEST_VDB,
                 unknown_pipeline_key="oops",
             )
 
@@ -713,6 +755,7 @@ class TestPipelineConfigRejectsUnknownFields:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "unknown_stanza": "forbidden",
                 },
             },
@@ -743,6 +786,9 @@ class TestLoaderWithNewStanzas:
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
                     "vectordb": {
+                        "host": "weaviate.test.local",
+                        "port": 19903,
+                        "grpc_port": 50051,
                         "similarity_threshold": 0.8,
                         "max_llm_candidates": 3,
                     },
@@ -766,6 +812,7 @@ class TestLoaderWithNewStanzas:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "governance": {
                         "risk_threshold": 50,
                         "window_size": 100,
@@ -791,6 +838,7 @@ class TestLoaderWithNewStanzas:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "telemetry": {"web_call_limit": 300, "web_call_warning": 250},
                 },
             },
@@ -811,6 +859,7 @@ class TestLoaderWithNewStanzas:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "policy": {
                         "major_threshold": 5,
                     },
@@ -838,6 +887,7 @@ class TestLoaderWithNewStanzas:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "orchestrator_guard": {
                         "blocked_paths": ["/src/"],
                         "blocked_extensions": [".py"],
@@ -863,6 +913,11 @@ class TestLoaderWithNewStanzas:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": True},
+                    "vectordb": {
+                        "host": "weaviate.test.local",
+                        "port": 19903,
+                        "grpc_port": 50051,
+                    },
                     "llm_roles": {
                         "worker": "claude",
                         "qa_review": "chatgpt",
@@ -891,6 +946,7 @@ class TestLoaderWithNewStanzas:
                 "pipeline": {
                     "config_version": "3.0",
                     "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                     "sonarqube": {
                         "available": False,
                         "enabled": False,

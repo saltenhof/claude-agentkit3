@@ -1,58 +1,78 @@
-"""Contract tests for shipped FK-43 skill bundles."""
+"""Contract tests for shipped FK-43 skill bundles (all SemVer directories)."""
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import TYPE_CHECKING
 
 from agentkit.backend.skills.bundle_store import SkillBundleStore, shipped_skill_bundles_root
+from agentkit.backend.skills.manifest_digest import compute_manifest_digest
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _manifest_paths() -> list[Path]:
-    return sorted(shipped_skill_bundles_root().glob("*/4.0.0/manifest.json"))
+def _all_manifest_paths() -> list[Path]:
+    """Every shipped ``{bundle_id}/{version}/manifest.json`` (version-independent)."""
+    root = shipped_skill_bundles_root()
+    return sorted(root.glob("*/*/manifest.json"))
 
 
 def _read_manifest(path: Path) -> dict[str, object]:
+    import json
+
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
 
 
-def _expected_manifest_digest(payload: dict[str, object]) -> str:
-    canonical = json.dumps(
-        {key: value for key, value in payload.items() if key != "manifest_digest"},
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
-
-
 def test_shipped_bundle_manifest_digest_and_directory_consistency() -> None:
+    """Every shipped manifest digests with the product helper; store highest is consistent."""
     store = SkillBundleStore()
+    paths = _all_manifest_paths()
+    assert paths, "expected at least one shipped skill bundle manifest"
 
-    for manifest_path in _manifest_paths():
-        bundle_dir = manifest_path.parents[1]
+    by_bundle_id: dict[str, list[Path]] = {}
+    for manifest_path in paths:
+        # layout: .../skill_bundles/{bundle_id}/{version}/manifest.json
+        version_dir = manifest_path.parent
+        bundle_dir = version_dir.parent
+        bundle_id = bundle_dir.name
+        version = version_dir.name
         payload = _read_manifest(manifest_path)
 
-        assert payload["bundle_id"] == bundle_dir.name
-        assert payload["manifest_digest"] == _expected_manifest_digest(payload)
+        assert payload["bundle_id"] == bundle_id
+        assert payload["bundle_version"] == version
+        declared = payload.get("manifest_digest")
+        assert isinstance(declared, str) and declared
+        assert declared == compute_manifest_digest(payload)
 
-        bundle = store.get_bundle(bundle_dir.name)
-        assert bundle.bundle_id == bundle_dir.name
-        assert bundle.bundle_root == manifest_path.parent
+        by_bundle_id.setdefault(bundle_id, []).append(manifest_path)
+
+    # Store resolution picks highest SemVer; its root must be one of the shipped dirs.
+    for bundle_id, version_manifests in by_bundle_id.items():
+        bundle = store.get_bundle(bundle_id)
+        assert bundle.bundle_id == bundle_id
+        shipped_roots = {p.parent for p in version_manifests}
+        assert bundle.bundle_root in shipped_roots
+        # Digest of the selected version must match product helper.
+        selected_manifest = _read_manifest(bundle.bundle_root / "manifest.json")
+        assert selected_manifest["manifest_digest"] == compute_manifest_digest(
+            selected_manifest
+        )
+        assert selected_manifest["bundle_version"] == bundle.bundle_version
 
 
 def test_skill_catalog_complete_by_skill_name_and_profile_bundle() -> None:
-    manifests = [_read_manifest(path) for path in _manifest_paths()]
-    by_bundle_id = {str(manifest["bundle_id"]): manifest for manifest in manifests}
+    manifests = [_read_manifest(path) for path in _all_manifest_paths()]
+    # Deduplicate by bundle_id using highest version present in the list order
+    # is not required for set membership of skill names.
     by_skill_name: dict[str, set[str]] = {}
+    by_bundle_id_profiles: dict[str, set[str]] = {}
     for manifest in manifests:
-        by_skill_name.setdefault(str(manifest["skill_name"]), set()).add(
-            str(manifest["bundle_id"])
-        )
+        skill = str(manifest["skill_name"])
+        bid = str(manifest["bundle_id"])
+        by_skill_name.setdefault(skill, set()).add(bid)
+        by_bundle_id_profiles.setdefault(bid, set()).add(str(manifest["profile"]))
 
     assert by_skill_name["create-userstory"] == {
         "create-userstory-core",
@@ -67,10 +87,10 @@ def test_skill_catalog_complete_by_skill_name_and_profile_bundle() -> None:
     assert by_skill_name["manage-requirements"] == {"manage-requirements-core"}
     assert by_skill_name["semantic-review"] == {"semantic-review-core"}
 
-    assert by_bundle_id["create-userstory-core"]["profile"] == "CORE"
-    assert by_bundle_id["create-userstory-are"]["profile"] == "ARE"
-    assert by_bundle_id["execute-userstory-core"]["profile"] == "CORE"
-    assert by_bundle_id["execute-userstory-are"]["profile"] == "ARE"
+    assert "CORE" in by_bundle_id_profiles["create-userstory-core"]
+    assert "ARE" in by_bundle_id_profiles["create-userstory-are"]
+    assert "CORE" in by_bundle_id_profiles["execute-userstory-core"]
+    assert "ARE" in by_bundle_id_profiles["execute-userstory-are"]
     assert "Research" not in by_skill_name
     assert "research" not in by_skill_name
     assert not (shipped_skill_bundles_root() / "research").exists()

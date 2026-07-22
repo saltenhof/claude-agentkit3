@@ -79,6 +79,7 @@ class TestLoadProjectConfig:
             "pipeline": {
                 "config_version": "3.0",
                 "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                 "sonarqube": {"available": False, "enabled": False},
                 "ci": {"available": False, "enabled": False},
             },
@@ -99,6 +100,7 @@ class TestLoadProjectConfig:
             "pipeline": {
                 "config_version": "3.0",
                 "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                 "sonarqube": {"available": False, "enabled": False},
                 "ci": {"available": False, "enabled": False},
             },
@@ -116,6 +118,7 @@ class TestLoadProjectConfig:
             "pipeline": {
                 "config_version": "3.0",
                 "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                 "sonarqube": {"available": False, "enabled": False},
                 "ci": {"available": False, "enabled": False},
             },
@@ -133,6 +136,7 @@ class TestLoadProjectConfig:
             "pipeline": {
                 "config_version": "3.0",
                 "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                 "sonarqube": {"available": False, "enabled": False},
                 "ci": {"available": False, "enabled": False},
             },
@@ -162,6 +166,7 @@ class TestLoadProjectConfig:
             "pipeline": {
                 "config_version": "3.0",
                 "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                 "max_feedback_rounds": 5,
                 "max_remediation_rounds": 1,
                 "exploration_mode": False,

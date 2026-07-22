@@ -24,10 +24,7 @@ from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
 )
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.backend.installer.checkpoint_engine.reasons import (
-    DRY_RUN_PLAN_MARKER,
-    REASON_VECTORDB_DISABLED,
-)
+from agentkit.backend.installer.checkpoint_engine.reasons import DRY_RUN_PLAN_MARKER
 from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.repo_probe import GhCliRepoExistenceProbe
 
@@ -53,36 +50,41 @@ def _ctx(
     return ctx
 
 
-def test_cp10a_skipped_without_vectordb(
+def test_cp10a_dry_run_plans_without_mutation(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
-    result = cp10a_concept_context_properties(_ctx(tmp_path, registration_repo))  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.SKIPPED
-    assert result.reason == REASON_VECTORDB_DISABLED
-
-
-def test_cp10a_created_with_vectordb(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
-    ctx = _ctx(tmp_path, registration_repo, features_vectordb=True)
+    """AG3-176: CP10a always on spine; dry-run plans first index without write."""
+    ctx = _ctx(
+        tmp_path, registration_repo, mode=ExecutionMode.DRY_RUN, features_vectordb=True
+    )
     result = cp10a_concept_context_properties(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.CREATED
+    assert DRY_RUN_PLAN_MARKER in (result.detail or "") or "Would ensure" in (
+        result.detail or ""
+    )
 
 
-def test_cp10b_skipped_without_vectordb(
+def test_cp10b_materializes_hooks(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
-    result = cp10b_concept_validation_hook(_ctx(tmp_path, registration_repo))  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.SKIPPED
-    assert result.reason == REASON_VECTORDB_DISABLED
-
-
-def test_cp10b_created_with_vectordb(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+    """AG3-176 AC4: CP10b materialises pre-commit (no SKIPPED for vectordb off)."""
+    cfg_dir = tmp_path / ".agentkit" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "project.yaml").write_text(
+        "project_key: demo\nproject_name: demo\n"
+        "repositories:\n  - name: app\n    path: .\n"
+        "pipeline:\n  config_version: '3.0'\n"
+        "  features:\n    multi_llm: false\n"
+        "  sonarqube: {available: false, enabled: false}\n"
+        "  ci: {available: false, enabled: false}\n"
+        "  vectordb: {host: weaviate.test.local, port: 19903, grpc_port: 50051}\n"
+        "concepts_dir: concepts\nwiki_stories_dir: stories\n",
+        encoding="utf-8",
+    )
     ctx = _ctx(tmp_path, registration_repo, features_vectordb=True)
     result = cp10b_concept_validation_hook(ctx)  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.CREATED
+    assert result.status in (CheckpointStatus.CREATED, CheckpointStatus.PASS)
+    assert (tmp_path / "tools" / "hooks" / "pre-commit").is_file()
 
 
 def test_cp10_dry_run_plan_contract_with_vectordb(

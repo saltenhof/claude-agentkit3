@@ -25,7 +25,10 @@ def _config(**kwargs: object) -> InstallConfig:
         sonarqube_available=False,
         ci_available=False,
         **kwargs,
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
 
 
 def test_multi_repo_without_explicit_repos_fails_closed() -> None:

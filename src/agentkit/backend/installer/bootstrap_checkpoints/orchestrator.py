@@ -34,18 +34,17 @@ if TYPE_CHECKING:
 
 
 def _resolve_features(config: InstallConfig) -> tuple[bool, bool, bool]:
-    """Resolve ``(vectordb, are, sonarqube)`` flags consumed by the branches.
+    """Resolve ``(vectordb, are, sonarqube)`` flags consumed by the flow.
 
-    Consumes (never defines) the feature decision carried on the install config:
-    ``features_vectordb`` / ``features_are`` (FK-03 §3.1 ``features.*``) and
-    ``sonarqube_available`` (CP 10d applicability axis). ``features.are`` also
-    implies the ``are`` runtime profile when the operator did not pin one.
+    VectorDB is **mandatory** infrastructure (Decision Record 2026-07-21 Rand 1,
+    AG3-176 AC6): ``vectordb`` is always ``True`` here. ARE remains optional
+    via ``features_are``. Sonar/CI/ARE drive the third-party branch for CP 10d.
     """
     third_party_enabled = bool(
         config.sonarqube_available or config.ci_available or config.features_are
     )
     return (
-        bool(config.features_vectordb),
+        True,  # VectorDB mandatory — optional branch removed (AG3-176 AC6)
         bool(config.features_are),
         third_party_enabled,
     )
@@ -125,6 +124,50 @@ def run_checkpoint_install(
     if root != config.project_root:
         config = replace(config, project_root=root)
 
+    # AG3-176 R1: strict config boundary BEFORE any installer effect (scaffold,
+    # registration, preflight, hooks). Existing project.yaml is fail-closed
+    # via load_project_config (no yaml.safe_load migration/overwrite).
+    from agentkit.backend.config.loader import load_project_config
+    from agentkit.backend.exceptions import ConfigError, InstallationError
+    from agentkit.backend.installer.paths import project_config_path
+
+    existing_config_path = project_config_path(root)
+    entry_project_config = None
+    if existing_config_path.is_file():
+        try:
+            entry_project_config = load_project_config(root)
+        except ConfigError as exc:
+            raise InstallationError(
+                f"configuration_invalid: refusing install before any effect: {exc}",
+                detail={
+                    "error_code": "configuration_invalid",
+                    "reason": "configuration_invalid",
+                    "config_path": str(existing_config_path),
+                    "error": str(exc),
+                },
+            ) from exc
+        # AG3-176 R1 / AC1/AC2/AC6: VectorDB endpoint duty is the INSTALLER
+        # activation boundary, not a global ProjectConfig model rule. Active
+        # (default/true) without a valid pipeline.vectordb stanza fails closed
+        # here — before scaffold, registration, preflight, or hooks.
+        from agentkit.backend.config.models import require_installer_vectordb_endpoint
+
+        try:
+            require_installer_vectordb_endpoint(entry_project_config)
+        except ValueError as exc:
+            raise InstallationError(
+                f"configuration_invalid: refusing install before any effect: {exc}",
+                detail={
+                    "error_code": "configuration_invalid",
+                    "reason": "configuration_invalid",
+                    "config_path": str(existing_config_path),
+                    "error": str(exc),
+                },
+            ) from exc
+    # Fresh install (no project.yaml yet): CP5 materialises the endpoint from
+    # InstallConfig; CP10 preflight remains the live readiness gate. Do not
+    # invent defaults here; incomplete InstallConfig fails at CP5/CP10.
+
     # PREFLIGHT (FK-50 §50.5, Codex-r7 FINDING — behaviour preserved): resolve
     # the mandatory skill bundles BEFORE the engine writes anything in register
     # mode. The common install failure is a missing bundle; failing here (no
@@ -140,6 +183,26 @@ def run_checkpoint_install(
     context = build_checkpoint_context(
         config, mode, scope_interaction_mode=scope_interaction_mode
     )
+    if entry_project_config is not None:
+        context.run_state.project_config = entry_project_config
+        # Seed project_yaml from the ON-DISK mapping (not model_dump expansion)
+        # so CP7 config_digest stays byte-stable across idempotent re-runs
+        # (Pydantic defaults would otherwise change the digest without a real
+        # operator change).
+        from agentkit.backend.config.strict_yaml import strict_load_yaml
+
+        try:
+            raw = strict_load_yaml(
+                existing_config_path.read_text(encoding="utf-8")
+            )
+        except Exception:  # noqa: BLE001 -- fall back only if re-read fails
+            raw = entry_project_config.model_dump(mode="json")
+        if isinstance(raw, dict):
+            context.run_state.project_yaml = raw
+        else:
+            context.run_state.project_yaml = entry_project_config.model_dump(
+                mode="json"
+            )
     engine = build_checkpoint_engine()
     results: tuple[CheckpointResult, ...] = engine.run(context)
 

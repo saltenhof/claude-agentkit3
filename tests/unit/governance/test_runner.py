@@ -322,6 +322,7 @@ class TestAuthoritativeRequiredRoles:
                     "pipeline": {
                         "config_version": "3.0",
                         "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                         "review": {"required_roles": required_roles},
                     },
                 }

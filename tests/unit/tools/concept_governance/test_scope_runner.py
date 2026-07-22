@@ -67,6 +67,7 @@ def test_live_scope_without_discovery_chunks_fails_instead_of_being_omitted(tmp_
     meta.parent.mkdir(parents=True, exist_ok=True)
     meta.write_text(
         "---\nconcept_id: META\ntitle: Meta\nmodule: meta\n"
+        "status: active\ndoc_kind: core\n"
         "authority_over: [{scope: meta.governance}]\ndefers_to: []\n---\n"
         "## Rule\n\nThe meta rule must hold.\n",
         encoding="utf-8",

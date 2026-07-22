@@ -1,0 +1,6 @@
+Apache License 2.0
+
+This directory redistributes tokenizer files from the Hugging Face model
+sentence-transformers/all-MiniLM-L6-v2 (revision e4ce9877abf3edfe10b0d82785e83bdcb973e22e)
+under the Apache License, Version 2.0.
+See https://www.apache.org/licenses/LICENSE-2.0

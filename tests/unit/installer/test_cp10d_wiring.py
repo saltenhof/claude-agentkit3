@@ -103,7 +103,10 @@ def _config(root: Path, edge: _ProjectEdgeBoundary) -> InstallConfig:
         project_name="Acme",
         project_root=root,
         project_edge_client=cast("ProjectEdgeClient", edge),
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
 
 
 def test_cp10d_sends_only_secret_references_and_consumes_pass(

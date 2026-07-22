@@ -405,6 +405,13 @@ class TestCLIMain:
         )
 
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        # AG3-176: endpoint for project.yaml / CP10 (no localhost invent).
+        monkeypatch.setenv("WEAVIATE_HOST", "weaviate.test.local")
+        monkeypatch.setenv("WEAVIATE_HTTP_PORT", "19903")
+        monkeypatch.setenv("WEAVIATE_GRPC_PORT", "50051")
+        from tests.support.installer_offline_stubs import install_offline_vectordb_stubs
+
+        install_offline_vectordb_stubs(monkeypatch)
         # CP 11 configures core.hooksPath on the target; real targets are git
         # repos, so provision one (else CP 11 aborts on a clean CI agent).
         ensure_git_repo(tmp_path)
@@ -771,6 +778,12 @@ class TestCLIMain:
     ) -> None:
         """``uninstall`` removes AgentKit harness settings."""
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        monkeypatch.setenv("WEAVIATE_HOST", "weaviate.test.local")
+        monkeypatch.setenv("WEAVIATE_HTTP_PORT", "19903")
+        monkeypatch.setenv("WEAVIATE_GRPC_PORT", "50051")
+        from tests.support.installer_offline_stubs import install_offline_vectordb_stubs
+
+        install_offline_vectordb_stubs(monkeypatch)
         # CP 11 configures core.hooksPath on the target; real targets are git
         # repos, so provision one (else CP 11 aborts on a clean CI agent).
         ensure_git_repo(tmp_path)

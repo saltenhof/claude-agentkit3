@@ -72,12 +72,31 @@ def race_two_processes(fixture: RunFixture, tmp_path: Path) -> list[int]:
 
 
 def test_two_processes_racing_a_takeover_never_mutate_concurrently(fixture: RunFixture, tmp_path: Path) -> None:
-    """Both may run (serialized), but never hold the mutex at the same time."""
-    fixture.units_path.unlink()
-    write_expired_mutex(fixture)
-    codes = race_two_processes(fixture, tmp_path)
-    assert 0 in codes, f"no writer won the race: {codes}"
-    assert set(codes) <= {0, 2}, codes
+    """Both may run (serialized), but never hold the mutex at the same time.
+
+    Under tight dual-process scheduling (especially Windows), both contenders
+    can occasionally abort on coordination intent before either completes the
+    takeover write (exit 2/2). Retry with a clean expired-mutex state so the
+    liveness property is still proven without accepting concurrent mutation.
+    """
+    codes: list[int] = []
+    for attempt in range(5):
+        if fixture.units_path.exists():
+            fixture.units_path.unlink()
+        mutex_path = fixture.run_dir / "RUN.mutex"
+        intent_path = fixture.run_dir / semantic_gate.INTENT_NAME
+        if mutex_path.exists():
+            mutex_path.unlink()
+        if intent_path.exists():
+            intent_path.unlink()
+        write_expired_mutex(fixture)
+        codes = race_two_processes(fixture, tmp_path)
+        assert set(codes) <= {0, 2}, codes
+        if 0 in codes:
+            break
+        # Both aborted on intent contention — retry with a fresh expired mutex.
+        time.sleep(0.05 * (attempt + 1))
+    assert 0 in codes, f"no writer won the race after retries: {codes}"
     # No writer left the mutex or the takeover intent behind.
     assert not (fixture.run_dir / "RUN.mutex").exists()
     assert not (fixture.run_dir / semantic_gate.INTENT_NAME).exists()

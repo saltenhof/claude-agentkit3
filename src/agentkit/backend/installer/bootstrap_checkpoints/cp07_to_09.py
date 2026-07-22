@@ -27,6 +27,8 @@ from agentkit.backend.installer.checkpoint_engine.result_builder import (
 from agentkit.backend.installer.registration import CheckpointStatus
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.backend.installer.checkpoint_engine.context import CheckpointContext
     from agentkit.backend.installer.registration import CheckpointResult
 
@@ -180,10 +182,26 @@ def cp08_skill_bindings(context: CheckpointContext) -> CheckpointResult:
                 detail=detail,
                 start=start,
             )
+        # AG3-176 R8: VERIFY must read-only resolve BOTH harness links and pin
+        # them to the same expected bundle id/version/digest — never unconditional
+        # PASS/binding_current.
+        verify_err = _verify_skill_harness_pins(root, resolved)
+        if verify_err is not None:
+            return make_result(
+                nid.CP_08_SKILL_BINDINGS,
+                status=CheckpointStatus.FAILED,
+                detail=verify_err,
+                reason="skill_binding_pin_mismatch",
+                start=start,
+            )
         return make_result(
             nid.CP_08_SKILL_BINDINGS,
             status=CheckpointStatus.PASS,
-            detail=detail,
+            detail=(
+                f"Both harness skill links pin to expected immutable bundles "
+                f"{skill_names} (AG3-176 R8); prompt would be "
+                f"{bundle_id}@{bundle_version}."
+            ),
             reason=REASON_BINDING_CURRENT,
             start=start,
         )
@@ -229,6 +247,127 @@ def cp08_skill_bindings(context: CheckpointContext) -> CheckpointResult:
         ),
         start=start,
     )
+
+
+def _read_skill_manifest(bundle_root: Path) -> dict[str, object] | None:
+    """Read a skill-bundle ``manifest.json`` fail-closed (installer-local helper)."""
+    import json
+
+    path = bundle_root / "manifest.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _verify_skill_harness_pins(
+    project_root: Path,
+    resolved: list[tuple[str, Path]],
+) -> str | None:
+    """Read-only VERIFY for both harness skill links (AG3-176 R8).
+
+    For every mandatory skill, both Claude and Codex bind points must:
+    * exist as directory links (symlink/junction);
+    * resolve to targets whose ``manifest.json`` declares the same
+      ``bundle_id`` / ``bundle_version`` / ``manifest_digest`` as the
+      expected immutable pin from resolution;
+    * agree with each other (no cross-harness version divergence).
+
+    Returns ``None`` when current, else a human detail string for FAILED.
+    """
+    # Public skills package surface only (architecture-conformance / AC001).
+    import hashlib
+    import json
+
+    from agentkit.backend.skills import (
+        HarnessKind,
+        is_directory_link,
+        read_directory_link_target,
+    )
+
+    def _digest(manifest: dict[str, object]) -> str:
+        payload = {k: v for k, v in manifest.items() if k != "manifest_digest"}
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+    harness_dirs = {
+        HarnessKind.CLAUDE_CODE: project_root / ".claude" / "skills",
+        HarnessKind.CODEX: project_root / ".codex" / "skills",
+    }
+
+    for skill_name, expected_root in resolved:
+        expected_manifest = _read_skill_manifest(expected_root)
+        if not expected_manifest:
+            return (
+                f"Expected bundle for skill '{skill_name}' has no readable "
+                f"manifest at {expected_root} (fail-closed VERIFY)."
+            )
+        expected_id = str(expected_manifest.get("bundle_id") or "")
+        expected_ver = str(expected_manifest.get("bundle_version") or "")
+        expected_digest = expected_manifest.get("manifest_digest")
+        if not isinstance(expected_digest, str) or not expected_digest:
+            return (
+                f"Expected bundle for skill '{skill_name}' lacks manifest_digest "
+                f"(fail-closed VERIFY)."
+            )
+        if expected_digest != _digest(expected_manifest):
+            return (
+                f"Expected bundle for skill '{skill_name}' has corrupt "
+                f"manifest_digest (declared != runtime algorithm)."
+            )
+
+        for harness, skills_dir in harness_dirs.items():
+            link_path = skills_dir / skill_name
+            if not is_directory_link(link_path):
+                return (
+                    f"VERIFY failed: harness link missing or not a directory link "
+                    f"for skill '{skill_name}' (harness={harness.value}, "
+                    f"path={link_path})."
+                )
+            try:
+                target = read_directory_link_target(link_path).resolve()
+            except OSError as exc:
+                return (
+                    f"VERIFY failed: cannot resolve harness link for skill "
+                    f"'{skill_name}' (harness={harness.value}): {exc}"
+                )
+            if not target.is_dir():
+                return (
+                    f"VERIFY failed: harness link target for skill '{skill_name}' "
+                    f"(harness={harness.value}) is not a directory: {target}"
+                )
+            target_manifest = _read_skill_manifest(target)
+            if not target_manifest:
+                return (
+                    f"VERIFY failed: link target for skill '{skill_name}' "
+                    f"(harness={harness.value}) has no manifest.json — mutable "
+                    f"or non-bundle target refused (path={target})."
+                )
+            tid = str(target_manifest.get("bundle_id") or "")
+            tver = str(target_manifest.get("bundle_version") or "")
+            tdigest = target_manifest.get("manifest_digest")
+            if tid != expected_id or tver != expected_ver:
+                return (
+                    f"VERIFY failed: skill '{skill_name}' harness={harness.value} "
+                    f"pins {tid}@{tver}, expected {expected_id}@{expected_ver}."
+                )
+            if not isinstance(tdigest, str) or tdigest != expected_digest:
+                return (
+                    f"VERIFY failed: skill '{skill_name}' harness={harness.value} "
+                    f"digest mismatch (got={tdigest!r}, expected={expected_digest!r})."
+                )
+            if tdigest != _digest(target_manifest):
+                return (
+                    f"VERIFY failed: skill '{skill_name}' harness={harness.value} "
+                    f"target manifest_digest does not match runtime algorithm "
+                    f"(tampered or corrupt target at {target})."
+                )
+
+    return None
 
 
 def _update_prompt_binding(

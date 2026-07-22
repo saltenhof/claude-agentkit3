@@ -16,6 +16,7 @@ from agentkit.backend.config.models import (
     ProjectConfig,
     RepositoryConfig,
     SonarQubeConfig,
+    VectorDbConfig,
 )
 from agentkit.backend.skills.errors import UnknownPlaceholderError
 from agentkit.backend.skills.placeholder import (
@@ -32,9 +33,12 @@ from agentkit.backend.skills.placeholder import (
 #: multi_llm=False for this single-LLM fixture.
 _OPT_OUT_PIPELINE = PipelineConfig(  # type: ignore[call-arg]
     config_version=SUPPORTED_CONFIG_VERSION,
-    features=Features(multi_llm=False),
+    features=Features(multi_llm=False, vectordb=True),
     sonarqube=SonarQubeConfig(available=False, enabled=False),
     ci=JenkinsConfig(available=False, enabled=False),
+    vectordb=VectorDbConfig(
+        host="weaviate.test.local", port=19903, grpc_port=50051
+    ),
 )
 
 

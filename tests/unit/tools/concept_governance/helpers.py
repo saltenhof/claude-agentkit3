@@ -85,6 +85,8 @@ def write_doc(
 concept_id: {doc_id}
 title: {doc_id}
 module: test
+status: active
+doc_kind: core
 authority_over: {authority}
 defers_to: {defers_to}
 ---

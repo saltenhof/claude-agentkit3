@@ -35,7 +35,6 @@ from agentkit.backend.installer.bootstrap_checkpoints.cp11_to_12 import (
     cp12_verify_registration,
 )
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
-from agentkit.backend.installer.checkpoint_engine.flow import BRANCH_VECTORDB_ENABLED_STAGE2
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -66,11 +65,6 @@ def build_handler_registry() -> dict[str, CheckpointHandler[CheckpointContext]]:
     }
 
 
-def _vectordb_enabled(context: CheckpointContext) -> bool:
-    """Branch predicate: ``features.vectordb`` (both vectordb branch stages)."""
-    return context.vectordb_enabled
-
-
 def _are_enabled(context: CheckpointContext) -> bool:
     """Branch predicate: ``features.are``."""
     return context.are_enabled
@@ -86,13 +80,10 @@ def build_branch_predicate_registry() -> dict[
 ]:
     """Return the branch node-id -> predicate registry.
 
-    The two-stage vectordb branch binds the SAME ``_vectordb_enabled`` predicate
-    at both flow positions (stage 1 before CP 11, stage 2 after CP 11), so the
-    two-stage decision routes consistently (story §2.1.1 / AC2).
+    VectorDB is mandatory (AG3-176 AC6); only ARE and Sonar remain branch
+    features. The deprecated ``branch_vectordb_enabled`` predicates are gone.
     """
     return {
-        nid.BRANCH_VECTORDB_ENABLED: _vectordb_enabled,
-        BRANCH_VECTORDB_ENABLED_STAGE2: _vectordb_enabled,
         nid.BRANCH_ARE_ENABLED: _are_enabled,
         nid.BRANCH_SONARQUBE_ENABLED: _sonarqube_enabled,
     }

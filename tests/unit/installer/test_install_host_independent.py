@@ -161,6 +161,10 @@ def _config(
         # AG3-056 (FIX-5): the CI preflight mirrors the Sonar discipline; no
         # live Jenkins here => conscious opt-out so the CI checkpoint SKIPS.
         ci_available=False,
+        # AG3-176: VectorDB mandatory — unit installs pin a non-default endpoint.
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
     )
 
 

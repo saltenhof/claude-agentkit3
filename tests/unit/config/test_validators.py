@@ -25,8 +25,15 @@ def _pipeline(**kwargs: object) -> PipelineConfig:
     """PipelineConfig with explicit config_version, sonarqube + ci opt-outs (E6 / AG3-056).
 
     Uses ``features=Features(multi_llm=False)`` by default for single-LLM fixtures.
+    VectorDB is mandatory (AG3-176): supplies a default endpoint stanza.
     """
+    from agentkit.backend.config.models import VectorDbConfig
+
     kwargs.setdefault("features", Features(multi_llm=False))
+    kwargs.setdefault(
+        "vectordb",
+        VectorDbConfig(host="weaviate.test.local", port=19903, grpc_port=50051),
+    )
     return PipelineConfig(  # type: ignore[arg-type]
         config_version=SUPPORTED_CONFIG_VERSION,
         sonarqube=_OPT_OUT_SONAR,

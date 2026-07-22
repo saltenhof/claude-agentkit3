@@ -75,7 +75,10 @@ def _config(repo: _InMemoryRepo, root: Path, *, owner: str | None = "acme") -> I
         github_repo="demo" if owner is not None else None,
         registration_repo=repo,
         runtime_profile=RuntimeProfile.CORE,
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
 
 
 def test_first_run_creates_registration(tmp_path: Path) -> None:
@@ -162,7 +165,10 @@ def test_empty_github_coords_fail_closed_without_write(tmp_path: Path) -> None:
             github_repo=repo_name,
             registration_repo=repo,
             runtime_profile=RuntimeProfile.CORE,
-        )
+                weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
         result = _run_cp7_state_backend_registration(config, tmp_path, yaml_data)
         assert result.status is CheckpointStatus.FAILED
         assert result.reason == REASON_MISSING_GITHUB_COORDINATES
@@ -208,7 +214,10 @@ def test_invalid_github_coords_fail_closed_without_write(
         github_repo=repo_name,
         registration_repo=repo,
         runtime_profile=RuntimeProfile.CORE,
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
     result = _run_cp7_state_backend_registration(config, tmp_path, yaml_data)
     assert result.status is CheckpointStatus.FAILED
     assert result.reason == REASON_INVALID_GITHUB_COORDINATES

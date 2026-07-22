@@ -277,6 +277,9 @@ def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
         project_root.parent / f".skill-bundles-{project_root.name}"
     )
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_root=project_root,
         default_project_structure=True,
         skills=skills,

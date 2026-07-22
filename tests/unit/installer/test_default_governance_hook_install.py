@@ -48,7 +48,10 @@ def _config(root: Path) -> InstallConfig:
         project_key="demo",
         project_name="Demo",
         project_root=root,
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
 
 
 def _claude_commands_for_event(

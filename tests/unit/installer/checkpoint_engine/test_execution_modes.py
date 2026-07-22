@@ -69,9 +69,21 @@ def _result_for(results: object, checkpoint: str) -> object:
 
 
 def test_register_runs_full_flow_and_persists(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    monkeypatch: object,
 ) -> None:
     """Register mode runs the flow and persists the registration (CREATED)."""
+    import agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp as cp10_mod
+    from agentkit.backend.installer.mcp_conformance.types import McpConformanceResult
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        cp10_mod,
+        "check_mcp_conformance",
+        lambda cmd, **kwargs: McpConformanceResult(
+            ok=True, reason=None, detail="stub", tool_names=("story_search",)
+        ),
+    )
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
@@ -208,14 +220,19 @@ def test_idempotent_rerun_skips_then_upgrades(
     assert cp7_second.status is CheckpointStatus.SKIPPED
     assert registration_repo.save_calls == 1  # not re-saved
 
-    # Changed config (extra repo) -> UPDATED.
-    changed = make_config(
-        root,
-        bundle_store_root=bundles,
-        registration_repo=registration_repo,
-        repositories=[{"name": "extra", "path": "extra"}],
-    )
-    third = run_checkpoint_install(changed, mode=ExecutionMode.REGISTER)
+    # Changed on-disk project.yaml (extra repo) -> UPDATED.
+    # AG3-176 R1: InstallConfig alone cannot overwrite an existing validated
+    # project.yaml; the digest tracks the on-disk mapping.
+    import yaml
+
+    from agentkit.backend.installer.paths import project_config_path
+
+    yaml_path = project_config_path(root)
+    data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    data["repositories"] = [{"name": "extra", "path": "extra"}]
+    yaml_path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    third = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
     cp7_third = _result_for(third.checkpoint_results, CP7_STATE_BACKEND_REGISTRATION)
     assert cp7_third.status is CheckpointStatus.UPDATED
     assert registration_repo.upgrade_calls == 1

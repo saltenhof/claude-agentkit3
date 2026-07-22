@@ -12,7 +12,7 @@ from tests.unit.installer.checkpoint_engine.conftest import (
     make_config,
 )
 
-from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp as cp10_mod
 from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
     cp10_mcp_registration,
     cp10c_are_scope_validation,
@@ -44,6 +44,13 @@ if TYPE_CHECKING:
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _MINIMAL_SERVER = _REPO_ROOT / "tests" / "fixtures" / "minimal_mcp_server.py"
 _BAD_SERVERS = _REPO_ROOT / "tests" / "fixtures" / "mcp_bad_servers.py"
+
+
+def _use_real_mcp_conformance(monkeypatch: MonkeyPatch) -> None:
+    """Undo the unit-test autouse stub; exercise the real probe fail-closed."""
+    from agentkit.backend.installer.mcp_conformance import check_mcp_conformance
+
+    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", check_mcp_conformance)
 
 
 def _ctx(
@@ -79,19 +86,21 @@ def _good_entry() -> dict[str, Any]:
     }
 
 
-def test_cp10_are_false_still_skipped(
+def test_cp10_never_skips_for_vectordb_optional_off(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
+    """AG3-176 AC6: no SKIPPED/vectordb_disabled — VectorDB is mandatory."""
     ctx = _ctx(tmp_path, registration_repo, features_are=False, features_vectordb=False)
+    assert ctx.vectordb_enabled is True  # type: ignore[attr-defined]
     result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.SKIPPED
-    assert result.reason == REASON_VECTORDB_DISABLED
-    assert not (tmp_path / ".mcp.json").exists()
+    assert result.status is not CheckpointStatus.SKIPPED
+    assert result.reason != REASON_VECTORDB_DISABLED
 
 
 def test_cp10_are_missing_command_fails_without_write(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo, monkeypatch: MonkeyPatch
 ) -> None:
+    _use_real_mcp_conformance(monkeypatch)
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
@@ -108,10 +117,12 @@ def test_cp10_are_missing_command_fails_without_write(
     )
 
     cp05_pipeline_config(ctx)
+    # AG3-176: VectorDB mandatory — dual-harness probes story-kb first.
+    # Without a runnable MCP command the registration fails closed and
+    # writes nothing (same fail-closed class as the former ARE-only case).
     result = cp10_mcp_registration(ctx)
     assert result.status is CheckpointStatus.FAILED
     assert result.reason == REASON_MCP_COMMAND_NOT_FOUND
-    assert "are-mcp" in (result.detail or "")
     assert not (root / ".mcp.json").exists()
 
 
@@ -120,6 +131,7 @@ def test_cp10_failure_preserves_existing_mcp_json_bytes(
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    _use_real_mcp_conformance(monkeypatch)
     """AC2 regression: existing .mcp.json remains byte-identical on FAILED."""
     mcp_path = tmp_path / ".mcp.json"
     original = (
@@ -146,8 +158,11 @@ def test_cp10_failure_preserves_existing_mcp_json_bytes(
 
 
 def test_cp10_are_full_install_fails_honestly(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    monkeypatch: MonkeyPatch,
 ) -> None:
+    _use_real_mcp_conformance(monkeypatch)
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
@@ -171,6 +186,7 @@ def test_cp10_negative_process_exited(
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    _use_real_mcp_conformance(monkeypatch)
     specs = {
         "die-server": {
             "type": "stdio",
@@ -191,6 +207,7 @@ def test_cp10_negative_protocol_error(
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    _use_real_mcp_conformance(monkeypatch)
     specs = {
         "noise-server": {
             "type": "stdio",
@@ -211,6 +228,7 @@ def test_cp10_negative_empty_tools(
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    _use_real_mcp_conformance(monkeypatch)
     specs = {
         "empty-server": {
             "type": "stdio",
@@ -270,6 +288,7 @@ def test_cp10_conformance_applies_to_two_server_definitions(
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    _use_real_mcp_conformance(monkeypatch)
     good = _good_entry()
     bad = {
         "type": "stdio",
@@ -342,6 +361,23 @@ def test_cp10_dry_run_and_verify_never_start_processes(
         raise AssertionError("conformance must not run in dry-run/verify")
 
     monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _boom)
+    # AG3-176: dual-write path needs a valid project binding (strict project.yaml).
+    cfg_dir = tmp_path / ".agentkit" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "project.yaml").write_text(
+        "project_key: demo\n"
+        "project_name: demo\n"
+        "repositories:\n  - name: app\n    path: .\n"
+        "pipeline:\n"
+        "  config_version: '3.0'\n"
+        "  features:\n    multi_llm: false\n    vectordb: true\n"
+        "  sonarqube: {available: false, enabled: false}\n"
+        "  ci: {available: false, enabled: false}\n"
+        "  vectordb: {host: weaviate.test.local, port: 19903, grpc_port: 50051}\n"
+        "concepts_dir: concepts\n"
+        "wiki_stories_dir: stories\n",
+        encoding="utf-8",
+    )
     for mode in (ExecutionMode.DRY_RUN, ExecutionMode.VERIFY):
         calls.clear()
         ctx = _ctx(tmp_path, registration_repo, features_are=True, mode=mode)

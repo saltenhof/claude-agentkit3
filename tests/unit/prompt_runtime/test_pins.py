@@ -278,6 +278,9 @@ def test_run_pin_carries_project_key_when_config_present(
     monkeypatch.setenv(PROMPT_BUNDLE_STORE_ENV, str(tmp_path / "prompt-bundles-store"))
     install_agentkit(
         InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
             project_key="acme-key",
             project_name="acme",
             project_root=project_root,

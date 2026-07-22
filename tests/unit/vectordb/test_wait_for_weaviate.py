@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 import yaml
 
 from agentkit.backend.vectordb.wait_for_weaviate import (
@@ -21,8 +22,6 @@ from agentkit.integration_clients.vectordb import VectorDbUnavailableError
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 class _ReadyAdapter:
@@ -132,12 +131,24 @@ def test_resolve_host_port_consumes_vectordb_config(tmp_path: Path) -> None:
         "pipeline": {
             "config_version": "3.0",
             "features": {"multi_llm": False, "vectordb": True},
-            "vectordb": {"host": "weaviate.internal", "port": 9999},
+            "vectordb": {
+                "host": "weaviate.internal",
+                "port": 9999,
+                "grpc_port": 50051,
+            },
+            "sonarqube": {"available": False, "enabled": False},
+            "ci": {"available": False, "enabled": False},
         },
+        "concepts_dir": "concepts",
+        "wiki_stories_dir": "stories",
     }
     (config_dir / "project.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
     assert _resolve_host_port(str(tmp_path)) == ("weaviate.internal", 9999)
 
 
-def test_resolve_host_port_falls_back_when_config_missing(tmp_path: Path) -> None:
-    assert _resolve_host_port(str(tmp_path)) == (DEFAULT_HOST, DEFAULT_PORT)
+def test_resolve_host_port_fails_closed_when_config_missing(tmp_path: Path) -> None:
+    """AG3-176 AC1: project-bound path has NO localhost default fallback."""
+    from agentkit.backend.vectordb.wait_for_weaviate import ProjectEndpointResolutionError
+
+    with pytest.raises(ProjectEndpointResolutionError):
+        _resolve_host_port(str(tmp_path))

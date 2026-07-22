@@ -38,6 +38,11 @@ def test_project_config_accepts_top_level_worker_health() -> None:
             "pipeline": {
                 "config_version": "3.0",
                 "features": {"multi_llm": False},
+                "vectordb": {
+                    "host": "weaviate.test.local",
+                    "port": 19903,
+                    "grpc_port": 50051,
+                },
             },
             "worker_health": {
                 "tool_call_log": {"max_entries": 200},

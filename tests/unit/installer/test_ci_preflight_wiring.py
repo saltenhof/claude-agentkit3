@@ -13,7 +13,10 @@ def _config(**kwargs: object) -> InstallConfig:
         project_name="Acme",
         project_root=Path("/tmp"),
         **kwargs,  # type: ignore[arg-type]
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
 
 
 def test_built_yaml_has_explicit_secret_reference_only_ci_stanza() -> None:

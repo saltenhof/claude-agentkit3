@@ -35,6 +35,11 @@ def _project(
         pipeline={  # type: ignore[arg-type]
             "config_version": "3.0",
             "features": {"multi_llm": False},
+            "vectordb": {
+                "host": "weaviate.test.local",
+                "port": 19903,
+                "grpc_port": 50051,
+            },
             "sonarqube": pipeline_sonar,
             "ci": ci_stanza,
         },
@@ -151,6 +156,7 @@ class TestCrossFieldRule:
             pipeline={  # type: ignore[arg-type]
                 "config_version": "3.0",
                 "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
                 "sonarqube": {"available": True, "enabled": False},
             },
         )

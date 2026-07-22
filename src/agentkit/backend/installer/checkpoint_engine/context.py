@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.backend.config.models import ProjectConfig
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.backend.installer.registration import RuntimeProfile
     from agentkit.backend.installer.runner import InstallConfig
@@ -59,6 +60,10 @@ class CheckpointRunState:
 
     created_files: list[str] = field(default_factory=list)
     project_yaml: dict[str, object] | None = None
+    #: Immutable ProjectConfig validated at installer entry (AG3-176 R1).
+    #: Present when an existing project.yaml was strictly loaded, or after CP5
+    #: creates and validates a new one. Handlers MUST NOT re-load via safe_load.
+    project_config: ProjectConfig | None = None
     resolved_profile: RuntimeProfile | None = None
     skills: object | None = None
     resolved_skill_bundles: list[tuple[str, object]] = field(default_factory=list)

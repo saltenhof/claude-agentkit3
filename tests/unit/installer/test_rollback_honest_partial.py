@@ -92,7 +92,10 @@ def _config(
         # AG3-052: conscious Sonar opt-out (no live Sonar; FK-03 §3 default
         # is available:true). This install fails earlier at skill-bind anyway.
         sonarqube_available=False,
-    )
+            weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
+)
 
 
 def test_rollback_failure_reports_orphaned_state_not_clean_rollback(
@@ -390,12 +393,17 @@ def test_real_store_discovery_resolves_shipped_bundles() -> None:
     store = SkillBundleStore()  # default root == shipped bundles
     for skill_name in MANDATORY_SKILLS:
         bundle = store.get_bundle(f"{skill_name}-core")
-        assert bundle.bundle_version == "4.0.0"
+        # Highest shipped version (create-userstory-core may be 5.0.0 after
+        # AG3-176; other cores remain 4.0.0). SemVer-highest is authoritative.
+        assert bundle.bundle_version in {"4.0.0", "5.0.0"}
         assert (bundle.bundle_root / "SKILL.md").is_file()
         assert (bundle.bundle_root / "manifest.json").is_file()
         # Bundle is resolved from AK3's own packaged bundles tree, NOT from
         # the AK2 source repo (which lives under .../claude-agentkit/userstory).
-        assert bundle.bundle_root.parts[-2:] == (f"{skill_name}-core", "4.0.0")
+        assert bundle.bundle_root.parts[-2:] == (
+            f"{skill_name}-core",
+            bundle.bundle_version,
+        )
         assert "bundles" in bundle.bundle_root.parts
         assert "skill_bundles" in bundle.bundle_root.parts
         assert "userstory" not in bundle.bundle_root.parts

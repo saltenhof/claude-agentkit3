@@ -82,7 +82,11 @@ class Features(BaseModel):
             ``RequirementsCoverage`` top-surface methods are no-ops
             that return ``SKIPPED`` results (FK-40 §40.2).
         multi_repo: Whether multi-repository support is enabled.
-        vectordb: Whether VectorDB integration is enabled.
+        vectordb: Deprecated migration key (Decision Record 2026-07-21 Rand 1).
+            Missing key = mandatory VectorDB active (default ``True``).
+            ``true`` is accepted. Only a real boolean ``false`` is a hard
+            configuration error in a supported target project — never an
+            opt-out. Strings/numbers/null are rejected (strict, no coercion).
         multi_llm: Whether multi-LLM role assignment is enabled.
             Default ``True`` (FK-01 §1.3 P5 / FK-03 §3.1 mandate: multi-LLM
             is the expected production mode).  When ``True`` a populated
@@ -93,15 +97,40 @@ class Features(BaseModel):
             Requires ``db=True`` (fail-closed cross-field rule).
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # strict=True: no bool coercion from "true"/1/null (AG3-176 AC2).
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     are: bool = False
     multi_repo: bool = False
-    vectordb: bool = False
+    # Missing key => active (Decision Record Rand 1 / AG3-176 AC2/AC6).
+    vectordb: bool = True
     multi_llm: bool = True
     telemetry: bool = True
     db: bool = False
     e2e_assertions: bool = False
+
+    @field_validator("vectordb", mode="before")
+    @classmethod
+    def _vectordb_strict_bool(cls, value: object) -> object:
+        """Reject non-bool and boolean false for features.vectordb (AC2/AC6)."""
+        if value is None:
+            raise ValueError(
+                "features.vectordb must be a boolean; null is "
+                "configuration_invalid (AG3-176 AC2, fail-closed)"
+            )
+        if isinstance(value, bool):
+            if value is False:
+                raise ValueError(
+                    "features.vectordb=false is a hard configuration error in a "
+                    "supported target project (Decision Record 2026-07-21 Rand 1, "
+                    "FK-13 §13.1, AG3-176 AC6); VectorDB is mandatory infrastructure"
+                )
+            return value
+        raise ValueError(
+            f"features.vectordb must be a real boolean true (or omitted); "
+            f"got {type(value).__name__}={value!r} (configuration_invalid, "
+            "no coercion, AG3-176 AC2)"
+        )
 
     @model_validator(mode="after")
     def _validate_e2e_assertions_requires_db(self) -> Features:
@@ -537,16 +566,70 @@ class VectorDbConfig(BaseModel):
             Default ``0.7``.
         max_llm_candidates: Maximum number of VectorDB candidates passed to
             LLM evaluation per query (FK-05-020). Default ``5``.
-        host: VectorDB server hostname or IP.
-        port: VectorDB server port.
+        host: Optional VectorDB hostname. Connection fields are optional at
+            the model layer (tuning-only fixtures remain valid); when any
+            connection field is set, host/port/grpc_port must all be complete
+            and strict. Installer activation still requires a full endpoint
+            (``require_installer_vectordb_endpoint``, AG3-176 R1).
+        port: Optional HTTP port (strict int when set; no coercion).
+        grpc_port: Optional gRPC port (strict int when set; no coercion).
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # strict=True: no string→int coercion on ports (AG3-176 AC2).
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     similarity_threshold: float = 0.7
     max_llm_candidates: int = 5
     host: str | None = None
     port: int | None = None
+    grpc_port: int | None = None
+
+    @field_validator("host", mode="before")
+    @classmethod
+    def _host_non_empty_str_when_set(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                "vectordb.host must be a non-empty string when set "
+                "(configuration_invalid, no default, AG3-176 AC1/AC2)"
+            )
+        return value.strip()
+
+    @field_validator("port", "grpc_port", mode="before")
+    @classmethod
+    def _port_strict_int_when_set(
+        cls, value: object, info: ValidationInfo
+    ) -> object:
+        if value is None:
+            return None
+        field = info.field_name or "port"
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                f"vectordb.{field} must be a real int "
+                f"(got {type(value).__name__}={value!r}; no coercion, "
+                "configuration_invalid, AG3-176 AC2)"
+            )
+        if not 1 <= value <= 65535:
+            raise ValueError(
+                f"vectordb.{field} must be in 1..65535 (got {value}; "
+                "configuration_invalid, AG3-176 AC1)"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _host_and_port_paired(self) -> VectorDbConfig:
+        """host and port are paired; grpc_port is optional at model layer.
+
+        Installer activation still requires the full host/port/grpc triple
+        (``require_installer_vectordb_endpoint``).
+        """
+        if (self.host is None) ^ (self.port is None):
+            raise ValueError(
+                "vectordb.host and vectordb.port must be set together "
+                "(configuration_invalid, AG3-176 AC1/AC2)"
+            )
+        return self
 
 
 class TelemetryConfig(BaseModel):
@@ -696,8 +779,12 @@ class PipelineConfig(BaseModel):
             P5 / FK-03 §3.1). Required when ``features.multi_llm=True``.
         orchestrator_guard: Orchestrator guard blocklist (FK-03 §3.1).
         policy: Pipeline threshold configuration (FK-03 §3.1).
-        vectordb: VectorDB connection and tuning (FK-03 §3.1). Required when
-            ``features.vectordb=True``.
+        vectordb: VectorDB connection and tuning (FK-03 §3.1). When present,
+            validated strictly (host/port/grpc_port, no coercion). Existence of
+            the stanza is **not** enforced here — that is the installer
+            activation boundary (AG3-176 AC1/AC2/AC6 / R1: before
+            registration/preflight effects). ``features.vectordb=false`` remains
+            a hard Features-level error.
         telemetry: Telemetry and web-call budget (FK-03 §3.1).
         governance: Governance observation configuration (FK-03 §3.1).
         permissions: CCAG permission-request configuration (FK-93 §93.5a /
@@ -1075,3 +1162,50 @@ class ProjectConfig(BaseModel):
             # Pydantic v2 frozen models: rebuild via model_copy to set the default.
             object.__setattr__(self, "project_prefix", self.project_key.upper())
         return self
+
+
+def require_installer_vectordb_endpoint(config: ProjectConfig) -> None:
+    """Installer-boundary VectorDB endpoint duty (AG3-176 AC1/AC2/AC6 / R1).
+
+    Call only at installer entry (before scaffold/registration/preflight).
+    Model-level validation does **not** require a ``vectordb`` stanza for every
+    ``ProjectConfig`` in the repo; the activation path does:
+
+    * ``features.vectordb=false`` is already rejected by :class:`Features`
+    * ``features.vectordb`` missing/true (default active) without a complete
+      ``pipeline.vectordb`` host/port/grpc_port stanza → hard
+      ``configuration_invalid`` (no localhost default, no invent)
+
+    Raises:
+        ValueError: Named fail-closed reason for the installer to map to
+            ``InstallationError`` / ``ConfigError``.
+    """
+    if not config.pipeline.features.vectordb:
+        raise ValueError(
+            "features.vectordb=false is a hard configuration error in a "
+            "supported target project (Decision Record 2026-07-21 Rand 1, "
+            "AG3-176 AC6); VectorDB is mandatory infrastructure"
+        )
+    vdb = config.pipeline.vectordb
+    if vdb is None:
+        raise ValueError(
+            "installer requires pipeline.vectordb with host/port/grpc_port "
+            "before any install effect (AG3-176 AC1/AC2/R1, fail-closed: "
+            "no default endpoint; installer does not start a database)"
+        )
+    host = (vdb.host or "").strip()
+    if not host:
+        raise ValueError(
+            "installer requires pipeline.vectordb.host (non-empty) before any "
+            "install effect (AG3-176 AC1/AC2/R1, fail-closed: no default endpoint)"
+        )
+    if vdb.port is None or not (1 <= int(vdb.port) <= 65535):
+        raise ValueError(
+            "installer requires pipeline.vectordb.port in 1..65535 before any "
+            "install effect (AG3-176 AC1/AC2/R1)"
+        )
+    if vdb.grpc_port is None or not (1 <= int(vdb.grpc_port) <= 65535):
+        raise ValueError(
+            "installer requires pipeline.vectordb.grpc_port in 1..65535 before "
+            "any install effect (AG3-176 AC1/AC2/R1)"
+        )

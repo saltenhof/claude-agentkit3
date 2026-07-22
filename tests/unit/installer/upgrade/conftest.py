@@ -81,6 +81,7 @@ def valid_project_config_dict(
     pipeline: dict[str, object] = {
         "config_version": config_version,
         "features": {"multi_llm": False},
+            "vectordb": {"host": "weaviate.test.local", "port": 19903, "grpc_port": 50051},
         "sonarqube": {"available": False, "enabled": False},
         "ci": {"available": False, "enabled": False},
     }

@@ -66,11 +66,11 @@ sie trifft keine Konzeptentscheidung. Bei Konflikt zwischen Story und Konzept:
    gesetzt; ein abweichend uebergebenes `project_id` wird **abgelehnt**, nicht
    als Cross-Project-Abfrage ausgefuehrt — das gilt auch fuer
    `story_list_sources` (FK-13 §13.4.1/§13.9.5).
-4. **Generischer Ingest-/Corpus-Kern als SSOT unter `src/agentkit/concepts/`**
+4. **Generischer Ingest-/Corpus-Kern als SSOT unter `src/agentkit/backend/concept_catalog/`**
    (Review 174-P1-4). Discovery, Frontmatter, Heading-Chunking, Hashing,
    Excludes liegen einmal in einem **transportfreien Domain-Paket**
-   `src/agentkit/concepts/`; `discover_concept_files()` im Parser-Modul
-   `agentkit/concepts/parser.py` ist der eine Owner fuer Validation, Build,
+   `src/agentkit/backend/concept_catalog/`; `discover_concept_files()` im Parser-Modul
+   `agentkit/backend/concept_catalog/parser.py` ist der eine Owner fuer Validation, Build,
    Graph und Sync (FK-13 §13.9.13). Der Kern ist ohne Weaviate nutzbar (Lint/
    Validate). `backend/vectordb/ingest/` und `tools/concept_ingester` werden
    **Adapter/Konsumenten** darauf; **kein zweiter** Discovery-/Parser-Pfad.
@@ -158,8 +158,8 @@ sie trifft keine Konzeptentscheidung. Bei Konflikt zwischen Story und Konzept:
 | Datei | Aenderungsart |
 |---|---|
 | `pyproject.toml` | Dependencies (`weaviate-client>=4.9,<5.0`) + Tokenizer-Asset/Digest/Lizenz |
-| `src/agentkit/concepts/parser.py` (+ `discovery`, `frontmatter`, `chunking`, `hashing`) | neu — **transportfreier** SSOT-Kern; `discover_concept_files()` als einziger Owner (FK-13 §13.9.13) |
-| `src/agentkit/concepts/cli.py` (o. Aequivalent) | neu — `concept lint/doctor/validate/build/sync` auf demselben Discovery-SSOT |
+| `src/agentkit/backend/concept_catalog/parser.py` (+ `discovery`, `frontmatter`, `chunking`, `hashing`) | neu — **transportfreier** SSOT-Kern; `discover_concept_files()` als einziger Owner (FK-13 §13.9.13) |
+| `src/agentkit/backend/concept_catalog/cli.py` (o. Aequivalent) | neu — `concept lint/doctor/validate/build/sync` auf demselben Discovery-SSOT |
 | `src/agentkit/backend/vectordb/project_binding.py` | neu |
 | `src/agentkit/backend/vectordb/runtime_binding.py` (`McpServerSpec`/`RuntimeBinding`) | neu — autoritative Runtime-Bindung, von AG3-175 konsumiert |
 | `src/agentkit/backend/vectordb/schema.py` | neu — vollstaendiges Schema, idempotent |
@@ -221,7 +221,7 @@ sie trifft keine Konzeptentscheidung. Bei Konflikt zwischen Story und Konzept:
    abnahmeverbindlich (Review 174-P1-3): mindestens gebundenes `project_id`,
    `source_type`, Producer/Tool, Source-/Chunk-Zaehler und letzte erfolgreiche
    Revision/Freshness; **keine** fremden Projekte.
-9. Der SSOT-Discovery-Kern liegt in `src/agentkit/concepts/` und ist die
+9. Der SSOT-Discovery-Kern liegt in `src/agentkit/backend/concept_catalog/` und ist die
    einzige Implementierung (Review 174-P1-4); `backend/vectordb/ingest` und
    `tools/concept_ingester` sind Adapter darauf; ein Drift-Test sichert die
    Profil-Verhaltensgleichheit gegen `tools/concept_ingester`; ein Test belegt,

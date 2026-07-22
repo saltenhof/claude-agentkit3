@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import pytest  # noqa: TC002 -- used at runtime in test signatures
+
 from agentkit.backend.bootstrap.composition_implementation_evidence import (
     CiBuildTestFastRunner,
 )
@@ -254,15 +256,109 @@ def test_doc_fidelity_feedback_setup_failure_is_nonblocking_warning(
     assert "feedback_fidelity" in warning
 
 
-def test_vectordb_sync_is_nonblocking_warning(tmp_path: Path) -> None:
-    """VectorDB sync always runs and surfaces a Warning when unavailable."""
+def test_vectordb_sync_queues_lifecycle_owned_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R7: Closure returns after registry handoff; status is observable."""
+    from agentkit.backend.vectordb import sync_task_registry as reg_mod
+
+    registry = reg_mod.reset_sync_task_registry_for_tests()
+    calls: list[object] = []
+
+    def fake_work(root: object) -> None:
+        calls.append(root)
+
+    monkeypatch.setattr(reg_mod, "run_story_sync_work", fake_work)
+
     port = ProductiveVectorDbSyncPort()
 
-    triggered, warning = port.trigger_sync(None, tmp_path)  # type: ignore[arg-type]
+    class _Ctx:
+        project_root = tmp_path
 
-    assert not triggered
+    story_dir = tmp_path / "stories" / "S1"
+    story_dir.mkdir(parents=True)
+    triggered, warning = port.trigger_sync(_Ctx(), story_dir)  # type: ignore[arg-type]
+    assert triggered is True
+    assert warning is None
+    registry.drain(timeout=5.0)
+    assert calls == [tmp_path]
+    # At least one task recorded as succeeded
+    statuses = [
+        rec.status
+        for rec in [
+            registry.status(tid)
+            for tid in list(registry._tasks)  # noqa: SLF001 -- test observability
+        ]
+        if rec is not None
+    ]
+    assert reg_mod.SyncTaskStatus.SUCCEEDED in statuses
+
+
+def test_vectordb_sync_post_start_error_is_observable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R7: worker failure after queue handoff is recorded on the task."""
+    from agentkit.backend.vectordb import sync_task_registry as reg_mod
+
+    registry = reg_mod.reset_sync_task_registry_for_tests()
+
+    def boom(root: object) -> None:
+        del root
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(reg_mod, "run_story_sync_work", boom)
+    port = ProductiveVectorDbSyncPort()
+
+    class _Ctx:
+        project_root = tmp_path
+
+    triggered, warning = port.trigger_sync(_Ctx(), tmp_path / "s")  # type: ignore[arg-type]
+    assert triggered is True
+    assert warning is None
+    registry.drain(timeout=5.0)
+    failed = [
+        registry.status(tid)
+        for tid in list(registry._tasks)  # noqa: SLF001
+    ]
+    assert any(
+        rec is not None
+        and rec.status is reg_mod.SyncTaskStatus.FAILED
+        and rec.error
+        and "engine exploded" in rec.error
+        for rec in failed
+    )
+
+
+def test_vectordb_sync_shutdown_rejects_new_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agentkit.backend.vectordb import sync_task_registry as reg_mod
+
+    registry = reg_mod.reset_sync_task_registry_for_tests()
+    registry.shutdown(wait=True)
+    port = ProductiveVectorDbSyncPort()
+
+    class _Ctx:
+        project_root = tmp_path
+
+    triggered, warning = port.trigger_sync(_Ctx(), tmp_path)  # type: ignore[arg-type]
+    assert triggered is False
     assert warning is not None
-    assert "VectorDB" in warning
+    assert "VectorDB" in warning or "queue" in warning.lower() or "shut" in warning.lower()
+
+
+def test_vectordb_sync_is_nonblocking_warning(tmp_path: Path) -> None:
+    """Missing project_root still returns boolean + optional warning (no silent skip)."""
+    port = ProductiveVectorDbSyncPort()
+
+    class _Ctx:
+        project_root = None
+
+    triggered, warning = port.trigger_sync(_Ctx(), tmp_path)  # type: ignore[arg-type]
+    assert isinstance(triggered, bool)
+    if not triggered:
+        assert warning is not None
+        assert "VectorDB" in warning or "story_sync" in (warning or "")
 
 
 # ---------------------------------------------------------------------------

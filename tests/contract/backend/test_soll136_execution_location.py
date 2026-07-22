@@ -121,6 +121,18 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     "governance/guard_system/secret_scan.py": "governance-secret-scan (guard git-history scan)",
     "installer/project_structure.py": "installer-bootstrap (git clone at project registration)",
     "installer/bootstrap_checkpoints/cp11_to_12.py": "installer-bootstrap (git config core.hooksPath checkpoint)",
+    # AG3-174 concept Ring-2 candidate corpus: git index/HEAD reads only
+    # (no worktree provisioning; fail-closed staged validation, R13).
+    "concept_catalog/cli.py": "AG3-174 (concept lint --changed: git diff name-only)",
+    "concept_catalog/corpus/discovery.py": "AG3-174 (validate --staged: git show HEAD content loader)",
+    "vectordb/concept_corpus/validate.py": (
+        "AG3-174 (E-AUTH-002 baseline: git ls-tree/show HEAD candidate corpus)"
+    ),
+    # AG3-176 CP10b hook dispatcher: staged path discovery via git diff only
+    # (no worktree provisioning; argv-safe concept validate/build/sync).
+    "vectordb/hook_dispatch.py": (
+        "AG3-176 (pre-commit/post-commit hook_dispatch: git diff --cached / HEAD~1)"
+    ),
 }
 
 #: The utils.git worktree/tree-hash primitives the AG3-152 closure/merge block

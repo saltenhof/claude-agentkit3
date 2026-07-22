@@ -8,7 +8,6 @@ directory junction on Windows; FK-43 §43.4.1.1).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from datetime import datetime
@@ -581,10 +580,9 @@ class SkillBundleStore:
             return None
         digest = manifest.get("manifest_digest")
         if not isinstance(digest, str) or not digest:
-            payload = {k: v for k, v in manifest.items() if k != "manifest_digest"}
-            digest = hashlib.sha256(
-                json.dumps(payload, sort_keys=True).encode("utf-8")
-            ).hexdigest()
+            from agentkit.backend.skills.manifest_digest import compute_manifest_digest
+
+            digest = compute_manifest_digest(manifest)
         variants_raw = manifest.get("variants")
         variants: dict[SkillProfile, str] = {}
         if isinstance(variants_raw, dict):

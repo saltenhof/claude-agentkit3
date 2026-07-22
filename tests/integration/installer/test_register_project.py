@@ -94,6 +94,9 @@ def _make_config(
         binding_repo=StateBackendSkillBindingRepository(root),
     )
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_key=root.stem,
         project_name=root.stem,
         project_root=root,
@@ -392,14 +395,25 @@ def test_changed_config_upgrades_registration(tmp_path: Path) -> None:
     first = repo.get(root.stem)
     assert first is not None
 
-    # Re-run with an extra repository entry -> different project.yaml -> different
-    # config_digest -> UPGRADED.
+    # AG3-176 R1: existing project.yaml is not overwritten from InstallConfig.
+    # Mutate the on-disk mapping so CP7 sees a real config_digest change.
+    import yaml
+
+    from agentkit.backend.installer.paths import project_config_path
+
+    yaml_path = project_config_path(root)
+    data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    data["repositories"] = list(data.get("repositories") or []) + [
+        {"name": "extra", "path": "extra"}
+    ]
+    yaml_path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
     result = install_agentkit(
         _make_config(
             root,
             store=store,
             registration_repo=repo,
-            extra_repo={"name": "extra", "path": "extra"},
         )
     )
     cp7 = next(

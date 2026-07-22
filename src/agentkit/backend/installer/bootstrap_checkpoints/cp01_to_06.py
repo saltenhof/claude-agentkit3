@@ -194,12 +194,12 @@ def cp04_reserved(context: CheckpointContext) -> CheckpointResult:
 def cp05_pipeline_config(context: CheckpointContext) -> CheckpointResult:
     """CP 5 — materialise ``.agentkit/config/project.yaml`` (idempotent).
 
-    Behaviour transferred from the legacy ``install_agentkit`` body: build the
-    project.yaml mapping, write it when absent/changed (never overwrites with
-    an unchanged digest), and publish the mapping on the run-state for CP 7
-    (digest) and CP 10c (ARE-scope map). Dry-run/verify never write; they still
-    publish the would-be mapping so downstream read-only checkpoints can verify.
+    AG3-176 R1: When an existing project.yaml was strictly validated at installer
+    entry, CP5 MUST NOT re-read via ``yaml.safe_load`` or overwrite it. It only
+    publishes the validated mapping on the run-state. Fresh create: build from
+    InstallConfig, validate as ProjectConfig, then scaffold + write.
     """
+    from agentkit.backend.config.models import ProjectConfig
     from agentkit.backend.installer.paths import project_config_path
     from agentkit.backend.installer.runner import (
         _build_project_yaml,
@@ -208,19 +208,59 @@ def cp05_pipeline_config(context: CheckpointContext) -> CheckpointResult:
     )
 
     start = time.monotonic()
-    yaml_data = _build_project_yaml(context.config)
-    context.run_state.project_yaml = yaml_data
     yaml_path = project_config_path(context.project_root)
     rel = str(yaml_path.relative_to(context.project_root))
     exists = yaml_path.is_file()
 
+    # Existing, entry-validated config: never safe_load-migrate / overwrite.
+    if context.run_state.project_config is not None and exists:
+        # Prefer the entry-seeded on-disk mapping (CP7 digest stability).
+        if context.run_state.project_yaml is None:
+            context.run_state.project_yaml = (
+                context.run_state.project_config.model_dump(mode="json")
+            )
+        detail = f"{rel} already validated at entry; left unchanged (AG3-176 R1)."
+        if is_dry_run(context.mode):
+            return planned_result(
+                nid.CP_05_PIPELINE_CONFIG,
+                planned_status=CheckpointStatus.PASS,
+                detail=detail,
+                start=start,
+            )
+        return make_result(
+            nid.CP_05_PIPELINE_CONFIG,
+            status=CheckpointStatus.PASS,
+            detail=detail,
+            reason=None,
+            start=start,
+        )
+
+    yaml_data = _build_project_yaml(context.config)
+    # Fail-closed: the would-be mapping must validate as ProjectConfig BEFORE
+    # any filesystem effect (scaffold/write).
+    try:
+        validated = ProjectConfig.model_validate(yaml_data)
+    except Exception as exc:
+        return make_result(
+            nid.CP_05_PIPELINE_CONFIG,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"configuration_invalid: built project.yaml failed validation "
+                f"before write: {exc}"
+            ),
+            reason="configuration_invalid",
+            start=start,
+        )
+    context.run_state.project_yaml = yaml_data
+    context.run_state.project_config = validated
+
     if not context.mode.mutations_allowed:
-        if not exists:
-            planned = CheckpointStatus.CREATED
-            detail = f"Would create {rel}."
-        else:
-            planned = CheckpointStatus.PASS
-            detail = f"{rel} already present; would leave unchanged (idempotent)."
+        planned = CheckpointStatus.CREATED if not exists else CheckpointStatus.PASS
+        detail = (
+            f"Would create {rel}."
+            if not exists
+            else f"{rel} already present; would leave unchanged (idempotent)."
+        )
         if is_dry_run(context.mode):
             return planned_result(
                 nid.CP_05_PIPELINE_CONFIG,
@@ -236,9 +276,7 @@ def cp05_pipeline_config(context: CheckpointContext) -> CheckpointResult:
         )
 
     # CP 5 materialises the NEUTRAL project scaffold (dirs + runtime working
-    # dirs) and then the project.yaml. The active harness bindings are deferred
-    # to CP 8 (strictly after CP 7), preserving the
-    # ``state_backend_registration_precedes_bundle_binding`` invariant.
+    # dirs) and then the project.yaml — only after ProjectConfig validation.
     for scaffold_rel in scaffold_project_structure(context.config, context.project_root):
         if scaffold_rel not in context.run_state.created_files:
             context.run_state.created_files.append(scaffold_rel)

@@ -160,7 +160,7 @@ flowchart TD
     CP7["CP 7: Projekt im<br/>State-Backend registrieren"] --> CP8
     CP8["CP 8: Skill-Links<br/>binden"] --> CP9
     CP9["CP 9: Hooks<br/>registrieren"] --> CP10
-    CP10["CP 10: MCP-Server<br/>(wenn VektorDB/ARE)"] --> CP11
+    CP10["CP 10: MCP-Server<br/>(VektorDB Pflicht + optional ARE)"] --> CP11
     CP11["CP 11: Git-Hooks +<br/>CLAUDE.md"] --> CP12
     CP12["CP 12: Verifikation<br/>(read-only)"]
 ```
@@ -183,8 +183,10 @@ Wiederverwendung der Einheits-DSL; die Checkpoint-Engine ist kein Teil von
   Flow-Vertrag
 - die Idempotenz einzelner Checkpoints bleibt Aufgabe ihrer Handler
 - Profil- und Feature-Entscheidungen (`core` vs. `are`,
-  `vectordb` an/aus) werden ueber `branch`-Knoten modelliert, nicht
-  ueber verstreute Imperativlogik
+  Sonar an/aus) werden ueber `branch`-Knoten modelliert, nicht
+  ueber verstreute Imperativlogik. **VektorDB ist Pflicht** (Decision
+  Record 2026-07-21 Rand 1, AG3-176): kein optionaler
+  `branch_vectordb_enabled`-Ast mehr.
 
 Minimaler Installer-Flow:
 
@@ -198,13 +200,14 @@ cp_01_package_check
   -> cp_07_backend_registration
   -> cp_08_skill_bindings
   -> cp_09_hook_registration
-  -> branch_vectordb_enabled
-  -> cp_10_mcp_registration?
+  -> cp_10_mcp_registration
+  -> cp_10a_concept_context_properties
   -> branch_are_enabled
   -> cp_10c_are_scope_validation?
   -> branch_sonarqube_enabled
   -> cp_10d_sonarqube_availability_and_conformance?
   -> cp_11_git_hooks_and_claude
+  -> cp_10b_concept_validation_hook
   -> cp_12_verify_registration
 ```
 
@@ -470,19 +473,14 @@ kanonischen Zustand und keine kopierten Skill-/Prompt-Quellen tragen.
 
 ### CP 10: MCP-Server
 
-Läuft wenn `features.vectordb: true` **oder** `features.are: true`.
-Beide aus → `SKIPPED` mit `reason=vectordb_disabled` (*bewusst-abwesend*,
-kein Server zu registrieren).
-
-> **Deprecation (FK-13 §13.1):** Die VektorDB ist Pflichtinfrastruktur; die
-> Optionalitaet von `features.vectordb` und der zugehoerige Flow-Zweig
-> `branch_vectordb_enabled` sind **deprecated**. In einem unterstuetzten
-> Zielprojekt ist `features.vectordb: false` ein harter Konfigurationsfehler,
-> kein regulaerer Abschaltpfad. Der bestehende
-> `SKIPPED`/`vectordb_disabled`-Pfad bleibt bis zur Code-seitigen Entfernung des
-> Optionalitaetszweigs (spaetere Story) ausschliesslich als deprecateter
-> Uebergang erhalten; die ARE-Optionalitaet (`features.are`) ist davon
-> unberuehrt.
+**Pflichtpfad (AG3-176 / Decision Record 2026-07-21 Rand 1):** Die VektorDB
+ist Pflichtinfrastruktur. CP 10 laeuft **unbedingt** und registriert den
+Story-Knowledge-Base-MCP-Server nach fail-closed **Endpunkt-Preflight**
+(kein localhost-Default, Installer startet/installiert keine DB).
+`features.vectordb: false` ist ein harter Konfigurationsfehler beim
+Config-Load; der optionale Ast `branch_vectordb_enabled` /
+`SKIPPED`/`vectordb_disabled` ist **entfernt**. ARE-MCP wird zusaetzlich
+registriert, wenn `features.are: true` (ARE bleibt optional).
 
 Registriert die gewünschten MCP-Server in der **Zielprojekt**-`.mcp.json`
 (Merge/UPSERT; fremde `mcpServers`-Einträge bleiben erhalten):
@@ -505,7 +503,9 @@ Registriert die gewünschten MCP-Server in der **Zielprojekt**-`.mcp.json`
 }
 ```
 
-- Story-Knowledge-Base nur bei `features.vectordb: true`.
+- Story-Knowledge-Base **immer** (VektorDB ist Pflichtinfrastruktur;
+  `features.vectordb: false` ist harter Config-Fehler, AG3-176 /
+  Decision Record 2026-07-21 Rand 1).
 - ARE-MCP-Server nur bei `features.are: true` (FK-03 §3.1 bindet
   `are.mcp_server` an `features.are`).
 
@@ -557,8 +557,9 @@ Check geschrieben — kein Teil-Schreiben, kein Warnpfad.
 
 | Situation | Status | `reason` |
 |-----------|--------|----------|
-| `features.vectordb: false` **und** `features.are: false` | `SKIPPED` | `vectordb_disabled` (*bewusst-abwesend*) |
-| Feature an, Server konfiguriert, aber nicht lauffähig / kein MCP (Register) | `FAILED` | einer der `mcp_*`-Codes oben |
+| `features.vectordb: false` (unterstuetztes Zielprojekt) | **nicht CP10** | harter `configuration_invalid` beim Config-Load (AG3-176 Rand 1); kein `SKIPPED`/`vectordb_disabled`-Ast |
+| VectorDB-Endpunkt/Preflight/Conformance fehlgeschlagen (Register) | `FAILED` | einer der `mcp_*` / `vectordb_*`-Codes |
+| `features.are: false` (ARE-MCP) | ARE-Eintrag entfaellt | ARE bleibt optional; Story-KB laeuft trotzdem |
 
 **Dry-run / Verify (Modusvertrag unverändert, FK-50 §50.2):** Dry-run ist
 reine Planableitung ohne Prozessstart. Verify prüft read-only
@@ -592,40 +593,41 @@ Server; bereits identische Einträge → `PASS` (Conformance erneut bestanden).
 
 ### CP 10a: ConceptContext-Properties und Erstindizierung
 
-Nur wenn `features.vectordb: true`. Erweitert die `StoryContext`-
-Collection um konzeptspezifische Properties (Kap. 13.9.3):
+**Pflicht** (AG3-176 AC3). Nach CP 10:
 
-1. Prüft ob die neuen Properties (`concept_id`, `is_appendix`,
-   `parent_concept_id`, `defers_to`, `authority_over`,
-   `section_number`, `normative_rules`, `concept_status`)
-   in der Collection existieren
-2. Fügt fehlende Properties hinzu (Weaviate Schema-Update)
-3. Registriert `concept_search` und `concept_sync` Tools im
-   bestehenden Story-Knowledge-Base MCP-Server
-4. Führt Erstindizierung aller Konzeptdokumente mit gültigem
-   Frontmatter durch (`concept_sync(full_reindex=true)`)
+1. Schema-Ensure der `StoryContext`-Collection inkl. Konzept-Properties
+   (Kap. 13.9.3) — idempotent, Drift fail-closed
+2. `story_sync(full_reindex=true)` und `concept_sync(full_reindex=true)`
+   gegen den Zielkorpus (nur Ports auf die AG3-174-Engine)
+3. Fuer **beide** Syncs ein typisiertes Receipt
+   (`project_id`, Tool/owned source types,
+   `discovered/unchanged/upserted/deleted/failed`, `empty_corpus`,
+   Start-/Endrevision, Status). `empty_corpus=true` ist Erfolg mit
+   Nullmengen; Transport-/Parse-/Partialfehler ist Fehler **ohne**
+   Success-Receipt/Freshness.
 
 **Abhängigkeiten:** CP 10 (MCP-Server muss registriert sein).
 
-**Idempotenz:** Prüft ob Properties bereits existieren. Überspring
-bereits indizierte Konzepte (Hash-basiert).
+**Idempotenz:** Hash-basierte Engine-Idempotenz; Receipts werden bei
+Erfolg neu geschrieben.
 
 ### CP 10b: Concept-Validation-Hook
 
-Registriert den konzeptspezifischen Pre-Commit-Hook (Kap. 13.9.9)
-in der materialisierten Zielprojekt-Hook-Datei pre-commit
-(relativ zum Zielprojekt, nicht Repo-Root; materialisiert unter tools/hooks).
-Der Hook führt bei Änderungen unter dem konfigurierten `concepts_dir`
-(Default `concepts/`) die Validierungs-Suite `concept_validate --staged`
-aus.
+**Pflicht** (AG3-176 AC4). Materialisiert die feuernden Git-Hooks unter
+`tools/hooks/` (relativ zum Zielprojekt):
 
-Die bestehende Secret-Detection (Kap. 15.5.2) bleibt global aktiv
-und wird durch die pfadbasierte Dispatching-Logik nicht berührt.
+* **Pre-Commit:** Secret-Detection global (Kap. 15.5.2) +
+  `concept validate --staged` gegen den Candidate-Corpus bei Aenderungen
+  unter dem **konfigurierten** `concepts_dir` (kein stiller Default).
+* **Post-Commit:** `concept build` **vor** `concept sync`; Freshness nur
+  nach Build- und Sync-Erfolg; jeder vorherige Fehler laesst die alte
+  Revision stehen.
 
-**Abhängigkeiten:** CP 11 (Git-Hooks müssen konfiguriert sein).
+REGISTER/DRY_RUN/VERIFY und Idempotenz gelten. REGISTER materialisiert;
+DRY_RUN/VERIFY berichten Plan ohne Mutation.
 
-**Idempotenz:** Prüft ob Dispatching-Logik bereits im Hook
-enthalten ist.
+**Abhängigkeiten:** CP 11 (Git-Hooks / `core.hooksPath` muessen
+konfiguriert sein).
 
 ### CP 10c: ARE-Scope-Validierung
 
@@ -859,7 +861,7 @@ class CheckpointResult:
 | PASS | Checkpoint war bereits erfüllt, keine Aktion nötig |
 | CREATED | Neues Artefakt erstellt |
 | UPDATED | Bestehendes Artefakt aktualisiert |
-| SKIPPED | Nicht relevant — Checkpoint uebersprungen ohne FAILED. Der Grund steht maschinenlesbar in `reason` (z.B. `vectordb_disabled` bei `vectordb: false`; `not_applicable` bei `sonarqube.available: false` gemaess FK-33 §33.6.5 — *bewusst-abwesend*, klar abzugrenzen von einem konfiguriert-aber-unerreichbaren System, das `FAILED` ist) |
+| SKIPPED | Nicht relevant — Checkpoint uebersprungen ohne FAILED. Der Grund steht maschinenlesbar in `reason` (z.B. `not_applicable` bei `sonarqube.available: false` gemaess FK-33 §33.6.5 — *bewusst-abwesend*, klar abzugrenzen von einem konfiguriert-aber-unerreichbaren System, das `FAILED` ist). **Nicht** fuer `features.vectordb: false` — das ist Config-Load-`configuration_invalid` (AG3-176 Rand 1), kein SKIPPED-Pfad. |
 | FAILED | Checkpoint gescheitert — Installation abbrechen |
 
 > **Hinweis (FK-33 §33.6.5):** Die Anwendbarkeits-Aufloesung *NOT_APPLICABLE*
@@ -914,7 +916,8 @@ nicht zulaessig.
 | Bestehende Config mit inkompatiblem Schema | CP 5 | Migration versuchen (Kap. 51), bei Scheitern FAILED |
 | MCP-Kommando nicht aufloesbar / Prozess stirbt / Timeout / kein MCP / leere Toolliste / Prozessklammer | CP 10 | `FAILED` mit `reason` aus dem Conformance-Katalog (`mcp_command_not_found`, `mcp_process_exited`, `mcp_timeout`, `mcp_protocol_error`, `mcp_tools_list_empty`, `mcp_process_control_error`) — keine Registrierung, kein Teil-Schreiben (§50.3 CP 10) |
 | Vorhandene Ziel-`.mcp.json` strikt unlesbar oder shape-ungueltig (UTF-8/Recursion/Surrogates, doppelte Namen, Nicht-JSON-Konstanten, Nicht-Objekt-Root/`mcpServers`/Server-Eintrag) | CP 10 (alle Modi); CP 10c ARE-MCP-Pruefung in jedem Modus bei vorhandener Datei | `FAILED` mit `reason=mcp_configuration_invalid` — keine Mutation, kein Conformance-Start, Datei bleibt byte-identisch (§50.3 CP 10 Merge-Vertrag); nicht als `mcp_protocol_error` umdeuten |
-| `features.vectordb: false` und `features.are: false` (kein MCP-Server gewuenscht) | CP 10 | `SKIPPED` mit `reason=vectordb_disabled` — *bewusst-abwesend*, nicht FAILED |
+| `features.vectordb: false` in unterstuetztem Zielprojekt | Config-Load | harter `configuration_invalid` / ValidationError — kein SKIPPED-Pfad (AG3-176 AC6) |
+| VektorDB-Endpunkt fehlt/malformed/nicht-ready/nicht-Weaviate/inkompatible Version | CP 10 Preflight | `FAILED` mit benanntem `reason` (`vectordb_*`) — vor Registrierung, kein Container-Start |
 | `sonarqube.available: false` (Projekt deklariert kein Sonar, auch fuer codeproduzierende Projekte zulaessig) | CP 10d | `SKIPPED` mit `reason="not_applicable"` (§50.4) — Checkpoint uebersprungen, kein FAILED (FK-33 §33.6.5, *bewusst-abwesend* ≠ *kaputt*) |
 | Control Plane fuer Dritt-System-Validierung nicht erreichbar | CP 10d | FAILED, kein direkter Dev-Fallback |
 | SonarQube nicht erreichbar / Version < `min_version` / Creds ungueltig (bei `available: true`) | CP 10d | FAILED, Installation abbrechen |

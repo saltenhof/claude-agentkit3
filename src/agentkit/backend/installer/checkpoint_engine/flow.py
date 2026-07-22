@@ -1,36 +1,25 @@
 """The installer checkpoint flow as a process-DSL ``FlowDefinition`` (FK-50 §50.3.1).
 
-Builds the NORMATIVE installer flow (story §2.1.1) as a
+Builds the NORMATIVE installer flow as a
 ``FlowDefinition(level=COMPONENT, owner="Installer")`` — a structural reuse of
 the existing process-DSL (`agentkit.backend.process.language`), NOT a new flow engine.
 
-Spine + branches (FK-50 §50.3.1, story §2.1.1):
+Spine + branches (FK-50 §50.3.1, AG3-176 AC6 — VectorDB is mandatory):
 
-    cp_01 -> cp_02 -> cp_03 -> cp_04 -> cp_05 -> cp_06 -> cp_07 -> cp_08
-          -> cp_09 -> cp_10 -> branch_vectordb_enabled
-                                 (true)-> cp_10a -> branch_are_enabled
-                                 (false)----------> branch_are_enabled
-          branch_are_enabled (true)-> cp_10c -> branch_sonarqube_enabled
-                             (false)---------> branch_sonarqube_enabled
+    cp_01 -> ... -> cp_10 -> cp_10a -> branch_are_enabled
+                                 (true)-> cp_10c -> branch_sonarqube_enabled
+                                 (false)---------> branch_sonarqube_enabled
           branch_sonarqube_enabled (true)-> cp_10d -> cp_11
                                    (false)---------> cp_11
-          cp_11 -> branch_vectordb_enabled_stage2
-                       (true)-> cp_10b -> cp_12
-                       (false)---------> cp_12
+          cp_11 -> cp_10b -> cp_12
 
-CP-order invariants enforced structurally (story §2.1.1, AC9):
-- ``cp_10_mcp_registration`` precedes ``cp_10a`` and ``cp_10c`` (it is the
-  common MCP precondition — story-knowledge-base MCP at ``features.vectordb``,
-  ARE-MCP at ``features.are``, FK-03 §3.1).
+CP-order invariants enforced structurally:
+- ``cp_10_mcp_registration`` precedes ``cp_10a`` and ``cp_10c``
 - ``cp_10b_concept_validation_hook`` follows ``cp_11_git_hooks_and_claude``
-  (CP 10b depends on the configured git hooks).
 
-The vectordb branch is two-stage (one logical feature decision evaluated at two
-flow positions): ``branch_vectordb_enabled`` guards CP 10a BEFORE CP 11, and the
-identical-predicate stage-2 branch guards CP 10b AFTER CP 11. Both stages route
-only when ``features.vectordb: true``. A distinct node id for the stage-2 branch
-is mandatory because a flow node id is unique; both bind the SAME vectordb
-predicate, so they are one feature decision in two positions (story §2.1.1).
+The optional ``branch_vectordb_enabled`` / stage-2 branch is **removed**
+(Decision Record 2026-07-21 Rand 1, AG3-176 AC6): VectorDB checkpoints run
+unconditionally. ARE and Sonar remain optional branch features.
 """
 
 from __future__ import annotations
@@ -49,12 +38,6 @@ INSTALLER_FLOW_ID = "installer_checkpoint_flow"
 #: Logical component owner of the installer flow (FK-50 §50.3.1).
 INSTALLER_FLOW_OWNER = "Installer"
 
-#: Stage-2 vectordb branch node (post-CP11 CP 10b gate). Distinct id because a
-#: flow node id is unique; bound to the SAME vectordb predicate as
-#: ``branch_vectordb_enabled`` so the two-stage vectordb decision routes
-#: consistently (story §2.1.1 / AC2).
-BRANCH_VECTORDB_ENABLED_STAGE2 = "branch_vectordb_enabled_stage2"
-
 
 def _step(node_id: str) -> NodeDefinition:
     """Build a ``step`` checkpoint node."""
@@ -71,10 +54,8 @@ def build_installer_flow() -> FlowDefinition:
 
     Returns:
         The frozen ``level=COMPONENT, owner="Installer"`` flow with every CP
-        node from story §2.1.1 and the CP-order/branch edges (AC9). Branch nodes
-        carry exactly two outgoing edges: the guarded sub-checkpoint at priority
-        1 and the skip edge (rejoining the spine) at priority 0, so the engine
-        resolves the branch deterministically.
+        node and the CP-order/branch edges. VectorDB steps are on the spine
+        (no optional branch). ARE and Sonar keep guarded/skip edges.
     """
     nodes: tuple[NodeDefinition, ...] = (
         _step(nid.CP_01_PACKAGE_CHECK),
@@ -87,14 +68,12 @@ def build_installer_flow() -> FlowDefinition:
         _step(nid.CP_08_SKILL_BINDINGS),
         _step(nid.CP_09_HOOK_REGISTRATION),
         _step(nid.CP_10_MCP_REGISTRATION),
-        _branch(nid.BRANCH_VECTORDB_ENABLED),
         _step(nid.CP_10A_CONCEPT_CONTEXT_PROPERTIES),
         _branch(nid.BRANCH_ARE_ENABLED),
         _step(nid.CP_10C_ARE_SCOPE_VALIDATION),
         _branch(nid.BRANCH_SONARQUBE_ENABLED),
         _step(nid.CP_10D_SONARQUBE),
         _step(nid.CP_11_GIT_HOOKS_AND_CLAUDE),
-        _branch(BRANCH_VECTORDB_ENABLED_STAGE2),
         _step(nid.CP_10B_CONCEPT_VALIDATION_HOOK),
         _step(nid.CP_12_VERIFY_REGISTRATION),
     )
@@ -116,28 +95,16 @@ def build_installer_flow() -> FlowDefinition:
         ),
         EdgeRule(source=nid.CP_08_SKILL_BINDINGS, target=nid.CP_09_HOOK_REGISTRATION),
         EdgeRule(source=nid.CP_09_HOOK_REGISTRATION, target=nid.CP_10_MCP_REGISTRATION),
-        # CP10 -> vectordb branch (stage 1): CP10 precedes CP10a (AC9a).
+        # VectorDB is mandatory: CP10 -> CP10a on the spine (AG3-176 AC6).
         EdgeRule(
             source=nid.CP_10_MCP_REGISTRATION,
-            target=nid.BRANCH_VECTORDB_ENABLED,
-        ),
-        # branch_vectordb_enabled: guarded -> cp_10a (prio 1); skip -> are branch.
-        EdgeRule(
-            source=nid.BRANCH_VECTORDB_ENABLED,
             target=nid.CP_10A_CONCEPT_CONTEXT_PROPERTIES,
-            priority=1,
-        ),
-        EdgeRule(
-            source=nid.BRANCH_VECTORDB_ENABLED,
-            target=nid.BRANCH_ARE_ENABLED,
-            priority=0,
         ),
         EdgeRule(
             source=nid.CP_10A_CONCEPT_CONTEXT_PROPERTIES,
             target=nid.BRANCH_ARE_ENABLED,
         ),
         # branch_are_enabled: guarded -> cp_10c (prio 1); skip -> sonar branch.
-        # CP10 precedes CP10c (AC9a): CP10/ARE-MCP runs before this branch.
         EdgeRule(
             source=nid.BRANCH_ARE_ENABLED,
             target=nid.CP_10C_ARE_SCOPE_VALIDATION,
@@ -164,20 +131,10 @@ def build_installer_flow() -> FlowDefinition:
             priority=0,
         ),
         EdgeRule(source=nid.CP_10D_SONARQUBE, target=nid.CP_11_GIT_HOOKS_AND_CLAUDE),
-        # CP11 -> vectordb branch (stage 2): CP10b follows CP11 (AC9b).
+        # CP11 -> CP10b (always) -> CP12.
         EdgeRule(
             source=nid.CP_11_GIT_HOOKS_AND_CLAUDE,
-            target=BRANCH_VECTORDB_ENABLED_STAGE2,
-        ),
-        EdgeRule(
-            source=BRANCH_VECTORDB_ENABLED_STAGE2,
             target=nid.CP_10B_CONCEPT_VALIDATION_HOOK,
-            priority=1,
-        ),
-        EdgeRule(
-            source=BRANCH_VECTORDB_ENABLED_STAGE2,
-            target=nid.CP_12_VERIFY_REGISTRATION,
-            priority=0,
         ),
         EdgeRule(
             source=nid.CP_10B_CONCEPT_VALIDATION_HOOK,
@@ -195,7 +152,6 @@ def build_installer_flow() -> FlowDefinition:
 
 
 __all__ = [
-    "BRANCH_VECTORDB_ENABLED_STAGE2",
     "INSTALLER_FLOW_ID",
     "INSTALLER_FLOW_OWNER",
     "build_installer_flow",

@@ -2,8 +2,22 @@ story_id: AG3-175
 story_title_short: "dual-harness-registration"
 title: "Projektlokale MCP-Registrierung fuer Claude Code UND Codex (Mini-Story): ein Writer je Harness nach verankertem FK-76-Vertrag, Registrierung erst nach bestandenem Conformance-Check, nie Userspace"
 type: implementation
-status: blocked
-phase: setup
+status: in_progress
+phase: implementation
+# CODE-REVIEW BESTANDEN (2026-07-21), EINE Runde wie mandatiert. Die Codex-Runde
+# wurde vom Harness faelschlich als "cybersecurity risk" abgebrochen (Codex'
+# eigene Symlink-/Control-Char-Haertungstests gegen unseren Code); der
+# Orchestrator hat die kritischen Faelle SELBST reproduziert und das Review in
+# review-1.md vervollstaendigt. Ein tool-abgebrochener Turn zaehlt nicht als
+# verbrauchte Runde. Befunde R01/R02 (fremde TOML-Typen ueberstreng verworfen;
+# Control-Char-Korruption) + R03 (Test-Substanz) in EINER Remediation geschlossen:
+# Umstieg vom hand-gerollten Voll-Reserializer auf surgical text-merge (fremde
+# Bytes unangetastet). Orchestrator hat am echten write-Pfad selbst verifiziert:
+# datetime/AoT/nested-AoT/Control-Char erhalten + valides TOML, Idempotenz,
+# Ersetzen ohne Duplikat-Tabelle, Fremd-Name-Konflikt fail-closed; Module
+# 39 passed, ruff sauber (eigener Lauf).
+# OFFEN bis Closure (Orchestrator-owned): volle pytest-Suite + Sonar als
+# Closure-Gate; landet nach AG3-174. NICHT auf done setzen bis Closure.
 created: "2026-07-21"
 size: M  # von S angehoben (Review 175-P2-1): semantischer TOML-Writer mit
          # Foreign-Data-Erhalt, Zwei-Dateien-Koordination und Conformance-

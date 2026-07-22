@@ -43,6 +43,7 @@ from agentkit.backend.config.models import (
     ProjectConfig,
     RepositoryConfig,
     SonarQubeConfig,
+    VectorDbConfig,
 )
 from agentkit.backend.governance.guard_system import OPAQUE_MESSAGE
 from agentkit.backend.governance.runner import (
@@ -79,9 +80,12 @@ _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
 _OPT_OUT_PIPELINE = PipelineConfig(  # type: ignore[call-arg]
     config_version=SUPPORTED_CONFIG_VERSION,
-    features=Features(multi_llm=False),
+    features=Features(multi_llm=False, vectordb=True),
     sonarqube=SonarQubeConfig(available=False, enabled=False),
     ci=JenkinsConfig(available=False, enabled=False),
+    vectordb=VectorDbConfig(
+        host="weaviate.test.local", port=19903, grpc_port=50051
+    ),
 )
 
 
@@ -120,6 +124,9 @@ def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
         binding_repo=StateBackendSkillBindingRepository(root),
     )
     return InstallConfig(
+        weaviate_host="weaviate.test.local",
+        weaviate_http_port=19903,
+        weaviate_grpc_port=50051,
         project_key=root.stem,
         project_name=root.stem,
         project_root=root,
