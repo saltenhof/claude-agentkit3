@@ -16,6 +16,8 @@
 - **Herkunft:** PO-Neuschnitt 2026-07-21; Konzeptraender verankert in
   `concept/_meta/decisions/2026-07-21-vectordb-edge-sharpening.md`. Alter
   Schnitt und Reviewkette in `cut-history/`.
+- **Delegierte Entscheidungen fixiert:** `po-decisions.md` (PO-Briefing
+  2026-07-23, D1-D6; hier relevant D1/D2/D3/D5).
 
 ## Kontext / Problem
 
@@ -207,8 +209,9 @@ sie trifft keine Konzeptentscheidung. Bei Konflikt zwischen Story und Konzept:
    Sync-Receipt mit `corpus_revision`** publizieren; (4) Crash davor laesst den
    letzten Abschlussmarker unveraendert, ein Retry erkennt und bereinigt
    vollstaendige/partielle Reste deterministisch; (5) parallele Syncs desselben
-   `(project_id, source_file)` werden durch einen benannten Single-Writer-
-   Mechanismus serialisiert oder fail-closed abgewiesen. **Explizit**: ein
+   `(project_id, source_file)` werden fail-closed abgewiesen (PO-Entscheidung
+   D3, `po-decisions.md`); eine Serialisierung ueber einen Single-Writer-
+   Mechanismus ist bewusst **nicht** Teil des ersten Wurfs. **Explizit**: ein
    sofortiger Single-Generation-Zustand nach Prozessabsturz ist **nicht**
    garantiert; Leser duerfen im normierten Fenster beide Generationen sehen.
    Kein CAS, kein Generations-Zeiger.

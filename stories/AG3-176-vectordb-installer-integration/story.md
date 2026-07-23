@@ -13,6 +13,9 @@
   FK-43 (Skill-Bundle-Lifecycle) · Decision Record 2026-07-21 (Rand 1)
 - **Herkunft:** PO-Neuschnitt 2026-07-21. Verankerte Feature-Flag-Pflicht,
   Code-Nachzug hier.
+- **Delegierte Entscheidungen fixiert:**
+  `../AG3-174-vectordb-retrieval-engine/po-decisions.md` (PO-Briefing
+  2026-07-23; hier relevant D4).
 
 ## Kontext / Problem
 

@@ -16,6 +16,9 @@
   Conformance-Check)
 - **Herkunft:** PO-Neuschnitt 2026-07-21. Der gesamte harness-spezifische
   Anteil des Vorhabens.
+- **Delegierte Entscheidungen fixiert:**
+  `../AG3-174-vectordb-retrieval-engine/po-decisions.md` (PO-Briefing
+  2026-07-23; hier relevant D6).
 
 ## Kontext / Problem
 
