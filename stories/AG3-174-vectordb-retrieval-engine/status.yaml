@@ -2,7 +2,7 @@ story_id: AG3-174
 story_title_short: "vectordb-retrieval-engine"
 title: "VektorDB-Retrieval-Engine (harnessuebergreifend): Packaging, Projektbindung, generischer Ingest-Kern, StoryContext-Schema, Story-/Research-/Concept-Ingest, concept_validate + Corpus-Build, concept_sync (generationskonsistent, Bounded-Window), Authority-Resolver, MCP-Server mit den fuenf FK-13-Tools"
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-07-21"
 size: L
