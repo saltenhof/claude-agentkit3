@@ -19,17 +19,25 @@ dependencies = [
     "pyyaml>=6.0",
     "psutil>=5.9",
     # Official MCP Python SDK — runtime contract oracle for installer
-    # conformance payload validation (AG3-164). Hard dependency: no optional
-    # import / soft fallback at the registration gate.
+    # conformance payload validation (AG3-164) AND the FK-13 §13.4 story
+    # knowledge base MCP server (AG3-174). Hard dependency: no optional import /
+    # soft fallback at the registration gate or the tool surface.
     "mcp>=1.0",
+    # Weaviate story-knowledge-base runtime (FK-13 §13.2). Now a MANDATORY
+    # infrastructure dependency (DR 2026-07-21 Rand 1: feature flag is a
+    # deprecated migration key). Runtime pin per FK-13 §13.2 instead of the
+    # former optional `>=4.0` extra (Review 174-P1-3): the integration adapter
+    # guards the import and fails closed when the package is absent, but the
+    # package itself is part of the base install.
+    "weaviate-client>=4.9,<5.0",
+    # Bound tokenizer for deterministic, model-aligned chunk sizing (FK-13
+    # §13.2). Pinned exactly per PO decision D5: the chunk tokeniser must match
+    # the embedding model `sentence-transformers/all-MiniLM-L6-v2` (revision
+    # e4ce9877...). Drift here would silently change chunk boundaries.
+    "tokenizers==0.21.0",
 ]
 
 [project.optional-dependencies]
-# Weaviate story-knowledge-base runtime (FK-13 §13.2). Optional: the integration
-# adapter guards the import and fails closed when the package is absent.
-weaviate = [
-    "weaviate-client>=4.0",
-]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -40,9 +48,6 @@ dev = [
     "types-PyYAML>=6.0",
     "ruff>=0.4",
     "pre-commit>=3.7",
-    # Discovery is the deterministic W2 source; its package projects the
-    # optional schema types at import time but never connects to an index.
-    "weaviate-client>=4.0",
 ]
 
 [project.scripts]
@@ -93,6 +98,13 @@ plugins = ["pydantic.mypy"]
 # silence — only the ``weaviate.*`` namespace is exempted.
 [[tool.mypy.overrides]]
 module = ["weaviate.*"]
+ignore_missing_imports = true
+
+# The bound tokenizers library (FK-13 §13.2, PO decision D5) ships without
+# type stubs; the loader guards the import and the semantics are verified by
+# real tests. Only the ``tokenizers.*`` namespace is exempted.
+[[tool.mypy.overrides]]
+module = ["tokenizers.*"]
 ignore_missing_imports = true
 
 [tool.ruff]
