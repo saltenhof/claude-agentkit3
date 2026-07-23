@@ -306,7 +306,7 @@ def test_real_client_search_maps_properties_and_score(
                 _FakeObj(
                     {"story_id": "AG3-001", "title": "T1", "snippet": "s1"}, 0.88
                 ),
-                _FakeObj({"story_id": "AG3-002", "title": "T2"}, None),
+                _FakeObj({"story_id": "AG3-002", "title": "T2", "snippet": "s2"}, 0.42),
             ]
         )
     )
@@ -318,10 +318,22 @@ def test_real_client_search_maps_properties_and_score(
 
     assert [h.story_id for h in hits] == ["AG3-001", "AG3-002"]
     assert hits[0].score == pytest.approx(0.88)
-    assert hits[1].score == pytest.approx(0.0)  # missing score => 0.0
     assert connection.collections.requested == ["StoryContext"]
     assert query.last_kwargs["query"] == "q"
     assert query.last_kwargs["limit"] == 20
+
+
+def test_real_client_missing_score_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC10: a missing score is a hard error, NOT a 0.0 repair."""
+    _install_fake_filter(monkeypatch)
+    query = _FakeQuery(
+        _FakeResponse([_FakeObj({"story_id": "AG3-002", "title": "T2"}, None)])
+    )
+    collection = _FakeCollection(query=query, batch=_FakeBatch(_FakeBatchCtx()))
+    connection = _FakeConnection(collection)
+    adapter = WeaviateStoryAdapter(_real_client(connection))  # type: ignore[arg-type]
+    with pytest.raises(VectorDbUnavailableError, match="no 'score'"):
+        adapter.story_search("q", project_id="AG3", limit=20)
 
 
 def test_real_client_upsert_counts_objects() -> None:

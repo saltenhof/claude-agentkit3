@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 
 from agentkit.integration_clients.vectordb.errors import (
     VectorDbUnavailableError,
@@ -34,6 +34,9 @@ DEFAULT_SEARCH_LIMIT: Final[int] = 20
 
 #: Fixed search mode (FK-13 §13.5.2: "fest im Code").
 DEFAULT_SEARCH_MODE: Final[str] = "hybrid"
+
+#: The three effective search modes (FK-13 §13.4.2).
+SEARCH_MODES: Final[tuple[str, ...]] = ("hybrid", "vector", "keyword")
 
 #: Weaviate collection holding the indexed ``story.md`` chunks (FK-13 §13.7).
 STORY_COLLECTION: Final[str] = "StoryContext"
@@ -54,6 +57,32 @@ class StorySearchHit:
     title: str
     score: float
     snippet: str
+
+
+def _require_str(raw: Mapping[str, object], key: str) -> str:
+    """Return a mandatory string field, fail-closed (no empty-string repair)."""
+    value = raw.get(key)
+    if not isinstance(value, str) or not value:
+        raise VectorDbUnavailableError(
+            f"Weaviate hit is missing a non-empty string {key!r} (got {value!r}); "
+            "fail-closed (FK-21 §21.4.3 / AC10)."
+        )
+    return value
+
+
+def _require_score(raw: Mapping[str, object]) -> float:
+    """Return a mandatory, finite numeric score (no ``0.0`` repair, AC10)."""
+    score = raw.get("score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise VectorDbUnavailableError(
+            f"Weaviate hit has a non-numeric 'score' ({score!r}); fail-closed (AC10)."
+        )
+    f = float(score)
+    if f != f or f in (float("inf"), float("-inf")):  # NaN / Infinity
+        raise VectorDbUnavailableError(
+            f"Weaviate hit has a non-finite 'score' ({f!r}); fail-closed (AC10)."
+        )
+    return f
 
 
 @runtime_checkable
@@ -98,29 +127,16 @@ class WeaviateClientPort(Protocol):
 def _coerce_hit(raw: Mapping[str, object]) -> StorySearchHit:
     """Map a raw transport mapping into a typed :class:`StorySearchHit`.
 
-    Fail-closed: a malformed hit (missing/typed-wrong ``story_id`` or ``score``)
-    raises :class:`VectorDbUnavailableError` rather than degrading the result
-    set silently (FK-21 §21.4.3).
+    Fail-closed: a malformed hit (missing/non-string ``story_id``/``title``/
+    ``snippet``, or a non-finite ``score``) raises
+    :class:`VectorDbUnavailableError` rather than degrading the result set
+    silently with empty-string / ``0.0`` repairs (FK-21 §21.4.3 / AC10).
     """
-    story_id = raw.get("story_id")
-    score = raw.get("score")
-    if not isinstance(story_id, str) or not story_id:
-        raise VectorDbUnavailableError(
-            f"Weaviate hit is missing a string 'story_id' (got {story_id!r}); "
-            "fail-closed (FK-21 §21.4.3)."
-        )
-    if not isinstance(score, (int, float)) or isinstance(score, bool):
-        raise VectorDbUnavailableError(
-            f"Weaviate hit {story_id!r} has a non-numeric 'score' ({score!r}); "
-            "fail-closed (FK-21 §21.4.3)."
-        )
-    title = raw.get("title")
-    snippet = raw.get("snippet")
     return StorySearchHit(
-        story_id=story_id,
-        title=title if isinstance(title, str) else "",
-        score=float(score),
-        snippet=snippet if isinstance(snippet, str) else "",
+        story_id=_require_str(raw, "story_id"),
+        title=_require_str(raw, "title"),
+        snippet=_require_str(raw, "snippet"),
+        score=_require_score(raw),
     )
 
 
@@ -190,7 +206,8 @@ class WeaviateStoryAdapter:
 
         Args:
             query: The new story description to match against.
-            search_mode: Search mode; fixed ``"hybrid"`` per FK-13 §13.5.2.
+            search_mode: Search mode (``hybrid``/``vector``/``keyword``); validated
+                strictly (AC10) -- never ignored.
             project_id: Project-prefix scope for the search (FK-21 §21.4.1).
             limit: Pre-filter result cap; fixed ``20`` per FK-13 §13.5.2.
 
@@ -199,10 +216,15 @@ class WeaviateStoryAdapter:
             app-layer concern).
 
         Raises:
-            VectorDbUnavailableError: On any transport failure -- the caller
-                MUST treat this as a hard blocker, never an empty result
-                (FK-21 §21.4.3).
+            VectorDbUnavailableError: On any transport failure, an unsupported
+                search_mode, or a malformed hit -- the caller MUST treat this as a
+                hard blocker, never an empty result (FK-21 §21.4.3 / AC10).
         """
+        if search_mode not in SEARCH_MODES:
+            raise VectorDbUnavailableError(
+                f"unsupported search_mode {search_mode!r}; must be one of {SEARCH_MODES} "
+                "(AC10: no leniency)."
+            )
         try:
             raw_hits = self._client.search(
                 collection=STORY_COLLECTION,
@@ -310,27 +332,56 @@ class _RealWeaviateClient:
         project_id: str,
         limit: int,
     ) -> Sequence[Mapping[str, object]]:
-        del search_mode  # required by the WeaviateClientPort Protocol; unused by the real hybrid query (S1172)
+        if search_mode not in SEARCH_MODES:
+            raise VectorDbUnavailableError(
+                f"unsupported search_mode {search_mode!r}; must be one of {SEARCH_MODES} "
+                "(AC10: no leniency)."
+            )
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
-        response = coll.query.hybrid(
-            query=query,
-            limit=limit,
-            filters=_project_filter(project_id),
-            return_metadata=["score"],
-        )
+        response = self._run_query(coll, query=query, search_mode=search_mode, limit=limit, project_id=project_id)
         hits: list[Mapping[str, object]] = []
         for obj in response.objects:
             props = dict(obj.properties)
             score = getattr(obj.metadata, "score", None)
+            if score is None:
+                # Missing score is a hard error, NOT a 0.0 repair (AC10).
+                raise VectorDbUnavailableError(
+                    f"Weaviate hit {props.get('story_id')!r} has no 'score'; fail-closed (AC10)."
+                )
             hits.append(
                 {
-                    "story_id": props.get("story_id", ""),
-                    "title": props.get("title", ""),
-                    "score": score if score is not None else 0.0,
-                    "snippet": props.get("snippet", ""),
+                    "story_id": props.get("story_id"),
+                    "title": props.get("title"),
+                    "score": score,
+                    "snippet": props.get("snippet") or props.get("content"),
                 }
             )
         return hits
+
+    def _run_query(
+        self, coll: Any, *, query: str, search_mode: str, limit: int, project_id: str
+    ) -> Any:
+        """Dispatch to the Weaviate query API for the requested search_mode.
+
+        The three effective modes (FK-13 §13.4.2) map to distinct Weaviate query
+        kinds; search_mode is NEVER ignored. Server-side vectorisation is done by
+        the configured text2vec module.
+        """
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+
+        flt = Filter.by_property("project_id").equal(project_id)
+        if search_mode == "hybrid":
+            return coll.query.hybrid(
+                query=query, limit=limit, filters=flt, return_metadata=["score"]
+            )
+        if search_mode == "keyword":
+            return coll.query.bm25(
+                query=query, limit=limit, filters=flt
+            )
+        # vector
+        return coll.query.near_text(
+            query=query, limit=limit, filters=flt, return_metadata=["score"]
+        )
 
     def upsert(
         self,
@@ -348,7 +399,7 @@ class _RealWeaviateClient:
 
 
 def _project_filter(project_id: str) -> object:
-    """Build a project-scope filter for the Weaviate hybrid query."""
+    """Build a project-scope filter for the Weaviate query (kept for callers)."""
     from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
 
     return Filter.by_property("project_id").equal(project_id)
@@ -357,6 +408,7 @@ def _project_filter(project_id: str) -> object:
 __all__ = [
     "DEFAULT_SEARCH_LIMIT",
     "DEFAULT_SEARCH_MODE",
+    "SEARCH_MODES",
     "STORY_COLLECTION",
     "StorySearchHit",
     "WeaviateClientPort",
