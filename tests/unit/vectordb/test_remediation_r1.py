@@ -389,6 +389,50 @@ def test_r10_rule4_archived_penalty(tmp_path: Path) -> None:
     assert ranked[0].concept_id == "FK-13"
 
 
+def test_r10_rule3_appendix_boost_only_for_detail(tmp_path: Path) -> None:
+    # An appendix gets NO boost when query_detail is empty (R10 correction).
+    appendix = dedent("""\
+        ---
+        concept_id: FK-13-A
+        title: App
+        module: vectordb
+        status: active
+        doc_kind: appendix
+        parent_concept_id: FK-13
+        ---
+
+        # App
+
+        ## S
+
+        s.
+        """)
+    core = _CORE
+    root = tmp_path / "concept" / "technical-design"
+    root.mkdir(parents=True)
+    (root / "13.md").write_text(core, encoding="utf-8")
+    (root / "13a.md").write_text(appendix, encoding="utf-8")
+    g = build_graph(discover_concept_files(tmp_path / "concept"))
+    hits = [{"concept_id": "FK-13", "score": 0.5}, {"concept_id": "FK-13-A", "score": 0.5}]
+    # Empty query_detail: no appendix boost -> tie broken by concept_id (FK-13 first).
+    ranked_empty = rank_hits(g, hits)
+    assert "appendix-interface" not in next(r.reasons for r in ranked_empty if r.concept_id == "FK-13-A")
+    # Detail "interface": appendix gets the boost.
+    ranked_detail = rank_hits(g, hits, query_detail="interface")
+    app = next(r for r in ranked_detail if r.concept_id == "FK-13-A")
+    assert "appendix-interface" in app.reasons
+
+
+def test_r10_rule5_module_match_only_without_cross_module_authority(tmp_path: Path) -> None:
+    # FK-13 owns scope "vectordb" in module "vectordb". A query from module "other"
+    # for scope "vectordb": the cross-module authority (FK-13) outranks a mere
+    # module-local match, so a module-match boost is suppressed (rule 5 guard).
+    g = _graph(tmp_path)  # FK-13 owns vectordb; FK-14 in module "other"
+    hits = [{"concept_id": "FK-14", "score": 0.5}]
+    ranked = rank_hits(g, hits, query_scope="vectordb", query_module="other")
+    assert "module-match" not in ranked[0].reasons  # cross-module authority present -> no boost
+
+
 # --------------------------------------------------------------------------- #
 # helpers / fakes
 # --------------------------------------------------------------------------- #
