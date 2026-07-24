@@ -1,8 +1,10 @@
 """Authority resolver / ranking policy (FK-13 §13.9.11).
 
 The VectorDB returns semantic hits; authority resolution happens in the app
-layer (:class:`ConceptGraphResolver`) with DETERMINISTIC rules + a deterministic
-tie-break. Used by ``concept_search`` to rank results.
+layer with DETERMINISTIC rules + a deterministic tie-break. The resolver ranks
+hits against an EXPLICIT query scope / detail (the authority scope being asked
+about and whether interface/test detail is wanted), traversing the scoped
+``defers_to`` graph edges. Used by ``concept_search`` to rank results.
 """
 
 from __future__ import annotations
@@ -15,15 +17,35 @@ if TYPE_CHECKING:
 
     from agentkit.backend.vectordb.concept_corpus.graph import ConceptGraph
 
+#: Query detail hints that activate the appendix interface boost (rule 3).
+_INTERFACE_DETAILS: frozenset[str] = frozenset({"interface", "test", "contract", "api"})
+
 
 @dataclass(frozen=True)
 class RankedHit:
-    """A search hit with its computed authority score and reason."""
+    """A search hit with its computed authority score and applied rules."""
 
     concept_id: str
     score: float
     authority_score: float
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RankContext:
+    """Explicit query context the five rules rank against (R10).
+
+    Attributes:
+        query_scope: the authority scope being asked about (e.g. ``"vectordb"``).
+            Empty means no scope is known -> rules 1/2 do not apply.
+        query_module: the module the query originates from (rule 5).
+        query_detail: a free-form detail hint (``"interface"``/``"test"``/...)
+            that activates the appendix interface boost (rule 3).
+    """
+
+    query_scope: str = ""
+    query_module: str = ""
+    query_detail: str = ""
 
 
 def _status_penalty(status: str) -> float:
@@ -35,59 +57,100 @@ def _status_penalty(status: str) -> float:
     return 0.0
 
 
+def _has_scoped_deferral(graph: ConceptGraph, concept_id: str, query_scope: str) -> bool:
+    """True if ``concept_id`` defers_to an authority FOR ``query_scope``."""
+    if not query_scope:
+        return False
+    return any(
+        e.source == concept_id
+        and e.type == "defers_to"
+        and e.scope == query_scope
+        for e in graph.edges
+    )
+
+
 def rank_hits(
     graph: ConceptGraph,
     hits: Sequence[Mapping[str, object]],
     *,
+    query_scope: str = "",
     query_module: str = "",
+    query_detail: str = "",
 ) -> list[RankedHit]:
     """Rank semantic hits by the five authority rules + deterministic tie-break.
 
-    Rules (FK-13 §13.9.11):
-    1. Direct ``authority_over`` match beats adjacent match.
-    2. Scoped deferral beats generic local mention.
-    3. Appendix can rank higher than core for interface/test detail.
-    4. Archived/draft get a penalty.
-    5. Module-match boosts only without stronger cross-module authority.
+    Pass an explicit :class:`RankContext` (scope/module/detail); the rules are
+    evaluated against it, not against the node's own scopes (R10).
 
-    Tie-break: higher base score, then lexicographic concept_id (deterministic).
+    Rules (FK-13 §13.9.11):
+    1. Direct ``authority_over`` match for the QUERY SCOPE beats adjacent match.
+    2. Scoped deferral (this concept defers_to an authority for the query scope)
+       beats a generic local mention.
+    3. An appendix can rank higher than a core doc for interface/test detail.
+    4. Archived/draft concepts receive a penalty.
+    5. A module-match boosts ONLY when there is no stronger cross-module authority
+       (a node owning the query scope in another module outranks a mere
+       module-local match).
+
+    Tie-break: higher authority score, then higher base score, then lexicographic
+    concept_id (fully deterministic).
     """
+    ctx = RankContext(query_scope=query_scope, query_module=query_module, query_detail=query_detail)
+    # Does ANY node own the query scope in a DIFFERENT module? (rule 5 guard)
+    cross_module_authority = _cross_module_authority_exists(graph, ctx)
+
     ranked: list[RankedHit] = []
     for hit in hits:
         concept_id = str(hit.get("concept_id", ""))
         node = graph.node(concept_id)
         raw_score = hit.get("score", 0.0)
         base = float(raw_score) if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool) else 0.0
+        if node is None:
+            ranked.append(RankedHit(concept_id, base, base, ("no-graph-node",)))
+            continue
         authority = base
         reasons: list[str] = []
-        if node is None:
-            ranked.append(RankedHit(concept_id, base, authority, ("no-graph-node",)))
-            continue
-        # Rule 1: direct authority_over match.
-        if node.authority_scopes:
-            authority += 1.0
+        # Rule 1: direct authority_over match for the QUERY SCOPE.
+        if ctx.query_scope and ctx.query_scope in node.authority_scopes:
+            authority += 2.0
             reasons.append("authority_over-direct")
-        # Rule 2: scoped deferral.
-        if node.defers_to_targets:
-            authority += 0.5
+        # Rule 2: scoped deferral for the query scope.
+        if _has_scoped_deferral(graph, concept_id, ctx.query_scope):
+            authority += 1.0
             reasons.append("scoped-deferral")
-        # Rule 3: appendix interface boost.
-        if node.is_appendix:
-            authority += 0.3
+        # Rule 3: appendix interface boost for interface/test detail.
+        if node.is_appendix and (not ctx.query_detail or ctx.query_detail.lower() in _INTERFACE_DETAILS):
+            authority += 0.5
             reasons.append("appendix-interface")
         # Rule 4: status penalty.
         penalty = _status_penalty(node.status)
         if penalty:
             authority += penalty
             reasons.append(f"status-penalty({node.status})")
-        # Rule 5: module-match boost (only without stronger cross-module authority).
-        if query_module and node.module == query_module and not node.authority_scopes:
-            authority += 0.2
+        # Rule 5: module-match boost only without a stronger cross-module authority.
+        if (
+            ctx.query_module
+            and node.module == ctx.query_module
+            and ctx.query_scope not in node.authority_scopes
+            and not cross_module_authority
+        ):
+            authority += 0.3
             reasons.append("module-match")
         ranked.append(RankedHit(concept_id, base, authority, tuple(reasons)))
-    # Deterministic tie-break: higher authority, then higher base, then concept_id.
     ranked.sort(key=lambda r: (-r.authority_score, -r.score, r.concept_id))
     return ranked
 
 
-__all__ = ["RankedHit", "rank_hits"]
+def _cross_module_authority_exists(graph: ConceptGraph, ctx: RankContext) -> bool:
+    """True if some node OWNS the query scope in a module != query_module."""
+    if not ctx.query_scope:
+        return False
+    return any(
+        ctx.query_scope in node.authority_scopes
+        and node.status == "active"
+        and (not ctx.query_module or node.module != ctx.query_module)
+        for node in graph.nodes.values()
+    )
+
+
+__all__ = ["RankContext", "RankedHit", "rank_hits"]

@@ -60,6 +60,8 @@ WARNING_CODES: tuple[str, ...] = (
 #: dashed alphanumeric segments (FK-13, DK-07, META-DEC-2026-..., FK-A). A
 #: concept_id that does not even match this shape violates E-ID-002.
 _ID_CONVENTION_RE = re.compile(r"^[A-Z]{2,}(-[A-Za-z0-9]+)*$")
+#: Extract the leading numeric component of a concept_id (FK-13 -> 13).
+_ID_NUMBER_RE = re.compile(r"-(\d+)")
 _H1_RE = re.compile(r"^#\s+(?P<title>.+?)\s*$", re.MULTILINE)
 _BODY_ID_RE = re.compile(r"\b(TK|AF|FK|DK|META)-[A-Za-z0-9\-]+")
 
@@ -131,7 +133,38 @@ def validate_corpus(
         discovery: The SSOT discovery result.
         max_tokens: Per-section token limit for E-CHUNK-001.
         strict: When True, warnings escalate to errors (Ring 3 ``--strict``).
+
+    Any UNEXPECTED internal error maps to exit code 3 (INTERNAL_FAILURE) -- the
+    validator never exits green on an internal fault (FK-13 §13.9.7).
     """
+    try:
+        return _validate_corpus_impl(discovery, max_tokens=max_tokens, strict=strict)
+    except Exception as exc:  # noqa: BLE001 -- internal failure must be exit 3
+        return _internal_failure(discovery, f"internal validation failure: {exc!r}")
+
+
+def _internal_failure(discovery: DiscoveryResult, message: str) -> ValidationReport:
+    return ValidationReport(
+        exit_code=ExitCode.INTERNAL_FAILURE,
+        status="internal_failure",
+        corpus_revision=discovery.corpus_revision,
+        errors=(
+            Finding(
+                code="E-INTERNAL",
+                message=message,
+            ),
+        ),
+        warnings=(),
+        graph={"concept_count": len(discovery.documents), "active_count": 0, "acyclic": True},
+    )
+
+
+def _validate_corpus_impl(
+    discovery: DiscoveryResult,
+    *,
+    max_tokens: int,
+    strict: bool,
+) -> ValidationReport:
     errors: list[Finding] = []
     warnings: list[Finding] = []
 
@@ -181,6 +214,9 @@ def validate_corpus(
     # Warnings.
     _warn_bidir_defers(graph, discovery, warnings)
     _warn_h1_title_mismatch(discovery, warnings)
+    _warn_body_unknown_refs(graph, discovery, warnings)
+    _warn_defers_target_not_mentioned(discovery, warnings)
+    _warn_scope_without_active_owner(graph, discovery, warnings)
     _warn_orphan_concepts(graph, discovery, warnings)
 
     if strict:
@@ -233,6 +269,12 @@ def _check_appendix_parent(discovery: DiscoveryResult, errors: list[Finding]) ->
 
 
 def _check_filename_convention(discovery: DiscoveryResult, errors: list[Finding]) -> None:
+    """E-ID-002: the concept_id must agree with its filename (FK-13 §13.9.7).
+
+    Two failures: (a) the id does not match the id-convention shape; (b) the
+    id's leading numeric component does not match the filename's leading number
+    (e.g. ``FK-13`` MUST live in ``13_*.md``).
+    """
     for doc in discovery.documents:
         if not _ID_CONVENTION_RE.match(doc.concept_id):
             errors.append(
@@ -243,6 +285,26 @@ def _check_filename_convention(discovery: DiscoveryResult, errors: list[Finding]
                     path=doc.rel_path,
                 )
             )
+            continue
+        id_num = _id_number(doc.concept_id)
+        filename = doc.rel_path.rsplit("/", 1)[-1].removesuffix(".md")
+        if id_num is not None and not filename.startswith(f"{id_num}"):
+            errors.append(
+                Finding(
+                    code="E-ID-002",
+                    message=(
+                        f"concept_id {doc.concept_id!r} (numeric {id_num}) does not "
+                        f"agree with filename {filename!r}"
+                    ),
+                    concept_id=doc.concept_id,
+                    path=doc.rel_path,
+                )
+            )
+
+
+def _id_number(concept_id: str) -> str | None:
+    match = _ID_NUMBER_RE.search(concept_id)
+    return match.group(1) if match else None
 
 
 def _check_chunk_size(
@@ -413,6 +475,73 @@ def _warn_h1_title_mismatch(discovery: DiscoveryResult, warnings: list[Finding])
                     path=doc.rel_path,
                 )
             )
+
+
+def _warn_body_unknown_refs(
+    graph: ConceptGraph, discovery: DiscoveryResult, warnings: list[Finding]
+) -> None:
+    """W-CONTENT-002: body mentions TK-*/AF-*/FK-*/DK-* not in the graph."""
+    known: set[str] = set(graph.nodes.keys())
+    for doc in discovery.documents:
+        mentioned = {m.group(0) for m in _BODY_ID_RE.finditer(doc.body)}
+        unknown = sorted(mentioned - known)
+        if unknown:
+            warnings.append(
+                Finding(
+                    code="W-CONTENT-002",
+                    message=(
+                        f"body mentions concept id(s) not in the graph: {unknown}"
+                    ),
+                    concept_id=doc.concept_id,
+                    path=doc.rel_path,
+                )
+            )
+
+
+def _warn_defers_target_not_mentioned(
+    discovery: DiscoveryResult, warnings: list[Finding]
+) -> None:
+    """W-CONTENT-003: frontmatter defers_to set but body does not mention target."""
+    for doc in discovery.documents:
+        for target in doc.defers_to_targets:
+            if target not in doc.body:
+                warnings.append(
+                    Finding(
+                        code="W-CONTENT-003",
+                        message=(
+                            f"frontmatter defers_to {target!r} but body does not mention it"
+                        ),
+                        concept_id=doc.concept_id,
+                        path=doc.rel_path,
+                    )
+                )
+
+
+def _warn_scope_without_active_owner(
+    graph: ConceptGraph, discovery: DiscoveryResult, warnings: list[Finding]
+) -> None:
+    """W-SCOPE-001: a scope declared only by non-active concepts (no active owner).
+
+    A scope that had an authority owner but is now carried only by archived/draft
+    concepts (no active successor) is at risk -- a warning, not a hard error.
+    """
+    active_scopes: set[str] = set()
+    non_active_scopes: set[str] = set()
+    for node in graph.nodes.values():
+        if node.status == "active":
+            active_scopes.update(node.authority_scopes)
+        else:
+            non_active_scopes.update(node.authority_scopes)
+    for scope in sorted(non_active_scopes - active_scopes):
+        warnings.append(
+            Finding(
+                code="W-SCOPE-001",
+                message=(
+                    f"authority scope {scope!r} has no active authority owner "
+                    "(declared only by non-active concepts)"
+                ),
+            )
+        )
 
 
 def _warn_orphan_concepts(

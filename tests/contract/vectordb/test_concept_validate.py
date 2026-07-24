@@ -25,6 +25,8 @@ from agentkit.concepts.parser import discover_concept_files
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 CORE = dedent(
     """\
     ---
@@ -44,6 +46,8 @@ CORE = dedent(
     # Retrieval
 
     ## Purpose
+
+    Builds on FK-01 (foundation) for the vectordb scope.
 
     Text.
     """
@@ -106,11 +110,45 @@ def test_exit_code_2_on_errors(tmp_path: Path) -> None:
 
 
 def test_exit_code_1_warnings_only(tmp_path: Path) -> None:
-    # A valid corpus but with an orphan concept -> W-ORPHAN-001, exit 1.
-    _write(tmp_path, "13_retrieval.md", CORE.replace("- target: FK-01", "- target: FK-99"))
+    # A corpus with NO errors but a genuine warning (orphan) -> exit 1 exactly.
+    orphan = dedent(
+        """\
+        ---
+        concept_id: FK-99
+        title: Lone
+        module: m
+        status: active
+        doc_kind: core
+        ---
+
+        # Lone
+
+        ## One
+
+        Text.
+        """
+    )
+    _write(tmp_path, "99_lone.md", orphan)
     report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
-    # FK-99 missing -> E-REF-001 (error). Use a self-contained orphan instead.
-    assert report.exit_code in (ExitCode.ERRORS, ExitCode.WARNINGS)
+    assert report.exit_code is ExitCode.WARNINGS
+    assert not report.has_errors
+    assert report.has_warnings
+
+
+def test_exit_code_3_internal_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An unexpected internal fault maps to exit 3, never green.
+    import agentkit.backend.vectordb.concept_corpus.validator as vmod
+
+    _write(tmp_path, "13_retrieval.md", CORE)
+    _write(tmp_path, "01_foundation.md", CORE2)
+
+    def _boom(*_a: object, **_k: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(vmod, "_check_appendix_parent", _boom)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert report.exit_code is ExitCode.INTERNAL_FAILURE
+    assert any(f.code == "E-INTERNAL" for f in report.errors)
 
 
 def test_strict_escalates_warnings_to_errors(tmp_path: Path) -> None:
@@ -199,6 +237,76 @@ def test_e_id_002_malformed_concept_id(tmp_path: Path) -> None:
     _write(tmp_path, "bad.md", bad)
     report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
     assert any(f.code == "E-ID-002" for f in report.errors)
+
+
+def test_e_id_002_filename_disagreement(tmp_path: Path) -> None:
+    # concept_id FK-13 in a file NOT starting with "13" -> E-ID-002.
+    bad = dedent(
+        """\
+        ---
+        concept_id: FK-13
+        title: Misfiled
+        module: m
+        status: active
+        doc_kind: core
+        ---
+
+        # Misfiled
+
+        ## One
+
+        text.
+        """
+    )
+    _write(tmp_path, "42_wrong.md", bad)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "E-ID-002" and "agree with filename" in f.message for f in report.errors)
+
+
+def test_w_content_002_body_unknown_ref(tmp_path: Path) -> None:
+    # Body mentions FK-MISSING which is not in the corpus graph.
+    doc = CORE.replace("Text.", "See also FK-MISSING for details. Text.")
+    _write(tmp_path, "13_retrieval.md", doc)
+    _write(tmp_path, "01_foundation.md", CORE2)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "W-CONTENT-002" for f in report.warnings)
+
+
+def test_w_content_003_defers_target_not_mentioned(tmp_path: Path) -> None:
+    # defers_to FK-01 but body never mentions FK-01.
+    doc = CORE.replace("Builds on FK-01 (foundation) for the vectordb scope.", "Unrelated text.")
+    _write(tmp_path, "13_retrieval.md", doc)
+    _write(tmp_path, "01_foundation.md", CORE2)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "W-CONTENT-003" for f in report.warnings)
+
+
+def test_w_scope_001_scope_only_non_active(tmp_path: Path) -> None:
+    # An archived concept owns a scope no active concept owns -> W-SCOPE-001.
+    archived = dedent(
+        """\
+        ---
+        concept_id: FK-77
+        title: OldOwner
+        module: m
+        status: active
+        doc_kind: core
+        authority_over:
+          - scope: legacy-scope
+        ---
+
+        # OldOwner
+
+        ## One
+
+        text.
+        """
+    )
+    arch_dir = tmp_path / "concept" / "archiv"
+    arch_dir.mkdir(parents=True)
+    (arch_dir / "77_old.md").write_text(archived, encoding="utf-8")
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "W-SCOPE-001" for f in report.warnings)
 
 
 def test_e_ref_001_defers_to_missing(tmp_path: Path) -> None:
