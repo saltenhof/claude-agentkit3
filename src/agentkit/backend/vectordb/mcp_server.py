@@ -1,11 +1,17 @@
 """FK-13 story-knowledge-base MCP server (§13.4 / §13.9.5, Review 174-P0-2).
 
-Exposes the five FK-13 tools over MCP (stdio). Tool NAMES, required params and
-return fields are bound by :mod:`agentkit.backend.vectordb.contracts`. Every
-argument is validated strictly (AC10); ``project_id`` is resolved against the
-runtime binding (D2: omitted -> bound, divergent -> REJECTED). ``concept_search``
-defaults to ``active`` and applies authority ranking. Weaviate outage is
-fail-closed (§13.8).
+Exposes the five FK-13 tools over MCP (stdio, FastMCP per FK-13 §13.2). Tool
+NAMES, parameters, the ADVERTISED input schema and the return fields are bound by
+:mod:`agentkit.backend.vectordb.contracts`.
+
+The transport layer hands the RAW argument mapping to :func:`handle_tool_call`
+(R13): FastMCP's typed-parameter reconstruction would collapse "key absent" and
+"key explicitly null" into the same value, so the tool surface is declared from
+the contract SSOT and dispatched with the arguments as they arrived. Every
+argument is then validated strictly (AC10); ``project_id`` is resolved against
+the runtime binding (D2: omitted -> bound, divergent -> REJECTED).
+``concept_search`` defaults to ``active`` and applies authority ranking.
+Weaviate outage is fail-closed (§13.8).
 
 The transport boundary (:class:`RetrievalPort`) is the ONLY place a fake is
 permitted; all tool logic runs for real.
@@ -14,31 +20,41 @@ permitted; all tool logic runs for real.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from agentkit.backend.vectordb.concept_corpus.graph import build_graph
-from agentkit.backend.vectordb.concept_corpus.resolver import rank_hits
+from agentkit.backend.vectordb.concept_corpus.resolver import derive_query_detail, rank_hits
 from agentkit.backend.vectordb.concept_corpus.validator import validate_corpus
 from agentkit.backend.vectordb.contracts import (
+    TOOL_CONTRACTS,
     TOOL_NAMES,
     ToolArgumentError,
+    optional_str,
     reject_unknown_args,
+    resolve_project_id,
     validate_bool,
     validate_concept_filters,
     validate_search_args,
     validate_story_filters,
 )
-from agentkit.backend.vectordb.ingest.adapter import concept_chunks_to_objects
+from agentkit.backend.vectordb.ingest.adapter import (
+    concept_chunks_to_objects,
+    story_file_to_objects,
+)
+from agentkit.backend.vectordb.ingest.classify import classify_source_file
+from agentkit.concepts.frontmatter import FrontmatterError, read_text_strict
+from agentkit.concepts.hashing import corpus_revision, document_hash
 from agentkit.concepts.parser import discover_concept_files
 from agentkit.integration_clients.vectordb.errors import VectorDbError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from pathlib import Path
 
+    from agentkit.backend.vectordb.concept_corpus.resolver import RankedHit
     from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
     from agentkit.backend.vectordb.schema import StoryContextObject
-    from agentkit.backend.vectordb.sync import SyncResult, SyncService
+    from agentkit.backend.vectordb.sync import SyncService
 
 
 @runtime_checkable
@@ -63,6 +79,21 @@ class RetrievalPort(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class StoryCorpus:
+    """The discovered story/research corpus of one project.
+
+    Attributes:
+        objects_by_source: Project-relative source path -> its chunk objects.
+        corpus_revision: Revision of the STORY corpus (FK-13 §13.9.9 freshness
+            indicator). Derived from the story/research documents only -- it is
+            deliberately NOT the concept-corpus digest (N04/D1).
+    """
+
+    objects_by_source: dict[str, list[StoryContextObject]]
+    corpus_revision: str
+
+
 @dataclass
 class McpToolService:
     """The five FK-13 tool handlers (real logic; transport at :class:`RetrievalPort`)."""
@@ -77,30 +108,37 @@ class McpToolService:
     # story_search
     # ------------------------------------------------------------------ #
     def story_search(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """Search stories AND research, globally ranked and limited (R05/N09)."""
         validated = validate_search_args(self.binding, args)
         filters = validate_story_filters(args)
-        # R05: story_search covers BOTH owned types (story + research) and applies
-        # the typed filters to each; results are merged.
-        merged: list[Mapping[str, object]] = []
-        for st in ("story", "research"):
-            merged.extend(
+        limit = int(validated["limit"])
+        # R05: both owned source types are queried, each with a BOUNDED candidate
+        # set. N09: the candidates are then merged in GLOBAL score order and
+        # truncated to the requested limit -- never concatenated per source type
+        # (which returned up to 2x limit hits, all story before research).
+        candidates: list[Mapping[str, object]] = []
+        for source_type in ("story", "research"):
+            candidates.extend(
                 self.retrieval.search(
                     project_id=validated["project_id"],
-                    source_type=st,
+                    source_type=source_type,
                     query=validated["query"],
                     search_mode=validated["search_mode"],
-                    limit=validated["limit"],
+                    limit=limit,
                     filters=filters,
                 )
             )
-        return {"project_id": validated["project_id"], "results": [dict(h) for h in merged]}
+        ranked = sorted(candidates, key=_score_order)[:limit]
+        return {
+            "project_id": validated["project_id"],
+            "results": [dict(hit) for hit in ranked],
+        }
 
     # ------------------------------------------------------------------ #
     # story_list_sources (D1 shape)
     # ------------------------------------------------------------------ #
     def story_list_sources(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        from agentkit.backend.vectordb.contracts import resolve_project_id
-
+        """List the indexed source types of the bound project (D1 shape)."""
         project_id = resolve_project_id(self.binding, args)
         sources = self.retrieval.list_sources(project_id=project_id)
         return {"project_id": project_id, "sources": [dict(s) for s in sources]}
@@ -109,41 +147,43 @@ class McpToolService:
     # story_sync
     # ------------------------------------------------------------------ #
     def story_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        from agentkit.backend.vectordb.contracts import resolve_project_id
-
+        """Index story + research sources (incremental or full reindex)."""
         project_id = resolve_project_id(self.binding, args)
-        full = validate_bool(args.get("full_reindex"), name="full_reindex")
-        objects_by_source = self._discover_story_corpus_objects(project_id)
-        revision = self._story_revision()
+        full = validate_bool(args, name="full_reindex")
+        try:
+            corpus = self._discover_story_corpus(project_id)
+        except (FrontmatterError, ValueError) as exc:
+            # AC10: an invalid source is a named, zero-write failure -- never a
+            # silent partial index of the parsable subset.
+            return _sync_error_envelope(project_id, "story_source_invalid", str(exc))
         results = (
             self.sync.full_reindex(
                 project_id=project_id,
                 producer="story_sync",
-                objects_by_source=objects_by_source,
-                corpus_revision=revision,
+                objects_by_source=corpus.objects_by_source,
+                corpus_revision=corpus.corpus_revision,
             )
             if full
             else self.sync.reconcile_sources(
                 project_id=project_id,
                 producer="story_sync",
-                objects_by_source=objects_by_source,
-                corpus_revision=revision,
+                objects_by_source=corpus.objects_by_source,
+                corpus_revision=corpus.corpus_revision,
             )
         )
-        written = sum(r.written for r in results)
-        deleted = sum(r.deleted for r in results)
         return {
             "project_id": project_id,
-            "synced_sources": len(objects_by_source),
-            "written": written,
-            "deleted": deleted,
-            "corpus_revision": revision,
+            "synced_sources": len(corpus.objects_by_source),
+            "written": sum(r.written for r in results),
+            "deleted": sum(r.deleted for r in results),
+            "corpus_revision": corpus.corpus_revision,
         }
 
     # ------------------------------------------------------------------ #
     # concept_search (default active, authority-ranked)
     # ------------------------------------------------------------------ #
     def concept_search(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """Search concept chunks, authority-ranked (FK-13 §13.9.11)."""
         validated = validate_search_args(self.binding, args)
         filters = validate_concept_filters(args)
         hits = self.retrieval.search(
@@ -151,59 +191,68 @@ class McpToolService:
             source_type="concept",
             query=validated["query"],
             search_mode=validated["search_mode"],
-            limit=validated["limit"],
+            limit=int(validated["limit"]),
             filters=filters,
         )
         # Authority ranking in the app layer (FK-13 §13.9.11) against the query
-        # scope/module/detail (R10).
+        # scope/module and the interface/test DETAIL carried by the query text
+        # (R10: rule 3 is reachable from production, not hard-wired to "").
         discovery = discover_concept_files(self.concepts_dir)
         graph = build_graph(discovery)
+        module = str(filters.get("module", ""))
         ranked = rank_hits(
             graph,
             hits,
-            query_scope=str(filters.get("module", "")),
-            query_module=str(filters.get("module", "")),
-            query_detail="",
+            query_scope=module,
+            query_module=module,
+            query_detail=derive_query_detail(str(validated["query"])),
         )
         return {
             "project_id": validated["project_id"],
-            "results": self._ranked_envelope(hits, ranked),
+            "results": _ranked_envelope(hits, ranked),
         }
-
-    def _ranked_envelope(self, hits: Sequence[Mapping[str, object]], ranked: list[Any]) -> list[dict[str, Any]]:
-        by_id = {str(h.get("concept_id")): dict(h) for h in hits}
-        out: list[dict[str, Any]] = []
-        for r in ranked:
-            base = by_id.get(r.concept_id, {})
-            base = {**base, "authority_score": r.authority_score, "rank_reasons": list(r.reasons)}
-            out.append(base)
-        return out
 
     # ------------------------------------------------------------------ #
     # concept_sync (validate is a hard precondition)
     # ------------------------------------------------------------------ #
     def concept_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        from agentkit.backend.vectordb.contracts import resolve_project_id
+        """Index concept sources; ``concept_validate`` is a hard precondition.
 
+        ``concept_path`` (FK-13 §13.9.5) restricts the sync to ONE discovered
+        concept document; it is never ignored. Combining it with ``full_reindex``
+        is rejected -- a full reindex deletes every concept chunk of the project,
+        so re-writing only one document would drop the rest.
+        """
         project_id = resolve_project_id(self.binding, args)
-        full = validate_bool(args.get("full_reindex"), name="full_reindex")
+        full = validate_bool(args, name="full_reindex")
+        concept_path = optional_str(args, "concept_path")
+        if concept_path is not None and full:
+            return _sync_error_envelope(
+                project_id,
+                "concept_path_with_full_reindex",
+                "concept_path selects a single document while full_reindex rebuilds "
+                "the whole project corpus; the combination is rejected (fail-closed).",
+            )
         discovery = discover_concept_files(self.concepts_dir)
         # concept_validate is the hard sync precondition (FK-13 §13.9.5).
         report = validate_corpus(discovery)
         if report.has_errors:
-            return {
-                "project_id": project_id,
-                "synced_sources": 0,
-                "written": 0,
-                "deleted": 0,
-                "corpus_revision": discovery.corpus_revision,
-                "error": "concept_validate_failed",
-                "validation_errors": len(report.errors),
-            }
+            envelope = _sync_error_envelope(
+                project_id,
+                "concept_validate_failed",
+                f"{len(report.errors)} blocking finding(s); the corpus is not indexed.",
+                corpus_revision=discovery.corpus_revision,
+            )
+            envelope["validation_errors"] = len(report.errors)
+            return envelope
         objects = concept_chunks_to_objects(project_id, discovery)
         by_source: dict[str, list[StoryContextObject]] = {}
         for obj in objects:
-            by_source.setdefault(obj.properties["source_file"], []).append(obj)
+            by_source.setdefault(str(obj.properties["source_file"]), []).append(obj)
+        if concept_path is not None:
+            return self._sync_single_concept(
+                project_id, concept_path, by_source, discovery.corpus_revision
+            )
         results = (
             self.sync.full_reindex(
                 project_id=project_id,
@@ -219,87 +268,145 @@ class McpToolService:
                 corpus_revision=discovery.corpus_revision,
             )
         )
-        written = sum(r.written for r in results)
-        deleted = sum(r.deleted for r in results)
-        revision = results[0].corpus_revision if results else discovery.corpus_revision
         return {
             "project_id": project_id,
             "synced_sources": len(by_source),
-            "written": written,
-            "deleted": deleted,
-            "corpus_revision": revision,
+            "written": sum(r.written for r in results),
+            "deleted": sum(r.deleted for r in results),
+            "corpus_revision": discovery.corpus_revision,
         }
 
     # ------------------------------------------------------------------ #
     # helpers
     # ------------------------------------------------------------------ #
-    def _incremental_sync(
+    def _sync_single_concept(
         self,
         project_id: str,
-        objects_by_source: Mapping[str, Sequence[StoryContextObject]],
-        producer: str,
-    ) -> list[SyncResult]:
-        results: list[SyncResult] = []
-        revision = self._story_revision() if producer == "story_sync" else self._concept_revision()
-        for source_file, objs in objects_by_source.items():
-            source_type = str(objs[0].properties["source_type"]) if objs else ""
-            results.append(
-                self.sync.sync_source(
-                    project_id=project_id,
-                    source_file=source_file,
-                    source_type=source_type,
-                    objects=objs,
-                    corpus_revision=revision,
-                )
-            )
-        return results
+        concept_path: str,
+        by_source: Mapping[str, list[StoryContextObject]],
+        revision: str,
+    ) -> dict[str, Any]:
+        """Sync exactly ONE discovered concept document (FK-13 §13.9.5).
 
-    def _discover_story_corpus_objects(self, project_id: str) -> dict[str, list[StoryContextObject]]:
+        Only the selected source goes through the bounded window; no vanished-
+        source reconcile runs, because a single-document sync says nothing about
+        the rest of the corpus. An unknown path is a named, zero-write error.
+        """
+        normalised = concept_path.replace("\\", "/").removeprefix("./")
+        if normalised not in by_source:
+            return _sync_error_envelope(
+                project_id,
+                "concept_path_unknown",
+                f"{concept_path!r} is not a discovered concept source "
+                f"(known: {len(by_source)} source(s)); fail-closed.",
+                corpus_revision=revision,
+            )
+        objects = by_source[normalised]
+        result = self.sync.sync_source(
+            project_id=project_id,
+            source_file=normalised,
+            source_type=str(objects[0].properties["source_type"]),
+            objects=objects,
+            corpus_revision=revision,
+        )
+        return {
+            "project_id": project_id,
+            "synced_sources": 1,
+            "written": result.written,
+            "deleted": result.deleted,
+            "corpus_revision": revision,
+        }
+
+    def _discover_story_corpus(self, project_id: str) -> StoryCorpus:
         """Discover story AND research sources via the canonical classifier (R05).
 
         Walks the project root, classifies each ``.md`` via
         :func:`classify_source_file` (POSITIVE canonical-path recognition), and
-        ingests every ``story``/``research`` source with PROJECT-RELATIVE paths.
-        ``review*.md`` / closure artefacts are negative cases (never ingested).
+        ingests every ``story``/``research`` source with its PROJECT-RELATIVE path
+        (R04: the relative path is what the content hash and the deterministic
+        identity are derived from). ``review*.md`` / closure artefacts are
+        negative cases (never ingested).
+
+        The story ``corpus_revision`` is computed from the discovered story
+        documents themselves (N04) -- it is NOT the concept-corpus digest.
         """
-        from pathlib import Path
-
-        from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
-        from agentkit.backend.vectordb.ingest.classify import classify_source_file
-
-        root = self.binding.spec.cwd
-        root_path = Path(root)
-        if not root_path.is_dir():
-            return {}
+        root = Path(self.binding.spec.cwd)
+        if not root.is_dir():
+            return StoryCorpus(objects_by_source={}, corpus_revision=corpus_revision([]))
         by_source: dict[str, list[StoryContextObject]] = {}
-        for path in sorted(root_path.rglob("*.md")):
+        file_hashes: list[str] = []
+        for path in sorted(root.rglob("*.md")):
             try:
-                rel = path.relative_to(root_path).as_posix()
-            except ValueError:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:  # pragma: no cover -- rglob yields contained paths
                 continue
             source_type = classify_source_file(rel)
             if source_type not in ("story", "research"):
                 continue
-            objs = story_file_to_objects(project_id, path)
-            # Force the classified source_type (research vs story) + relative path.
-            for obj in objs:
-                obj.properties["source_type"] = source_type
-                obj.properties["source_file"] = rel
-            if objs:
-                by_source[rel] = objs
-        return by_source
+            file_hashes.append(document_hash(read_text_strict(path)))
+            objects = story_file_to_objects(
+                project_id, path, source_file=rel, source_type=source_type
+            )
+            if objects:
+                by_source[rel] = objects
+        return StoryCorpus(
+            objects_by_source=by_source, corpus_revision=corpus_revision(file_hashes)
+        )
 
-    def _story_revision(self) -> str:
-        return discover_concept_files(self.concepts_dir).corpus_revision
 
-    def _concept_revision(self) -> str:
-        return discover_concept_files(self.concepts_dir).corpus_revision
+def _sync_error_envelope(
+    project_id: str, code: str, detail: str, *, corpus_revision: str = ""
+) -> dict[str, Any]:
+    """Return a COMPLETE zero-write sync error envelope (no silent partial)."""
+    return {
+        "project_id": project_id,
+        "synced_sources": 0,
+        "written": 0,
+        "deleted": 0,
+        "corpus_revision": corpus_revision,
+        "error": code,
+        "detail": detail,
+    }
+
+
+def _score_order(hit: Mapping[str, object]) -> tuple[float, str, str, str]:
+    """Global ranking key: score DESC, then a deterministic identity tie-break."""
+    raw = hit.get("score")
+    score = float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else 0.0
+    return (
+        -score,
+        str(hit.get("source_file", "")),
+        str(hit.get("section_number", "")),
+        str(hit.get("section_heading", "")),
+    )
+
+
+def _ranked_envelope(
+    hits: Sequence[Mapping[str, object]], ranked: Sequence[RankedHit]
+) -> list[dict[str, Any]]:
+    """Project ranked hits back onto their ORIGINAL hit records (N10).
+
+    The ranking carries a per-hit index, so multiple section hits of the SAME
+    concept stay distinct; mapping by ``concept_id`` collapsed them and silently
+    dropped results.
+    """
+    out: list[dict[str, Any]] = []
+    for entry in ranked:
+        base = dict(hits[entry.hit_index])
+        base["authority_score"] = entry.authority_score
+        base["rank_reasons"] = list(entry.reasons)
+        out.append(base)
+    return out
 
 
 def handle_tool_call(
     service: McpToolService, name: str, args: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Dispatch a validated tool call; map transport outage to fail-closed error."""
+    """Dispatch a validated tool call; map transport outage to fail-closed error.
+
+    ``args`` is the RAW MCP argument mapping (R13): the strict validators need to
+    see whether a key was absent or explicitly ``null``.
+    """
     if name not in TOOL_NAMES:
         raise ToolArgumentError(f"unknown tool {name!r}")
     reject_unknown_args(name, args)  # R13: reject unknown keys before dispatch
@@ -317,105 +424,45 @@ def handle_tool_call(
         return {"error": "vectordb_unavailable", "detail": str(exc)}
 
 
-def build_mcp_server(service: McpToolService) -> object:
-    """Build a FastMCP server registering the five FK-13 tools (stdio transport).
+def build_mcp_server(service: McpToolService) -> Any:
+    """Build the FastMCP server exposing the five FK-13 tools over stdio.
 
-    Each tool is registered with EXPLICITLY TYPED parameters (R01) so FastMCP
-    advertises the real FK-13 input schema per tool (not a generic ``kwargs``
-    property). The handler validates the collected args strictly via
-    :mod:`contracts` before dispatching.
+    The tool surface is declared from :data:`TOOL_CONTRACTS` and dispatched with
+    the RAW arguments (see module docstring, R01/R13).
     """
     from mcp.server.fastmcp import FastMCP  # noqa: PLC0415 (runtime dependency)
+    from mcp.types import Tool  # noqa: PLC0415 (runtime dependency)
 
-    server = FastMCP("story-knowledge-base")
-    _register_story_search(server, service)
-    _register_story_list_sources(server, service)
-    _register_story_sync(server, service)
-    _register_concept_search(server, service)
-    _register_concept_sync(server, service)
-    return server
+    class StoryKnowledgeBaseServer(FastMCP):
+        """FastMCP server whose tool surface comes from the contract SSOT.
 
+        ``list_tools`` / ``call_tool`` are the public surface FastMCP itself binds
+        into the MCP protocol handlers, so overriding them keeps the real stdio
+        transport on exactly the path the tests exercise.
+        """
 
-def _drop_none(**kwargs: object) -> dict[str, object]:
-    """Drop ``None`` optionals so validators see omitted-as-absent (R01)."""
-    return {k: v for k, v in kwargs.items() if v is not None}
+        async def list_tools(self) -> list[Tool]:
+            """Advertise the five FK-13 tools with their real input schema."""
+            return [
+                Tool(
+                    name=contract.name,
+                    description=contract.description,
+                    inputSchema=contract.input_schema(),
+                )
+                for contract in TOOL_CONTRACTS
+            ]
 
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+            """Dispatch a tool call with the arguments EXACTLY as received."""
+            return handle_tool_call(service, name, arguments)
 
-def _register_story_search(server: Any, service: McpToolService) -> None:
-    @server.tool(name="story_search", description="Semantic search over stories and research.")  # type: ignore[untyped-decorator]  # FastMCP (mcp SDK)
-    async def story_search(  # noqa: ANN202
-        query: str,
-        search_mode: str | None = None,
-        project_id: str | None = None,
-        status: str | None = None,
-        story_type: str | None = None,
-        limit: int | None = None,
-    ) -> dict[str, object]:
-        return handle_tool_call(
-            service, "story_search",
-            _drop_none(query=query, search_mode=search_mode, project_id=project_id,
-                       status=status, story_type=story_type, limit=limit),
-        )
-
-    story_search.__name__ = "story_search"
-
-
-def _register_story_list_sources(server: Any, service: McpToolService) -> None:
-    @server.tool(name="story_list_sources", description="List indexed source types and producers.")  # type: ignore[untyped-decorator]
-    async def story_list_sources(project_id: str | None = None) -> dict[str, object]:  # noqa: ANN202
-        return handle_tool_call(service, "story_list_sources", _drop_none(project_id=project_id))
-
-    story_list_sources.__name__ = "story_list_sources"
-
-
-def _register_story_sync(server: Any, service: McpToolService) -> None:
-    @server.tool(name="story_sync", description="Incremental/full index of story and research sources.")  # type: ignore[untyped-decorator]
-    async def story_sync(project_id: str | None = None, full_reindex: bool | None = None) -> dict[str, object]:  # noqa: ANN202
-        return handle_tool_call(service, "story_sync", _drop_none(project_id=project_id, full_reindex=full_reindex))
-
-    story_sync.__name__ = "story_sync"
-
-
-def _register_concept_search(server: Any, service: McpToolService) -> None:
-    @server.tool(name="concept_search", description="Semantic search over concepts (default active, authority-ranked).")  # type: ignore[untyped-decorator]
-    async def concept_search(  # noqa: ANN202
-        query: str,
-        search_mode: str | None = None,
-        project_id: str | None = None,
-        concept_id: str | None = None,
-        module: str | None = None,
-        is_appendix: bool | None = None,
-        concept_status: str | None = None,
-        limit: int | None = None,
-    ) -> dict[str, object]:
-        return handle_tool_call(
-            service, "concept_search",
-            _drop_none(query=query, search_mode=search_mode, project_id=project_id,
-                       concept_id=concept_id, module=module, is_appendix=is_appendix,
-                       concept_status=concept_status, limit=limit),
-        )
-
-    concept_search.__name__ = "concept_search"
-
-
-def _register_concept_sync(server: Any, service: McpToolService) -> None:
-    @server.tool(name="concept_sync", description="Incremental/full index of concepts (validate is a precondition).")  # type: ignore[untyped-decorator]
-    async def concept_sync(  # noqa: ANN202
-        project_id: str | None = None,
-        full_reindex: bool | None = None,
-        concept_path: str | None = None,
-    ) -> dict[str, object]:
-        return handle_tool_call(
-            service, "concept_sync",
-            _drop_none(project_id=project_id, full_reindex=full_reindex, concept_path=concept_path),
-        )
-
-    concept_sync.__name__ = "concept_sync"
+    return StoryKnowledgeBaseServer("story-knowledge-base")
 
 
 __all__ = [
     "McpToolService",
     "RetrievalPort",
+    "StoryCorpus",
     "build_mcp_server",
     "handle_tool_call",
 ]

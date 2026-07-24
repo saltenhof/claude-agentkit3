@@ -23,8 +23,10 @@ from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBin
 from agentkit.backend.vectordb.schema import (
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
+    search_property_spec,
 )
 from agentkit.backend.vectordb.sync import SyncReceipt, SyncService
+from agentkit.concepts.hashing import sync_receipt_digest
 from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError, VectorDbWriteError
 
 if TYPE_CHECKING:
@@ -33,6 +35,18 @@ if TYPE_CHECKING:
 
 #: Dedicated collection for digest-bound sync receipts (R02/R12).
 RECEIPT_COLLECTION = "__agentkit_sync_receipts"
+
+#: The receipt record's full property set (verified on read, N08).
+RECEIPT_PROPERTIES: tuple[str, ...] = (
+    "project_id",
+    "source_file",
+    "source_type",
+    "corpus_revision",
+    "digest",
+    "state",
+    "completed_at",
+    "sequence",
+)
 
 #: Dedicated collection for store-level atomic source claims (N03/D3).
 CLAIM_COLLECTION = "__agentkit_source_claims"
@@ -64,10 +78,14 @@ class CorpusClientPort(Protocol):
         source_type: str,
         filters: Mapping[str, object],
         limit: int,
-        return_props: Sequence[str],
+        property_spec: Sequence[tuple[str, str, bool]],
     ) -> Sequence[tuple[str, dict[str, object], float]]: ...
 
     def upsert(self, *, collection: str, objects: Sequence[Mapping[str, object]]) -> int: ...
+
+    def insert_object(
+        self, *, collection: str, uuid: str, properties: Mapping[str, object]
+    ) -> bool: ...
 
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int: ...
 
@@ -129,11 +147,11 @@ class WeaviateCorpusStore:
             collection=RECEIPT_COLLECTION,
             prop="source_file",
             value=source_file,
-            return_props=("project_id", "source_type", "corpus_revision", "digest", "state"),
+            return_props=RECEIPT_PROPERTIES,
         )
         for _uid, p in rows:
-            if str(p.get("project_id", "")) == project_id:
-                return _receipt_from_props(project_id, source_file, p)
+            if p.get("project_id") == project_id:
+                return receipt_from_props(project_id, source_file, p)
         return None
 
     def set_receipt(self, *, receipt: SyncReceipt) -> None:
@@ -141,13 +159,16 @@ class WeaviateCorpusStore:
         # latest receipt REPLACES the prior -- never accumulates multiple records
         # per source. The upsert count is verified (fail-closed, never silent).
         stable_uuid = str(uuid.uuid5(_RECEIPT_NAMESPACE, f"{receipt.project_id}|{receipt.source_file}"))
-        doc = {
-            "project_id": receipt.project_id,
-            "source_file": receipt.source_file,
-            "source_type": receipt.source_type,
-            "corpus_revision": receipt.corpus_revision,
-            "digest": receipt.digest,
-            "state": receipt.state.value,
+        stamped = receipt.stamped(sequence=self._next_receipt_sequence(receipt.project_id))
+        doc: dict[str, object] = {
+            "project_id": stamped.project_id,
+            "source_file": stamped.source_file,
+            "source_type": stamped.source_type,
+            "corpus_revision": stamped.corpus_revision,
+            "digest": stamped.digest,
+            "state": stamped.state.value,
+            "completed_at": stamped.completed_at,
+            "sequence": str(stamped.sequence),
             "uuid": stable_uuid,
         }
         written = self.client.upsert(collection=RECEIPT_COLLECTION, objects=[doc])
@@ -157,28 +178,65 @@ class WeaviateCorpusStore:
                 "fail-closed (N08)."
             )
 
-    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
-        """Atomically claim a source via a dedicated claims collection (N03/D3).
+    def _next_receipt_sequence(self, project_id: str) -> int:
+        """Return a store-monotonic completion sequence for the project (N04).
 
-        The claim is STORE-LEVEL (shared across processes): the claim record is
-        keyed by a stable per-source UUID. A prior live claim (state=claimed)
-        rejects the second writer. This is NOT process-local.
+        The "latest" receipt is the LAST SUCCESSFUL COMPLETION, so completion
+        order must be persisted explicitly -- a lexicographic comparison of
+        content digests carries no order at all.
+        """
+        rows = self.client.fetch_by_property(
+            collection=RECEIPT_COLLECTION,
+            prop="project_id",
+            value=project_id,
+            return_props=RECEIPT_PROPERTIES,
+        )
+        highest = 0
+        for _uid, props in rows:
+            highest = max(highest, _receipt_sequence(props))
+        return highest + 1
+
+    def list_receipts(self, *, project_id: str) -> Sequence[SyncReceipt]:
+        """Return every persisted receipt of a project (verified, N08)."""
+        rows = self.client.fetch_by_property(
+            collection=RECEIPT_COLLECTION,
+            prop="project_id",
+            value=project_id,
+            return_props=RECEIPT_PROPERTIES,
+        )
+        out: list[SyncReceipt] = []
+        for _uid, props in rows:
+            source_file = props.get("source_file")
+            if not isinstance(source_file, str) or not source_file:
+                raise VectorDbUnavailableError(
+                    "persisted sync receipt carries no usable 'source_file'; "
+                    "fail-closed (N08)."
+                )
+            receipt = receipt_from_props(project_id, source_file, props)
+            if receipt is not None:
+                out.append(receipt)
+        return out
+
+    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
+        """Atomically claim a source via a conditional CREATE (N03/D3).
+
+        The claim is STORE-LEVEL and ATOMIC: the record is written with
+        ``insert_object`` under a deterministic per-source uuid, i.e. a
+        compare-and-create. The store itself decides the winner -- there is no
+        read-then-write window in which two writers could both observe "no claim"
+        and both proceed. The loser gets ``False`` and is rejected fail-closed
+        (D3: rejected, never serialized).
         """
         claim_uuid = str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}"))
-        existing = self.client.fetch_by_property(
+        return self.client.insert_object(
             collection=CLAIM_COLLECTION,
-            prop="source_file",
-            value=source_file,
-            return_props=("project_id", "state"),
+            uuid=claim_uuid,
+            properties={
+                "project_id": project_id,
+                "source_file": source_file,
+                "state": "claimed",
+            },
         )
-        for _uid, props in existing:
-            if str(props.get("project_id", "")) == project_id and str(props.get("state", "")) == "claimed":
-                return False
-        self.client.upsert(
-            collection=CLAIM_COLLECTION,
-            objects=[{"project_id": project_id, "source_file": source_file, "state": "claimed", "uuid": claim_uuid}],
-        )
-        return True
 
     def release_source(self, *, project_id: str, source_file: str) -> None:
         claim_uuid = str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}"))
@@ -190,21 +248,81 @@ class WeaviateCorpusStore:
             self.client.delete_by_ids(collection=CLAIM_COLLECTION, uuids=[claim_uuid])
 
 
-def _receipt_from_props(project_id: str, source_file: str, props: Mapping[str, object]) -> SyncReceipt | None:
+def _receipt_sequence(props: Mapping[str, object]) -> int:
+    """Read a receipt's completion sequence strictly (no coercion, N08)."""
+    raw = props.get("sequence")
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        raise VectorDbUnavailableError(
+            f"persisted sync receipt has a non-numeric 'sequence' ({raw!r}); "
+            "fail-closed (N08)."
+        )
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise VectorDbUnavailableError(
+            f"persisted sync receipt has a non-numeric 'sequence' ({raw!r}); "
+            "fail-closed (N08)."
+        ) from exc
+    if value < 1:
+        raise VectorDbUnavailableError(
+            f"persisted sync receipt has a non-positive 'sequence' ({value}); "
+            "fail-closed (N08)."
+        )
+    return value
+
+
+def receipt_from_props(
+    project_id: str, source_file: str, props: Mapping[str, object]
+) -> SyncReceipt | None:
+    """Rebuild a persisted receipt with FULL verification (N08).
+
+    Every mandatory field must be present and string-typed -- no ``str()``
+    coercion -- and the digest MUST match the recomputed
+    ``(project_id, source_file, corpus_revision)`` anchor. A malformed or
+    digest-mismatched receipt raises instead of being trusted, so it can never
+    advance the reported freshness.
+
+    Returns ``None`` only when the record carries an UNKNOWN receipt state (a
+    record written by a newer producer), which is not a completion.
+    """
     from agentkit.backend.vectordb.sync import ReceiptState
 
-    state_raw = str(props.get("state", ""))
+    values: dict[str, str] = {}
+    for field_name in ("project_id", "source_file", "source_type", "corpus_revision", "digest", "state", "completed_at"):
+        raw = props.get(field_name)
+        if not isinstance(raw, str) or not raw:
+            raise VectorDbUnavailableError(
+                f"persisted sync receipt for {source_file!r} has a missing/"
+                f"non-string {field_name!r} ({raw!r}); fail-closed (N08)."
+            )
+        values[field_name] = raw
+    sequence = _receipt_sequence(props)
+    if values["project_id"] != project_id or values["source_file"] != source_file:
+        raise VectorDbUnavailableError(
+            f"persisted sync receipt identity mismatch: record "
+            f"({values['project_id']!r}, {values['source_file']!r}) != requested "
+            f"({project_id!r}, {source_file!r}); fail-closed (N08)."
+        )
+    expected_digest = sync_receipt_digest(project_id, source_file, values["corpus_revision"])
+    if values["digest"] != expected_digest:
+        raise VectorDbUnavailableError(
+            f"persisted sync receipt for {source_file!r} has digest "
+            f"{values['digest']!r} but the bound anchor is {expected_digest!r}; "
+            "fail-closed (N08: a malformed receipt must not advance freshness)."
+        )
     try:
-        state = ReceiptState(state_raw)
+        state = ReceiptState(values["state"])
     except ValueError:
         return None
     return SyncReceipt(
         project_id=project_id,
         source_file=source_file,
-        source_type=str(props.get("source_type", "")),
-        corpus_revision=str(props.get("corpus_revision", "")),
-        digest=str(props.get("digest", "")),
+        source_type=values["source_type"],
+        corpus_revision=values["corpus_revision"],
+        digest=values["digest"],
         state=state,
+        completed_at=values["completed_at"],
+        sequence=sequence,
     )
 
 
@@ -233,12 +351,9 @@ class WeaviateRetrievalPort:
         limit: int,
         filters: Mapping[str, object],
     ) -> Sequence[Mapping[str, object]]:
-        return_props = (
-            "story_id", "title", "status", "story_type", "module", "epic",
-            "source_type", "source_file", "section_heading", "section_number",
-            "content", "concept_id", "is_appendix", "parent_concept_id",
-            "concept_status",
-        )
+        # The source-type retrieval profile (schema SSOT) is BOTH the requested
+        # property set and the strict validation spec the transport enforces on
+        # every hit (N11).
         rows = self.client.search_objects(
             collection=self.collection,
             query=query,
@@ -247,7 +362,7 @@ class WeaviateRetrievalPort:
             source_type=source_type,
             filters=filters,
             limit=limit,
-            return_props=return_props,
+            property_spec=search_property_spec(source_type),
         )
         return [
             {**props, "score": score, "snippet": str(props.get("content", ""))[:200]}
@@ -257,14 +372,13 @@ class WeaviateRetrievalPort:
     def list_sources(self, *, project_id: str) -> Sequence[Mapping[str, object]]:
         from agentkit.backend.vectordb.ingest.classify import PRODUCER_BY_SOURCE_TYPE
 
+        receipts = self.store.list_receipts(project_id=project_id)
         out: list[Mapping[str, object]] = []
         for source_type, producer in PRODUCER_BY_SOURCE_TYPE.items():
             rows = self.store.list_objects_for_source_types(
                 project_id=project_id, source_types=(source_type,)
             )
             files = {str(r.get("source_file")) for r in rows}
-            # N04/D1: read the REAL latest revision from persisted receipts.
-            last_revision = self._latest_revision(project_id, files)
             out.append(
                 {
                     "project_id": project_id,
@@ -272,61 +386,98 @@ class WeaviateRetrievalPort:
                     "producer": producer,
                     "source_count": len(files),
                     "chunk_count": len(rows),
-                    "last_revision": last_revision,
+                    # N04/D1: the revision of the LAST SUCCESSFUL COMPLETION for
+                    # this source type (persisted completion order, not a
+                    # lexicographic maximum over content digests).
+                    "last_revision": _last_completed_revision(receipts, source_type),
                 }
             )
         return out
 
-    def _latest_revision(self, project_id: str, files: set[str]) -> str:
-        """Return the latest persisted receipt revision across the source files (N04)."""
-        revisions: list[str] = []
-        for source_file in files:
-            receipt = self.store.get_receipt(project_id=project_id, source_file=source_file)
-            if receipt is not None and receipt.state.value == "completed":
-                revisions.append(receipt.corpus_revision)
-        return max(revisions) if revisions else ""
+
+def _last_completed_revision(
+    receipts: Sequence[SyncReceipt], source_type: str
+) -> str:
+    """Return the revision of the LAST successful completion of a source type (N04).
+
+    Ordering is the persisted completion ``sequence`` (store-monotonic); the
+    ``completed_at`` timestamp and the source file break ties deterministically.
+    An unfinished (``in_progress``) receipt is not a completion.
+    """
+    completed = [
+        r
+        for r in receipts
+        if r.source_type == source_type and r.state.value == "completed"
+    ]
+    if not completed:
+        return ""
+    latest = max(completed, key=lambda r: (r.sequence, r.completed_at, r.source_file))
+    return latest.corpus_revision
 
 
 def connect_real_client(binding: RuntimeBinding) -> CorpusClientPort:
     """Build a real Weaviate client from the binding's EXACT endpoints (R02/R03).
 
-    Both HTTP and gRPC endpoints come verbatim from the registered env (D2) and
-    are passed INTO ``weaviate.connect_to_local`` -- no localhost default, no
-    private attribute. Raises :class:`VectorDbUnavailableError` fail-closed.
+    Both endpoints come verbatim from the registered env (D2) and are passed into
+    ``weaviate.connect_to_custom`` -- the only connect API of the pinned client
+    that accepts a DISTINCT gRPC host (``connect_to_local`` does not, R03).
+    Raises :class:`VectorDbUnavailableError` fail-closed.
     """
     from agentkit.integration_clients.vectordb.weaviate_adapter import _build_real_client
 
-    http_host, http_port = _split_endpoint(binding.weaviate_http_endpoint)
-    grpc_host, grpc_port = _split_grpc(binding.weaviate_grpc_endpoint)
+    http_host, http_port, http_secure = _split_endpoint(binding.weaviate_http_endpoint)
+    grpc_host, grpc_port, grpc_secure = _split_grpc(binding.weaviate_grpc_endpoint)
     return _build_real_client(  # type: ignore[return-value]
-        host=http_host,
-        port=http_port,
+        http_host=http_host,
+        http_port=http_port,
+        http_secure=http_secure,
         grpc_host=grpc_host,
         grpc_port=grpc_port,
+        grpc_secure=grpc_secure,
     )
 
 
-def _split_endpoint(endpoint: str) -> tuple[str, int]:
-    """Split an ``http://host:port`` endpoint into ``(host, port)`` fail-closed."""
+def _split_endpoint(endpoint: str) -> tuple[str, int, bool]:
+    """Split an ``http(s)://host:port`` endpoint into ``(host, port, secure)``."""
     import urllib.parse
 
     parsed = urllib.parse.urlparse(endpoint)
+    if parsed.scheme not in ("http", "https"):
+        raise VectorDbUnavailableError(
+            f"WEAVIATE_HTTP_ENDPOINT {endpoint!r} must be http(s)://host:port "
+            "(fail-closed, D2)."
+        )
     if not parsed.hostname or parsed.port is None:
         raise VectorDbUnavailableError(
             f"WEAVIATE_HTTP_ENDPOINT {endpoint!r} is not host:port (fail-closed, D2)."
         )
-    return parsed.hostname, parsed.port
+    return parsed.hostname, parsed.port, parsed.scheme == "https"
 
 
-def _split_grpc(endpoint: str) -> tuple[str, int]:
-    """Split a ``host:port`` gRPC endpoint into ``(host, port)`` fail-closed."""
-    if ":" not in endpoint:
+def _split_grpc(endpoint: str) -> tuple[str, int, bool]:
+    """Split a gRPC endpoint into ``(host, port, secure)`` fail-closed.
+
+    Accepts ``host:port`` as well as an explicit ``grpc://``/``grpcs://`` scheme;
+    ``grpcs`` selects a TLS gRPC channel.
+    """
+    candidate = endpoint
+    secure = False
+    if candidate.startswith("grpcs://"):
+        secure = True
+        candidate = candidate.removeprefix("grpcs://")
+    elif candidate.startswith("grpc://"):
+        candidate = candidate.removeprefix("grpc://")
+    if ":" not in candidate:
         raise VectorDbUnavailableError(
             f"WEAVIATE_GRPC_ENDPOINT {endpoint!r} is not host:port (fail-closed, D2)."
         )
-    host, _, port = endpoint.rpartition(":")
+    host, _, port = candidate.rpartition(":")
+    if not host:
+        raise VectorDbUnavailableError(
+            f"WEAVIATE_GRPC_ENDPOINT {endpoint!r} is not host:port (fail-closed, D2)."
+        )
     try:
-        return host, int(port)
+        return host, int(port), secure
     except ValueError as exc:
         raise VectorDbUnavailableError(
             f"WEAVIATE_GRPC_ENDPOINT {endpoint!r} has non-integer port (fail-closed, D2)."
@@ -367,12 +518,15 @@ def compose_runtime(
     # is NOT suppressed -- a failure to ensure them must surface fail-closed
     # (N08), since receipt/claim persistence is required for the bounded-window
     # freshness + D3 concurrent-reject contracts.
-    _aux_specs = _receipt_property_specs()
     client.ensure_collection(
-        collection=RECEIPT_COLLECTION, property_specs=_aux_specs, vectorizer="self_provided"
+        collection=RECEIPT_COLLECTION,
+        property_specs=_receipt_property_specs(),
+        vectorizer="self_provided",
     )
     client.ensure_collection(
-        collection=CLAIM_COLLECTION, property_specs=_aux_specs, vectorizer="self_provided"
+        collection=CLAIM_COLLECTION,
+        property_specs=_claim_property_specs(),
+        vectorizer="self_provided",
     )
     store = WeaviateCorpusStore(client=client)
     sync = SyncService(store=store)
@@ -387,13 +541,18 @@ def compose_runtime(
 
 
 def _receipt_property_specs() -> list[dict[str, object]]:
+    """Property specs of the auxiliary receipt collection (all TEXT, no vectors)."""
     return [
-        {"name": "project_id", "data_type": "TEXT", "skip_vectorization": True},
-        {"name": "source_file", "data_type": "TEXT", "skip_vectorization": True},
-        {"name": "source_type", "data_type": "TEXT", "skip_vectorization": True},
-        {"name": "corpus_revision", "data_type": "TEXT", "skip_vectorization": True},
-        {"name": "digest", "data_type": "TEXT", "skip_vectorization": True},
-        {"name": "state", "data_type": "TEXT", "skip_vectorization": True},
+        {"name": name, "data_type": "TEXT", "skip_vectorization": True}
+        for name in RECEIPT_PROPERTIES
+    ]
+
+
+def _claim_property_specs() -> list[dict[str, object]]:
+    """Property specs of the auxiliary source-claim collection (N03)."""
+    return [
+        {"name": name, "data_type": "TEXT", "skip_vectorization": True}
+        for name in ("project_id", "source_file", "state")
     ]
 
 
@@ -402,7 +561,7 @@ def run_stdio_server(service: object) -> None:
     from agentkit.backend.vectordb.mcp_server import build_mcp_server
 
     server = build_mcp_server(service)  # type: ignore[arg-type]
-    server.run()  # type: ignore[attr-defined]
+    server.run()
 
 
 def main() -> int:
@@ -445,10 +604,12 @@ if __name__ == "__main__":  # pragma: no cover
 __all__ = [
     "CLAIM_COLLECTION",
     "RECEIPT_COLLECTION",
+    "RECEIPT_PROPERTIES",
     "WeaviateCorpusStore",
     "WeaviateRetrievalPort",
     "compose_runtime",
     "connect_real_client",
     "main",
+    "receipt_from_props",
     "run_stdio_server",
 ]

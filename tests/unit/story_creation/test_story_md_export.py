@@ -16,8 +16,11 @@ from agentkit.backend.story_context_manager.story_model import (
 )
 from agentkit.backend.story_creation.story_md_export import (
     StoryMdExportResult,
+    canonical_story_source_file,
     export_story_md,
 )
+from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+from agentkit.backend.vectordb.schema import deterministic_uuid
 from agentkit.integration_clients.vectordb import VectorDbWriteError
 
 if TYPE_CHECKING:
@@ -101,9 +104,52 @@ def test_export_success_writes_frontmatter_and_indexes(tmp_path: Path) -> None:
     assert obj["source_type"] == "story"
     assert "content" in obj and obj["content"]
     assert "content_hash" in obj and obj["content_hash"]
-    assert "source_file" in obj
     assert "section_heading" in obj
     assert "uuid" in obj
+    # R04: the REAL caller indexes the PROJECT-RELATIVE canonical corpus path and
+    # the REAL title/status from the exported frontmatter -- not an absolute path
+    # and not the story id as a stand-in title.
+    rel = f"stories/{tmp_path.name}/story.md"
+    assert canonical_story_source_file(tmp_path) == rel
+    assert {str(o["source_file"]) for o in index.last_objects} == {rel}
+    assert obj["title"] == "Implement broker adapter"
+    assert obj["status"] == "Backlog"
+    assert obj["story_type"] == "implementation"
+    assert obj["module"] == "backend/app"
+    assert obj["epic"] == "payments"
+    # The uuid is the deterministic identity of the RELATIVE path.
+    # ...and the exported frontmatter itself carries the real metadata (R04).
+    assert "title: Implement broker adapter" in md
+    assert "status: Backlog" in md
+    assert "story_type: implementation" in md
+
+
+def test_r04_indexed_identity_is_derived_from_the_relative_path(tmp_path: Path) -> None:
+    """R04: re-projecting the written file yields the SAME uuids as the export."""
+    index = _OkIndex()
+    result = export_story_md(
+        "AK3-042",
+        tmp_path,
+        project_id="acme",
+        story_attributes=_FakeAttrs((_story(), _spec())),
+        index=index,
+    )
+    assert result.success is True
+    rel = canonical_story_source_file(tmp_path)
+    reprojected = story_file_to_objects("acme", tmp_path / "story.md", source_file=rel)
+    assert {o.uuid for o in reprojected} == {str(o["uuid"]) for o in index.last_objects}
+    for obj in reprojected:
+        assert obj.uuid == deterministic_uuid("acme", rel, obj.chunk_id)
+
+
+def test_r04_non_canonical_story_directory_is_fail_closed() -> None:
+    """A story artefact outside the canonical corpus layout is not indexable."""
+    from pathlib import Path as _Path
+
+    import pytest
+
+    with pytest.raises(ValueError, match="canonical story source path"):
+        canonical_story_source_file(_Path(""))
 
 
 def test_export_result_has_exactly_four_fields() -> None:

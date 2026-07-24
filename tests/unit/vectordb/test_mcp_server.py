@@ -1,119 +1,55 @@
-"""MCP server tests: tools/list=5, search modes, envelopes, arg validation, D2 (AC7/8/10/11).
+"""MCP surface tests: advertised schema, REAL calls for all five tools, envelopes.
 
-Fakes live ONLY at the RetrievalPort + CorpusStorePort (external boundaries).
+R01: the advertised ``inputSchema`` of every tool is asserted against the FK-13
+contract (§13.4.1 / §13.9.5) AND every one of the five tools is invoked through
+the server's real ``call_tool`` path -- the same public surface FastMCP binds into
+the MCP protocol handlers. The only double is the Weaviate CLIENT boundary, so
+the whole tool stack (validators, sync, retrieval, ranking) runs productively.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from textwrap import dedent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from tests.unit.vectordb.corpus_doubles import (
+    RecordingWeaviateClient,
+    concept_hit,
+    corpus_store,
+    story_hit,
+)
 
 from agentkit.backend.vectordb.contracts import (
+    CONCEPT_STATUSES,
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    TOOL_CONTRACTS,
     TOOL_NAMES,
     ToolArgumentError,
+    contract_for,
+    validate_bool,
     validate_limit,
     validate_search_mode,
 )
+from agentkit.backend.vectordb.engine import WeaviateRetrievalPort
 from agentkit.backend.vectordb.mcp_server import (
     McpToolService,
     build_mcp_server,
     handle_tool_call,
 )
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
-from agentkit.backend.vectordb.sync import SyncReceipt, SyncService
+from agentkit.backend.vectordb.sync import SyncService
+from agentkit.integration_clients.vectordb.weaviate_adapter import SEARCH_MODES
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
     from pathlib import Path
-
-
-@dataclass
-class FakeRetrieval:
-    """Fake at the RetrievalPort boundary."""
-
-    hits: list[Mapping[str, object]] = field(default_factory=list)
-    sources: list[Mapping[str, object]] = field(default_factory=list)
-    raise_search: bool = False
-
-    def search(self, **kwargs: object) -> Sequence[Mapping[str, object]]:
-        if self.raise_search:
-            from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
-
-            raise VectorDbUnavailableError("down")
-        return self.hits
-
-    def list_sources(self, *, project_id: str) -> Sequence[Mapping[str, object]]:
-        return self.sources
-
-
-@dataclass
-class FakeStore:
-    objects: dict[str, dict[str, object]] = field(default_factory=dict)
-    receipts: dict[str, SyncReceipt] = field(default_factory=dict)
-    _claims: set[tuple[str, str]] = field(default_factory=set)
-
-    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
-        key = (project_id, source_file)
-        if key in self._claims:
-            return False
-        self._claims.add(key)
-        return True
-
-    def release_source(self, *, project_id: str, source_file: str) -> None:
-        self._claims.discard((project_id, source_file))
-
-    def list_objects_for_source(self, *, project_id: str, source_file: str) -> Sequence[Mapping[str, object]]:
-        return [
-            {"uuid": uid, "source_file": o["source_file"], "source_type": o["source_type"],
-             "project_id": o["project_id"]}
-            for uid, o in self.objects.items()
-            if o["project_id"] == project_id and o["source_file"] == source_file
-        ]
-
-    def list_objects_for_source_types(self, *, project_id: str, source_types: Sequence[str]) -> Sequence[Mapping[str, object]]:
-        types = set(source_types)
-        return [
-            {"uuid": uid, "source_file": o["source_file"], "source_type": o["source_type"],
-             "project_id": o["project_id"]}
-            for uid, o in self.objects.items()
-            if o["project_id"] == project_id and o["source_type"] in types
-        ]
-
-    def upsert_objects(self, *, objects: Sequence[object]) -> int:
-        for obj in objects:
-            d = dict(obj.properties)  # type: ignore[attr-defined]
-            d["uuid"] = obj.uuid  # type: ignore[attr-defined]
-            self.objects[obj.uuid] = d  # type: ignore[attr-defined]
-        return len(objects)
-
-    def delete_objects(self, *, uuids: Sequence[str]) -> int:
-        n = 0
-        for uid in uuids:
-            if uid in self.objects:
-                del self.objects[uid]
-                n += 1
-        return n
-
-    def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
-        return self.receipts.get(f"{project_id}|{source_file}")
-
-    def set_receipt(self, *, receipt: SyncReceipt) -> None:
-        self.receipts[f"{receipt.project_id}|{receipt.source_file}"] = receipt
-
 
 _ENV = {
     "PROJECT_ID": "acme",
     "WEAVIATE_HTTP_ENDPOINT": "http://weaviate.acme.local:8080",
     "WEAVIATE_GRPC_ENDPOINT": "weaviate.acme.local:50051",
 }
-
-
-def _binding() -> RuntimeBinding:
-    return RuntimeBinding.from_env(_ENV, command="python", args=(), cwd="/srv")
-
 
 _CONCEPT = dedent(
     """\
@@ -135,23 +71,48 @@ _CONCEPT = dedent(
     """
 )
 
+_STORY = dedent(
+    """\
+    ---
+    story_id: AG3-1
+    title: Real title
+    status: Done
+    story_type: implementation
+    ---
 
-def _service(tmp_path: Path, *, retrieval: FakeRetrieval | None = None) -> McpToolService:
+    # Real title
+
+    ## Problem
+
+    Need.
+    """
+)
+
+
+def _service(
+    tmp_path: Path, client: RecordingWeaviateClient | None = None
+) -> tuple[McpToolService, RecordingWeaviateClient]:
+    client = client or RecordingWeaviateClient()
     cdir = tmp_path / "concept" / "technical-design"
-    cdir.mkdir(parents=True)
+    cdir.mkdir(parents=True, exist_ok=True)
     (cdir / "13_retrieval.md").write_text(_CONCEPT, encoding="utf-8")
-    (tmp_path / "stories").mkdir()
-    return McpToolService(
-        binding=_binding(),
-        retrieval=retrieval or FakeRetrieval(),
-        sync=SyncService(store=FakeStore()),
+    story = tmp_path / "stories" / "AG3-1" / "story.md"
+    story.parent.mkdir(parents=True, exist_ok=True)
+    story.write_text(_STORY, encoding="utf-8")
+    binding = RuntimeBinding.from_env(_ENV, command="python", args=(), cwd=str(tmp_path))
+    store = corpus_store(client)
+    service = McpToolService(
+        binding=binding,
+        retrieval=WeaviateRetrievalPort(client=client, store=store, binding=binding),  # type: ignore[arg-type]
+        sync=SyncService(store=store),
         concepts_dir=tmp_path / "concept",
         stories_dir=tmp_path / "stories",
     )
+    return service, client
 
 
 # --------------------------------------------------------------------------- #
-# AC7: tools/list returns exactly the five tools
+# AC7/AC8/R01: the ADVERTISED tool surface is the FK-13 contract
 # --------------------------------------------------------------------------- #
 
 
@@ -166,35 +127,149 @@ def test_tool_names_are_exactly_five() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mcp_server_registers_exactly_five_tools(tmp_path: Path) -> None:
-    service = _service(tmp_path)
+async def test_r01_every_tool_advertises_its_real_input_schema(tmp_path: Path) -> None:
+    service, _client = _service(tmp_path)
     server = build_mcp_server(service)
-    tools = await server.list_tools()  # type: ignore[attr-defined]
-    names = sorted(t.name for t in tools)
-    assert names == sorted(TOOL_NAMES)
+    tools = {t.name: t for t in await server.list_tools()}
+    assert sorted(tools) == sorted(TOOL_NAMES)
+    for contract in TOOL_CONTRACTS:
+        schema = tools[contract.name].inputSchema
+        assert schema["type"] == "object"
+        # No generic 'kwargs' catch-all: the advertised properties ARE the FK-13
+        # parameters, and unknown keys are refused by the schema itself.
+        assert set(schema["properties"]) == {p.name for p in contract.params}
+        assert schema["required"] == list(contract.required_params)
+        assert schema["additionalProperties"] is False
+        for param in contract.params:
+            advertised = schema["properties"][param.name]
+            assert advertised["type"] == param.json_type
+            if param.enum:
+                assert advertised["enum"] == list(param.enum)
+    # Spot-check the FK-13 §13.4.1 / §13.9.5 parameter tables themselves.
+    assert tools["story_search"].inputSchema["required"] == ["query"]
+    story_props = tools["story_search"].inputSchema["properties"]
+    assert set(story_props) == {
+        "query", "search_mode", "project_id", "status", "story_type", "limit"
+    }
+    assert story_props["limit"]["type"] == "integer"
+    assert story_props["search_mode"]["enum"] == list(SEARCH_MODES)
+    concept_props = tools["concept_search"].inputSchema["properties"]
+    assert set(concept_props) == {
+        "query", "search_mode", "project_id", "concept_id", "module",
+        "is_appendix", "concept_status", "limit",
+    }
+    assert concept_props["is_appendix"]["type"] == "boolean"
+    assert concept_props["concept_status"]["enum"] == list(CONCEPT_STATUSES)
+    assert set(tools["concept_sync"].inputSchema["properties"]) == {
+        "project_id", "full_reindex", "concept_path"
+    }
+
+
+@pytest.mark.asyncio
+async def test_r01_all_five_tools_run_through_a_real_call_tool(tmp_path: Path) -> None:
+    """Every tool is dispatched for real; each observable effect is asserted."""
+    service, client = _service(tmp_path)
+    client.search_results = [
+        concept_hit("c1", "FK-13", 0.9),
+        story_hit("s1", "AG3-1", 0.8),
+    ]
+    server = build_mcp_server(service)
+
+    concept_search = await server.call_tool("concept_search", {"query": "retrieval"})
+    assert concept_search["results"][0]["concept_id"] == "FK-13"
+    assert client.search_calls[-1]["source_type"] == "concept"
+
+    story_search = await server.call_tool("story_search", {"query": "need", "limit": 5})
+    assert story_search["results"][0]["story_id"] == "AG3-1"
+    assert sorted(str(c["source_type"]) for c in client.search_calls[-2:]) == [
+        "research", "story"
+    ]
+
+    concept_sync = await server.call_tool("concept_sync", {"full_reindex": True})
+    assert concept_sync["written"] >= 1
+    assert concept_sync["corpus_revision"]
+
+    story_sync = await server.call_tool("story_sync", {"full_reindex": True})
+    assert story_sync["written"] >= 1
+    assert story_sync["corpus_revision"] != concept_sync["corpus_revision"]
+
+    listed = await server.call_tool("story_list_sources", {})
+    by_type = {s["source_type"]: s for s in listed["sources"]}
+    assert by_type["concept"]["chunk_count"] >= 1
+    assert by_type["story"]["chunk_count"] >= 1
+    assert by_type["story"]["producer"] == "story_sync"
+    assert by_type["concept"]["last_revision"] == concept_sync["corpus_revision"]
+    assert by_type["story"]["last_revision"] == story_sync["corpus_revision"]
+
+
+@pytest.mark.asyncio
+async def test_r01_call_tool_rejects_an_unknown_argument(tmp_path: Path) -> None:
+    service, _client = _service(tmp_path)
+    server = build_mcp_server(service)
+    with pytest.raises(ToolArgumentError, match="unknown argument"):
+        await server.call_tool("story_search", {"query": "x", "bogus": 1})
+
+
+@pytest.mark.asyncio
+async def test_r01_call_tool_preserves_an_explicit_null(tmp_path: Path) -> None:
+    """The transport must NOT collapse an explicit null into the default (R13)."""
+    service, _client = _service(tmp_path)
+    server = build_mcp_server(service)
+    with pytest.raises(ToolArgumentError, match="limit"):
+        await server.call_tool("story_search", {"query": "x", "limit": None})
+
+
+def test_return_fields_are_bound_to_the_fk13_tables() -> None:
+    assert set(contract_for("story_search").return_fields) >= {
+        "story_id", "title", "status", "story_type", "source_type", "module",
+        "epic", "section_heading", "score", "snippet",
+    }
+    assert set(contract_for("concept_search").return_fields) >= {
+        "concept_id", "title", "module", "section_heading", "section_number",
+        "is_appendix", "parent_concept_id", "defers_to", "authority_over",
+        "normative_rules", "concept_status", "score", "snippet",
+    }
+    # D1 minimal shape of story_list_sources.
+    assert set(contract_for("story_list_sources").return_fields) == {
+        "project_id", "source_type", "producer", "source_count",
+        "chunk_count", "last_revision",
+    }
 
 
 # --------------------------------------------------------------------------- #
-# AC10: strict argument validation
+# AC10: strict argument validation with ABSENCE semantics (R13)
 # --------------------------------------------------------------------------- #
 
 
-def test_search_mode_strict() -> None:
-    assert validate_search_mode(None) == "hybrid"
-    assert validate_search_mode("vector") == "vector"
+def test_search_mode_absent_defaults_present_is_strict() -> None:
+    assert validate_search_mode({}) == "hybrid"
+    assert validate_search_mode({"search_mode": "vector"}) == "vector"
     with pytest.raises(ToolArgumentError):
-        validate_search_mode("fuzzy")
+        validate_search_mode({"search_mode": "fuzzy"})
+    with pytest.raises(ToolArgumentError, match="explicitly null"):
+        validate_search_mode({"search_mode": None})
 
 
-def test_limit_rejects_bool_as_int() -> None:
+def test_limit_absent_defaults_present_is_strict() -> None:
+    assert validate_limit({}) == DEFAULT_LIMIT
+    assert validate_limit({"limit": 25}) == 25
+    with pytest.raises(ToolArgumentError, match="explicitly null"):
+        validate_limit({"limit": None})
     with pytest.raises(ToolArgumentError):
-        validate_limit(True)
+        validate_limit({"limit": True})  # bool-as-int
     with pytest.raises(ToolArgumentError):
-        validate_limit(0)
+        validate_limit({"limit": 0})
     with pytest.raises(ToolArgumentError):
-        validate_limit(101)
-    assert validate_limit(None) == 10
-    assert validate_limit(25) == 25
+        validate_limit({"limit": MAX_LIMIT + 1})
+
+
+def test_bool_absent_defaults_present_is_strict() -> None:
+    assert validate_bool({}, name="full_reindex") is False
+    assert validate_bool({"full_reindex": True}, name="full_reindex") is True
+    with pytest.raises(ToolArgumentError, match="explicitly null"):
+        validate_bool({"full_reindex": None}, name="full_reindex")
+    with pytest.raises(ToolArgumentError):
+        validate_bool({"full_reindex": "yes"}, name="full_reindex")
 
 
 # --------------------------------------------------------------------------- #
@@ -203,102 +278,87 @@ def test_limit_rejects_bool_as_int() -> None:
 
 
 def test_story_search_omitted_project_uses_bound(tmp_path: Path) -> None:
-    retrieval = FakeRetrieval(hits=[{"story_id": "S1", "title": "t", "score": 0.5}])
-    service = _service(tmp_path, retrieval=retrieval)
+    service, client = _service(tmp_path)
+    client.search_results = [story_hit("s1", "AG3-1", 0.5)]
     result = handle_tool_call(service, "story_search", {"query": "x"})
     assert result["project_id"] == "acme"
+    assert result["results"][0]["story_id"] == "AG3-1"
 
 
-def test_story_search_divergent_project_rejected(tmp_path: Path) -> None:
-    service = _service(tmp_path)
+@pytest.mark.parametrize(
+    "tool,args",
+    [
+        ("story_search", {"query": "x", "project_id": "other"}),
+        ("story_list_sources", {"project_id": "other"}),
+        ("story_sync", {"project_id": "other"}),
+        ("concept_search", {"query": "x", "project_id": "other"}),
+        ("concept_sync", {"project_id": "other"}),
+    ],
+)
+def test_foreign_project_id_is_rejected_for_every_tool(
+    tmp_path: Path, tool: str, args: dict[str, Any]
+) -> None:
+    service, client = _service(tmp_path)
     with pytest.raises(ToolArgumentError, match="diverges"):
-        handle_tool_call(service, "story_search", {"query": "x", "project_id": "other"})
-
-
-def test_story_list_sources_divergent_project_rejected(tmp_path: Path) -> None:
-    service = _service(tmp_path)
-    with pytest.raises(ToolArgumentError, match="diverges"):
-        handle_tool_call(service, "story_list_sources", {"project_id": "other"})
+        handle_tool_call(service, tool, args)
+    assert client.objects == {}
+    assert client.search_calls == []
 
 
 # --------------------------------------------------------------------------- #
-# AC7: search modes differ / envelopes / fail-closed
+# AC7: envelopes / fail-closed
 # --------------------------------------------------------------------------- #
 
 
 def test_concept_search_applies_authority_ranking_and_envelope(tmp_path: Path) -> None:
-    retrieval = FakeRetrieval(
-        hits=[{"concept_id": "FK-13", "title": "Retrieval", "module": "vectordb", "score": 0.5}]
-    )
-    service = _service(tmp_path, retrieval=retrieval)
+    service, client = _service(tmp_path)
+    client.search_results = [concept_hit("c1", "FK-13", 0.5)]
     result = handle_tool_call(service, "concept_search", {"query": "retrieval"})
     assert result["project_id"] == "acme"
-    assert result["results"]
     assert "authority_score" in result["results"][0]
     assert result["results"][0]["concept_id"] == "FK-13"
 
 
 def test_weaviate_outage_is_fail_closed(tmp_path: Path) -> None:
-    retrieval = FakeRetrieval(raise_search=True)
-    service = _service(tmp_path, retrieval=retrieval)
+    from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
+
+    service, client = _service(tmp_path)
+
+    def _down(**_kwargs: object) -> None:
+        raise VectorDbUnavailableError("node down")
+
+    client.search_objects = _down  # type: ignore[method-assign]
     result = handle_tool_call(service, "story_search", {"query": "x"})
     assert result["error"] == "vectordb_unavailable"
+    assert "node down" in result["detail"]
 
 
-# --------------------------------------------------------------------------- #
-# concept_sync validate precondition + envelope
-# --------------------------------------------------------------------------- #
-
-
-def test_concept_sync_envelope_has_revision(tmp_path: Path) -> None:
-    service = _service(tmp_path)
-    result = handle_tool_call(service, "concept_sync", {"full_reindex": True})
-    assert result["project_id"] == "acme"
-    assert "corpus_revision" in result
-    assert result["written"] >= 1
+def test_three_search_modes_reach_the_transport_distinctly(tmp_path: Path) -> None:
+    service, client = _service(tmp_path)
+    client.search_results = [concept_hit("c1", "FK-13", 0.5)]
+    for mode in SEARCH_MODES:
+        handle_tool_call(service, "concept_search", {"query": "x", "search_mode": mode})
+    assert [c["search_mode"] for c in client.search_calls] == list(SEARCH_MODES)
 
 
 def test_concept_sync_blocks_on_invalid_corpus(tmp_path: Path) -> None:
-    cdir = tmp_path / "concept" / "technical-design"
-    cdir.mkdir(parents=True)
-    (cdir / "broken.md").write_text("no frontmatter", encoding="utf-8")
-    (tmp_path / "stories").mkdir()
-    service = McpToolService(
-        binding=_binding(),
-        retrieval=FakeRetrieval(),
-        sync=SyncService(store=FakeStore()),
-        concepts_dir=tmp_path / "concept",
-        stories_dir=tmp_path / "stories",
+    service, client = _service(tmp_path)
+    (service.concepts_dir / "technical-design" / "broken.md").write_text(
+        "no frontmatter", encoding="utf-8"
     )
     result = handle_tool_call(service, "concept_sync", {"full_reindex": True})
-    assert result.get("error") == "concept_validate_failed"
-
-
-def test_story_list_sources_envelope_shape(tmp_path: Path) -> None:
-    retrieval = FakeRetrieval(
-        sources=[{"project_id": "acme", "source_type": "story", "producer": "story_sync"}]
-    )
-    service = _service(tmp_path, retrieval=retrieval)
-    result = handle_tool_call(service, "story_list_sources", {})
-    assert result["project_id"] == "acme"
-    assert result["sources"][0]["project_id"] == "acme"
-
-
-def test_story_sync_incremental_envelope(tmp_path: Path) -> None:
-    # story_dir is empty -> incremental sync of zero sources still returns envelope.
-    service = _service(tmp_path)
-    result = handle_tool_call(service, "story_sync", {"full_reindex": False})
-    assert result["project_id"] == "acme"
-    assert "corpus_revision" in result
+    assert result["error"] == "concept_validate_failed"
+    assert result["written"] == 0
+    assert client.objects == {}
 
 
 def test_unknown_tool_rejected(tmp_path: Path) -> None:
-    service = _service(tmp_path)
+    service, _client = _service(tmp_path)
     with pytest.raises(ToolArgumentError, match="unknown tool"):
         handle_tool_call(service, "bogus_tool", {})
 
 
 def test_search_missing_query_rejected(tmp_path: Path) -> None:
-    service = _service(tmp_path)
+    service, _client = _service(tmp_path)
     with pytest.raises(ToolArgumentError, match="query"):
         handle_tool_call(service, "story_search", {})

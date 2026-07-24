@@ -90,9 +90,18 @@ class StoryIndexPort(Protocol):
 
 
 def _render_frontmatter(story: Story, exported_at: str) -> str:
-    """Render the YAML frontmatter block (FK-21 §21.11.3)."""
+    """Render the YAML frontmatter block (FK-21 §21.11.3).
+
+    Carries the REAL story ``title``, ``status`` and ``story_type`` (R04): the
+    exported ``story.md`` is the ingest source for the StoryContext projection, so
+    the frontmatter must hold the actual metadata instead of leaving the ingest to
+    fall back to the story id / an empty status.
+    """
     data = {
         "story_id": story.story_display_id,
+        "title": story.title,
+        "status": story.status.value,
+        "story_type": story.story_type.value,
         "labels": list(story.labels),
         "exported_at": exported_at,
     }
@@ -158,28 +167,62 @@ def _render_body(story: Story, spec: StorySpecification | None) -> str:
     return "\n".join(parts).rstrip("\n") + "\n"
 
 
+def canonical_story_source_file(story_dir: Path) -> str:
+    """Return the canonical PROJECT-RELATIVE corpus path of a story artefact (R04).
+
+    FK-13 §13.3.2/§13.3.1 fix the story corpus layout as
+    ``stories/<story>/story.md``; the indexed ``source_file`` must be that
+    project-relative path, never an absolute filesystem path (the content hash and
+    the deterministic object identity are derived from it). Using the SAME shape
+    the ingest classifier recognises keeps export and ``story_sync`` on ONE corpus
+    identity -- a divergent path would make the delete closure miss the object.
+
+    Args:
+        story_dir: The story directory (its NAME is the story folder).
+
+    Returns:
+        e.g. ``stories/AK3-042/story.md``.
+
+    Raises:
+        ValueError: When the derived path is not a canonical story source
+            (fail-closed: the export refuses to index an unclassifiable path).
+    """
+    from agentkit.backend.vectordb.ingest.classify import classify_source_file
+
+    name = story_dir.name
+    rel = f"stories/{name}/{STORY_MD_FILENAME}"
+    if not name or classify_source_file(rel) != "story":
+        raise ValueError(
+            f"{rel!r} is not a canonical story source path "
+            f"(expected 'stories/<story>/{STORY_MD_FILENAME}'); fail-closed (R04)."
+        )
+    return rel
+
+
 def _story_index_objects(
-    project_id: str, story: Story, spec: StorySpecification | None, story_md_path: Path
+    project_id: str,
+    story: Story,
+    story_md_path: Path,
+    source_file: str,
 ) -> list[dict[str, object]]:
     """Build the indexing payload via the typed AG3-174 story-ingest projection (R04).
 
     Re-chunks the WRITTEN ``story.md`` through the SSOT chunker so every object
     carries ``content``/``project_id``/``source_type``/``source_file``/
-    ``content_hash``/headings and a deterministic UUID (AC3). The export never
-    sends the old minimal ``problem/solution`` shape.
+    ``content_hash``/headings and a deterministic UUID derived from the
+    PROJECT-RELATIVE ``source_file`` (AC3/R04). The export never sends the old
+    minimal ``problem/solution`` shape.
     """
     from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
 
-    objects = story_file_to_objects(project_id, story_md_path)
-    # Carry the story-level metadata the projection does not derive from a bare
-    # story.md (status/type/module/epic) onto each chunk for filtering.
+    objects = story_file_to_objects(project_id, story_md_path, source_file=source_file)
+    # Carry the story-level metadata that is not part of the story.md frontmatter
+    # (module/epic) onto each chunk for filtering.
     for obj in objects:
-        props = obj.properties
-        props["story_type"] = story.story_type.value
         if story.module:
-            props["module"] = story.module
+            obj.properties["module"] = story.module
         if story.epic:
-            props["epic"] = story.epic
+            obj.properties["epic"] = story.epic
     return [{**obj.properties, "uuid": obj.uuid} for obj in objects]
 
 
@@ -209,6 +252,7 @@ def export_story_md(
     project_id: str,
     story_attributes: StoryAttributesPort,
     index: StoryIndexPort,
+    source_file: str | None = None,
 ) -> StoryMdExportResult:
     """Deterministically export a story as ``story.md`` (FK-21 §21.11).
 
@@ -218,6 +262,10 @@ def export_story_md(
         project_id: Bound multi-tenant discriminator for the indexed objects (R04).
         story_attributes: Authoritative story-attribute read surface.
         index: Incremental Weaviate indexing surface (hard blocker on failure).
+        source_file: PROJECT-RELATIVE corpus path of the exported artefact (R04).
+            Defaults to the canonical ``stories/<story-dir>/story.md`` layout
+            (FK-13 §13.3.2); callers that know the project root pass the real
+            relative path.
 
     Returns:
         A :class:`StoryMdExportResult`; on ANY blocker ``success=False`` with a
@@ -278,12 +326,27 @@ def export_story_md(
 
     # Automatic incremental Weaviate indexing -- HARD blocker (FK-21 §21.11.4).
     # Routed through the typed AG3-174 story-ingest projection (R04): full
-    # StoryContext fields + deterministic UUIDs, project-bounded.
+    # StoryContext fields + deterministic UUIDs from the PROJECT-RELATIVE path,
+    # project-bounded.
+    try:
+        rel_source = (
+            source_file
+            if source_file is not None
+            else canonical_story_source_file(story_dir)
+        )
+        objects = _story_index_objects(project_id, story, target, rel_source)
+    except ValueError as exc:
+        return StoryMdExportResult(
+            success=False,
+            story_md_path=target_str,
+            file_size_bytes=size,
+            error=f"story indexing projection rejected the export: {exc}",
+        )
     try:
         index.index_story(
             story_id=story.story_display_id,
             project_id=project_id,
-            objects=_story_index_objects(project_id, story, spec, target),
+            objects=objects,
         )
     except VectorDbError as exc:
         indexing_error = f"Weaviate indexing failed: {exc} (fail-closed: indexing " \
@@ -317,5 +380,6 @@ __all__ = [
     "StoryAttributesPort",
     "StoryIndexPort",
     "StoryMdExportResult",
+    "canonical_story_source_file",
     "export_story_md",
 ]

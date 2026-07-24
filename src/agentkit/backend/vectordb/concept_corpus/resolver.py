@@ -9,8 +9,9 @@ about and whether interface/test detail is wanted), traversing the scoped
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -18,17 +19,32 @@ if TYPE_CHECKING:
     from agentkit.backend.vectordb.concept_corpus.graph import ConceptGraph
 
 #: Query detail hints that activate the appendix interface boost (rule 3).
-_INTERFACE_DETAILS: frozenset[str] = frozenset({"interface", "test", "contract", "api"})
+_INTERFACE_DETAILS: frozenset[str] = frozenset(
+    {"interface", "interfaces", "test", "tests", "contract", "contracts", "api"}
+)
+
+#: Rule-5 module-match boost (FK-13 §13.9.11).
+MODULE_MATCH_BOOST: Final[float] = 0.3
+
+#: Rule-3 appendix interface/test boost (FK-13 §13.9.11).
+APPENDIX_DETAIL_BOOST: Final[float] = 0.5
 
 
 @dataclass(frozen=True)
 class RankedHit:
-    """A search hit with its computed authority score and applied rules."""
+    """A search hit with its computed authority score and applied rules.
+
+    Attributes:
+        hit_index: Position of the hit in the ranked INPUT sequence. This keeps a
+            stable per-hit identity through ranking, so several section hits of
+            the same ``concept_id`` stay distinct (N10).
+    """
 
     concept_id: str
     score: float
     authority_score: float
     reasons: tuple[str, ...]
+    hit_index: int = -1
 
 
 @dataclass(frozen=True)
@@ -106,13 +122,15 @@ def rank_hits(
     cross_module_authority = _cross_module_authority_exists(graph, ctx)
 
     ranked: list[RankedHit] = []
-    for hit in hits:
+    for hit_index, hit in enumerate(hits):
         concept_id = str(hit.get("concept_id", ""))
         node = graph.node(concept_id)
         raw_score = hit.get("score", 0.0)
         base = float(raw_score) if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool) else 0.0
         if node is None:
-            ranked.append(RankedHit(concept_id, base, base, ("no-graph-node",)))
+            ranked.append(
+                RankedHit(concept_id, base, base, ("no-graph-node",), hit_index=hit_index)
+            )
             continue
         authority = base
         reasons: list[str] = []
@@ -132,7 +150,7 @@ def rank_hits(
             and bool(ctx.query_detail)
             and ctx.query_detail.lower() in _INTERFACE_DETAILS
         ):
-            authority += 0.5
+            authority += APPENDIX_DETAIL_BOOST
             reasons.append("appendix-interface")
         # Rule 4: status penalty.
         penalty = _status_penalty(node.status)
@@ -146,11 +164,28 @@ def rank_hits(
             and ctx.query_scope not in node.authority_scopes
             and not cross_module_authority
         ):
-            authority += 0.3
+            authority += MODULE_MATCH_BOOST
             reasons.append("module-match")
-        ranked.append(RankedHit(concept_id, base, authority, tuple(reasons)))
-    ranked.sort(key=lambda r: (-r.authority_score, -r.score, r.concept_id))
+        ranked.append(
+            RankedHit(concept_id, base, authority, tuple(reasons), hit_index=hit_index)
+        )
+    ranked.sort(key=lambda r: (-r.authority_score, -r.score, r.concept_id, r.hit_index))
     return ranked
+
+
+def derive_query_detail(query: str) -> str:
+    """Derive the interface/test DETAIL hint from the query text (rule 3, R10).
+
+    FK-13 §13.9.11 rule 3 lets an appendix outrank a core document for
+    interface/test detail. "Detail" is a property of what is being ASKED, and
+    FK-13 §13.9.5 defines no separate detail parameter -- so the hint is derived
+    deterministically from the query text itself: the FIRST interface/test token
+    that appears as a word. Empty when the query asks for no such detail.
+    """
+    for token in re.findall(r"[a-z0-9]+", query.lower()):
+        if token in _INTERFACE_DETAILS:
+            return str(token)
+    return ""
 
 
 def _cross_module_authority_exists(graph: ConceptGraph, ctx: RankContext) -> bool:
@@ -165,4 +200,11 @@ def _cross_module_authority_exists(graph: ConceptGraph, ctx: RankContext) -> boo
     )
 
 
-__all__ = ["RankContext", "RankedHit", "rank_hits"]
+__all__ = [
+    "APPENDIX_DETAIL_BOOST",
+    "MODULE_MATCH_BOOST",
+    "RankContext",
+    "RankedHit",
+    "derive_query_detail",
+    "rank_hits",
+]

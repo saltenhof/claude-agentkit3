@@ -137,21 +137,83 @@ def test_concept_objects_uuid_is_project_scoped(tmp_path: Path) -> None:
 
 
 def test_story_file_to_objects(tmp_path: Path) -> None:
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+    from agentkit.backend.vectordb.schema import deterministic_uuid
+
     story_md = tmp_path / "stories" / "AG3-1" / "story.md"
     story_md.parent.mkdir(parents=True)
     story_md.write_text(
-        "---\nstory_id: AG3-1\nstatus: ready\n---\n\n# Title\n\n## Problem\n\nNeed.\n",
+        "---\nstory_id: AG3-1\ntitle: Real title\nstatus: Backlog\n---\n"
+        "\n# Title\n\n## Problem\n\nNeed.\n",
         encoding="utf-8",
     )
-    objects = concept_chunks_to_objects.__module__  # ensure import works
-    assert objects
-    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
-
-    objs = story_file_to_objects("acme", story_md)
+    rel = "stories/AG3-1/story.md"
+    objs = story_file_to_objects("acme", story_md, source_file=rel)
     assert objs
     assert all(o.properties["source_type"] == "story" for o in objs)
     assert all(o.properties["project_id"] == "acme" for o in objs)
+    assert all(o.properties["source_file"] == rel for o in objs)
     assert objs[0].properties["story_id"] == "AG3-1"
+    assert objs[0].properties["title"] == "Real title"
+    assert objs[0].properties["status"] == "Backlog"
+    # The identity is derived from the PROJECT-RELATIVE path and is verifiable.
+    assert objs[0].uuid == deterministic_uuid("acme", rel, objs[0].chunk_id)
+
+
+def test_story_file_to_objects_requires_a_relative_source_file(tmp_path: Path) -> None:
+    """R04: an absolute path must never become the corpus identity."""
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+
+    story_md = tmp_path / "stories" / "AG3-1" / "story.md"
+    story_md.parent.mkdir(parents=True)
+    story_md.write_text("---\nstory_id: AG3-1\n---\n\n# T\n\n## P\n\nn.\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="PROJECT-RELATIVE"):
+        story_file_to_objects("acme", story_md, source_file=story_md.as_posix())
+
+
+def test_story_file_without_frontmatter_is_rejected(tmp_path: Path) -> None:
+    """N05: ABSENT frontmatter is a named error, not an accepted partial quality."""
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+    from agentkit.concepts.frontmatter import FrontmatterError
+
+    story_md = tmp_path / "s.md"
+    story_md.write_text("# No frontmatter\n\n## P\n\nn.\n", encoding="utf-8")
+    with pytest.raises(FrontmatterError, match="no frontmatter block"):
+        story_file_to_objects("acme", story_md, source_file="stories/x/story.md")
+
+
+@pytest.mark.parametrize(
+    "frontmatter,match",
+    [
+        ("story_id: AG3-1\nstatus: 42\n", "status"),
+        ("story_id: AG3-1\ntitle: true\n", "title"),
+        ("story_id: 7\n", "story_id"),
+        ("story_id: AG3-1\nstory_type: [a]\n", "story_type"),
+        ("title: T\n", "story_id"),
+    ],
+)
+def test_story_metadata_is_never_coerced(
+    tmp_path: Path, frontmatter: str, match: str
+) -> None:
+    """N05: numeric/boolean/list metadata is a named error -- no ``str()`` coercion."""
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+    from agentkit.concepts.frontmatter import FrontmatterError
+
+    story_md = tmp_path / "s.md"
+    story_md.write_text(f"---\n{frontmatter}---\n\n# T\n\n## P\n\nn.\n", encoding="utf-8")
+    with pytest.raises(FrontmatterError, match=match):
+        story_file_to_objects("acme", story_md, source_file="stories/x/story.md")
+
+
+def test_research_source_type_is_carried(tmp_path: Path) -> None:
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+
+    doc = tmp_path / "findings.md"
+    doc.write_text("---\nstory_id: AG3-1\n---\n\n# R\n\n## F\n\nfound.\n", encoding="utf-8")
+    objs = story_file_to_objects(
+        "acme", doc, source_file="stories/AG3-1/research/findings.md", source_type="research"
+    )
+    assert all(o.properties["source_type"] == "research" for o in objs)
 
 
 def test_classify_story_corpus_files(tmp_path: Path) -> None:

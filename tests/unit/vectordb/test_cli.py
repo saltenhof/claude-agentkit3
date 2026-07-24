@@ -165,9 +165,10 @@ def test_cli_build_blocked_on_errors(tmp_path: Path) -> None:
 
 
 def test_r07_sync_writes_via_injected_service(tmp_path: Path) -> None:
-    from tests.unit.vectordb.test_remediation_r1 import _FakeRetrieval, _FakeStore  # type: ignore[attr-defined]
+    from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient, corpus_store
 
     from agentkit.backend.vectordb.cli import build_parser
+    from agentkit.backend.vectordb.engine import WeaviateRetrievalPort
     from agentkit.backend.vectordb.mcp_server import McpToolService
     from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
     from agentkit.backend.vectordb.sync import SyncService
@@ -179,11 +180,14 @@ def test_r07_sync_writes_via_injected_service(tmp_path: Path) -> None:
         "WEAVIATE_GRPC_ENDPOINT": "weaviate.acme.local:50051",
     }
     binding = RuntimeBinding.from_env(env, command="python", args=(), cwd=str(tmp_path))
-    store = _FakeStore()
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
 
     def real_factory(concepts_dir: Path) -> McpToolService:
         return McpToolService(
-            binding=binding, retrieval=_FakeRetrieval(), sync=SyncService(store=store),
+            binding=binding,
+            retrieval=WeaviateRetrievalPort(client=client, store=store, binding=binding),  # type: ignore[arg-type]
+            sync=SyncService(store=store),
             concepts_dir=concepts_dir, stories_dir=tmp_path,
         )
 
@@ -193,7 +197,7 @@ def test_r07_sync_writes_via_injected_service(tmp_path: Path) -> None:
     code = int(args.func(args))
     assert code == 0
     # Real writes happened (store populated with concept chunks).
-    assert len(store.objects) > 0
+    assert len(client.objects) > 0
 
 
 def test_r07_sync_fails_closed_on_composition_error(tmp_path: Path) -> None:

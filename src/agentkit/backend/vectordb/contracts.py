@@ -1,9 +1,19 @@
-"""MCP tool contracts: names, required params, return fields, strict validators.
+"""MCP tool contracts: names, parameters, return fields, strict validators.
 
-FK-13 §13.4.1 / §13.9.5 are bound here as the abnahmeverbindliche contract. The
-strict argument validators implement the AC10 MCP-input axis: no bool-as-int
-coercion, bounded positive ``limit``, strict enums, foreign ``project_id``
-rejected (D2).
+FK-13 §13.4.1 / §13.9.5 are bound here as the abnahmeverbindliche contract. This
+module is the SINGLE source of truth for
+
+- the five tool names and their parameter sets,
+- the ADVERTISED JSON input schema (built from the same table the validators
+  use, so the schema can never drift from the enforcement), and
+- the strict argument validation (AC10 MCP-input axis): no bool-as-int coercion,
+  bounded positive ``limit``, strict enums, foreign ``project_id`` rejected (D2).
+
+Absence semantics (R13): every validator takes the ARGUMENT MAPPING, not a
+pre-extracted value, so an ABSENT key is distinguishable from an explicitly
+supplied ``null`` / empty value. Only an absent key falls back to the documented
+default; an explicit ``null``, an empty string or a wrongly-typed value is a
+NAMED error for EVERY optional parameter.
 """
 
 from __future__ import annotations
@@ -30,23 +40,93 @@ class ToolArgumentError(ValueError):
 
 
 @dataclass(frozen=True)
+class ToolParam:
+    """One FK-13 tool parameter (name, JSON type, requiredness, enum)."""
+
+    name: str
+    json_type: str
+    required: bool
+    description: str
+    enum: tuple[str, ...] = ()
+    minimum: int | None = None
+    maximum: int | None = None
+
+    def json_schema(self) -> dict[str, object]:
+        """Return the JSON-Schema fragment advertised for this parameter.
+
+        The type NEVER includes ``null``: an explicit JSON ``null`` is invalid
+        for every optional parameter (R13), and only an absent key falls back to
+        the documented default.
+        """
+        schema: dict[str, object] = {"type": self.json_type, "description": self.description}
+        if self.enum:
+            schema["enum"] = list(self.enum)
+        if self.minimum is not None:
+            schema["minimum"] = self.minimum
+        if self.maximum is not None:
+            schema["maximum"] = self.maximum
+        return schema
+
+
+@dataclass(frozen=True)
 class ToolContract:
-    """One FK-13 MCP tool contract (name, required params, return fields)."""
+    """One FK-13 MCP tool contract (name, parameters, return fields)."""
 
     name: str
     description: str
-    required_params: tuple[str, ...]
-    optional_params: tuple[str, ...]
+    params: tuple[ToolParam, ...]
     return_fields: tuple[str, ...]
 
+    @property
+    def required_params(self) -> tuple[str, ...]:
+        return tuple(p.name for p in self.params if p.required)
+
+    @property
+    def optional_params(self) -> tuple[str, ...]:
+        return tuple(p.name for p in self.params if not p.required)
+
+    def input_schema(self) -> dict[str, object]:
+        """Return the advertised MCP ``inputSchema`` for this tool.
+
+        ``additionalProperties: false`` mirrors :func:`reject_unknown_args`, so
+        the advertised contract and the enforced contract are the same set.
+        """
+        return {
+            "type": "object",
+            "properties": {p.name: p.json_schema() for p in self.params},
+            "required": list(self.required_params),
+            "additionalProperties": False,
+        }
+
+
+_QUERY = ToolParam("query", "string", True, "Natural-language search text.")
+_SEARCH_MODE = ToolParam(
+    "search_mode", "string", False, "hybrid (default), vector or keyword.", enum=SEARCH_MODES
+)
+_PROJECT_ID = ToolParam(
+    "project_id", "string", False, "Bound project id; a divergent value is rejected (D2)."
+)
+_LIMIT = ToolParam(
+    "limit", "integer", False, f"Max results (default {DEFAULT_LIMIT}).",
+    minimum=1, maximum=MAX_LIMIT,
+)
+_FULL_REINDEX = ToolParam(
+    "full_reindex", "boolean", False, "Complete rebuild of the owned source types."
+)
 
 #: The five FK-13 tools (§13.4.1 / §13.9.5) -- the contract source of truth.
 TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
     ToolContract(
         name="story_search",
         description="Semantic search over stories and research.",
-        required_params=("query",),
-        optional_params=("search_mode", "project_id", "status", "story_type", "limit"),
+        params=(
+            _QUERY,
+            _SEARCH_MODE,
+            _PROJECT_ID,
+            ToolParam("status", "string", False, "Story status filter (e.g. Done)."),
+            ToolParam("story_type", "string", False, "Story type filter (e.g. concept)."),
+            _LIMIT,
+        ),
         return_fields=(
             "story_id", "title", "status", "story_type", "source_type", "module",
             "epic", "section_heading", "score", "snippet",
@@ -55,8 +135,7 @@ TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
     ToolContract(
         name="story_list_sources",
         description="List indexed source types and producers for the bound project.",
-        required_params=(),
-        optional_params=("project_id",),
+        params=(_PROJECT_ID,),
         return_fields=(
             "project_id", "source_type", "producer", "source_count",
             "chunk_count", "last_revision",
@@ -65,17 +144,24 @@ TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
     ToolContract(
         name="story_sync",
         description="Incremental/full index of story and research sources.",
-        required_params=(),
-        optional_params=("project_id", "full_reindex"),
+        params=(_PROJECT_ID, _FULL_REINDEX),
         return_fields=("project_id", "synced_sources", "written", "deleted", "corpus_revision"),
     ),
     ToolContract(
         name="concept_search",
         description="Semantic search over concept documents (default active, authority-ranked).",
-        required_params=("query",),
-        optional_params=(
-            "search_mode", "project_id", "concept_id", "module",
-            "is_appendix", "concept_status", "limit",
+        params=(
+            _QUERY,
+            _SEARCH_MODE,
+            _PROJECT_ID,
+            ToolParam("concept_id", "string", False, "Filter on a specific concept."),
+            ToolParam("module", "string", False, "Module filter (also the queried authority scope)."),
+            ToolParam("is_appendix", "boolean", False, "Only appendices / only core."),
+            ToolParam(
+                "concept_status", "string", False, "active (default), draft or archived.",
+                enum=CONCEPT_STATUSES,
+            ),
+            _LIMIT,
         ),
         return_fields=(
             "concept_id", "title", "module", "section_heading", "section_number",
@@ -86,8 +172,11 @@ TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
     ToolContract(
         name="concept_sync",
         description="Incremental/full index of concept sources (validate is a precondition).",
-        required_params=(),
-        optional_params=("project_id", "full_reindex", "concept_path"),
+        params=(
+            _PROJECT_ID,
+            _FULL_REINDEX,
+            ToolParam("concept_path", "string", False, "Path of a single concept document."),
+        ),
         return_fields=("project_id", "synced_sources", "written", "deleted", "corpus_revision"),
     ),
 )
@@ -99,7 +188,7 @@ TOOL_NAMES: Final[tuple[str, ...]] = tuple(t.name for t in TOOL_CONTRACTS)
 def allowed_keys_for(name: str) -> frozenset[str]:
     """Return the exact allowed argument-key set for a tool (R13)."""
     contract = contract_for(name)
-    return frozenset(contract.required_params + contract.optional_params)
+    return frozenset(p.name for p in contract.params)
 
 
 def contract_for(name: str) -> ToolContract:
@@ -123,36 +212,30 @@ def require_str(args: Mapping[str, Any], key: str) -> str:
     return value.strip()
 
 
-def optional_str(args: Mapping[str, Any], key: str) -> str:
-    """Return an optional string arg (``""`` when omitted).
+def optional_str(args: Mapping[str, Any], key: str) -> str | None:
+    """Return an optional string argument with STRICT absence semantics (R13).
 
-    A PRESENT but wrong-typed value is a named error (R13): never coerced to a
-    default and never silently ignored.
+    - key ABSENT -> ``None`` (the documented "no filter" default);
+    - key present with ``null`` / empty / whitespace -> NAMED error;
+    - key present with a non-string -> NAMED error (no coercion).
     """
-    value = args.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise ToolArgumentError(
-            f"argument {key!r} must be a string, got {type(value).__name__} (AC10/R13)"
-        )
-    return value.strip()
-
-
-def require_str_or_none(args: Mapping[str, Any], key: str) -> str | None:
-    """Return a present-or-absent string arg as ``str | None`` (strict typing).
-
-    A wrong-typed value is a named error (R13) -- NOT coerced to ``None``.
-    """
-    value = args.get(key)
-    if value is None:
+    if key not in args:
         return None
+    value = args[key]
+    if value is None:
+        raise ToolArgumentError(
+            f"argument {key!r} is explicitly null; omit the key to use the default "
+            "(R13, no silent fallback)"
+        )
     if not isinstance(value, str):
         raise ToolArgumentError(
             f"argument {key!r} must be a string, got {type(value).__name__} (AC10/R13)"
         )
     if not value.strip():
-        return None
+        raise ToolArgumentError(
+            f"argument {key!r} is an empty string; omit the key to use the default "
+            "(R13, no silent fallback)"
+        )
     return value.strip()
 
 
@@ -167,19 +250,28 @@ def reject_unknown_args(name: str, args: Mapping[str, Any]) -> None:
         )
 
 
-def validate_search_mode(value: Any) -> str:
+def validate_search_mode(args: Mapping[str, Any]) -> str:
+    """Validate ``search_mode``: absent -> ``hybrid``; null/empty/unknown -> error."""
+    value = optional_str(args, "search_mode")
     if value is None:
         return "hybrid"
-    if not isinstance(value, str) or value not in SEARCH_MODES:
+    if value not in SEARCH_MODES:
         raise ToolArgumentError(
             f"search_mode {value!r} must be one of {SEARCH_MODES} (AC10)"
         )
     return value
 
 
-def validate_limit(value: Any) -> int:
-    if value is None:
+def validate_limit(args: Mapping[str, Any]) -> int:
+    """Validate ``limit``: absent -> default; null/bool/non-int/out-of-range -> error."""
+    if "limit" not in args:
         return DEFAULT_LIMIT
+    value = args["limit"]
+    if value is None:
+        raise ToolArgumentError(
+            "argument 'limit' is explicitly null; omit the key to use the default "
+            f"({DEFAULT_LIMIT}) (R13, no silent fallback)"
+        )
     # bool is a subclass of int -- reject bool-as-int explicitly (AC10).
     if isinstance(value, bool) or not isinstance(value, int):
         raise ToolArgumentError(f"limit must be an integer, got {type(value).__name__} (AC10)")
@@ -188,18 +280,27 @@ def validate_limit(value: Any) -> int:
     return int(value)
 
 
-def validate_bool(value: Any, *, name: str) -> bool:
-    if value is None:
+def validate_bool(args: Mapping[str, Any], *, name: str) -> bool:
+    """Validate an optional boolean: absent -> ``False``; null/non-bool -> error."""
+    if name not in args:
         return False
+    value = args[name]
+    if value is None:
+        raise ToolArgumentError(
+            f"argument {name!r} is explicitly null; omit the key to use the default "
+            "(False) (R13, no silent fallback)"
+        )
     if not isinstance(value, bool):
         raise ToolArgumentError(f"{name} must be a boolean, got {type(value).__name__} (AC10)")
     return value
 
 
-def validate_concept_status(value: Any) -> str:
+def validate_concept_status(args: Mapping[str, Any]) -> str:
+    """Validate ``concept_status``: absent -> ``active`` (§13.9.10); else strict."""
+    value = optional_str(args, "concept_status")
     if value is None:
         return "active"
-    if not isinstance(value, str) or value not in CONCEPT_STATUSES:
+    if value not in CONCEPT_STATUSES:
         raise ToolArgumentError(
             f"concept_status {value!r} must be one of {CONCEPT_STATUSES} (AC10)"
         )
@@ -218,23 +319,9 @@ def resolve_project_id(binding: RuntimeBinding, args: Mapping[str, Any]) -> str:
     """
     if "project_id" not in args:
         return binding.resolve_project_id(None)
-    supplied = args["project_id"]
-    if supplied is None:
-        raise ToolArgumentError(
-            "argument 'project_id' is explicitly null; omit it to use the bound "
-            "project (R13, no silent fallback)."
-        )
-    if not isinstance(supplied, str):
-        raise ToolArgumentError(
-            f"argument 'project_id' must be a string, got {type(supplied).__name__} (AC10/R13)"
-        )
-    if not supplied.strip():
-        raise ToolArgumentError(
-            "argument 'project_id' is an empty string; omit it to use the bound "
-            "project (R13, no silent fallback)."
-        )
+    supplied = optional_str(args, "project_id")
     try:
-        return binding.resolve_project_id(supplied.strip())
+        return binding.resolve_project_id(supplied)
     except RuntimeBindingError as exc:
         raise ToolArgumentError(str(exc)) from exc
 
@@ -245,36 +332,34 @@ def validate_search_args(
     """Validate the common search arguments (query, search_mode, project_id, limit)."""
     return {
         "query": require_str(args, "query"),
-        "search_mode": validate_search_mode(args.get("search_mode")),
+        "search_mode": validate_search_mode(args),
         "project_id": resolve_project_id(binding, args),
-        "limit": validate_limit(args.get("limit")),
+        "limit": validate_limit(args),
     }
 
 
 def validate_story_filters(args: Mapping[str, Any]) -> dict[str, object]:
     """Strictly validate the optional story filters (status, story_type) (R13)."""
     filters: dict[str, object] = {}
-    status = require_str_or_none(args, "status")
-    if status:
+    status = optional_str(args, "status")
+    if status is not None:
         filters["status"] = status
-    story_type = require_str_or_none(args, "story_type")
-    if story_type:
+    story_type = optional_str(args, "story_type")
+    if story_type is not None:
         filters["story_type"] = story_type
     return filters
 
 
 def validate_concept_filters(args: Mapping[str, Any]) -> dict[str, object]:
     """Strictly validate the optional concept filters (R13)."""
-    concept_status = validate_concept_status(args.get("concept_status"))
-    filters: dict[str, object] = {"concept_status": concept_status}
-    is_appendix = args.get("is_appendix")
-    if is_appendix is not None:
-        filters["is_appendix"] = validate_bool(is_appendix, name="is_appendix")
-    concept_id = require_str_or_none(args, "concept_id")
-    if concept_id:
+    filters: dict[str, object] = {"concept_status": validate_concept_status(args)}
+    if "is_appendix" in args:
+        filters["is_appendix"] = validate_bool(args, name="is_appendix")
+    concept_id = optional_str(args, "concept_id")
+    if concept_id is not None:
         filters["concept_id"] = concept_id
-    module = require_str_or_none(args, "module")
-    if module:
+    module = optional_str(args, "module")
+    if module is not None:
         filters["module"] = module
     return filters
 
@@ -287,12 +372,12 @@ __all__ = [
     "TOOL_NAMES",
     "ToolArgumentError",
     "ToolContract",
+    "ToolParam",
     "allowed_keys_for",
     "contract_for",
     "optional_str",
     "reject_unknown_args",
     "require_str",
-    "require_str_or_none",
     "resolve_project_id",
     "validate_bool",
     "validate_concept_filters",

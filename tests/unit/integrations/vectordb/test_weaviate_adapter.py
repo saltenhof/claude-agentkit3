@@ -16,6 +16,7 @@ from agentkit.integration_clients.vectordb import (
     VectorDbWriteError,
     WeaviateStoryAdapter,
 )
+from agentkit.integration_clients.vectordb.weaviate_adapter import FK13_GRPC_PORT
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -149,16 +150,12 @@ def test_close_swallows_errors() -> None:
 
 def test_connect_connection_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     """NEGATIVE: a connect fault (package present) surfaces as unavailable."""
-    import sys
-    import types
-
-    fake_weaviate = types.ModuleType("weaviate")
+    import weaviate
 
     def _boom(**_kwargs: object) -> object:
         raise OSError("connection refused")
 
-    fake_weaviate.connect_to_local = _boom  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "weaviate", fake_weaviate)
+    monkeypatch.setattr(weaviate, "connect_to_custom", _boom)
     with pytest.raises(VectorDbUnavailableError):
         WeaviateStoryAdapter.connect(host="localhost", port=8080)
 
@@ -332,7 +329,7 @@ def test_real_client_missing_score_is_fail_closed(monkeypatch: pytest.MonkeyPatc
     collection = _FakeCollection(query=query, batch=_FakeBatch(_FakeBatchCtx()))
     connection = _FakeConnection(collection)
     adapter = WeaviateStoryAdapter(_real_client(connection))  # type: ignore[arg-type]
-    with pytest.raises(VectorDbUnavailableError, match="no 'score'"):
+    with pytest.raises(VectorDbUnavailableError, match="no numeric 'score'"):
         adapter.story_search("q", project_id="AG3", limit=20)
 
 
@@ -363,20 +360,28 @@ def test_real_client_is_ready_and_close() -> None:
 
 
 def test_connect_builds_real_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The connect() happy path returns an adapter over a _RealWeaviateClient."""
-    import sys
-    import types
+    """The connect() happy path passes BOTH endpoints into connect_to_custom (R03)."""
+    import inspect
+
+    import weaviate
 
     collection = _FakeCollection(
         query=_FakeQuery(_FakeResponse([])), batch=_FakeBatch(_FakeBatchCtx())
     )
     connection = _FakeConnection(collection)
+    captured: dict[str, object] = {}
+    real_signature = inspect.signature(weaviate.connect_to_custom)
 
-    fake_weaviate = types.ModuleType("weaviate")
-    fake_weaviate.connect_to_local = (  # type: ignore[attr-defined]
-        lambda **_kwargs: connection
-    )
-    monkeypatch.setitem(sys.modules, "weaviate", fake_weaviate)
+    def _connect(**kwargs: object) -> object:
+        real_signature.bind(**kwargs)  # the double is not more permissive
+        captured.update(kwargs)
+        return connection
+
+    monkeypatch.setattr(weaviate, "connect_to_custom", _connect)
 
     adapter = WeaviateStoryAdapter.connect(host="localhost", port=8080)
     assert adapter.is_ready() is True
+    assert captured["http_host"] == "localhost"
+    assert captured["http_port"] == 8080
+    assert captured["grpc_host"] == "localhost"
+    assert captured["grpc_port"] == FK13_GRPC_PORT

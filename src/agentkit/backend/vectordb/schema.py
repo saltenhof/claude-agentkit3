@@ -70,16 +70,72 @@ REQUIRED_OBJECT_FIELDS: Final[tuple[str, ...]] = (
 )
 
 
+#: Per-source-type retrieval profile: which properties a HIT must carry.
+#: Only fields the owning producer actually writes are listed -- FK-13 §13.9.3
+#: keeps the concept properties unset for ``story``/``research`` objects, so
+#: requiring them there would be wrong. ``True`` = additionally non-empty.
+REQUIRED_SEARCH_PROPERTIES: Final[dict[str, tuple[tuple[str, bool], ...]]] = {
+    "story": (
+        ("content", True),
+        ("story_id", False),
+        ("title", True),
+        ("status", False),
+        ("story_type", False),
+        ("source_type", True),
+        ("source_file", True),
+        ("section_heading", False),
+        ("section_number", False),
+        ("content_hash", True),
+        ("project_id", True),
+    ),
+    "research": (
+        ("content", True),
+        ("story_id", False),
+        ("title", True),
+        ("status", False),
+        ("story_type", False),
+        ("source_type", True),
+        ("source_file", True),
+        ("section_heading", False),
+        ("section_number", False),
+        ("content_hash", True),
+        ("project_id", True),
+    ),
+    "concept": (
+        ("content", True),
+        ("title", True),
+        ("module", False),
+        ("source_type", True),
+        ("source_file", True),
+        ("section_heading", False),
+        ("section_number", False),
+        ("content_hash", True),
+        ("project_id", True),
+        ("concept_id", True),
+        ("is_appendix", False),
+        ("parent_concept_id", False),
+        ("defers_to", False),
+        ("authority_over", False),
+        ("normative_rules", False),
+        ("concept_status", True),
+    ),
+}
+
+
 @dataclass(frozen=True)
 class StoryContextObject:
     """One indexed object bound for the StoryContext collection.
 
     Attributes:
         uuid: Deterministic identity (uuid5 of project_id+source_file+chunk_id).
+        chunk_id: The chunk identity the uuid is derived FROM. Carried explicitly
+            so a consumer can re-derive and VERIFY the object identity before any
+            write (N13) instead of trusting an opaque uuid.
         properties: The full property mapping (all FK-13 fields, English keys).
     """
 
     uuid: str
+    chunk_id: str
     properties: dict[str, Any]
 
 
@@ -149,70 +205,48 @@ def weaviate_property_specs() -> list[dict[str, object]]:
 FK13_VECTORIZER: Final[str] = "text2vec_transformers"
 
 
-def ensure_story_context_collection(client: object) -> None:
-    """Create the StoryContext collection idempotently (FK-13 §13.3.1, R02/N02).
-
-    The vectorizer is the FK-13 §13.2-mandated SERVER-SIDE
-    ``text2vec-transformers`` (MiniLM sidecar), NOT ``self_provided``: hybrid /
-    near_text / bm25 all rely on the configured module.
-
-    Args:
-        client: a Weaviate v4 client exposing ``collections`` (the adapter's
-            real client). The schema-owner is :mod:`schema`; this function is the
-            single place the collection shape is materialised.
+def property_data_type(name: str) -> str:
+    """Return the declared Weaviate data type of a schema property.
 
     Raises:
-        VectorDbWriteError: if the collection cannot be created/verified.
+        ValueError: When the property is not part of the schema (fail-closed).
     """
-    from agentkit.integration_clients.vectordb.errors import VectorDbWriteError
+    for prop_name, data_type, _vec in STORY_CONTEXT_PROPERTIES:
+        if prop_name == name:
+            return data_type
+    raise ValueError(f"{name!r} is not a StoryContext property (AC10)")
 
-    try:
-        collections = client.collections  # type: ignore[attr-defined]
-        if collections.exists(STORY_CONTEXT_COLLECTION):
-            return
-        from weaviate.classes.config import (  # noqa: PLC0415 (optional dependency)
-            Configure,
-            DataType,
-            Property,
-            Tokenization,
-        )
 
-        _type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
-        properties = [
-            Property(
-                name=str(spec["name"]),
-                data_type=_type_map[str(spec["data_type"])],
-                tokenization=Tokenization.FIELD,
-                skip_vectorization=bool(spec["skip_vectorization"]),
-            )
-            for spec in weaviate_property_specs()
-        ]
-        collections.create(
-            name=STORY_CONTEXT_COLLECTION,
-            description="FK-13 StoryContext: story + research + concept chunks (project-scoped).",
-            # FK-13 §13.2: SERVER-SIDE text2vec-transformers (MiniLM sidecar).
-            vector_config=Configure.Vectors.text2vec_transformers(
-                pooling_strategy="masked_mean",
-                vectorize_collection_name=False,
-            ),
-            properties=properties,
-        )
-    except Exception as exc:  # noqa: BLE001 -- normalise to a typed write error
-        raise VectorDbWriteError(
-            f"could not ensure StoryContext collection: {exc} (fail-closed, FK-13 §13.2)"
-        ) from exc
+def search_property_spec(source_type: str) -> tuple[tuple[str, str, bool], ...]:
+    """Return the retrieval profile of a source_type as the transport spec.
+
+    The tuples are ``(property_name, data_type, non_empty)``; the thin transport
+    adapter validates every returned hit against them and raises on a missing or
+    wrongly-typed field (N11 -- no ``setdefault`` repair default).
+
+    Raises:
+        ValueError: For an unknown source_type (fail-closed).
+    """
+    if source_type not in REQUIRED_SEARCH_PROPERTIES:
+        raise ValueError(f"unknown source_type {source_type!r} (AC10)")
+    return tuple(
+        (name, property_data_type(name), non_empty)
+        for name, non_empty in REQUIRED_SEARCH_PROPERTIES[source_type]
+    )
 
 
 __all__ = [
     "FK13_VECTORIZER",
     "REQUIRED_OBJECT_FIELDS",
+    "REQUIRED_SEARCH_PROPERTIES",
     "SOURCE_TYPES",
     "STORY_CONTEXT_COLLECTION",
     "STORY_CONTEXT_PROPERTIES",
     "StoryContextObject",
     "deterministic_uuid",
-    "ensure_story_context_collection",
+    "property_data_type",
     "property_names",
+    "search_property_spec",
     "validate_object",
     "weaviate_property_specs",
 ]
