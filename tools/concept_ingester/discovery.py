@@ -34,6 +34,10 @@ LAYER_DOMAIN = "domain"
 LAYER_FORMAL = "formal"
 LAYER_TECHNICAL = "technical"
 
+class ConceptDiscoveryError(RuntimeError):
+    """A concept document failed discovery/parse -- nothing is ingested (R06)."""
+
+
 _CHUNK_NAMESPACE = uuid.UUID("4f3a07f6-9b6c-5e9b-8c5c-2a1d2b3c4d5e")
 _GLOSSARY_NAMESPACE = uuid.UUID("9d3e2c1f-7e54-4f88-8b22-2d97c6a5b3aa")
 _H2_RE = re.compile(r"^##\s+(?P<heading>.+?)\s*$", re.MULTILINE)
@@ -188,6 +192,15 @@ def discover(concept_root: Path, max_chars: int = 0) -> DiscoveryResult:
     repo_root = concept_root.parent
     projection = _load_domain_projection(repo_root)
     ssot = discover_concept_files(concept_root)
+    # R06: FAIL CLOSED on ANY discovery/parse error. Ingesting the successfully
+    # parsed SUBSET would publish a silently incomplete corpus -- the same
+    # fail-closed rule the MCP concept_sync applies via concept_validate.
+    if ssot.errors:
+        details = "; ".join(f"{e.path} [{e.code}] {e.message}" for e in ssot.errors)
+        raise ConceptDiscoveryError(
+            f"{len(ssot.errors)} concept document(s) failed discovery/parse: "
+            f"{details}. Nothing is ingested (fail-closed, R06/AC10)."
+        )
     doc_by_id = {doc.concept_id: doc for doc in ssot.documents}
 
     chunks: list[ConceptChunk] = []
@@ -382,4 +395,11 @@ def _string(value: Any) -> str:
     return ""
 
 
-__all__ = ["ConceptChunk", "DiscoveryResult", "GlossaryTerm", "discover", "discover_chunks"]
+__all__ = [
+    "ConceptChunk",
+    "ConceptDiscoveryError",
+    "DiscoveryResult",
+    "GlossaryTerm",
+    "discover",
+    "discover_chunks",
+]

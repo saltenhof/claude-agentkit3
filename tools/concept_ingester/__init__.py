@@ -15,6 +15,7 @@ from __future__ import annotations
 from .config import IngesterConfig
 from .discovery import (
     ConceptChunk,
+    ConceptDiscoveryError,
     DiscoveryResult,
     GlossaryTerm,
     discover,
@@ -37,6 +38,7 @@ __all__ = [
     "CHUNK_COLLECTION_NAME",
     "COLLECTION_NAME",
     "ConceptChunk",
+    "ConceptDiscoveryError",
     "DiscoveryResult",
     "GLOSSARY_COLLECTION_NAME",
     "GlossaryTerm",

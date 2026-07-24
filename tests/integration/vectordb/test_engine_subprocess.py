@@ -139,6 +139,51 @@ def test_r06_ingester_uses_ssot_same_discovery_set(tmp_path: Path) -> None:
     assert ing.chunks, "ingester must produce chunks via the SSOT core"
 
 
+_INVALID_DOC = """\
+---
+concept_id: FK-99
+title: Broken
+module: vectordb
+status: bogus-status
+doc_kind: core
+---
+
+# Broken
+
+## Purpose
+
+Text.
+"""
+
+
+def test_r06_ingester_fails_closed_on_a_discovery_error(tmp_path: Path) -> None:
+    """R06: ANY parse error blocks the ingest -- no partial corpus is published."""
+    import pytest
+    from tools.concept_ingester.discovery import ConceptDiscoveryError, discover
+
+    from agentkit.concepts.parser import discover_concept_files
+
+    root = tmp_path / "concept" / "technical-design"
+    root.mkdir(parents=True)
+    (root / "13_retrieval.md").write_text(_DOC, encoding="utf-8")
+    (root / "99_broken.md").write_text(_INVALID_DOC, encoding="utf-8")
+    # The SSOT core reports the parse error AND the valid subset...
+    ssot = discover_concept_files(tmp_path / "concept")
+    assert ssot.errors and ssot.chunks
+    # ...but the ingester refuses to ingest that subset.
+    with pytest.raises(ConceptDiscoveryError, match="99_broken.md"):
+        discover(tmp_path / "concept")
+
+
+def test_r06_ingester_accepts_a_fully_valid_corpus(tmp_path: Path) -> None:
+    from tools.concept_ingester.discovery import discover
+
+    root = tmp_path / "concept" / "technical-design"
+    root.mkdir(parents=True)
+    (root / "13_retrieval.md").write_text(_DOC, encoding="utf-8")
+    assert discover(tmp_path / "concept").chunks
+
+
 def test_r06_ingester_config_has_no_localhost_default(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     from tools.concept_ingester.config import IngesterConfig
 
