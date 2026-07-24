@@ -188,13 +188,23 @@ def discover(concept_root: Path, max_chars: int = 0) -> DiscoveryResult:
     repo_root = concept_root.parent
     projection = _load_domain_projection(repo_root)
     ssot = discover_concept_files(concept_root)
+    doc_by_id = {doc.concept_id: doc for doc in ssot.documents}
 
     chunks: list[ConceptChunk] = []
     glossary_terms: list[GlossaryTerm] = []
+    # R06: iterate the SSOT chunks directly -- NO local re-chunking/re-hashing.
+    # The content_hash is the SSOT chunk hash (not a local document_hash).
+    for ssot_chunk in ssot.chunks:
+        doc = doc_by_id.get(ssot_chunk.concept_id)
+        if doc is None:
+            continue
+        domain, surface, display = _bc_for(doc, projection)
+        mtime = _mtime_of(repo_root, doc.rel_path)
+        chunks.append(_project_chunk(ssot_chunk, doc, domain, surface, display, mtime))
+    # Glossary is a projection over the SSOT raw frontmatter (strict parse).
     for doc in ssot.documents:
         domain, surface, display = _bc_for(doc, projection)
         mtime = _mtime_of(repo_root, doc.rel_path)
-        chunks.extend(_project_chunks(doc, domain, surface, display, mtime))
         glossary_terms.extend(_extract_glossary(doc, domain, display, mtime))
     return DiscoveryResult(
         chunks=chunks,
@@ -208,106 +218,62 @@ def _bc_for(doc: Any, projection: _DomainProjection) -> tuple[str, str, str]:
     """Resolve the bounded-context projection for a document (BC profile)."""
     if getattr(doc, "is_archived", False):
         return ("", "", "")
-    cross_cutting = True  # SSOT frontmatter has no `cross_cutting`; default by registry
     entry = projection.by_doc.get(doc.concept_id)
     if entry is not None:
         return entry
-    return ("", cross_cutting, "")
+    return ("", False, "")
 
 
-def _project_chunks(
-    doc: Any, domain: str, surface: str, display: str, mtime: str
-) -> list[ConceptChunk]:
-    out: list[ConceptChunk] = []
-    for chunk in _chunks_of(doc):
-        out.append(
-            ConceptChunk(
-                chunk_id=chunk.chunk_id,
-                layer=chunk.layer,
-                doc_id=doc.concept_id,
-                title=doc.title,
-                module=doc.module,
-                tags=doc.tags,
-                rel_path=doc.rel_path,
-                section_anchor=_section_anchor(chunk.section_heading, chunk.ordering),
-                heading=chunk.section_heading,
-                ordering=chunk.ordering,
-                content=chunk.content,
-                content_hash=chunk.content_hash,
-                file_mtime=mtime,
-                domain=domain,
-                cross_cutting=not bool(domain),
-                surface=surface,
-                domain_display_name=display,
-                contract_state="",
-                applies_policies=(),
-                defers_to_ids=chunk.defers_to,
-                defers_to_edges=tuple(f"{t}|" for t in chunk.defers_to),
-                formal_ref_ids=(),
-                supersedes_ids=doc.supersedes,
-                superseded_by_id=doc.superseded_by,
-                authority_scopes=chunk.authority_over,
-                has_glossary=False,
-                exported_term_ids=(),
-                schema_projection_version=SCHEMA_PROJECTION_VERSION,
-                domain_registry_hash=PARSER_VERSION,
-                metadata={
-                    "doc_kind": doc.doc_kind,
-                    "status": doc.effective_status,
-                    "section_number": chunk.section_number,
-                    "concept_status": doc.effective_status,
-                },
-            )
-        )
-    return out
+def _project_chunk(
+    ssot_chunk: Any, doc: Any, domain: str, surface: str, display: str, mtime: str
+) -> ConceptChunk:
+    """Project ONE SSOT chunk (+ BC profile) into the ingester ConceptChunk shape.
 
-
-def _chunks_of(doc: Any) -> list[Any]:
-    """Return the SSOT chunks for a document (re-derived to keep doc linkage)."""
-    from agentkit.concepts.chunking import chunk_document
-
-    out: list[Any] = []
-    for ordering, (section, piece) in enumerate(chunk_document(doc.body)):
-        out.append(
-            _SSOTChunkView(
-                chunk_id=_chunk_uuid(doc.concept_id, doc.rel_path, section, ordering),
-                layer=doc.layer,
-                source_file=doc.rel_path,
-                section_heading=section.heading,
-                section_number=section.section_number,
-                content=piece,
-                content_hash=doc.document_hash,
-                ordering=ordering,
-                defers_to=doc.defers_to_targets,
-                authority_over=doc.authority_scopes,
-            )
-        )
-    return out
-
-
-@dataclass(frozen=True)
-class _SSOTChunkView:
-    chunk_id: str
-    layer: str
-    source_file: str
-    section_heading: str
-    section_number: str
-    content: str
-    content_hash: str
-    ordering: int
-    defers_to: tuple[str, ...]
-    authority_over: tuple[str, ...]
+    Uses the SSOT chunk's ``content_hash`` and ``chunk_id`` verbatim (R06: no
+    local re-hash, no second parser).
+    """
+    return ConceptChunk(
+        chunk_id=ssot_chunk.chunk_id,
+        layer=ssot_chunk.layer,
+        doc_id=doc.concept_id,
+        title=doc.title,
+        module=doc.module,
+        tags=doc.tags,
+        rel_path=doc.rel_path,
+        section_anchor=_section_anchor(ssot_chunk.section_heading, ssot_chunk.ordering),
+        heading=ssot_chunk.section_heading,
+        ordering=ssot_chunk.ordering,
+        content=ssot_chunk.content,
+        content_hash=ssot_chunk.content_hash,
+        file_mtime=mtime,
+        domain=domain,
+        cross_cutting=not bool(domain),
+        surface=surface,
+        domain_display_name=display,
+        contract_state="",
+        applies_policies=(),
+        defers_to_ids=ssot_chunk.defers_to,
+        defers_to_edges=tuple(f"{t}|" for t in ssot_chunk.defers_to),
+        formal_ref_ids=(),
+        supersedes_ids=doc.supersedes,
+        superseded_by_id=doc.superseded_by,
+        authority_scopes=ssot_chunk.authority_over,
+        has_glossary=False,
+        exported_term_ids=(),
+        schema_projection_version=SCHEMA_PROJECTION_VERSION,
+        domain_registry_hash=PARSER_VERSION,
+        metadata={
+            "doc_kind": doc.doc_kind,
+            "status": doc.effective_status,
+            "section_number": ssot_chunk.section_number,
+            "concept_status": doc.effective_status,
+        },
+    )
 
 
 def _section_anchor(heading: str, ordering: int) -> str:
     base = _SLUG_RE.sub("-", heading.lower()).strip("-") or "section"
     return f"{base}-{ordering:03d}"
-
-
-def _chunk_uuid(concept_id: str, rel_path: str, section: Any, ordering: int) -> str:
-    namespace = _CHUNK_NAMESPACE
-    key = f"{concept_id}#{rel_path}#{section.section_number}#{section.heading}#{ordering}"
-    return str(uuid.uuid5(namespace, key))
 
 
 def _mtime_of(repo_root: Path, rel: str) -> str:
@@ -341,16 +307,21 @@ def _extract_glossary(doc: Any, domain: str, display: str, mtime: str) -> list[G
 
 
 def _raw_frontmatter(raw_text: str) -> dict[str, Any]:
-    import re
+    """Re-use the SSOT STRICT frontmatter parser (R06: no lenient ``yaml.safe_load``).
 
-    match = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n", raw_text, re.DOTALL)
-    if match is None:
+    The glossary projection reads the raw ``glossary:`` block via the same strict
+    loader the SSOT core uses (duplicate-key/no-coercion semantics). A parse
+    failure returns ``{}`` (the doc would already be a discovery parse error).
+    """
+    from agentkit.concepts.frontmatter import FrontmatterError, parse_frontmatter_block, split_frontmatter
+
+    fm_text, _body = split_frontmatter(raw_text)
+    if not fm_text:
         return {}
     try:
-        loaded = yaml.safe_load(match.group(1))
-    except yaml.YAMLError:
+        return parse_frontmatter_block(fm_text)
+    except FrontmatterError:
         return {}
-    return loaded if isinstance(loaded, dict) else {}
 
 
 def _detect_glossary_section_anchor(body: str) -> str:

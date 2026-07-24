@@ -493,6 +493,155 @@ def test_error_codes_are_documented() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Behavioral per-finding cases (R09): genuine triggering cases, not constants
+# --------------------------------------------------------------------------- #
+
+
+def _doc(tmp_path: Path, name: str, body: str) -> None:
+    _write(tmp_path, name, body)
+
+
+def test_e_schema_002_missing_required_field(tmp_path: Path) -> None:
+    # Missing doc_kind -> E-SCHEMA-002 (required field).
+    _doc(tmp_path, "13.md", dedent("""\
+        ---
+        concept_id: FK-13
+        title: T
+        module: m
+        status: active
+        ---
+
+        # T
+
+        ## S
+
+        s.
+        """))
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "E-SCHEMA-002" for f in report.errors)
+
+
+def test_e_schema_003_bad_enum(tmp_path: Path) -> None:
+    _doc(tmp_path, "13.md", CORE.replace("status: active", "status: published"))
+    _doc(tmp_path, "01.md", CORE2)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "E-SCHEMA-003" for f in report.errors)
+
+
+def test_e_cycle_001_defers_to_same_scope_cycle(tmp_path: Path) -> None:
+    a = dedent("""\
+        ---
+        concept_id: FK-A
+        title: A
+        module: m
+        status: active
+        doc_kind: core
+        defers_to:
+          - target: FK-B
+            scope: shared
+        ---
+
+        # A
+
+        ## S
+
+        s.
+        """)
+    b = a.replace("FK-A", "FK-B").replace("FK-B\n", "FK-A\n", 1).replace("target: FK-B", "target: FK-A")
+    _doc(tmp_path, "01_a.md", a)
+    _doc(tmp_path, "02_b.md", b)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "E-CYCLE-001" for f in report.errors)
+
+
+def test_e_auth_002_scope_disappears(tmp_path: Path) -> None:
+    # A defers to FK-GONE for scope "ghost" but no active concept owns "ghost".
+    doc = dedent("""\
+        ---
+        concept_id: FK-13
+        title: T
+        module: m
+        status: active
+        doc_kind: core
+        defers_to:
+          - target: FK-GONE
+            scope: ghost
+        ---
+
+        # T
+
+        ## S
+
+        s.
+        """)
+    _doc(tmp_path, "13.md", doc)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "E-AUTH-002" for f in report.errors)
+
+
+def test_w_bidir_001_target_lacks_authority(tmp_path: Path) -> None:
+    # FK-A defers_to FK-B for scope "x", but FK-B does NOT own authority_over x.
+    a = dedent("""\
+        ---
+        concept_id: FK-13
+        title: A
+        module: m
+        status: active
+        doc_kind: core
+        defers_to:
+          - target: FK-01
+            scope: x
+        ---
+
+        # A
+
+        ## S
+
+        s.
+        """)
+    b = dedent("""\
+        ---
+        concept_id: FK-01
+        title: B
+        module: m
+        status: active
+        doc_kind: core
+        ---
+
+        # B
+
+        ## S
+
+        s.
+        """)
+    _doc(tmp_path, "13.md", a)
+    _doc(tmp_path, "01.md", b)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "W-BIDIR-001" for f in report.warnings)
+
+
+def test_w_content_001_h1_title_mismatch(tmp_path: Path) -> None:
+    doc = dedent("""\
+        ---
+        concept_id: FK-13
+        title: Frontmatter Title
+        module: m
+        status: active
+        doc_kind: core
+        ---
+
+        # Different H1
+
+        ## S
+
+        s.
+        """)
+    _doc(tmp_path, "13.md", doc)
+    report = validate_corpus(_discover(tmp_path))  # type: ignore[arg-type]
+    assert any(f.code == "W-CONTENT-001" for f in report.warnings)
+
+
+# --------------------------------------------------------------------------- #
 # Build artifacts + shared corpus_revision + discovery equality
 # --------------------------------------------------------------------------- #
 

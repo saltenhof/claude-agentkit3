@@ -132,6 +132,10 @@ def test_r06_ingester_uses_ssot_same_discovery_set(tmp_path: Path) -> None:
     # Same discovery set (SSOT): same doc ids, same chunk content.
     assert {c.doc_id for c in ing.chunks} == {d.concept_id for d in ssot.documents}
     assert {c.content for c in ing.chunks} == {c.content for c in ssot.chunks}
+    # R06: the ingester uses the SSOT chunk_hash + chunk_id VERBATIM -- it does
+    # NOT re-hash (document_hash) or re-derive chunk ids locally.
+    assert {c.content_hash for c in ing.chunks} == {c.content_hash for c in ssot.chunks}
+    assert {c.chunk_id for c in ing.chunks} == {c.chunk_id for c in ssot.chunks}
     assert ing.chunks, "ingester must produce chunks via the SSOT core"
 
 

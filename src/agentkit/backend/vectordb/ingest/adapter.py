@@ -18,12 +18,8 @@ from agentkit.backend.vectordb.schema import (
     validate_object,
 )
 from agentkit.concepts.chunking import DEFAULT_MAX_TOKENS, chunk_document
-from agentkit.concepts.frontmatter import (
-    FrontmatterError,
-    parse_frontmatter_block,
-    split_frontmatter,
-)
-from agentkit.concepts.hashing import chunk_hash, document_hash
+from agentkit.concepts.frontmatter import parse_frontmatter_block, split_frontmatter
+from agentkit.concepts.hashing import chunk_hash
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -82,45 +78,51 @@ def story_file_to_objects(
     project_id: str,
     story_md_path: Path,
     *,
+    source_file: str | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[StoryContextObject]:
-    """Project a single ``story.md`` into StoryContext objects.
+    """Project a single ``story.md`` (or research ``.md``) into StoryContext objects.
 
-    Reuses the SSOT chunker; story frontmatter carries ``story_id``. The
-    ``source_type`` is ``story`` (research files use a separate caller).
+    Reuses the SSOT chunker + hasher. ``source_file`` is the PROJECT-RELATIVE
+    path (R04); when omitted it defaults to the path's POSIX form. ``title`` and
+    ``status`` come from the frontmatter (real values, not the story_id). Invalid
+    frontmatter PROPAGATES as :class:`FrontmatterError` (N05) -- it is never
+    silently swallowed and replaced with ``{}``; nothing is indexed for a doc
+    whose frontmatter fails the strict parse (AC10).
     """
     raw = story_md_path.read_text(encoding="utf-8")
     fm_text, body = split_frontmatter(raw)
     story_id = ""
-    story_type = "implementation"
+    title = ""
     status = ""
+    story_type = "implementation"
     if fm_text:
-        try:
-            data = parse_frontmatter_block(fm_text)
-        except FrontmatterError:
-            data = {}
+        data = parse_frontmatter_block(fm_text)  # raises FrontmatterError on invalid (N05)
         story_id = str(data.get("story_id", ""))
+        title = str(data.get("title", "")) or story_id
         status = str(data.get("status", ""))
-    source_file = story_md_path.as_posix()
+        if data.get("story_type"):
+            story_type = str(data["story_type"])
+    rel = source_file if source_file is not None else story_md_path.as_posix()
     objects: list[StoryContextObject] = []
     for ordering, (section, piece) in enumerate(chunk_document(body, max_tokens=max_tokens)):
         payload: dict[str, object] = {
             "content": piece,
             "story_id": story_id,
-            "title": story_id or source_file,
+            "title": title or rel,
             "status": status,
             "story_type": story_type,
             "source_type": "story",
-            "source_file": source_file,
+            "source_file": rel,
             "section_heading": section.heading,
             "section_number": section.section_number,
             "content_hash": chunk_hash(
-                {"content": piece, "story_id": story_id, "source_file": source_file}
+                {"content": piece, "story_id": story_id, "source_file": rel}
             ),
             "project_id": project_id,
         }
-        chunk_id = f"story-{ordering}-{document_hash(piece)[:12]}"
-        objects.append(_build_object(project_id, source_file, chunk_id, payload))
+        chunk_id = f"story-{ordering}-{chunk_hash({'content': piece})[:16]}"
+        objects.append(_build_object(project_id, rel, chunk_id, payload))
     return objects
 
 

@@ -174,18 +174,30 @@ def cmd_validate(args: argparse.Namespace) -> int:
     """Ring 2: validate the candidate (``--staged``) or the working corpus."""
     concepts_dir = Path(args.concepts_dir)
     if getattr(args, "staged", False):
+        # R08: EVERY unexpected failure in the staged path (git op, candidate
+        # copy, relative-path resolution, decode, discovery/read) maps to exit 3
+        # (INTERNAL_FAILURE) -- never a silent green exit. Triggered by real
+        # faults, not a normalised exception.
         try:
             repo_root = _repo_root(concepts_dir if concepts_dir.is_dir() else Path.cwd())
             overlays = _staged_concept_overlays(repo_root, concepts_dir)
+            import tempfile  # noqa: PLC0415
+
+            with tempfile.TemporaryDirectory() as tmp:
+                candidate = build_candidate_corpus(concepts_dir, overlays, dest=Path(tmp))
+                discovery = discover_concept_files(candidate)
+                report = validate_corpus(discovery, strict=getattr(args, "strict", False))
         except GitOperationError as exc:
             print(json.dumps({"status": "validate-staged-failed", "error": str(exc)}, indent=2))
             return int(ExitCode.INTERNAL_FAILURE)
-        import tempfile  # noqa: PLC0415
-
-        with tempfile.TemporaryDirectory() as tmp:
-            candidate = build_candidate_corpus(concepts_dir, overlays, dest=Path(tmp))
-            discovery = discover_concept_files(candidate)
-            report = validate_corpus(discovery, strict=getattr(args, "strict", False))
+        except Exception as exc:  # noqa: BLE001 -- any unexpected fault -> exit 3
+            print(
+                json.dumps(
+                    {"status": "validate-staged-internal-failure", "error": f"{type(exc).__name__}: {exc}"},
+                    indent=2,
+                )
+            )
+            return int(ExitCode.INTERNAL_FAILURE)
     else:
         discovery = discover_concept_files(concepts_dir)
         report = validate_corpus(discovery, strict=getattr(args, "strict", False))

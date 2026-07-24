@@ -40,8 +40,9 @@ class WeaviateStoryIndex:
         Args:
             story_id: Story display-ID (kept for symmetry / future per-story
                 deletes; the objects already carry their ``story_id``).
-            project_id: Bound multi-tenant discriminator; objects already carry
-                it (R04). Asserted for parity with the port contract.
+            project_id: Bound multi-tenant discriminator. Each object's
+                ``project_id`` MUST match (N06) -- a divergent/missing object
+                project_id is REJECTED (never silently overwritten).
             objects: The full StoryContext objects to index (with deterministic
                 UUIDs).
 
@@ -49,17 +50,20 @@ class WeaviateStoryIndex:
             The number of objects written.
 
         Raises:
+            ValueError: When an object's project_id diverges from the binding.
             VectorDbWriteError: When the indexing write fails (hard blocker,
                 propagated from the adapter; fail-closed).
         """
-        # story_id/project_id are mandated by the StoryIndexPort contract; the
-        # objects already carry their own identity fields and story_sync keys off
-        # them. project_id is asserted so a wrong binding surfaces immediately.
         del story_id
-        if project_id:
-            for obj in objects:
-                if str(obj.get("project_id", project_id)) != project_id:  # defensive parity
-                    obj["project_id"] = project_id
+        if not project_id:
+            raise ValueError("project_id is empty; cannot index (N06).")
+        for obj in objects:
+            obj_pid = str(obj.get("project_id", ""))
+            if obj_pid != project_id:
+                raise ValueError(
+                    f"object project_id {obj_pid!r} diverges from the bound "
+                    f"{project_id!r}; cross-project indexing rejected (N06)."
+                )
         return self._adapter.story_sync(objects=objects)
 
 
