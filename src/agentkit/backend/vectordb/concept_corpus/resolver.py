@@ -57,12 +57,15 @@ def _status_penalty(status: str) -> float:
     return 0.0
 
 
-def _has_scoped_deferral(graph: ConceptGraph, concept_id: str, query_scope: str) -> bool:
-    """True if ``concept_id`` defers_to an authority FOR ``query_scope``."""
+def _is_scoped_authority_target(graph: ConceptGraph, concept_id: str, query_scope: str) -> bool:
+    """Rule 2: True if ``concept_id`` is the TARGET of a scoped deferral FOR
+    ``query_scope`` -- i.e. some other concept defers_to THIS concept for the
+    query scope. The boost accrues to the authority TARGET, not the deferrer
+    (R10 correction)."""
     if not query_scope:
         return False
     return any(
-        e.source == concept_id
+        e.target == concept_id
         and e.type == "defers_to"
         and e.scope == query_scope
         for e in graph.edges
@@ -84,9 +87,12 @@ def rank_hits(
 
     Rules (FK-13 §13.9.11):
     1. Direct ``authority_over`` match for the QUERY SCOPE beats adjacent match.
-    2. Scoped deferral (this concept defers_to an authority for the query scope)
-       beats a generic local mention.
-    3. An appendix can rank higher than a core doc for interface/test detail.
+    2. The scoped authority TARGET (a concept that some other concept defers_to
+       for the query scope) beats a generic local mention -- the boost accrues
+       to the TARGET, not the deferring source (R10).
+    3. An appendix can rank higher than a core doc ONLY for interface/test detail
+       (a non-empty query_detail that signals interface/test); an empty
+       query_detail grants NO appendix boost (R10).
     4. Archived/draft concepts receive a penalty.
     5. A module-match boosts ONLY when there is no stronger cross-module authority
        (a node owning the query scope in another module outranks a mere
@@ -114,12 +120,18 @@ def rank_hits(
         if ctx.query_scope and ctx.query_scope in node.authority_scopes:
             authority += 2.0
             reasons.append("authority_over-direct")
-        # Rule 2: scoped deferral for the query scope.
-        if _has_scoped_deferral(graph, concept_id, ctx.query_scope):
+        # Rule 2: this node is the scoped authority TARGET for the query scope
+        # (some other concept defers_to it for that scope) -> boost the TARGET.
+        if _is_scoped_authority_target(graph, concept_id, ctx.query_scope):
             authority += 1.0
-            reasons.append("scoped-deferral")
-        # Rule 3: appendix interface boost for interface/test detail.
-        if node.is_appendix and (not ctx.query_detail or ctx.query_detail.lower() in _INTERFACE_DETAILS):
+            reasons.append("scoped-authority-target")
+        # Rule 3: appendix interface boost ONLY for interface/test detail
+        # (non-empty query_detail signalling interface/test); empty -> no boost.
+        if (
+            node.is_appendix
+            and bool(ctx.query_detail)
+            and ctx.query_detail.lower() in _INTERFACE_DETAILS
+        ):
             authority += 0.5
             reasons.append("appendix-interface")
         # Rule 4: status penalty.

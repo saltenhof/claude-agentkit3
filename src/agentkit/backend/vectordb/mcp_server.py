@@ -79,15 +79,21 @@ class McpToolService:
     def story_search(self, args: Mapping[str, Any]) -> dict[str, Any]:
         validated = validate_search_args(self.binding, args)
         filters = validate_story_filters(args)
-        hits = self.retrieval.search(
-            project_id=validated["project_id"],
-            source_type="story",
-            query=validated["query"],
-            search_mode=validated["search_mode"],
-            limit=validated["limit"],
-            filters=filters,
-        )
-        return {"project_id": validated["project_id"], "results": [dict(h) for h in hits]}
+        # R05: story_search covers BOTH owned types (story + research) and applies
+        # the typed filters to each; results are merged.
+        merged: list[Mapping[str, object]] = []
+        for st in ("story", "research"):
+            merged.extend(
+                self.retrieval.search(
+                    project_id=validated["project_id"],
+                    source_type=st,
+                    query=validated["query"],
+                    search_mode=validated["search_mode"],
+                    limit=validated["limit"],
+                    filters=filters,
+                )
+            )
+        return {"project_id": validated["project_id"], "results": [dict(h) for h in merged]}
 
     # ------------------------------------------------------------------ #
     # story_list_sources (D1 shape)
@@ -206,7 +212,12 @@ class McpToolService:
                 corpus_revision=discovery.corpus_revision,
             )
             if full
-            else self._incremental_sync(project_id, by_source, "concept_sync")
+            else self.sync.reconcile_sources(
+                project_id=project_id,
+                producer="concept_sync",
+                objects_by_source=by_source,
+                corpus_revision=discovery.corpus_revision,
+            )
         )
         written = sum(r.written for r in results)
         deleted = sum(r.deleted for r in results)
@@ -325,7 +336,7 @@ def build_mcp_server(service: McpToolService) -> object:
     return server
 
 
-def _collect(**kwargs: object) -> dict[str, object]:
+def _drop_none(**kwargs: object) -> dict[str, object]:
     """Drop ``None`` optionals so validators see omitted-as-absent (R01)."""
     return {k: v for k, v in kwargs.items() if v is not None}
 
@@ -340,7 +351,11 @@ def _register_story_search(server: Any, service: McpToolService) -> None:
         story_type: str | None = None,
         limit: int | None = None,
     ) -> dict[str, object]:
-        return handle_tool_call(service, "story_search", _collect(**locals()))
+        return handle_tool_call(
+            service, "story_search",
+            _drop_none(query=query, search_mode=search_mode, project_id=project_id,
+                       status=status, story_type=story_type, limit=limit),
+        )
 
     story_search.__name__ = "story_search"
 
@@ -348,7 +363,7 @@ def _register_story_search(server: Any, service: McpToolService) -> None:
 def _register_story_list_sources(server: Any, service: McpToolService) -> None:
     @server.tool(name="story_list_sources", description="List indexed source types and producers.")  # type: ignore[untyped-decorator]
     async def story_list_sources(project_id: str | None = None) -> dict[str, object]:  # noqa: ANN202
-        return handle_tool_call(service, "story_list_sources", _collect(**locals()))
+        return handle_tool_call(service, "story_list_sources", _drop_none(project_id=project_id))
 
     story_list_sources.__name__ = "story_list_sources"
 
@@ -356,7 +371,7 @@ def _register_story_list_sources(server: Any, service: McpToolService) -> None:
 def _register_story_sync(server: Any, service: McpToolService) -> None:
     @server.tool(name="story_sync", description="Incremental/full index of story and research sources.")  # type: ignore[untyped-decorator]
     async def story_sync(project_id: str | None = None, full_reindex: bool | None = None) -> dict[str, object]:  # noqa: ANN202
-        return handle_tool_call(service, "story_sync", _collect(**locals()))
+        return handle_tool_call(service, "story_sync", _drop_none(project_id=project_id, full_reindex=full_reindex))
 
     story_sync.__name__ = "story_sync"
 
@@ -373,7 +388,12 @@ def _register_concept_search(server: Any, service: McpToolService) -> None:
         concept_status: str | None = None,
         limit: int | None = None,
     ) -> dict[str, object]:
-        return handle_tool_call(service, "concept_search", _collect(**locals()))
+        return handle_tool_call(
+            service, "concept_search",
+            _drop_none(query=query, search_mode=search_mode, project_id=project_id,
+                       concept_id=concept_id, module=module, is_appendix=is_appendix,
+                       concept_status=concept_status, limit=limit),
+        )
 
     concept_search.__name__ = "concept_search"
 
@@ -385,7 +405,10 @@ def _register_concept_sync(server: Any, service: McpToolService) -> None:
         full_reindex: bool | None = None,
         concept_path: str | None = None,
     ) -> dict[str, object]:
-        return handle_tool_call(service, "concept_sync", _collect(**locals()))
+        return handle_tool_call(
+            service, "concept_sync",
+            _drop_none(project_id=project_id, full_reindex=full_reindex, concept_path=concept_path),
+        )
 
     concept_sync.__name__ = "concept_sync"
 

@@ -344,11 +344,17 @@ def test_r10_rule1_authority_over_for_query_scope_outranks(tmp_path: Path) -> No
     assert ranked[0].concept_id == "FK-13"  # owns the queried scope despite lower base
 
 
-def test_r10_rule2_scoped_deferral_beats_generic(tmp_path: Path) -> None:
+def test_r10_rule2_scoped_authority_target_boosted(tmp_path: Path) -> None:
+    # FK-14 defers_to FK-13 for scope "vectordb". Rule 2 boosts the TARGET
+    # (FK-13), not the deferrer (FK-14) (R10 correction).
     g = _graph(tmp_path)
-    hits = [{"concept_id": "FK-14", "score": 0.5}]  # FK-14 defers_to FK-13 for vectordb
+    hits = [{"concept_id": "FK-13", "score": 0.5}, {"concept_id": "FK-14", "score": 0.5}]
     ranked = rank_hits(g, hits, query_scope="vectordb")
-    assert "scoped-deferral" in ranked[0].reasons
+    fk13 = next(r for r in ranked if r.concept_id == "FK-13")
+    fk14 = next(r for r in ranked if r.concept_id == "FK-14")
+    assert "scoped-authority-target" in fk13.reasons
+    assert "scoped-authority-target" not in fk14.reasons
+    assert fk13.authority_score > fk14.authority_score
 
 
 def test_r10_rule4_archived_penalty(tmp_path: Path) -> None:
@@ -409,6 +415,7 @@ class _FakeRetrieval:
 class _FakeStore:
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, SyncReceipt] = field(default_factory=dict)
+    _claims: set[tuple[str, str]] = field(default_factory=set)
 
     def list_objects_for_source(self, *, project_id: str, source_file: str) -> Sequence[Mapping[str, object]]:
         return [
@@ -445,6 +452,16 @@ class _FakeStore:
 
     def set_receipt(self, *, receipt: SyncReceipt) -> None:
         self.receipts[f"{receipt.project_id}|{receipt.source_file}"] = receipt
+
+    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
+        key = (project_id, source_file)
+        if key in self._claims:
+            return False
+        self._claims.add(key)
+        return True
+
+    def release_source(self, *, project_id: str, source_file: str) -> None:
+        self._claims.discard((project_id, source_file))
 
 
 @dataclass

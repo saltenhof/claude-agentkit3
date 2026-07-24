@@ -207,15 +207,34 @@ def validate_concept_status(value: Any) -> str:
 
 
 def resolve_project_id(binding: RuntimeBinding, args: Mapping[str, Any]) -> str:
-    """Resolve the tool ``project_id`` against the binding (D2).
+    """Resolve the tool ``project_id`` against the binding (D2/R13).
 
-    Omitted -> bound id; divergent -> REJECTED (never cross-project). A
-    wrong-TYPED ``project_id`` (e.g. int) is a named validation error, NOT
-    coerced to ``None``/bound (R13).
+    Strict semantics (R13):
+    - ABSENT (key not in args) -> the bound project id (omitted parameter).
+    - PRESENT but ``None`` / empty / wrong-typed -> a NAMED validation error
+      (NOT a silent fallback to the bound project).
+    - PRESENT and equal to the bound id -> the bound id.
+    - PRESENT and divergent -> REJECTED (never cross-project).
     """
-    supplied = require_str_or_none(args, "project_id")
+    if "project_id" not in args:
+        return binding.resolve_project_id(None)
+    supplied = args["project_id"]
+    if supplied is None:
+        raise ToolArgumentError(
+            "argument 'project_id' is explicitly null; omit it to use the bound "
+            "project (R13, no silent fallback)."
+        )
+    if not isinstance(supplied, str):
+        raise ToolArgumentError(
+            f"argument 'project_id' must be a string, got {type(supplied).__name__} (AC10/R13)"
+        )
+    if not supplied.strip():
+        raise ToolArgumentError(
+            "argument 'project_id' is an empty string; omit it to use the bound "
+            "project (R13, no silent fallback)."
+        )
     try:
-        return binding.resolve_project_id(supplied)
+        return binding.resolve_project_id(supplied.strip())
     except RuntimeBindingError as exc:
         raise ToolArgumentError(str(exc)) from exc
 
