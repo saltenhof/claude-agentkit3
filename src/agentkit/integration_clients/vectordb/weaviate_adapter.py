@@ -44,6 +44,12 @@ STORY_COLLECTION: Final[str] = "StoryContext"
 #: gRPC port documented for the Weaviate container in FK-13 §13.2.
 FK13_GRPC_PORT: Final[int] = 50051
 
+#: Page size for filtered full reads (the set is paged, never truncated, AC10).
+FETCH_PAGE_SIZE: Final[int] = 1000
+
+#: Hard ceiling for one filtered result set; beyond it the read fails closed.
+MAX_FETCH_OBJECTS: Final[int] = 200_000
+
 #: Schema data-type token -> the Weaviate wire name reported by the server.
 WEAVIATE_DATA_TYPE_NAMES: Final[dict[str, str]] = {
     "TEXT": "text",
@@ -568,19 +574,14 @@ class _RealWeaviateClient:
         value: str,
         return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]:
-        """Fetch ``(uuid, properties)`` for objects where ``prop == value`` (paginated)."""
-        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+        """Fetch ``(uuid, properties)`` for objects where ``prop == value``."""
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
 
-        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
-        result = coll.query.fetch_objects(
-            filters=Filter.by_property(prop).equal(value),
-            return_properties=list(return_props),
-            limit=10000,
+        return self._fetch_all_pages(
+            collection=collection,
+            flt=Filter.by_property(prop).equal(value),
+            return_props=return_props,
         )
-        out: list[tuple[str, dict[str, object]]] = []
-        for obj in result.objects:
-            out.append((str(obj.uuid), dict(obj.properties)))
-        return out
 
     def fetch_by_property_any(
         self,
@@ -590,19 +591,56 @@ class _RealWeaviateClient:
         values: Sequence[str],
         return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]:
-        """Fetch ``(uuid, properties)`` where ``prop`` is in ``values`` (paginated)."""
-        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+        """Fetch ``(uuid, properties)`` where ``prop`` is in ``values``."""
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
 
-        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
-        result = coll.query.fetch_objects(
-            filters=Filter.by_property(prop).contains_any(list(values)),
-            return_properties=list(return_props),
-            limit=10000,
+        return self._fetch_all_pages(
+            collection=collection,
+            flt=Filter.by_property(prop).contains_any(list(values)),
+            return_props=return_props,
         )
+
+    def _fetch_all_pages(
+        self,
+        *,
+        collection: str,
+        flt: Any,
+        return_props: Sequence[str],
+    ) -> Sequence[tuple[str, dict[str, object]]]:
+        """Read a filtered result set COMPLETELY, page by page (AC10 pagination).
+
+        A single capped ``limit`` would silently truncate a large corpus, which
+        would make the delete closure miss objects. Pages are read until a short
+        page ends the set; a set larger than :data:`MAX_FETCH_OBJECTS` is a hard,
+        named error rather than a silently truncated answer. A page that returns
+        MORE objects than requested is malformed pagination and also fails closed.
+        """
+        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
         out: list[tuple[str, dict[str, object]]] = []
-        for obj in result.objects:
-            out.append((str(obj.uuid), dict(obj.properties)))
-        return out
+        offset = 0
+        while True:
+            page = coll.query.fetch_objects(
+                filters=flt,
+                return_properties=list(return_props),
+                limit=FETCH_PAGE_SIZE,
+                offset=offset,
+            )
+            objects = list(page.objects)
+            if len(objects) > FETCH_PAGE_SIZE:
+                raise VectorDbUnavailableError(
+                    f"Weaviate returned {len(objects)} objects for a page of "
+                    f"{FETCH_PAGE_SIZE}; malformed pagination (fail-closed, AC10)."
+                )
+            for obj in objects:
+                out.append((str(obj.uuid), dict(obj.properties)))
+            if len(objects) < FETCH_PAGE_SIZE:
+                return out
+            offset += FETCH_PAGE_SIZE
+            if offset >= MAX_FETCH_OBJECTS:
+                raise VectorDbUnavailableError(
+                    f"filtered result set exceeds {MAX_FETCH_OBJECTS} objects in "
+                    f"{collection!r}; refusing a truncated answer (fail-closed, AC10)."
+                )
 
     def insert_object(
         self, *, collection: str, uuid: str, properties: Mapping[str, object]
@@ -894,7 +932,9 @@ def _project_filter(project_id: str) -> object:
 __all__ = [
     "DEFAULT_SEARCH_LIMIT",
     "DEFAULT_SEARCH_MODE",
+    "FETCH_PAGE_SIZE",
     "FK13_GRPC_PORT",
+    "MAX_FETCH_OBJECTS",
     "SEARCH_MODES",
     "STORY_COLLECTION",
     "WEAVIATE_DATA_TYPE_NAMES",

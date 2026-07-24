@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 import weaviate
@@ -42,9 +42,6 @@ from agentkit.integration_clients.vectordb.errors import (
     VectorDbWriteError,
 )
 from agentkit.integration_clients.vectordb.weaviate_adapter import _RealWeaviateClient
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 _ENV = {
     "PROJECT_ID": "acme",
@@ -569,5 +566,85 @@ def test_n12_creation_uses_the_fk13_server_side_vectorizer() -> None:
     assert set(created_names) == {str(s["name"]) for s in weaviate_property_specs()}
 
 
-def _names(specs: Sequence[dict[str, object]]) -> set[str]:
-    return {str(s["name"]) for s in specs}
+# --------------------------------------------------------------------------- #
+# AC10 pagination: a filtered read is COMPLETE or a hard error, never truncated
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class _PagingQuery:
+    """Fake fetch_objects that pages like Weaviate (offset + limit)."""
+
+    total: int
+    calls: list[dict[str, object]] = field(default_factory=list)
+    overflow: bool = False
+
+    def fetch_objects(self, **kwargs: object) -> _Response:
+        from weaviate.collections.queries.fetch_objects.query import _FetchObjectsQuery
+
+        _bind_real(_FetchObjectsQuery.fetch_objects, kwargs)
+        self.calls.append(dict(kwargs))
+        limit = int(str(kwargs["limit"]))
+        offset = int(str(kwargs["offset"]))
+        if self.overflow:
+            limit += 1  # malformed: more objects than the page requested
+        page = [
+            _Obj(f"u{i}", {"project_id": "acme"}, _Meta(score=1.0))
+            for i in range(offset, min(offset + limit, self.total))
+        ]
+        return _Response(page)
+
+
+def _paging_client(query: _PagingQuery) -> _RealWeaviateClient:
+    collection = _FakeCollection(
+        query=query,  # type: ignore[arg-type]
+        data=_FakeData(),
+        config=_FakeConfig(_ConfigView(properties=[])),
+    )
+    return _RealWeaviateClient(_FakeConnection(_FakeCollections(collection=collection)))
+
+
+def test_pagination_reads_every_page_of_a_large_result_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentkit.integration_clients.vectordb import weaviate_adapter
+
+    monkeypatch.setattr(weaviate_adapter, "FETCH_PAGE_SIZE", 10)
+    query = _PagingQuery(total=25)
+    rows = _paging_client(query).fetch_by_property(
+        collection=STORY_CONTEXT_COLLECTION,
+        prop="project_id",
+        value="acme",
+        return_props=("project_id",),
+    )
+    assert len(rows) == 25  # NOT truncated at the page size
+    assert [c["offset"] for c in query.calls] == [0, 10, 20]
+
+
+def test_pagination_beyond_the_hard_ceiling_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentkit.integration_clients.vectordb import weaviate_adapter
+
+    monkeypatch.setattr(weaviate_adapter, "FETCH_PAGE_SIZE", 10)
+    monkeypatch.setattr(weaviate_adapter, "MAX_FETCH_OBJECTS", 20)
+    with pytest.raises(VectorDbUnavailableError, match="refusing a truncated answer"):
+        _paging_client(_PagingQuery(total=1000)).fetch_by_property(
+            collection=STORY_CONTEXT_COLLECTION,
+            prop="project_id",
+            value="acme",
+            return_props=("project_id",),
+        )
+
+
+def test_malformed_pagination_page_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agentkit.integration_clients.vectordb import weaviate_adapter
+
+    monkeypatch.setattr(weaviate_adapter, "FETCH_PAGE_SIZE", 10)
+    with pytest.raises(VectorDbUnavailableError, match="malformed pagination"):
+        _paging_client(_PagingQuery(total=100, overflow=True)).fetch_by_property_any(
+            collection=STORY_CONTEXT_COLLECTION,
+            prop="source_type",
+            values=("concept",),
+            return_props=("project_id",),
+        )
