@@ -20,8 +20,7 @@ permitted ONLY there (the narrow mock exception).
 
 from __future__ import annotations
 
-import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -129,20 +128,34 @@ class CorpusStorePort(Protocol):
         """Persist a receipt (in_progress or completed)."""
         ...
 
+    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
+        """Atomically claim a source for syncing (D3, N03).
+
+        Returns ``True`` if the claim was acquired (no other writer holds it),
+        ``False`` if another writer (any process) already claims this
+        ``(project_id, source_file)``. The claim is STORE-LEVEL / shared -- it
+        must NOT be process-local, so two service instances over one shared store
+        cannot both write the same source.
+        """
+        ...
+
+    def release_source(self, *, project_id: str, source_file: str) -> None:
+        """Release a previously acquired source claim (N03)."""
+        ...
+
 
 @dataclass
 class SyncService:
     """Implements the bounded-window corpus sync against a :class:`CorpusStorePort`.
 
-    The in-flight guard is per-process (thread-safe); D3's concurrent-reject is
-    enforced for truly overlapping calls. Crash recovery is receipt-driven: a
-    retry cleans residue deterministically (the should-set recomputation is the
-    reconciliation).
+    D3's concurrent-reject is enforced via a STORE-LEVEL atomic source claim
+    (N03): two service instances over one shared store cannot both write the same
+    ``(project_id, source_file)`` -- the loser is REJECTED fail-closed (not
+    serialized). Partial writes/deletes anywhere are rejected before the receipt
+    is published (R12).
     """
 
     store: CorpusStorePort
-    _inflight: set[tuple[str, str]] = field(default_factory=set)
-    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def sync_source(
         self,
@@ -154,13 +167,10 @@ class SyncService:
         corpus_revision: str,
     ) -> SyncResult:
         """Sync one source through the bounded window (D3)."""
-        key = (project_id, source_file)
-        with self._lock:
-            if key in self._inflight:
-                raise ConcurrentSyncRejectedError(
-                    f"concurrent sync of {(project_id, source_file)!r} rejected (D3)"
-                )
-            self._inflight.add(key)
+        if not self.store.try_claim_source(project_id=project_id, source_file=source_file):
+            raise ConcurrentSyncRejectedError(
+                f"concurrent sync of {(project_id, source_file)!r} rejected (D3/N03)"
+            )
         try:
             return self._sync_impl(
                 project_id=project_id,
@@ -170,8 +180,7 @@ class SyncService:
                 corpus_revision=corpus_revision,
             )
         finally:
-            with self._lock:
-                self._inflight.discard(key)
+            self.store.release_source(project_id=project_id, source_file=source_file)
 
     def reconcile_sources(
         self,
@@ -202,6 +211,11 @@ class SyncService:
         for vanished in sorted(vanished_sources):
             uuids = [str(o["uuid"]) for o in existing if str(o.get("source_file")) == vanished]
             deleted = self.store.delete_objects(uuids=uuids) if uuids else 0
+            if uuids and deleted != len(uuids):
+                raise PartialWriteError(
+                    f"partial delete for vanished source {vanished!r}: {deleted} of "
+                    f"{len(uuids)} deleted (R12)."
+                )
             source_type = str(next((o.get("source_type") for o in existing if str(o.get("source_file")) == vanished), ""))
             results.append(
                 SyncResult(
@@ -239,7 +253,8 @@ class SyncService:
 
         ``story_sync(full_reindex=true)`` deletes only story+research chunks;
         ``concept_sync(full_reindex=true)`` deletes only concept chunks. The two
-        are isolated within the bound ``project_id``.
+        are isolated within the bound ``project_id``. Vanished-source deletes are
+        count-verified (R12).
         """
         owned = source_types_for_producer(producer)
         # Pre-delete the producer's source-types (scoped to project_id).
@@ -257,7 +272,12 @@ class SyncService:
         }
         for vanished in vanished_sources:
             uuids = [str(o["uuid"]) for o in existing if str(o.get("source_file")) == vanished]
-            self.store.delete_objects(uuids=uuids)
+            deleted = self.store.delete_objects(uuids=uuids) if uuids else 0
+            if uuids and deleted != len(uuids):
+                raise PartialWriteError(
+                    f"partial delete for vanished source {vanished!r}: {deleted} of "
+                    f"{len(uuids)} deleted (R12)."
+                )
         # Sync each source through the window.
         for source_file, objs in objects_by_source.items():
             source_type = objs[0].properties["source_type"] if objs else ""

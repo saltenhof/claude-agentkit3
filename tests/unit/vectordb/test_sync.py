@@ -32,6 +32,7 @@ class FakeCorpusStore:
     receipts: dict[str, SyncReceipt] = field(default_factory=dict)
     crash_after_write: bool = False
     delete_calls: list[list[str]] = field(default_factory=list)
+    _claims: set[tuple[str, str]] = field(default_factory=set)
 
     def list_objects_for_source(
         self, *, project_id: str, source_file: str
@@ -80,6 +81,16 @@ class FakeCorpusStore:
 
     def set_receipt(self, *, receipt: SyncReceipt) -> None:
         self.receipts[f"{receipt.project_id}|{receipt.source_file}"] = receipt
+
+    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
+        key = (project_id, source_file)
+        if key in self._claims:
+            return False
+        self._claims.add(key)
+        return True
+
+    def release_source(self, *, project_id: str, source_file: str) -> None:
+        self._claims.discard((project_id, source_file))
 
 
 def _obj(
@@ -205,16 +216,28 @@ def test_crash_before_receipt_leaves_marker_then_retry_cleans() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_concurrent_sync_same_source_rejected() -> None:
+def test_concurrent_sync_same_source_rejected_two_writers() -> None:
+    """N03/D3: two service instances over ONE shared store -- the second writer
+    of the same ``(project_id, source_file)`` is REJECTED fail-closed (not
+    serialized). The claim is store-level, not process-local."""
     store = FakeCorpusStore()
-    service = SyncService(store=store)
-    # Simulate an in-flight sync by pre-claiming the key.
-    service._inflight.add(("acme", "concept/a.md"))
+    SyncService(store=store)
+    writer_b = SyncService(store=store)
+    # Writer A claims the source first (store-level claim).
+    assert store.try_claim_source(project_id="acme", source_file="concept/a.md") is True
+    # Writer B (a different service instance) must be rejected.
     with pytest.raises(ConcurrentSyncRejectedError, match="concurrent sync"):
-        service.sync_source(
+        writer_b.sync_source(
             project_id="acme", source_file="concept/a.md", source_type="concept",
             objects=[_obj("acme", "concept/a.md", "c1")], corpus_revision="rev",
         )
+    # After A releases, B can proceed.
+    store.release_source(project_id="acme", source_file="concept/a.md")
+    res = writer_b.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[_obj("acme", "concept/a.md", "c1")], corpus_revision="rev",
+    )
+    assert res.written == 1
 
 
 # --------------------------------------------------------------------------- #

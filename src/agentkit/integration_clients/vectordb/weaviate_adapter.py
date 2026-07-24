@@ -276,8 +276,14 @@ class WeaviateStoryAdapter:
             self._client.close()
 
 
-def _build_real_client(*, host: str, port: int) -> WeaviateClientPort:
+def _build_real_client(
+    *, host: str, port: int, grpc_host: str = "", grpc_port: int = 0
+) -> WeaviateClientPort:
     """Build a real ``weaviate-client``-backed transport (fail-closed).
+
+    Both the HTTP (host/port) AND the gRPC (grpc_host/grpc_port) endpoints are
+    passed VERBATIM into the ``weaviate.connect_to_local`` constructor (R03/D2) --
+    they come exclusively from the registered env, never a localhost default.
 
     Imported lazily and guarded so the module imports cleanly without the
     optional ``weaviate-client`` package; a missing package surfaces as a
@@ -294,10 +300,16 @@ def _build_real_client(*, host: str, port: int) -> WeaviateClientPort:
         ) from exc
 
     try:
-        connection = weaviate.connect_to_local(host=host, port=port)
+        if grpc_host and grpc_port:
+            connection = weaviate.connect_to_local(  # type: ignore[call-arg]
+                host=host, port=port, grpc_host=grpc_host, grpc_port=grpc_port
+            )
+        else:
+            connection = weaviate.connect_to_local(host=host, port=port)
     except Exception as exc:  # noqa: BLE001 -- any connect fault is fail-closed
         raise VectorDbUnavailableError(
-            f"Could not connect to Weaviate at {host}:{port}: {exc} "
+            f"Could not connect to Weaviate at {host}:{port}"
+            f"{f' (grpc {grpc_host}:{grpc_port})' if grpc_port else ''}: {exc} "
             "(fail-closed, FK-13 §13.2)."
         ) from exc
     return _RealWeaviateClient(connection)
@@ -337,19 +349,99 @@ class _RealWeaviateClient:
         project_id: str,
         limit: int,
     ) -> Sequence[Mapping[str, object]]:
+        """Story-shaped legacy search (project-scoped). See :meth:`search_objects`
+        for the full-property, source_type+filter-scoped retrieval (N01/R05)."""
         if search_mode not in SEARCH_MODES:
             raise VectorDbUnavailableError(
                 f"unsupported search_mode {search_mode!r}; must be one of {SEARCH_MODES} "
                 "(AC10: no leniency)."
             )
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
-        response = self._run_query(coll, query=query, search_mode=search_mode, limit=limit, project_id=project_id)
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+
+        response = self._run_query(
+            coll, query=query, search_mode=search_mode, limit=limit,
+            flt=Filter.by_property("project_id").equal(project_id),
+        )
+        return self._coerce_response(response)
+
+    def search_objects(
+        self,
+        *,
+        collection: str,
+        query: str,
+        search_mode: str,
+        project_id: str,
+        source_type: str,
+        filters: Mapping[str, object],
+        limit: int,
+        return_props: Sequence[str],
+    ) -> Sequence[tuple[str, dict[str, object], float]]:
+        """Full-property retrieval scoped by project_id AND source_type AND typed
+        filters (N01/R02/R05). Returns ``(uuid, properties, score)`` triples.
+
+        Every filter (status, story_type, concept_status, is_appendix,
+        concept_id, module) is applied as a hard Weaviate filter -- none is
+        ignored. Missing score is a hard error (AC10).
+        """
+        if search_mode not in SEARCH_MODES:
+            raise VectorDbUnavailableError(
+                f"unsupported search_mode {search_mode!r} (AC10)."
+            )
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+
+        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        parts = [
+            Filter.by_property("project_id").equal(project_id),
+            Filter.by_property("source_type").equal(source_type),
+        ]
+        for prop, value in filters.items():
+            if isinstance(value, bool):
+                parts.append(Filter.by_property(prop).equal(value))
+            else:
+                parts.append(Filter.by_property(prop).equal(str(value)))
+        flt = Filter.all_of(parts) if len(parts) > 1 else parts[0]
+        response = self._run_query(
+            coll, query=query, search_mode=search_mode, limit=limit, flt=flt
+        )
+        out: list[tuple[str, dict[str, object], float]] = []
+        for obj in response.objects:
+            props = dict(obj.properties)
+            for rp in return_props:
+                props.setdefault(rp, "")
+            score = getattr(obj.metadata, "score", None)
+            if score is None:
+                raise VectorDbUnavailableError("Weaviate hit has no 'score'; fail-closed (AC10).")
+            fs = float(score)
+            if fs != fs or fs in (float("inf"), float("-inf")):
+                raise VectorDbUnavailableError("non-finite score; fail-closed (AC10).")
+            out.append((str(obj.uuid), props, fs))
+        return out
+
+    def _run_query(self, coll: Any, *, query: str, search_mode: str, limit: int, flt: Any) -> Any:
+        """Dispatch to the Weaviate query API for the requested search_mode.
+
+        The three effective modes (FK-13 §13.4.2) map to distinct Weaviate query
+        kinds; search_mode is NEVER ignored. Server-side vectorisation is done by
+        the configured text2vec module (FK-13 §13.2, N02).
+        """
+        if search_mode == "hybrid":
+            return coll.query.hybrid(
+                query=query, limit=limit, filters=flt, return_metadata=["score"]
+            )
+        if search_mode == "keyword":
+            return coll.query.bm25(query=query, limit=limit, filters=flt)
+        # vector
+        return coll.query.near_text(
+            query=query, limit=limit, filters=flt, return_metadata=["score"]
+        )
+
+    def _coerce_response(self, response: Any) -> Sequence[Mapping[str, object]]:
         hits: list[Mapping[str, object]] = []
         for obj in response.objects:
             props = dict(obj.properties)
             score = getattr(obj.metadata, "score", None)
             if score is None:
-                # Missing score is a hard error, NOT a 0.0 repair (AC10).
                 raise VectorDbUnavailableError(
                     f"Weaviate hit {props.get('story_id')!r} has no 'score'; fail-closed (AC10)."
                 )
@@ -362,31 +454,6 @@ class _RealWeaviateClient:
                 }
             )
         return hits
-
-    def _run_query(
-        self, coll: Any, *, query: str, search_mode: str, limit: int, project_id: str
-    ) -> Any:
-        """Dispatch to the Weaviate query API for the requested search_mode.
-
-        The three effective modes (FK-13 §13.4.2) map to distinct Weaviate query
-        kinds; search_mode is NEVER ignored. Server-side vectorisation is done by
-        the configured text2vec module.
-        """
-        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
-
-        flt = Filter.by_property("project_id").equal(project_id)
-        if search_mode == "hybrid":
-            return coll.query.hybrid(
-                query=query, limit=limit, filters=flt, return_metadata=["score"]
-            )
-        if search_mode == "keyword":
-            return coll.query.bm25(
-                query=query, limit=limit, filters=flt
-            )
-        # vector
-        return coll.query.near_text(
-            query=query, limit=limit, filters=flt, return_metadata=["score"]
-        )
 
     def upsert(
         self,
@@ -475,8 +542,18 @@ class _RealWeaviateClient:
                 ) from exc
         return deleted
 
-    def ensure_collection(self, *, collection: str, property_specs: Sequence[Mapping[str, object]]) -> None:
-        """Create a collection idempotently from the schema-owner's specs (R02)."""
+    def ensure_collection(
+        self,
+        *,
+        collection: str,
+        property_specs: Sequence[Mapping[str, object]],
+        vectorizer: str = "self_provided",
+    ) -> None:
+        """Create a collection idempotently from the schema-owner's specs (R02).
+
+        ``vectorizer`` selects the FK-13 §13.2 server-side ``text2vec_transformers``
+        (StoryContext) vs ``self_provided`` (auxiliary collections like receipts).
+        """
         from weaviate.classes.config import (  # noqa: PLC0415 (optional dependency)
             Configure,
             DataType,
@@ -497,9 +574,15 @@ class _RealWeaviateClient:
             )
             for spec in property_specs
         ]
+        if vectorizer == "text2vec_transformers":
+            vector_config = Configure.Vectors.text2vec_transformers(
+                pooling_strategy="masked_mean", vectorize_collection_name=False
+            )
+        else:
+            vector_config = Configure.Vectors.self_provided()
         collections.create(
             name=collection,
-            vector_config=Configure.Vectors.self_provided(),
+            vector_config=vector_config,
             properties=properties,
         )
 

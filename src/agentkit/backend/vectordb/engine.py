@@ -15,17 +15,17 @@ with fakes at the :class:`CorpusStorePort` / :class:`RetrievalPort` boundary
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
 from agentkit.backend.vectordb.schema import (
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
-    ensure_story_context_collection,
 )
 from agentkit.backend.vectordb.sync import SyncReceipt, SyncService
-from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
+from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError, VectorDbWriteError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -33,6 +33,14 @@ if TYPE_CHECKING:
 
 #: Dedicated collection for digest-bound sync receipts (R02/R12).
 RECEIPT_COLLECTION = "__agentkit_sync_receipts"
+
+#: Dedicated collection for store-level atomic source claims (N03/D3).
+CLAIM_COLLECTION = "__agentkit_source_claims"
+
+#: Stable namespace for per-source receipt identity (N08).
+_RECEIPT_NAMESPACE = uuid.UUID("8c5e2f3a-1b6d-4e7a-9c8f-2a1b3c4d5e6f")
+#: Stable namespace for per-source claim identity (N03).
+_CLAIM_NAMESPACE = uuid.UUID("9d6f3a4b-2c7e-5f8b-ad9c-3b2c4d5e6f7a")
 
 
 class CorpusClientPort(Protocol):
@@ -46,12 +54,25 @@ class CorpusClientPort(Protocol):
         self, *, collection: str, prop: str, values: Sequence[str], return_props: Sequence[str]
     ) -> Sequence[tuple[str, dict[str, object]]]: ...
 
+    def search_objects(
+        self,
+        *,
+        collection: str,
+        query: str,
+        search_mode: str,
+        project_id: str,
+        source_type: str,
+        filters: Mapping[str, object],
+        limit: int,
+        return_props: Sequence[str],
+    ) -> Sequence[tuple[str, dict[str, object], float]]: ...
+
     def upsert(self, *, collection: str, objects: Sequence[Mapping[str, object]]) -> int: ...
 
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int: ...
 
     def ensure_collection(
-        self, *, collection: str, property_specs: Sequence[Mapping[str, object]]
+        self, *, collection: str, property_specs: Sequence[Mapping[str, object]], vectorizer: str = ...
     ) -> None: ...
 
 
@@ -116,6 +137,10 @@ class WeaviateCorpusStore:
         return None
 
     def set_receipt(self, *, receipt: SyncReceipt) -> None:
+        # N08: STABLE per-source receipt identity (uuid5 of project+source) so the
+        # latest receipt REPLACES the prior -- never accumulates multiple records
+        # per source. The upsert count is verified (fail-closed, never silent).
+        stable_uuid = str(uuid.uuid5(_RECEIPT_NAMESPACE, f"{receipt.project_id}|{receipt.source_file}"))
         doc = {
             "project_id": receipt.project_id,
             "source_file": receipt.source_file,
@@ -123,9 +148,46 @@ class WeaviateCorpusStore:
             "corpus_revision": receipt.corpus_revision,
             "digest": receipt.digest,
             "state": receipt.state.value,
-            "uuid": receipt.digest,  # idempotent: latest receipt replaces prior
+            "uuid": stable_uuid,
         }
-        self.client.upsert(collection=RECEIPT_COLLECTION, objects=[doc])
+        written = self.client.upsert(collection=RECEIPT_COLLECTION, objects=[doc])
+        if written != 1:
+            raise VectorDbWriteError(
+                f"receipt upsert for {receipt.source_file!r} wrote {written} (expected 1); "
+                "fail-closed (N08)."
+            )
+
+    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
+        """Atomically claim a source via a dedicated claims collection (N03/D3).
+
+        The claim is STORE-LEVEL (shared across processes): the claim record is
+        keyed by a stable per-source UUID. A prior live claim (state=claimed)
+        rejects the second writer. This is NOT process-local.
+        """
+        claim_uuid = str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}"))
+        existing = self.client.fetch_by_property(
+            collection=CLAIM_COLLECTION,
+            prop="source_file",
+            value=source_file,
+            return_props=("project_id", "state"),
+        )
+        for _uid, props in existing:
+            if str(props.get("project_id", "")) == project_id and str(props.get("state", "")) == "claimed":
+                return False
+        self.client.upsert(
+            collection=CLAIM_COLLECTION,
+            objects=[{"project_id": project_id, "source_file": source_file, "state": "claimed", "uuid": claim_uuid}],
+        )
+        return True
+
+    def release_source(self, *, project_id: str, source_file: str) -> None:
+        claim_uuid = str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}"))
+        # Best-effort release; a stuck claim is reconciled by a retry that
+        # re-reads state. Never mask a write fault in the hot path.
+        import contextlib
+
+        with contextlib.suppress(VectorDbUnavailableError):
+            self.client.delete_by_ids(collection=CLAIM_COLLECTION, uuids=[claim_uuid])
 
 
 def _receipt_from_props(project_id: str, source_file: str, props: Mapping[str, object]) -> SyncReceipt | None:
@@ -148,16 +210,18 @@ def _receipt_from_props(project_id: str, source_file: str, props: Mapping[str, o
 
 @dataclass
 class WeaviateRetrievalPort:
-    """Production :class:`RetrievalPort` over the thin Weaviate adapter (R02).
+    """Production :class:`RetrievalPort` over the thin Weaviate adapter (R02/N01).
 
-    Search delegates to the adapter's project-scoped query (3 modes). Source
-    listings are aggregated from the corpus store so ``story_list_sources``
-    returns the real indexed state (D1 shape), not a stub.
+    Search issues a REAL StoryContext query scoped by project_id AND source_type
+    AND the typed filters, returning full properties (concept_id/status/module
+    preserved). Source listings read the persisted receipts for real freshness
+    (N04/D1).
     """
 
-    adapter: Any  # WeaviateStoryAdapter (duck-typed to avoid a circular import)
+    client: CorpusClientPort
     store: WeaviateCorpusStore
     binding: RuntimeBinding
+    collection: str = STORY_CONTEXT_COLLECTION
 
     def search(
         self,
@@ -169,27 +233,26 @@ class WeaviateRetrievalPort:
         limit: int,
         filters: Mapping[str, object],
     ) -> Sequence[Mapping[str, object]]:
-        # The adapter search is story-shaped; for the concept/story search we
-        # project full properties by re-reading matched objects is not feasible
-        # without vector infra. We delegate the semantic match to the adapter and
-        # augment with filter pass-through. Outage is fail-closed (VectorDbError).
-        raw = self.adapter.story_search(
-            query,
+        return_props = (
+            "story_id", "title", "status", "story_type", "module", "epic",
+            "source_type", "source_file", "section_heading", "section_number",
+            "content", "concept_id", "is_appendix", "parent_concept_id",
+            "concept_status",
+        )
+        rows = self.client.search_objects(
+            collection=self.collection,
+            query=query,
             search_mode=search_mode,
             project_id=project_id,
+            source_type=source_type,
+            filters=filters,
             limit=limit,
+            return_props=return_props,
         )
-        return [self._project_hit(h, source_type) for h in raw]
-
-    @staticmethod
-    def _project_hit(hit: Any, source_type: str) -> dict[str, object]:
-        return {
-            "story_id": getattr(hit, "story_id", ""),
-            "title": getattr(hit, "title", ""),
-            "score": getattr(hit, "score", 0.0),
-            "snippet": getattr(hit, "snippet", ""),
-            "source_type": source_type,
-        }
+        return [
+            {**props, "score": score, "snippet": str(props.get("content", ""))[:200]}
+            for _uid, props, score in rows
+        ]
 
     def list_sources(self, *, project_id: str) -> Sequence[Mapping[str, object]]:
         from agentkit.backend.vectordb.ingest.classify import PRODUCER_BY_SOURCE_TYPE
@@ -200,6 +263,8 @@ class WeaviateRetrievalPort:
                 project_id=project_id, source_types=(source_type,)
             )
             files = {str(r.get("source_file")) for r in rows}
+            # N04/D1: read the REAL latest revision from persisted receipts.
+            last_revision = self._latest_revision(project_id, files)
             out.append(
                 {
                     "project_id": project_id,
@@ -207,27 +272,38 @@ class WeaviateRetrievalPort:
                     "producer": producer,
                     "source_count": len(files),
                     "chunk_count": len(rows),
-                    "last_revision": "",
+                    "last_revision": last_revision,
                 }
             )
         return out
+
+    def _latest_revision(self, project_id: str, files: set[str]) -> str:
+        """Return the latest persisted receipt revision across the source files (N04)."""
+        revisions: list[str] = []
+        for source_file in files:
+            receipt = self.store.get_receipt(project_id=project_id, source_file=source_file)
+            if receipt is not None and receipt.state.value == "completed":
+                revisions.append(receipt.corpus_revision)
+        return max(revisions) if revisions else ""
 
 
 def connect_real_client(binding: RuntimeBinding) -> CorpusClientPort:
     """Build a real Weaviate client from the binding's EXACT endpoints (R02/R03).
 
-    Both HTTP and gRPC endpoints come verbatim from the registered env (D2); no
-    localhost default. Raises :class:`VectorDbUnavailableError` fail-closed.
+    Both HTTP and gRPC endpoints come verbatim from the registered env (D2) and
+    are passed INTO ``weaviate.connect_to_local`` -- no localhost default, no
+    private attribute. Raises :class:`VectorDbUnavailableError` fail-closed.
     """
     from agentkit.integration_clients.vectordb.weaviate_adapter import _build_real_client
 
-    # The binding carries the canonical host/port split of the configured endpoints.
     http_host, http_port = _split_endpoint(binding.weaviate_http_endpoint)
     grpc_host, grpc_port = _split_grpc(binding.weaviate_grpc_endpoint)
-    client = _build_real_client(host=http_host, port=http_port)
-    # gRPC endpoint is asserted (required) and surfaced for the connection layer.
-    client._agentkit_grpc = (grpc_host, grpc_port)  # type: ignore[attr-defined]  # noqa: SLF001
-    return client  # type: ignore[return-value]
+    return _build_real_client(  # type: ignore[return-value]
+        host=http_host,
+        port=http_port,
+        grpc_host=grpc_host,
+        grpc_port=grpc_port,
+    )
 
 
 def _split_endpoint(endpoint: str) -> tuple[str, int]:
@@ -272,24 +348,35 @@ def compose_runtime(
     binding or connection fault.
     """
     from agentkit.backend.vectordb.mcp_server import McpToolService
-    from agentkit.integration_clients.vectordb.weaviate_adapter import WeaviateStoryAdapter
 
     binding = RuntimeBinding.from_env(env, command=command, args=args, cwd=cwd)
     client = connect_real_client(binding)
-    # Idempotent collection creation -- the schema-owner (schema.py) is the
-    # single declarer of the StoryContext property set (R02).
-    ensure_story_context_collection(client)
-    # The receipt collection is best-effort at compose (dedicated, non-critical).
-    import contextlib
+    # Idempotent collection creation. The schema-OWNER (schema.py) declares the
+    # property set via ``weaviate_property_specs()`` + the FK-13 §13.2
+    # server-side text2vec-transformers vectorizer (N02); the thin adapter's
+    # ``ensure_collection`` materialises it. Created via the port (not raw
+    # ``.collections``) so it works through the CorpusClientPort boundary.
+    from agentkit.backend.vectordb.schema import weaviate_property_specs
 
-    with contextlib.suppress(Exception):
-        client.ensure_collection(
-            collection=RECEIPT_COLLECTION, property_specs=_receipt_property_specs()
-        )
+    client.ensure_collection(
+        collection=STORY_CONTEXT_COLLECTION,
+        property_specs=weaviate_property_specs(),
+        vectorizer="text2vec_transformers",
+    )
+    # The receipt + claim collections are auxiliary (no vectors); their creation
+    # is NOT suppressed -- a failure to ensure them must surface fail-closed
+    # (N08), since receipt/claim persistence is required for the bounded-window
+    # freshness + D3 concurrent-reject contracts.
+    _aux_specs = _receipt_property_specs()
+    client.ensure_collection(
+        collection=RECEIPT_COLLECTION, property_specs=_aux_specs, vectorizer="self_provided"
+    )
+    client.ensure_collection(
+        collection=CLAIM_COLLECTION, property_specs=_aux_specs, vectorizer="self_provided"
+    )
     store = WeaviateCorpusStore(client=client)
     sync = SyncService(store=store)
-    adapter = WeaviateStoryAdapter(client)  # type: ignore[arg-type]
-    retrieval = WeaviateRetrievalPort(adapter=adapter, store=store, binding=binding)
+    retrieval = WeaviateRetrievalPort(client=client, store=store, binding=binding)
     return McpToolService(
         binding=binding,
         retrieval=retrieval,
@@ -356,6 +443,7 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 __all__ = [
+    "CLAIM_COLLECTION",
     "RECEIPT_COLLECTION",
     "WeaviateCorpusStore",
     "WeaviateRetrievalPort",

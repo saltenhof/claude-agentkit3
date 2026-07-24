@@ -35,6 +35,17 @@ class IndexingFakeStore:
 
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, SyncReceipt] = field(default_factory=dict)
+    _claims: set[tuple[str, str]] = field(default_factory=set)
+
+    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
+        key = (project_id, source_file)
+        if key in self._claims:
+            return False
+        self._claims.add(key)
+        return True
+
+    def release_source(self, *, project_id: str, source_file: str) -> None:
+        self._claims.discard((project_id, source_file))
 
     # -- CorpusStorePort --
     def list_objects_for_source(self, *, project_id: str, source_file: str) -> Sequence[Mapping[str, object]]:

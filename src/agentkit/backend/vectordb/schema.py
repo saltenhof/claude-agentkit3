@@ -142,8 +142,19 @@ def weaviate_property_specs() -> list[dict[str, object]]:
     return specs
 
 
+#: Vectorizer mandated by FK-13 §13.2: a SERVER-SIDE ``text2vec-transformers``
+#: module with the all-MiniLM-L6-v2 sidecar (not client-supplied/precomputed
+#: vectors). The three search modes (hybrid/near_text/bm25) are all server-side
+#: and consistent with this configuration (N02 adjudication vs FK-13 §13.2/§13.3).
+FK13_VECTORIZER: Final[str] = "text2vec_transformers"
+
+
 def ensure_story_context_collection(client: object) -> None:
-    """Create the StoryContext collection idempotently (FK-13 §13.3.1, R02).
+    """Create the StoryContext collection idempotently (FK-13 §13.3.1, R02/N02).
+
+    The vectorizer is the FK-13 §13.2-mandated SERVER-SIDE
+    ``text2vec-transformers`` (MiniLM sidecar), NOT ``self_provided``: hybrid /
+    near_text / bm25 all rely on the configured module.
 
     Args:
         client: a Weaviate v4 client exposing ``collections`` (the adapter's
@@ -179,7 +190,11 @@ def ensure_story_context_collection(client: object) -> None:
         collections.create(
             name=STORY_CONTEXT_COLLECTION,
             description="FK-13 StoryContext: story + research + concept chunks (project-scoped).",
-            vector_config=Configure.Vectors.self_provided(),
+            # FK-13 §13.2: SERVER-SIDE text2vec-transformers (MiniLM sidecar).
+            vector_config=Configure.Vectors.text2vec_transformers(
+                pooling_strategy="masked_mean",
+                vectorize_collection_name=False,
+            ),
             properties=properties,
         )
     except Exception as exc:  # noqa: BLE001 -- normalise to a typed write error
@@ -189,6 +204,7 @@ def ensure_story_context_collection(client: object) -> None:
 
 
 __all__ = [
+    "FK13_VECTORIZER",
     "REQUIRED_OBJECT_FIELDS",
     "SOURCE_TYPES",
     "STORY_CONTEXT_COLLECTION",
