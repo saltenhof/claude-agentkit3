@@ -117,6 +117,11 @@ def add_story_parsers(
         required=False,
         help="Project root carrying .agentkit/config/project.yaml (Weaviate host/port).",
     )
+    export_story_md_parser.add_argument(
+        "--project-id",
+        required=False,
+        help="Bound project discriminator for the indexed StoryContext objects (R04).",
+    )
     repair_story_md_parser = subparsers.add_parser(
         "repair-story-md",
         help="Scan, validate and re-export defective/missing story.md files (FK-21 §21.11.6)",
@@ -130,6 +135,11 @@ def add_story_parsers(
         "--project-root",
         required=False,
         help="Project root carrying .agentkit/config/project.yaml (Weaviate host/port).",
+    )
+    repair_story_md_parser.add_argument(
+        "--project-id",
+        required=False,
+        help="Bound project discriminator for the indexed StoryContext objects (R04).",
     )
 
 
@@ -475,6 +485,7 @@ def _cmd_export_story_md(
     result = export_story_md(
         args.story_id,
         Path(args.story_dir),
+        project_id=getattr(args, "project_id", None) or os.environ.get("AGENTKIT_PROJECT_ID", ""),
         story_attributes=build_story_attributes(),
         index=index,
     )
@@ -512,6 +523,7 @@ def _cmd_repair_story_md(
 
     report = repair_story_md(
         Path(args.stories_root),
+        project_id=getattr(args, "project_id", None) or os.environ.get("AGENTKIT_PROJECT_ID", ""),
         story_attributes=build_story_attributes(),
         index=index,
     )

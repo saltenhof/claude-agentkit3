@@ -46,16 +46,16 @@ class _Attrs:
 
 
 class _Index:
-    def index_story(self, *, story_id: str, objects: object) -> int:
-        del story_id, objects
+    def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
+        del story_id, project_id, objects
         return 1
 
 
 class _FailIndex:
-    def index_story(self, *, story_id: str, objects: object) -> int:
+    def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
         from agentkit.integration_clients.vectordb import VectorDbWriteError
 
-        del story_id, objects
+        del story_id, project_id, objects
         raise VectorDbWriteError("rejected")
 
 
@@ -67,6 +67,7 @@ def test_repair_reports_n_m_k(tmp_path: Path) -> None:
     (stories_root / "_meta").mkdir()
     report = repair_story_md(
         stories_root,
+        project_id="acme",
         story_attributes=_Attrs(),
         index=_Index(),
     )
@@ -85,7 +86,7 @@ def test_repair_skips_valid_files(tmp_path: Path) -> None:
     body = "# Title\n\n" + ("padding line\n" * 60)
     (story_dir / "story.md").write_text(frontmatter + body, encoding="utf-8")
 
-    report = repair_story_md(stories_root, story_attributes=_Attrs(), index=_Index())
+    report = repair_story_md(stories_root, story_attributes=_Attrs(), project_id="acme", index=_Index())
     assert report.checked == 1
     assert report.repaired == 0
     assert report.errors == 0
@@ -97,6 +98,7 @@ def test_repair_counts_export_errors(tmp_path: Path) -> None:
     (stories_root / "AK3-001_broker").mkdir(parents=True)
     report = repair_story_md(
         stories_root,
+        project_id="acme",
         story_attributes=_Attrs(),
         index=_FailIndex(),
     )
@@ -112,6 +114,6 @@ def test_repair_detects_too_short_existing_file(tmp_path: Path) -> None:
     story_dir = stories_root / "AK3-001"
     story_dir.mkdir(parents=True)
     (story_dir / "story.md").write_text("too short", encoding="utf-8")
-    report = repair_story_md(stories_root, story_attributes=_Attrs(), index=_Index())
+    report = repair_story_md(stories_root, story_attributes=_Attrs(), project_id="acme", index=_Index())
     assert report.checked == 1
     assert report.repaired == 1

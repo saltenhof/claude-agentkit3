@@ -169,6 +169,7 @@ def build_story_split_service(
             return export_story_md(
                 story_id,
                 story_dir,
+                project_id=project_key,
                 story_attributes=story_attributes,
                 index=index,
             )
@@ -191,6 +192,7 @@ def build_story_split_service(
             result = export_story_md(
                 story_id,
                 stories_root / story_id,
+                project_id=project_key,
                 story_attributes=story_attributes,
                 index=index,
             )

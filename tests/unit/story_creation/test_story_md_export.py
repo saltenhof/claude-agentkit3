@@ -60,16 +60,17 @@ class _FakeAttrs:
 class _OkIndex:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.last_objects: list[dict[str, object]] = []
 
-    def index_story(self, *, story_id: str, objects: object) -> int:
-        del objects
+    def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
         self.calls.append(story_id)
-        return 1
+        self.last_objects = list(objects) if isinstance(objects, list) else []  # type: ignore[arg-type]
+        return len(self.last_objects)
 
 
 class _FailIndex:
-    def index_story(self, *, story_id: str, objects: object) -> int:
-        del story_id, objects
+    def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
+        del story_id, project_id, objects
         raise VectorDbWriteError("weaviate write rejected")
 
 
@@ -78,6 +79,7 @@ def test_export_success_writes_frontmatter_and_indexes(tmp_path: Path) -> None:
     result = export_story_md(
         "AK3-042",
         tmp_path,
+        project_id="acme",
         story_attributes=_FakeAttrs((_story(), _spec())),
         index=index,
     )
@@ -91,6 +93,17 @@ def test_export_success_writes_frontmatter_and_indexes(tmp_path: Path) -> None:
     assert "# Implement broker adapter" in md
     assert result.file_size_bytes > 500
     assert index.calls == ["AK3-042"]
+    # R04: exported objects carry the full StoryContext projection, not the old
+    # minimal problem/solution shape.
+    assert index.last_objects
+    obj = index.last_objects[0]
+    assert obj["project_id"] == "acme"
+    assert obj["source_type"] == "story"
+    assert "content" in obj and obj["content"]
+    assert "content_hash" in obj and obj["content_hash"]
+    assert "source_file" in obj
+    assert "section_heading" in obj
+    assert "uuid" in obj
 
 
 def test_export_result_has_exactly_four_fields() -> None:
@@ -107,6 +120,7 @@ def test_indexing_failure_blocks_export_fail_closed(tmp_path: Path) -> None:
     result = export_story_md(
         "AK3-042",
         tmp_path,
+        project_id="acme",
         story_attributes=_FakeAttrs((_story(), _spec())),
         index=_FailIndex(),
     )
@@ -123,6 +137,7 @@ def test_too_short_story_fails_validation(tmp_path: Path) -> None:
     result = export_story_md(
         "AK3-042",
         tmp_path,
+        project_id="acme",
         story_attributes=_FakeAttrs((short, None)),
         index=index,
     )
@@ -137,7 +152,7 @@ def test_unknown_story_fails_closed(tmp_path: Path) -> None:
         "AK3-999",
         tmp_path,
         story_attributes=_FakeAttrs(None),
-        index=_OkIndex(),
+        project_id="acme", index=_OkIndex(),
     )
     assert result.success is False
     assert "not in the AK3 story backend" in result.error
@@ -150,7 +165,7 @@ def test_export_renders_all_optional_sections(tmp_path: Path) -> None:
         "AK3-042",
         tmp_path,
         story_attributes=_FakeAttrs((_story(), _spec())),
-        index=_OkIndex(),
+        project_id="acme", index=_OkIndex(),
     )
     assert result.success is True
     md = (tmp_path / "story.md").read_text(encoding="utf-8")
@@ -171,7 +186,7 @@ def test_export_write_failure_is_fail_closed(tmp_path: Path) -> None:
         "AK3-042",
         blocking,
         story_attributes=_FakeAttrs((_story(), _spec())),
-        index=_OkIndex(),
+        project_id="acme", index=_OkIndex(),
     )
     assert result.success is False
     assert result.error != ""
@@ -183,8 +198,8 @@ def test_export_is_deterministic_modulo_timestamp(tmp_path: Path) -> None:
     out2 = tmp_path / "b"
     out1.mkdir()
     out2.mkdir()
-    export_story_md("AK3-042", out1, story_attributes=_FakeAttrs((_story(), _spec())), index=_OkIndex())
-    export_story_md("AK3-042", out2, story_attributes=_FakeAttrs((_story(), _spec())), index=_OkIndex())
+    export_story_md("AK3-042", out1, story_attributes=_FakeAttrs((_story(), _spec())), project_id="acme", index=_OkIndex())
+    export_story_md("AK3-042", out2, story_attributes=_FakeAttrs((_story(), _spec())), project_id="acme", index=_OkIndex())
 
     def _strip_ts(text: str) -> list[str]:
         return [line for line in text.splitlines() if not line.startswith("exported_at:")]

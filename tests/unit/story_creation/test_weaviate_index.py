@@ -23,13 +23,17 @@ class _FakeAdapter:
 def test_index_story_forwards_to_story_sync() -> None:
     adapter = _FakeAdapter()
     index = WeaviateStoryIndex(adapter)  # type: ignore[arg-type]
-    written = index.index_story(story_id="AK3-1", objects=[{"story_id": "AK3-1"}])
+    written = index.index_story(
+        story_id="AK3-1", project_id="acme", objects=[{"story_id": "AK3-1", "project_id": "acme"}]
+    )
     assert written == 3
-    assert adapter.synced == [[{"story_id": "AK3-1"}]]
+    assert adapter.synced == [[{"story_id": "AK3-1", "project_id": "acme"}]]
 
 
 def test_index_story_propagates_write_error_fail_closed() -> None:
     adapter = _FakeAdapter(raise_write=True)
     index = WeaviateStoryIndex(adapter)  # type: ignore[arg-type]
     with pytest.raises(VectorDbWriteError):
-        index.index_story(story_id="AK3-1", objects=[{"story_id": "AK3-1"}])
+        index.index_story(
+            story_id="AK3-1", project_id="acme", objects=[{"story_id": "AK3-1", "project_id": "acme"}]
+        )

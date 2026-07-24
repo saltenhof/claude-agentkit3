@@ -74,6 +74,7 @@ def _needs_repair(story_md: Path) -> bool:
 def repair_story_md(
     stories_root: Path,
     *,
+    project_id: str,
     story_attributes: StoryAttributesPort,
     index: StoryIndexPort,
 ) -> RepairReport:
@@ -102,6 +103,7 @@ def repair_story_md(
         result = export_story_md(
             story_id,
             directory,
+            project_id=project_id,
             story_attributes=story_attributes,
             index=index,
         )

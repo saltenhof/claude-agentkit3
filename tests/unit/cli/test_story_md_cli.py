@@ -65,14 +65,14 @@ class _FakeAttrs:
 
 
 class _OkIndex:
-    def index_story(self, *, story_id: str, objects: object) -> int:
-        del story_id, objects
+    def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
+        del story_id, project_id, objects
         return 1
 
 
 class _FailIndex:
-    def index_story(self, *, story_id: str, objects: object) -> int:
-        del story_id, objects
+    def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
+        del story_id, project_id, objects
         raise VectorDbWriteError("weaviate write rejected")
 
 
@@ -107,7 +107,7 @@ def test_export_story_md_success_prints_result_and_exit_0(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
     rc = cli_main.main(
-        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path)]
+        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path), "--project-id", "ak3"]
     )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
@@ -129,7 +129,7 @@ def test_export_story_md_indexing_failure_exit_1(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
     rc = cli_main.main(
-        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path)]
+        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path), "--project-id", "ak3"]
     )
     assert rc == 1
     payload = json.loads(capsys.readouterr().out)
@@ -164,7 +164,7 @@ def test_repair_story_md_fail_closed_when_weaviate_absent(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """NEGATIVE: weaviate absent => VectorDbError, exit 1 (real connect branch)."""
-    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path)])
+    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "ak3"])
     assert rc == 1
     assert "repair-story-md failed [VectorDbUnavailable]" in capsys.readouterr().err
 
@@ -180,7 +180,7 @@ def test_repair_story_md_reports_n_m_k_and_exit_0(
     monkeypatch.setattr(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
-    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path)])
+    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "ak3"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["checked"] == 1
@@ -201,7 +201,7 @@ def test_repair_story_md_export_failure_exit_1(
     monkeypatch.setattr(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
-    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path)])
+    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "ak3"])
     assert rc == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["checked"] == 1

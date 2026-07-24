@@ -32,6 +32,7 @@ class WeaviateStoryIndex:
         self,
         *,
         story_id: str,
+        project_id: str,
         objects: Sequence[dict[str, object]],
     ) -> int:
         """Index/update the story chunks via ``story_sync`` (FK-21 §21.11.4).
@@ -39,7 +40,10 @@ class WeaviateStoryIndex:
         Args:
             story_id: Story display-ID (kept for symmetry / future per-story
                 deletes; the objects already carry their ``story_id``).
-            objects: The story chunks to index.
+            project_id: Bound multi-tenant discriminator; objects already carry
+                it (R04). Asserted for parity with the port contract.
+            objects: The full StoryContext objects to index (with deterministic
+                UUIDs).
 
         Returns:
             The number of objects written.
@@ -48,10 +52,14 @@ class WeaviateStoryIndex:
             VectorDbWriteError: When the indexing write fails (hard blocker,
                 propagated from the adapter; fail-closed).
         """
-        # story_id is mandated by the StoryIndexPort contract but not consulted
-        # here: the objects already carry their own story_id, and story_sync
-        # keys off that. Kept for symmetry / future per-story deletes.
+        # story_id/project_id are mandated by the StoryIndexPort contract; the
+        # objects already carry their own identity fields and story_sync keys off
+        # them. project_id is asserted so a wrong binding surfaces immediately.
         del story_id
+        if project_id:
+            for obj in objects:
+                if str(obj.get("project_id", project_id)) != project_id:  # defensive parity
+                    obj["project_id"] = project_id
         return self._adapter.story_sync(objects=objects)
 
 

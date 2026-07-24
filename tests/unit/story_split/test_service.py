@@ -1496,11 +1496,11 @@ class _ControllableIndex:
         self.indexed: list[str] = []
 
     def index_story(
-        self, *, story_id: str, objects: object
+        self, *, story_id: str, project_id: str, objects: object
     ) -> int:
         from agentkit.integration_clients.vectordb import VectorDbWriteError
 
-        del objects
+        del objects, project_id
         fail = story_id in self.fail_ids or (
             self.fail_first_non_source and story_id != "AK3-001"
         )
@@ -1524,6 +1524,7 @@ class _RealSuccessorExport:
         result = export_story_md(
             story_id,
             story_dir,
+            project_id="ak3",
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,
         )
@@ -1561,6 +1562,7 @@ class _RealSupersededIndex:
         result = export_story_md(
             story_id,
             self._stories_root / story_id,
+            project_id="ak3",
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,
         )

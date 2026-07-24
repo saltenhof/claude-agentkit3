@@ -82,7 +82,9 @@ class StoryIndexPort(Protocol):
     blocker, fail-closed).
     """
 
-    def index_story(self, *, story_id: str, objects: Sequence[dict[str, object]]) -> int:
+    def index_story(
+        self, *, story_id: str, project_id: str, objects: Sequence[dict[str, object]]
+    ) -> int:
         """Index the story chunks; return the count written. Raises on failure."""
         ...
 
@@ -156,19 +158,29 @@ def _render_body(story: Story, spec: StorySpecification | None) -> str:
     return "\n".join(parts).rstrip("\n") + "\n"
 
 
-def _story_index_objects(story: Story, spec: StorySpecification | None) -> list[dict[str, object]]:
-    """Build the indexing payload chunks (FK-21 §21.11.4)."""
-    return [
-        {
-            "story_id": story.story_display_id,
-            "title": story.title,
-            "problem": spec.need if spec is not None else "",
-            "solution": spec.solution if spec is not None else "",
-            "story_type": story.story_type.value,
-            "module": story.module,
-            "epic": story.epic,
-        }
-    ]
+def _story_index_objects(
+    project_id: str, story: Story, spec: StorySpecification | None, story_md_path: Path
+) -> list[dict[str, object]]:
+    """Build the indexing payload via the typed AG3-174 story-ingest projection (R04).
+
+    Re-chunks the WRITTEN ``story.md`` through the SSOT chunker so every object
+    carries ``content``/``project_id``/``source_type``/``source_file``/
+    ``content_hash``/headings and a deterministic UUID (AC3). The export never
+    sends the old minimal ``problem/solution`` shape.
+    """
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+
+    objects = story_file_to_objects(project_id, story_md_path)
+    # Carry the story-level metadata the projection does not derive from a bare
+    # story.md (status/type/module/epic) onto each chunk for filtering.
+    for obj in objects:
+        props = obj.properties
+        props["story_type"] = story.story_type.value
+        if story.module:
+            props["module"] = story.module
+        if story.epic:
+            props["epic"] = story.epic
+    return [{**obj.properties, "uuid": obj.uuid} for obj in objects]
 
 
 def _validate_frontmatter(text: str) -> str | None:
@@ -194,6 +206,7 @@ def export_story_md(
     story_id: str,
     story_dir: Path,
     *,
+    project_id: str,
     story_attributes: StoryAttributesPort,
     index: StoryIndexPort,
 ) -> StoryMdExportResult:
@@ -202,6 +215,7 @@ def export_story_md(
     Args:
         story_id: Story display-ID (e.g. ``"AK3-042"``).
         story_dir: The story directory; ``story.md`` is written inside it.
+        project_id: Bound multi-tenant discriminator for the indexed objects (R04).
         story_attributes: Authoritative story-attribute read surface.
         index: Incremental Weaviate indexing surface (hard blocker on failure).
 
@@ -263,10 +277,13 @@ def export_story_md(
         )
 
     # Automatic incremental Weaviate indexing -- HARD blocker (FK-21 §21.11.4).
+    # Routed through the typed AG3-174 story-ingest projection (R04): full
+    # StoryContext fields + deterministic UUIDs, project-bounded.
     try:
         index.index_story(
             story_id=story.story_display_id,
-            objects=_story_index_objects(story, spec),
+            project_id=project_id,
+            objects=_story_index_objects(project_id, story, spec, target),
         )
     except VectorDbError as exc:
         indexing_error = f"Weaviate indexing failed: {exc} (fail-closed: indexing " \
