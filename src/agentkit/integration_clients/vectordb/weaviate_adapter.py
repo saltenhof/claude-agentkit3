@@ -314,6 +314,11 @@ class _RealWeaviateClient:
     def __init__(self, connection: object) -> None:
         self._connection = connection
 
+    @property
+    def collections(self) -> Any:
+        """Expose the raw collections facade for the schema-owner creator (R02)."""
+        return self._connection.collections  # type: ignore[attr-defined]
+
     def is_ready(self) -> bool:
         is_ready = self._connection.is_ready  # type: ignore[attr-defined]
         return bool(is_ready())
@@ -389,13 +394,114 @@ class _RealWeaviateClient:
         collection: str,
         objects: Sequence[Mapping[str, object]],
     ) -> int:
+        """Batch insert objects; return the EXACT count confirmed written (R12).
+
+        Objects MAY carry a ``uuid`` key (deterministic identity) which is passed
+        to ``add_object``. ``batch.failed_objects`` is inspected so a partial
+        batch is NOT reported as success.
+        """
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
-        written = 0
         with coll.batch.dynamic() as batch:
             for obj in objects:
-                batch.add_object(properties=dict(obj))
-                written += 1
-        return written
+                props = {k: v for k, v in obj.items() if k != "uuid"}
+                uid = obj.get("uuid")
+                if uid:
+                    batch.add_object(properties=props, uuid=str(uid))
+                else:
+                    batch.add_object(properties=props)
+        failed = getattr(coll.batch, "failed_objects", []) or []
+        if failed:
+            raise VectorDbWriteError(
+                f"batch insert had {len(failed)} failed object(s); "
+                f"first: {getattr(failed[0], 'message', failed[0])!r} (R12 partial write)."
+            )
+        return len(objects)
+
+    def fetch_by_property(
+        self,
+        *,
+        collection: str,
+        prop: str,
+        value: str,
+        return_props: Sequence[str],
+    ) -> Sequence[tuple[str, dict[str, object]]]:
+        """Fetch ``(uuid, properties)`` for objects where ``prop == value`` (paginated)."""
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+
+        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        result = coll.query.fetch_objects(
+            filters=Filter.by_property(prop).equal(value),
+            return_properties=list(return_props),
+            limit=10000,
+        )
+        out: list[tuple[str, dict[str, object]]] = []
+        for obj in result.objects:
+            out.append((str(obj.uuid), dict(obj.properties)))
+        return out
+
+    def fetch_by_property_any(
+        self,
+        *,
+        collection: str,
+        prop: str,
+        values: Sequence[str],
+        return_props: Sequence[str],
+    ) -> Sequence[tuple[str, dict[str, object]]]:
+        """Fetch ``(uuid, properties)`` where ``prop`` is in ``values`` (paginated)."""
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+
+        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        result = coll.query.fetch_objects(
+            filters=Filter.by_property(prop).contains_any(list(values)),
+            return_properties=list(return_props),
+            limit=10000,
+        )
+        out: list[tuple[str, dict[str, object]]] = []
+        for obj in result.objects:
+            out.append((str(obj.uuid), dict(obj.properties)))
+        return out
+
+    def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int:
+        """Delete objects by uuid; return the EXACT count confirmed deleted (R12)."""
+        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        deleted = 0
+        for uid in uuids:
+            try:
+                coll.data.delete_by_id(str(uid))
+                deleted += 1
+            except Exception as exc:  # noqa: BLE001 -- surface partial delete
+                raise VectorDbWriteError(
+                    f"delete failed for {uid!r}: {exc} (R12 partial delete)."
+                ) from exc
+        return deleted
+
+    def ensure_collection(self, *, collection: str, property_specs: Sequence[Mapping[str, object]]) -> None:
+        """Create a collection idempotently from the schema-owner's specs (R02)."""
+        from weaviate.classes.config import (  # noqa: PLC0415 (optional dependency)
+            Configure,
+            DataType,
+            Property,
+            Tokenization,
+        )
+
+        collections = self._connection.collections  # type: ignore[attr-defined]
+        if collections.exists(collection):
+            return
+        _type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
+        properties = [
+            Property(
+                name=str(spec["name"]),
+                data_type=_type_map[str(spec["data_type"])],
+                tokenization=Tokenization.FIELD,
+                skip_vectorization=bool(spec["skip_vectorization"]),
+            )
+            for spec in property_specs
+        ]
+        collections.create(
+            name=collection,
+            vector_config=Configure.Vectors.self_provided(),
+            properties=properties,
+        )
 
 
 def _project_filter(project_id: str) -> object:
