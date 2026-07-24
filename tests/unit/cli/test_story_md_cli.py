@@ -1,15 +1,15 @@
 """Unit tests for the ``export-story-md`` / ``repair-story-md`` CLI handlers.
 
-Covers the AG3-068 CLI export/repair branches (FK-21 §21.11 / §21.11.6):
-
-* fail-closed when the Weaviate index cannot be built (VectorDbError -> exit 1);
-* a successful export prints the four-field result and returns exit 0;
-* an export blocker (failed indexing / missing story) returns exit 1;
-* the repair report N/M/K is printed and the exit code follows the error count.
+Covers the AG3-068 CLI export/repair branches (FK-21 §21.11 / §21.11.6) and the
+AG3-174 N06 authority rule: the project id comes from the project configuration
+(``project_prefix``) or the ``PROJECT_ID`` binding -- a caller-supplied
+``--project-id`` is only a cross-check, a divergent one is REJECTED and a missing
+authority is a hard error (D2).
 
 The Weaviate index and the story-attribute read surface are the injected
 boundaries (Weaviate / story-backend boundary => mocks exception). The argument
-parsing, dispatch, result rendering and exit-code mapping run for real.
+parsing, project-id resolution, dispatch, result rendering and exit-code mapping
+run for real.
 """
 
 from __future__ import annotations
@@ -65,9 +65,32 @@ class _FakeAttrs:
 
 
 class _OkIndex:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.objects: list[dict[str, object]] = []
+
     def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
-        del story_id, project_id, objects
-        return 1
+        self.calls.append((story_id, project_id))
+        self.objects = list(objects)  # type: ignore[arg-type]
+        return len(self.objects)
+
+
+def _write_project_config(root: Path, prefix: str) -> None:
+    """Write a minimal valid project.yaml carrying the authoritative prefix."""
+    config_dir = root / ".agentkit" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "project.yaml").write_text(
+        "project_key: acme\n"
+        "project_name: Acme\n"
+        f"project_prefix: {prefix}\n"
+        "repositories:\n  - name: app\n    path: .\n"
+        "pipeline:\n"
+        "  config_version: '3.0'\n"
+        "  features:\n    multi_llm: false\n"
+        "  sonarqube:\n    available: false\n    enabled: false\n"
+        "  ci:\n    available: false\n    enabled: false\n",
+        encoding="utf-8",
+    )
 
 
 class _FailIndex:
@@ -83,12 +106,14 @@ class _FailIndex:
 
 def test_export_story_md_fail_closed_when_weaviate_absent(
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """NEGATIVE: weaviate-client / Weaviate absent => VectorDbError, exit 1.
 
     Uses the REAL ``_build_weaviate_index`` (weaviate-client is not installed in
     the test env), so this exercises the genuine fail-closed connect branch.
     """
+    monkeypatch.setenv("PROJECT_ID", "AK3")
     rc = cli_main.main(
         ["export-story-md", "--story-id", "AK3-042", "--story-dir", "/tmp/x"]
     )
@@ -102,16 +127,25 @@ def test_export_story_md_success_prints_result_and_exit_0(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: _OkIndex())
+    index = _OkIndex()
+    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: index)
     monkeypatch.setattr(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
+    monkeypatch.setenv("PROJECT_ID", "AK3")
     rc = cli_main.main(
-        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path), "--project-id", "ak3"]
+        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path), "--project-id", "AK3"]
     )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["success"] is True
+    # R04: the indexed objects carry the PROJECT-RELATIVE canonical source path
+    # and the authoritative project id -- never an absolute path.
+    assert index.calls == [("AK3-042", "AK3")]
+    assert {str(o["source_file"]) for o in index.objects} == {
+        f"stories/{tmp_path.name}/story.md"
+    }
+    assert all(o["project_id"] == "AK3" for o in index.objects)
     assert payload["error"] == ""
     assert payload["file_size_bytes"] > 500
     assert set(payload) == {"success", "story_md_path", "file_size_bytes", "error"}
@@ -128,8 +162,9 @@ def test_export_story_md_indexing_failure_exit_1(
     monkeypatch.setattr(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
+    monkeypatch.setenv("PROJECT_ID", "AK3")
     rc = cli_main.main(
-        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path), "--project-id", "ak3"]
+        ["export-story-md", "--story-id", "AK3-042", "--story-dir", str(tmp_path), "--project-id", "AK3"]
     )
     assert rc == 1
     payload = json.loads(capsys.readouterr().out)
@@ -145,6 +180,7 @@ def test_export_story_md_unknown_story_exit_1(
     """NEGATIVE: an unknown story (no master data) is a fail-closed blocker."""
     monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: _OkIndex())
     monkeypatch.setattr(cli_main, "_build_story_attributes", lambda: _FakeAttrs(None))
+    monkeypatch.setenv("PROJECT_ID", "AK3")
     rc = cli_main.main(
         ["export-story-md", "--story-id", "AK3-999", "--story-dir", str(tmp_path)]
     )
@@ -162,9 +198,11 @@ def test_export_story_md_unknown_story_exit_1(
 def test_repair_story_md_fail_closed_when_weaviate_absent(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """NEGATIVE: weaviate absent => VectorDbError, exit 1 (real connect branch)."""
-    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "ak3"])
+    monkeypatch.setenv("PROJECT_ID", "AK3")
+    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "AK3"])
     assert rc == 1
     assert "repair-story-md failed [VectorDbUnavailable]" in capsys.readouterr().err
 
@@ -180,7 +218,8 @@ def test_repair_story_md_reports_n_m_k_and_exit_0(
     monkeypatch.setattr(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
-    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "ak3"])
+    monkeypatch.setenv("PROJECT_ID", "AK3")
+    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "AK3"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["checked"] == 1
@@ -201,10 +240,180 @@ def test_repair_story_md_export_failure_exit_1(
     monkeypatch.setattr(
         cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
     )
-    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "ak3"])
+    monkeypatch.setenv("PROJECT_ID", "AK3")
+    rc = cli_main.main(["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "AK3"])
     assert rc == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["checked"] == 1
     assert payload["repaired"] == 0
     assert payload["errors"] == 1
     assert "AK3-042" in payload["error_details"]
+
+
+# ---------------------------------------------------------------------------
+# N06 / D2: the project id is AUTHORITATIVE, not a caller argument
+# ---------------------------------------------------------------------------
+
+
+def test_n06_divergent_project_id_is_rejected_without_indexing(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A --project-id diverging from the configured prefix must be REJECTED."""
+    index = _OkIndex()
+    project_root = tmp_path / "project"
+    _write_project_config(project_root, "ACME")
+    story_dir = project_root / "stories" / "ACME-1"
+    story_dir.mkdir(parents=True)
+    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: index)
+    monkeypatch.setattr(
+        cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
+    )
+    monkeypatch.delenv("PROJECT_ID", raising=False)
+    rc = cli_main.main(
+        [
+            "export-story-md",
+            "--story-id", "AK3-042",
+            "--story-dir", str(story_dir),
+            "--project-root", str(project_root),
+            "--project-id", "FOREIGN",
+        ]
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "export-story-md failed [ProjectBinding]" in err
+    assert "FOREIGN" in err
+    assert index.calls == [], "no cross-project indexing may happen"
+    assert not (story_dir / "story.md").exists(), "no artefact may be written"
+
+
+def test_n06_matching_project_id_uses_the_configured_prefix(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = _OkIndex()
+    project_root = tmp_path / "project"
+    _write_project_config(project_root, "ACME")
+    story_dir = project_root / "stories" / "ACME-1"
+    story_dir.mkdir(parents=True)
+    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: index)
+    monkeypatch.setattr(
+        cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
+    )
+    monkeypatch.delenv("PROJECT_ID", raising=False)
+    rc = cli_main.main(
+        [
+            "export-story-md",
+            "--story-id", "AK3-042",
+            "--story-dir", str(story_dir),
+            "--project-root", str(project_root),
+            "--project-id", "ACME",
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()
+    assert index.calls == [("AK3-042", "ACME")]
+
+
+def test_n06_omitted_project_id_derives_the_configured_prefix(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = _OkIndex()
+    project_root = tmp_path / "project"
+    _write_project_config(project_root, "ACME")
+    story_dir = project_root / "stories" / "ACME-1"
+    story_dir.mkdir(parents=True)
+    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: index)
+    monkeypatch.setattr(
+        cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
+    )
+    monkeypatch.delenv("PROJECT_ID", raising=False)
+    rc = cli_main.main(
+        [
+            "export-story-md",
+            "--story-id", "AK3-042",
+            "--story-dir", str(story_dir),
+            "--project-root", str(project_root),
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()
+    assert index.calls == [("AK3-042", "ACME")]
+
+
+def test_n06_env_diverging_from_the_config_is_rejected(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = _OkIndex()
+    project_root = tmp_path / "project"
+    _write_project_config(project_root, "ACME")
+    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: index)
+    monkeypatch.setattr(
+        cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
+    )
+    monkeypatch.setenv("PROJECT_ID", "OTHER")
+    rc = cli_main.main(
+        [
+            "export-story-md",
+            "--story-id", "AK3-042",
+            "--story-dir", str(project_root / "stories" / "ACME-1"),
+            "--project-root", str(project_root),
+        ]
+    )
+    assert rc == 1
+    assert "diverges" in capsys.readouterr().err
+    assert index.calls == []
+
+
+def test_n06_missing_authority_is_a_hard_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No config prefix and no PROJECT_ID: the export must NOT fall back to ''."""
+    index = _OkIndex()
+    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: index)
+    monkeypatch.setattr(
+        cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
+    )
+    monkeypatch.delenv("PROJECT_ID", raising=False)
+    monkeypatch.delenv("AGENTKIT_PROJECT_ID", raising=False)
+    rc = cli_main.main(
+        [
+            "export-story-md",
+            "--story-id", "AK3-042",
+            "--story-dir", str(tmp_path),
+            "--project-root", str(tmp_path),
+            "--project-id", "ANY",
+        ]
+    )
+    assert rc == 1
+    assert "no authoritative project id" in capsys.readouterr().err
+    assert index.calls == []
+
+
+def test_n06_repair_rejects_a_divergent_project_id(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = _OkIndex()
+    (tmp_path / "AK3-042").mkdir()
+    monkeypatch.setattr(cli_main, "_build_weaviate_index", lambda _root: index)
+    monkeypatch.setattr(
+        cli_main, "_build_story_attributes", lambda: _FakeAttrs((_story(), _spec()))
+    )
+    monkeypatch.setenv("PROJECT_ID", "AK3")
+    rc = cli_main.main(
+        ["repair-story-md", "--stories-root", str(tmp_path), "--project-id", "FOREIGN"]
+    )
+    assert rc == 1
+    assert "repair-story-md failed [ProjectBinding]" in capsys.readouterr().err
+    assert index.calls == []
+    assert not (tmp_path / "AK3-042" / "story.md").exists()

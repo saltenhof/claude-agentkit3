@@ -9,6 +9,11 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.backend.vectordb.project_binding import (
+    ProjectBindingError,
+    resolve_authoritative_project_id,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -120,7 +125,10 @@ def add_story_parsers(
     export_story_md_parser.add_argument(
         "--project-id",
         required=False,
-        help="Bound project discriminator for the indexed StoryContext objects (R04).",
+        help=(
+            "Cross-check against the AUTHORITATIVE project id (project_prefix / "
+            "PROJECT_ID). A divergent value is rejected (D2)."
+        ),
     )
     repair_story_md_parser = subparsers.add_parser(
         "repair-story-md",
@@ -139,7 +147,10 @@ def add_story_parsers(
     repair_story_md_parser.add_argument(
         "--project-id",
         required=False,
-        help="Bound project discriminator for the indexed StoryContext objects (R04).",
+        help=(
+            "Cross-check against the AUTHORITATIVE project id (project_prefix / "
+            "PROJECT_ID). A divergent value is rejected (D2)."
+        ),
     )
 
 
@@ -464,6 +475,22 @@ def _build_story_attributes() -> StoryAttributesPort:
     return StoryService()
 
 
+def _authoritative_project_id(args: argparse.Namespace) -> str:
+    """Derive the AUTHORITATIVE project id for a story-document command (N06/D2).
+
+    The CLI ``--project-id`` is a cross-check, not a source of truth: the value
+    comes from the project configuration (``project_prefix``) or, when no config
+    is resolvable, from the ``PROJECT_ID`` environment binding. A missing
+    authority and a divergent supplied value are both hard errors -- there is no
+    empty fallback and no arbitrary project override.
+    """
+    return resolve_authoritative_project_id(
+        project_root=getattr(args, "project_root", None),
+        supplied=getattr(args, "project_id", None),
+        env=os.environ,
+    )
+
+
 def _cmd_export_story_md(
     args: argparse.Namespace,
     *,
@@ -477,6 +504,12 @@ def _cmd_export_story_md(
     from agentkit.integration_clients.vectordb import VectorDbError
 
     try:
+        project_id = _authoritative_project_id(args)
+    except ProjectBindingError as exc:
+        print(f"export-story-md failed [ProjectBinding]: {exc}", file=sys.stderr)
+        return 1
+
+    try:
         index = build_weaviate_index(args.project_root)
     except VectorDbError as exc:
         print(f"export-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
@@ -485,7 +518,7 @@ def _cmd_export_story_md(
     result = export_story_md(
         args.story_id,
         Path(args.story_dir),
-        project_id=getattr(args, "project_id", None) or os.environ.get("AGENTKIT_PROJECT_ID", ""),
+        project_id=project_id,
         story_attributes=build_story_attributes(),
         index=index,
     )
@@ -516,6 +549,12 @@ def _cmd_repair_story_md(
     from agentkit.integration_clients.vectordb import VectorDbError
 
     try:
+        project_id = _authoritative_project_id(args)
+    except ProjectBindingError as exc:
+        print(f"repair-story-md failed [ProjectBinding]: {exc}", file=sys.stderr)
+        return 1
+
+    try:
         index = build_weaviate_index(args.project_root)
     except VectorDbError as exc:
         print(f"repair-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
@@ -523,7 +562,7 @@ def _cmd_repair_story_md(
 
     report = repair_story_md(
         Path(args.stories_root),
-        project_id=getattr(args, "project_id", None) or os.environ.get("AGENTKIT_PROJECT_ID", ""),
+        project_id=project_id,
         story_attributes=build_story_attributes(),
         index=index,
     )
