@@ -18,6 +18,8 @@ from agentkit.concepts.parser import discover_concept_files
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 A = dedent(
     """\
     ---
@@ -35,6 +37,8 @@ A = dedent(
     # A
 
     ## One
+
+    Defers to FK-B for scope s.
 
     text.
     """
@@ -153,3 +157,82 @@ def test_cli_build_blocked_on_errors(tmp_path: Path) -> None:
     (root / "broken.md").write_text("no frontmatter", encoding="utf-8")
     code = cli_main(["--concepts-dir", str(tmp_path / "concept"), "build"])
     assert code == 2
+
+
+# --------------------------------------------------------------------------- #
+# R07: concept sync composes the productive engine and writes for real
+# --------------------------------------------------------------------------- #
+
+
+def test_r07_sync_writes_via_injected_service(tmp_path: Path) -> None:
+    from tests.unit.vectordb.test_remediation_r1 import _FakeRetrieval, _FakeStore  # type: ignore[attr-defined]
+
+    from agentkit.backend.vectordb.cli import build_parser
+    from agentkit.backend.vectordb.mcp_server import McpToolService
+    from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
+    from agentkit.backend.vectordb.sync import SyncService
+
+    root = _corpus(tmp_path)
+    env = {
+        "PROJECT_ID": "acme",
+        "WEAVIATE_HTTP_ENDPOINT": "http://weaviate.acme.local:8080",
+        "WEAVIATE_GRPC_ENDPOINT": "weaviate.acme.local:50051",
+    }
+    binding = RuntimeBinding.from_env(env, command="python", args=(), cwd=str(tmp_path))
+    store = _FakeStore()
+
+    def real_factory(concepts_dir: Path) -> McpToolService:
+        return McpToolService(
+            binding=binding, retrieval=_FakeRetrieval(), sync=SyncService(store=store),
+            concepts_dir=concepts_dir, stories_dir=tmp_path,
+        )
+
+    parser = build_parser()
+    args = parser.parse_args(["--concepts-dir", str(root), "sync", "--full"])
+    args.service_factory = real_factory  # type: ignore[attr-defined]
+    code = int(args.func(args))
+    assert code == 0
+    # Real writes happened (store populated with concept chunks).
+    assert len(store.objects) > 0
+
+
+def test_r07_sync_fails_closed_on_composition_error(tmp_path: Path) -> None:
+    from agentkit.backend.vectordb.cli import build_parser
+
+    def bad_factory(_concepts_dir: Path) -> object:
+        raise RuntimeError("weaviate down")
+
+    parser = build_parser()
+    args = parser.parse_args(["--concepts-dir", str(tmp_path), "sync"])
+    args.service_factory = bad_factory  # type: ignore[attr-defined]
+    code = int(args.func(args))
+    assert code == 3  # INTERNAL_FAILURE (fail-closed)
+
+
+# --------------------------------------------------------------------------- #
+# R08: validate --staged fails CLOSED (exit 3) on a git fault
+# --------------------------------------------------------------------------- #
+
+
+def test_r08_validate_staged_exit_3_on_git_fault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from agentkit.backend.vectordb import cli as cli_mod
+
+    root = _corpus(tmp_path)
+
+    def _boom(*_a: object, **_k: object) -> str:
+        raise cli_mod.GitOperationError("git exploded")
+
+    monkeypatch.setattr(cli_mod, "_staged_concept_overlays", _boom)
+    code = cli_main(["--concepts-dir", str(root), "validate", "--staged"])
+    assert code == 3
+
+
+def test_r08_validate_staged_consumes_deletions(tmp_path: Path) -> None:
+    """A staged DELETION is represented as an empty overlay (R08)."""
+    from agentkit.backend.vectordb.concept_corpus.candidate import build_candidate_corpus
+
+    root = _corpus(tmp_path)
+    dest = tmp_path / "cand"
+    build_candidate_corpus(root, {"technical-design/b.md": ""}, dest=dest)
+    assert not (dest / "technical-design" / "b.md").exists()
+    assert (dest / "technical-design" / "a.md").exists()
