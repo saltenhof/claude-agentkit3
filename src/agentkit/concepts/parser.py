@@ -74,9 +74,22 @@ class ConceptDocument:
 
 @dataclass(frozen=True)
 class ConceptChunk:
-    """One retrievable chunk of a concept document (FK-13 §13.3.1 / §13.9.3)."""
+    """One retrievable chunk of a concept document (FK-13 §13.3.1 / §13.9.3).
+
+    Identity model (R11 / FK-13 §13.9.9 bounded window):
+
+    - ``chunk_id`` is the STABLE LOGICAL identity (concept + path + section +
+      ordering). It never changes on a content-only edit and is used for
+      reconciliation (mapping the old generation onto the new).
+    - ``shadow_id`` is the GENERATION identity -- it folds in ``content_hash``
+      (and the corpus revision). A content-only edit changes ``shadow_id`` so
+      the new generation is written under a NEW object UUID, then the old
+      generation is deleted: the ratified write-new -> validate -> delete-old
+      bounded window. ``chunk_id`` stays stable for reconcile.
+    """
 
     chunk_id: str
+    shadow_id: str
     source_file: str
     section_heading: str
     section_number: str
@@ -246,14 +259,16 @@ def _chunk_document(doc: ConceptDocument, *, max_tokens: int) -> list[ConceptChu
             "authority_over": list(doc.authority_scopes),
             "tags": list(doc.tags),
         }
+        content_hash = chunk_hash(payload)
         out.append(
             ConceptChunk(
                 chunk_id=chunk_id,
+                shadow_id=_shadow_uuid(chunk_id, content_hash),
                 source_file=doc.rel_path,
                 section_heading=section.heading,
                 section_number=section.section_number,
                 content=piece,
-                content_hash=chunk_hash(payload),
+                content_hash=content_hash,
                 concept_id=doc.concept_id,
                 title=doc.title,
                 module=doc.module,
@@ -277,6 +292,19 @@ def _chunk_uuid(concept_id: str, rel_path: str, section: Section, ordering: int)
     namespace = uuid.UUID("4f3a07f6-9b6c-5e9b-8c5c-2a1d2b3c4d5e")
     key = f"{concept_id}#{rel_path}#{section.section_number}#{section.heading}#{ordering}"
     return str(uuid.uuid5(namespace, key))
+
+
+def _shadow_uuid(chunk_id: str, content_hash: str) -> str:
+    """Generation identity: folds content_hash into the logical id (R11).
+
+    A content-only edit changes this UUID, so the sync writes a NEW generation
+    object and deletes the old one (true bounded window), while ``chunk_id``
+    stays stable for reconciliation.
+    """
+    import uuid  # noqa: PLC0415
+
+    namespace = uuid.UUID("5b4d1e7f-4c6a-6fac-9d6e-1f2a3b4c5d6e")
+    return str(uuid.uuid5(namespace, f"{chunk_id}#{content_hash}"))
 
 
 def _extract_normative_rules(text: str) -> str:

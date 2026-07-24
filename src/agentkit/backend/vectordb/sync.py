@@ -37,6 +37,10 @@ class SyncError(RuntimeError):
     """Base error for corpus sync (fail-closed)."""
 
 
+class PartialWriteError(SyncError):
+    """A transport write/delete was incomplete (R12: never advance freshness)."""
+
+
 class ConcurrentSyncRejectedError(SyncError):
     """Two concurrent syncs of the same ``(project_id, source_file)`` (D3)."""
 
@@ -106,11 +110,15 @@ class CorpusStorePort(Protocol):
         ...
 
     def upsert_objects(self, *, objects: Sequence[StoryContextObject]) -> int:
-        """Insert/replace objects (deterministic uuids); return count written."""
+        """Insert/replace objects (deterministic uuids); return the EXACT count
+        of objects confirmed written (R12). A return value below
+        ``len(objects)`` indicates a partial batch and MUST NOT be reported as
+        success; batch failures are surfaced as a lower count, not an exception,
+        so the SyncService can reject the partial window fail-closed."""
         ...
 
     def delete_objects(self, *, uuids: Sequence[str]) -> int:
-        """Delete objects by uuid; return count deleted."""
+        """Delete objects by uuid; return the EXACT count confirmed deleted (R12)."""
         ...
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
@@ -164,6 +172,60 @@ class SyncService:
         finally:
             with self._lock:
                 self._inflight.discard(key)
+
+    def reconcile_sources(
+        self,
+        *,
+        project_id: str,
+        producer: str,
+        objects_by_source: Mapping[str, Sequence[StoryContextObject]],
+        corpus_revision: str,
+    ) -> list[SyncResult]:
+        """Incremental reconcile: sync present sources AND delete vanished ones.
+
+        For each present source the bounded window writes the new generation and
+        deletes the old. Sources that existed in the store for the producer's
+        source-types but are no longer discovered are deleted (delete closure,
+        R05). Does NOT touch other producers' source-types.
+        """
+        owned = source_types_for_producer(producer)
+        existing = self.store.list_objects_for_source_types(
+            project_id=project_id, source_types=owned
+        )
+        present_sources = set(objects_by_source.keys())
+        vanished_sources = {
+            str(o.get("source_file"))
+            for o in existing
+            if str(o.get("source_file")) not in present_sources
+        }
+        results: list[SyncResult] = []
+        for vanished in sorted(vanished_sources):
+            uuids = [str(o["uuid"]) for o in existing if str(o.get("source_file")) == vanished]
+            deleted = self.store.delete_objects(uuids=uuids) if uuids else 0
+            source_type = str(next((o.get("source_type") for o in existing if str(o.get("source_file")) == vanished), ""))
+            results.append(
+                SyncResult(
+                    project_id=project_id,
+                    source_file=vanished,
+                    source_type=source_type,
+                    written=0,
+                    deleted=deleted,
+                    corpus_revision=corpus_revision,
+                    receipt_digest="",
+                )
+            )
+        for source_file, objs in objects_by_source.items():
+            source_type = str(objs[0].properties["source_type"]) if objs else ""
+            results.append(
+                self.sync_source(
+                    project_id=project_id,
+                    source_file=source_file,
+                    source_type=source_type,
+                    objects=objs,
+                    corpus_revision=corpus_revision,
+                )
+            )
+        return results
 
     def full_reindex(
         self,
@@ -226,16 +288,35 @@ class SyncService:
                 raise SyncError(
                     f"object source_type {obj.properties.get('source_type')!r} != {source_type!r}"
                 )
-        # (1) Write the new should-generation fully.
+        # (1) Write the new should-generation fully + verify EXACT transport count.
         should_uuids = {obj.uuid for obj in objects}
-        self.store.upsert_objects(objects=objects)
-        # (2) Delete old/foreign chunks of the SAME source AFTER.
-        existing = self.store.list_objects_for_source(
+        written = self.store.upsert_objects(objects=objects)
+        if written != len(objects):
+            raise PartialWriteError(
+                f"partial write for {source_file!r}: transport reported {written} of "
+                f"{len(objects)} objects; generation incomplete (R12)."
+            )
+        # Re-read the persisted should-set and prove full equality BEFORE deleting
+        # old: every new-generation UUID must be present (R12).
+        persisted = self.store.list_objects_for_source(
             project_id=project_id, source_file=source_file
         )
-        to_delete = [str(o["uuid"]) for o in existing if str(o["uuid"]) not in should_uuids]
+        persisted_uuids = {str(o["uuid"]) for o in persisted}
+        missing = should_uuids - persisted_uuids
+        if missing:
+            raise PartialWriteError(
+                f"should-set not persisted for {source_file!r}: {len(missing)} of "
+                f"{len(should_uuids)} new UUIDs absent after write (R12)."
+            )
+        # (2) Delete old/foreign chunks of the SAME source AFTER + verify count.
+        to_delete = [uid for uid in persisted_uuids if uid not in should_uuids]
         deleted = self.store.delete_objects(uuids=to_delete) if to_delete else 0
-        # (3) Publish the digest-bound receipt ONLY after a successful delete.
+        if deleted != len(to_delete):
+            raise PartialWriteError(
+                f"partial delete for {source_file!r}: transport reported {deleted} of "
+                f"{len(to_delete)} old UUIDs deleted (R12)."
+            )
+        # (3) Publish the digest-bound receipt ONLY after a verified full window.
         receipt = SyncReceipt.for_completion(
             project_id=project_id,
             source_file=source_file,
@@ -247,7 +328,7 @@ class SyncService:
             project_id=project_id,
             source_file=source_file,
             source_type=source_type,
-            written=len(objects),
+            written=written,
             deleted=deleted,
             corpus_revision=corpus_revision,
             receipt_digest=receipt.digest,
@@ -257,6 +338,7 @@ class SyncService:
 __all__ = [
     "ConcurrentSyncRejectedError",
     "CorpusStorePort",
+    "PartialWriteError",
     "ReceiptState",
     "SyncError",
     "SyncReceipt",

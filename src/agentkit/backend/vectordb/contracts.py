@@ -96,6 +96,12 @@ TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
 TOOL_NAMES: Final[tuple[str, ...]] = tuple(t.name for t in TOOL_CONTRACTS)
 
 
+def allowed_keys_for(name: str) -> frozenset[str]:
+    """Return the exact allowed argument-key set for a tool (R13)."""
+    contract = contract_for(name)
+    return frozenset(contract.required_params + contract.optional_params)
+
+
 def contract_for(name: str) -> ToolContract:
     """Return the tool contract by name (fail-closed on unknown)."""
     for contract in TOOL_CONTRACTS:
@@ -118,12 +124,47 @@ def require_str(args: Mapping[str, Any], key: str) -> str:
 
 
 def optional_str(args: Mapping[str, Any], key: str) -> str:
+    """Return an optional string arg (``""`` when omitted).
+
+    A PRESENT but wrong-typed value is a named error (R13): never coerced to a
+    default and never silently ignored.
+    """
     value = args.get(key)
     if value is None:
         return ""
     if not isinstance(value, str):
-        raise ToolArgumentError(f"argument {key!r} must be a string (AC10)")
+        raise ToolArgumentError(
+            f"argument {key!r} must be a string, got {type(value).__name__} (AC10/R13)"
+        )
     return value.strip()
+
+
+def require_str_or_none(args: Mapping[str, Any], key: str) -> str | None:
+    """Return a present-or-absent string arg as ``str | None`` (strict typing).
+
+    A wrong-typed value is a named error (R13) -- NOT coerced to ``None``.
+    """
+    value = args.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ToolArgumentError(
+            f"argument {key!r} must be a string, got {type(value).__name__} (AC10/R13)"
+        )
+    if not value.strip():
+        return None
+    return value.strip()
+
+
+def reject_unknown_args(name: str, args: Mapping[str, Any]) -> None:
+    """Reject any argument key outside the tool's allowed set (R13)."""
+    allowed = allowed_keys_for(name)
+    unknown = sorted(set(args.keys()) - allowed)
+    if unknown:
+        raise ToolArgumentError(
+            f"tool {name!r} received unknown argument(s) {unknown}; "
+            f"allowed: {sorted(allowed)} (AC10/R13)."
+        )
 
 
 def validate_search_mode(value: Any) -> str:
@@ -168,11 +209,13 @@ def validate_concept_status(value: Any) -> str:
 def resolve_project_id(binding: RuntimeBinding, args: Mapping[str, Any]) -> str:
     """Resolve the tool ``project_id`` against the binding (D2).
 
-    Omitted -> bound id; divergent -> REJECTED (never cross-project).
+    Omitted -> bound id; divergent -> REJECTED (never cross-project). A
+    wrong-TYPED ``project_id`` (e.g. int) is a named validation error, NOT
+    coerced to ``None``/bound (R13).
     """
-    supplied = args.get("project_id")
+    supplied = require_str_or_none(args, "project_id")
     try:
-        return binding.resolve_project_id(supplied if isinstance(supplied, str) else None)
+        return binding.resolve_project_id(supplied)
     except RuntimeBindingError as exc:
         raise ToolArgumentError(str(exc)) from exc
 
@@ -189,6 +232,34 @@ def validate_search_args(
     }
 
 
+def validate_story_filters(args: Mapping[str, Any]) -> dict[str, object]:
+    """Strictly validate the optional story filters (status, story_type) (R13)."""
+    filters: dict[str, object] = {}
+    status = require_str_or_none(args, "status")
+    if status:
+        filters["status"] = status
+    story_type = require_str_or_none(args, "story_type")
+    if story_type:
+        filters["story_type"] = story_type
+    return filters
+
+
+def validate_concept_filters(args: Mapping[str, Any]) -> dict[str, object]:
+    """Strictly validate the optional concept filters (R13)."""
+    concept_status = validate_concept_status(args.get("concept_status"))
+    filters: dict[str, object] = {"concept_status": concept_status}
+    is_appendix = args.get("is_appendix")
+    if is_appendix is not None:
+        filters["is_appendix"] = validate_bool(is_appendix, name="is_appendix")
+    concept_id = require_str_or_none(args, "concept_id")
+    if concept_id:
+        filters["concept_id"] = concept_id
+    module = require_str_or_none(args, "module")
+    if module:
+        filters["module"] = module
+    return filters
+
+
 __all__ = [
     "CONCEPT_STATUSES",
     "DEFAULT_LIMIT",
@@ -197,13 +268,18 @@ __all__ = [
     "TOOL_NAMES",
     "ToolArgumentError",
     "ToolContract",
+    "allowed_keys_for",
     "contract_for",
     "optional_str",
+    "reject_unknown_args",
     "require_str",
+    "require_str_or_none",
     "resolve_project_id",
     "validate_bool",
+    "validate_concept_filters",
     "validate_concept_status",
     "validate_limit",
     "validate_search_args",
     "validate_search_mode",
+    "validate_story_filters",
 ]

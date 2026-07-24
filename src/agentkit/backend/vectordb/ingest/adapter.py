@@ -75,7 +75,7 @@ def _concept_chunk_to_object(project_id: str, chunk: ConceptChunk) -> StoryConte
         "story_type": "concept",
         "epic": "",
     }
-    return _build_object(project_id, chunk.source_file, chunk.chunk_id, properties)
+    return _build_object(project_id, chunk.source_file, chunk.shadow_id, properties)
 
 
 def story_file_to_objects(

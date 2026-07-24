@@ -84,6 +84,30 @@ _GOOD_ENV = {
 }
 
 
+def test_grpc_endpoint_is_required() -> None:
+    env = {k: v for k, v in _GOOD_ENV.items() if k != "WEAVIATE_GRPC_ENDPOINT"}
+    with pytest.raises(RuntimeBindingError, match="WEAVIATE_GRPC_ENDPOINT"):
+        RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
+
+
+def test_grpc_endpoint_empty_fails_closed() -> None:
+    env = {**_GOOD_ENV, "WEAVIATE_GRPC_ENDPOINT": "  "}
+    with pytest.raises(RuntimeBindingError, match="empty"):
+        RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
+
+
+def test_grpc_endpoint_localhost_rejected() -> None:
+    env = {**_GOOD_ENV, "WEAVIATE_GRPC_ENDPOINT": "localhost:50051"}
+    with pytest.raises(RuntimeBindingError, match="localhost default"):
+        RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
+
+
+def test_binding_carries_both_exact_endpoints() -> None:
+    rb = RuntimeBinding.from_env(_GOOD_ENV, command="python", args=(), cwd="/srv")
+    assert rb.weaviate_http_endpoint == "http://weaviate.acme.local:8080"
+    assert rb.weaviate_grpc_endpoint == "weaviate.acme.local:50051"
+
+
 def test_runtime_binding_from_env_ok() -> None:
     rb = RuntimeBinding.from_env(
         _GOOD_ENV, command="python", args=("-m", "agentkit.backend.vectordb.mcp_server"), cwd="/srv"

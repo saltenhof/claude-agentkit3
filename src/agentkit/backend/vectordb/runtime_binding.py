@@ -28,9 +28,12 @@ class RuntimeBindingError(ValueError):
 
 
 #: Environment keys that MUST be present and non-empty (D2: env is sole authority).
+#: Both Weaviate endpoints (HTTP + gRPC) are mandatory and strictly validated;
+#: neither is ever a synthesised localhost default.
 REQUIRED_ENV_KEYS: tuple[str, ...] = (
     "PROJECT_ID",
     "WEAVIATE_HTTP_ENDPOINT",
+    "WEAVIATE_GRPC_ENDPOINT",
 )
 
 
@@ -49,6 +52,21 @@ def _required(mapping: Mapping[str, str], key: str) -> str:
     return value.strip()
 
 
+def _reject_localhost(endpoint: str, *, label: str) -> None:
+    """Reject synthesised localhost defaults for either endpoint (D2)."""
+    forbidden = {
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "localhost:50051",
+        "127.0.0.1:50051",
+    }
+    if endpoint in forbidden:
+        raise RuntimeBindingError(
+            f"{label} {endpoint!r} is a forbidden localhost default; the endpoint "
+            "must be explicitly configured (D2)."
+        )
+
+
 @dataclass(frozen=True)
 class McpServerSpec:
     """Single source of truth for the started MCP process (consumed by AG3-175).
@@ -56,7 +74,7 @@ class McpServerSpec:
     Attributes:
         project_id: Bound project discriminator (from ``PROJECT_ID`` env).
         weaviate_http_endpoint: Weaviate HTTP endpoint (from env, no default).
-        weaviate_grpc_endpoint: Weaviate gRPC endpoint (from env, may be empty).
+        weaviate_grpc_endpoint: Weaviate gRPC endpoint (from env, no default).
         command: Executable command for the MCP server.
         args: Argument vector for the MCP server.
         cwd: Working / containment boundary (NOT a second config source).
@@ -124,16 +142,9 @@ class RuntimeBinding:
             _required(env, key)
         project_id = _required(env, "PROJECT_ID")
         http_endpoint = _required(env, "WEAVIATE_HTTP_ENDPOINT")
-        if http_endpoint in {"http://localhost:8080", "http://127.0.0.1:8080"}:
-            raise RuntimeBindingError(
-                f"WEAVIATE_HTTP_ENDPOINT {http_endpoint!r} is a forbidden localhost "
-                "default; the endpoint must be explicitly configured (D2)."
-            )
-        grpc_endpoint = env.get("WEAVIATE_GRPC_ENDPOINT", "")
-        if not isinstance(grpc_endpoint, str):
-            raise RuntimeBindingError(
-                "WEAVIATE_GRPC_ENDPOINT must be a string when present (typed binding)."
-            )
+        _reject_localhost(http_endpoint, label="WEAVIATE_HTTP_ENDPOINT")
+        grpc_endpoint = _required(env, "WEAVIATE_GRPC_ENDPOINT")
+        _reject_localhost(grpc_endpoint, label="WEAVIATE_GRPC_ENDPOINT")
         if not cwd.strip():
             raise RuntimeBindingError(
                 "cwd is empty; it is the containment boundary (fail-closed)."

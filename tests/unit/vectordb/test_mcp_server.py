@@ -96,6 +96,7 @@ class FakeStore:
 _ENV = {
     "PROJECT_ID": "acme",
     "WEAVIATE_HTTP_ENDPOINT": "http://weaviate.acme.local:8080",
+    "WEAVIATE_GRPC_ENDPOINT": "weaviate.acme.local:50051",
 }
 
 
