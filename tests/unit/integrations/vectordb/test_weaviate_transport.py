@@ -648,3 +648,39 @@ def test_malformed_pagination_page_is_fail_closed(monkeypatch: pytest.MonkeyPatc
             values=("concept",),
             return_props=("project_id",),
         )
+
+
+# --------------------------------------------------------------------------- #
+# R05/N01: EVERY typed filter reaches Weaviate as a hard filter (none ignored)
+# --------------------------------------------------------------------------- #
+
+
+def _filter_pairs(flt: Any) -> set[tuple[str, object]]:
+    """Flatten a REAL Weaviate filter expression into (target, value) pairs."""
+    leaves = getattr(flt, "filters", None)
+    if leaves is None:
+        return {(str(flt.target), flt.value)}
+    pairs: set[tuple[str, object]] = set()
+    for leaf in leaves:
+        pairs |= _filter_pairs(leaf)
+    return pairs
+
+
+def test_every_typed_filter_is_applied_as_a_weaviate_filter() -> None:
+    response = _Response([_Obj("u1", _concept_props(), _Meta(score=0.5))])
+    collection = _collection(response)
+    _retrieval(_client(collection)).search(
+        project_id="acme",
+        source_type="concept",
+        query="q",
+        search_mode="hybrid",
+        limit=10,
+        filters={"concept_status": "draft", "is_appendix": True, "module": "vectordb"},
+    )
+    pairs = _filter_pairs(collection.query.calls[0]["filters"])
+    assert ("project_id", "acme") in pairs
+    assert ("source_type", "concept") in pairs
+    assert ("concept_status", "draft") in pairs
+    assert ("module", "vectordb") in pairs
+    # A boolean filter keeps its type (no str() coercion of a BOOL property).
+    assert ("is_appendix", True) in pairs
