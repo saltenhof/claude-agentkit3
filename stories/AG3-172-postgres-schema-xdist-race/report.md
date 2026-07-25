@@ -181,7 +181,9 @@ beiden Regressionstests aussagekraeftig.
 
 ## 3. Regressionstests (AC3)
 
-Beide in `tests/integration/state_backend/test_constraint_catalog_race_postgres.py`.
+Alle drei Testfunktionen (vier Faelle, da der Decoy-Test ueber beide FK-Guards
+parametrisiert ist) liegen in
+`tests/integration/state_backend/test_constraint_catalog_race_postgres.py`.
 
 | Test | Provoziert | Ohne Fix |
 |---|---|---|
@@ -258,7 +260,7 @@ nach jedem Test).
 
 Der geteilte Katalog ist nur so lange unschaedlich, wie **jeder** produktive
 Katalogzugriff schemagebunden ist. Das ist keine Behauptung mehr, sondern durch
-die zwei Regressionstests aus §3 festgenagelt. Ein vollstaendiger Sweep des Baums
+die Regressionstests aus §3 festgenagelt. Ein vollstaendiger Sweep des Baums
 (`pg_get_*def`, `pg_constraint`, `pg_class`, `pg_index`, `pg_namespace`,
 `information_schema`) bestaetigt: alle vier `pg_get_constraintdef`-Stellen liegen
 in `_schema.py` und sind `conrelid`-gebunden; alle uebrigen Katalog- und

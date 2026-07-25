@@ -57,7 +57,7 @@ _STORY_IDENTITY_TABLE = "story_contexts"
 #: NOTHING would fail here too, so a green result really means both FKs landed.
 _FAILURE_CORPUS_FK = "fc_patterns_check_ref_fkey"
 _FAILURE_CORPUS_TABLE = "fc_patterns"
-#: Decoy relations used by :func:`test_story_identity_fk_ignores_same_name_decoy`.
+#: Decoy relations used by :func:`test_bootstrap_fk_guards_ignore_same_name_decoy`.
 #: ``_DECOY_CHILD`` carries a constraint with the SAME name as the story-identity
 #: FK, in the SAME schema, but on a DIFFERENT table.
 _DECOY_PARENT = "ak3_decoy_parent"
@@ -290,7 +290,7 @@ def test_story_identity_fk_is_applied_per_schema(
     must be structurally identical.
 
     Covers the CROSS-SCHEMA collision. The same-schema/other-table collision is
-    covered by :func:`test_story_identity_fk_ignores_same_name_decoy`.
+    covered by :func:`test_bootstrap_fk_guards_ignore_same_name_decoy`.
     """
     unique = uuid.uuid4().hex[:12]
     peers = [f"ak3test_fkscope{unique}_{index}" for index in range(_PEER_SCHEMA_COUNT)]
