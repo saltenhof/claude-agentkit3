@@ -720,13 +720,36 @@ gilt:
   publiziert, kann daher weder die gemeldete Frische zuruecknehmen noch die
   gueltige Completion des neueren Besitzers verdraengen. Insert-only allein
   genuegte dafuer nicht: es verhindert das Ueberschreiben, nicht das Anhaengen.
-- Ein Restfenster bleibt **bewusst offen und ist unschaedlich**: der
-  **Chunk-Write** ist idempotent (deterministische UUID, gleicher Inhalt) — ein
-  Nachzuegler schreibt dieselbe Objektversion erneut und zerstoert nichts.
+- Der **Chunk-Write** bleibt unbewacht: Pre-Write-Fence und Upsert sind getrennte
+  Operationen, also kann ein ueberholter Halter danach noch Objekte **seiner**
+  (niedrigeren) Generation anhaengen. Die frueher hier notierte Begruendung „das
+  ist idempotent, weil derselbe Inhalt unter derselben UUID landet" ist **falsch**:
+  bei **geaendertem** Inhalt entstehen **andere** UUIDs, die von der neueren
+  Generation nicht ueberschrieben werden — es sind zusaetzliche, eigene Zeilen.
+  Deshalb fuehrt der abschliessende Besitzer nach dem Publizieren seiner Completion
+  **einen weiteren storage-konditionalen Durchgang** ueber seine eigene Quelle
+  (dieselbe Bedingung „Generation strikt kleiner als meine"). Damit ist das Fenster
+  **auf das Intervall bis zur Completion begrenzt**: was ein ueberholter Schreiber
+  vorher anhaengt, ist danach entfernt; was er **nach** diesem Durchgang anhaengt,
+  entfernt der naechste Sync derselben Quelle (seine Generation ist zwangslaeufig
+  hoeher). Zu keinem Zeitpunkt kann er Daten der neueren Generation loeschen.
 
-Auch hier wird **keine** transaktionale Atomizitaet behauptet: gesichert ist die
-Nicht-Loeschbarkeit fremder, neuerer Daten und die Nicht-Rueckdrehbarkeit der
-Frische — nicht die Unteilbarkeit des Fensters.
+Auch hier wird **keine** transaktionale Atomizitaet behauptet: gesichert sind die
+Nicht-Loeschbarkeit fremder, neuerer Daten, die Nicht-Rueckdrehbarkeit der Frische
+und die **Begrenztheit** des Schreibfensters — nicht die Unteilbarkeit des
+Fensters.
+
+**Konvergenz vorbestehender Zeilen.** Zeilen, die vor Einfuehrung von
+`owning_generation` (§13.3.1) geschrieben wurden, tragen keine Generation und sind
+damit gegen keine Generation ordenbar. Ein Sync wuerde sie fail-closed abweisen und
+bei jedem Retry identisch scheitern — der Korpus koennte nie konvergieren. Deshalb
+gilt: der **haltende** Besitzer einer Quelle raeumt deren ungestempelte Zeilen
+explizit auf. Zeilen, die zur neuen Generation gehoeren, werden durch den Upsert
+ohnehin ersetzt (und damit gestempelt); die uebrigen werden unter einer
+**IS-NULL-Bedingung** entfernt, die strukturell keine gestempelte Zeile treffen
+kann. Eine Zeile mit **vorhandener, aber unbrauchbarer** Generation wird **nicht**
+geraten: sie ist ein benannter Fehler. Fremde Inhalte werden dabei nie in eine
+Generation uebernommen.
 
 **Freshness-Indikator:** `corpus_revision` (nicht mtime — Datei-
 system-Timestamps sind bei Git-Operationen unzuverlässig).

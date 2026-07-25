@@ -47,7 +47,9 @@ bereits). **Eine** storage-seitige Bedingung existiert jedoch:
 
 Verifizierte Risiko-Asymmetrie der drei gefencten Schritte:
 
-1. **Chunk-Write** — idempotent (deterministische UUID, identischer Inhalt).
+1. **Chunk-Write** — damals als „idempotent (deterministische UUID, identischer
+   Inhalt)" eingeschaetzt. **Diese Praemisse war falsch** und ist im Nachtrag
+   2026-07-25/2 korrigiert: bei geaendertem Inhalt entstehen andere UUIDs.
 2. **Completion** — insert-only und positionsgebunden; ein Nachzuegler kann nur
    eine neue Position anfuegen, nichts ueberschreiben.
 3. **Loeschen alter/verschwundener Chunks** — der **einzige zerstoerende**
@@ -117,9 +119,10 @@ Darauf aufbauend:
 - Die Generation ist **kein zweiter Besitz-Wahrheitstraeger**: der Claim-Record
   entscheidet weiter, **wer** haelt; die Generation ordnet nur.
 
-**Verbleibendes Fenster.** Nur noch der **Chunk-Write** ist unbewacht, und er ist
-idempotent (deterministische UUID, gleicher Inhalt). Es wird weiterhin **keine**
-transaktionale Atomizitaet behauptet.
+**Verbleibendes Fenster.** Nur noch der **Chunk-Write** ist unbewacht. Die
+Begruendung „das ist idempotent, weil derselbe Inhalt unter derselben UUID landet"
+gilt **nicht** bei geaendertem Inhalt; siehe den Nachtrag 2026-07-25/2. Es wird
+weiterhin **keine** transaktionale Atomizitaet behauptet.
 
 ## 3. Alternativen
 
@@ -186,6 +189,55 @@ Lexikalischer Sweep ueber `concept/`, `guardrails/`, `scripts/ci/`, `tools/`,
 | Sync/Store im Code (`backend/vectordb/sync.py`, `engine.py`) | referenziert-jetzt | Stempelt beim Schreiben und loescht ausschliesslich storage-konditional. |
 | Transport-Adapter (`integration_clients/vectordb/weaviate_adapter.py`) | referenziert-jetzt | Setzt die Bedingung ueber `delete_many(where=…)`. |
 
+## 6. Nachtrag 2026-07-25/2 — Schreibfenster begrenzt, Praemisse korrigiert
+
+Codex-Review r8 (Finding N41) hat die „selber Inhalt"-Praemisse widerlegt: Fence und
+Upsert sind getrennte Operationen, also kann ein ueberholter Halter danach Objekte
+**seiner** niedrigeren Generation anhaengen — und bei **geaendertem** Inhalt tragen
+diese **andere** UUIDs, werden also von der neueren Generation nicht ueberschrieben.
+Der Receipt-Fence weist den Nachzuegler ab, entfernt seine Zeilen aber nicht. Die
+Aussage „unschaedlich, weil identischer Inhalt" war damit **falsch**.
+
+**Analyse (Grundlage der Entscheidung):** Loeschbar waren diese Zeilen immer — der
+naechste Sync derselben Quelle liest sie in seine `persisted`-Menge, sie fehlen in
+seiner `should`-Menge, und seine Generation ist zwangslaeufig hoeher, also greift die
+Ordnungsbedingung. Die Frische war ebenfalls nie korrumpiert (der Nachzuegler
+publiziert keine autoritative Completion). Der eigentliche Defekt war also
+**Rechtzeitigkeit und Fehlmeldung**: bis zum naechsten Sync konnte das Retrieval zwei
+widersprechende Fassungen desselben Abschnitts liefern, waehrend `corpus_revision`
+den neueren Stand meldete.
+
+**Entscheidung (im Rahmen der von D9 delegierten Mechanik):** Der abschliessende
+Besitzer fuehrt **nach** dem Publizieren seiner Completion **einen weiteren
+storage-konditionalen Durchgang** ueber seine eigene Quelle aus, mit derselben
+Bedingung („Generation strikt kleiner als meine") und ohne jede vorgelagerte
+Applikationspruefung. Damit endet das Schreibfenster an der Completion statt am
+naechsten Sync. Kein neuer Zustand, keine Aenderung der Objektidentitaet, keine
+Kopplung des Retrievals, keine Aenderung der Werkzeug-Vertraege.
+
+**Verworfen** wurden die beiden anderen Formen: Stale-Writes storage-seitig
+unmoeglich zu machen ist an diesem Rand nicht verfuegbar (der Client kennt keine
+Vorbedingung fuer Schreibvorgaenge) und waere nur ueber generationsgebundene UUIDs
+emulierbar — was die deterministische Chunk-Identitaet zerstoert, auf der
+idempotenter Re-Sync, Delete-Closure und Identitaetspruefung beruhen. Ein
+**Retrieval-Filter auf die Generation** wurde verworfen, weil eine Abfrage viele
+Quellen umfasst und keine quellenweise Schranke kennt, und weil damit ein internes
+Nebenlaeufigkeits-Ordinal auf die Abfrageoberflaeche geriete, die FK-13 bewusst
+davon freihaelt; ein Filter auf `corpus_revision` waere die einzige kohaerente
+Variante dieser Form und ist fuer den erreichten Schutz nicht erforderlich.
+
+**Zusaetzlich (Finding N43):** Vorbestehende Zeilen ohne `owning_generation` sind
+gegen keine Generation ordenbar und haetten jeden Reindex dauerhaft blockiert. Der
+haltende Besitzer raeumt sie deshalb explizit auf: Zeilen der neuen Generation
+werden durch den Upsert ersetzt und dadurch gestempelt, die uebrigen unter einer
+**IS-NULL-Bedingung** entfernt, die strukturell keine gestempelte Zeile treffen
+kann. Eine **vorhandene, aber unbrauchbare** Generation ist ein benannter Fehler,
+keine Vermutung. Es werden keine fremden Inhalte in eine Generation uebernommen. Die
+Aufraeumung ist claim-gebunden, fail-closed und wird im Sync-Ergebnis mitgefuehrt.
+Verankert in FK-13 §13.9.9.
+
 Grundlage: PO-Ratifizierung D9 in
 `stories/AG3-174-vectordb-retrieval-engine/po-decisions.md`. Zusammen mit D7 und
-D8 sind das die Konzeptaenderungen, die AG3-174 gestattet sind.
+D8 sind das die Konzeptaenderungen, die AG3-174 gestattet sind. Die Mechanik war in
+D9 ausdruecklich der Umsetzung ueberlassen; dieser Nachtrag bleibt innerhalb der
+autorisierten Abschnitte §13.3.1/§13.9.9, §13.9.6 bleibt unberuehrt.
