@@ -413,7 +413,7 @@ Chunking-Strategie für Konzeptdokumente ist identisch mit §13.3.3
 | `module` | String | Nein | Modulfilter |
 | `authority_scope` | String | Nein | `authority_over`-Scope, zu dem Zustaendigkeit gefragt wird; Ranking-Eingang der Regeln 1/2 (§13.9.11), kein Filter |
 | `is_appendix` | Boolean | Nein | Nur Appendices / nur Core / beides |
-| `concept_status` | String | Nein | `active` (Default), `draft`, `archived` |
+| `concept_status` | Liste[String] | Nein | Statusmenge der Ergebnisse; Default `["active"]`; zulaessig `active`, `draft`, `archived` |
 | `limit` | Integer | Nein | Max Ergebnisse (Default: 10) |
 
 **Rückgabe:** `concept_id`, `title`, `module`, `section_heading`,
@@ -421,8 +421,18 @@ Chunking-Strategie für Konzeptdokumente ist identisch mit §13.3.3
 `authority_over`, `normative_rules`, `concept_status`, `score`,
 `snippet`.
 
-**Default-Filter:** `concept_status=active`. Draft und archived
+**Default-Filter:** `concept_status=["active"]`. Draft und archived
 müssen explizit angefragt werden.
+
+**Gemischte Statusmengen (D8).** `concept_status` ist eine **Liste**;
+mehrere Status duerfen gleichzeitig angefragt werden („zeig mir alles zu
+Thema X, Gueltiges zuerst"). Der Filter wird als echte Mengen-Bedingung
+im Transport ausgewertet, nicht clientseitig nachgefiltert. Innerhalb
+einer gemischten Menge ordnet Regel 4 der Authority-Auflösung
+(§13.9.11): Aktive stehen vor Draft und Archived. **Fail-closed, keine
+Koerzierung:** eine leere Liste, ein unbekannter Wert, ein Duplikat, ein
+falscher Elementtyp und ein **blosser String** statt einer Liste sind
+Validierungsfehler; es gibt keine stille Normalisierung.
 
 **`authority_scope` ist Ranking-Eingang, kein Filter.** Der Wert
 schraenkt die Treffermenge nicht ein; er benennt den Scope, gegen den
@@ -676,7 +686,13 @@ system-Timestamps sind bei Git-Operationen unzuverlässig).
 
 `concept_status`-Feld mit Werten `active`, `draft`, `archived`.
 Archivierte Konzepte bleiben im Index (historische Referenzierbar-
-keit). `concept_search` filtert standardmäßig auf `active`.
+keit). `concept_search` filtert standardmäßig auf `["active"]`.
+
+Der Statusfilter ist eine **Menge** (§13.9.5, D8): mehrere Status
+duerfen zusammen angefragt werden, die Ergebnismenge ist dann gemischt,
+und Regel 4 der Authority-Auflösung (§13.9.11) ordnet innerhalb dieser
+Menge. Der Default bleibt ausschliesslich `active` — Draft und Archived
+erscheinen nur, wenn sie explizit angefragt werden.
 
 Pfad `{concepts_dir}/archiv/` → automatisch `concept_status=archived`.
 Ergänzende Frontmatter-Felder: `superseded_by`, `supersedes`.
@@ -703,6 +719,14 @@ greifen die Regeln 1 und 2 nicht; die Regeln 3, 4 und 5 bleiben
 unveraendert wirksam. Die normative Praezedenz der Regeln 1, 2 und 4 ist
 nicht durch Aehnlichkeitswerte ueberstimmbar; die Regeln 3 und 5 wirken
 nur innerhalb gleicher Praezedenz.
+
+**Wirkungsbereich der Regel 4 (D8):** Der Abzug fuer Draft und Archived
+wirkt innerhalb **gemischter Statusmengen** — also dann, wenn
+`concept_status` (§13.9.5) mehr als einen Status anfragt. Bei der
+Default-Anfrage (`["active"]`) ist die Ergebnismenge statushomogen und
+Regel 4 aendert folgerichtig keine Reihenfolge. Der Abzug ist eine
+Praezedenz-Stufe: kein Aehnlichkeitswert hebt ein Draft- oder
+Archived-Dokument ueber ein aktives.
 
 ### 13.9.12 Ausfallverhalten
 
