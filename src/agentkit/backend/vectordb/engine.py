@@ -18,11 +18,11 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
 from agentkit.backend.vectordb.schema import (
-    OWNING_CLAIM_PROPERTY,
+    OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     search_property_spec,
@@ -54,29 +54,36 @@ RECEIPT_PROPERTIES: tuple[str, ...] = (
     "state",
     "completed_at",
     "sequence",
+    "generation",
 )
 
 #: Dedicated collection for store-level atomic source claims (N03/D3/N15).
 CLAIM_COLLECTION = "__agentkit_source_claims"
 
-#: The claim record's full property set (owner/epoch, no expiry -- N15/N27).
+#: The claim/generation record's property set (no expiry -- N15/N27; persistent
+#: monotonic ``generation`` -- N37). ``state`` is ``claimed`` for an acquisition and
+#: ``released`` for the insert-only release marker of that same generation.
 CLAIM_PROPERTIES: tuple[str, ...] = (
     "project_id",
     "source_file",
     "state",
     "owner_id",
-    "epoch",
+    "generation",
     "claimed_at",
     "reclaimed_from",
     "reclaim_reason",
 )
+
+#: Record states in the claim collection (insert-only; nothing is ever updated).
+CLAIM_STATE_HELD: Final[str] = "claimed"
+CLAIM_STATE_RELEASED: Final[str] = "released"
 
 #: Bounded number of completion positions tried before failing closed (N28).
 _COMPLETION_ATTEMPT_LIMIT: Final[int] = 256
 
 #: Stable namespace for the position-bound completion records (N28).
 _RECEIPT_NAMESPACE = uuid.UUID("8c5e2f3a-1b6d-4e7a-9c8f-2a1b3c4d5e6f")
-#: Stable namespace for per-source, per-epoch claim identity (N03/N15).
+#: Stable namespace for per-source, per-generation claim identity (N03/N15/N37).
 _CLAIM_NAMESPACE = uuid.UUID("9d6f3a4b-2c7e-5f8b-ad9c-3b2c4d5e6f7a")
 
 def _utc_clock() -> datetime:
@@ -89,6 +96,7 @@ def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+@runtime_checkable
 class CorpusClientPort(Protocol):
     """The thin-adapter corpus surface the engine needs (R02)."""
 
@@ -121,8 +129,8 @@ class CorpusClientPort(Protocol):
 
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int: ...
 
-    def delete_by_ids_if_property_equals(
-        self, *, collection: str, uuids: Sequence[str], prop: str, value: str
+    def delete_by_ids_if_property_below(
+        self, *, collection: str, uuids: Sequence[str], prop: str, limit: int
     ) -> int: ...
 
     def ensure_collection(
@@ -155,12 +163,17 @@ class WeaviateCorpusStore:
             collection=self.collection,
             prop="source_file",
             value=source_file,
-            return_props=("content_hash", "source_type", "project_id", OWNING_CLAIM_PROPERTY),
+            return_props=(
+                "content_hash",
+                "source_type",
+                "project_id",
+                OWNING_GENERATION_PROPERTY,
+            ),
         )
         return [
             {"uuid": uid, "source_file": source_file, "source_type": p.get("source_type", ""),
              "project_id": p.get("project_id", ""), "content_hash": p.get("content_hash", ""),
-             OWNING_CLAIM_PROPERTY: p.get(OWNING_CLAIM_PROPERTY, "")}
+             OWNING_GENERATION_PROPERTY: p.get(OWNING_GENERATION_PROPERTY)}
             for uid, p in rows
             if str(p.get("project_id", "")) == project_id
         ]
@@ -172,74 +185,102 @@ class WeaviateCorpusStore:
             collection=self.collection,
             prop="source_type",
             values=tuple(source_types),
-            return_props=("source_file", "project_id", "source_type", OWNING_CLAIM_PROPERTY),
+            return_props=(
+                "source_file",
+                "project_id",
+                "source_type",
+                OWNING_GENERATION_PROPERTY,
+            ),
         )
         return [
             {"uuid": uid, "source_file": p.get("source_file", ""),
              "source_type": p.get("source_type", ""), "project_id": p.get("project_id", ""),
-             OWNING_CLAIM_PROPERTY: p.get(OWNING_CLAIM_PROPERTY, "")}
+             OWNING_GENERATION_PROPERTY: p.get(OWNING_GENERATION_PROPERTY)}
             for uid, p in rows
             if str(p.get("project_id", "")) == project_id
         ]
 
     def upsert_objects(
-        self, *, objects: Sequence[StoryContextObject], owning_claim: str
+        self, *, objects: Sequence[StoryContextObject], owning_generation: int
     ) -> int:
-        """Write objects STAMPED with the writing claim's ownership token (D9).
+        """Write objects STAMPED with the writing SOURCE GENERATION (D9/N37).
 
         The stamp is applied here and nowhere else, so it is structurally impossible
-        to persist an object version without the marker the destructive delete
-        conditions on. The stamp does not touch the object identity: the uuid stays
-        ``uuid5(project|source|chunk)`` and ``content_hash`` stays content-derived,
-        so a re-sync still replaces the same object.
+        to persist an object version without the ordering marker the destructive
+        delete conditions on. It does not touch the object identity: the uuid stays
+        ``uuid5(project|source|chunk)`` and ``content_hash`` stays content-derived, so
+        a re-sync still replaces the same object.
         """
-        if not owning_claim:
+        if owning_generation < 1:
             raise VectorDbUnavailableError(
-                "refusing to write objects without an ownership token; the "
-                "destructive delete conditions on it (fail-closed, D9)."
+                f"refusing to write objects with a non-positive owning generation "
+                f"({owning_generation}); the destructive delete orders against it "
+                "(fail-closed, N37)."
             )
         # Exact confirmed count: the adapter inspects batch failures and raises
         # on a partial batch (R12); a clean return == len(objects).
         docs = [
-            {**obj.properties, "uuid": obj.uuid, OWNING_CLAIM_PROPERTY: owning_claim}
+            {
+                **obj.properties,
+                "uuid": obj.uuid,
+                OWNING_GENERATION_PROPERTY: owning_generation,
+            }
             for obj in objects
         ]
         return self.client.upsert(collection=self.collection, objects=docs)
 
-    def delete_objects_owned_by(self, *, uuids: Sequence[str], owning_claim: str) -> int:
-        """Delete objects ONLY while they still carry ``owning_claim`` (D9).
+    def delete_objects_older_than(
+        self, *, uuids: Sequence[str], owning_generation: int
+    ) -> int:
+        """Delete objects ONLY where the writing generation is STRICTLY OLDER (N37).
 
-        The precondition is evaluated by the store together with the delete, so a
-        holder that was superseded between its ownership assertion and this call
-        cannot remove what the new owner has written: the new owner's write stamps a
-        DIFFERENT token, and this condition then matches nothing.
+        The condition is evaluated by the store together with the delete, and it
+        orders against a number the CALLER owns -- its own generation -- not against
+        a value it happened to read. That is what authorises the delete: an equality
+        against an observed value closes only the interval between the read and the
+        delete; it never establishes whose generation the value belonged to, so a
+        resumed writer could delete a NEWER generation's data by simply observing it.
+
+        Because the source generation ladder is persistent and strictly monotonic, a
+        superseding owner always holds a HIGHER generation, so:
+
+        - a superseded holder can never match the new owner's objects, in either race
+          order (it reads them before or after -- the condition is the same);
+        - every legitimately deletable object of a PREVIOUS generation still matches,
+          including objects from several different earlier generations at once.
 
         Args:
-            uuids: Candidate object ids, all observed carrying ``owning_claim``.
-            owning_claim: The token observed on those objects.
+            uuids: Candidate object ids.
+            owning_generation: The deleting claim's own generation (exclusive bound).
 
         Returns:
             The exact number of objects the store confirms deleted.
 
         Raises:
-            VectorDbUnavailableError: When no ownership token was observed -- an
-                object whose ownership cannot be read must not be deleted under a
-                storage-side condition (fail-closed, D9).
+            VectorDbUnavailableError: For a non-positive generation (fail-closed).
         """
-        if not owning_claim:
+        if owning_generation < 1:
             raise VectorDbUnavailableError(
-                "refusing to delete objects that carry no ownership token: the "
-                "delete could not be bound to the observed owner (fail-closed, D9)."
+                f"refusing to delete with a non-positive owning generation "
+                f"({owning_generation}); fail-closed (N37)."
             )
-        return self.client.delete_by_ids_if_property_equals(
+        return self.client.delete_by_ids_if_property_below(
             collection=self.collection,
             uuids=tuple(uuids),
-            prop=OWNING_CLAIM_PROPERTY,
-            value=owning_claim,
+            prop=OWNING_GENERATION_PROPERTY,
+            limit=owning_generation,
         )
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
-        """Return the LATEST verified completion of one source (N28)."""
+        """Return the AUTHORITATIVE completion of one source (N28/N39).
+
+        The winner is the highest SOURCE GENERATION, not the highest completion
+        position. Insert-only records prevent an overwrite, but they do not make a
+        stale APPEND harmless: a superseded writer that publishes after the newer
+        owner would take the next position and, ordered by position, would become
+        freshness-authoritative and prune the newer owner's valid completion. The
+        generation is monotonic per source, so a superseded generation can never win.
+        """
         completions = [
             receipt
             for receipt in self.list_receipts(project_id=project_id)
@@ -247,7 +288,7 @@ class WeaviateCorpusStore:
         ]
         if not completions:
             return None
-        return max(completions, key=lambda r: r.sequence)
+        return max(completions, key=lambda r: (r.generation, r.sequence))
 
     def set_receipt(self, *, receipt: SyncReceipt) -> SyncReceipt:
         """Establish ONE immutable, fully digest-bound completion record (N28).
@@ -289,6 +330,7 @@ class WeaviateCorpusStore:
                     "state": sealed.state.value,
                     "completed_at": sealed.completed_at,
                     "sequence": str(sealed.sequence),
+                    "generation": str(sealed.generation),
                 },
             ):
                 self._prune_superseded_completions(sealed)
@@ -317,14 +359,20 @@ class WeaviateCorpusStore:
         return highest
 
     def _prune_superseded_completions(self, current: SyncReceipt) -> None:
-        """Delete older completions of the SAME source (best-effort housekeeping)."""
+        """Delete completions of the SAME source from OLDER generations (N39).
+
+        Pruning follows the same order as the authority rule: only a strictly lower
+        SOURCE GENERATION is superseded. Pruning by completion position would let a
+        stale append delete the newer owner's valid completion (best-effort
+        housekeeping either way -- correctness comes from the winning record).
+        """
         import contextlib
 
         stale = [
             self._completion_uuid(current.project_id, receipt.sequence)
             for receipt in self.list_receipts(project_id=current.project_id)
             if receipt.source_file == current.source_file
-            and receipt.sequence < current.sequence
+            and receipt.generation < current.generation
         ]
         if not stale:
             return
@@ -363,76 +411,85 @@ class WeaviateCorpusStore:
     def try_claim_source(
         self, *, project_id: str, source_file: str, owner_id: str
     ) -> SourceClaim | None:
-        """Atomically claim a source via a conditional CREATE of the NEXT epoch.
+        """Atomically claim a source by CREATING the next source generation (N37).
 
-        The claim is STORE-LEVEL and ATOMIC (N03/D3): each claim generation is a
-        distinct record whose uuid folds in the epoch, so acquiring it is a
-        compare-and-create the store arbitrates -- there is no read-then-write
-        window in which two writers both observe "no claim" and both proceed.
+        The claim is STORE-LEVEL and ATOMIC (N03/D3): each generation is a distinct
+        record whose uuid folds in the generation number, so acquiring it is a
+        compare-and-create the store arbitrates -- there is no read-then-write window
+        in which two writers both observe "no claim" and both proceed.
 
-        There is NO time-based takeover (N27/D3): a claim that exists rejects the
-        writer, no matter how old it is. A claim left behind by a dead writer is
-        released only by the EXPLICIT :meth:`reclaim_source` path.
+        The generation ladder is PERSISTENT and STRICTLY MONOTONIC per
+        ``(project_id, source_file)`` (N37): a normal release does not remove the
+        ladder position, it adds an insert-only ``released`` marker, so the next
+        acquisition allocates a strictly HIGHER number. Without that, a released
+        claim used to reset the ladder to 1 and no ordering statement about "who
+        wrote this object" was decidable at all.
+
+        There is NO time-based takeover (N27/D3): a HELD generation rejects the
+        writer, no matter how old it is. It is released only by its holder finishing
+        or by the EXPLICIT :meth:`reclaim_source` path.
         """
-        active = self._active_claim(project_id, source_file)
-        if active is not None:
+        rows = self._generation_rows(project_id, source_file)
+        highest = self._highest_generation(rows)
+        if self._held_claim(project_id, source_file, rows) is not None:
             return None
-        return self._create_claim(
-            project_id=project_id, source_file=source_file, owner_id=owner_id, epoch=1
+        return self._create_generation(
+            project_id=project_id,
+            source_file=source_file,
+            owner_id=owner_id,
+            generation=highest + 1,
         )
 
     def reclaim_source(
         self, *, project_id: str, source_file: str, owner_id: str, reason: str
     ) -> SourceClaim:
-        """ADMINISTRATIVELY take a claim over by creating the NEXT epoch (N27).
+        """ADMINISTRATIVELY take a claim over by creating the NEXT generation (N27).
 
         Only reached from an explicit operator path, which asserts the previous
-        holder is dead. The takeover is a conditional CREATE of epoch+1, so two
-        concurrent reclaimers still produce exactly one winner, and the previous
-        holder is fenced out of every further mutation.
+        holder is dead. The takeover is a conditional CREATE of the next generation,
+        so two concurrent reclaimers still produce exactly one winner, and the
+        previous holder can never again delete data this generation writes (N37: its
+        generation is strictly lower).
         """
-        active = self._active_claim(project_id, source_file)
-        epoch = (active.epoch if active is not None else 0) + 1
-        claim = self._create_claim(
+        rows = self._generation_rows(project_id, source_file)
+        held = self._held_claim(project_id, source_file, rows)
+        generation = self._highest_generation(rows) + 1
+        claim = self._create_generation(
             project_id=project_id,
             source_file=source_file,
             owner_id=owner_id,
-            epoch=epoch,
-            reclaimed_from=active.owner_id if active is not None else "",
+            generation=generation,
+            reclaimed_from=held.owner_id if held is not None else "",
             reason=reason,
         )
         if claim is None:
             raise ConcurrentSyncRejectedError(
                 f"administrative reclaim of {(project_id, source_file)!r} lost the "
-                f"race for epoch {epoch}; fail-closed (N27)."
+                f"race for generation {generation}; fail-closed (N27)."
             )
-        if active is not None:
-            # The superseded generation is no longer authoritative; removing its
-            # record is housekeeping, never a correctness step (the epoch decides).
-            self._discard_claim(project_id, source_file, active.epoch)
         return claim
 
-    def _create_claim(
+    def _create_generation(
         self,
         *,
         project_id: str,
         source_file: str,
         owner_id: str,
-        epoch: int,
+        generation: int,
         reclaimed_from: str = "",
         reason: str = "",
     ) -> SourceClaim | None:
-        """Conditionally CREATE one claim generation; ``None`` when it is taken."""
+        """Conditionally CREATE one generation; ``None`` when it is already taken."""
         claimed_at = _iso(self._now())
         acquired = self.client.insert_object(
             collection=CLAIM_COLLECTION,
-            uuid=self._claim_uuid(project_id, source_file, epoch),
+            uuid=self._claim_uuid(project_id, source_file, generation),
             properties={
                 "project_id": project_id,
                 "source_file": source_file,
-                "state": "claimed",
+                "state": CLAIM_STATE_HELD,
                 "owner_id": owner_id,
-                "epoch": str(epoch),
+                "generation": str(generation),
                 "claimed_at": claimed_at,
                 "reclaimed_from": reclaimed_from,
                 "reclaim_reason": reason,
@@ -440,58 +497,149 @@ class WeaviateCorpusStore:
         )
         if not acquired:
             return None
+        self._prune_generations_below(project_id, source_file, generation)
         return SourceClaim(
             project_id=project_id,
             source_file=source_file,
             owner_id=owner_id,
-            epoch=epoch,
+            generation=generation,
             claimed_at=claimed_at,
             reclaimed_from=reclaimed_from,
         )
 
     def assert_claim_held(self, *, claim: SourceClaim) -> None:
-        """Fence: the claim must still be the ACTIVE generation (N15/N27)."""
-        active = self._active_claim(claim.project_id, claim.source_file)
-        if active is None or active.epoch != claim.epoch or active.owner_id != claim.owner_id:
+        """Fence: the claim must still be the HELD generation (N15/N27).
+
+        This check can be overtaken between here and the following mutation, which
+        is why it is NOT what protects the destructive step -- that is bound
+        storage-side to the generation ordering (N37).
+        """
+        held = self._held_claim(claim.project_id, claim.source_file)
+        if held is None or held.generation != claim.generation or held.owner_id != claim.owner_id:
             raise ClaimSupersededError(
                 f"source claim on {(claim.project_id, claim.source_file)!r} was "
-                f"superseded (held epoch {claim.epoch} owner {claim.owner_id!r}, "
-                f"active {active!r}); fail-closed (N15/N27)."
+                f"superseded (held generation {claim.generation} owner "
+                f"{claim.owner_id!r}, active {held!r}); fail-closed (N15/N27)."
             )
 
     def release_source(self, *, claim: SourceClaim) -> None:
-        """Release the held claim generation (best-effort, never masks a fault)."""
-        self._discard_claim(claim.project_id, claim.source_file, claim.epoch)
+        """Release the held generation by ADDING its release marker (N37).
 
-    def _discard_claim(self, project_id: str, source_file: str, epoch: int) -> None:
+        Insert-only: the ladder position survives, so the next acquisition of this
+        source is strictly higher. Best-effort -- a failed marker never masks the
+        caller's fault, and a missing marker only means the next writer must reclaim.
+        """
         import contextlib
 
-        with contextlib.suppress(VectorDbUnavailableError):
-            self.client.delete_by_ids(
+        with contextlib.suppress(VectorDbUnavailableError, VectorDbWriteError):
+            self.client.insert_object(
                 collection=CLAIM_COLLECTION,
-                uuids=[self._claim_uuid(project_id, source_file, epoch)],
+                uuid=self._release_uuid(
+                    claim.project_id, claim.source_file, claim.generation
+                ),
+                properties={
+                    "project_id": claim.project_id,
+                    "source_file": claim.source_file,
+                    "state": CLAIM_STATE_RELEASED,
+                    "owner_id": claim.owner_id,
+                    "generation": str(claim.generation),
+                    "claimed_at": _iso(self._now()),
+                    "reclaimed_from": "",
+                    "reclaim_reason": "",
+                },
             )
 
-    @staticmethod
-    def _claim_uuid(project_id: str, source_file: str, epoch: int) -> str:
-        return str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}|{epoch}"))
+    def _prune_generations_below(
+        self, project_id: str, source_file: str, generation: int
+    ) -> None:
+        """Drop ladder records BELOW the given generation (housekeeping only).
 
-    def _active_claim(self, project_id: str, source_file: str) -> SourceClaim | None:
-        """Return the highest-epoch claim record of a source (the active one)."""
+        The record of the highest generation is never removed, so the ladder cannot
+        reset -- that is the property the destructive delete depends on. Everything
+        below it carries no decision any more.
+        """
+        import contextlib
+
+        stale: list[str] = []
+        for _uid, props in self._generation_rows(project_id, source_file):
+            row_generation = _positive_int(props.get("generation"), field_name="generation")
+            if row_generation >= generation:
+                continue
+            stale.append(self._claim_uuid(project_id, source_file, row_generation))
+            stale.append(self._release_uuid(project_id, source_file, row_generation))
+        if not stale:
+            return
+        with contextlib.suppress(VectorDbUnavailableError, VectorDbWriteError):
+            self.client.delete_by_ids(collection=CLAIM_COLLECTION, uuids=stale)
+
+    @staticmethod
+    def _claim_uuid(project_id: str, source_file: str, generation: int) -> str:
+        return str(
+            uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}|{generation}")
+        )
+
+    @staticmethod
+    def _release_uuid(project_id: str, source_file: str, generation: int) -> str:
+        return str(
+            uuid.uuid5(
+                _CLAIM_NAMESPACE, f"{project_id}|{source_file}|{generation}|released"
+            )
+        )
+
+    def _generation_rows(
+        self, project_id: str, source_file: str
+    ) -> list[tuple[str, Mapping[str, object]]]:
+        """Return this source's ladder records (claims AND release markers)."""
         rows = self.client.fetch_by_property(
             collection=CLAIM_COLLECTION,
             prop="source_file",
             value=source_file,
             return_props=CLAIM_PROPERTIES,
         )
-        active: SourceClaim | None = None
+        return [
+            (uid, props)
+            for uid, props in rows
+            if props.get("project_id") == project_id
+        ]
+
+    @staticmethod
+    def _highest_generation(rows: Sequence[tuple[str, Mapping[str, object]]]) -> int:
+        """Return the highest generation EVER allocated for the source (N37).
+
+        Release markers count: the ladder must not reset when a claim is released,
+        or "written by an older generation" stops being decidable.
+        """
+        highest = 0
         for _uid, props in rows:
-            if props.get("project_id") != project_id:
+            highest = max(
+                highest, _positive_int(props.get("generation"), field_name="generation")
+            )
+        return highest
+
+    def _held_claim(
+        self,
+        project_id: str,
+        source_file: str,
+        rows: Sequence[tuple[str, Mapping[str, object]]] | None = None,
+    ) -> SourceClaim | None:
+        """Return the currently HELD claim of a source, or ``None``.
+
+        The highest generation decides: it is held when it has a ``claimed`` record
+        and no ``released`` marker. Older generations carry no ownership any more.
+        """
+        ladder = list(rows) if rows is not None else self._generation_rows(project_id, source_file)
+        highest = self._highest_generation(ladder)
+        if highest == 0:
+            return None
+        claimed: SourceClaim | None = None
+        for _uid, props in ladder:
+            generation = _positive_int(props.get("generation"), field_name="generation")
+            if generation != highest:
                 continue
-            candidate = _claim_from_props(project_id, source_file, props)
-            if active is None or candidate.epoch > active.epoch:
-                active = candidate
-        return active
+            if props.get("state") == CLAIM_STATE_RELEASED:
+                return None
+            claimed = _claim_from_props(project_id, source_file, props)
+        return claimed
 
     def _now(self) -> datetime:
         return self.clock()
@@ -538,7 +686,7 @@ def _required_strings(
 def _claim_from_props(
     project_id: str, source_file: str, props: Mapping[str, object]
 ) -> SourceClaim:
-    """Rebuild a persisted claim strictly (owner/epoch/timestamp, N15/N27).
+    """Rebuild a persisted claim strictly (owner/generation/timestamp, N15/N27/N37).
 
     There is NO expiry field: a claim never expires by time (N27). ``claimed_at``
     is diagnostics and must still be a valid UTC instant.
@@ -546,7 +694,7 @@ def _claim_from_props(
     values = _required_strings(
         props, ("owner_id", "state", "claimed_at"), context="source claim"
     )
-    if values["state"] != "claimed":
+    if values["state"] not in (CLAIM_STATE_HELD, CLAIM_STATE_RELEASED):
         raise VectorDbUnavailableError(
             f"persisted source claim for {source_file!r} has unknown state "
             f"{values['state']!r}; fail-closed (N15)."
@@ -557,7 +705,7 @@ def _claim_from_props(
         project_id=project_id,
         source_file=source_file,
         owner_id=values["owner_id"],
-        epoch=_positive_int(props.get("epoch"), field_name="epoch"),
+        generation=_positive_int(props.get("generation"), field_name="generation"),
         claimed_at=values["claimed_at"],
         reclaimed_from=reclaimed_from if isinstance(reclaimed_from, str) else "",
     )
@@ -583,6 +731,7 @@ def receipt_from_props(
         context=f"sync receipt for {source_file!r}",
     )
     sequence = _positive_int(props.get("sequence"), field_name="sequence")
+    generation = _positive_int(props.get("generation"), field_name="generation")
     if values["project_id"] != project_id or values["source_file"] != source_file:
         raise VectorDbUnavailableError(
             f"persisted sync receipt identity mismatch: record "
@@ -606,6 +755,7 @@ def receipt_from_props(
         state=state,
         completed_at=values["completed_at"],
         sequence=sequence,
+        generation=generation,
     )
     try:
         receipt.verify()
@@ -705,6 +855,44 @@ def _last_completed_revision(
     return latest.corpus_revision
 
 
+def ensure_corpus_collections(client: CorpusClientPort) -> None:
+    """Create OR verify the three corpus collections against the schema SSOT.
+
+    Shared by EVERY write path into ``StoryContext`` (N38): the MCP runtime and the
+    story-export/split/repair sync owner bootstrap the same schema, so a collection
+    can never be created without the ownership-ordering property the destructive
+    delete conditions on.
+
+    The auxiliary receipt/claim collections are ensured too and NOT suppressed -- a
+    failure must surface fail-closed (N08), since completion/claim persistence is
+    required for the freshness and D3 contracts.
+    """
+    from agentkit.backend.vectordb.schema import (
+        FK13_VECTOR_SOURCE_PROPERTIES,
+        FK13_VECTORIZER,
+        FK13_VECTORIZER_MODEL,
+        weaviate_property_specs,
+    )
+
+    client.ensure_collection(
+        collection=STORY_CONTEXT_COLLECTION,
+        property_specs=weaviate_property_specs(),
+        vectorizer=FK13_VECTORIZER,
+        vectorizer_model=FK13_VECTORIZER_MODEL,
+        vector_source_properties=FK13_VECTOR_SOURCE_PROPERTIES,
+    )
+    client.ensure_collection(
+        collection=RECEIPT_COLLECTION,
+        property_specs=_receipt_property_specs(),
+        vectorizer="self_provided",
+    )
+    client.ensure_collection(
+        collection=CLAIM_COLLECTION,
+        property_specs=_aux_property_specs(CLAIM_PROPERTIES),
+        vectorizer="self_provided",
+    )
+
+
 def connect_real_client(binding: RuntimeBinding) -> CorpusClientPort:
     """Build a real Weaviate client from the binding's EXACT endpoints (R02/R03).
 
@@ -797,34 +985,7 @@ def compose_runtime(
     # server-side text2vec-transformers vectorizer (N02); the thin adapter's
     # ``ensure_collection`` materialises it. Created via the port (not raw
     # ``.collections``) so it works through the CorpusClientPort boundary.
-    from agentkit.backend.vectordb.schema import (
-        FK13_VECTOR_SOURCE_PROPERTIES,
-        FK13_VECTORIZER,
-        FK13_VECTORIZER_MODEL,
-        weaviate_property_specs,
-    )
-
-    client.ensure_collection(
-        collection=STORY_CONTEXT_COLLECTION,
-        property_specs=weaviate_property_specs(),
-        vectorizer=FK13_VECTORIZER,
-        vectorizer_model=FK13_VECTORIZER_MODEL,
-        vector_source_properties=FK13_VECTOR_SOURCE_PROPERTIES,
-    )
-    # The receipt + claim collections are auxiliary (no vectors); their creation
-    # is NOT suppressed -- a failure to ensure them must surface fail-closed
-    # (N08), since receipt/claim persistence is required for the bounded-window
-    # freshness + D3 concurrent-reject contracts.
-    client.ensure_collection(
-        collection=RECEIPT_COLLECTION,
-        property_specs=_receipt_property_specs(),
-        vectorizer="self_provided",
-    )
-    client.ensure_collection(
-        collection=CLAIM_COLLECTION,
-        property_specs=_aux_property_specs(CLAIM_PROPERTIES),
-        vectorizer="self_provided",
-    )
+    ensure_corpus_collections(client)
     store = WeaviateCorpusStore(client=client)
     sync = SyncService(store=store)
     retrieval = WeaviateRetrievalPort(client=client, store=store, binding=binding)

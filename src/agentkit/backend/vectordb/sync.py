@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
 from agentkit.backend.vectordb.ingest.classify import source_types_for_producer
 from agentkit.backend.vectordb.schema import (
-    OWNING_CLAIM_PROPERTY,
+    OWNING_GENERATION_PROPERTY,
     StoryContextObject,
     deterministic_uuid,
     validate_object,
@@ -84,9 +84,13 @@ class SourceClaim:
     Attributes:
         owner_id: Identity of the holding writer (one id per ``SyncService``
             instance, so two writers in ONE process still conflict).
-        epoch: Monotonic claim generation. A reclaim CREATES the next epoch, never
-            deletes and re-creates the same record, so the store itself picks a
-            single winner.
+        generation: The source's PERSISTENT, strictly monotonic generation ordinal
+            (N37). EVERY acquisition -- normal or administrative reclaim -- allocates
+            the next number by conditional create, and a normal release keeps the
+            ladder position (it only adds a release marker). A superseding owner
+            therefore always holds a strictly HIGHER generation than the holder it
+            supersedes, which is what makes "written by an older generation" a
+            decidable, storage-side condition for the destructive delete.
         claimed_at: UTC instant the claim was acquired (diagnostics only -- it is
             NOT an expiry).
         reclaimed_from: The owner this claim was administratively taken from
@@ -96,26 +100,9 @@ class SourceClaim:
     project_id: str
     source_file: str
     owner_id: str
-    epoch: int
+    generation: int
     claimed_at: str
     reclaimed_from: str = ""
-
-
-def claim_ownership_token(claim: SourceClaim) -> str:
-    """Return the token identifying ONE claim generation (D9).
-
-    Every object version is stamped with this token, and the destructive delete is
-    bound to the token it observed, so a superseded holder structurally cannot remove
-    what a newer owner wrote.
-
-    The token pairs the epoch with the OWNER rather than using the epoch alone. The
-    epoch is monotonic only WITHIN a supersession chain: a released claim is
-    discarded, so the next acquisition starts at epoch 1 again. Epoch values
-    therefore repeat across runs, and only the pair is unique per generation. That
-    makes the guarantee structural instead of resting on the argument that a repeated
-    epoch cannot collide with a live holder.
-    """
-    return f"{claim.epoch}|{claim.owner_id}"
 
 
 #: Every receipt field that MUST carry a non-blank value for a completion to be
@@ -131,13 +118,21 @@ RECEIPT_MANDATORY_FIELDS: Final[tuple[str, ...]] = (
     "completed_at",
 )
 
-#: The subset of :data:`RECEIPT_MANDATORY_FIELDS` the caller of a sync supplies.
-COMPLETION_INPUT_FIELDS: Final[tuple[str, ...]] = (
-    "project_id",
-    "source_file",
-    "source_type",
-    "corpus_revision",
+#: Receipt fields the STORE produces when it seals a completion (digest over the
+#: identity + ordering fields, and the completion instant).
+RECEIPT_SEALED_FIELDS: Final[frozenset[str]] = frozenset({"digest", "completed_at"})
+
+#: The caller-supplied subset of :data:`RECEIPT_MANDATORY_FIELDS`, derived
+#: STRUCTURALLY (P2-5): a new mandatory receipt field is automatically part of the
+#: pre-mutation gate unless it is explicitly a store-sealed field, so it can never
+#: silently miss the gate.
+COMPLETION_INPUT_FIELDS: Final[tuple[str, ...]] = tuple(
+    name for name in RECEIPT_MANDATORY_FIELDS if name not in RECEIPT_SEALED_FIELDS
 )
+
+#: Run-wide completion inputs -- the same for every source of one sync run. They are
+#: validated at the ENTRY of a multi-source run, before ANY mutation (N40).
+RUN_WIDE_COMPLETION_INPUTS: Final[tuple[str, ...]] = ("project_id", "corpus_revision")
 
 
 @dataclass(frozen=True)
@@ -146,10 +141,12 @@ class SyncReceipt:
 
     Attributes:
         completed_at: UTC completion timestamp (ISO-8601).
-        sequence: Store-monotonic completion order. Assigned by the store on
-            persist; ``0`` marks a not-yet-persisted receipt. The "latest"
-            receipt is the highest sequence -- NOT a lexicographic maximum over
-            content digests (N04).
+        sequence: Store-assigned completion position. ``0`` marks a not-yet-persisted
+            receipt. The position makes the record immutable (its uuid folds it in);
+            it is NOT the freshness order (N39).
+        generation: The SOURCE GENERATION that published this completion. Freshness
+            is selected by the highest generation, so a superseded writer that
+            appends a later POSITION can never become authoritative (N39).
     """
 
     project_id: str
@@ -160,6 +157,7 @@ class SyncReceipt:
     state: ReceiptState
     completed_at: str
     sequence: int = 0
+    generation: int = 0
 
     @classmethod
     def for_completion(
@@ -169,6 +167,7 @@ class SyncReceipt:
         source_type: str,
         corpus_revision: str,
         *,
+        generation: int = 0,
         completed_at: str | None = None,
     ) -> SyncReceipt:
         """Build an UNSTAMPED completion receipt for one source.
@@ -186,6 +185,7 @@ class SyncReceipt:
             digest="",
             state=ReceiptState.COMPLETED,
             completed_at=completed_at or utc_now(),
+            generation=generation,
         )
 
     def stamped(self, *, sequence: int) -> SyncReceipt:
@@ -196,7 +196,7 @@ class SyncReceipt:
         return replace(sealed, digest=sealed.expected_digest())
 
     def expected_digest(self) -> str:
-        """Return the digest this receipt's own fields must bind to (N16)."""
+        """Return the digest this receipt's own fields must bind to (N16/N39)."""
         return sync_receipt_digest(
             project_id=self.project_id,
             source_file=self.source_file,
@@ -205,6 +205,7 @@ class SyncReceipt:
             state=self.state.value,
             completed_at=self.completed_at,
             sequence=self.sequence,
+            generation=self.generation,
         )
 
     def verify(self) -> None:
@@ -226,6 +227,12 @@ class SyncReceipt:
             raise SyncError(
                 f"sync receipt sequence {self.sequence} is not a positive completion "
                 "order (fail-closed, N16)."
+            )
+        if self.generation < 1:
+            raise SyncError(
+                f"sync receipt generation {self.generation} is not a positive source "
+                "generation; a completion that cannot be ordered against a takeover "
+                "must never be trusted (fail-closed, N39)."
             )
         parse_utc_timestamp(self.completed_at)
         expected = self.expected_digest()
@@ -295,23 +302,25 @@ class CorpusStorePort(Protocol):
         ...
 
     def upsert_objects(
-        self, *, objects: Sequence[StoryContextObject], owning_claim: str
+        self, *, objects: Sequence[StoryContextObject], owning_generation: int
     ) -> int:
         """Insert/replace objects (deterministic uuids) STAMPED with the writing
-        claim's ownership token (D9); return the EXACT count of objects confirmed
-        written (R12). A return value below ``len(objects)`` indicates a partial
-        batch and MUST NOT be reported as success; batch failures are surfaced as a
-        lower count, not an exception, so the SyncService can reject the partial
-        window fail-closed."""
+        SOURCE GENERATION (N37); return the EXACT count of objects confirmed written
+        (R12). A return value below ``len(objects)`` indicates a partial batch and
+        MUST NOT be reported as success; batch failures are surfaced as a lower
+        count, not an exception, so the SyncService can reject the partial window
+        fail-closed."""
         ...
 
-    def delete_objects_owned_by(self, *, uuids: Sequence[str], owning_claim: str) -> int:
-        """Delete objects ONLY while they still carry ``owning_claim`` (D9).
+    def delete_objects_older_than(
+        self, *, uuids: Sequence[str], owning_generation: int
+    ) -> int:
+        """Delete objects ONLY where the writing generation is STRICTLY OLDER (N37).
 
-        The ownership condition MUST be evaluated by the store together with the
+        The ordering condition MUST be evaluated by the store together with the
         delete -- a preceding application check can always be overtaken. Returns the
-        EXACT count confirmed deleted (R12); a lower count means the ownership of at
-        least one object moved on."""
+        EXACT count confirmed deleted (R12); a lower count means at least one object
+        belongs to a generation that is NOT older than the caller's."""
         ...
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
@@ -566,12 +575,12 @@ class SyncService:
             rows = [o for o in existing if str(o.get("source_file")) == vanished]
             claim = self._claim(project_id=project_id, source_file=vanished)
             try:
-                # The destructive delete is bound to the OBSERVED ownership of each
-                # object and evaluated BY THE STORE (D9). There is deliberately NO
-                # preceding ownership check here: a check followed by a separate
-                # delete is exactly the window this decision removes, and keeping one
-                # would only restore the illusion of safety.
-                deleted = self._delete_owned(rows, source_file=vanished)
+                # The destructive delete is bound to the GENERATION ORDER and
+                # evaluated BY THE STORE (N37). There is deliberately NO preceding
+                # ownership check here: a check followed by a separate delete is
+                # exactly the window this decision removes, and keeping one would
+                # only restore the illusion of safety.
+                deleted = self._delete_older_generations(rows, claim=claim)
             finally:
                 self.store.release_source(claim=claim)
             results.append(
@@ -587,52 +596,65 @@ class SyncService:
             )
         return results
 
-    def _delete_owned(
-        self, rows: Sequence[Mapping[str, object]], *, source_file: str
+    def _delete_older_generations(
+        self,
+        rows: Sequence[Mapping[str, object]],
+        *,
+        claim: SourceClaim,
     ) -> int:
-        """Delete the given objects STORAGE-CONDITIONALLY on their observed owner (D9).
+        """Delete the given objects, bound STORAGE-SIDE to the generation order (N37).
 
-        The candidates are grouped by the ownership token they were read with, and
-        each group is deleted under the condition that the token is still the one
-        observed. The condition is evaluated by the store together with the delete,
-        so this is a compare-and-delete rather than a check followed by a delete.
+        The condition is "written by a generation strictly OLDER than mine", and
+        ``mine`` is the deleting claim's own generation -- a number this writer owns
+        and cannot be misled about. That is the whole difference to the superseded
+        model: deleting "whatever still carries the value I read" closes only the
+        interval between the read and the delete, and never establishes WHOSE
+        generation that value was, so a resumed writer could authorise itself to
+        delete a newer generation's data simply by reading it.
 
-        Why equality against the OBSERVED token and not "older than mine": the claim
-        epoch is not monotonic across runs (a released claim is discarded, so the next
-        acquisition starts at 1 again). An ordering predicate would therefore skip
-        legitimately deletable chunks whenever the previous generation held the same
-        or a higher epoch -- and silently stop removing vanished sources. Equality
-        needs no ordering assumption and still excludes a newer owner's data, because
-        a superseding owner necessarily writes under a DIFFERENT token.
+        Because the ladder is persistent and strictly monotonic, this holds in BOTH
+        race orders: whether the newer generation writes before or after this writer
+        reads, its objects carry a HIGHER generation and can never match. And no
+        legitimate delete is lost: objects of any earlier generation -- several
+        different ones at once -- are all strictly below.
 
         Args:
-            rows: Objects to delete, as read (uuid + ownership token).
-            source_file: The source they belong to (diagnostics).
+            rows: Objects to delete, as read (uuid + writing generation).
+            claim: The claim under which this delete runs.
 
         Returns:
             The number of objects confirmed deleted.
 
         Raises:
+            SyncError: When a candidate carries no readable generation. That is a
+                data-integrity refusal, never an authorisation: it only ever
+                REFUSES, and every object AK3 writes is stamped (N38).
             ClaimSupersededError: When fewer objects were deleted than requested --
-                the ownership of at least one object moved on, so this writer's
-                window is no longer authoritative.
+                at least one belongs to a generation that is not older than this
+                claim's, so this writer's window is no longer authoritative.
         """
-        by_token: dict[str, list[str]] = {}
+        uuids: list[str] = []
         for row in rows:
-            token = str(row.get(OWNING_CLAIM_PROPERTY, ""))
-            by_token.setdefault(token, []).append(str(row["uuid"]))
-        deleted = 0
-        for token, uuids in sorted(by_token.items()):
-            deleted += self.store.delete_objects_owned_by(
-                uuids=uuids, owning_claim=token
-            )
-        requested = sum(len(uuids) for uuids in by_token.values())
-        if deleted != requested:
+            raw = row.get(OWNING_GENERATION_PROPERTY)
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+                raise SyncError(
+                    f"object {row.get('uuid')!r} of {claim.source_file!r} carries no "
+                    f"readable writing generation ({raw!r}); it cannot be ordered "
+                    "against this claim, so it is never deleted (fail-closed, N37)."
+                )
+            uuids.append(str(row["uuid"]))
+        if not uuids:
+            return 0
+        deleted = self.store.delete_objects_older_than(
+            uuids=uuids, owning_generation=claim.generation
+        )
+        if deleted != len(uuids):
             raise ClaimSupersededError(
-                f"conditional delete for {source_file!r} removed {deleted} of "
-                f"{requested} objects: the ownership of at least one object changed "
-                "while this window was open, so a superseded holder was prevented "
-                "from deleting the new owner's data (fail-closed, D9)."
+                f"conditional delete for {claim.source_file!r} removed {deleted} of "
+                f"{len(uuids)} objects: at least one belongs to a generation that is "
+                f"not older than this claim's generation {claim.generation}, so a "
+                "superseded holder was prevented from deleting a newer generation's "
+                "data (fail-closed, N37)."
             )
         return deleted
 
@@ -660,7 +682,7 @@ class SyncService:
         # which is what makes the delete below storage-conditional.
         should_uuids = {obj.uuid for obj in objects}
         written = self.store.upsert_objects(
-            objects=objects, owning_claim=claim_ownership_token(claim)
+            objects=objects, owning_generation=claim.generation
         )
         if written != len(objects):
             raise PartialWriteError(
@@ -680,11 +702,11 @@ class SyncService:
                 f"{len(should_uuids)} new UUIDs absent after write (R12)."
             )
         # (2) Delete the superseded chunks of the SAME source. Destructive, therefore
-        # bound to the OBSERVED ownership of each object and evaluated by the store
-        # (D9) -- NOT preceded by an ownership check, which could always be overtaken
-        # before the delete landed.
+        # bound to the GENERATION ORDER and evaluated by the store (N37) -- NOT
+        # preceded by an ownership check, which could always be overtaken before the
+        # delete landed.
         stale_rows = [o for o in persisted if str(o["uuid"]) not in should_uuids]
-        deleted = self._delete_owned(stale_rows, source_file=source_file)
+        deleted = self._delete_older_generations(stale_rows, claim=claim)
         # (3) FENCE again before publishing: if the claim was taken over while the
         # window was open, this writer's generation is no longer authoritative and it
         # must NOT publish a completion (N15/N27). This check CAN still be overtaken
@@ -699,7 +721,11 @@ class SyncService:
         # (N16/N28/N29).
         sealed = self.store.set_receipt(
             receipt=SyncReceipt.for_completion(
-                project_id, source_file, source_type, corpus_revision
+                project_id,
+                source_file,
+                source_type,
+                corpus_revision,
+                generation=claim.generation,
             )
         )
         sealed.verify()
@@ -712,6 +738,31 @@ class SyncService:
             corpus_revision=corpus_revision,
             receipt_digest=sealed.digest,
         )
+
+
+def _validate_run_wide_completion_inputs(
+    *, project_id: str, corpus_revision: str
+) -> None:
+    """Validate the completion inputs shared by EVERY source of a run (N40).
+
+    ``_validate_matrix`` used to check the completion inputs only inside its loop over
+    the incoming sources, so an EMPTY matrix skipped the gate entirely -- and the
+    vanished-source delete that follows is a mutation. These fields do not depend on
+    any source, so they are checked at the entry of the run.
+
+    Raises:
+        SyncError: When a run-wide completion input is blank or not a string.
+    """
+    supplied = {"project_id": project_id, "corpus_revision": corpus_revision}
+    for name in RUN_WIDE_COMPLETION_INPUTS:
+        value = supplied[name]
+        if not isinstance(value, str) or not value.strip():
+            raise SyncError(
+                f"completion input {name!r} is empty/non-string ({value!r}); the "
+                "receipts this run would publish could never verify, so the run must "
+                "not claim, write or delete anything -- not even with an empty "
+                "matrix (fail-closed, N34/N40)."
+            )
 
 
 def _validate_completion_inputs(
@@ -786,6 +837,13 @@ def _validate_matrix(
     owned = source_types_for_producer(producer)
     if not owned:
         raise SyncError(f"unknown producer {producer!r}; fail-closed (N29).")
+    # RUN-WIDE fields first, OUTSIDE the loop (N40): an EMPTY matrix never entered
+    # the loop, so a blank corpus_revision went unchecked while
+    # ``_delete_vanished_sources`` already mutated. A run that provably cannot
+    # publish must not delete anything, whether it carries sources or not.
+    _validate_run_wide_completion_inputs(
+        project_id=project_id, corpus_revision=corpus_revision
+    )
     for source_file, objects in objects_by_source.items():
         if not objects:
             raise SyncError(
@@ -885,5 +943,4 @@ __all__ = [
     "SyncReceipt",
     "SyncResult",
     "SyncService",
-    "claim_ownership_token",
 ]

@@ -49,7 +49,7 @@ class PropertySpec:
 
     Attributes:
         name: Wire property name (English, ARCH-55).
-        data_type: ``TEXT`` / ``BOOL`` / ``TEXT[]``.
+        data_type: ``TEXT`` / ``BOOL`` / ``TEXT[]`` / ``INT``.
         vectorized: Whether the value is part of the embedding (FK-13 §13.3.1
             "Vektorisiert"). ``False`` -> ``skip_vectorization``.
         tokenization: ``WORD`` for narrative text, ``FIELD`` for identifiers;
@@ -71,9 +71,14 @@ class PropertySpec:
         return self.data_type in ("TEXT", "TEXT[]")
 
 
-#: Property carrying the ownership token of the claim generation that wrote an
-#: object version (D9). The destructive delete is bound to it storage-side.
-OWNING_CLAIM_PROPERTY: Final[str] = "owning_claim"
+#: Property carrying the SOURCE GENERATION that wrote an object version (D9/N37).
+#:
+#: The generation is a persistent, strictly monotonic ordinal per
+#: ``(project_id, source_file)``: every acquisition of the source claim -- normal or
+#: administrative reclaim -- allocates the next number, and the ladder survives a
+#: normal release. That is what makes "written by a generation OLDER than mine" a
+#: decidable, storage-side condition for the destructive delete.
+OWNING_GENERATION_PROPERTY: Final[str] = "owning_generation"
 
 
 def _narrative(name: str) -> PropertySpec:
@@ -83,8 +88,9 @@ def _narrative(name: str) -> PropertySpec:
 
 def _identifier(name: str, data_type: str = "TEXT") -> PropertySpec:
     """A non-vectorised, whole-value field used for exact filtering."""
+    tokenisable = data_type not in ("BOOL", "INT")
     return PropertySpec(
-        name, data_type, False, TOKENIZATION_FIELD if data_type != "BOOL" else "", False
+        name, data_type, False, TOKENIZATION_FIELD if tokenisable else "", False
     )
 
 
@@ -120,13 +126,14 @@ STORY_CONTEXT_PROPERTIES: Final[tuple[PropertySpec, ...]] = (
     _identifier("section_number"),
     _rules("normative_rules"),
     _identifier("concept_status"),
-    # --- Ownership marker (D9) ---
-    # The ownership TOKEN of the claim generation that wrote this object version.
-    # It is not a second ownership truth -- the claim record stays the authority --
-    # but it is what makes the DESTRUCTIVE delete storage-conditional: a delete is
-    # bound to the token the deleter observed, so a superseded holder can never
-    # remove data a newer owner wrote. Whole-value filterable, never embedded.
-    _identifier(OWNING_CLAIM_PROPERTY),
+    # --- Ownership-ordering marker (D9/N37) ---
+    # The SOURCE GENERATION that wrote this object version. It is not a second
+    # ownership truth -- the claim record stays the authority on WHO holds a source --
+    # it is purely an ORDER: the destructive delete is bound storage-side to
+    # "generation strictly older than the deleting claim's generation", so a
+    # superseded holder can never remove a newer generation's data, in either race
+    # order. Numeric so the comparison is a real ordering, never embedded.
+    _identifier(OWNING_GENERATION_PROPERTY, "INT"),
 )
 
 #: Property names that MUST be present and correctly typed on every object.
@@ -348,7 +355,7 @@ def search_property_spec(source_type: str) -> tuple[tuple[str, str, bool], ...]:
 
 
 __all__ = [
-    "OWNING_CLAIM_PROPERTY",
+    "OWNING_GENERATION_PROPERTY",
     "FK13_VECTORIZER",
     "FK13_VECTORIZER_MODEL",
     "FK13_VECTOR_SOURCE_PROPERTIES",

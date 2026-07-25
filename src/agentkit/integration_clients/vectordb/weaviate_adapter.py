@@ -60,6 +60,7 @@ WEAVIATE_DATA_TYPE_NAMES: Final[dict[str, str]] = {
     "TEXT": "text",
     "BOOL": "boolean",
     "TEXT[]": "text[]",
+    "INT": "int",
 }
 
 #: Schema data-type token -> the python type a returned property must have.
@@ -67,6 +68,7 @@ _EXPECTED_PROPERTY_TYPES: Final[dict[str, type]] = {
     "TEXT": str,
     "BOOL": bool,
     "TEXT[]": list,
+    "INT": int,
 }
 
 
@@ -290,33 +292,17 @@ class WeaviateStoryAdapter:
             ) from exc
         return [_coerce_hit(hit) for hit in raw_hits]
 
-    def story_sync(
-        self,
-        *,
-        objects: Sequence[Mapping[str, object]],
-    ) -> int:
-        """Index/update story objects in the knowledge base (FK-13 §13.7).
+    @property
+    def corpus_client(self) -> WeaviateClientPort:
+        """Return the thin corpus client for the claim-aware sync owner (N38).
 
-        Args:
-            objects: The story chunks to upsert (title, problem, solution,
-                metadata) keyed by ``story_id``.
-
-        Returns:
-            The number of objects written.
-
-        Raises:
-            VectorDbWriteError: When the indexing write fails -- a hard blocker
-                for the export (FK-21 §21.11.4, fail-closed, no catch-up).
+        There is exactly ONE write path into ``StoryContext``: the sync owner, which
+        claims the source, stamps the writing generation and publishes a completion.
+        This adapter therefore no longer offers a ``story_sync`` of its own -- an
+        unclaimed, unstamped write would produce objects that the delete closure
+        cannot touch and that a later sync would have to reject.
         """
-        try:
-            return int(
-                self._client.upsert(collection=STORY_COLLECTION, objects=objects)
-            )
-        except Exception as exc:  # noqa: BLE001 -- normalise any client fault
-            raise VectorDbWriteError(
-                f"Weaviate story_sync indexing failed for {len(objects)} object(s): "
-                f"{exc} (fail-closed: indexing failure blocks export, FK-21 §21.11.4)."
-            ) from exc
+        return self._client
 
     def close(self) -> None:
         """Release the underlying Weaviate connection (best-effort)."""
@@ -760,34 +746,41 @@ class _RealWeaviateClient:
                 deleted += 1
         return deleted
 
-    def delete_by_ids_if_property_equals(
+    def delete_by_ids_if_property_below(
         self,
         *,
         collection: str,
         uuids: Sequence[str],
         prop: str,
-        value: str,
+        limit: int,
     ) -> int:
-        """Delete the given uuids ONLY while ``prop`` still equals ``value`` (D9).
+        """Delete the given uuids ONLY where ``prop`` is strictly below ``limit`` (N37).
 
         This is the one storage-side precondition the pinned client offers for a
         destructive operation: ``data.delete_many`` takes a FILTER, so the condition
         is evaluated by Weaviate together with the delete. ``delete_by_id`` and
         ``update``/``replace`` accept no precondition at all, which is why an
-        application-side ownership check could always be overtaken between the check
+        application-side ownership check can always be overtaken between the check
         and the mutation.
+
+        The condition is an ORDERING against a value the CALLER owns (its own
+        generation), not an equality against a value it happened to READ. That is the
+        difference that matters: reading a value and deleting "whatever still carries
+        it" only closes the interval between the read and the delete -- it never
+        establishes WHOSE generation that value belonged to, so a resumed writer could
+        authorise itself to delete a newer generation's data.
 
         The ids are sent in bounded batches, and every batch is counted exactly: a
         batch that reports a failure raises, and the returned total is the number of
-        objects Weaviate confirms it removed. A total below ``len(uuids)`` means the
-        condition no longer held for some object -- the CALLER decides what that
-        means (for the sync it means the claim was taken over).
+        objects Weaviate confirms it removed. A total below ``len(uuids)`` means at
+        least one object is NOT older than the caller's generation -- the CALLER
+        decides what that means (for the sync it means it was superseded).
 
         Args:
             collection: Collection to delete from.
             uuids: Candidate object ids.
-            prop: Property carrying the condition value.
-            value: The value the property must still have.
+            prop: Numeric property carrying the ordering value.
+            limit: Exclusive upper bound; only strictly smaller values are deleted.
 
         Returns:
             The exact number of objects Weaviate confirmed deleted.
@@ -805,7 +798,7 @@ class _RealWeaviateClient:
             condition = Filter.all_of(
                 [
                     Filter.by_id().contains_any(batch),
-                    Filter.by_property(prop).equal(value),
+                    Filter.by_property(prop).less_than(limit),
                 ]
             )
             try:
@@ -813,13 +806,13 @@ class _RealWeaviateClient:
             except Exception as exc:  # noqa: BLE001 -- surface a partial delete
                 raise VectorDbWriteError(
                     f"conditional delete failed for {len(batch)} object(s) with "
-                    f"{prop}={value!r}: {exc} (R12 partial delete)."
+                    f"{prop} < {limit}: {exc} (R12 partial delete)."
                 ) from exc
             failed = int(getattr(result, "failed", 0) or 0)
             if failed:
                 raise VectorDbWriteError(
                     f"conditional delete reported {failed} failed object(s) with "
-                    f"{prop}={value!r}; fail-closed (R12 partial delete)."
+                    f"{prop} < {limit}; fail-closed (R12 partial delete)."
                 )
             deleted += int(getattr(result, "successful", 0) or 0)
         return deleted
@@ -866,7 +859,12 @@ class _RealWeaviateClient:
                 vector_source_properties,
             )
             return
-        type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
+        type_map = {
+            "TEXT": DataType.TEXT,
+            "BOOL": DataType.BOOL,
+            "TEXT[]": DataType.TEXT_ARRAY,
+            "INT": DataType.INT,
+        }
         token_map = {
             "WORD": Tokenization.WORD,
             "FIELD": Tokenization.FIELD,

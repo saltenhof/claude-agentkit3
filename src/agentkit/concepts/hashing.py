@@ -69,19 +69,23 @@ def sync_receipt_digest(
     state: str,
     completed_at: str,
     sequence: int,
+    generation: int,
 ) -> str:
-    """Digest-bound sync receipt anchor (DR 2026-07-21 Rand 5 / D1 / D3).
+    """Digest-bound sync receipt anchor (DR 2026-07-21 Rand 5 / D1 / D3 / N39).
 
     Binds a completion marker to EVERY identity and ORDERING field: project,
-    source, source type, corpus revision, state, completion timestamp and the
-    store-assigned completion sequence. Binding the ordering fields is what makes
-    a persisted receipt replay-proof -- with only ``(project, source, revision)``
-    bound, ``sequence``/``completed_at``/``state`` could be edited freely and a
-    stale receipt could be replayed to the front of the freshness order (N16).
+    source, source type, corpus revision, state, completion timestamp, the
+    store-assigned completion position AND the publishing SOURCE GENERATION.
+    Binding the ordering fields is what makes a persisted receipt replay-proof --
+    with only ``(project, source, revision)`` bound, position/timestamp/state could
+    be edited freely and a stale receipt could be replayed to the front of the
+    freshness order (N16). The generation is bound because it is what DECIDES the
+    freshness order: an unbound generation could be raised on a stale record and
+    make a superseded completion authoritative (N39).
     """
     payload = "|".join(
         (
-            "sync-receipt-v2",
+            "sync-receipt-v3",
             project_id,
             source_file,
             source_type,
@@ -89,6 +93,7 @@ def sync_receipt_digest(
             state,
             completed_at,
             str(sequence),
+            str(generation),
         )
     )
     return sha256_hex(payload.encode())
