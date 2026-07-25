@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from agentkit.backend.vectordb.engine import (
     CLAIM_COLLECTION,
     RECEIPT_COLLECTION,
+    SEQUENCE_COLLECTION,
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
@@ -37,7 +38,8 @@ from agentkit.integration_clients.vectordb.weaviate_adapter import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
+    from datetime import datetime
 
 
 @dataclass
@@ -60,6 +62,7 @@ class RecordingWeaviateClient:
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, dict[str, object]] = field(default_factory=dict)
     claims: dict[str, dict[str, object]] = field(default_factory=dict)
+    sequences: dict[str, dict[str, object]] = field(default_factory=dict)
     search_calls: list[dict[str, object]] = field(default_factory=list)
     ensure_calls: list[dict[str, object]] = field(default_factory=list)
     search_results: list[tuple[str, dict[str, object], float]] = field(default_factory=list)
@@ -69,13 +72,26 @@ class RecordingWeaviateClient:
     suppress_source_fetch: bool = False
     insert_barrier: threading.Barrier | None = None
     fetch_barrier: threading.Barrier | None = None
+    #: Called with the collection name AFTER an upsert -- the seam a concurrent
+    #: writer would act through (used to stage a mid-window claim takeover, N15).
+    after_upsert: Callable[[str], None] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _local: threading.local = field(default_factory=threading.local)
 
     # -- reads ------------------------------------------------------------- #
     def fetch_by_property(
         self, *, collection: str, prop: str, value: str, return_props: Sequence[str]
     ) -> Sequence[tuple[str, dict[str, object]]]:
-        if collection == CLAIM_COLLECTION and self.fetch_barrier is not None:
+        # Synchronise the FIRST claim read of each thread: both a read-then-write
+        # claim (which would then race) and the conditional-create claim pass here,
+        # so the race is real for either implementation. Later reads (e.g. the
+        # fence) must not wait again.
+        if (
+            collection == CLAIM_COLLECTION
+            and self.fetch_barrier is not None
+            and not getattr(self._local, "fetch_barrier_used", False)
+        ):
+            self._local.fetch_barrier_used = True
             self.fetch_barrier.wait()
         if collection == STORY_CONTEXT_COLLECTION and self.suppress_source_fetch:
             return []
@@ -108,6 +124,8 @@ class RecordingWeaviateClient:
             return self.receipts
         if collection == CLAIM_COLLECTION:
             return self.claims
+        if collection == SEQUENCE_COLLECTION:
+            return self.sequences
         return self.objects
 
     # -- search (the REAL retrieval path) ---------------------------------- #
@@ -158,6 +176,8 @@ class RecordingWeaviateClient:
                     continue
                 store[uid] = dict(obj)
                 written += 1
+        if self.after_upsert is not None:
+            self.after_upsert(collection)
         if collection == STORY_CONTEXT_COLLECTION and self.crash_after_write:
             self.crash_after_write = False
             raise RuntimeError("simulated crash after write")
@@ -170,18 +190,25 @@ class RecordingWeaviateClient:
     def insert_object(
         self, *, collection: str, uuid: str, properties: Mapping[str, object]
     ) -> bool:
-        # The barrier is used TWICE when set: once so both writers arrive at the
-        # conditional create together, once so neither proceeds (and the winner
-        # cannot release its claim) before both have decided. That makes the race
-        # deterministic without weakening it.
-        if self.insert_barrier is not None:
+        # The barrier is used TWICE per THREAD when set: once so both writers arrive
+        # at the conditional create together, once so neither proceeds (and the
+        # winner cannot release its claim) before both have decided. Only the FIRST
+        # conditional create of a thread participates, so a retry (e.g. the next
+        # sequence candidate) cannot unbalance the barrier.
+        use_barrier = self.insert_barrier is not None and not getattr(
+            self._local, "barrier_used", False
+        )
+        if use_barrier:
+            self._local.barrier_used = True
+            assert self.insert_barrier is not None
             self.insert_barrier.wait()
         store = self._store_for(collection)
         with self._lock:
             won = uuid not in store
             if won:
                 store[uuid] = dict(properties)
-        if self.insert_barrier is not None:
+        if use_barrier:
+            assert self.insert_barrier is not None
             self.insert_barrier.wait()
         return won
 
@@ -215,9 +242,19 @@ class RecordingWeaviateClient:
         )
 
 
-def corpus_store(client: RecordingWeaviateClient | None = None) -> WeaviateCorpusStore:
-    """Build the REAL production store over the recording client double."""
-    return WeaviateCorpusStore(client=client or RecordingWeaviateClient())
+def corpus_store(
+    client: RecordingWeaviateClient | None = None,
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> WeaviateCorpusStore:
+    """Build the REAL production store over the recording client double.
+
+    ``clock`` drives the bounded claim lease (N15) deterministically.
+    """
+    store = WeaviateCorpusStore(client=client or RecordingWeaviateClient())
+    if clock is not None:
+        store = WeaviateCorpusStore(client=store.client, clock=clock)
+    return store
 
 
 def chunk_object(
@@ -291,8 +328,14 @@ def story_hit(
     source_file: str | None = None,
     status: str = "Done",
     story_type: str = "implementation",
+    module: str = "backend",
+    epic: str = "retrieval",
 ) -> tuple[str, dict[str, object], float]:
-    """Build a COMPLETE story/research hit (every profile property present)."""
+    """Build a COMPLETE story/research hit (every profile property present).
+
+    ``module``/``epic`` are part of the advertised ``story_search`` response
+    (FK-13 §13.4.1), so a realistic hit carries them (N19).
+    """
     rel = source_file if source_file is not None else f"stories/{story_id}/story.md"
     return (
         uuid,
@@ -302,6 +345,8 @@ def story_hit(
             "title": f"title {story_id}",
             "status": status,
             "story_type": story_type,
+            "module": module,
+            "epic": epic,
             "source_type": source_type,
             "source_file": rel,
             "section_heading": "Problem",

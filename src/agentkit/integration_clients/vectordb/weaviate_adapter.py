@@ -611,36 +611,64 @@ class _RealWeaviateClient:
 
         A single capped ``limit`` would silently truncate a large corpus, which
         would make the delete closure miss objects. Pages are read until a short
-        page ends the set; a set larger than :data:`MAX_FETCH_OBJECTS` is a hard,
-        named error rather than a silently truncated answer. A page that returns
-        MORE objects than requested is malformed pagination and also fails closed.
+        page ends the set. Fail-closed conditions (never a truncated answer):
+
+        - a page returning MORE objects than requested (malformed pagination);
+        - a uuid appearing in more than one page (inconsistent pagination -- the
+          set would be both duplicated and incomplete);
+        - a set that genuinely exceeds :data:`MAX_FETCH_OBJECTS`. Reaching the
+          ceiling exactly is NOT an error by itself: one extra object is probed,
+          and only its existence proves the set is larger than the ceiling (N25).
         """
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
         out: list[tuple[str, dict[str, object]]] = []
+        seen: set[str] = set()
         offset = 0
         while True:
-            page = coll.query.fetch_objects(
-                filters=flt,
-                return_properties=list(return_props),
-                limit=FETCH_PAGE_SIZE,
-                offset=offset,
-            )
-            objects = list(page.objects)
+            objects = self._fetch_page(coll, flt, return_props, offset, FETCH_PAGE_SIZE)
             if len(objects) > FETCH_PAGE_SIZE:
                 raise VectorDbUnavailableError(
                     f"Weaviate returned {len(objects)} objects for a page of "
                     f"{FETCH_PAGE_SIZE}; malformed pagination (fail-closed, AC10)."
                 )
             for obj in objects:
-                out.append((str(obj.uuid), dict(obj.properties)))
+                uid = str(obj.uuid)
+                if uid in seen:
+                    raise VectorDbUnavailableError(
+                        f"object {uid!r} appeared twice while paging {collection!r}; "
+                        "inconsistent pagination (fail-closed, AC10/N25)."
+                    )
+                seen.add(uid)
+                out.append((uid, dict(obj.properties)))
             if len(objects) < FETCH_PAGE_SIZE:
                 return out
             offset += FETCH_PAGE_SIZE
             if offset >= MAX_FETCH_OBJECTS:
-                raise VectorDbUnavailableError(
-                    f"filtered result set exceeds {MAX_FETCH_OBJECTS} objects in "
-                    f"{collection!r}; refusing a truncated answer (fail-closed, AC10)."
-                )
+                # Probe for ONE more object: the ceiling itself is a valid, fully
+                # read set -- only a further object means the answer is truncated.
+                if self._fetch_page(coll, flt, return_props, offset, 1):
+                    raise VectorDbUnavailableError(
+                        f"filtered result set exceeds {MAX_FETCH_OBJECTS} objects in "
+                        f"{collection!r}; refusing a truncated answer (fail-closed, AC10)."
+                    )
+                return out
+
+    def _fetch_page(
+        self,
+        coll: Any,
+        flt: Any,
+        return_props: Sequence[str],
+        offset: int,
+        limit: int,
+    ) -> list[Any]:
+        """Fetch ONE page of a filtered read."""
+        page = coll.query.fetch_objects(
+            filters=flt,
+            return_properties=list(return_props),
+            limit=limit,
+            offset=offset,
+        )
+        return list(page.objects)
 
     def insert_object(
         self, *, collection: str, uuid: str, properties: Mapping[str, object]
@@ -648,15 +676,24 @@ class _RealWeaviateClient:
         """Conditionally CREATE one object; ``False`` when the uuid already exists.
 
         This is the store-level atomic compare-and-create primitive the source
-        claim relies on (N03/D3): Weaviate rejects an insert for an existing
-        object id with ``ObjectAlreadyExistsException``. The rejection is the
-        LOSER signal of a genuine race -- it is never turned into an upsert.
+        claim relies on (N03/D3). The pinned ``weaviate-client`` (4.9-5.0) routes a
+        duplicate object id through ``UnexpectedStatusCodeError`` -- its own
+        docstring says "for example the given UUID already exists" -- and only
+        some paths raise ``ObjectAlreadyExistsException``. Both are handled, and
+        the duplicate response is identified STRICTLY:
+
+        1. the documented duplicate status code + "already exists" body, or
+        2. an authoritative ``data.exists(uuid)`` probe confirming the id is taken.
+
+        Anything else is a transport fault and fails closed -- a lost claim is
+        NEVER inferred from an unexplained error.
 
         Raises:
-            VectorDbWriteError: On any other write fault (fail-closed).
+            VectorDbWriteError: On any write fault that is not a duplicate id.
         """
         from weaviate.exceptions import (  # noqa: PLC0415 (transport dependency)
             ObjectAlreadyExistsException,
+            UnexpectedStatusCodeError,
         )
 
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
@@ -664,6 +701,13 @@ class _RealWeaviateClient:
             coll.data.insert(properties=dict(properties), uuid=uuid)
         except ObjectAlreadyExistsException:
             return False
+        except UnexpectedStatusCodeError as exc:
+            if _is_duplicate_object_error(exc) or _object_exists(coll, uuid):
+                return False
+            raise VectorDbWriteError(
+                f"conditional insert of {uuid!r} into {collection!r} failed with "
+                f"status {exc.status_code}: {exc} (fail-closed, N03/N14)."
+            ) from exc
         except Exception as exc:  # noqa: BLE001 -- normalise any client fault
             raise VectorDbWriteError(
                 f"conditional insert of {uuid!r} into {collection!r} failed: {exc} "
@@ -704,12 +748,13 @@ class _RealWeaviateClient:
         ``vectorizer`` selects the FK-13 §13.2 server-side ``text2vec_transformers``
         (StoryContext) vs ``self_provided`` (auxiliary collections like receipts).
 
-        An EXISTING collection is not accepted blindly (N12): its configured
-        property set and vectorizer are read back and compared against the schema
-        SSOT. Any drift (a missing/extra property, a wrong data type, or a
-        ``self_provided`` collection where ``text2vec_transformers`` is required)
-        fails closed -- otherwise a drifted collection would pass composition and
-        only break later inside the semantic search modes.
+        An EXISTING collection is not accepted blindly (N12): the FULL read-back
+        configuration is compared against the schema SSOT -- property names, data
+        types, per-property vectorisation, TOKENISATION, searchability,
+        filterability and the named-vector settings. Any drift fails closed;
+        otherwise a collection whose narrative fields are whole-value tokenised
+        (so ``keyword`` search cannot match a word inside them, N18) would pass
+        composition and only fail semantically at query time.
         """
         from weaviate.classes.config import (  # noqa: PLC0415 (transport dependency)
             Configure,
@@ -724,16 +769,28 @@ class _RealWeaviateClient:
                 collections, collection, property_specs, vectorizer
             )
             return
-        _type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
-        properties = [
-            Property(
-                name=str(spec["name"]),
-                data_type=_type_map[str(spec["data_type"])],
-                tokenization=Tokenization.FIELD,
-                skip_vectorization=bool(spec["skip_vectorization"]),
-            )
-            for spec in property_specs
-        ]
+        type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
+        token_map = {
+            "WORD": Tokenization.WORD,
+            "FIELD": Tokenization.FIELD,
+            "WHITESPACE": Tokenization.WHITESPACE,
+            "LOWERCASE": Tokenization.LOWERCASE,
+        }
+        properties = []
+        for spec in property_specs:
+            kwargs: dict[str, object] = {
+                "name": str(spec["name"]),
+                "data_type": type_map[str(spec["data_type"])],
+                "skip_vectorization": bool(spec["skip_vectorization"]),
+                "vectorize_property_name": bool(spec.get("vectorize_property_name", False)),
+                "index_filterable": bool(spec.get("filterable", True)),
+            }
+            # Tokenisation / searchability exist only for text types; Weaviate
+            # rejects them on a boolean property.
+            if "tokenization" in spec:
+                kwargs["tokenization"] = token_map[str(spec["tokenization"])]
+                kwargs["index_searchable"] = bool(spec.get("searchable", False))
+            properties.append(Property(**kwargs))  # type: ignore[arg-type]
         if vectorizer == "text2vec_transformers":
             vector_config = Configure.Vectors.text2vec_transformers(
                 pooling_strategy="masked_mean", vectorize_collection_name=False
@@ -753,7 +810,7 @@ class _RealWeaviateClient:
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str,
     ) -> None:
-        """Fail closed when an existing collection drifts from the SSOT (N12)."""
+        """Fail closed when an existing collection drifts from the SSOT (N12/N18)."""
         try:
             config = collections.get(collection).config.get()
         except Exception as exc:  # noqa: BLE001 -- unreadable config is fail-closed
@@ -769,25 +826,60 @@ class _RealWeaviateClient:
                 f"but the schema requires {required_vectorizer!r}; fail-closed "
                 "(N12: a drifted collection must not pass composition)."
             )
-        configured_properties = _configured_properties(config)
-        expected_properties = {
-            str(spec["name"]): WEAVIATE_DATA_TYPE_NAMES[str(spec["data_type"])]
-            for spec in property_specs
-        }
-        if configured_properties != expected_properties:
-            missing = sorted(set(expected_properties) - set(configured_properties))
-            extra = sorted(set(configured_properties) - set(expected_properties))
-            wrong_type = sorted(
-                name
-                for name, data_type in expected_properties.items()
-                if name in configured_properties
-                and configured_properties[name] != data_type
-            )
+        if required_vectorizer == "text2vec_transformers" and _vectorizes_collection_name(config):
             raise VectorDbWriteError(
-                f"collection {collection!r} property set drifted from the schema "
-                f"SSOT: missing={missing}, unexpected={extra}, "
-                f"wrong_data_type={wrong_type}; fail-closed (N12)."
+                f"collection {collection!r} vectorises the collection NAME into the "
+                "embedding; the schema requires vectorize_collection_name=False "
+                "(fail-closed, N12)."
             )
+        expected = {str(spec["name"]): _expected_property_view(spec) for spec in property_specs}
+        configured = _configured_properties(config)
+        drift = sorted(
+            f"{name}: expected {expected[name]}, configured {configured.get(name)}"
+            for name in expected
+            if configured.get(name) != expected[name]
+        )
+        unexpected = sorted(set(configured) - set(expected))
+        if drift or unexpected:
+            raise VectorDbWriteError(
+                f"collection {collection!r} configuration drifted from the schema "
+                f"SSOT: {drift}; unexpected properties={unexpected}; fail-closed "
+                "(N12/N18: names, data types, vectorisation, tokenisation, "
+                "searchability and filterability are all part of the contract)."
+            )
+
+
+#: HTTP status codes Weaviate answers a duplicate object id with (N14).
+_DUPLICATE_STATUS_CODES: Final[frozenset[int]] = frozenset({409, 422})
+
+#: Marker Weaviate puts in the duplicate-id error body (N14).
+_DUPLICATE_MARKER: Final[str] = "already exists"
+
+
+def _is_duplicate_object_error(exc: Any) -> bool:
+    """Identify the REAL duplicate-object response of the pinned client (N14).
+
+    Strict: the status code must be one Weaviate uses for a rejected duplicate id
+    AND the response body must carry its ``already exists`` marker. Any other
+    unexpected status is a transport fault, never a lost claim.
+    """
+    status = getattr(exc, "status_code", None)
+    if status not in _DUPLICATE_STATUS_CODES:
+        return False
+    body = f"{getattr(exc, 'error', '') or ''} {exc}"
+    return _DUPLICATE_MARKER in body.lower()
+
+
+def _object_exists(coll: Any, uuid: str) -> bool:
+    """Authoritative existence probe after a failed conditional create (N14).
+
+    If the id is present the claim IS taken, whatever the client reported. A
+    failing probe is inconclusive and must NOT be read as "taken".
+    """
+    try:
+        return bool(coll.data.exists(uuid))
+    except Exception:  # noqa: BLE001 -- inconclusive probe -> not a duplicate
+        return False
 
 
 def _configured_vectorizer(config: Any) -> str:
@@ -819,15 +911,61 @@ def _configured_vectorizer(config: Any) -> str:
     return names.pop()
 
 
-def _configured_properties(config: Any) -> dict[str, str]:
-    """Map an existing collection's property names to their Weaviate type names."""
-    out: dict[str, str] = {}
+def _expected_property_view(spec: Mapping[str, object]) -> dict[str, object]:
+    """Project a schema property spec into the comparable read-back view (N12/N18)."""
+    view: dict[str, object] = {
+        "data_type": WEAVIATE_DATA_TYPE_NAMES[str(spec["data_type"])],
+        "skip_vectorization": bool(spec["skip_vectorization"]),
+        "vectorize_property_name": bool(spec.get("vectorize_property_name", False)),
+        "filterable": bool(spec.get("filterable", True)),
+    }
+    if "tokenization" in spec:
+        view["tokenization"] = str(spec["tokenization"]).lower()
+        view["searchable"] = bool(spec.get("searchable", False))
+    return view
+
+
+def _configured_properties(config: Any) -> dict[str, dict[str, object]]:
+    """Project an existing collection's properties into the comparable view.
+
+    Covers the BEHAVIOURAL configuration, not just names/types: per-property
+    vectorisation (``skip`` / ``vectorize_property_name``), tokenisation,
+    searchability and filterability (N12/N18).
+    """
+    out: dict[str, dict[str, object]] = {}
     for prop in getattr(config, "properties", None) or []:
         name = str(getattr(prop, "name", ""))
         if not name:
             continue
-        out[name] = _enum_value(getattr(prop, "data_type", None))
+        vec = getattr(prop, "vectorizer_config", None)
+        view: dict[str, object] = {
+            "data_type": _enum_value(getattr(prop, "data_type", None)),
+            "skip_vectorization": bool(getattr(vec, "skip", False)),
+            "vectorize_property_name": bool(getattr(vec, "vectorize_property_name", False)),
+            "filterable": bool(getattr(prop, "index_filterable", False)),
+        }
+        tokenization = _enum_value(getattr(prop, "tokenization", None))
+        if tokenization:
+            view["tokenization"] = tokenization
+            view["searchable"] = bool(getattr(prop, "index_searchable", False))
+        out[name] = view
     return out
+
+
+def _vectorizes_collection_name(config: Any) -> bool:
+    """Whether any configured vector folds the collection NAME into the embedding."""
+    vector_config = getattr(config, "vector_config", None)
+    entries: list[Any] = []
+    if isinstance(vector_config, dict):
+        entries = list(vector_config.values())
+    elif vector_config:
+        entries = list(vector_config)
+    for entry in entries:
+        inner = getattr(entry, "vectorizer", None)
+        if bool(getattr(inner, "vectorize_collection_name", False)):
+            return True
+    legacy = getattr(config, "vectorizer_config", None)
+    return bool(getattr(legacy, "vectorize_collection_name", False))
 
 
 def _enum_value(value: Any) -> str:

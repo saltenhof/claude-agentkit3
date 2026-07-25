@@ -31,32 +31,90 @@ _CHUNK_UUID_NAMESPACE = uuid.UUID("7a1c0d2e-3b4f-5a6b-8c9d-0e1f2a3b4c5d")
 #: Allowed source_type values (FK-13 §13.3.1 / §13.9.5).
 SOURCE_TYPES: Final[tuple[str, ...]] = ("story", "research", "concept")
 
-#: The COMPLETE StoryContext property set (FK-13 §13.3.1 + §13.9.3).
-#: Each entry: (name, weaviate_data_type, vectorized). This is the contract
-#: source of truth bound by ``tests/contract/.../test_storycontext_schema.py``.
-STORY_CONTEXT_PROPERTIES: Final[tuple[tuple[str, str, bool], ...]] = (
+#: Term tokenisation for NARRATIVE text (BM25 must match single words).
+TOKENIZATION_WORD: Final[str] = "WORD"
+
+#: Whole-value tokenisation for identifiers/enums (exact filtering only).
+TOKENIZATION_FIELD: Final[str] = "FIELD"
+
+
+@dataclass(frozen=True)
+class PropertySpec:
+    """The COMPLETE Weaviate configuration of one StoryContext property.
+
+    Every behavioural flag lives here (the schema is the SSOT): a narrative field
+    must be tokenised into TERMS or the ``keyword`` search mode cannot match a
+    single word inside it, while an identifier/enum field must stay whole-value so
+    the hard project/source/status filters compare exactly.
+
+    Attributes:
+        name: Wire property name (English, ARCH-55).
+        data_type: ``TEXT`` / ``BOOL`` / ``TEXT[]``.
+        vectorized: Whether the value is part of the embedding (FK-13 §13.3.1
+            "Vektorisiert"). ``False`` -> ``skip_vectorization``.
+        tokenization: ``WORD`` for narrative text, ``FIELD`` for identifiers;
+            ``""`` for non-text types (Weaviate rejects tokenisation there).
+        searchable: BM25 inverted index (text types only).
+        filterable: Filterable inverted index.
+    """
+
+    name: str
+    data_type: str
+    vectorized: bool
+    tokenization: str
+    searchable: bool
+    filterable: bool = True
+
+    @property
+    def is_text(self) -> bool:
+        """Whether the property is a text type (tokenisable + searchable)."""
+        return self.data_type in ("TEXT", "TEXT[]")
+
+
+def _narrative(name: str) -> PropertySpec:
+    """A vectorised, word-tokenised, BM25-searchable narrative field."""
+    return PropertySpec(name, "TEXT", True, TOKENIZATION_WORD, True)
+
+
+def _identifier(name: str, data_type: str = "TEXT") -> PropertySpec:
+    """A non-vectorised, whole-value field used for exact filtering."""
+    return PropertySpec(
+        name, data_type, False, TOKENIZATION_FIELD if data_type != "BOOL" else "", False
+    )
+
+
+def _rules(name: str) -> PropertySpec:
+    """Rule text: not vectorised (§13.9.3) but word-tokenised for keyword reach."""
+    return PropertySpec(name, "TEXT", False, TOKENIZATION_WORD, True)
+
+
+#: The COMPLETE StoryContext property set (FK-13 §13.3.1 + §13.9.3) with its full
+#: behavioural configuration. This is the contract source of truth bound by
+#: ``tests/contract/.../test_storycontext_schema.py`` AND the reference the thin
+#: adapter verifies an existing collection against (N12/N18).
+STORY_CONTEXT_PROPERTIES: Final[tuple[PropertySpec, ...]] = (
     # --- FK-13 §13.3.1 (base) ---
-    ("content", "TEXT", True),
-    ("story_id", "TEXT", False),
-    ("title", "TEXT", True),
-    ("status", "TEXT", False),
-    ("story_type", "TEXT", False),
-    ("module", "TEXT", False),
-    ("epic", "TEXT", False),
-    ("source_type", "TEXT", False),
-    ("source_file", "TEXT", False),
-    ("section_heading", "TEXT", True),
-    ("content_hash", "TEXT", False),
-    ("project_id", "TEXT", False),
+    _narrative("content"),
+    _identifier("story_id"),
+    _narrative("title"),
+    _identifier("status"),
+    _identifier("story_type"),
+    _identifier("module"),
+    _identifier("epic"),
+    _identifier("source_type"),
+    _identifier("source_file"),
+    _narrative("section_heading"),
+    _identifier("content_hash"),
+    _identifier("project_id"),
     # --- FK-13 §13.9.3 (concept extension) ---
-    ("concept_id", "TEXT", False),
-    ("is_appendix", "BOOL", False),
-    ("parent_concept_id", "TEXT", False),
-    ("defers_to", "TEXT[]", False),
-    ("authority_over", "TEXT[]", False),
-    ("section_number", "TEXT", False),
-    ("normative_rules", "TEXT", False),
-    ("concept_status", "TEXT", False),
+    _identifier("concept_id"),
+    _identifier("is_appendix", "BOOL"),
+    _identifier("parent_concept_id"),
+    _identifier("defers_to", "TEXT[]"),
+    _identifier("authority_over", "TEXT[]"),
+    _identifier("section_number"),
+    _rules("normative_rules"),
+    _identifier("concept_status"),
 )
 
 #: Property names that MUST be present and correctly typed on every object.
@@ -81,6 +139,11 @@ REQUIRED_SEARCH_PROPERTIES: Final[dict[str, tuple[tuple[str, bool], ...]]] = {
         ("title", True),
         ("status", False),
         ("story_type", False),
+        # N19: module + epic are ADVERTISED by the story_search contract
+        # (FK-13 §13.4.1 return table), so the profile must request and validate
+        # them -- otherwise the envelope silently misses contract fields.
+        ("module", False),
+        ("epic", False),
         ("source_type", True),
         ("source_file", True),
         ("section_heading", False),
@@ -94,6 +157,8 @@ REQUIRED_SEARCH_PROPERTIES: Final[dict[str, tuple[tuple[str, bool], ...]]] = {
         ("title", True),
         ("status", False),
         ("story_type", False),
+        ("module", False),
+        ("epic", False),
         ("source_type", True),
         ("source_file", True),
         ("section_heading", False),
@@ -174,27 +239,42 @@ def validate_object(properties: Mapping[str, Any]) -> None:
 
 def property_names() -> tuple[str, ...]:
     """Return the ordered property-name tuple (for contract binding)."""
-    return tuple(name for name, _dt, _vec in STORY_CONTEXT_PROPERTIES)
+    return tuple(spec.name for spec in STORY_CONTEXT_PROPERTIES)
+
+
+def property_spec(name: str) -> PropertySpec:
+    """Return the full :class:`PropertySpec` of a schema property.
+
+    Raises:
+        ValueError: When the property is not part of the schema (fail-closed).
+    """
+    for spec in STORY_CONTEXT_PROPERTIES:
+        if spec.name == name:
+            return spec
+    raise ValueError(f"{name!r} is not a StoryContext property (AC10)")
 
 
 def weaviate_property_specs() -> list[dict[str, object]]:
-    """Project the schema into Weaviate v4 ``Property``-style dicts.
+    """Project the schema into transport-agnostic property dicts.
 
-    The schema-owner (this module) declares the property set once; the thin
-    transport adapter consumes this to create the collection idempotently. Kept
-    as plain dicts (not Weaviate ``Property`` objects) so the schema-owner stays
-    transport-version-agnostic.
+    The schema-owner (this module) declares the COMPLETE behaviour once; the thin
+    transport adapter materialises it and verifies an existing collection against
+    it (N12/N18). ``tokenization``/``searchable`` are only emitted for text types
+    -- Weaviate rejects them on a boolean property.
     """
     specs: list[dict[str, object]] = []
-    for name, data_type, vectorized in STORY_CONTEXT_PROPERTIES:
-        specs.append(
-            {
-                "name": name,
-                "data_type": data_type,
-                "vectorize_property_name": False,
-                "skip_vectorization": not vectorized,
-            }
-        )
+    for spec in STORY_CONTEXT_PROPERTIES:
+        entry: dict[str, object] = {
+            "name": spec.name,
+            "data_type": spec.data_type,
+            "vectorize_property_name": False,
+            "skip_vectorization": not spec.vectorized,
+            "filterable": spec.filterable,
+        }
+        if spec.is_text:
+            entry["tokenization"] = spec.tokenization
+            entry["searchable"] = spec.searchable
+        specs.append(entry)
     return specs
 
 
@@ -211,10 +291,7 @@ def property_data_type(name: str) -> str:
     Raises:
         ValueError: When the property is not part of the schema (fail-closed).
     """
-    for prop_name, data_type, _vec in STORY_CONTEXT_PROPERTIES:
-        if prop_name == name:
-            return data_type
-    raise ValueError(f"{name!r} is not a StoryContext property (AC10)")
+    return property_spec(name).data_type
 
 
 def search_property_spec(source_type: str) -> tuple[tuple[str, str, bool], ...]:
@@ -242,10 +319,14 @@ __all__ = [
     "SOURCE_TYPES",
     "STORY_CONTEXT_COLLECTION",
     "STORY_CONTEXT_PROPERTIES",
+    "TOKENIZATION_FIELD",
+    "TOKENIZATION_WORD",
+    "PropertySpec",
     "StoryContextObject",
     "deterministic_uuid",
     "property_data_type",
     "property_names",
+    "property_spec",
     "search_property_spec",
     "validate_object",
     "weaviate_property_specs",

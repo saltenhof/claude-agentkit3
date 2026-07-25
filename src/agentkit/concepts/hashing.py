@@ -60,15 +60,38 @@ def corpus_revision(file_hashes: Sequence[str], *, parser_version: str = PARSER_
     return h.hexdigest()
 
 
-def sync_receipt_digest(project_id: str, source_file: str, revision: str) -> str:
-    """Digest-bound sync receipt anchor (DR 2026-07-21 Rand 5 / D3).
+def sync_receipt_digest(
+    *,
+    project_id: str,
+    source_file: str,
+    source_type: str,
+    corpus_revision: str,
+    state: str,
+    completed_at: str,
+    sequence: int,
+) -> str:
+    """Digest-bound sync receipt anchor (DR 2026-07-21 Rand 5 / D1 / D3).
 
-    Binds a sync completion marker to ``(project_id, source_file, revision)`` so
-    a retry can tell a fully-written new generation from a partial residue.
+    Binds a completion marker to EVERY identity and ORDERING field: project,
+    source, source type, corpus revision, state, completion timestamp and the
+    store-assigned completion sequence. Binding the ordering fields is what makes
+    a persisted receipt replay-proof -- with only ``(project, source, revision)``
+    bound, ``sequence``/``completed_at``/``state`` could be edited freely and a
+    stale receipt could be replayed to the front of the freshness order (N16).
     """
-    return sha256_hex(
-        f"sync-receipt|{project_id}|{source_file}|{revision}".encode()
+    payload = "|".join(
+        (
+            "sync-receipt-v2",
+            project_id,
+            source_file,
+            source_type,
+            corpus_revision,
+            state,
+            completed_at,
+            str(sequence),
+        )
     )
+    return sha256_hex(payload.encode())
 
 
 def _default(obj: object) -> str:

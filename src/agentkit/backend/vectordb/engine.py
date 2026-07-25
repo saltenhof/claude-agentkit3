@@ -17,7 +17,8 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Final, Protocol
 
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
 from agentkit.backend.vectordb.schema import (
@@ -25,12 +26,18 @@ from agentkit.backend.vectordb.schema import (
     StoryContextObject,
     search_property_spec,
 )
-from agentkit.backend.vectordb.sync import SyncReceipt, SyncService
-from agentkit.concepts.hashing import sync_receipt_digest
+from agentkit.backend.vectordb.sync import (
+    SOURCE_CLAIM_LEASE_SECONDS,
+    ClaimSupersededError,
+    SourceClaim,
+    SyncReceipt,
+    SyncService,
+    parse_utc_timestamp,
+)
 from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError, VectorDbWriteError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
 #: Dedicated collection for digest-bound sync receipts (R02/R12).
@@ -48,13 +55,42 @@ RECEIPT_PROPERTIES: tuple[str, ...] = (
     "sequence",
 )
 
-#: Dedicated collection for store-level atomic source claims (N03/D3).
+#: Dedicated collection for store-level atomic source claims (N03/D3/N15).
 CLAIM_COLLECTION = "__agentkit_source_claims"
+
+#: The claim record's full property set (owner/epoch/lease, N15).
+CLAIM_PROPERTIES: tuple[str, ...] = (
+    "project_id",
+    "source_file",
+    "state",
+    "owner_id",
+    "epoch",
+    "claimed_at",
+    "expires_at",
+)
+
+#: Dedicated collection for the ATOMIC completion-sequence tokens (N16).
+SEQUENCE_COLLECTION = "__agentkit_sync_sequence"
+
+#: Bounded number of sequence candidates tried before failing closed (N16).
+_SEQUENCE_ATTEMPT_LIMIT: Final[int] = 256
 
 #: Stable namespace for per-source receipt identity (N08).
 _RECEIPT_NAMESPACE = uuid.UUID("8c5e2f3a-1b6d-4e7a-9c8f-2a1b3c4d5e6f")
-#: Stable namespace for per-source claim identity (N03).
+#: Stable namespace for per-source, per-epoch claim identity (N03/N15).
 _CLAIM_NAMESPACE = uuid.UUID("9d6f3a4b-2c7e-5f8b-ad9c-3b2c4d5e6f7a")
+#: Stable namespace for the per-project completion-sequence tokens (N16).
+_SEQUENCE_NAMESPACE = uuid.UUID("a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5e")
+
+
+def _utc_clock() -> datetime:
+    """Return the current UTC instant (the store's default clock)."""
+    return datetime.now(UTC)
+
+
+def _iso(value: datetime) -> str:
+    """Render a UTC instant as an ISO-8601 string with a ``Z`` suffix."""
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 class CorpusClientPort(Protocol):
@@ -96,10 +132,15 @@ class CorpusClientPort(Protocol):
 
 @dataclass
 class WeaviateCorpusStore:
-    """Production :class:`CorpusStorePort` over the thin Weaviate adapter (R02)."""
+    """Production :class:`CorpusStorePort` over the thin Weaviate adapter (R02).
+
+    ``clock`` is the UTC time source for the bounded claim lease (N15); it is a
+    field so a test can drive lease expiry deterministically instead of sleeping.
+    """
 
     client: CorpusClientPort
     collection: str = STORY_CONTEXT_COLLECTION
+    clock: Callable[[], datetime] = _utc_clock
 
     def list_objects_for_source(
         self, *, project_id: str, source_file: str
@@ -154,21 +195,21 @@ class WeaviateCorpusStore:
                 return receipt_from_props(project_id, source_file, p)
         return None
 
-    def set_receipt(self, *, receipt: SyncReceipt) -> None:
+    def set_receipt(self, *, receipt: SyncReceipt) -> SyncReceipt:
         # N08: STABLE per-source receipt identity (uuid5 of project+source) so the
         # latest receipt REPLACES the prior -- never accumulates multiple records
         # per source. The upsert count is verified (fail-closed, never silent).
         stable_uuid = str(uuid.uuid5(_RECEIPT_NAMESPACE, f"{receipt.project_id}|{receipt.source_file}"))
-        stamped = receipt.stamped(sequence=self._next_receipt_sequence(receipt.project_id))
+        sealed = receipt.stamped(sequence=self._claim_completion_sequence(receipt.project_id))
         doc: dict[str, object] = {
-            "project_id": stamped.project_id,
-            "source_file": stamped.source_file,
-            "source_type": stamped.source_type,
-            "corpus_revision": stamped.corpus_revision,
-            "digest": stamped.digest,
-            "state": stamped.state.value,
-            "completed_at": stamped.completed_at,
-            "sequence": str(stamped.sequence),
+            "project_id": sealed.project_id,
+            "source_file": sealed.source_file,
+            "source_type": sealed.source_type,
+            "corpus_revision": sealed.corpus_revision,
+            "digest": sealed.digest,
+            "state": sealed.state.value,
+            "completed_at": sealed.completed_at,
+            "sequence": str(sealed.sequence),
             "uuid": stable_uuid,
         }
         written = self.client.upsert(collection=RECEIPT_COLLECTION, objects=[doc])
@@ -177,24 +218,45 @@ class WeaviateCorpusStore:
                 f"receipt upsert for {receipt.source_file!r} wrote {written} (expected 1); "
                 "fail-closed (N08)."
             )
+        return sealed
 
-    def _next_receipt_sequence(self, project_id: str) -> int:
-        """Return a store-monotonic completion sequence for the project (N04).
+    def _claim_completion_sequence(self, project_id: str) -> int:
+        """ATOMICALLY reserve the next completion sequence of a project (N16).
 
-        The "latest" receipt is the LAST SUCCESSFUL COMPLETION, so completion
-        order must be persisted explicitly -- a lexicographic comparison of
-        content digests carries no order at all.
+        A ``max+1`` read-then-write is not atomic: two writers finishing at the
+        same time would both read the same maximum and both claim it, so the
+        persisted completion order -- the freshness order (D1) -- would be
+        ambiguous. Instead each candidate number is a CONDITIONAL CREATE in a
+        dedicated token collection: the store itself grants exactly one writer
+        each number, and a collision simply advances to the next candidate.
         """
+        candidate = self._highest_sequence(project_id) + 1
+        for _attempt in range(_SEQUENCE_ATTEMPT_LIMIT):
+            token_uuid = str(uuid.uuid5(_SEQUENCE_NAMESPACE, f"{project_id}|{candidate}"))
+            if self.client.insert_object(
+                collection=SEQUENCE_COLLECTION,
+                uuid=token_uuid,
+                properties={"project_id": project_id, "sequence": str(candidate)},
+            ):
+                return candidate
+            candidate += 1
+        raise VectorDbWriteError(
+            f"could not reserve a completion sequence for {project_id!r} after "
+            f"{_SEQUENCE_ATTEMPT_LIMIT} attempts; fail-closed (N16)."
+        )
+
+    def _highest_sequence(self, project_id: str) -> int:
+        """Return the highest sequence already reserved for a project (N16)."""
         rows = self.client.fetch_by_property(
-            collection=RECEIPT_COLLECTION,
+            collection=SEQUENCE_COLLECTION,
             prop="project_id",
             value=project_id,
-            return_props=RECEIPT_PROPERTIES,
+            return_props=("project_id", "sequence"),
         )
         highest = 0
         for _uid, props in rows:
-            highest = max(highest, _receipt_sequence(props))
-        return highest + 1
+            highest = max(highest, _positive_int(props.get("sequence"), field_name="sequence"))
+        return highest
 
     def list_receipts(self, *, project_id: str) -> Sequence[SyncReceipt]:
         """Return every persisted receipt of a project (verified, N08)."""
@@ -212,109 +274,208 @@ class WeaviateCorpusStore:
                     "persisted sync receipt carries no usable 'source_file'; "
                     "fail-closed (N08)."
                 )
-            receipt = receipt_from_props(project_id, source_file, props)
-            if receipt is not None:
-                out.append(receipt)
+            out.append(receipt_from_props(project_id, source_file, props))
         return out
 
-    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
-        """Atomically claim a source via a conditional CREATE (N03/D3).
+    def try_claim_source(
+        self, *, project_id: str, source_file: str, owner_id: str
+    ) -> SourceClaim | None:
+        """Atomically claim a source via a conditional CREATE of the NEXT epoch.
 
-        The claim is STORE-LEVEL and ATOMIC: the record is written with
-        ``insert_object`` under a deterministic per-source uuid, i.e. a
-        compare-and-create. The store itself decides the winner -- there is no
-        read-then-write window in which two writers could both observe "no claim"
-        and both proceed. The loser gets ``False`` and is rejected fail-closed
-        (D3: rejected, never serialized).
+        The claim is STORE-LEVEL and ATOMIC (N03/D3): each claim generation is a
+        distinct record whose uuid folds in the epoch, so acquiring it is a
+        compare-and-create the store arbitrates -- there is no read-then-write
+        window in which two writers both observe "no claim" and both proceed.
+
+        Stale-claim reconciliation (N15): a claim carries ``owner_id``, ``epoch``
+        and a bounded ``expires_at`` lease. A LIVE claim of another owner rejects
+        the writer (``None``, fail-closed D3). An EXPIRED claim is taken over
+        deterministically by creating epoch+1 -- the previous holder is fenced out
+        by :meth:`assert_claim_held` and can no longer publish. A crashed writer
+        therefore cannot wedge the source forever.
         """
-        claim_uuid = str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}"))
-        return self.client.insert_object(
+        active = self._active_claim(project_id, source_file)
+        if active is not None and not self._is_reclaimable(active):
+            return None
+        epoch = (active.epoch if active is not None else 0) + 1
+        now = self._now()
+        expires_at = _iso(now + timedelta(seconds=SOURCE_CLAIM_LEASE_SECONDS))
+        claim_uuid = self._claim_uuid(project_id, source_file, epoch)
+        acquired = self.client.insert_object(
             collection=CLAIM_COLLECTION,
             uuid=claim_uuid,
             properties={
                 "project_id": project_id,
                 "source_file": source_file,
                 "state": "claimed",
+                "owner_id": owner_id,
+                "epoch": str(epoch),
+                "claimed_at": _iso(now),
+                "expires_at": expires_at,
             },
         )
+        if not acquired:
+            return None
+        claim = SourceClaim(
+            project_id=project_id,
+            source_file=source_file,
+            owner_id=owner_id,
+            epoch=epoch,
+            expires_at=expires_at,
+        )
+        if active is not None:
+            # The superseded generation is no longer authoritative; removing it is
+            # housekeeping, never a correctness step (the epoch decides).
+            self._discard_claim(project_id, source_file, active.epoch)
+        return claim
 
-    def release_source(self, *, project_id: str, source_file: str) -> None:
-        claim_uuid = str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}"))
-        # Best-effort release; a stuck claim is reconciled by a retry that
-        # re-reads state. Never mask a write fault in the hot path.
+    def assert_claim_held(self, *, claim: SourceClaim) -> None:
+        """Fence: the claim must still be the ACTIVE generation (N15)."""
+        active = self._active_claim(claim.project_id, claim.source_file)
+        if active is None or active.epoch != claim.epoch or active.owner_id != claim.owner_id:
+            raise ClaimSupersededError(
+                f"source claim on {(claim.project_id, claim.source_file)!r} was "
+                f"superseded (held epoch {claim.epoch} owner {claim.owner_id!r}, "
+                f"active {active!r}); fail-closed (N15)."
+            )
+
+    def release_source(self, *, claim: SourceClaim) -> None:
+        """Release the held claim generation (best-effort, never masks a fault)."""
+        self._discard_claim(claim.project_id, claim.source_file, claim.epoch)
+
+    def _discard_claim(self, project_id: str, source_file: str, epoch: int) -> None:
         import contextlib
 
         with contextlib.suppress(VectorDbUnavailableError):
-            self.client.delete_by_ids(collection=CLAIM_COLLECTION, uuids=[claim_uuid])
+            self.client.delete_by_ids(
+                collection=CLAIM_COLLECTION,
+                uuids=[self._claim_uuid(project_id, source_file, epoch)],
+            )
+
+    @staticmethod
+    def _claim_uuid(project_id: str, source_file: str, epoch: int) -> str:
+        return str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}|{epoch}"))
+
+    def _active_claim(self, project_id: str, source_file: str) -> SourceClaim | None:
+        """Return the highest-epoch claim record of a source (the active one)."""
+        rows = self.client.fetch_by_property(
+            collection=CLAIM_COLLECTION,
+            prop="source_file",
+            value=source_file,
+            return_props=CLAIM_PROPERTIES,
+        )
+        active: SourceClaim | None = None
+        for _uid, props in rows:
+            if props.get("project_id") != project_id:
+                continue
+            candidate = _claim_from_props(project_id, source_file, props)
+            if active is None or candidate.epoch > active.epoch:
+                active = candidate
+        return active
+
+    def _is_reclaimable(self, claim: SourceClaim) -> bool:
+        """Whether a claim's bounded operation lease has expired (N15)."""
+        return self._now() > parse_utc_timestamp(claim.expires_at)
+
+    def _now(self) -> datetime:
+        return self.clock()
 
 
-def _receipt_sequence(props: Mapping[str, object]) -> int:
-    """Read a receipt's completion sequence strictly (no coercion, N08)."""
-    raw = props.get("sequence")
+def _positive_int(raw: object, *, field_name: str) -> int:
+    """Read a positive integer strictly (no coercion, no bool-as-int, N08/N16)."""
     if isinstance(raw, bool) or not isinstance(raw, (int, str)):
         raise VectorDbUnavailableError(
-            f"persisted sync receipt has a non-numeric 'sequence' ({raw!r}); "
-            "fail-closed (N08)."
+            f"persisted record has a non-numeric {field_name!r} ({raw!r}); "
+            "fail-closed (N08/N16)."
         )
     try:
         value = int(raw)
     except ValueError as exc:
         raise VectorDbUnavailableError(
-            f"persisted sync receipt has a non-numeric 'sequence' ({raw!r}); "
-            "fail-closed (N08)."
+            f"persisted record has a non-numeric {field_name!r} ({raw!r}); "
+            "fail-closed (N08/N16)."
         ) from exc
     if value < 1:
         raise VectorDbUnavailableError(
-            f"persisted sync receipt has a non-positive 'sequence' ({value}); "
-            "fail-closed (N08)."
+            f"persisted record has a non-positive {field_name!r} ({value}); "
+            "fail-closed (N08/N16)."
         )
     return value
 
 
-def receipt_from_props(
-    project_id: str, source_file: str, props: Mapping[str, object]
-) -> SyncReceipt | None:
-    """Rebuild a persisted receipt with FULL verification (N08).
-
-    Every mandatory field must be present and string-typed -- no ``str()``
-    coercion -- and the digest MUST match the recomputed
-    ``(project_id, source_file, corpus_revision)`` anchor. A malformed or
-    digest-mismatched receipt raises instead of being trusted, so it can never
-    advance the reported freshness.
-
-    Returns ``None`` only when the record carries an UNKNOWN receipt state (a
-    record written by a newer producer), which is not a completion.
-    """
-    from agentkit.backend.vectordb.sync import ReceiptState
-
+def _required_strings(
+    props: Mapping[str, object], names: Sequence[str], *, context: str
+) -> dict[str, str]:
+    """Read mandatory string fields strictly (no ``str()`` coercion, N08)."""
     values: dict[str, str] = {}
-    for field_name in ("project_id", "source_file", "source_type", "corpus_revision", "digest", "state", "completed_at"):
+    for field_name in names:
         raw = props.get(field_name)
         if not isinstance(raw, str) or not raw:
             raise VectorDbUnavailableError(
-                f"persisted sync receipt for {source_file!r} has a missing/"
-                f"non-string {field_name!r} ({raw!r}); fail-closed (N08)."
+                f"persisted {context} has a missing/non-string {field_name!r} "
+                f"({raw!r}); fail-closed (N08)."
             )
         values[field_name] = raw
-    sequence = _receipt_sequence(props)
+    return values
+
+
+def _claim_from_props(
+    project_id: str, source_file: str, props: Mapping[str, object]
+) -> SourceClaim:
+    """Rebuild a persisted claim strictly (owner/epoch/lease mandatory, N15)."""
+    values = _required_strings(
+        props, ("owner_id", "state", "expires_at"), context="source claim"
+    )
+    if values["state"] != "claimed":
+        raise VectorDbUnavailableError(
+            f"persisted source claim for {source_file!r} has unknown state "
+            f"{values['state']!r}; fail-closed (N15)."
+        )
+    parse_utc_timestamp(values["expires_at"])
+    return SourceClaim(
+        project_id=project_id,
+        source_file=source_file,
+        owner_id=values["owner_id"],
+        epoch=_positive_int(props.get("epoch"), field_name="epoch"),
+        expires_at=values["expires_at"],
+    )
+
+
+def receipt_from_props(
+    project_id: str, source_file: str, props: Mapping[str, object]
+) -> SyncReceipt:
+    """Rebuild a persisted receipt with FULL verification (N08/N16).
+
+    Every mandatory field must be present and string-typed (no ``str()``
+    coercion), the state must be a KNOWN receipt state, the timestamp a UTC
+    instant, the sequence positive, and the digest must bind every identity AND
+    ordering field. Anything else raises -- a malformed, replayed or unknown-state
+    receipt can never advance the reported freshness, and an unknown state is
+    REJECTED rather than skipped (which would hide it).
+    """
+    from agentkit.backend.vectordb.sync import ReceiptState, SyncError
+
+    values = _required_strings(
+        props,
+        ("project_id", "source_file", "source_type", "corpus_revision", "digest", "state", "completed_at"),
+        context=f"sync receipt for {source_file!r}",
+    )
+    sequence = _positive_int(props.get("sequence"), field_name="sequence")
     if values["project_id"] != project_id or values["source_file"] != source_file:
         raise VectorDbUnavailableError(
             f"persisted sync receipt identity mismatch: record "
             f"({values['project_id']!r}, {values['source_file']!r}) != requested "
             f"({project_id!r}, {source_file!r}); fail-closed (N08)."
         )
-    expected_digest = sync_receipt_digest(project_id, source_file, values["corpus_revision"])
-    if values["digest"] != expected_digest:
-        raise VectorDbUnavailableError(
-            f"persisted sync receipt for {source_file!r} has digest "
-            f"{values['digest']!r} but the bound anchor is {expected_digest!r}; "
-            "fail-closed (N08: a malformed receipt must not advance freshness)."
-        )
     try:
         state = ReceiptState(values["state"])
-    except ValueError:
-        return None
-    return SyncReceipt(
+    except ValueError as exc:
+        raise VectorDbUnavailableError(
+            f"persisted sync receipt for {source_file!r} has unknown state "
+            f"{values['state']!r}; fail-closed (N16: an unknown state is rejected, "
+            "never skipped)."
+        ) from exc
+    receipt = SyncReceipt(
         project_id=project_id,
         source_file=source_file,
         source_type=values["source_type"],
@@ -324,6 +485,13 @@ def receipt_from_props(
         completed_at=values["completed_at"],
         sequence=sequence,
     )
+    try:
+        receipt.verify()
+    except SyncError as exc:
+        raise VectorDbUnavailableError(
+            f"persisted sync receipt for {source_file!r} is not trustworthy: {exc}"
+        ) from exc
+    return receipt
 
 
 @dataclass
@@ -525,7 +693,12 @@ def compose_runtime(
     )
     client.ensure_collection(
         collection=CLAIM_COLLECTION,
-        property_specs=_claim_property_specs(),
+        property_specs=_aux_property_specs(CLAIM_PROPERTIES),
+        vectorizer="self_provided",
+    )
+    client.ensure_collection(
+        collection=SEQUENCE_COLLECTION,
+        property_specs=_aux_property_specs(("project_id", "sequence")),
         vectorizer="self_provided",
     )
     store = WeaviateCorpusStore(client=client)
@@ -540,20 +713,30 @@ def compose_runtime(
     )
 
 
+def _aux_property_specs(names: Sequence[str]) -> list[dict[str, object]]:
+    """Property specs of an auxiliary bookkeeping collection.
+
+    Auxiliary records are pure state (receipts, claims, sequence tokens): every
+    field is an exact-match identifier, so nothing is vectorised, nothing is
+    BM25-searchable and everything stays whole-value tokenised.
+    """
+    return [
+        {
+            "name": name,
+            "data_type": "TEXT",
+            "skip_vectorization": True,
+            "vectorize_property_name": False,
+            "filterable": True,
+            "tokenization": "FIELD",
+            "searchable": False,
+        }
+        for name in names
+    ]
+
+
 def _receipt_property_specs() -> list[dict[str, object]]:
-    """Property specs of the auxiliary receipt collection (all TEXT, no vectors)."""
-    return [
-        {"name": name, "data_type": "TEXT", "skip_vectorization": True}
-        for name in RECEIPT_PROPERTIES
-    ]
-
-
-def _claim_property_specs() -> list[dict[str, object]]:
-    """Property specs of the auxiliary source-claim collection (N03)."""
-    return [
-        {"name": name, "data_type": "TEXT", "skip_vectorization": True}
-        for name in ("project_id", "source_file", "state")
-    ]
+    """Property specs of the auxiliary receipt collection."""
+    return _aux_property_specs(RECEIPT_PROPERTIES)
 
 
 def run_stdio_server(service: object) -> None:
@@ -575,7 +758,27 @@ def main() -> int:
 
     env = dict(os.environ)
     cwd = os.getcwd()
-    concepts_dir = _resolve_dir(env.get("AGENTKIT_CONCEPTS_DIR", "concept"))
+    # N20/D2: the concept corpus root is project configuration and must come from
+    # the registered env. Defaulting to the literal ``concept`` pointed the server
+    # at AK3's OWN development corpus; a missing binding stops the server.
+    concepts_dir_value = env.get("AGENTKIT_CONCEPTS_DIR", "").strip()
+    if not concepts_dir_value:
+        print(
+            json.dumps(
+                {
+                    "error": "composition_failed",
+                    "detail": (
+                        "AGENTKIT_CONCEPTS_DIR is missing/empty; the concept corpus "
+                        "root has no default (fail-closed, D2/N20)."
+                    ),
+                }
+            )
+        )
+        return 1
+    concepts_dir = _resolve_dir(concepts_dir_value)
+    # The story corpus root is the CANONICAL relative layout the classifier
+    # recognises (FK-13 §13.3.2 ``stories/<story>/story.md``), resolved inside the
+    # bound cwd -- not a foreign path.
     stories_dir = _resolve_dir(env.get("AGENTKIT_STORIES_DIR", "stories"))
     try:
         service = compose_runtime(

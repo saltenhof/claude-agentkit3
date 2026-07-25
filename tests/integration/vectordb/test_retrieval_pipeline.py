@@ -19,7 +19,13 @@ from agentkit.backend.vectordb.concept_corpus.graph import build_graph
 from agentkit.backend.vectordb.concept_corpus.resolver import rank_hits
 from agentkit.backend.vectordb.concept_corpus.validator import validate_corpus
 from agentkit.backend.vectordb.ingest.adapter import concept_chunks_to_objects
-from agentkit.backend.vectordb.sync import SyncReceipt, SyncService
+from agentkit.backend.vectordb.sync import (
+    ClaimSupersededError,
+    SourceClaim,
+    SyncReceipt,
+    SyncService,
+    utc_now,
+)
 from agentkit.concepts.parser import discover_concept_files
 
 if TYPE_CHECKING:
@@ -31,21 +37,40 @@ if TYPE_CHECKING:
 
 @dataclass
 class IndexingFakeStore:
-    """Fake at the external boundary: stores objects + supports retrieval."""
+    """Fake at the external boundary: stores objects + supports retrieval.
+
+    Implements the FULL :class:`CorpusStorePort`, including the fenced source claim
+    (owner/epoch, N15) and the atomic completion sequence (N16).
+    """
 
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, SyncReceipt] = field(default_factory=dict)
-    _claims: set[tuple[str, str]] = field(default_factory=set)
+    _claims: dict[tuple[str, str], SourceClaim] = field(default_factory=dict)
+    _sequence: int = 0
 
-    def try_claim_source(self, *, project_id: str, source_file: str) -> bool:
+    def try_claim_source(
+        self, *, project_id: str, source_file: str, owner_id: str
+    ) -> SourceClaim | None:
         key = (project_id, source_file)
         if key in self._claims:
-            return False
-        self._claims.add(key)
-        return True
+            return None
+        claim = SourceClaim(
+            project_id=project_id,
+            source_file=source_file,
+            owner_id=owner_id,
+            epoch=1,
+            expires_at=utc_now(),
+        )
+        self._claims[key] = claim
+        return claim
 
-    def release_source(self, *, project_id: str, source_file: str) -> None:
-        self._claims.discard((project_id, source_file))
+    def assert_claim_held(self, *, claim: SourceClaim) -> None:
+        held = self._claims.get((claim.project_id, claim.source_file))
+        if held != claim:
+            raise ClaimSupersededError(f"claim {claim!r} superseded by {held!r}")
+
+    def release_source(self, *, claim: SourceClaim) -> None:
+        self._claims.pop((claim.project_id, claim.source_file), None)
 
     # -- CorpusStorePort --
     def list_objects_for_source(self, *, project_id: str, source_file: str) -> Sequence[Mapping[str, object]]:
@@ -80,8 +105,14 @@ class IndexingFakeStore:
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
         return self.receipts.get(f"{project_id}|{source_file}")
 
-    def set_receipt(self, *, receipt: SyncReceipt) -> None:
-        self.receipts[f"{receipt.project_id}|{receipt.source_file}"] = receipt
+    def list_receipts(self, *, project_id: str) -> list[SyncReceipt]:
+        return [r for r in self.receipts.values() if r.project_id == project_id]
+
+    def set_receipt(self, *, receipt: SyncReceipt) -> SyncReceipt:
+        self._sequence += 1
+        sealed = receipt.stamped(sequence=self._sequence)
+        self.receipts[f"{sealed.project_id}|{sealed.source_file}"] = sealed
+        return sealed
 
     # -- retrieval (simulated Weaviate search over indexed objects) --
     def query(self, *, project_id: str, source_type: str, limit: int = 10) -> list[Mapping[str, object]]:

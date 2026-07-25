@@ -18,10 +18,15 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 import pytest
 import weaviate
-from weaviate.classes.config import DataType
-from weaviate.collections.classes.config import Vectorizers, _Property
+from weaviate.classes.config import DataType, Tokenization
+from weaviate.collections.classes.config import (
+    Vectorizers,
+    _Property,
+    _PropertyVectorizerConfig,
+)
 from weaviate.collections.data import _DataCollection
 from weaviate.collections.queries.bm25.query import _BM25Query
 from weaviate.collections.queries.hybrid.query import _HybridQuery
@@ -391,7 +396,8 @@ def test_n11_story_profile_does_not_require_concept_properties() -> None:
     """The profile is per source type: a story hit carries no concept fields."""
     story_props: dict[str, object] = {
         "content": "text", "story_id": "AG3-1", "title": "T", "status": "Done",
-        "story_type": "implementation", "source_type": "story",
+        "story_type": "implementation", "module": "backend", "epic": "retrieval",
+        "source_type": "story",
         "source_file": "stories/AG3-1/story.md", "section_heading": "Problem",
         "section_number": "1", "content_hash": "h", "project_id": "acme",
     }
@@ -458,30 +464,56 @@ def test_n12_config_view_mirrors_the_real_weaviate_dataclasses() -> None:
     assert {f.name for f in dataclasses.fields(_ConfigView)} <= config_fields
 
 
-def _read_property(name: str, data_type: DataType) -> _Property:
+def _read_property(
+    name: str,
+    data_type: DataType,
+    *,
+    skip_vectorization: bool = True,
+    vectorize_property_name: bool = False,
+    tokenization: Tokenization | None = None,
+    searchable: bool = False,
+    filterable: bool = True,
+) -> _Property:
     """Build a REAL read-side ``_Property`` (the shape ``config.get()`` returns)."""
     return _Property(
         name=name,
         description=None,
         data_type=data_type,
-        index_filterable=True,
+        index_filterable=filterable,
         index_range_filters=False,
-        index_searchable=False,
+        index_searchable=searchable,
         nested_properties=None,
         text_analyzer=None,
-        tokenization=None,
-        vectorizer_config=None,
+        tokenization=tokenization,
+        vectorizer_config=_PropertyVectorizerConfig(
+            skip=skip_vectorization, vectorize_property_name=vectorize_property_name
+        ),
         vectorizer=None,
         vectorizer_configs=None,
     )
 
 
+_TYPE_MAP = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
+_TOKEN_MAP = {"WORD": Tokenization.WORD, "FIELD": Tokenization.FIELD}
+
+
 def _schema_properties() -> list[_Property]:
-    type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
-    return [
-        _read_property(str(spec["name"]), type_map[str(spec["data_type"])])
-        for spec in weaviate_property_specs()
-    ]
+    """The read-back view of a collection created EXACTLY per the schema SSOT."""
+    props: list[_Property] = []
+    for spec in weaviate_property_specs():
+        token = spec.get("tokenization")
+        props.append(
+            _read_property(
+                str(spec["name"]),
+                _TYPE_MAP[str(spec["data_type"])],
+                skip_vectorization=bool(spec["skip_vectorization"]),
+                vectorize_property_name=bool(spec.get("vectorize_property_name", False)),
+                tokenization=_TOKEN_MAP[str(token)] if token else None,
+                searchable=bool(spec.get("searchable", False)),
+                filterable=bool(spec.get("filterable", True)),
+            )
+        )
+    return props
 
 
 def _ensure(config: _ConfigView, vectorizer: str) -> None:
@@ -504,15 +536,15 @@ def test_n12_existing_collection_with_property_drift_fails_closed() -> None:
     config = _ConfigView(
         properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS
     )
-    with pytest.raises(VectorDbWriteError, match="property set drifted"):
+    with pytest.raises(VectorDbWriteError, match="configuration drifted"):
         _ensure(config, "text2vec_transformers")
 
 
 def test_n12_existing_collection_with_wrong_data_type_fails_closed() -> None:
     props = _schema_properties()
-    props[0] = _read_property(str(props[0].name), DataType.BOOL)
+    props[0] = _read_property(str(props[0].name), DataType.BOOL)  # content: TEXT -> BOOL
     config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
-    with pytest.raises(VectorDbWriteError, match="wrong_data_type"):
+    with pytest.raises(VectorDbWriteError, match="'data_type': 'boolean'"):
         _ensure(config, "text2vec_transformers")
 
 
@@ -684,3 +716,196 @@ def test_every_typed_filter_is_applied_as_a_weaviate_filter() -> None:
     assert ("module", "vectordb") in pairs
     # A boolean filter keeps its type (no str() coercion of a BOOL property).
     assert ("is_appendix", True) in pairs
+
+
+# --------------------------------------------------------------------------- #
+# N14: the REAL duplicate-object response of the installed client
+# --------------------------------------------------------------------------- #
+
+
+def _duplicate_response(uuid: str) -> httpx.Response:
+    """The response Weaviate answers a duplicate object id with (REST /objects)."""
+    return httpx.Response(
+        status_code=422,
+        json={"error": [{"message": f"id '{uuid}' already exists"}]},
+        request=httpx.Request("POST", "http://weaviate.acme.local:8080/v1/objects"),
+    )
+
+
+def _server_error_response() -> httpx.Response:
+    return httpx.Response(
+        status_code=500,
+        json={"error": [{"message": "internal server error"}]},
+        request=httpx.Request("POST", "http://weaviate.acme.local:8080/v1/objects"),
+    )
+
+
+@dataclass
+class _RaisingData(_FakeData):
+    """``data.insert`` raising a REAL client exception instance."""
+
+    error: Exception | None = None
+    exists_result: bool = False
+
+    def insert(self, **kwargs: object) -> str:
+        _bind_real(_DataCollection.insert, kwargs)
+        if self.error is not None:
+            raise self.error
+        return str(kwargs["uuid"])
+
+    def exists(self, uuid: str) -> bool:
+        return self.exists_result
+
+
+def test_n14_installed_client_routes_duplicates_through_unexpected_status_code() -> None:
+    """Documents the REAL behaviour: ``insert`` does not raise ObjectAlreadyExists."""
+    from weaviate.exceptions import ObjectAlreadyExistsException, UnexpectedStatusCodeError
+
+    source = inspect.getsource(_DataCollection.insert)
+    assert "UnexpectedStatusCodeError" in source
+    assert "already exists" in source
+    assert ObjectAlreadyExistsException is not UnexpectedStatusCodeError
+
+
+def test_n14_real_duplicate_response_is_a_lost_claim() -> None:
+    from weaviate.exceptions import UnexpectedStatusCodeError
+
+    uuid = "3f0b0c1e-0000-4000-8000-000000000001"
+    data = _RaisingData(
+        error=UnexpectedStatusCodeError("Object was not added", _duplicate_response(uuid))
+    )
+    client = _client(_collection(data=data))
+    assert (
+        client.insert_object(
+            collection="__agentkit_source_claims", uuid=uuid, properties={"state": "claimed"}
+        )
+        is False
+    )
+
+
+def test_n14_other_unexpected_status_is_a_write_error_not_a_lost_claim() -> None:
+    from weaviate.exceptions import UnexpectedStatusCodeError
+
+    data = _RaisingData(
+        error=UnexpectedStatusCodeError("Object was not added", _server_error_response())
+    )
+    client = _client(_collection(data=data))
+    with pytest.raises(VectorDbWriteError, match="status 500"):
+        client.insert_object(
+            collection="__agentkit_source_claims", uuid="u1", properties={"state": "claimed"}
+        )
+
+
+def test_n14_existence_probe_settles_an_ambiguous_failure() -> None:
+    """A non-duplicate error plus a PRESENT object still means the claim is taken."""
+    from weaviate.exceptions import UnexpectedStatusCodeError
+
+    data = _RaisingData(
+        error=UnexpectedStatusCodeError("Object was not added", _server_error_response()),
+        exists_result=True,
+    )
+    client = _client(_collection(data=data))
+    assert (
+        client.insert_object(
+            collection="__agentkit_source_claims", uuid="u1", properties={"state": "claimed"}
+        )
+        is False
+    )
+
+
+# --------------------------------------------------------------------------- #
+# N18: narrative fields are TERM-tokenised so keyword search can match a word
+# --------------------------------------------------------------------------- #
+
+
+def test_n18_narrative_fields_are_word_tokenised_and_searchable() -> None:
+    collections = _FakeCollections(collection=_collection())
+    client = _RealWeaviateClient(_FakeConnection(collections))
+    client.ensure_collection(
+        collection=STORY_CONTEXT_COLLECTION,
+        property_specs=weaviate_property_specs(),
+        vectorizer="text2vec_transformers",
+    )
+    created = {p.name: p for p in collections.created[0]["properties"]}  # type: ignore[union-attr]
+    # The vectorised narrative fields must be word-tokenised AND BM25-searchable:
+    # with FIELD tokenisation "Vector retrieval engine" is ONE token and the
+    # keyword query "retrieval" cannot match it (N18).
+    for name in ("content", "title", "section_heading"):
+        assert created[name].tokenization is Tokenization.WORD, name
+        assert created[name].indexSearchable is True, name
+    # Identifier/enum fields stay whole-value so the hard filters compare exactly.
+    for name in ("project_id", "source_type", "source_file", "concept_id", "status"):
+        assert created[name].tokenization is Tokenization.FIELD, name
+        assert created[name].indexSearchable is False, name
+    # A boolean property must carry NO tokenisation (Weaviate rejects it there).
+    assert created["is_appendix"].tokenization is None
+    # The property NAME is never folded into the embedding.
+    assert all(p.vectorize_property_name is False for p in created.values())
+
+
+def test_n18_existing_collection_with_field_tokenised_content_fails_closed() -> None:
+    """The N12 verification must catch the tokenisation drift too."""
+    props = _schema_properties()
+    content_index = next(i for i, p in enumerate(props) if p.name == "content")
+    props[content_index] = _read_property(
+        "content",
+        DataType.TEXT,
+        skip_vectorization=False,
+        tokenization=Tokenization.FIELD,  # drifted: whole-value narrative field
+        searchable=True,
+    )
+    config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
+    with pytest.raises(VectorDbWriteError, match="'tokenization': 'field'"):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n18_existing_collection_with_unsearchable_content_fails_closed() -> None:
+    props = _schema_properties()
+    content_index = next(i for i, p in enumerate(props) if p.name == "content")
+    props[content_index] = _read_property(
+        "content",
+        DataType.TEXT,
+        skip_vectorization=False,
+        tokenization=Tokenization.WORD,
+        searchable=False,  # drifted: BM25 cannot use it at all
+    )
+    config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
+    with pytest.raises(VectorDbWriteError, match="'searchable': False"):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n12_existing_collection_that_vectorises_the_name_fails_closed() -> None:
+    @dataclass
+    class _VecCfg:
+        vectorizer: object
+
+    @dataclass
+    class _Inner:
+        vectorizer: Vectorizers
+        vectorize_collection_name: bool
+
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=None,
+        vector_config={
+            "default": _VecCfg(
+                vectorizer=_Inner(Vectorizers.TEXT2VEC_TRANSFORMERS, True)
+            )
+        },
+    )
+    with pytest.raises(VectorDbWriteError, match="collection NAME"):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n12_drifted_per_property_vectorisation_fails_closed() -> None:
+    props = _schema_properties()
+    story_id_index = next(i for i, p in enumerate(props) if p.name == "story_id")
+    props[story_id_index] = _read_property(
+        "story_id",
+        DataType.TEXT,
+        skip_vectorization=False,  # drifted: an identifier in the embedding
+        tokenization=Tokenization.FIELD,
+    )
+    config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
+    with pytest.raises(VectorDbWriteError, match="'skip_vectorization': False"):
+        _ensure(config, "text2vec_transformers")
