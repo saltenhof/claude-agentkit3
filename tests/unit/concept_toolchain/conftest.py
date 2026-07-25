@@ -76,7 +76,9 @@ def write_governance_config(project_root: Path, config: Mapping[str, object] | N
     meta = project_root / "concept" / "_meta"
     meta.mkdir(parents=True, exist_ok=True)
     payload = dict(GOVERNANCE_CONFIG) if config is None else dict(config)
-    (meta / "concept-governance.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    (meta / "concept-governance.json").write_text(
+        json.dumps(payload, indent=2), encoding="utf-8", newline="\n"
+    )
 
 
 def concept_doc(
@@ -118,10 +120,16 @@ def concept_doc(
 
 
 def write_doc(project_root: Path, relative: str, text: str) -> Path:
-    """Write one document below the project root."""
+    """Write one document below the project root.
+
+    ``newline="\\n"`` is load-bearing, not cosmetic: the baseline check hashes the
+    RAW bytes of the file while git normalises the same content to an LF blob, so a
+    platform-translated ``\\r\\n`` makes digest and byte count diverge from the blob
+    it is compared against. Same convention as ``runfixtures.py``.
+    """
     path = project_root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
     return path
 
 
@@ -265,7 +273,9 @@ def green_corpus(tmp_path: Path) -> Path:
     """A minimal corpus that passes frontmatter, references, formal, projection."""
     write_governance_config(tmp_path)
     (tmp_path / "concept" / "_meta" / "projection-manifest.json").write_text(
-        json.dumps({"schema_version": "1.0.0", "entries": []}, indent=2), encoding="utf-8"
+        json.dumps({"schema_version": "1.0.0", "entries": []}, indent=2),
+        encoding="utf-8",
+        newline="\n",
     )
     (tmp_path / "guardrails").mkdir(exist_ok=True)
     write_doc(tmp_path, "concept/domain-design/01-sample.md", concept_doc("DK-01", body="See FK-10.\n"))
