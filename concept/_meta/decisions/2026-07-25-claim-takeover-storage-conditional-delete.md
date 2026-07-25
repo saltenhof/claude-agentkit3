@@ -195,8 +195,14 @@ Codex-Review r8 (Finding N41) hat die „selber Inhalt"-Praemisse widerlegt: Fen
 Upsert sind getrennte Operationen, also kann ein ueberholter Halter danach Objekte
 **seiner** niedrigeren Generation anhaengen — und bei **geaendertem** Inhalt tragen
 diese **andere** UUIDs, werden also von der neueren Generation nicht ueberschrieben.
-Der Receipt-Fence weist den Nachzuegler ab, entfernt seine Zeilen aber nicht. Die
-Aussage „unschaedlich, weil identischer Inhalt" war damit **falsch**.
+~~Der Receipt-Fence weist den Nachzuegler ab, entfernt seine Zeilen aber nicht.~~
+**Dieser Satz ist falsch und durch Nachtrag /3 ueberholt (N53):** der Receipt-Fence ist
+ein Read, dem eine separate Schreiboperation folgt. Landet die Uebernahme **nach**
+diesem Read, kann der ueberholte Halter seine Completion **sehr wohl** anfuegen. Was
+tatsaechlich gilt: die **Generationsordnung** verhindert, dass eine solche angefuegte
+Completion massgeblich wird oder die Completion des neueren Besitzers verdraengt (N39)
+- nicht der Fence. Die Annahme, ein fortgesetzter Chunk-Write sei unschaedlich, weil er
+identischen Inhalt schreibe, war ebenfalls **falsch**.
 
 **Analyse (Grundlage der Entscheidung):** Loeschbar waren diese Zeilen immer — der
 naechste Sync derselben Quelle liest sie in seine `persisted`-Menge, sie fehlen in
@@ -251,6 +257,20 @@ frisch und laeuft **vor** der Completion.
 kann Daten einer neueren Generation nicht loeschen - ist eingehalten und in beiden
 Wettlauf-Reihenfolgen belegt; die gemeldete Frische kann nicht zurueckgedreht werden
 (N39).
+
+**Ueberholt (N53):** Nachtrag /2 behauptete, der Receipt-Fence weise den Nachzuegler
+ab. Das ist falsch und dort als solches markiert: der Fence ist ein Read mit
+nachfolgender separater Schreiboperation, also kann eine Uebernahme danach eine
+Completion niedrigerer Generation entstehen lassen. Die Garantie liefert die
+**Generationsordnung** - eine solche Completion wird nicht massgeblich und verdraengt
+nichts -, nicht der Fence.
+
+**Ueberholt (N52):** Auch die Formulierung, der Abschluss-Delete entferne alles, was
+bis dahin eingetroffen sei, ist zu stark. Seine Grenze ist die **Beobachtungsgrenze des
+paginierten Lesevorgangs** davor - Lesen und Loeschen sind getrennte Operationen, und
+eine Paginierung ist kein Snapshot. Zeilen, die waehrend des Lesens eintreffen und
+nicht in dessen Kandidatenmenge gelangen, gehoeren zum Restbefund. FK-13 §13.9.9 ist
+entsprechend praezisiert.
 
 **Was offen bleibt:** die **Sichtbarkeit** zusaetzlicher Zeilen einer niedrigeren
 Generation zwischen dem Abschluss-Delete und dem naechsten Sync derselben Quelle.

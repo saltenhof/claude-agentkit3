@@ -727,19 +727,26 @@ gilt:
   **geaendertem** Inhalt entstehen **andere** UUIDs, die von der neueren Generation
   nicht ueberschrieben werden - es sind zusaetzliche, eigene Zeilen.
 - Der **erforderliche Abschluss-Delete** liest deshalb unmittelbar **vor** der
-  Completion frisch und entfernt alles, was bis dahin eingetroffen ist. Er laeuft
-  **vor** dem Receipt: die gemeldete Frische rueckt nie vor einem zerstoerenden
-  Schritt vor, der noch nicht stattgefunden hat.
+  Completion frisch und laeuft **vor** dem Receipt: die gemeldete Frische rueckt nie
+  vor einem zerstoerenden Schritt vor, der noch nicht stattgefunden hat.
 
-**Offener Restbefund (nicht ratifiziert).** Ein Stale-Write, der **nach** diesem
-Abschluss-Delete eintrifft, bleibt liegen, bis dieselbe Quelle das naechste Mal
-synchronisiert wird - und dieser Zeitpunkt ist **nicht zeitlich begrenzt**. Ein
-einzelner endlicher Durchgang kann ein spaeter eintreffendes Schreiben nicht
-abdecken; er verkleinert das Fenster auf den **Regelfall** und schliesst es nicht.
-Konkret bleibt offen: nach Stillstand, administrativem Reclaim und wiederanlaufendem
-Zombie-Schreiber koennen Zeilen einer niedrigeren Generation neben den aktuellen
-liegen und vom Retrieval mitgeliefert werden, waehrend `corpus_revision` den neueren
-Stand meldet.
+**Offener Restbefund (nicht ratifiziert).** Der Abschluss-Delete entfernt genau die
+Zeilen, die seine **Beobachtungsgrenze** erfasst hat. Diese Grenze ist **nicht** der
+Zeitpunkt des Loeschens, sondern der **paginierte Lesevorgang** davor: Lesen und
+Loeschen sind getrennte Operationen, und eine Paginierung ist **kein Snapshot**. Nicht
+erfasst sind daher
+
+- Zeilen, die **nach** dem Abschluss-Delete eintreffen, und
+- Zeilen, die **waehrend** des paginierten Lesens eintreffen und nicht in dessen
+  Kandidatenmenge gelangen (z. B. weil ihre Seite bereits gelesen war).
+
+Solche Zeilen bleiben liegen, bis dieselbe Quelle das naechste Mal synchronisiert wird
+- und dieser Zeitpunkt ist **nicht zeitlich begrenzt**. Ein einzelner endlicher
+Durchgang kann ein spaeter oder nebenlaeufig eintreffendes Schreiben nicht abdecken; er
+verkleinert das Fenster auf den **Regelfall** und schliesst es nicht. Konkret bleibt
+offen: nach Stillstand, administrativem Reclaim und wiederanlaufendem Zombie-Schreiber
+koennen Zeilen einer niedrigeren Generation neben den aktuellen liegen und vom
+Retrieval mitgeliefert werden, waehrend `corpus_revision` den neueren Stand meldet.
 
 Was **gesichert** ist: ein ueberholter Halter kann Daten einer neueren Generation
 **nie loeschen** (storage-seitige Ordnungsbedingung, in beiden Wettlauf-Reihenfolgen
