@@ -16,6 +16,16 @@ generation pointer (DR 2026-07-21 Rand 5). The order is binding:
 the bound ``project_id`` (``story_sync`` never touches concept chunks & vice-
 versa). The external Weaviate boundary is the :class:`CorpusStorePort`; fakes are
 permitted ONLY there (the narrow mock exception).
+
+**Ownership during an open window (D9).** A claim is taken over only by an
+explicit administrative reclaim, which can land between a check and the following
+mutation -- a preceding check cannot close that. Therefore the DESTRUCTIVE step is
+the only one guarded structurally: every write stamps the object version with its
+claim generation's token, and both deletes are bound STORAGE-SIDE to the token they
+observed, so a superseded holder cannot remove what a newer owner wrote. The two
+remaining windows are known and harmless: the write is idempotent (same uuid, same
+content) and the completion is insert-only and position-bound (N28). No
+transactional atomicity is claimed.
 """
 
 from __future__ import annotations
@@ -640,7 +650,10 @@ class SyncService:
         source_file = claim.source_file
         # (1) FENCE BEFORE THE FIRST WRITE (N27): if this writer's claim was
         # administratively taken over while it was paused, it must not write stale
-        # chunks at all -- the previous implementation fenced only AFTER the upsert.
+        # chunks at all. This check CAN still be overtaken (D9 names that window as
+        # known and harmless): the write is idempotent -- the uuid is
+        # ``uuid5(project|source|chunk)`` and the content is the same -- so a late
+        # writer re-writes an identical object rather than destroying anything.
         self.store.assert_claim_held(claim=claim)
         # Write the new should-generation fully + verify EXACT transport count. Every
         # object version carries the ownership token of THIS claim generation (D9),
@@ -672,9 +685,13 @@ class SyncService:
         # before the delete landed.
         stale_rows = [o for o in persisted if str(o["uuid"]) not in should_uuids]
         deleted = self._delete_owned(stale_rows, source_file=source_file)
-        # (3) FENCE a third time before publishing: if the claim was taken over
-        # while the window was open, this writer's generation is no longer
-        # authoritative and it must NOT publish a completion (N15/N27).
+        # (3) FENCE again before publishing: if the claim was taken over while the
+        # window was open, this writer's generation is no longer authoritative and it
+        # must NOT publish a completion (N15/N27). This check CAN still be overtaken
+        # (D9 names that window as known and harmless): the completion is insert-only
+        # and position-bound (N28), so a superseded holder can at most append a new
+        # position, never overwrite an established one, and reported freshness is
+        # built only from verified completions.
         self.store.assert_claim_held(claim=claim)
         # (4) Publish the completion ONLY after a verified full window. The store
         # establishes the completion order and the identity in ONE immutable
