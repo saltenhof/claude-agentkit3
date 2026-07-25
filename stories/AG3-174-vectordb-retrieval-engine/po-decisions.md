@@ -188,13 +188,69 @@ Korpus-Verzeichnis nicht mehr raten.
 
 ---
 
+## D8 — Gemischte Status-Ergebnismengen fuer `concept_search` (Nachtrag 2026-07-25)
+
+**Herkunft:** Codex-Review r6, Finding N36/R10. Dem PO am 2026-07-25 vorgelegt.
+
+**Frage:** FK-13 §13.9.11 Regel 4 gibt Draft- und Archived-Konzepten einen
+Rang-Abzug. §13.9.5/§13.9.10 legen aber fest, dass jede `concept_search`
+**genau einen** `concept_status` filtert (Default `active`). Eine Ergebnismenge
+enthaelt damit **nie** gemischte Status — Regel 4 kann keine Reihenfolge
+veraendern und ist wirkungslos. FK-13 widerspricht sich an dieser Stelle selbst;
+der bisherige Rule-4-Beweis war ein Scheinbeweis (Draft-Abfrage, aktiver
+Treffer — real vom Filter ausgeschlossen). **AC5 ist dadurch unerfuellt.**
+
+**Entscheidung (PO, 2026-07-25):** **Gemischte Status werden erlaubt.** Der
+Statusfilter nimmt kuenftig mehrere Status an; der Default bleibt unveraendert
+**nur `active`**. Damit wird Regel 4 fachlich sinnvoll: wer `active` **und**
+`draft` abfragt, bekommt Aktive zuerst.
+
+**Begruendung:** Die Alternative (Regel 4 streichen) waere billiger gewesen,
+haette aber eine Faehigkeit weggeschnitten statt den Widerspruch fachlich
+aufzuloesen. Fuer die Konzept-Inkubation (DK-16/FK-78) sind Drafts relevant;
+„zeig mir alles zu Thema X, Gueltiges zuerst" ist ein echter Suchmodus, kein
+Randfall. Der PO nimmt die Verlaengerung der Story bewusst in Kauf.
+
+**Semantik (verbindlich):**
+- `concept_status` ist eine **Liste** von Status-Werten. Default `["active"]`.
+- Zulaessige Werte ausschliesslich `active`, `draft`, `archived`.
+- **Fail-closed, keine Koerzierung** (konsistent mit D2/D7-Striktheit): leere
+  Liste, unbekannter Wert, Duplikat, falscher Elementtyp oder ein **blosser
+  String** statt einer Liste sind benannte Validierungsfehler. Es gibt keine
+  stille Normalisierung.
+- Die Listenform ist kein Bruch bestehender Nutzung: die Faehigkeit ist noch
+  nicht ausgeliefert, es existiert keine Installationsbasis. Deshalb
+  Listen-Form statt Union `String|Liste` — Unions widersprechen der
+  Striktheitslinie.
+- Regel 4 bleibt eine **Praezedenz-Stufe** (nicht durch Aehnlichkeitswerte
+  ueberstimmbar), konsistent mit der in D7 verankerten Tier-Ordnung der Regeln
+  1/2/4; die Regeln 3/5 wirken innerhalb einer Stufe.
+
+**Umsetzungsauftrag (autorisiert durch diese Ratifizierung):**
+1. **Konzept:** FK-13 §13.9.5 (Parametertabelle + Default-Filter-Absatz) und
+   §13.9.10 auf die Listen-Semantik korrigieren; §13.9.11 Regel 4 bleibt und
+   wird als innerhalb gemischter Mengen wirksam praezisiert. Begleitender
+   Decision Record unter `concept/_meta/decisions/` (P3-Pflicht).
+2. **Code:** strikt validierte Listen-Eingabe im MCP-Toolvertrag;
+   Transport-Filter setzt eine echte Mengen-Bedingung (keine Client-seitige
+   Nachfilterung); Default `["active"]` unveraendert.
+3. **Tests:** filtertreuer Real-Path-Test — eine gemischte Abfrage liefert
+   Aktive **und** Drafts aus dem Transport, und Regel 4 setzt die Aktiven davor;
+   plus Negativmatrix der Striktheit; plus Nachweis, dass der Default weiterhin
+   ausschliesslich `active` liefert.
+4. **Story:** AC5 gilt danach als erfuellt (alle fuenf Regeln wirksam **und**
+   filtertreu bewiesen); der N36-Vermerk in `report.md` entfaellt.
+
+---
+
 ## Konsequenzen
 
 - **Kein** Umschreiben von Story-Inhalt noetig — mit **einer** Ausnahme:
   AG3-174 AC 6 verengen (D3: „serialisiert oder abgewiesen" → „abgewiesen").
-- **D7 (Nachtrag)** autorisiert eine begrenzte Konzeptaenderung an FK-13
-  §13.9.5/§13.9.11 samt Decision Record — die einzige Konzeptaenderung, die
-  dieser Story gestattet ist.
+- **D7 und D8 (Nachtraege)** autorisieren je eine begrenzte Konzeptaenderung an
+  FK-13 §13.9.5/§13.9.10/§13.9.11 samt Decision Record. Es sind die einzigen
+  Konzeptaenderungen, die dieser Story gestattet sind; insbesondere bleibt
+  §13.9.6 (`doc_kind`-Vokabular, offene Frage Q2) unberuehrt.
 - Die drei Stories referenzieren dieses Briefing als Fixierung der delegierten
   Entscheidungen.
 - Blockade-/Reihenfolge-Kanten bleiben unveraendert: AG3-175 haengt weiter an
