@@ -362,7 +362,15 @@ def test_n08_receipt_from_props_rejects_a_foreign_identity() -> None:
         "source_file": "concept/a.md",
         "source_type": "concept",
         "corpus_revision": "rev",
-        "digest": sync_receipt_digest("other", "concept/a.md", "rev"),
+        "digest": sync_receipt_digest(
+            project_id="other",
+            source_file="concept/a.md",
+            source_type="concept",
+            corpus_revision="rev",
+            state="completed",
+            completed_at="2026-07-25T00:00:00Z",
+            sequence=1,
+        ),
         "state": "completed",
         "completed_at": "2026-07-25T00:00:00Z",
         "sequence": "1",
@@ -400,7 +408,9 @@ def test_n03_two_racing_writers_of_one_source_exactly_one_wins() -> None:
     lock = threading.Lock()
 
     def _writer(chunk: str) -> None:
-        service = SyncService(store=store)
+        # Distinct owner ids: two writers, whether in one process or two, must
+        # conflict (the claim is not process-local, N15).
+        service = SyncService(store=store, owner_id=f"writer-{chunk}")
         try:
             service.sync_source(
                 project_id="acme", source_file="concept/a.md", source_type="concept",
@@ -629,3 +639,150 @@ def test_r08_validate_staged_real_git_fault_exit_3(tmp_path: Path) -> None:
     no_git.mkdir(parents=True)
     code = cli_main(["--concepts-dir", str(no_git), "validate", "--staged"])
     assert code == 3  # INTERNAL_FAILURE (R08)
+
+
+# --------------------------------------------------------------------------- #
+# N19/N01/R05: the ADVERTISED response contract is requested AND returned
+# --------------------------------------------------------------------------- #
+
+
+def test_n19_story_search_returns_every_advertised_response_field(tmp_path: Path) -> None:
+    """Every field ``story_search`` advertises must arrive through the real path."""
+    from agentkit.backend.vectordb.contracts import contract_for
+
+    service, client = _service(tmp_path)
+    client.search_results = [story_hit("s1", "AG3-1", 0.9)]
+    result = handle_tool_call(service, "story_search", {"query": "x"})
+    row = result["results"][0]
+    for advertised in contract_for("story_search").return_fields:
+        assert advertised in row, advertised
+    assert row["module"] == "backend"
+    assert row["epic"] == "retrieval"
+    # ...and the transport was ASKED for them (a profile that omits module/epic
+    # cannot return them, N19).
+    requested = {name for name, _dt, _ne in client.search_calls[0]["property_spec"]}  # type: ignore[union-attr]
+    assert {"module", "epic"} <= requested
+
+
+def test_n19_concept_search_returns_every_advertised_response_field(tmp_path: Path) -> None:
+    from agentkit.backend.vectordb.contracts import contract_for
+
+    service, client = _service(tmp_path)
+    client.search_results = [concept_hit("c1", "FK-13", 0.9)]
+    result = handle_tool_call(service, "concept_search", {"query": "x"})
+    row = result["results"][0]
+    for advertised in contract_for("concept_search").return_fields:
+        assert advertised in row, advertised
+    requested = {name for name, _dt, _ne in client.search_calls[0]["property_spec"]}  # type: ignore[union-attr]
+    assert {"defers_to", "authority_over", "normative_rules"} <= requested
+
+
+def test_n19_research_hits_carry_the_story_profile(tmp_path: Path) -> None:
+    service, client = _service(tmp_path)
+    client.search_results = [
+        story_hit(
+            "r1", "AG3-9", 0.5, source_type="research",
+            source_file="stories/AG3-9/research/a.md", story_type="research",
+        )
+    ]
+    result = handle_tool_call(service, "story_search", {"query": "x"})
+    assert result["results"][0]["story_type"] == "research"
+    assert result["results"][0]["module"] == "backend"
+
+
+# --------------------------------------------------------------------------- #
+# N24: research notes are identified by their PATH, not by story frontmatter
+# --------------------------------------------------------------------------- #
+
+
+def test_n24_research_note_without_frontmatter_is_ingested(tmp_path: Path) -> None:
+    """A plain research note must NOT break the sync (its producer is the path)."""
+    story = tmp_path / "stories" / "AG3-1" / "story.md"
+    story.parent.mkdir(parents=True)
+    story.write_text(_STORY_DOC, encoding="utf-8")
+    note = tmp_path / "stories" / "AG3-1" / "research" / "findings.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# Weaviate options\n\n## Findings\n\nBM25 needs word tokens.\n", encoding="utf-8")
+
+    service, client = _service(tmp_path)
+    result = handle_tool_call(service, "story_sync", {"full_reindex": True})
+    assert "error" not in result
+    indexed = {
+        str(doc["source_file"]): doc for doc in client.objects.values()
+    }
+    research = indexed["stories/AG3-1/research/findings.md"]
+    assert research["source_type"] == "research"
+    # The story identity comes from the canonical path, the title from the note's
+    # own heading, and the type is 'research' (FK-13 §13.3.1 story_type vocabulary).
+    assert research["story_id"] == "AG3-1"
+    assert research["title"] == "Weaviate options"
+    assert research["story_type"] == "research"
+    assert research["status"] == ""
+
+
+def test_n24_research_frontmatter_is_still_validated_strictly(tmp_path: Path) -> None:
+    story = tmp_path / "stories" / "AG3-1" / "story.md"
+    story.parent.mkdir(parents=True)
+    story.write_text(_STORY_DOC, encoding="utf-8")
+    note = tmp_path / "stories" / "AG3-1" / "research" / "findings.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("---\ntitle: 42\n---\n\n# R\n\n## F\n\nfound.\n", encoding="utf-8")
+    service, client = _service(tmp_path)
+    result = handle_tool_call(service, "story_sync", {"full_reindex": True})
+    assert result["error"] == "story_source_invalid"
+    assert "title" in result["detail"]
+    assert client.objects == {}
+
+
+def test_n24_research_story_id_contradicting_the_path_is_rejected(tmp_path: Path) -> None:
+    story = tmp_path / "stories" / "AG3-1" / "story.md"
+    story.parent.mkdir(parents=True)
+    story.write_text(_STORY_DOC, encoding="utf-8")
+    note = tmp_path / "stories" / "AG3-1" / "research" / "findings.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("---\nstory_id: AG3-999\n---\n\n# R\n\n## F\n\nfound.\n", encoding="utf-8")
+    service, client = _service(tmp_path)
+    result = handle_tool_call(service, "story_sync", {"full_reindex": True})
+    assert result["error"] == "story_source_invalid"
+    assert "canonical path" in result["detail"]
+    assert client.objects == {}
+
+
+def test_n24_story_md_still_requires_its_frontmatter(tmp_path: Path) -> None:
+    """The exported story artefact keeps the STRICT profile (N05 stays closed)."""
+    story = tmp_path / "stories" / "AG3-1" / "story.md"
+    story.parent.mkdir(parents=True)
+    story.write_text("# No frontmatter\n\n## P\n\ntext\n", encoding="utf-8")
+    service, client = _service(tmp_path)
+    result = handle_tool_call(service, "story_sync", {"full_reindex": True})
+    assert result["error"] == "story_source_invalid"
+    assert client.objects == {}
+
+
+# --------------------------------------------------------------------------- #
+# N23: the authority scope is EXPLICIT and never derived from the module filter
+# --------------------------------------------------------------------------- #
+
+
+def test_n23_module_filter_is_not_used_as_the_authority_scope(tmp_path: Path) -> None:
+    """The module filter must not silently activate the authority rules (N23)."""
+    service, client = _service(tmp_path)
+    client.search_results = [concept_hit("c1", "FK-13", 0.5, module="vectordb")]
+    result = handle_tool_call(
+        service, "concept_search", {"query": "retrieval", "module": "vectordb"}
+    )
+    reasons = result["results"][0]["rank_reasons"]
+    # FK-13 declares authority_over: vectordb in the corpus, but no SCOPE was
+    # asked about -- so rule 1 must NOT fire off the module filter.
+    assert "authority_over-direct" not in reasons
+    # The module filter still reaches the transport as a hard filter.
+    assert client.search_calls[0]["filters"]["module"] == "vectordb"
+
+
+def test_n23_explicit_authority_scope_activates_the_precedence(tmp_path: Path) -> None:
+    """With an EXPLICIT scope the precedence applies -- and it is a tier."""
+    service, client = _service(tmp_path)
+    service.query_authority_scope = "vectordb"
+    client.search_results = [concept_hit("c1", "FK-13", 0.1, module="vectordb")]
+    result = handle_tool_call(service, "concept_search", {"query": "retrieval"})
+    assert "authority_over-direct" in result["results"][0]["rank_reasons"]

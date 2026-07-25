@@ -87,9 +87,21 @@ def story_file_to_objects(
     source_type: str = "story",
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[StoryContextObject]:
-    """Project a single ``story.md`` (or research ``.md``) into StoryContext objects.
+    """Project a ``story.md`` OR a research ``.md`` into StoryContext objects.
 
-    Reuses the SSOT chunker + hasher.
+    Reuses the SSOT chunker + hasher. The metadata contract is
+    SOURCE-TYPE-SPECIFIC (N24) because the two producers are different:
+
+    - ``story``: ``story.md`` is a DETERMINISTIC EXPORT (FK-21 §21.11.3), so its
+      frontmatter is mandatory and must carry ``story_id``; ``title``/``status``/
+      ``story_type`` are read strictly from it.
+    - ``research``: a research note is identified by its CANONICAL PATH
+      ``stories/<story>/research/**/*.md`` (FK-13 §13.3.2 / the classifier). No
+      exported-story frontmatter is required -- the story identity comes from the
+      path, the title from an optional frontmatter ``title`` or the document's own
+      heading, and ``story_type`` is ``research``. When frontmatter IS present it
+      is still validated strictly, and a ``story_id`` contradicting the path is a
+      hard identity error.
 
     Args:
         project_id: Bound multi-tenant discriminator.
@@ -105,12 +117,11 @@ def story_file_to_objects(
         The validated :class:`StoryContextObject` list.
 
     Raises:
-        FrontmatterError: When the frontmatter block is ABSENT, unparsable or
-            carries wrongly-typed metadata (N05/AC10). A story document without
-            frontmatter is not ingestible -- ``story.md`` is a deterministic
-            export that always carries ``story_id``/``title``/``status``
-            (FK-21 §21.11.3). Nothing is indexed for such a document.
-        ValueError: For an unsupported ``source_type``.
+        FrontmatterError: When the source-type's metadata profile is violated
+            (missing mandatory frontmatter, unparsable YAML, wrongly-typed value,
+            contradicting story identity) -- never coerced (N05/AC10).
+        ValueError: For an unsupported ``source_type`` or a non-relative
+            ``source_file``.
     """
     if source_type not in ("story", "research"):
         raise ValueError(
@@ -122,37 +133,104 @@ def story_file_to_objects(
         )
     raw = read_text_strict(story_md_path)
     fm_text, body = split_frontmatter(raw)
-    if not fm_text:
-        raise FrontmatterError(
-            f"story document {source_file} has no frontmatter block; a story "
-            "artefact without frontmatter is not ingestible (N05/AC10)",
-            code="E-SCHEMA-001",
-        )
-    data = parse_frontmatter_block(fm_text)  # raises FrontmatterError on invalid (N05)
-    story_id = _strict_str(data, "story_id", source_file, required=True)
-    title = _strict_str(data, "title", source_file) or story_id
-    status = _strict_str(data, "status", source_file)
-    story_type = _strict_str(data, "story_type", source_file) or "implementation"
+    metadata = (
+        _story_metadata(fm_text, source_file)
+        if source_type == "story"
+        else _research_metadata(fm_text, body, source_file)
+    )
     objects: list[StoryContextObject] = []
     for ordering, (section, piece) in enumerate(chunk_document(body, max_tokens=max_tokens)):
         payload: dict[str, object] = {
             "content": piece,
-            "story_id": story_id,
-            "title": title,
-            "status": status,
-            "story_type": story_type,
             "source_type": source_type,
             "source_file": source_file,
             "section_heading": section.heading,
             "section_number": section.section_number,
             "content_hash": chunk_hash(
-                {"content": piece, "story_id": story_id, "source_file": source_file}
+                {
+                    "content": piece,
+                    "story_id": metadata["story_id"],
+                    "source_file": source_file,
+                }
             ),
             "project_id": project_id,
+            **metadata,
         }
         chunk_id = f"{source_type}-{ordering}-{chunk_hash({'content': piece})[:16]}"
         objects.append(_build_object(project_id, source_file, chunk_id, payload))
     return objects
+
+
+def _story_metadata(fm_text: str, source_file: str) -> dict[str, object]:
+    """Strict metadata profile of an EXPORTED ``story.md`` (FK-21 §21.11.3)."""
+    if not fm_text:
+        raise FrontmatterError(
+            f"story document {source_file} has no frontmatter block; an exported "
+            "story artefact always carries one (N05/AC10)",
+            code="E-SCHEMA-001",
+        )
+    data = parse_frontmatter_block(fm_text)  # raises FrontmatterError on invalid (N05)
+    story_id = _strict_str(data, "story_id", source_file, required=True)
+    return {
+        "story_id": story_id,
+        "title": _strict_str(data, "title", source_file) or story_id,
+        "status": _strict_str(data, "status", source_file),
+        "story_type": _strict_str(data, "story_type", source_file) or "implementation",
+        # N19: module/epic are part of the advertised story_search response, so the
+        # producer always writes them (empty when the document does not carry them).
+        "module": _strict_str(data, "module", source_file),
+        "epic": _strict_str(data, "epic", source_file),
+    }
+
+
+def _research_metadata(fm_text: str, body: str, source_file: str) -> dict[str, object]:
+    """Strict metadata profile of a RESEARCH note (identified by its path, N24)."""
+    story_id = research_story_id(source_file)
+    data = parse_frontmatter_block(fm_text) if fm_text else {}
+    declared = _strict_str(data, "story_id", source_file)
+    if declared and declared != story_id:
+        raise FrontmatterError(
+            f"research document {source_file} declares story_id {declared!r} but its "
+            f"canonical path belongs to {story_id!r}; fail-closed (N24 identity)",
+            code="E-ID-002",
+        )
+    title = _strict_str(data, "title", source_file) or _first_heading(body) or Path(source_file).stem
+    return {
+        "story_id": story_id,
+        "title": title,
+        "status": _strict_str(data, "status", source_file),
+        "story_type": "research",
+        "module": _strict_str(data, "module", source_file),
+        "epic": _strict_str(data, "epic", source_file),
+    }
+
+
+def research_story_id(source_file: str) -> str:
+    """Return the owning story id of a canonical research path (N24).
+
+    Raises:
+        ValueError: When the path is not a canonical
+            ``stories/<story>/research/**/*.md`` research source.
+    """
+    from agentkit.backend.vectordb.ingest.classify import classify_source_file
+
+    normalised = source_file.replace("\\", "/")
+    parts = normalised.split("/")
+    if classify_source_file(normalised) != "research" or len(parts) < 4:
+        raise ValueError(
+            f"{source_file!r} is not a canonical research source "
+            "('stories/<story>/research/**/*.md'); fail-closed (N24)."
+        )
+    return parts[1]
+
+
+def _first_heading(body: str) -> str:
+    """Return the document's first markdown heading text (``""`` when absent)."""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip()
+    return ""
 
 
 def _strict_str(
@@ -227,5 +305,6 @@ def classify_story_corpus_files(
 __all__ = [
     "classify_story_corpus_files",
     "concept_chunks_to_objects",
+    "research_story_id",
     "story_file_to_objects",
 ]
