@@ -329,3 +329,16 @@ argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
   later regardless; it now asserts a malformed receipt is never stored) and `N26`
   (a source grep passed without the fix; the authority resolution was extracted so
   the test drives real production code).
+- Regression guard on the r4 set: the r4 harness re-run gives 18 RED and 8
+  "pattern not found", the latter because r5 REWROTE exactly those code regions
+  (N12 -> N30, N15 -> N27, N16 -> N28, N17 -> N29, N21 -> N31); the r5 harness
+  covers the same behaviour on the new code and is red. Three r4 test names were
+  retired with named successors, none silently: `test_n12_existing_collection_that_
+  vectorises_the_name_fails_closed` -> `test_n30_drifted_vectorizer_model_fails_
+  closed` (same assertion, now against the REAL client surface instead of a
+  non-existent attribute), `test_n16_two_concurrent_completions_get_distinct_
+  sequences` -> `test_n28_two_concurrent_completions_get_distinct_positions`, and
+  `test_n15_expired_claim_of_a_crashed_writer_is_reclaimed_with_a_new_epoch`, which
+  pinned behaviour the D3 adjudication now FORBIDS and is replaced by
+  `test_n27_a_claim_never_expires_by_time` plus
+  `test_n27_explicit_administrative_reclaim_takes_over_and_fences`.
