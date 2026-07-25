@@ -252,16 +252,24 @@ def _ag3_137_binding_constraints_present(conn: _CompatConnection) -> bool:
     migrated by the r1 rollout (``b2b3d0bd``) has every AG3-137 table and additive
     column yet lacks these two named CHECK constraints, so without this probe it
     would report bootstrapped and skip the constraint + legacy-normalisation step.
-    Reading ``pg_constraint`` (scoped to ``current_schema()``) forces a full
-    bootstrap when either constraint is absent (Codex ERROR §5a, fail-closed).
+    A missing constraint forces a full bootstrap (Codex ERROR §5a, fail-closed).
+
+    The probe binds ``c.conrelid`` to the qualified target relation rather than
+    filtering on ``conname`` within ``current_schema()``: ``conname`` is unique
+    only per ``(conrelid, contypid, conname)``, so a same-named CHECK on ANOTHER
+    table of the same schema would otherwise satisfy the canary and suppress the
+    very migration it exists to trigger (AG3-172 review finding F1, same class as
+    the two FK guards below). A missing ``session_run_bindings`` makes
+    ``to_regclass`` NULL, no row matches and the canary fails closed.
     """
     rows = conn.execute(
         """
         SELECT c.conname
         FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE n.nspname = current_schema()
+        WHERE c.conrelid = to_regclass(
+                quote_ident(current_schema()) || '.session_run_bindings'
+              )
+          AND c.contype = 'c'
           AND c.conname = ANY(%s)
         """,
         (list(_AG3_137_BINDING_CONSTRAINTS),),
@@ -599,18 +607,31 @@ def _ensure_reporting_indexes(conn: _CompatConnection) -> None:
 def _ensure_story_identity_constraints(conn: _CompatConnection) -> None:
     """Apply idempotent story-identity constraints.
 
-    The existence guard is scoped to ``current_schema()`` (join ``pg_constraint``
-    -> ``pg_class`` -> ``pg_namespace``), exactly like
-    :func:`_ensure_failure_corpus_constraints`. ``pg_constraint`` is a
-    PER-DATABASE catalog and constraint names are only unique per table, so an
-    unscoped ``conname`` probe reads FOREIGN schemas: in a database that already
-    carries another versioned or test schema with the same-named FK, the guard
-    would report "present" and the freshly bootstrapped schema would silently
-    keep ``story_contexts.project_key`` UNREFERENCED. That is a fail-open
-    integrity hole in production (several ``ak3_v*`` schemas in one database) and
-    a source of non-determinism under xdist: whichever worker schema is
-    bootstrapped FIRST gets the FK, every later worker schema does not, so the
-    schema shape depends on execution order (AG3-172 AC5).
+    The existence guard is bound to the fully qualified TARGET RELATION, not to
+    the constraint name. ``pg_constraint.conname`` is documented as "not
+    necessarily unique" — the catalog's unique index is on
+    ``(conrelid, contypid, conname)``, i.e. a name is unique only PER TABLE — so
+    two constraints of the same name legitimately coexist in one schema on
+    different tables. A guard therefore needs BOTH coordinates:
+
+    * **schema** — ``pg_constraint`` is a PER-DATABASE catalog. A probe on the
+      name alone reads FOREIGN schemas, so in a database that already carries
+      another versioned or test schema with the same-named FK the guard reports
+      "present" and the fresh schema keeps ``story_contexts.project_key``
+      UNREFERENCED. Under xdist that also makes the schema shape depend on
+      bootstrap order: the first worker schema gets the FK, the rest do not.
+    * **table** — scoping to ``current_schema()`` alone is still a half-fix: a
+      same-named constraint on a DIFFERENT table of the SAME schema would
+      satisfy the guard and leave ``story_contexts`` without its FK.
+
+    Binding ``c.conrelid`` to ``to_regclass()`` of the qualified relation covers
+    both at once, and ``contype = 'f'`` pins the constraint CLASS so a
+    same-named non-FK constraint cannot satisfy the probe either (AG3-172 AC5,
+    review finding F1).
+
+    Note that :func:`_ensure_failure_corpus_constraints` carried the identical
+    table-precision gap and is fixed the same way — it is NOT a reference
+    implementation for this pattern.
 
     Rollback plan: drop ``story_contexts_project_key_fkey``,
     ``story_contexts_story_uuid_idx``,
@@ -626,10 +647,11 @@ def _ensure_story_identity_constraints(conn: _CompatConnection) -> None:
             IF NOT EXISTS (
                 SELECT 1
                 FROM pg_constraint c
-                JOIN pg_class t ON t.oid = c.conrelid
-                JOIN pg_namespace n ON n.oid = t.relnamespace
-                WHERE c.conname = 'story_contexts_project_key_fkey'
-                  AND n.nspname = current_schema()
+                WHERE c.conrelid = to_regclass(
+                        quote_ident(current_schema()) || '.story_contexts'
+                      )
+                  AND c.conname = 'story_contexts_project_key_fkey'
+                  AND c.contype = 'f'
             ) THEN
                 ALTER TABLE story_contexts
                 ADD CONSTRAINT story_contexts_project_key_fkey
@@ -651,14 +673,23 @@ def _ensure_failure_corpus_constraints(conn: _CompatConnection) -> None:
     is a forward reference and is therefore added here, after both tables exist.
     Both refs are nullable. Idempotent via ``pg_constraint`` existence guard.
 
-    The existence guard is scoped to ``current_schema()`` (join
-    ``pg_constraint`` -> ``pg_class`` -> ``pg_namespace``): in a shared DB with
-    several versioned/test schemas (``ak3_v*``, ``ak3test_*``) a same-named
-    constraint in ANOTHER schema must not make a fresh schema skip the FK, which
-    would leave FK-41 §41.3.2:234 unenforced there. ``search_path`` is set to the
-    resolved schema first (see ``schema_bootstrap.ensure_versioned_schema`` /
-    AG3-051 test isolation), so ``current_schema()`` is exactly that target
-    schema and every schema lacking the FK gets it.
+    The existence guard is bound to the fully qualified TARGET RELATION via
+    ``c.conrelid = to_regclass(...)``, plus ``conname`` and ``contype = 'f'``.
+    Both coordinates are load-bearing (AG3-172 AC5 / review finding F1):
+
+    * **schema** — ``pg_constraint`` is a PER-DATABASE catalog, so in a shared DB
+      with several versioned/test schemas (``ak3_v*``, ``ak3test_*``) a same-named
+      constraint in ANOTHER schema must not make a fresh schema skip the FK, which
+      would leave FK-41 §41.3.2:234 unenforced there.
+    * **table** — ``pg_constraint.conname`` is documented as "not necessarily
+      unique" (the catalog's unique index is on ``(conrelid, contypid, conname)``),
+      so a same-named constraint on a DIFFERENT table of the SAME schema would
+      also satisfy a schema-only guard and leave ``fc_patterns`` without its FK.
+
+    ``search_path`` is set to the resolved schema first (see
+    ``schema_bootstrap.ensure_versioned_schema`` / AG3-051 test isolation), so
+    ``current_schema()`` is exactly that target schema and every schema lacking
+    the FK gets it.
 
     Rollback plan: drop ``fc_patterns_check_ref_fkey``; ``check_ref`` stays a plain
     nullable TEXT column.
@@ -670,10 +701,11 @@ def _ensure_failure_corpus_constraints(conn: _CompatConnection) -> None:
             IF NOT EXISTS (
                 SELECT 1
                 FROM pg_constraint c
-                JOIN pg_class t ON t.oid = c.conrelid
-                JOIN pg_namespace n ON n.oid = t.relnamespace
-                WHERE c.conname = 'fc_patterns_check_ref_fkey'
-                  AND n.nspname = current_schema()
+                WHERE c.conrelid = to_regclass(
+                        quote_ident(current_schema()) || '.fc_patterns'
+                      )
+                  AND c.conname = 'fc_patterns_check_ref_fkey'
+                  AND c.contype = 'f'
             ) THEN
                 ALTER TABLE fc_patterns
                 ADD CONSTRAINT fc_patterns_check_ref_fkey
@@ -826,7 +858,13 @@ def _ensure_session_binding_constraints(conn: _CompatConnection) -> None:
 
     Named + existence-guarded so a fresh schema (whose CREATE TABLE already
     created the SAME named constraints) is a no-op, and re-running the bootstrap
-    never duplicates a constraint.
+    never duplicates a constraint. Both guards bind ``c.conrelid`` to the
+    qualified target relation instead of filtering on ``conname`` within
+    ``current_schema()``: ``conname`` is unique only per
+    ``(conrelid, contypid, conname)``, so a same-named CHECK on ANOTHER table of
+    the same schema would otherwise satisfy the guard and leave
+    ``session_run_bindings`` on a SOFTER value domain than a fresh schema — the
+    exact gap this function was written to close (AG3-172 review finding F1).
     """
     conn.execute(
         f"""
@@ -835,10 +873,11 @@ def _ensure_session_binding_constraints(conn: _CompatConnection) -> None:
             IF NOT EXISTS (
                 SELECT 1
                 FROM pg_constraint c
-                JOIN pg_class t ON t.oid = c.conrelid
-                JOIN pg_namespace n ON n.oid = t.relnamespace
-                WHERE c.conname = 'session_run_bindings_status_check'
-                  AND n.nspname = current_schema()
+                WHERE c.conrelid = to_regclass(
+                        quote_ident(current_schema()) || '.session_run_bindings'
+                      )
+                  AND c.conname = 'session_run_bindings_status_check'
+                  AND c.contype = 'c'
             ) THEN
                 ALTER TABLE session_run_bindings
                 ADD CONSTRAINT session_run_bindings_status_check
@@ -847,10 +886,11 @@ def _ensure_session_binding_constraints(conn: _CompatConnection) -> None:
             IF NOT EXISTS (
                 SELECT 1
                 FROM pg_constraint c
-                JOIN pg_class t ON t.oid = c.conrelid
-                JOIN pg_namespace n ON n.oid = t.relnamespace
-                WHERE c.conname = 'session_run_bindings_binding_version_check'
-                  AND n.nspname = current_schema()
+                WHERE c.conrelid = to_regclass(
+                        quote_ident(current_schema()) || '.session_run_bindings'
+                      )
+                  AND c.conname = 'session_run_bindings_binding_version_check'
+                  AND c.contype = 'c'
             ) THEN
                 ALTER TABLE session_run_bindings
                 ADD CONSTRAINT session_run_bindings_binding_version_check
