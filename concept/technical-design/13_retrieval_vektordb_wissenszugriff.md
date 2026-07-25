@@ -722,22 +722,41 @@ gilt:
   genuegte dafuer nicht: es verhindert das Ueberschreiben, nicht das Anhaengen.
 - Der **Chunk-Write** bleibt unbewacht: Pre-Write-Fence und Upsert sind getrennte
   Operationen, also kann ein ueberholter Halter danach noch Objekte **seiner**
-  (niedrigeren) Generation anhaengen. Die frueher hier notierte Begruendung „das
-  ist idempotent, weil derselbe Inhalt unter derselben UUID landet" ist **falsch**:
-  bei **geaendertem** Inhalt entstehen **andere** UUIDs, die von der neueren
-  Generation nicht ueberschrieben werden — es sind zusaetzliche, eigene Zeilen.
-  Deshalb fuehrt der abschliessende Besitzer nach dem Publizieren seiner Completion
-  **einen weiteren storage-konditionalen Durchgang** ueber seine eigene Quelle
-  (dieselbe Bedingung „Generation strikt kleiner als meine"). Damit ist das Fenster
-  **auf das Intervall bis zur Completion begrenzt**: was ein ueberholter Schreiber
-  vorher anhaengt, ist danach entfernt; was er **nach** diesem Durchgang anhaengt,
-  entfernt der naechste Sync derselben Quelle (seine Generation ist zwangslaeufig
-  hoeher). Zu keinem Zeitpunkt kann er Daten der neueren Generation loeschen.
+  (niedrigeren) Generation anhaengen. Die frueher hier notierte Begruendung, das sei
+  idempotent, weil derselbe Inhalt unter derselben UUID lande, ist **falsch**: bei
+  **geaendertem** Inhalt entstehen **andere** UUIDs, die von der neueren Generation
+  nicht ueberschrieben werden - es sind zusaetzliche, eigene Zeilen.
+- Der **erforderliche Abschluss-Delete** liest deshalb unmittelbar **vor** der
+  Completion frisch und entfernt alles, was bis dahin eingetroffen ist. Er laeuft
+  **vor** dem Receipt: die gemeldete Frische rueckt nie vor einem zerstoerenden
+  Schritt vor, der noch nicht stattgefunden hat.
 
-Auch hier wird **keine** transaktionale Atomizitaet behauptet: gesichert sind die
-Nicht-Loeschbarkeit fremder, neuerer Daten, die Nicht-Rueckdrehbarkeit der Frische
-und die **Begrenztheit** des Schreibfensters — nicht die Unteilbarkeit des
-Fensters.
+**Offener Restbefund (nicht ratifiziert).** Ein Stale-Write, der **nach** diesem
+Abschluss-Delete eintrifft, bleibt liegen, bis dieselbe Quelle das naechste Mal
+synchronisiert wird - und dieser Zeitpunkt ist **nicht zeitlich begrenzt**. Ein
+einzelner endlicher Durchgang kann ein spaeter eintreffendes Schreiben nicht
+abdecken; er verkleinert das Fenster auf den **Regelfall** und schliesst es nicht.
+Konkret bleibt offen: nach Stillstand, administrativem Reclaim und wiederanlaufendem
+Zombie-Schreiber koennen Zeilen einer niedrigeren Generation neben den aktuellen
+liegen und vom Retrieval mitgeliefert werden, waehrend `corpus_revision` den neueren
+Stand meldet.
+
+Was **gesichert** ist: ein ueberholter Halter kann Daten einer neueren Generation
+**nie loeschen** (storage-seitige Ordnungsbedingung, in beiden Wettlauf-Reihenfolgen
+belegt) und die gemeldete Frische **nie zurueckdrehen** (Completions sind
+insert-only, positionsgebunden und nach Generation geordnet). Was **nicht** gesichert
+ist: die Abwesenheit zusaetzlicher, veralteter Zeilen zwischen dem Abschluss-Delete
+und dem naechsten Sync. Es wird **keine** transaktionale Atomizitaet und **keine**
+zeitliche Schranke behauptet.
+
+Dieser Restbefund ist ein **offener, nicht ratifizierter Punkt** in der Verantwortung
+einer **Folgestory**; er ist ausdruecklich **kein** akzeptierter Vertrag. Der
+Aufloesungsraum ist auf drei Formen begrenzt: (a) den Stale-Write storage-seitig
+verhindern - an diesem Rand nicht verfuegbar, (b) das Retrieval nicht-autoritative
+Generationen ausschliessen lassen - kohaerent nur ueber `corpus_revision`, mit
+Kopplung der Abfrage an die Completion-Menge, (c) ein **ratifizierter Vertrag**, der
+eine potenziell unbegrenzte Post-Completion-Inkonsistenz ehrlich modelliert. (c)
+erfordert eine PO-Entscheidung; keine der drei ist in dieser Story getroffen.
 
 **Konvergenz vorbestehender Zeilen.** Zeilen, die vor Einfuehrung von
 `owning_generation` (§13.3.1) geschrieben wurden, tragen keine Generation und sind

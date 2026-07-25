@@ -236,6 +236,47 @@ keine Vermutung. Es werden keine fremden Inhalte in eine Generation uebernommen.
 Aufraeumung ist claim-gebunden, fail-closed und wird im Sync-Ergebnis mitgefuehrt.
 Verankert in FK-13 §13.9.9.
 
+## 7. Nachtrag 2026-07-25/3 - Shape 3 verengt, schliesst aber nicht
+
+Codex-Review r9 stellt strukturell fest: *One finite sweep cannot close a write that
+may land afterwards.* Der in Nachtrag /2 beschriebene Durchgang ist ein **endlicher**
+Vorgang; ein Schreiben, das **danach** eintrifft, kann er nicht abdecken. Er
+verkleinert das Fenster auf den Regelfall - die Aussage aus /2, das Fenster sei *auf
+das Intervall bis zur Completion begrenzt*, war **zu stark** und ist in FK-13 §13.9.9
+korrigiert. Zusaetzlich stand der erforderliche zerstoerende Schritt dort **nach** dem
+Receipt, entgegen AC6; die Reihenfolge ist korrigiert: der Abschluss-Delete liest
+frisch und laeuft **vor** der Completion.
+
+**Was unveraendert gilt:** die ratifizierte D9-Invariante - ein ueberholter Halter
+kann Daten einer neueren Generation nicht loeschen - ist eingehalten und in beiden
+Wettlauf-Reihenfolgen belegt; die gemeldete Frische kann nicht zurueckgedreht werden
+(N39).
+
+**Was offen bleibt:** die **Sichtbarkeit** zusaetzlicher Zeilen einer niedrigeren
+Generation zwischen dem Abschluss-Delete und dem naechsten Sync derselben Quelle.
+Dieser Zeitpunkt ist nicht zeitlich begrenzt. Der Restbefund ist **offen und nicht
+ratifiziert** und ausdruecklich **kein** akzeptierter Vertrag.
+
+**Aufloesungsraum - genau drei Formen, keine davon hier entschieden:**
+
+1. Den Stale-Write eliminieren oder storage-seitig fencen - an diesem Rand **nicht
+   verfuegbar** (ueber drei Runden gegen den gepinnten Client verifiziert: es gibt
+   keine Vorbedingung fuer Schreibvorgaenge; eine Emulation ueber generationsgebundene
+   UUIDs zerstoert die deterministische Chunk-Identitaet, auf der idempotenter
+   Re-Sync, Delete-Closure und Identitaetspruefung beruhen).
+2. Das Retrieval nicht-autoritative Generationen ausschliessen lassen - kohaerent
+   **nur** ueber `corpus_revision` (nicht ueber die Generation, die FK-13 bewusst von
+   der Abfrageoberflaeche fernhaelt); Kosten: Kopplung der Abfrage an die
+   Completion-Menge, Filterwachstum mit der Zahl der Quellen im Suchraum, und die
+   Zeilen existieren weiterhin fuer ungefilterte Leser und Zaehlungen.
+3. Ein **ratifizierter Vertrag**, der eine potenziell unbegrenzte
+   Post-Completion-Inkonsistenz ehrlich modelliert. **Erfordert eine PO-Entscheidung.**
+
+Gemaess PO-Mandat vom 2026-07-25 (eine Runde weiter, dann Schnitt) wird die
+Aufloesung **nicht** in AG3-174 versucht. Der Vorschlag fuer die Folgestory samt
+Kosten je Form liegt im Story-Report; eine neue Story wird ohne PO-Zustimmung nicht
+angelegt.
+
 Grundlage: PO-Ratifizierung D9 in
 `stories/AG3-174-vectordb-retrieval-engine/po-decisions.md`. Zusammen mit D7 und
 D8 sind das die Konzeptaenderungen, die AG3-174 gestattet sind. Die Mechanik war in
