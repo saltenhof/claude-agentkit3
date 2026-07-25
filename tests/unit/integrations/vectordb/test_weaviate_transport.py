@@ -438,7 +438,7 @@ def test_d9_a_condition_that_no_longer_matches_deletes_nothing() -> None:
 
 def test_d9_a_failed_conditional_delete_is_fail_closed() -> None:
     """A reported failure must never be counted as a delete (R12)."""
-    with pytest.raises(VectorDbWriteError, match="failed object"):
+    with pytest.raises(VectorDbWriteError, match=r"object\(s\) failed"):
         _conditional_delete(
             ["11111111-1111-5111-8111-111111111111"], results=[(0, 1)]
         )
@@ -1374,4 +1374,102 @@ def test_pagination_repeating_a_page_is_fail_closed(monkeypatch: pytest.MonkeyPa
             prop="project_id",
             value="acme",
             return_props=("project_id",),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# N44: the conditional-delete counters are EXACT -- a regression of R12
+#
+# The first version of this transport used getattr(..., 0), `or 0` and int(...), so a
+# missing field, a numeric string or a boolean passed as a confirmed delete. A new
+# transport call inherits the AC10 strictness obligation; it does not start permissive.
+# --------------------------------------------------------------------------- #
+
+
+class _LooseReturn:
+    """A delete_many return whose counters are whatever the server felt like."""
+
+    def __init__(self, **fields: object) -> None:
+        for name, value in fields.items():
+            setattr(self, name, value)
+
+
+def _delete_with(result: object, *, requested: int = 1) -> int:
+    from agentkit.integration_clients.vectordb.weaviate_adapter import (
+        _conditional_delete_counts,
+    )
+
+    return _conditional_delete_counts(
+        result, prop="owning_generation", limit=7, requested=requested
+    )
+
+
+def test_n44_a_missing_counter_is_never_a_zero() -> None:
+    """`successful="1"` with `failed` absent must NOT read as a confirmed delete."""
+    with pytest.raises(VectorDbWriteError, match="no 'failed' count"):
+        _delete_with(_LooseReturn(successful="1"))
+    with pytest.raises(VectorDbWriteError, match="no 'successful' count"):
+        _delete_with(_LooseReturn(failed=0))
+
+
+@pytest.mark.parametrize(
+    ("fields", "match"),
+    [
+        pytest.param({"successful": "1", "failed": 0}, "not an\ninteger", id="string"),
+        pytest.param({"successful": 1.0, "failed": 0}, "not an", id="float"),
+        pytest.param({"successful": True, "failed": 0}, "not an", id="bool-successful"),
+        pytest.param({"successful": 1, "failed": False}, "not an", id="bool-failed"),
+        pytest.param({"successful": None, "failed": 0}, "not an", id="none"),
+    ],
+)
+def test_n44_a_non_integer_counter_is_never_coerced(
+    fields: dict[str, object], match: str
+) -> None:
+    del match
+    with pytest.raises(VectorDbWriteError, match="no coercion"):
+        _delete_with(_LooseReturn(**fields))
+
+
+def test_n44_a_negative_counter_is_fail_closed() -> None:
+    with pytest.raises(VectorDbWriteError, match="negative"):
+        _delete_with(_LooseReturn(successful=-1, failed=0))
+
+
+def test_n44_a_reported_failure_is_fail_closed() -> None:
+    with pytest.raises(VectorDbWriteError, match="failed; fail-closed"):
+        _delete_with(_LooseReturn(successful=0, failed=1))
+
+
+def test_n44_an_impossible_count_is_never_a_success() -> None:
+    """More deleted than requested is a fault, not a bonus."""
+    with pytest.raises(VectorDbWriteError, match="impossible count"):
+        _delete_with(_LooseReturn(successful=2, failed=0), requested=1)
+
+
+def test_n44_exact_integers_are_accepted() -> None:
+    assert _delete_with(_LooseReturn(successful=1, failed=0)) == 1
+    assert _delete_with(_LooseReturn(successful=0, failed=0)) == 0
+
+
+def test_n44_the_real_transport_uses_the_strict_counters() -> None:
+    """The strictness must live on the REAL call path, not only in a helper."""
+    data = _FakeData(delete_many_results=[])
+    data.delete_many_results = []
+    collection = _collection()
+    collection.data = data
+
+    class _Loose(_FakeData):
+        def delete_many(self, **kwargs: object) -> object:
+            self.delete_many_calls.append(dict(kwargs))
+            return _LooseReturn(successful="1")
+
+    loose = _Loose()
+    collection.data = loose
+    client = _client(collection)
+    with pytest.raises(VectorDbWriteError, match="count"):
+        client.delete_by_ids_if_property_below(
+            collection=STORY_CONTEXT_COLLECTION,
+            uuids=["11111111-1111-5111-8111-111111111111"],
+            prop="owning_generation",
+            limit=7,
         )

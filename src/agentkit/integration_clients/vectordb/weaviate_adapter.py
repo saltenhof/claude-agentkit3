@@ -55,6 +55,10 @@ MAX_FETCH_OBJECTS: Final[int] = 200_000
 #: guarantee (D9).
 MAX_CONDITIONAL_DELETE_IDS: Final[int] = 100
 
+#: Sentinel for an ABSENT delete counter. A missing count is a fault, never a zero
+#: (N44: the whole point of R12 was to stop defaults from reporting false success).
+_MISSING_COUNT: Final[object] = object()
+
 #: Schema data-type token -> the Weaviate wire name reported by the server.
 WEAVIATE_DATA_TYPE_NAMES: Final[dict[str, str]] = {
     "TEXT": "text",
@@ -808,13 +812,10 @@ class _RealWeaviateClient:
                     f"conditional delete failed for {len(batch)} object(s) with "
                     f"{prop} < {limit}: {exc} (R12 partial delete)."
                 ) from exc
-            failed = int(getattr(result, "failed", 0) or 0)
-            if failed:
-                raise VectorDbWriteError(
-                    f"conditional delete reported {failed} failed object(s) with "
-                    f"{prop} < {limit}; fail-closed (R12 partial delete)."
-                )
-            deleted += int(getattr(result, "successful", 0) or 0)
+            confirmed = _conditional_delete_counts(
+                result, prop=prop, limit=limit, requested=len(batch)
+            )
+            deleted += confirmed
         return deleted
 
     def ensure_collection(
@@ -1118,6 +1119,88 @@ def configured_vectorizer_model(config: Any) -> dict[str, object]:
             "vectorizeClassName", bool(legacy.vectorize_collection_name)
         )
     return model
+
+
+def _exact_count(value: Any, *, field_name: str, context: str) -> int:
+    """Return a delete counter as an EXACT non-negative int (AC10/R12, N44).
+
+    No coercion and no default: a MISSING field, a numeric STRING, a BOOLEAN or a
+    negative value is a fault, not a zero. Reporting ``successful="1"`` with ``failed``
+    absent as "one confirmed delete" is precisely the false-success path R12 closed,
+    so a new transport call inherits that strictness instead of starting permissive.
+
+    Args:
+        value: The raw counter as the client reported it.
+        field_name: Counter name, for the message.
+        context: What was attempted, for the message.
+
+    Returns:
+        The counter value.
+
+    Raises:
+        VectorDbWriteError: When the counter is absent, non-integer or negative.
+    """
+    if value is _MISSING_COUNT:
+        raise VectorDbWriteError(
+            f"{context}: the store reported no {field_name!r} count; an unreported "
+            "count is never a zero (fail-closed, AC10/R12)."
+        )
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise VectorDbWriteError(
+            f"{context}: {field_name} is {value!r} ({type(value).__name__}), not an "
+            "integer; no coercion (fail-closed, AC10/R12)."
+        )
+    exact: int = value
+    if exact < 0:
+        raise VectorDbWriteError(
+            f"{context}: {field_name} is negative ({exact}); fail-closed (AC10/R12)."
+        )
+    return exact
+
+
+def _conditional_delete_counts(
+    result: Any, *, prop: str, limit: int, requested: int
+) -> int:
+    """Validate one conditional-delete result and return the CONFIRMED count (N44).
+
+    Both counters must exist as exact integers, they must be internally consistent
+    (nothing may be reported beyond what was requested), and any reported failure is
+    fail-closed. Only ``successful`` is returned -- the caller compares it against what
+    it asked for and decides what a short count means.
+
+    Args:
+        result: The client's ``delete_many`` return value.
+        prop: Property the condition ordered against, for the message.
+        limit: Exclusive bound of the condition, for the message.
+        requested: Number of ids sent in this batch.
+
+    Returns:
+        The confirmed number of deleted objects.
+
+    Raises:
+        VectorDbWriteError: On a missing/invalid counter, a reported failure or a
+            count that exceeds the request.
+    """
+    context = f"conditional delete of {requested} object(s) with {prop} < {limit}"
+    failed = _exact_count(
+        getattr(result, "failed", _MISSING_COUNT), field_name="failed", context=context
+    )
+    successful = _exact_count(
+        getattr(result, "successful", _MISSING_COUNT),
+        field_name="successful",
+        context=context,
+    )
+    if failed:
+        raise VectorDbWriteError(
+            f"{context}: {failed} object(s) failed; fail-closed (R12 partial delete)."
+        )
+    if successful > requested or successful + failed > requested:
+        raise VectorDbWriteError(
+            f"{context}: the store reported {successful} deleted and {failed} failed "
+            f"for {requested} requested object(s); an impossible count is never a "
+            "success (fail-closed, AC10/R12)."
+        )
+    return successful
 
 
 def configured_vector_source_properties(config: Any) -> tuple[str, ...] | None:
