@@ -329,6 +329,14 @@ argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
   later regardless; it now asserts a malformed receipt is never stored) and `N26`
   (a source grep passed without the fix; the authority resolution was extracted so
   the test drives real production code).
+- Evidence integrity: a revert patch that only REORDERS statements keeps the file
+  size identical, and the restore lands in the same clock second, so the `.pyc`
+  header still validated and Python loaded the PATCHED bytecode for the restored
+  source. That produced one phantom failure
+  (`test_n17_no_claim_is_written_before_objects_are_validated`) which is NOT a code
+  defect -- with the bytecode caches purged the whole selection is green. The
+  harness now purges `__pycache__` around every case, and all r5 reverts were
+  re-confirmed RED under that regime.
 - Regression guard on the r4 set: the r4 harness re-run gives 18 RED and 8
   "pattern not found", the latter because r5 REWROTE exactly those code regions
   (N12 -> N30, N15 -> N27, N16 -> N28, N17 -> N29, N21 -> N31); the r5 harness
