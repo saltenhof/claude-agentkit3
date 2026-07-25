@@ -1,8 +1,18 @@
-# AG3-174 — Story Report (post Codex review r4 remediation)
+# AG3-174 — Story Report (post Codex review r5 remediation)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
-- **Status:** implemented (NOT landed; landing gated on AG3-172, orchestrator's job)
+- **Status:** **PENDING RATIFICATION** — implemented and NOT landed. Two concept
+  points must be ratified by the PO before this story can be called done:
+  Q1 (the authority-scope input of `concept_search`) and Q2 (the `doc_kind`
+  vocabulary vs. AK3's own corpus), both below. Landing is additionally gated on
+  AG3-172 (orchestrator's job).
+- **AC5 (authority ranking): PENDING RATIFICATION — not met.** FK-13 §13.9.11
+  rules 3/4/5 are implemented, tested and active. Rules 1 and 2 rank against the
+  `authority_over` SCOPE being asked about, and FK-13 defines no ratified source
+  for that scope (§13.9.5 has no such parameter). The explicit
+  `query_authority_scope` input therefore stays UNPOPULATED in production and the
+  two rules are INERT. No scope source was invented; see Q1.
 
 ## SSOT-adapter decision (recorded per DoD)
 
@@ -158,13 +168,75 @@ unknown receipt state is rejected rather than skipped. N22/N06: absence and
 invalidity of the project configuration are strictly separated. N21/R04: the
 canonical story path is verified, not fabricated.
 
-### Bounded claim lease vs. CLAUDE.md §6.7
+### Claim ownership never expires (r5 supersedes the r4 lease rationale)
 
-§6.7's "ownership never expires automatically" governs STORY/SESSION ownership.
-The N15 lease is an OPERATION lease for ONE source sync (900 s) and exists because
-a crashed sync must not wedge a corpus source forever. It is documented as such in
-`sync.SourceClaim`, and the takeover is fenced, so a resurrected holder can
-neither delete nor publish. No story/session ownership is affected.
+The r4 remediation defended a bounded 900 s OPERATION lease as compatible with
+CLAUDE.md §6.7. Codex r5 adjudicated that PO decision D3 ("concurrent syncs of the
+same source fail closed") admits NO time-based exception, and that adjudication is
+now implemented: **`SourceClaim` has no expiry field at all.** A claim is released
+only by its holder completing, or by an EXPLICIT administrative reclaim
+(`concept sync --reclaim`, i.e. an operator asserting the previous writer is dead),
+which creates the next epoch and records `reclaimed_from` + the reclaim reason. A
+crashed sync therefore parks the source until a human decides, which is the
+fail-closed behaviour §6.7 and D3 both ask for; the previous design would have let
+a paused writer resume after 900 s. The r4 lease text above is superseded.
+
+## Codex review r5 remediation (11 still-open + 7 new P0 + 2 P2)
+
+r5's pattern was explicit: the r4 fixes were directionally right but the ORDER of
+operations or the CLIENT MODEL was wrong. Each item below is a root-cause fix with
+a test that was verified RED by temporarily reverting the production change.
+
+**Ordering.** N27/N15: the wall-clock takeover is gone (see above) and the holder
+is now fenced BEFORE the first write, BEFORE the vanished-source delete and BEFORE
+the completion -- the r4 code fenced only after the upsert and checked the delete
+fence after deleting, so a writer resuming past the lease still wrote stale chunks
+and could destroy a live generation. N28/N04/N08/N16: reserving a number was not
+establishing completion order (A reserved 1, stalled, B published 2, A published
+last and won), and the stable per-source record could be overwritten by a replayed
+older receipt. The successful CONDITIONAL CREATE is now ITSELF the completion
+record: its uuid is `uuid5(project|sequence)` and its properties carry the fully
+digest-bound receipt, so position and content are established by ONE immutable
+write. Completions are insert-only, a record stored at a position it does not bind
+to is rejected, and freshness is selected only from verified immutable completions.
+N29/N17: an EMPTY per-source matrix entry slipped through the pre-mutation gate (it
+validated over zero objects, derived `source_type=""`, claimed, deleted the
+persisted generation and wrote a malformed receipt before `verify()` finally
+rejected it). Empty entries are rejected, producer/source-type closure is validated
+for the WHOLE matrix, and the sealed receipt is verified BEFORE it is persisted.
+
+**Paths and identity.** N31/R04: `story_dir` and `source_file` are validated
+against the AUTHORITATIVE project root BEFORE anything is rendered or written; the
+r4 check was purely lexical, so an absolute path from anywhere on disk produced a
+`stories/<name>` source_file no consumer could resolve, and the rejection happened
+after the file existed. The tests assert a rejected path leaves NO file on disk,
+and a supplied `source_file` is a cross-check, never a bypass. N32/N24: the story
+directory convention now has exactly ONE parser (`classify.STORY_DIR_RE` /
+`story_id_from_story_dir_name`), shared by the ingest adapter and the export path;
+the research ingester used `parts[1]` verbatim, so every slugged directory
+(`stories/AG3-174-vectordb-retrieval-engine/...`) was mis-identified and its own
+CORRECT frontmatter was rejected as contradictory. N26/N06: the split composition
+resolves the authoritative binding ONCE and injects that `project_id` into BOTH
+export paths; it previously passed `project_key`, so with `project_key: acme` /
+`project_prefix: AC` it indexed under `acme` while the MCP server queries `AC`.
+
+**Client model.** N30/N12: the drift check targeted an attribute the installed
+client does not have. Introspection of `weaviate-client 4.22.0` shows
+`_NamedVectorizerConfig` carries `{vectorizer, model, source_properties}` -- there
+is no `vectorize_collection_name`; `vectorizeClassName`/`poolingStrategy` live
+inside `model`. The required model is part of the schema SSOT
+(`FK13_VECTORIZER_MODEL`) and is compared against the REAL read-back surfaces
+(named + legacy), and the tests build their fixtures from the INSTALLED
+`_NamedVectorConfig`/`_NamedVectorizerConfig` classes.
+
+**P2.** P2-1: the N14 assertion no longer greps a docstring; it asserts behaviour
+for the second real duplicate-exception shape. P2-2: the residual-corpus taxonomy
+in Q2 below is corrected to FIRST ERROR PER FILE.
+
+**Adjudications carried over unchanged.** The N20 parser boundary was confirmed
+CORRECT, so no further parser relaxation was added. The N23 authority-scope split
+was confirmed right; rules 1+2 stay inert pending PO ratification, and no scope
+source was invented.
 
 ## Ratification needed -- NOT decided in this story
 
@@ -182,6 +254,10 @@ scope come from another ratified source (e.g. a module -> scope mapping)? Until
 that is ratified, rules 1 and 2 cannot fire in production; everything else about
 them is implemented and tested (including the tiered precedence).
 
+**Consequence for the story:** this is exactly why **AC5 is reported as PENDING
+RATIFICATION and NOT met** (see the header). The story does not claim AC5 as
+satisfied, and it does not invent a scope source to make it appear satisfied.
+
 ### Q2 -- the `doc_kind` vocabulary of §13.9.6 vs. AK3's own corpus (N20)
 
 Measured on the real `concept/` directory (347 markdown files):
@@ -191,12 +267,28 @@ Measured on the real `concept/` directory (347 markdown files):
 | before this remediation | 0 | 347 |
 | after the r4 code fixes | 75 (2075 chunks) | 272 |
 
-The remaining 272: **253x `doc_kind` outside `core|appendix`** (the repo uses
-`spec` 195, `context` 30, `decision-record` 18, `detail` 4, `policy` 2, `meta` 2,
-`decision-log` 1, `methodology` 1), 10x `defers_to` as a bare string list instead
-of the qualified `{target, scope, reason}` entries §13.9.6 mandates, 6x missing
-mandatory fields, 3x no frontmatter at all (README files that belong on a
-`.conceptignore`).
+The remaining 272 files, counted as **FIRST ERROR PER FILE** (P2-2 correction --
+the r4 table mixed levels and mis-attributed the residue; re-measured on
+`concept/` with `discover_concept_files`):
+
+| first error in the file | files |
+|---|---|
+| `doc_kind` outside `core\|appendix` | 253 |
+| `defers_to` given as a bare string instead of the qualified `{target, scope, reason}` entry §13.9.6 mandates | 10 |
+| mandatory `concept_id` missing (all 5 in `formal-spec/00_meta/`) | 5 |
+| no frontmatter block at all | 3 |
+| `supersedes` entry shaped as a mapping instead of a string | 1 |
+| **total** | **272** |
+
+The `doc_kind` values actually used are `spec` 195, `context` 30,
+`decision-record` 18, `detail` 4, `policy` 2, `meta` 2, `decision-log` 1,
+`methodology` 1. Two notes on the table: only ONE of the three frontmatter-less
+files is a README (`formal-spec/principal-capabilities/README.md`) -- the other two
+(`methodology/software-blutgruppen.md`, `testing-standards.md`) are real concept
+documents that simply have no frontmatter, so a `.conceptignore` would not cover
+them. And because this is first-error-per-file, repairing the leading error may
+expose further errors in the SAME file; the table bounds the number of affected
+files, not the total number of repairs.
 
 **Question:** is §13.9.6's `doc_kind` vocabulary to be EXTENDED (making AK3's own
 corpus a valid FK-13 corpus), or is AK3's development corpus a SEPARATE corpus
@@ -211,9 +303,9 @@ argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
-  after the r4 remediation: **4 failed, 9824 passed, 40 skipped, 521 errors**;
-  total coverage **86.47 %** (gate 85 % reached). The same 4 failures as before,
-  i.e. r4 introduced none.
+  after the r5 remediation: **4 failed, 9851 passed, 40 skipped, 521 errors**;
+  total coverage **85.87 %** (gate 85 % reached). The same 4 failures as before,
+  i.e. neither r4 nor r5 introduced any.
   - The 4 failures are all `tests/unit/concept_toolchain` baseline-digest /
     byte-count drift against the committed blob -- PRE-EXISTING (reproduced at
     `96a21dbb` with this story's files reverted) and named out of scope.
@@ -226,6 +318,14 @@ argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
-- Revert-check: for all 18 r3 findings AND all r4 findings the production fix was
-  temporarily undone and the pinning test confirmed RED (23 + 28 scenarios, all
-  red).
+- Revert-check: for the r3, r4 AND r5 findings each production fix was temporarily
+  undone and the pinning test confirmed RED (23 + 28 + 17 scenarios, all red). Four
+  of the r5 scenarios came back GREEN on the first pass -- those tests were WEAK,
+  are named as such here, and were strengthened until they went red:
+  `N27` vanished-delete fence (the test only proved claim rejection; it now forces
+  an administrative takeover at the claim seam mid-sync), `N29` empty matrix entry
+  (the raise came from an outer guard anyway; it now asserts ZERO mutation of a
+  seeded vanished source), `N29` verify-before-persist (the receipt was verified
+  later regardless; it now asserts a malformed receipt is never stored) and `N26`
+  (a source grep passed without the fix; the authority resolution was extracted so
+  the test drives real production code).
