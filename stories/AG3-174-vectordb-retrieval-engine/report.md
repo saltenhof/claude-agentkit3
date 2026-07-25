@@ -1,23 +1,34 @@
-# AG3-174 — Story Report (post Codex review r7 remediation)
+# AG3-174 — Story Report (post Codex review r8 remediation)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
 - **Status:** implemented, NOT landed (landing gated on AG3-172, orchestrator's
-  job). After the r7 remediation **AC3 and AC6 are met**, so all 12 ACs pass. Open
-  items are Q2 (a PO concept question that does not block) and one PO
-  RE-CONFIRMATION: D9's ratified INVARIANT is unchanged, but the delegated mechanism
-  was replaced (see "Codex review r7 remediation"), and Codex asked for the
-  replacement to be confirmed.
-- **AC3 (story/research indexing): MET.** Story export, split and repair no longer
-  index through a second write path. `WeaviateStoryAdapter.story_sync` is removed and
-  every `StoryContext` producer runs through the claim-aware sync owner, so an
-  exported story is claimed, generation-stamped, completed -- and therefore
-  re-syncable and deletable (N38, proven as export -> resync -> vanished delete).
-- **AC6 (bounded window / concurrency): MET.** A superseded holder can no longer
-  delete a newer generation's data in EITHER race order, and a superseded completion
-  can no longer become freshness-authoritative or prune a valid newer one (N37/N39).
-  Both properties are enforced storage-side against the source's persistent monotonic
-  generation, not by a preceding check.
+  job). **AC6 remains open** (N41/N43 are with the PO) and so does Q2; D9's
+  replacement mechanism still awaits the PO's re-confirmation.
+- **A note on how AC status is reported here.** In r7 this report claimed all 12 ACs.
+  Codex found 9, and it was right: AC3's proof ran through a FIXTURE-shaped identity
+  (the test built its uuid the same wrong way the code did), and AC10 had a fresh
+  coercion regression. From here an AC is only called met when its proof runs through
+  the REAL production path -- the projection, the port, the store and the transport as
+  production wires them -- and not when a fixture agrees with the code.
+- **AC3 (story/research indexing): MET, now on the real path.** Story export, split
+  and repair no longer index through a second write path (`story_sync` is removed from
+  the adapter, N38), and the TYPED identity survives the port (N42): `chunk_id` is
+  carried through instead of being re-derived from `content_hash`, which had made
+  production reject every normally projected story. The proof runs
+  `export_story_md` -> `WeaviateStoryIndex` -> `WeaviateCorpusStore` -> `SyncService`
+  with the double only at the Weaviate client seam, and the objects come from
+  `story_file_to_objects` over a written `story.md`.
+- **AC10 (strict validation): MET again.** The conditional-delete counters were a
+  REGRESSION of R12 -- `getattr(..., 0)`, `or 0`, `int(...)` -- introduced in code
+  written to fix something else. They are now exact: both counters must exist as
+  non-boolean integers, negatives and impossible totals are faults, and a reported
+  failure is fail-closed (N44). A new transport call inherits the AC10 obligation.
+- **AC6 (bounded window / concurrency): NOT met -- with the PO.** The generation
+  model's core holds (Codex confirmed both race orders, the A->B->C chain and the
+  ladder), but the chunk-WRITE race (N41) and the absence of a convergent path for
+  pre-existing unstamped rows (N43) are open. Both are scope questions, so they are
+  deliberately untouched here; the N41 analysis the coordinator asked for is below.
 - **Question ledger.** Every question this story raised is now either ratified and
   implemented, or explicitly out of the story's hands:
 
@@ -574,6 +585,138 @@ unchanged; only the delegated mechanism changed. **The replacement model should 
 re-confirmed by the PO**, as Codex asked -- that confirmation is not something this
 story can grant itself.
 
+## Codex review r8 remediation (N42, N44, N45 + P2-6)
+
+### N44 -- an R12 regression I introduced, in code written to fix something else
+
+The conditional-delete transport read its counters with `getattr(..., 0)`, `or 0` and
+`int(...)`. So `successful="1"` with `failed` ABSENT counted as one fully confirmed
+delete -- exactly the coercive-default pattern this story spent rounds removing. Now
+both counters must be present as exact non-boolean integers, negatives are faults,
+a reported failure is fail-closed, and a count that exceeds the request is rejected as
+impossible rather than accepted as a bonus. Tested for missing / string / float /
+bool / None / negative / over-count, and the strictness is exercised on the REAL
+transport call, not only on the helper.
+
+The lesson recorded for the next round: **a new transport call inherits the AC10
+strictness obligation.** Starting permissive and tightening later is how a closed
+finding comes back.
+
+### N42 -- the typed identity had to survive the port (AC3)
+
+`story_file_to_objects` derives each uuid from `chunk_id = story-<ordinal>-<prefix>`.
+The r7 rewrite flattened the projection into property dicts, so the indexer had to
+re-derive that identity input and substituted `content_hash` -- which makes
+production's identity validation reject EVERY normally projected story. My r7 test
+fabricated its uuid from `content_hash` too, so it agreed with the bug: a
+fixture-shaped proof, the same failure mode as the earlier sham proofs.
+
+The port now carries the TYPED `StoryContextObject` sequence, so `chunk_id` travels
+with the object and nothing is reconstructed. `export_story_md`'s indexing handler
+also catches `SyncError` now -- the index routes through the sync owner, so a rejected
+claim or an unpublishable generation must block the export like a transport fault
+instead of escaping unhandled. The tests build their objects from a written
+`story.md` through the real projection, assert that `chunk_id != content_hash` (so the
+old substitution cannot silently satisfy them), and drive the export end to end.
+
+### N45 -- a failed claim release is no longer silent
+
+`release_source` suppressed availability AND write errors, so a sync could publish its
+completion, fail to persist the release marker, report success -- and leave the source
+HELD until an administrative reclaim nobody could explain. The release is now
+CONFIRMED: a failure raises `ClaimReleaseFailedError`, an already-existing marker is
+success (releasing twice is idempotent), and a store that neither creates nor holds
+the marker is a fault. When the sync ITSELF also failed, its exception stays primary
+and the release failure is attached as a note -- a plain `finally` used to substitute
+the symptom for the diagnosis. Tested after a successful sync, after a failed one, on
+the vanished-delete path, for idempotency and for a denied marker.
+
+### P2-6 -- the race-coverage claim is now precise
+
+An end-to-end order-2 test was added for the `sync_source` entry path: A claims,
+writes, the takeover happens BEFORE A re-reads, so A genuinely reads B's newer rows,
+judges them stale and attempts to delete them -- and the storage condition refuses. For
+the `reconcile_sources` path the "read after the newer write" order is structurally
+impossible: that read happens BEFORE the claim is acquired, and a newer generation can
+only exist via a reclaim OF that claim, so the two orders coincide there. The report
+says exactly that instead of claiming symmetric end-to-end coverage.
+
+## N41 -- analysis for the PO (NOT implemented)
+
+**First, the factual question: is the exposure bounded or indefinite? It is BOUNDED,
+and the rows are already deterministically removable.**
+
+Traced through the code: A's stale rows carry A's `source_file`/`project_id`, so the
+next sync of that source reads them into `persisted`
+(`list_objects_for_source` filters exactly on those two). They are not in that sync's
+`should` set (changed content -> different chunk ids -> different uuids), so they land
+in `stale_rows`; and because the ladder is monotonic, every later claim's generation is
+strictly greater than A's, so the conditional delete MATCHES them. The vanished-source
+path does the same via `list_objects_for_source_types`. So:
+
+- the rows disappear at the **next successful sync of that source** (normal re-sync,
+  full reindex, or the vanished-source delete);
+- they are never "stuck" the way the N43 unstamped rows are -- nothing about them is
+  unorderable;
+- **freshness is not corrupted**: A publishes no completion (the receipt fence rejects
+  it, and even an appended one loses on generation, N39).
+
+**What is genuinely wrong in the meantime** is not removability, it is *misreporting*:
+between A's stale write and the next sync, retrieval returns B's chunks AND A's, so a
+search can surface two contradictory versions of the same section, and
+`story_list_sources` counts the extra chunks -- while `corpus_revision` reports B's
+revision, i.e. a corpus state the stored rows do not match. And FK-13 §13.9.9 plus the
+D9 record still justify this window with "the write is idempotent -- same uuid, same
+content", which is FALSE for changed content. Correcting that text is part of whichever
+shape is chosen, and I have deliberately not corrected it yet, because the honest
+sentence depends on the decision.
+
+**The three shapes, assessed against this seam:**
+
+1. **Make stale-generation writes storage-conditionally impossible.** Not available at
+   this seam. Verified against the pinned client: `data.insert` is conditional on the
+   object ID only, batch `upsert` has no precondition, and `update`/`replace` have
+   none. It could be *emulated* by writing each chunk at a generation-scoped uuid
+   (`uuid5(project|source|chunk|generation)`), which makes every write an immutable
+   conditional create -- but that replaces the deterministic per-chunk identity that
+   the idempotent re-sync, the delete closure and the N42 identity validation are all
+   built on, and it multiplies rows per generation (retrieval would then need
+   deduplication). That is a different data model, i.e. its own story.
+2. **Make stale rows invisible to retrieval.** Mechanically easy (the property is
+   filterable), but the discriminator matters, and this is where I would push back on
+   the obvious choice: **a generation filter is NOT coherent with the freshness model,
+   a `corpus_revision` filter is.** Retrieval spans many sources at once and has no
+   per-source generation bound to compare against, so a generation filter would need
+   one clause per source in scope plus a ladder read per query -- and it would put an
+   internal concurrency ordinal into the query surface, which FK-13 deliberately keeps
+   out (`owning_generation` is documented as no tool's return field). Filtering on the
+   revision the row was written for, against the revision the authoritative completion
+   reports, makes visibility DERIVE from freshness instead of competing with it: A's
+   rows carry a revision that never became authoritative, so they are invisible by
+   construction, with no mutation and no second ordering. The cost is real: retrieval
+   gains a per-query dependency on the completion set, the filter grows with the number
+   of sources in scope, and the rows still exist (so `story_list_sources` counts and
+   any unfiltered reader still see them).
+3. **Keep them deterministically removable after the newer completion.** Per the
+   analysis above this is **already true**; what is missing is promptness and honesty.
+   The minimal concrete form: after publishing its completion, the completing owner
+   performs ONE more conditional sweep of its own source (delete rows of that source
+   with `owning_generation < mine` that are not in its should-set). That is the
+   existing conditional delete, run once more after the completion, so a stale write
+   that landed inside an overlapping window is cleaned immediately instead of at the
+   next sync. It cannot catch a write that lands after that sweep -- that one waits for
+   the next sync, as today. Cost: one extra read plus one conditional delete per source
+   per sync. No new state, no identity change, no retrieval coupling, no query-surface
+   change.
+
+**My recommendation, stated as input and not as a decision:** shape 3 plus the
+corrected FK-13/D9 text. It is the only one of the three that needs no new state, no
+identity change and no coupling of retrieval to the completion set, and it converts the
+open question from "can this be cleaned up" (it can) into "how quickly". Shape 2 is
+worth it only if the PO wants ZERO visible exposure, and then with `corpus_revision`
+as the discriminator, not the generation. Shape 1 should be a separate story if it is
+wanted at all.
+
 ## Ratification needed -- NOT decided in this story
 
 ### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
@@ -673,10 +816,10 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest --cov=agentkit --cov-report=term` (project addopts
-  `-n 4 --dist loadfile`) -- after the r7 remediation: **4 failed, 9922 passed,
-  40 skipped, 521 errors**; total coverage **86.71 %**, AG3-174 modules **93.90 %**
+  `-n 4 --dist loadfile`) -- after the r8 remediation: **4 failed, 9942 passed,
+  40 skipped, 521 errors**; total coverage **86.71 %**, AG3-174 modules **93.21 %**
   (gate 85 % reached, with margin). The same 4 failures as in every earlier round,
-  i.e. none of r4, r5, r6, r7, D7, D8 or D9 introduced any.
+  i.e. none of r4-r8 or D7-D9 introduced any.
   - **Correction, stated plainly:** the coverage figures reported in the r5, D7, r6
     and D8 rounds (85.87 / 85.69 / 85.64 / 85.53 %) are NOT trustworthy and are
     withdrawn. The project's `addopts` contain no `--cov`, so a plain `pytest` run
@@ -705,6 +848,13 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for r8 (10 scenarios, all RED): the coercive delete counters (missing,
+  string, float, bool, None -- on the helper AND on the real transport call), the
+  negative-count guard, the impossible-total guard, the confirmed claim release (after a
+  successful sync and on the vanished path), the denied release marker, the primary
+  sync fault surviving a release failure, the typed identity through the export port,
+  the export's `SyncError` handler, the index not re-deriving `chunk_id`, and the
+  end-to-end order-2 conditional delete.
 - Revert-check for r7 (13 scenarios, all RED): the delete ordering against an
   OBSERVED value instead of the deleter's own generation (both race orders + the
   mid-window path), a destructive release resetting the ladder, a released generation
