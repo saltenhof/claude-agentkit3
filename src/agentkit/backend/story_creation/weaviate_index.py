@@ -26,7 +26,6 @@ from agentkit.backend.vectordb.engine import (
     WeaviateCorpusStore,
     ensure_corpus_collections,
 )
-from agentkit.backend.vectordb.schema import StoryContextObject
 from agentkit.backend.vectordb.sync import SyncService
 from agentkit.concepts.hashing import corpus_revision
 from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
@@ -34,6 +33,7 @@ from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableErro
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from agentkit.backend.vectordb.schema import StoryContextObject
     from agentkit.integration_clients.vectordb import WeaviateStoryAdapter
 
 
@@ -76,7 +76,7 @@ class WeaviateStoryIndex:
         *,
         story_id: str,
         project_id: str,
-        objects: Sequence[dict[str, object]],
+        objects: Sequence[StoryContextObject],
     ) -> int:
         """Index/update the story chunks through the sync owner (FK-21 §21.11.4).
 
@@ -89,7 +89,10 @@ class WeaviateStoryIndex:
             project_id: Bound multi-tenant discriminator. Each object's
                 ``project_id`` MUST match (N06) -- a divergent/missing object
                 project_id is REJECTED (never silently overwritten).
-            objects: The full StoryContext objects to index (deterministic UUIDs).
+            objects: The TYPED StoryContext projection. Its ``chunk_id`` is the
+                identity input the deterministic uuid was derived from and is passed
+                through UNCHANGED (N42) -- reconstructing it here produced uuids the
+                production identity validation rejects.
 
         Returns:
             The number of objects written.
@@ -106,15 +109,13 @@ class WeaviateStoryIndex:
             raise ValueError("project_id is empty; cannot index (N06).")
         by_source: dict[str, list[StoryContextObject]] = {}
         for obj in objects:
-            obj_pid = str(obj.get("project_id", ""))
+            obj_pid = str(obj.properties.get("project_id", ""))
             if obj_pid != project_id:
                 raise ValueError(
                     f"object project_id {obj_pid!r} diverges from the bound "
                     f"{project_id!r}; cross-project indexing rejected (N06)."
                 )
-            by_source.setdefault(_require(obj, "source_file"), []).append(
-                _as_corpus_object(obj)
-            )
+            by_source.setdefault(_require(obj, "source_file"), []).append(obj)
         written = 0
         for source_file, chunks in sorted(by_source.items()):
             revision = corpus_revision(
@@ -131,25 +132,15 @@ class WeaviateStoryIndex:
         return written
 
 
-def _require(obj: dict[str, object], key: str) -> str:
+def _require(obj: StoryContextObject, key: str) -> str:
     """Return a mandatory non-empty string property (no repair default)."""
-    value = obj.get(key)
+    value = obj.properties.get(key)
     if not isinstance(value, str) or not value:
         raise ValueError(
             f"story object is missing a usable {key!r} ({value!r}); it cannot be "
             "claimed or completed (fail-closed, N38)."
         )
     return value
-
-
-def _as_corpus_object(obj: dict[str, object]) -> StoryContextObject:
-    """Rebuild the transport dict as the typed corpus object the sync owner takes."""
-    properties = {k: v for k, v in obj.items() if k != "uuid"}
-    return StoryContextObject(
-        uuid=_require(obj, "uuid"),
-        chunk_id=_require(obj, "content_hash"),
-        properties=properties,
-    )
 
 
 __all__ = ["WeaviateStoryIndex"]

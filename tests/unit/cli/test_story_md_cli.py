@@ -150,10 +150,10 @@ def test_export_story_md_success_prints_result_and_exit_0(
     # R04: the indexed objects carry the PROJECT-RELATIVE canonical source path
     # and the authoritative project id -- never an absolute path.
     assert index.calls == [("AK3-042", "AK3")]
-    assert {str(o["source_file"]) for o in index.objects} == {
+    assert {str(o.properties["source_file"]) for o in index.objects} == {
         "stories/AK3-042/story.md"
     }
-    assert all(o["project_id"] == "AK3" for o in index.objects)
+    assert all(o.properties["project_id"] == "AK3" for o in index.objects)
     assert payload["error"] == ""
     assert payload["file_size_bytes"] > 500
     assert set(payload) == {"success", "story_md_path", "file_size_bytes", "error"}

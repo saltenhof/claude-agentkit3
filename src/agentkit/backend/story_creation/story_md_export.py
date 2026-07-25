@@ -27,6 +27,7 @@ from agentkit.backend.vectordb.ingest.classify import (
 from agentkit.backend.vectordb.ingest.classify import (
     STORY_DIR_RE as _STORY_DIR_RE,
 )
+from agentkit.backend.vectordb.sync import SyncError
 from agentkit.integration_clients.vectordb import VectorDbError
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.story_context_manager.story_model import Story, StorySpecification
+    from agentkit.backend.vectordb.schema import StoryContextObject
 
 #: Minimum acceptable ``story.md`` size in bytes (FK-21 §21.11.5).
 MIN_STORY_MD_BYTES = 500
@@ -89,9 +91,15 @@ class StoryIndexPort(Protocol):
     """
 
     def index_story(
-        self, *, story_id: str, project_id: str, objects: Sequence[dict[str, object]]
+        self, *, story_id: str, project_id: str, objects: Sequence[StoryContextObject]
     ) -> int:
-        """Index the story chunks; return the count written. Raises on failure."""
+        """Index the story chunks; return the count written. Raises on failure.
+
+        The objects are the TYPED projection (N42). Flattening them to property dicts
+        dropped ``chunk_id``, and the indexer then had to re-derive that identity input
+        -- which produced uuids the production identity validation rejects for every
+        normally projected story. The identity now travels with the object.
+        """
         ...
 
 
@@ -266,7 +274,7 @@ def _story_index_objects(
     story: Story,
     story_md_path: Path,
     source_file: str,
-) -> list[dict[str, object]]:
+) -> list[StoryContextObject]:
     """Build the indexing payload via the typed AG3-174 story-ingest projection (R04).
 
     Re-chunks the WRITTEN ``story.md`` through the SSOT chunker so every object
@@ -285,7 +293,10 @@ def _story_index_objects(
             obj.properties["module"] = story.module
         if story.epic:
             obj.properties["epic"] = story.epic
-    return [{**obj.properties, "uuid": obj.uuid} for obj in objects]
+    # The TYPED objects are handed on unchanged (N42): ``chunk_id`` is the input the
+    # deterministic uuid was derived from, so flattening them here would force the
+    # indexer to guess it back and produce identities production rejects.
+    return objects
 
 
 def _validate_frontmatter(text: str) -> str | None:
@@ -426,7 +437,11 @@ def export_story_md(
             project_id=project_id,
             objects=objects,
         )
-    except VectorDbError as exc:
+    except (VectorDbError, SyncError) as exc:
+        # SyncError too (N42): the index routes through the claim-aware sync
+        # owner, so a rejected claim, an unpublishable generation or a superseded
+        # window arrives as a SyncError -- and it must block the export exactly
+        # like a transport fault instead of escaping unhandled.
         indexing_error = f"Weaviate indexing failed: {exc} (fail-closed: indexing " \
             "failure blocks the export, no catch-up path, FK-21 §21.11.4)"
         return StoryMdExportResult(

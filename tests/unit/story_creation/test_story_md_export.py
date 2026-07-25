@@ -11,6 +11,10 @@ import inspect
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.unit.vectordb.corpus_doubles import (
+    RecordingWeaviateClient,
+    corpus_store,
+)
 
 from agentkit.backend.story_context_manager.story_model import (
     Story,
@@ -22,8 +26,10 @@ from agentkit.backend.story_creation.story_md_export import (
     canonical_story_source_file,
     export_story_md,
 )
+from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
 from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
-from agentkit.backend.vectordb.schema import deterministic_uuid
+from agentkit.backend.vectordb.schema import OWNING_GENERATION_PROPERTY, StoryContextObject, deterministic_uuid
+from agentkit.backend.vectordb.sync import SyncService
 from agentkit.integration_clients.vectordb import VectorDbWriteError
 
 if TYPE_CHECKING:
@@ -64,13 +70,16 @@ class _FakeAttrs:
 
 
 class _OkIndex:
+    """Records the TYPED projection the export hands to the index port (N42)."""
+
     def __init__(self) -> None:
         self.calls: list[str] = []
-        self.last_objects: list[dict[str, object]] = []
+        self.last_objects: list[StoryContextObject] = []
 
     def index_story(self, *, story_id: str, project_id: str, objects: object) -> int:
+        del project_id
         self.calls.append(story_id)
-        self.last_objects = list(objects) if isinstance(objects, list) else []  # type: ignore[arg-type]
+        self.last_objects = list(objects)  # type: ignore[arg-type]
         return len(self.last_objects)
 
 
@@ -117,23 +126,27 @@ def test_export_success_writes_frontmatter_and_indexes(tmp_path: Path) -> None:
     # minimal problem/solution shape.
     assert index.last_objects
     obj = index.last_objects[0]
-    assert obj["project_id"] == "acme"
-    assert obj["source_type"] == "story"
-    assert "content" in obj and obj["content"]
-    assert "content_hash" in obj and obj["content_hash"]
-    assert "section_heading" in obj
-    assert "uuid" in obj
+    props = obj.properties
+    assert props["project_id"] == "acme"
+    assert props["source_type"] == "story"
+    assert props["content"]
+    assert props["content_hash"]
+    assert "section_heading" in props
+    # N42: the identity travels as the TYPED object -- uuid AND the chunk_id it was
+    # derived from -- instead of being flattened into a property dict.
+    assert obj.uuid
+    assert obj.chunk_id
     # R04: the REAL caller indexes the PROJECT-RELATIVE canonical corpus path and
     # the REAL title/status from the exported frontmatter -- not an absolute path
     # and not the story id as a stand-in title.
     rel = "stories/AK3-042/story.md"
     assert canonical_story_source_file(story_dir, "AK3-042", tmp_path) == rel
-    assert {str(o["source_file"]) for o in index.last_objects} == {rel}
-    assert obj["title"] == "Implement broker adapter"
-    assert obj["status"] == "Backlog"
-    assert obj["story_type"] == "implementation"
-    assert obj["module"] == "backend/app"
-    assert obj["epic"] == "payments"
+    assert {str(o.properties["source_file"]) for o in index.last_objects} == {rel}
+    assert props["title"] == "Implement broker adapter"
+    assert props["status"] == "Backlog"
+    assert props["story_type"] == "implementation"
+    assert props["module"] == "backend/app"
+    assert props["epic"] == "payments"
     # The uuid is the deterministic identity of the RELATIVE path.
     # ...and the exported frontmatter itself carries the real metadata (R04).
     assert "title: Implement broker adapter" in md
@@ -156,9 +169,16 @@ def test_r04_indexed_identity_is_derived_from_the_relative_path(tmp_path: Path) 
     assert result.success is True
     rel = canonical_story_source_file(story_dir, "AK3-042", tmp_path)
     reprojected = story_file_to_objects("acme", story_dir / "story.md", source_file=rel)
-    assert {o.uuid for o in reprojected} == {str(o["uuid"]) for o in index.last_objects}
+    assert {o.uuid for o in reprojected} == {o.uuid for o in index.last_objects}
     for obj in reprojected:
         assert obj.uuid == deterministic_uuid("acme", rel, obj.chunk_id)
+    # N42: the identity INPUT travels with the object. Flattening the projection to
+    # property dicts dropped `chunk_id`, and any reconstruction from another field
+    # (e.g. content_hash) yields uuids the production identity check rejects.
+    assert {o.chunk_id for o in index.last_objects} == {o.chunk_id for o in reprojected}
+    for obj in index.last_objects:
+        assert obj.uuid == deterministic_uuid("acme", rel, obj.chunk_id)
+        assert obj.chunk_id != str(obj.properties["content_hash"])
 
 
 def test_n21_directory_outside_a_stories_root_is_rejected(tmp_path: Path) -> None:
@@ -450,3 +470,91 @@ def test_n26_split_composition_indexes_under_the_authoritative_project_id(
     assert "project_id = project_key" not in source
     assert "resolve_split_export_project_id(project_root)" in source
     assert source.count("project_id=project_id") == 2  # both export paths
+
+
+# --------------------------------------------------------------------------- #
+# N42: the REAL export -> REAL index -> REAL store chain
+#
+# The previous proof fabricated its uuid from `content_hash`, which is exactly the
+# substitution the production identity validation rejects -- a fixture-only shape. The
+# double here sits at the Weaviate CLIENT seam, so `story_file_to_objects`, the port,
+# `WeaviateStoryIndex`, `WeaviateCorpusStore` and `SyncService` all run for real.
+# --------------------------------------------------------------------------- #
+
+
+def _real_index(client: RecordingWeaviateClient) -> WeaviateStoryIndex:
+    class _Adapter:
+        @property
+        def corpus_client(self) -> object:
+            return client
+
+    return WeaviateStoryIndex(
+        _Adapter(),  # type: ignore[arg-type]
+        sync=SyncService(store=corpus_store(client)),
+    )
+
+
+def test_n42_the_real_export_path_passes_the_production_identity_check(
+    tmp_path: Path,
+) -> None:
+    """A normally projected story must be indexable -- identity included."""
+    client = RecordingWeaviateClient()
+    story_dir = _story_dir(tmp_path)
+    result = export_story_md(
+        "AK3-042",
+        story_dir,
+        project_id="acme",
+        project_root=tmp_path,
+        story_attributes=_FakeAttrs((_story(), _spec())),
+        index=_real_index(client),
+    )
+    assert result.success is True, result.error
+    assert client.objects, "the real export must actually index its chunks"
+    rel = canonical_story_source_file(story_dir, "AK3-042", tmp_path)
+    expected = story_file_to_objects("acme", story_dir / "story.md", source_file=rel)
+    assert set(client.objects) == {o.uuid for o in expected}
+    # ... written under a claim, generation-stamped, with a published completion.
+    for props in client.objects.values():
+        assert props[OWNING_GENERATION_PROPERTY] == 1
+    receipt = corpus_store(client).get_receipt(project_id="acme", source_file=rel)
+    assert receipt is not None and receipt.source_type == "story"
+
+
+def test_n42_a_sync_fault_blocks_the_export_instead_of_escaping(tmp_path: Path) -> None:
+    """The export's handler must catch SyncError too, not only VectorDbError."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    story_dir = _story_dir(tmp_path)
+    rel = canonical_story_source_file(story_dir, "AK3-042", tmp_path)
+    # Another writer holds the source, so the export's claim is rejected (D3).
+    held = store.try_claim_source(
+        project_id="acme", source_file=rel, owner_id="other-writer"
+    )
+    assert held is not None
+    index = WeaviateStoryIndex(
+        _StubAdapter(client),  # type: ignore[arg-type]
+        sync=SyncService(store=store, owner_id="exporter"),
+    )
+    result = export_story_md(
+        "AK3-042",
+        story_dir,
+        project_id="acme",
+        project_root=tmp_path,
+        story_attributes=_FakeAttrs((_story(), _spec())),
+        index=index,
+    )
+    assert result.success is False
+    assert "indexing failed" in result.error
+    assert "concurrent sync" in result.error
+    assert client.objects == {}, "a blocked export indexes nothing"
+
+
+class _StubAdapter:
+    """Only the connection-ownership surface the index needs."""
+
+    def __init__(self, client: object) -> None:
+        self._client = client
+
+    @property
+    def corpus_client(self) -> object:
+        return self._client
