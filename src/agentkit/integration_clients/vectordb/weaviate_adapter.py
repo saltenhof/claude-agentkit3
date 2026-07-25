@@ -743,6 +743,7 @@ class _RealWeaviateClient:
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str = "self_provided",
         vectorizer_model: Mapping[str, object] | None = None,
+        vector_source_properties: Sequence[str] | None = None,
     ) -> None:
         """Create OR VERIFY a collection against the schema-owner's specs (R02/N12).
 
@@ -752,10 +753,12 @@ class _RealWeaviateClient:
         An EXISTING collection is not accepted blindly (N12): the FULL read-back
         configuration is compared against the schema SSOT -- property names, data
         types, per-property vectorisation, TOKENISATION, searchability,
-        filterability and the named-vector settings. Any drift fails closed;
-        otherwise a collection whose narrative fields are whole-value tokenised
-        (so ``keyword`` search cannot match a word inside them, N18) would pass
-        composition and only fail semantically at query time.
+        filterability and ALL behaviour-defining named-vector settings, i.e. the
+        vectorizer, its ``model`` AND its ``source_properties`` (N35). Any drift
+        fails closed; otherwise a collection whose narrative fields are whole-value
+        tokenised (so ``keyword`` search cannot match a word inside them, N18), or
+        one that embeds only ``title`` instead of the narrative properties (N35),
+        would pass composition and only fail semantically at query time.
         """
         from weaviate.classes.config import (  # noqa: PLC0415 (transport dependency)
             Configure,
@@ -767,7 +770,12 @@ class _RealWeaviateClient:
         collections = self._connection.collections  # type: ignore[attr-defined]
         if collections.exists(collection):
             self._verify_existing_collection(
-                collections, collection, property_specs, vectorizer, vectorizer_model or {}
+                collections,
+                collection,
+                property_specs,
+                vectorizer,
+                vectorizer_model or {},
+                vector_source_properties,
             )
             return
         type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
@@ -803,6 +811,14 @@ class _RealWeaviateClient:
             vector_config = Configure.Vectors.text2vec_transformers(
                 pooling_strategy=pooling,  # type: ignore[arg-type]  # validated above
                 vectorize_collection_name=bool(model.get("vectorizeClassName", False)),
+                # The embedding must be built from the SSOT-selected narrative
+                # properties, declared EXPLICITLY so a later read-back can prove it
+                # (N35) instead of relying on a server-side default.
+                source_properties=(
+                    list(vector_source_properties)
+                    if vector_source_properties is not None
+                    else None
+                ),
             )
         else:
             vector_config = Configure.Vectors.self_provided()
@@ -819,8 +835,9 @@ class _RealWeaviateClient:
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str,
         vectorizer_model: Mapping[str, object],
+        vector_source_properties: Sequence[str] | None = None,
     ) -> None:
-        """Fail closed when an existing collection drifts from the SSOT (N12/N18)."""
+        """Fail closed when an existing collection drifts from the SSOT (N12/N18/N35)."""
         try:
             config = collections.get(collection).config.get()
         except Exception as exc:  # noqa: BLE001 -- unreadable config is fail-closed
@@ -849,6 +866,18 @@ class _RealWeaviateClient:
                     f"schema SSOT: {model_drift}; fail-closed (N12/N30: the pooling "
                     "strategy and vectorizeClassName are part of the contract -- a "
                     "drifted model silently changes every embedding)."
+                )
+        if vector_source_properties is not None:
+            configured_sources = configured_vector_source_properties(config)
+            expected_sources = tuple(vector_source_properties)
+            if configured_sources is not None and configured_sources != expected_sources:
+                raise VectorDbWriteError(
+                    f"collection {collection!r} vectorizer SOURCE PROPERTIES drifted "
+                    f"from the schema SSOT: expected {list(expected_sources)}, "
+                    f"configured {list(configured_sources)}; fail-closed (N35: the "
+                    "source properties decide WHAT is embedded -- a collection that "
+                    "vectorises only the title answers semantic search from titles "
+                    "alone while pooling and vectorizeClassName still match)."
                 )
         expected = {str(spec["name"]): _expected_property_view(spec) for spec in property_specs}
         configured = _configured_properties(config)
@@ -1005,6 +1034,38 @@ def configured_vectorizer_model(config: Any) -> dict[str, object]:
     return model
 
 
+def configured_vector_source_properties(config: Any) -> tuple[str, ...] | None:
+    """Return the named-vector ``source_properties`` of an existing collection (N35).
+
+    ``_NamedVectorizerConfig`` has exactly three behaviour-defining fields in the
+    pinned client -- ``vectorizer``, ``model`` and ``source_properties``. The model
+    check alone let a collection that vectorises only ``title`` pass as long as
+    pooling and ``vectorizeClassName`` matched, so the SOURCE PROPERTIES are read
+    back and compared too.
+
+    Args:
+        config: A read-back collection configuration.
+
+    Returns:
+        The EXPLICITLY configured source properties in their configured order, or
+        ``None`` when no named vector declares a selection. ``None`` is not drift:
+        the client reports ``source_properties=None`` when the server derives the
+        set from the per-property ``skip_vectorization`` flags, and those are
+        already verified property by property. An EXPLICIT selection, however, can
+        contradict the schema and is compared.
+    """
+    names: list[str] = []
+    explicit = False
+    for entry in _vector_config_entries(config):
+        inner = getattr(entry, "vectorizer", None)
+        raw = getattr(inner, "source_properties", None)
+        if raw is None:
+            continue
+        explicit = True
+        names.extend(str(name) for name in raw)
+    return tuple(names) if explicit else None
+
+
 def _vector_config_entries(config: Any) -> list[Any]:
     """Return the named-vector config entries of a read-back collection config."""
     vector_config = getattr(config, "vector_config", None)
@@ -1116,6 +1177,7 @@ def _project_filter(project_id: str) -> object:
 
 __all__ = [
     "DEFAULT_SEARCH_LIMIT",
+    "configured_vector_source_properties",
     "configured_vectorizer_model",
     "DEFAULT_SEARCH_MODE",
     "FETCH_PAGE_SIZE",

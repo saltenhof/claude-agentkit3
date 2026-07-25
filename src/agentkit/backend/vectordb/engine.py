@@ -127,6 +127,7 @@ class CorpusClientPort(Protocol):
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str = ...,
         vectorizer_model: Mapping[str, object] | None = ...,
+        vector_source_properties: Sequence[str] | None = ...,
     ) -> None: ...
 
 
@@ -743,6 +744,7 @@ def compose_runtime(
     # ``ensure_collection`` materialises it. Created via the port (not raw
     # ``.collections``) so it works through the CorpusClientPort boundary.
     from agentkit.backend.vectordb.schema import (
+        FK13_VECTOR_SOURCE_PROPERTIES,
         FK13_VECTORIZER,
         FK13_VECTORIZER_MODEL,
         weaviate_property_specs,
@@ -753,6 +755,7 @@ def compose_runtime(
         property_specs=weaviate_property_specs(),
         vectorizer=FK13_VECTORIZER,
         vectorizer_model=FK13_VECTORIZER_MODEL,
+        vector_source_properties=FK13_VECTOR_SOURCE_PROPERTIES,
     )
     # The receipt + claim collections are auxiliary (no vectors); their creation
     # is NOT suppressed -- a failure to ensure them must surface fail-closed

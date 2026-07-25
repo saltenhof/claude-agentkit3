@@ -51,6 +51,7 @@ from agentkit.integration_clients.vectordb.errors import (
 )
 from agentkit.integration_clients.vectordb.weaviate_adapter import (
     _RealWeaviateClient,
+    configured_vector_source_properties,
     configured_vectorizer_model,
 )
 
@@ -524,15 +525,20 @@ def _schema_properties() -> list[_Property]:
 
 
 def _ensure(config: _ConfigView, vectorizer: str) -> None:
-    """Verify an EXISTING collection against the schema SSOT (incl. the model)."""
-    from agentkit.backend.vectordb.schema import FK13_VECTORIZER_MODEL
+    """Verify an EXISTING collection against the schema SSOT (model + sources)."""
+    from agentkit.backend.vectordb.schema import (
+        FK13_VECTOR_SOURCE_PROPERTIES,
+        FK13_VECTORIZER_MODEL,
+    )
 
+    server_side = vectorizer == "text2vec_transformers"
     client = _client(_collection(config=config), existing={STORY_CONTEXT_COLLECTION})
     client.ensure_collection(
         collection=STORY_CONTEXT_COLLECTION,
         property_specs=weaviate_property_specs(),
         vectorizer=vectorizer,
-        vectorizer_model=FK13_VECTORIZER_MODEL if vectorizer == "text2vec_transformers" else None,
+        vectorizer_model=FK13_VECTORIZER_MODEL if server_side else None,
+        vector_source_properties=FK13_VECTOR_SOURCE_PROPERTIES if server_side else None,
     )
 
 
@@ -566,6 +572,8 @@ def test_n12_matching_existing_collection_is_accepted() -> None:
 
 def _named_vector_config(
     vectorizer: Vectorizers = Vectorizers.TEXT2VEC_TRANSFORMERS,
+    *,
+    source_properties: list[str] | None = None,
     **model: object,
 ) -> dict[str, _NamedVectorConfig]:
     """Build the REAL read-back named-vector config of the installed client (N30).
@@ -573,7 +581,9 @@ def _named_vector_config(
     The previous test fabricated an object exposing ``vectorize_collection_name``,
     an attribute ``_NamedVectorizerConfig`` does NOT have -- which is exactly how
     the production check could look at the wrong place and still pass. Everything
-    here comes from the installed classes.
+    here comes from the installed classes, and ALL THREE of the class's
+    behaviour-defining fields (``vectorizer``, ``model``, ``source_properties``) are
+    settable so each of them can be drifted independently (N35).
     """
     settings: dict[str, object] = {
         "poolingStrategy": "masked_mean",
@@ -583,7 +593,7 @@ def _named_vector_config(
     return {
         "default": _NamedVectorConfig(
             vectorizer=_NamedVectorizerConfig(
-                vectorizer=vectorizer, model=settings, source_properties=None
+                vectorizer=vectorizer, model=settings, source_properties=source_properties
             ),
             vector_index_config=None,
         )
@@ -684,6 +694,147 @@ def test_n30_created_collection_uses_the_ssot_model() -> None:
     inner = created.vectorizer  # type: ignore[union-attr]
     assert inner.poolingStrategy == FK13_VECTORIZER_MODEL["poolingStrategy"]
     assert inner.vectorizeClassName == FK13_VECTORIZER_MODEL["vectorizeClassName"]
+
+
+# --------------------------------------------------------------------------- #
+# N35: source_properties decide WHAT is embedded and are part of the contract
+# --------------------------------------------------------------------------- #
+
+
+def test_n35_source_properties_are_read_from_the_installed_named_config() -> None:
+    """The read-back projection returns the EXPLICIT selection, in order."""
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=None,
+        vector_config=_named_vector_config(source_properties=["content", "title"]),
+    )
+    assert configured_vector_source_properties(config) == ("content", "title")
+
+
+def test_n35_matching_explicit_source_properties_are_accepted() -> None:
+    """A collection that embeds exactly the SSOT-selected properties passes."""
+    from agentkit.backend.vectordb.schema import FK13_VECTOR_SOURCE_PROPERTIES
+
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=None,
+        vector_config=_named_vector_config(
+            source_properties=list(FK13_VECTOR_SOURCE_PROPERTIES)
+        ),
+    )
+    _ensure(config, "text2vec_transformers")  # no raise
+
+
+@pytest.mark.parametrize(
+    "drifted",
+    [
+        pytest.param(["title"], id="title-only"),
+        pytest.param(["content"], id="body-only"),
+        pytest.param(["content", "title", "section_heading", "module"], id="extra-property"),
+        pytest.param(["title", "content", "section_heading"], id="reordered"),
+        pytest.param([], id="nothing-vectorised"),
+    ],
+)
+def test_n35_drifted_source_properties_fail_closed(drifted: list[str]) -> None:
+    """Pooling + vectorizeClassName matching is NOT enough (N35).
+
+    This is the exact hole: a collection configured to embed only ``title`` passed
+    composition because the model settings were identical, and semantic search then
+    answered from titles alone.
+    """
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=None,
+        vector_config=_named_vector_config(source_properties=drifted),
+    )
+    with pytest.raises(VectorDbWriteError, match="SOURCE PROPERTIES drifted"):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n35_drift_is_caught_even_when_the_model_is_perfect() -> None:
+    """Isolate the finding: ONLY source_properties differ, everything else matches."""
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=None,
+        vector_config=_named_vector_config(source_properties=["title"]),
+    )
+    assert configured_vectorizer_model(config) == {
+        "poolingStrategy": "masked_mean",
+        "vectorizeClassName": False,
+    }
+    with pytest.raises(VectorDbWriteError, match="vectorises only the title"):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n35_absent_selection_is_governed_by_the_per_property_skip_flags() -> None:
+    """``source_properties=None`` is the server-derived set, not drift.
+
+    The client reports ``None`` when the server derives the embedded set from the
+    per-property ``skip_vectorization`` flags -- and those are verified property by
+    property by the same call, so treating ``None`` as drift would reject a
+    correctly configured collection. Deliberate, and pinned here so the semantics
+    cannot be changed silently.
+    """
+    config = _ConfigView(
+        properties=_schema_properties(), vectorizer=None,
+        vector_config=_named_vector_config(source_properties=None),
+    )
+    assert configured_vector_source_properties(config) is None
+    _ensure(config, "text2vec_transformers")  # no raise
+    # ... and the skip flags themselves are still enforced: flipping the body to
+    # "skip" is caught, so nothing about WHAT is embedded goes unchecked.
+    props = _schema_properties()
+    props[0] = _read_property(str(props[0].name), DataType.TEXT, skip_vectorization=True)
+    drifted = _ConfigView(
+        properties=props, vectorizer=None,
+        vector_config=_named_vector_config(source_properties=None),
+    )
+    with pytest.raises(VectorDbWriteError, match="skip_vectorization"):
+        _ensure(drifted, "text2vec_transformers")
+
+
+def test_n35_created_collection_declares_the_ssot_source_properties() -> None:
+    """Creation declares the selection EXPLICITLY so a read-back can prove it.
+
+    The installed client puts the selection in DIFFERENT places on the two sides:
+    the create model ``_VectorConfigCreate`` carries it as ``properties`` (the inner
+    ``_Text2VecTransformersConfig`` has no such field at all), while the read model
+    exposes it as ``_NamedVectorizerConfig.source_properties``. Asserted against the
+    real create model rather than against an assumed attribute name.
+    """
+    from agentkit.backend.vectordb.schema import (
+        FK13_VECTOR_SOURCE_PROPERTIES,
+        FK13_VECTORIZER_MODEL,
+    )
+
+    collections = _FakeCollections(collection=_collection())
+    client = _RealWeaviateClient(_FakeConnection(collections))
+    client.ensure_collection(
+        collection=STORY_CONTEXT_COLLECTION,
+        property_specs=weaviate_property_specs(),
+        vectorizer="text2vec_transformers",
+        vectorizer_model=FK13_VECTORIZER_MODEL,
+        vector_source_properties=FK13_VECTOR_SOURCE_PROPERTIES,
+    )
+    created = collections.created[0]["vector_config"]
+    assert created.properties == list(FK13_VECTOR_SOURCE_PROPERTIES)  # type: ignore[union-attr]
+    assert not hasattr(created.vectorizer, "sourceProperties")  # type: ignore[union-attr]
+
+
+def test_n35_ssot_source_properties_are_the_vectorised_schema_properties() -> None:
+    """The list is DERIVED from the schema, never hand-maintained beside it."""
+    from agentkit.backend.vectordb.schema import (
+        FK13_VECTOR_SOURCE_PROPERTIES,
+        weaviate_property_specs,
+    )
+
+    derived = tuple(
+        str(spec["name"])
+        for spec in weaviate_property_specs()
+        if not bool(spec["skip_vectorization"])
+    )
+    assert derived == FK13_VECTOR_SOURCE_PROPERTIES
+    assert derived  # a corpus that embeds nothing would be a broken schema
 
 
 def test_n12_creation_uses_the_fk13_server_side_vectorizer() -> None:

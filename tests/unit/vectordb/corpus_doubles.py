@@ -246,12 +246,19 @@ class RecordingWeaviateClient:
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str = "self_provided",
         vectorizer_model: Mapping[str, object] | None = None,
+        vector_source_properties: Sequence[str] | None = None,
     ) -> None:
         self.ensure_calls.append(
             {
                 "collection": collection,
                 "vectorizer": vectorizer,
                 "vectorizer_model": dict(vectorizer_model or {}),
+                # What the embedding is built FROM is part of the contract (N35).
+                "vector_source_properties": (
+                    tuple(vector_source_properties)
+                    if vector_source_properties is not None
+                    else None
+                ),
                 "properties": tuple(str(s["name"]) for s in property_specs),
             }
         )
@@ -264,7 +271,9 @@ def corpus_store(
 ) -> WeaviateCorpusStore:
     """Build the REAL production store over the recording client double.
 
-    ``clock`` drives the bounded claim lease (N15) deterministically.
+    ``clock`` drives the claim/completion TIMESTAMPS deterministically. A claim
+    never expires (N27): the timestamp is diagnostic, there is no lease, and only
+    an explicit administrative reclaim releases a held claim.
     """
     store = WeaviateCorpusStore(client=client or RecordingWeaviateClient())
     if clock is not None:

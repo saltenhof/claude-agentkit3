@@ -32,7 +32,11 @@ from agentkit.backend.vectordb.engine import (
 )
 from agentkit.backend.vectordb.mcp_server import McpToolService, handle_tool_call
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
-from agentkit.backend.vectordb.schema import STORY_CONTEXT_COLLECTION
+from agentkit.backend.vectordb.schema import (
+    FK13_VECTOR_SOURCE_PROPERTIES,
+    FK13_VECTORIZER_MODEL,
+    STORY_CONTEXT_COLLECTION,
+)
 from agentkit.backend.vectordb.sync import (
     ConcurrentSyncRejectedError,
     PartialWriteError,
@@ -697,6 +701,12 @@ def test_r07_cli_sync_runs_real_factory_and_writes(
     ensured = {c["collection"]: c["vectorizer"] for c in recording.ensure_calls}
     assert ensured[STORY_CONTEXT_COLLECTION] == "text2vec_transformers"  # FK-13 §13.2
     assert ensured[RECEIPT_COLLECTION] == "self_provided"
+    # The REAL composition declares WHAT is embedded, from the schema SSOT (N35).
+    story_call = next(
+        c for c in recording.ensure_calls if c["collection"] == STORY_CONTEXT_COLLECTION
+    )
+    assert story_call["vector_source_properties"] == FK13_VECTOR_SOURCE_PROPERTIES
+    assert story_call["vectorizer_model"] == FK13_VECTORIZER_MODEL
 
 
 # --------------------------------------------------------------------------- #

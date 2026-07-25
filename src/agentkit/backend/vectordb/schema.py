@@ -294,6 +294,20 @@ FK13_VECTORIZER_MODEL: Final[dict[str, object]] = {
 }
 
 
+#: The properties the embedding is built FROM, in schema order (N35).
+#:
+#: The named-vector configuration carries a ``source_properties`` list that selects
+#: which properties feed the embedding. It is as behaviour-defining as the pooling
+#: strategy: a collection configured to vectorise only ``title`` produces embeddings
+#: that no longer represent the chunk body, and semantic search then silently
+#: answers from titles alone -- while pooling and ``vectorizeClassName`` still match.
+#: The list is therefore derived from THIS SSOT (exactly the properties declared
+#: ``vectorized``) and compared against the named-vector read-back.
+FK13_VECTOR_SOURCE_PROPERTIES: Final[tuple[str, ...]] = tuple(
+    spec.name for spec in STORY_CONTEXT_PROPERTIES if spec.vectorized
+)
+
+
 def property_data_type(name: str) -> str:
     """Return the declared Weaviate data type of a schema property.
 
@@ -324,6 +338,7 @@ def search_property_spec(source_type: str) -> tuple[tuple[str, str, bool], ...]:
 __all__ = [
     "FK13_VECTORIZER",
     "FK13_VECTORIZER_MODEL",
+    "FK13_VECTOR_SOURCE_PROPERTIES",
     "REQUIRED_OBJECT_FIELDS",
     "REQUIRED_SEARCH_PROPERTIES",
     "SOURCE_TYPES",
