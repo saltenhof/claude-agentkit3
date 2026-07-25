@@ -2,7 +2,8 @@ story_id: AG3-164
 story_title_short: "are-mcp-phantom-registration"
 title: "Generischer MCP-Conformance-Check als Registrierungsvorbedingung (Prozessstart mit Timeout, initialize, tools/list) und ehrliches Fehlschlagen der ARE-Phantomregistrierung"
 type: implementation
-status: in_progress
+status: completed
+completed_at: "2026-07-26T09:30:00Z"
 phase: setup
 created: "2026-07-20"
 size: M

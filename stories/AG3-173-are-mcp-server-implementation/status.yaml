@@ -2,7 +2,7 @@ story_id: AG3-173
 story_title_short: "are-mcp-server-implementation"
 title: "ARE-MCP-Server implementieren: den in FK-03/FK-50 an features.are gebundenen agentkit-are-mcp-Befehl bereitstellen, damit die von AG3-164 ehrlich rot gemachte Registrierung real wird"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-21"
 size: L
