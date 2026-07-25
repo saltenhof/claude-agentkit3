@@ -106,6 +106,9 @@ def repair_story_md(
             story_id,
             directory,
             project_id=project_id,
+            # The project root of a ``<project>/stories/`` corpus root (N31): the
+            # export validates containment against it before writing anything.
+            project_root=stories_root.parent,
             story_attributes=story_attributes,
             index=index,
         )

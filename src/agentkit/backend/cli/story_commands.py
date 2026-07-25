@@ -515,10 +515,15 @@ def _cmd_export_story_md(
         print(f"export-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
         return 1
 
+    story_dir = Path(args.story_dir)
     result = export_story_md(
         args.story_id,
-        Path(args.story_dir),
+        story_dir,
         project_id=project_id,
+        # N31: the authoritative project root the corpus path is validated against.
+        # ``--project-root`` when given, else the parent of the ``stories/`` root
+        # the story directory lives in.
+        project_root=Path(args.project_root) if args.project_root else story_dir.parent.parent,
         story_attributes=build_story_attributes(),
         index=index,
     )

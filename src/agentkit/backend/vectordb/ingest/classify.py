@@ -26,6 +26,18 @@ PRODUCER_BY_SOURCE_TYPE: Final[dict[str, str]] = {
     "concept": "concept_sync",
 }
 
+#: Project-relative name of the story corpus root (FK-13 §13.3.2).
+STORIES_DIR_NAME: Final[str] = "stories"
+
+#: Canonical story-DIRECTORY name: the story id plus an optional slug suffix
+#: (e.g. ``AG3-174-vectordb-retrieval-engine``). This is the ONE definition of the
+#: directory <-> story-id relation; the export, the repair scan and the research
+#: ingest all derive the story id through :func:`story_id_from_story_dir_name`
+#: (N32: returning the directory name verbatim mis-identified slugged stories).
+STORY_DIR_RE: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<story_id>[A-Z][A-Z0-9]{1,9}-\d+)(?:[_-].*)?$"
+)
+
 _STORY_MD_RE = re.compile(r"^stories/[^/]+/story\.md$")
 _RESEARCH_RE = re.compile(r"^stories/[^/]+/research/.+\.md$")
 _REVIEW_RE = re.compile(r"(^|/)review[^/]*\.md$", re.IGNORECASE)
@@ -70,6 +82,16 @@ def classify_source_file(rel_path: str, *, concept_roots: tuple[str, ...] = ()) 
     return None
 
 
+def story_id_from_story_dir_name(directory_name: str) -> str | None:
+    """Return the story id a story-directory name identifies (``None`` if none).
+
+    ``AG3-174`` and ``AG3-174-vectordb-retrieval-engine`` both identify ``AG3-174``
+    (the corpus convention); anything else is not a story directory.
+    """
+    match = STORY_DIR_RE.match(directory_name)
+    return match.group("story_id") if match else None
+
+
 def producer_for(source_type: str | None) -> str | None:
     """Return the owning sync tool for a source_type (None if not ingested)."""
     if source_type is None:
@@ -84,7 +106,10 @@ def source_types_for_producer(producer: str) -> tuple[str, ...]:
 
 __all__ = [
     "PRODUCER_BY_SOURCE_TYPE",
+    "STORIES_DIR_NAME",
+    "STORY_DIR_RE",
     "classify_source_file",
     "producer_for",
     "source_types_for_producer",
+    "story_id_from_story_dir_name",
 ]

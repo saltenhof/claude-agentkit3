@@ -1535,10 +1535,12 @@ class _RealSuccessorExport:
         self.results: list[StoryMdExportResult] = []
 
     def export(self, *, story_id: str, story_dir: Path) -> object:
+        canonical = _canonical_story_dir(story_dir, story_id)
         result = export_story_md(
             story_id,
-            _canonical_story_dir(story_dir, story_id),
+            canonical,
             project_id="ak3",
+            project_root=canonical.parent.parent,
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,
         )
@@ -1573,10 +1575,12 @@ class _RealSupersededIndex:
             source_story_id=story_id,
             successor_ids=superseded_by,
         )
+        canonical = _canonical_story_dir(self._stories_root / story_id, story_id)
         result = export_story_md(
             story_id,
-            _canonical_story_dir(self._stories_root / story_id, story_id),
+            canonical,
             project_id="ak3",
+            project_root=canonical.parent.parent,
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,
         )

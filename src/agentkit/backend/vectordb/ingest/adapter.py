@@ -206,13 +206,23 @@ def _research_metadata(fm_text: str, body: str, source_file: str) -> dict[str, o
 
 
 def research_story_id(source_file: str) -> str:
-    """Return the owning story id of a canonical research path (N24).
+    """Return the owning story id of a canonical research path (N24/N32).
+
+    The story-DIRECTORY may carry a slug (``stories/AG3-174-vectordb-retrieval-
+    engine/research/note.md``), so the id is derived with the SHARED canonical
+    directory parser -- returning the directory name verbatim mis-identified every
+    slugged story and then rejected its own correct frontmatter as contradictory
+    (N32).
 
     Raises:
         ValueError: When the path is not a canonical
-            ``stories/<story>/research/**/*.md`` research source.
+            ``stories/<story>/research/**/*.md`` research source, or its directory
+            does not identify a story.
     """
-    from agentkit.backend.vectordb.ingest.classify import classify_source_file
+    from agentkit.backend.vectordb.ingest.classify import (
+        classify_source_file,
+        story_id_from_story_dir_name,
+    )
 
     normalised = source_file.replace("\\", "/")
     parts = normalised.split("/")
@@ -221,7 +231,13 @@ def research_story_id(source_file: str) -> str:
             f"{source_file!r} is not a canonical research source "
             "('stories/<story>/research/**/*.md'); fail-closed (N24)."
         )
-    return parts[1]
+    story_id = story_id_from_story_dir_name(parts[1])
+    if story_id is None:
+        raise ValueError(
+            f"research directory {parts[1]!r} does not identify a story "
+            "(expected '<STORY-ID>[-slug]'); fail-closed (N32)."
+        )
+    return story_id
 
 
 def _first_heading(body: str) -> str:

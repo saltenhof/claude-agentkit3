@@ -14,7 +14,6 @@ EXACTLY ``{success, story_md_path, file_size_bytes, error}``.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -22,6 +21,12 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import yaml
 
 from agentkit.backend.utils.io import atomic_write_text
+from agentkit.backend.vectordb.ingest.classify import (
+    STORIES_DIR_NAME as _STORIES_DIR_NAME,
+)
+from agentkit.backend.vectordb.ingest.classify import (
+    STORY_DIR_RE as _STORY_DIR_RE,
+)
 from agentkit.integration_clients.vectordb import VectorDbError
 
 if TYPE_CHECKING:
@@ -168,14 +173,15 @@ def _render_body(story: Story, spec: StorySpecification | None) -> str:
     return "\n".join(parts).rstrip("\n") + "\n"
 
 
-#: Project-relative name of the story corpus root (FK-13 §13.3.2 / classifier).
-STORIES_DIR_NAME = "stories"
+#: Story corpus root name and the canonical story-directory pattern are owned by
+#: the ingest classifier (ONE definition shared by export, repair and ingest).
+STORIES_DIR_NAME = _STORIES_DIR_NAME
+STORY_DIR_RE = _STORY_DIR_RE
 
-#: Canonical story-directory name: the story id plus an optional slug suffix.
-STORY_DIR_RE = re.compile(r"^(?P<story_id>[A-Z][A-Z0-9]{1,9}-\d+)(?:[_-].*)?$")
 
-
-def canonical_story_source_file(story_dir: Path, story_id: str) -> str:
+def canonical_story_source_file(
+    story_dir: Path, story_id: str, project_root: Path
+) -> str:
     """Verify and return the PROJECT-RELATIVE corpus path of a story artefact (R04).
 
     FK-13 §13.3.2/§13.3.1 fix the story corpus layout as
@@ -185,40 +191,54 @@ def canonical_story_source_file(story_dir: Path, story_id: str) -> str:
     the ingest classifier recognises keeps export and ``story_sync`` on ONE corpus
     identity.
 
-    The path is VERIFIED, not fabricated (N21): the directory must actually be
-    CONTAINED in a ``stories/`` root and its name must AGREE with the story id.
-    Otherwise the export would index e.g. ``C:\\tmp\\foo`` as
-    ``stories/foo/story.md`` -- an identity ``story_sync`` can never discover or
-    delete, and one that collides with any other directory of the same name.
+    The path is VERIFIED against the AUTHORITATIVE project root, not fabricated
+    (N21/N31):
+
+    - ``story_dir`` must resolve INSIDE ``project_root`` (no ``..`` escape, no
+      foreign drive, no arbitrary absolute path whose parent merely happens to be
+      called ``stories``);
+    - its project-relative path must be exactly ``stories/<directory>``;
+    - the directory must IDENTIFY ``story_id`` (``<STORY-ID>[-slug]``).
 
     Args:
         story_dir: The story directory.
         story_id: Story display-ID the export was requested for.
+        project_root: The authoritative project root the corpus is relative to.
 
     Returns:
         e.g. ``stories/AK3-042/story.md``.
 
     Raises:
-        ValueError: When the directory is not contained in a ``stories/`` root, or
-            its name disagrees with ``story_id`` (fail-closed).
+        ValueError: On any containment or identity violation (fail-closed).
     """
-    from agentkit.backend.vectordb.ingest.classify import classify_source_file
+    from agentkit.backend.vectordb.ingest.classify import (
+        classify_source_file,
+        story_id_from_story_dir_name,
+    )
 
     resolved = story_dir.resolve()
-    directory = resolved.name
-    if story_dir_story_id(directory) != story_id:
+    root = project_root.resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"story directory {resolved} resolves OUTSIDE the project root {root}; "
+            "the corpus path must be project-relative (R04/N31, fail-closed)."
+        ) from exc
+    parts = relative.as_posix().split("/")
+    if len(parts) != 2 or parts[0] != STORIES_DIR_NAME:
+        raise ValueError(
+            f"story directory {relative.as_posix()!r} is not contained in the "
+            f"{STORIES_DIR_NAME!r} root of {root}; the canonical corpus layout is "
+            "'<project>/stories/<story>/story.md' (R04/N21/N31, fail-closed)."
+        )
+    directory = parts[1]
+    if story_id_from_story_dir_name(directory) != story_id:
         raise ValueError(
             f"story directory {directory!r} does not identify story {story_id!r}; the "
             f"corpus identity would be '{STORIES_DIR_NAME}/{directory}/"
             f"{STORY_MD_FILENAME}' and story_sync could never resolve it back to "
             "this story (R04/N21, fail-closed)."
-        )
-    if resolved.parent.name != STORIES_DIR_NAME:
-        raise ValueError(
-            f"story directory {resolved} is not contained in a "
-            f"{STORIES_DIR_NAME!r} root (parent is {resolved.parent.name!r}); the "
-            "canonical corpus layout is '<project>/stories/<story>/story.md' "
-            "(R04/N21, fail-closed)."
         )
     rel = f"{STORIES_DIR_NAME}/{directory}/{STORY_MD_FILENAME}"
     if classify_source_file(rel) != "story":
@@ -233,13 +253,12 @@ def canonical_story_source_file(story_dir: Path, story_id: str) -> str:
 def story_dir_story_id(directory_name: str) -> str | None:
     """Return the story id a story-directory name identifies (``None`` if none).
 
-    The corpus convention is ``<STORY-ID>`` optionally followed by a ``-``/``_``
-    slug (e.g. ``AG3-174-vectordb-retrieval-engine``); this is the INVERSE of the
-    directory scan in :mod:`repair_story_md`, so export and repair agree on which
-    directory belongs to which story.
+    Delegates to the SHARED canonical parser owned by the ingest classifier, so
+    export, repair scan and research ingest agree (N32).
     """
-    match = STORY_DIR_RE.match(directory_name)
-    return match.group("story_id") if match else None
+    from agentkit.backend.vectordb.ingest.classify import story_id_from_story_dir_name
+
+    return story_id_from_story_dir_name(directory_name)
 
 
 def _story_index_objects(
@@ -293,6 +312,7 @@ def export_story_md(
     story_dir: Path,
     *,
     project_id: str,
+    project_root: Path,
     story_attributes: StoryAttributesPort,
     index: StoryIndexPort,
     source_file: str | None = None,
@@ -303,12 +323,14 @@ def export_story_md(
         story_id: Story display-ID (e.g. ``"AK3-042"``).
         story_dir: The story directory; ``story.md`` is written inside it.
         project_id: Bound multi-tenant discriminator for the indexed objects (R04).
+        project_root: AUTHORITATIVE project root. ``story_dir`` and any supplied
+            ``source_file`` are resolved and validated against it BEFORE anything
+            is rendered or written (N31): a rejected path leaves no file on disk.
         story_attributes: Authoritative story-attribute read surface.
         index: Incremental Weaviate indexing surface (hard blocker on failure).
         source_file: PROJECT-RELATIVE corpus path of the exported artefact (R04).
-            Defaults to the canonical ``stories/<story-dir>/story.md`` layout
-            (FK-13 §13.3.2); callers that know the project root pass the real
-            relative path.
+            When given it must EQUAL the verified canonical path -- it is a
+            cross-check, never a bypass.
 
     Returns:
         A :class:`StoryMdExportResult`; on ANY blocker ``success=False`` with a
@@ -316,6 +338,24 @@ def export_story_md(
     """
     target = story_dir / STORY_MD_FILENAME
     target_str = str(target)
+
+    # N31: the corpus path is validated FIRST -- before rendering, before writing.
+    # A non-canonical or non-contained directory must leave NOTHING on disk.
+    try:
+        rel_source = canonical_story_source_file(story_dir, story_id, project_root)
+        if source_file is not None and source_file != rel_source:
+            raise ValueError(
+                f"supplied source_file {source_file!r} diverges from the verified "
+                f"canonical corpus path {rel_source!r}; it is a cross-check, not a "
+                "bypass (R04/N31, fail-closed)."
+            )
+    except ValueError as exc:
+        return StoryMdExportResult(
+            success=False,
+            story_md_path=target_str,
+            file_size_bytes=_safe_size(target),
+            error=f"story corpus path rejected: {exc}",
+        )
 
     detail = story_attributes.get_story_detail(story_id)
     if detail is None:
@@ -372,11 +412,6 @@ def export_story_md(
     # StoryContext fields + deterministic UUIDs from the PROJECT-RELATIVE path,
     # project-bounded.
     try:
-        rel_source = (
-            source_file
-            if source_file is not None
-            else canonical_story_source_file(story_dir, story.story_display_id)
-        )
         objects = _story_index_objects(project_id, story, target, rel_source)
     except ValueError as exc:
         return StoryMdExportResult(

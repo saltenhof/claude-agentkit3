@@ -234,3 +234,71 @@ def test_classify_story_corpus_files(tmp_path: Path) -> None:
     classified = classify_story_corpus_files(binding)
     assert any("story.md" in p for p in classified)
     assert all(v in ("story", "research", "concept") for v in classified.values())
+
+
+# --------------------------------------------------------------------------- #
+# N32: a SLUGGED story directory yields the story id, not the directory name
+# --------------------------------------------------------------------------- #
+
+
+_SLUGGED = "stories/AG3-174-vectordb-retrieval-engine/research/note.md"
+
+
+def test_n32_slugged_research_directory_yields_the_story_id() -> None:
+    from agentkit.backend.vectordb.ingest.adapter import research_story_id
+
+    assert research_story_id(_SLUGGED) == "AG3-174"
+    assert research_story_id("stories/AG3-174/research/note.md") == "AG3-174"
+    assert research_story_id("stories/AK3-042_broker/research/deep/note.md") == "AK3-042"
+
+
+def test_n32_slugged_research_note_without_frontmatter_is_ingested(tmp_path: Path) -> None:
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+
+    note = tmp_path / "note.md"
+    note.write_text("# Options\n\n## Findings\n\nfound.\n", encoding="utf-8")
+    objs = story_file_to_objects(
+        "acme", note, source_file=_SLUGGED, source_type="research"
+    )
+    assert objs
+    assert objs[0].properties["story_id"] == "AG3-174"
+    assert objs[0].properties["story_type"] == "research"
+    assert objs[0].properties["title"] == "Options"
+
+
+def test_n32_slugged_research_note_accepts_the_matching_story_id(tmp_path: Path) -> None:
+    """A CORRECT frontmatter story_id must not be rejected as contradictory."""
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+
+    note = tmp_path / "note.md"
+    note.write_text("---\nstory_id: AG3-174\n---\n\n# R\n\n## F\n\nfound.\n", encoding="utf-8")
+    objs = story_file_to_objects(
+        "acme", note, source_file=_SLUGGED, source_type="research"
+    )
+    assert objs[0].properties["story_id"] == "AG3-174"
+
+
+def test_n32_slugged_research_note_rejects_a_contradicting_story_id(tmp_path: Path) -> None:
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+    from agentkit.concepts.frontmatter import FrontmatterError
+
+    note = tmp_path / "note.md"
+    note.write_text("---\nstory_id: AG3-999\n---\n\n# R\n\n## F\n\nfound.\n", encoding="utf-8")
+    with pytest.raises(FrontmatterError, match="canonical path"):
+        story_file_to_objects("acme", note, source_file=_SLUGGED, source_type="research")
+
+
+def test_n32_research_directory_that_is_no_story_is_rejected() -> None:
+    from agentkit.backend.vectordb.ingest.adapter import research_story_id
+
+    with pytest.raises(ValueError, match="does not identify a story"):
+        research_story_id("stories/scratchpad/research/note.md")
+
+
+def test_n32_story_dir_parser_is_shared_with_the_export() -> None:
+    """ONE definition of the directory <-> story-id relation (N32)."""
+    from agentkit.backend.story_creation.story_md_export import story_dir_story_id
+    from agentkit.backend.vectordb.ingest.classify import story_id_from_story_dir_name
+
+    for name in ("AG3-174", "AG3-174-vectordb-retrieval-engine", "AK3-042_broker", "nope"):
+        assert story_dir_story_id(name) == story_id_from_story_dir_name(name)
