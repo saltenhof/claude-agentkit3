@@ -90,6 +90,28 @@ class SourceClaim:
     reclaimed_from: str = ""
 
 
+#: Every receipt field that MUST carry a non-blank value for a completion to be
+#: publishable (N08). The first four are supplied by the CALLER, so they are also
+#: the pre-mutation gate of every sync path (N34); ``digest``/``completed_at`` are
+#: produced when the store seals the receipt.
+RECEIPT_MANDATORY_FIELDS: Final[tuple[str, ...]] = (
+    "project_id",
+    "source_file",
+    "source_type",
+    "corpus_revision",
+    "digest",
+    "completed_at",
+)
+
+#: The subset of :data:`RECEIPT_MANDATORY_FIELDS` the caller of a sync supplies.
+COMPLETION_INPUT_FIELDS: Final[tuple[str, ...]] = (
+    "project_id",
+    "source_file",
+    "source_type",
+    "corpus_revision",
+)
+
+
 @dataclass(frozen=True)
 class SyncReceipt:
     """Digest-bound sync completion marker (DR 2026-07-21 Rand 5).
@@ -165,9 +187,9 @@ class SyncReceipt:
                 UTC ISO-8601 instant, the sequence is not positive, or the digest
                 does not bind every identity and ordering field.
         """
-        for name in ("project_id", "source_file", "source_type", "corpus_revision", "digest", "completed_at"):
+        for name in RECEIPT_MANDATORY_FIELDS:
             value = getattr(self, name)
-            if not isinstance(value, str) or not value:
+            if not isinstance(value, str) or not value.strip():
                 raise SyncError(
                     f"sync receipt field {name!r} is empty/non-string ({value!r}); "
                     "fail-closed (N08)."
@@ -343,8 +365,9 @@ class SyncService:
     ) -> SyncResult:
         """Sync one source through the bounded window (D3).
 
-        Validation runs BEFORE the claim is written (N17): the claim record is a
-        mutation, so an invalid object set must not leave one behind.
+        Validation runs BEFORE the claim is written (N17/N34): the claim record is
+        a mutation, so neither an invalid object set NOR an unpublishable
+        completion may leave one behind.
         """
         if not objects:
             raise SyncError(
@@ -352,6 +375,12 @@ class SyncService:
                 "not a sync target (remove a source through the vanished-source "
                 "path). Fail-closed (N29)."
             )
+        _validate_completion_inputs(
+            project_id=project_id,
+            source_file=source_file,
+            source_type=source_type,
+            corpus_revision=corpus_revision,
+        )
         _validate_objects_against_target(
             objects, project_id=project_id, source_file=source_file, source_type=source_type
         )
@@ -405,9 +434,11 @@ class SyncService:
         source-types but are no longer discovered are deleted (delete closure,
         R05). Does NOT touch other producers' source-types.
 
-        The COMPLETE incoming matrix is validated before the FIRST mutation (N17).
+        The COMPLETE incoming matrix is validated before the FIRST mutation
+        (N17), INCLUDING the completion inputs every source would publish (N34) --
+        the vanished-source delete below is a mutation too.
         """
-        _validate_matrix(project_id, producer, objects_by_source)
+        _validate_matrix(project_id, producer, objects_by_source, corpus_revision)
         results = self._delete_vanished_sources(
             project_id=project_id,
             producer=producer,
@@ -443,9 +474,11 @@ class SyncService:
         count-verified AND reported in the returned counters (R12) -- an
         unreported delete would understate what the tool actually changed.
 
-        The COMPLETE incoming matrix is validated before the FIRST mutation (N17).
+        The COMPLETE incoming matrix is validated before the FIRST mutation
+        (N17), INCLUDING the completion inputs every source would publish (N34) --
+        the vanished-source delete below is a mutation too.
         """
-        _validate_matrix(project_id, producer, objects_by_source)
+        _validate_matrix(project_id, producer, objects_by_source, corpus_revision)
         results = self._delete_vanished_sources(
             project_id=project_id,
             producer=producer,
@@ -595,12 +628,55 @@ class SyncService:
         )
 
 
+def _validate_completion_inputs(
+    *,
+    project_id: str,
+    source_file: str,
+    source_type: str,
+    corpus_revision: str,
+) -> None:
+    """Validate every caller-supplied mandatory completion field (N34).
+
+    The pre-mutation gate used to cover only the OBJECTS. That left the receipt's
+    own inputs unchecked: a run with perfectly valid objects and
+    ``corpus_revision=""`` claimed the source, wrote the new generation and deleted
+    the old one, and only then failed when :meth:`SyncReceipt.verify` rejected the
+    blank revision -- a mutated corpus with no publishable completion. A run that
+    provably cannot publish must not mutate anything at all, so every mandatory
+    completion field the caller supplies is validated BEFORE the claim.
+
+    Args:
+        project_id: Bound project the completion belongs to.
+        source_file: Source the completion is published for.
+        source_type: Source type of that source.
+        corpus_revision: Revision the completion would carry.
+
+    Raises:
+        SyncError: When any mandatory completion input is blank or not a string.
+    """
+    supplied = {
+        "project_id": project_id,
+        "source_file": source_file,
+        "source_type": source_type,
+        "corpus_revision": corpus_revision,
+    }
+    for name in COMPLETION_INPUT_FIELDS:
+        value = supplied[name]
+        if not isinstance(value, str) or not value.strip():
+            raise SyncError(
+                f"completion input {name!r} is empty/non-string ({value!r}); the "
+                "receipt this sync would publish could never verify, so the run must "
+                "not claim, write or delete anything (fail-closed, N34)."
+            )
+
+
 def _validate_matrix(
     project_id: str,
     producer: str,
     objects_by_source: Mapping[str, Sequence[StoryContextObject]],
+    corpus_revision: str,
 ) -> None:
-    """Validate the COMPLETE incoming matrix before ANY mutation (N17/N29/AC10).
+    """Validate the COMPLETE incoming matrix before ANY mutation (N17/N29/N34/AC10).
 
     ``reconcile_sources`` / ``full_reindex`` delete vanished sources and write
     claims; if a LATER source in the same run turned out to be invalid, those
@@ -617,7 +693,9 @@ def _validate_matrix(
     - that source_type is OWNED by the calling producer (source/producer closure,
       FK-13 §13.3.2 / §13.9.5) -- ``story_sync`` may not write concept chunks and
       vice versa;
-    - every object matches the target (project, source, identity).
+    - every object matches the target (project, source, identity);
+    - every mandatory COMPLETION input of that source is publishable (N34) --
+      otherwise the vanished-source delete below would already have happened.
     """
     owned = source_types_for_producer(producer)
     if not owned:
@@ -642,6 +720,12 @@ def _validate_matrix(
                 f"producer {producer!r} does not own (owns {sorted(owned)}); "
                 "fail-closed (N29 producer closure)."
             )
+        _validate_completion_inputs(
+            project_id=project_id,
+            source_file=source_file,
+            source_type=source_type,
+            corpus_revision=corpus_revision,
+        )
         _validate_objects_against_target(
             objects, project_id=project_id, source_file=source_file, source_type=source_type
         )
@@ -701,6 +785,8 @@ def _validate_objects_against_target(
 
 __all__ = [
     "ADMIN_RECLAIM_REASON",
+    "COMPLETION_INPUT_FIELDS",
+    "RECEIPT_MANDATORY_FIELDS",
     "ClaimSupersededError",
     "ConcurrentSyncRejectedError",
     "SourceClaim",

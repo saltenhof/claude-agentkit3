@@ -365,6 +365,107 @@ def test_n29_a_malformed_receipt_is_never_persisted() -> None:
     assert client.receipts == {}, "an unverified receipt must never reach the store"
 
 
+# --------------------------------------------------------------------------- #
+# N34: the pre-mutation gate covers the RECEIPT'S INPUTS, not only the objects
+# --------------------------------------------------------------------------- #
+
+
+def _assert_zero_mutation(
+    client: RecordingWeaviateClient, seeded: StoryContextObject
+) -> None:
+    """Assert a rejected run left NO trace at all (claim, write, delete, receipt)."""
+    assert client.claims == {}, "no claim may be written for an unpublishable run"
+    assert client.upsert_calls == [], "nothing may be written"
+    assert client.receipts == {}, "no completion may be reserved"
+    assert seeded.uuid in client.objects, "the persisted generation must survive"
+
+
+@pytest.mark.parametrize("revision", ["", "   "])
+def test_n34_a_blank_corpus_revision_mutates_nothing_at_all(revision: str) -> None:
+    """Valid objects + an unpublishable revision must not claim, write or delete.
+
+    Before this fix the run claimed the source, wrote the new generation and
+    DELETED the old one, and only then failed when the sealed receipt was verified
+    at publication time -- a mutated corpus with no completion (N34).
+    """
+    client = RecordingWeaviateClient()
+    old = chunk_object("acme", "concept/a.md", "old")
+    _seed(client, old)
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="corpus_revision"):
+        service.sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "new")],
+            corpus_revision=revision,
+        )
+    _assert_zero_mutation(client, old)
+
+
+def test_n34_reconcile_with_a_blank_revision_spares_the_vanished_source() -> None:
+    """The matrix gate must reject before the vanished-source DELETE happens."""
+    client = RecordingWeaviateClient()
+    vanished = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, vanished)
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="corpus_revision"):
+        service.reconcile_sources(
+            project_id="acme",
+            producer="concept_sync",
+            objects_by_source={
+                "concept/a.md": [chunk_object("acme", "concept/a.md", "a1")]
+            },
+            corpus_revision="",
+        )
+    _assert_zero_mutation(client, vanished)
+
+
+def test_n34_full_reindex_with_a_blank_revision_deletes_nothing() -> None:
+    """The full-reindex path is gated by the same completion-input validation."""
+    client = RecordingWeaviateClient()
+    stored = chunk_object("acme", "concept/old.md", "o1")
+    _seed(client, stored)
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="corpus_revision"):
+        service.full_reindex(
+            project_id="acme",
+            producer="concept_sync",
+            objects_by_source={
+                "concept/a.md": [chunk_object("acme", "concept/a.md", "a1")]
+            },
+            corpus_revision="",
+        )
+    _assert_zero_mutation(client, stored)
+
+
+def test_n34_every_mandatory_completion_input_is_gated() -> None:
+    """The gate covers ALL caller-supplied receipt fields, not just the revision."""
+    for name in ("project_id", "source_file", "source_type", "corpus_revision"):
+        client = RecordingWeaviateClient()
+        old = chunk_object("acme", "concept/a.md", "old")
+        _seed(client, old)
+        service = SyncService(store=corpus_store(client))
+        args: dict[str, object] = {
+            "project_id": "acme",
+            "source_file": "concept/a.md",
+            "source_type": "concept",
+            "corpus_revision": "rev",
+        }
+        args[name] = ""
+        with pytest.raises(SyncError, match=name):
+            service.sync_source(
+                objects=[chunk_object("acme", "concept/a.md", "new")],
+                **args,  # type: ignore[arg-type]
+            )
+        _assert_zero_mutation(client, old)
+
+
+def test_n34_a_blank_receipt_field_is_still_rejected_at_publication() -> None:
+    """The receipt's own verification stays as strict as before (defence in depth)."""
+    blank = SyncReceipt.for_completion("acme", "concept/a.md", "concept", "   ")
+    with pytest.raises(SyncError, match="corpus_revision"):
+        blank.stamped(sequence=1).verify()
+
+
 def test_n27_vanished_delete_is_fenced_before_it_deletes() -> None:
     """N27: a takeover DURING the vanished-source delete must prevent the delete."""
     client = RecordingWeaviateClient()
@@ -509,7 +610,8 @@ def test_n17_mixed_source_types_in_one_source_are_rejected() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# N15: claims carry owner/epoch/lease, are reconciled and FENCED
+# N15/N27: claims carry owner + epoch + an acquisition TIMESTAMP (no expiry) and
+# are FENCED; a held claim is released only by an explicit administrative reclaim
 # --------------------------------------------------------------------------- #
 
 
