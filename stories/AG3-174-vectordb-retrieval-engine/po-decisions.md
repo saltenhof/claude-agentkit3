@@ -141,10 +141,60 @@ zwischen zwei Dateien wird dokumentiert, nicht als Atomizitaet verkauft.
 
 ---
 
+## D7 — Autoritaets-Scope fuer `concept_search` (Nachtrag 2026-07-25)
+
+**Herkunft:** Nicht Teil der urspruenglichen sechs delegierten Entscheidungen.
+Aufgeworfen durch Codex-Review r4/r5 (Finding N23/R10) und dem PO am 2026-07-25
+vorgelegt.
+
+**Frage:** FK-13 §13.9.11 definiert fuenf Authority-Ranking-Regeln. Regel 1 und 2
+ranken gegen einen `authority_over`-**Scope** — sie brauchen also die Information,
+zu welchem Thema Zustaendigkeit gefragt wird. Die zugehoerige
+Werkzeug-Schnittstelle (FK-13 §13.9.5) definiert dafuer **kein Feld**. Der Code
+hatte stillschweigend den `module`-Filter dafuer missbraucht; die Konflation ist
+in r4 entfernt, der Scope-Eingang bleibt seither leer und die Regeln 1/2 sind
+wirkungslos. Damit ist **AC5 („alle fuenf Ranking-Regeln") unerfuellt.**
+
+**Entscheidung (PO, 2026-07-25):** Der Werkzeug-Vertrag erhaelt ein **optionales
+`authority_scope`-Feld**. `concept_search` nimmt den Scope damit explizit vom
+Aufrufer an; Regel 1 und 2 werden produktiv, AC5 wird erfuellbar.
+
+**Begruendung:** Minimal und explizit. „Wo ein Dokument liegt" (`module`) und
+„wofuer es zustaendig ist" (`authority_over`) sind fachlich verschiedene Dinge —
+FK-13 modelliert sie getrennt, also gehoert der Scope als eigener Eingang in den
+Vertrag und nicht in eine abgeleitete Zuordnungstabelle, die dauerhaft gepflegt
+werden muesste und dem Aufrufer die freie Themenwahl nehmen wuerde. Ein Landen
+mit drei von fuenf Regeln wurde verworfen: es waere eine stille Qualitaetsluecke
+im Kernnutzen der Faehigkeit und damit ein ZERO-DEBT-Verstoss.
+
+**Umsetzungsauftrag (autorisiert durch diese Ratifizierung):**
+1. **Konzept:** FK-13 §13.9.5 nimmt den optionalen Parameter `authority_scope`
+   in die normative Tabelle des Werkzeugs `concept_search` auf; §13.9.11 haelt
+   fest, dass Regeln 1/2 gegen diesen Scope ranken. Begleitender
+   Decision Record unter `concept/_meta/decisions/` (P3-Pflicht, AG3-158-Gate).
+2. **Code:** `authority_scope` als strikt validiertes Optional im
+   MCP-Toolvertrag; Durchleitung als `query_authority_scope` in den Resolver;
+   Regeln 1/2 aktiv. **Weiterhin niemals** aus `module` abgeleitet.
+3. **Tests:** Regel 1 und Regel 2 mit Gegenbeispielen ueber den echten
+   Suchpfad; Nachweis, dass ein fehlender Scope die Regeln 3/4/5 unveraendert
+   laesst und keine stille Ableitung stattfindet.
+4. **Story:** AC5 gilt danach als erfuellt; der `PENDING RATIFICATION`-Vermerk
+   fuer AC5 in `report.md` entfaellt.
+
+**Offen bleibt (nicht Teil von D7):** Q2 — ob §13.9.6 sein `doc_kind`-Vokabular
+erweitert oder AK3s Entwicklungs-Korpus eine eigene Korpus-Klasse wird. Wird dem
+PO separat vorgelegt; blockiert AG3-174 nicht, da CLI und MCP-Einstieg das
+Korpus-Verzeichnis nicht mehr raten.
+
+---
+
 ## Konsequenzen
 
 - **Kein** Umschreiben von Story-Inhalt noetig — mit **einer** Ausnahme:
   AG3-174 AC 6 verengen (D3: „serialisiert oder abgewiesen" → „abgewiesen").
+- **D7 (Nachtrag)** autorisiert eine begrenzte Konzeptaenderung an FK-13
+  §13.9.5/§13.9.11 samt Decision Record — die einzige Konzeptaenderung, die
+  dieser Story gestattet ist.
 - Die drei Stories referenzieren dieses Briefing als Fixierung der delegierten
   Entscheidungen.
 - Blockade-/Reihenfolge-Kanten bleiben unveraendert: AG3-175 haengt weiter an
