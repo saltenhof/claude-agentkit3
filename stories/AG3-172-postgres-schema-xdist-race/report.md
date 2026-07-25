@@ -10,6 +10,13 @@ erbracht** worden — Docker/Postgres war damals nicht verfuegbar. Dieser Berich
 liefert ihn und dokumentiert einen zusaetzlichen, bei der AC5-Pruefung gefundenen
 und behobenen Defekt derselben Ursachenklasse.
 
+**Nachtrag (Review-Befund F1, Commit `ed228e4e`):** Die erste Remediation dieses
+zweiten Defekts war selbst ein **Halbfix** — sie schraenkte nur auf das Schema ein,
+nicht auf die Zieltabelle. Der externe Review hat das aufgedeckt; §1.2 und §2.1
+benennen jetzt die tatsaechlich erforderliche Praezision (Schema **und** Tabelle
+**und** Constraint-Klasse) und halten fest, dass der als Vorbild verwendete
+Geschwister-Guard dieselbe Luecke trug und daher **kein** Referenzmuster ist.
+
 ## 1. Ursache
 
 Beide Defekte haben denselben Modellfehler als Wurzel: **der PostgreSQL-
@@ -39,7 +46,7 @@ damit genau die Relation, deren OID die Funktion im naechsten Moment oeffnen wil
 
 **Eine OID ist kein stabiler Handle ueber Anweisungs- und Snapshot-Grenzen hinweg.**
 
-### 1.2 Der schemauebergreifende Guard-Leak in `_ensure_story_identity_constraints`
+### 1.2 Der unpraezise Constraint-Existenz-Guard (`conname` ohne Relationsbindung)
 
 Bei der AC5-Pruefung gefunden — ein zweiter, unabhaengiger Defekt derselben Klasse:
 
@@ -48,11 +55,20 @@ Bei der AC5-Pruefung gefunden — ein zweiter, unabhaengiger Defekt derselben Kl
         WHERE conname = 'story_contexts_project_key_fkey'
     ) THEN ...
 
-Ungeschraenkt. Constraint-Namen sind nur **pro Tabelle** eindeutig, `pg_constraint`
-ist datenbankweit — der Guard liest also fremde Schemas. Der Fremdschluessel ist
-**nicht** Teil des `CREATE TABLE story_contexts`; nur diese Funktion legt ihn an.
-Folge: das **erste** in eine Datenbank gebootstrappte Schema bekommt den FK, jedes
-spaetere behaelt `story_contexts.project_key` still **unreferenziert**.
+**Die erforderliche Praezision ist `conname` PLUS Schema PLUS Tabelle — nicht
+`conname` und nicht `conname` plus Schema.** PostgreSQL dokumentiert
+`pg_constraint.conname` ausdruecklich als "not necessarily unique"; der eindeutige
+Katalogindex liegt auf `(conrelid, contypid, conname)`. Ein Name ist also nur **pro
+Tabelle** eindeutig. Empirisch gegen PostgreSQL 17 bestaetigt: zwei Constraints
+namens `dup_name_fkey` koexistieren in EINEM Schema auf verschiedenen Tabellen.
+
+Daraus folgen zwei getrennte Fehlerstufen:
+
+**Stufe 1 — schemauebergreifend (Erstbefund).** `pg_constraint` ist datenbankweit,
+der Guard liest also fremde Schemas. Der Fremdschluessel ist **nicht** Teil des
+`CREATE TABLE story_contexts`; nur diese Funktion legt ihn an. Folge: das **erste**
+in eine Datenbank gebootstrappte Schema bekommt den FK, jedes spaetere behaelt
+`story_contexts.project_key` still **unreferenziert**.
 
 - Unter xdist: die Schemaform haengt an der Ausfuehrungsreihenfolge.
 - In Produktion: eine Datenbank traegt bewusst mehrere versionierte
@@ -64,9 +80,24 @@ Messung vor dem Fix (zwei Peer-Schemas, echter Produktions-Bootstrap-Pfad):
     gw0  story_contexts_project_key_fkey = True   fc_patterns_check_ref_fkey = True
     gw1  story_contexts_project_key_fkey = False  fc_patterns_check_ref_fkey = True
 
-Der korrekt geschraenkte Geschwister-Guard (`fc_patterns_check_ref_fkey`) ist in
-beiden Schemas vorhanden — der Leak ist also kein Bootstrap-Ausfall, sondern genau
-die fehlende Schema-Schraenkung. Nach dem Fix: in beiden Schemas `True`.
+**Stufe 2 — gleiches Schema, andere Tabelle (Review-Befund F1).** Die erste
+Remediation schraenkte nur auf `current_schema()` ein und war damit ein **Halbfix**:
+ein gleichnamiger Constraint auf einer ANDEREN Tabelle desselben Schemas erfuellt
+den Guard weiterhin, das `ALTER TABLE` entfaellt, und `story_contexts.project_key`
+bleibt ohne FK — derselbe stille Integritaetsverlust, nur eine Variante tiefer. Der
+Regressionstest der ersten Remediation blieb dabei gruen, weil er ausschliesslich
+schemauebergreifende Kollisionen erzeugte.
+
+**Der Geschwister-Guard war KEINE gueltige Referenz.** Die erste Remediation
+begruendete ihr Vorgehen mit „genauso wie das bereits korrekte
+`_ensure_failure_corpus_constraints`". Dieser Geschwister-Guard trug **dieselbe
+Tabellen-Unschaerfe** und war damit selbst fehlerhaft — „dem korrekten Geschwister
+folgen" war hier also kein tragfaehiger Maßstab. Beide sind jetzt gefixt, und der
+Docstring von `_ensure_failure_corpus_constraints` sagt ausdruecklich, dass er nicht
+als Referenzimplementierung dieses Musters gelten darf.
+
+Insgesamt trugen **fuenf** Guards in `_schema.py` dieselbe Unschaerfe; die drei ueber
+den Review-Befund hinausgehenden wurden mitgefixt statt liegengelassen (§2.1).
 
 ## 2. Gewaehlte Loesungsrichtung und Begruendung (AC4)
 
@@ -99,9 +130,30 @@ Die drei Geschwister-Guards in `_schema_alter_statements()` (`command_kind`,
 `DROP CONSTRAINT` adressiert **ueber den Namen** (`quote_ident(...)`), nie ueber
 eine OID.
 
-`_ensure_story_identity_constraints` wird auf `current_schema()` geschraenkt
-(`pg_constraint → pg_class → pg_namespace`), exakt wie das bereits korrekte
-`_ensure_failure_corpus_constraints`.
+Dasselbe Bindungsmuster tragen jetzt **alle fuenf** Constraint-Existenz-Guards des
+Bootstraps. Jeder bindet `c.conrelid` an `to_regclass()` der voll qualifizierten
+Zielrelation und prueft zusaetzlich `conname` und `contype` — Schema **und** Tabelle
+**und** Constraint-Klasse:
+
+| Guard | Zielrelation | `contype` | Herkunft |
+|---|---|---|---|
+| `_ensure_story_identity_constraints` | `story_contexts` | `f` | Review-Befund F1 |
+| `_ensure_failure_corpus_constraints` | `fc_patterns` | `f` | Review-Befund F1 |
+| `_ensure_session_binding_constraints` (2 Guards) | `session_run_bindings` | `c` | ueber F1 hinaus mitgefixt |
+| `_ag3_137_binding_constraints_present` (Canary) | `session_run_bindings` | `c` | ueber F1 hinaus mitgefixt |
+
+Die beiden letzten Zeilen gehen ueber den Review-Befund hinaus: es ist derselbe
+Defekt in derselben Datei. Drei Instanzen einer gerade als Halbfix zurueckgewiesenen
+Unschaerfe stehen zu lassen waere ein ZERO-DEBT-Verstoss. Beim Canary ist die
+Wirkung besonders unangenehm: ein gleichnamiger CHECK auf einer anderen Tabelle
+haette ihn „vorhanden" melden lassen und damit genau die Migration unterdrueckt, die
+er ausloesen soll. Fehlt die Zielrelation, liefert `to_regclass` NULL, keine Zeile
+matcht und der Canary faellt geschlossen aus (`fail-closed`).
+
+Nicht betroffen: `_takeover_approval_challenge_ref_unique_present` war bereits
+tabellenpraezise (prueft `takeover_approvals` und den Indexnamen im selben
+Namespace). Nach dem Fix existiert in `_schema.py` kein Constraint-Guard mehr, der
+allein auf `conname` (+ Schema) filtert.
 
 ### 2.2 Warum nicht Richtung (b) — Transaktion mit geeigneter Isolation
 
@@ -135,12 +187,29 @@ Beide in `tests/integration/state_backend/test_constraint_catalog_race_postgres.
 |---|---|---|
 | `test_constraint_verification_ignores_parallel_foreign_catalog_churn` | vier parallele Threads, die je ein fremdes Schema mit gleichnamiger `edge_command_records`-Relation dauerhaft `DROP`/`CREATE`-en, waehrend 250 Verifikationen laufen | **rot**, 3/3 Laeufe: `could not open relation with OID 44804708 / 44806115 / 44807520` |
 | `test_story_identity_fk_is_applied_per_schema` | zwei Peer-Schemas, sequenziell ueber den echten Produktions-Bootstrap (`_connect_global`) | **rot**, 2/2 Laeufe: `story_contexts_project_key_fkey missing` (vorhanden nur im zuerst gebootstrappten Schema) |
+| `test_bootstrap_fk_guards_ignore_same_name_decoy[story_identity]` | Decoy-FK des geschuetzten Namens auf einer ANDEREN Tabelle des SELBEN Schemas, gepflanzt VOR dem Bootstrap | **rot**, 2/2 Laeufe **gegen den Schema-only-Guard**: FK landet nur auf `ak3_decoy_child`, nie auf `story_contexts` |
+| `test_bootstrap_fk_guards_ignore_same_name_decoy[failure_corpus]` | dito fuer `fc_patterns_check_ref_fkey` | **rot**, 2/2 Laeufe gegen den Schema-only-Guard |
 
-Beide Rot-Beweise wurden durch **echtes**, lokales und wieder zurueckgenommenes
-Revertieren der jeweiligen Produktionsabfrage erbracht — nicht behauptet. Der
-zweite Test prueft zusaetzlich den korrekt geschraenkten Geschwister-FK, damit ein
-gruenes Ergebnis nicht durch einen ausgefallenen Bootstrap vorgetaeuscht werden
-kann.
+Alle Rot-Beweise wurden durch **echtes**, lokales und wieder zurueckgenommenes
+Revertieren der jeweiligen Produktionsabfrage erbracht — nicht behauptet.
+
+Zwei Eigenschaften machen die Decoy-Faelle belastbar:
+
+1. **Revert-Basis ist der Halbfix, nicht das Original.** Die Decoy-Faelle wurden
+   gegen den **schema-only** Guard rot verifiziert, nicht bloss gegen den
+   urspruenglich ungeschraenkten. Genau das ist der Punkt: sie beweisen die
+   Tabellen-Praezision, nicht nur die Schema-Praezision. Waehrend die Decoy-Faelle
+   rot waren, blieben die beiden aelteren Tests gruen — die neuen Faelle decken also
+   eine tatsaechlich andere Variante ab.
+2. **Der Decoy ueberlebt den Bootstrap.** Die Bootstrap-Hilfsfunktion bekam einen
+   `recreate=False`-Pfad; ein `DROP SCHEMA` vor dem Bootstrap haette den Decoy
+   entfernt und der Test haette nichts bewiesen.
+
+Zusaetzlich prueft `test_story_identity_fk_is_applied_per_schema` den
+Geschwister-FK, damit ein gruenes Ergebnis nicht durch einen ausgefallenen
+Bootstrap vorgetaeuscht werden kann. Die Fundort-Hilfsfunktion loest
+`(Schema, Tabelle)`-Paare auf statt nur Schemas — „der Name existiert irgendwo in
+meinem Schema" beweist nach §1.2 gerade nichts.
 
 ## 4. Determinismus-Belege
 
@@ -218,24 +287,29 @@ als Folgearbeit. Hier gemeldet statt still liegengelassen (SEVERITY-SEMANTIK).
 
 | Datei | Aenderung |
 |---|---|
-| `src/agentkit/backend/state_backend/postgres_store/_schema.py` | `_ensure_story_identity_constraints`: Existenz-Guard auf `current_schema()` geschraenkt (+ Begruendung im Docstring). Der OID-Race-Fix stammt aus `d4715d28` und ist hier **verifiziert**, nicht erneut geaendert |
-| `tests/integration/state_backend/test_constraint_catalog_race_postgres.py` | zweiter Regressionstest + Modul-Docstring, der beide Defektklassen benennt |
+| `src/agentkit/backend/state_backend/postgres_store/_schema.py` | fuenf Constraint-Existenz-Guards an Schema **und** Tabelle **und** `contype` gebunden (§2.1, + Begruendung in den Docstrings). Der OID-Race-Fix stammt aus `d4715d28` und ist hier **verifiziert**, nicht erneut geaendert |
+| `tests/integration/state_backend/test_constraint_catalog_race_postgres.py` | drei zusaetzliche Regressionsfaelle (Cross-Schema + zwei parametrisierte Decoy-Faelle), tabellenpraezise Fundort-Hilfsfunktion, `recreate=False`-Bootstrap-Pfad, Modul-Docstring benennt beide Defektklassen |
 | `stories/AG3-172-postgres-schema-xdist-race/status.yaml` | `ready → in_progress` |
 | `stories/AG3-172-postgres-schema-xdist-race/report.md` | dieser Bericht |
 
 `tests/fixtures/postgres_backend.py`: unveraendert, Begruendung in §5.
 
-Commits: `05c27b6d` (Fix + Regressionstest), `bbe86461` (Status).
+Commits: `05c27b6d` (Erst-Remediation + Regressionstest), `bbe86461` (Status),
+`c8d333d6` (Bericht), `ed228e4e` (Review-Befund F1: Schema-**und**-Tabellen-Bindung
+aller fuenf Guards + parametrisierter Decoy-Test).
 
 ## 8. Validatoren
+
+Stand nach `ed228e4e` (F1-Remediation):
 
 | Validator | Ergebnis |
 |---|---|
 | `ruff check src tests` | **All checks passed** |
 | `mypy src` | **Success: no issues found in 972 source files** |
-| `pytest tests/integration/state_backend tests/contract/state_backend` | **189 passed** |
-| `pytest` (volle Suite) | **4 failed, 9999 passed, 14 skipped** in 550 s — siehe unten |
-| Coverage (explizit `--cov=agentkit`) | **92 %** (57752 Statements) — ueber der 85-%-Schwelle |
+| `pytest tests/integration/state_backend tests/contract/state_backend` | **191 passed** (+2 Decoy-Faelle) |
+| `pytest` (volle Suite) | **4 failed, 10001 passed, 14 skipped** in 566 s — dieselben vier vorbestehenden Fehler, +2 neue Tests, **keine Regression** |
+| AC1-Reproduktionsbefehl (Gegenprobe nach F1) | **8 passed**, gruen |
+| Coverage (explizit `--cov=agentkit`, Stand `05c27b6d`) | **92 %** (57752 Statements) — ueber der 85-%-Schwelle |
 
 ### ERROR — volle Suite nicht gruen (vorbestehend, storyfremd)
 
@@ -273,13 +347,20 @@ DoD-Punkt „voller pytest gruen" und damit auch die AG3-164-Landevoraussetzung
 Stellen, analog zur bereits korrekten Konvention in `runfixtures.py`), erfordert
 aber eine eigene Story bzw. PO-Freigabe.
 
+### Beobachtung — `llm_hub`-Gegenreview nicht verfuegbar
+
+Der externe Reviewer meldet, dass seine vorgeschriebene `llm_hub`-Gegenpruefung
+zweimal nicht erreichbar war (`ECONNREFUSED` auf `127.0.0.1:9600`). Die
+Review-Aussagen zu AG3-172 beruhen damit auf einer Quelle statt zwei. Rein als
+Beobachtung erfasst — nicht Gegenstand dieser Story und hier nicht verfolgt.
+
 ## 9. Akzeptanzkriterien
 
 | AC | Kriterium | Status |
 |---|---|---|
 | 1 | Reproduktionsbefehl in 20 aufeinanderfolgenden Wiederholungen gruen | **erfuellt** — 20/20, Seed `3250338151` |
 | 2 | Installer-Suite in fuenf Laeufen mit unterschiedlichen Seeds gruen, ohne Wiederholung roter Laeufe | **erfuellt** — 5/5, `550 passed` je Lauf; kein roter Lauf aufgetreten |
-| 3 | Regressionstest provoziert die Race gezielt, ohne Fix nachweislich rot | **erfuellt** — zwei Tests, beide durch echtes Revertieren als rot belegt (§3) |
-| 4 | Keine OID ueber Anweisungsgrenzen; Loesungsrichtung begruendet | **erfuellt** — alle vier Stellen `conrelid`-gebunden, DROP ueber Namen; Begruendung inkl. Verwerfen von (b) in §2 |
-| 5 | Kein gegenseitig veraenderbarer Katalogzustand — oder begruendet unschaedlich | **erfuellt** — Schema-pro-Worker belegt; geteilter Katalog bewusst beibehalten und begruendet; der dabei gefundene echte Leak (§1.2) behoben |
+| 3 | Regressionstest provoziert die Race gezielt, ohne Fix nachweislich rot | **erfuellt** — vier Faelle, alle durch echtes Revertieren als rot belegt; die beiden Decoy-Faelle gegen den **Halbfix**, nicht nur gegen das Original (§3) |
+| 4 | Keine OID ueber Anweisungsgrenzen; Loesungsrichtung begruendet | **erfuellt** — alle vier `pg_get_constraintdef`-Stellen `conrelid`-gebunden, DROP ueber Namen; Begruendung inkl. Verwerfen von (b) in §2 |
+| 5 | Kein gegenseitig veraenderbarer Katalogzustand — oder begruendet unschaedlich | **erfuellt** — Schema-pro-Worker belegt; geteilter Katalog bewusst beibehalten und begruendet; der dabei gefundene echte Leak (§1.2) behoben, inkl. der vom Review nachgewiesenen Tabellen-Unschaerfe in fuenf Guards |
 | 6 | Keine Unterdrueckung | **erfuellt** — Nachweis in §6 |
