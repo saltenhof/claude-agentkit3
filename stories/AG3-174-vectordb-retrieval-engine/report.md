@@ -1,4 +1,4 @@
-# AG3-174 — Story Report (post Codex review r3 remediation)
+# AG3-174 — Story Report (post Codex review r4 remediation)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
@@ -102,45 +102,108 @@ Two gaps found while remediating and closed in the same pass:
 
 ### Interpretations recorded (no concept deviation)
 
-- **Authority query scope.** FK-13 §13.9.5 defines no scope/detail parameter for
-  `concept_search`. The resolver's `query_scope`/`query_module` are bound to the
-  `module` filter, and the rule-3 interface/test DETAIL is derived
-  deterministically from the query TEXT (`derive_query_detail`). This keeps rules
-  1/2/3/5 reachable from production without inventing a parameter outside the
-  FK-13 table.
+- **Rule-3 detail.** The interface/test DETAIL is derived deterministically from
+  the query TEXT (`derive_query_detail`), since FK-13 §13.9.5 defines no detail
+  parameter. Codex accepted this in r4.
 - **Canonical story source path.** The indexed `source_file` of an exported story
-  is the canonical `stories/<story>/story.md` (FK-13 §13.3.2) derived from the
-  story directory, which is exactly the shape `classify_source_file` recognises.
-  Using the raw filesystem-relative path would risk an identity the `story_sync`
-  delete closure never produces.
+  is the canonical `stories/<story>/story.md` (FK-13 §13.3.2). Since r4 it is
+  VERIFIED against the real directory instead of derived from its name alone
+  (N21).
 - **Env key.** The CLI export/repair authority is `PROJECT_ID` (FK-13 §13.4.3).
   The previously accepted `AGENTKIT_PROJECT_ID` fallback was removed (it had no
   other reader in the repo) rather than kept as a second truth.
+- **Authority scope (superseded by r4).** Binding the resolver's authority scope
+  to the `module` filter was rejected by Codex as needing ratification. The code
+  now keeps the two separate; see the ratification question Q1 below.
 
-## Open WARNINGs that need a PO decision (not silently closed)
+## Codex review r4 remediation (11 still-open + 2 regressions + 12 new)
 
-1. **Story/research sources must carry frontmatter.** N05 makes ABSENT
-   frontmatter a hard error, and AC10 forbids a partial write -- so ONE research
-   `.md` without a frontmatter block fails the WHOLE `story_sync` of that project
-   with `story_source_invalid` (zero writes). `story.md` always has frontmatter
-   (it is a deterministic export, FK-21 §21.11.3), but agent-written research
-   notes may not, and there is no `.storyignore` counterpart to `.conceptignore`
-   (§13.9.13) in this story's scope. **Decision needed:** either the story corpus
-   convention requires frontmatter for research documents, or a follow-up story
-   adds a story-corpus exclude mechanism. The current behaviour is the
-   conservative FAIL-CLOSED one.
-2. **AK3's own `concept/` corpus does not satisfy the FK-13 §13.9.6 schema.**
-   `discover_concept_files(Path("concept"))` reports 347 parse errors and 0
-   documents: 253x `doc_kind` outside `core|appendix` (the repo uses
-   `decision-record`, `policy`, `decision-log`, ...), 88x extra frontmatter keys
-   the strict model forbids (`cross_cutting`, `formal_scope`, `spec_kind`,
-   `glossary`, ...), 6x missing mandatory fields. This is PRE-EXISTING (the
-   strict core landed in this story's r1 commits) but it means the FK-13 concept
-   tooling cannot read AK3's OWN corpus -- only a target project's FK-13-shaped
-   one. **Decision needed:** extend FK-13 §13.9.6 (doc_kind vocabulary + tolerated
-   extra keys) or treat the AK3 development corpus as a separate corpus class
-   with its own profile. Not changed here: it is a concept decision, outside this
-   story's scope.
+r4 was the first review that probed the INSTALLED `weaviate-client 4.22.0` and
+AK3's REAL corpus, which surfaced defects the fakes had hidden. Two were
+regressions from the r3 remediation itself and are called out as such.
+
+**Regressions repaired.** N19/N01/R05: the N11 retrieval profiles had dropped
+`module`/`epic`, which `story_search` still advertises -- both are requested and
+validated again, and a test asserts EVERY advertised response field of both search
+tools arrives through the real retrieval path. N24/R05: research ingestion had
+been made to require exported-story frontmatter -- story and research now have
+SEPARATE strict metadata profiles (story.md keeps the mandatory export
+frontmatter, a research note derives its identity from the canonical path, its
+title from an optional frontmatter title or its own heading, and carries
+`story_type=research`; a `story_id` contradicting the path is a hard error). This
+also RESOLVES the r3 WARNING about a research note failing the whole sync -- Codex
+adjudicated it as a defect, and it is fixed rather than deferred.
+
+**Real defects against the installed library / corpus.** N14: `data.insert` routes
+a duplicate object id through `UnexpectedStatusCodeError`, not
+`ObjectAlreadyExistsException`; the duplicate response is now identified strictly
+(documented status code + `already exists` body) with an authoritative
+`data.exists` probe as the second signal, and the test raises a REAL exception
+instance built from a real 422 response. N18/N02: every property was created with
+`Tokenization.FIELD`, so "Vector retrieval engine" was ONE token and the `keyword`
+mode could not match "retrieval" -- tokenisation, per-property vectorisation,
+searchability and filterability are now part of the schema SSOT. N12: existing
+collections are verified against the FULL read-back configuration. N25: paging
+probes one further object instead of rejecting the exact ceiling, and detects a
+repeated page.
+
+**Fail-closed / ordering.** N17/N13: the COMPLETE incoming matrix is validated
+before ANY mutation (the claim record is a mutation too). N15/N03: claims carry
+owner + epoch + a bounded operation lease, a stale claim is reconciled by CREATING
+the next epoch, the holder is FENCED before the delete and before the receipt, and
+every vanished-source delete acquires the same claim. N16/N04/N08: the completion
+order is reserved with a conditional-create token per number, the digest binds
+every identity AND ordering field, the timestamp must be a UTC instant, and an
+unknown receipt state is rejected rather than skipped. N22/N06: absence and
+invalidity of the project configuration are strictly separated. N21/R04: the
+canonical story path is verified, not fabricated.
+
+### Bounded claim lease vs. CLAUDE.md §6.7
+
+§6.7's "ownership never expires automatically" governs STORY/SESSION ownership.
+The N15 lease is an OPERATION lease for ONE source sync (900 s) and exists because
+a crashed sync must not wedge a corpus source forever. It is documented as such in
+`sync.SourceClaim`, and the takeover is fenced, so a resurrected holder can
+neither delete nor publish. No story/session ownership is affected.
+
+## Ratification needed -- NOT decided in this story
+
+### Q1 -- an authority-scope input for `concept_search` (N23)
+
+FK-13 §13.9.11 rules 1 and 2 rank against the `authority_over` SCOPE being asked
+about, but §13.9.5 defines NO scope parameter for `concept_search`. The code no
+longer conflates it with `module` (the r4 finding); the explicit
+`query_authority_scope` input therefore stays UNPOPULATED in production, so rules
+1/2 are inert while rules 3/4/5 work.
+
+**Question:** should `concept_search` gain a ratified authority-scope parameter
+(e.g. `authority_scope: String, optional` in the §13.9.5 table), or should the
+scope come from another ratified source (e.g. a module -> scope mapping)? Until
+that is ratified, rules 1 and 2 cannot fire in production; everything else about
+them is implemented and tested (including the tiered precedence).
+
+### Q2 -- the `doc_kind` vocabulary of §13.9.6 vs. AK3's own corpus (N20)
+
+Measured on the real `concept/` directory (347 markdown files):
+
+| state | documents parsed | parse errors |
+|---|---|---|
+| before this remediation | 0 | 347 |
+| after the r4 code fixes | 75 (2075 chunks) | 272 |
+
+The remaining 272: **253x `doc_kind` outside `core|appendix`** (the repo uses
+`spec` 195, `context` 30, `decision-record` 18, `detail` 4, `policy` 2, `meta` 2,
+`decision-log` 1, `methodology` 1), 10x `defers_to` as a bare string list instead
+of the qualified `{target, scope, reason}` entries §13.9.6 mandates, 6x missing
+mandatory fields, 3x no frontmatter at all (README files that belong on a
+`.conceptignore`).
+
+**Question:** is §13.9.6's `doc_kind` vocabulary to be EXTENDED (making AK3's own
+corpus a valid FK-13 corpus), or is AK3's development corpus a SEPARATE corpus
+class with its own profile (so the FK-13 tooling only ever reads a target
+project's `concepts_dir`)? Both are concept changes; this story implemented
+neither. Nothing silently points at the wrong corpus in the meantime: the CLI
+argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
 
 ## Validators (project venv only)
 
@@ -148,8 +211,9 @@ Two gaps found while remediating and closed in the same pass:
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
-  **4 failed, 9770 passed, 40 skipped, 521 errors**; total coverage **86.44 %**
-  (gate 85 % reached).
+  after the r4 remediation: **4 failed, 9824 passed, 40 skipped, 521 errors**;
+  total coverage **86.47 %** (gate 85 % reached). The same 4 failures as before,
+  i.e. r4 introduced none.
   - The 4 failures are all `tests/unit/concept_toolchain` baseline-digest /
     byte-count drift against the committed blob -- PRE-EXISTING (reproduced at
     `96a21dbb` with this story's files reverted) and named out of scope.
@@ -159,7 +223,9 @@ Two gaps found while remediating and closed in the same pass:
   - Before this remediation the same suite had **29** non-infra failures; 26 of
     them were caused by this story's own earlier `concept_ingester` SSOT
     migration (lost qualified authority metadata) and are now fixed.
-- Scoped run of the AG3-174 modules (`tests/{unit,contract,integration}` vectordb
-  + `tests/unit/concepts`): **318 passed**, module coverage **92.25 %**.
-- Revert-check: for all 18 r3 findings the production fix was temporarily undone
-  and the pinning test confirmed RED (23 scenarios, 23 red).
+- Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
+  story_creation, cli, story_split, tools, concept_authority_prose): **877
+  passed**.
+- Revert-check: for all 18 r3 findings AND all r4 findings the production fix was
+  temporarily undone and the pinning test confirmed RED (23 + 28 scenarios, all
+  red).
