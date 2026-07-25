@@ -742,6 +742,7 @@ class _RealWeaviateClient:
         collection: str,
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str = "self_provided",
+        vectorizer_model: Mapping[str, object] | None = None,
     ) -> None:
         """Create OR VERIFY a collection against the schema-owner's specs (R02/N12).
 
@@ -766,7 +767,7 @@ class _RealWeaviateClient:
         collections = self._connection.collections  # type: ignore[attr-defined]
         if collections.exists(collection):
             self._verify_existing_collection(
-                collections, collection, property_specs, vectorizer
+                collections, collection, property_specs, vectorizer, vectorizer_model or {}
             )
             return
         type_map = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
@@ -792,8 +793,16 @@ class _RealWeaviateClient:
                 kwargs["index_searchable"] = bool(spec.get("searchable", False))
             properties.append(Property(**kwargs))  # type: ignore[arg-type]
         if vectorizer == "text2vec_transformers":
+            model = dict(vectorizer_model or {})
+            pooling = str(model.get("poolingStrategy", "masked_mean"))
+            if pooling not in ("masked_mean", "cls"):
+                raise VectorDbWriteError(
+                    f"pooling strategy {pooling!r} is not supported by the pinned "
+                    "client (masked_mean|cls); fail-closed (N30)."
+                )
             vector_config = Configure.Vectors.text2vec_transformers(
-                pooling_strategy="masked_mean", vectorize_collection_name=False
+                pooling_strategy=pooling,  # type: ignore[arg-type]  # validated above
+                vectorize_collection_name=bool(model.get("vectorizeClassName", False)),
             )
         else:
             vector_config = Configure.Vectors.self_provided()
@@ -809,6 +818,7 @@ class _RealWeaviateClient:
         collection: str,
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str,
+        vectorizer_model: Mapping[str, object],
     ) -> None:
         """Fail closed when an existing collection drifts from the SSOT (N12/N18)."""
         try:
@@ -826,12 +836,20 @@ class _RealWeaviateClient:
                 f"but the schema requires {required_vectorizer!r}; fail-closed "
                 "(N12: a drifted collection must not pass composition)."
             )
-        if required_vectorizer == "text2vec_transformers" and _vectorizes_collection_name(config):
-            raise VectorDbWriteError(
-                f"collection {collection!r} vectorises the collection NAME into the "
-                "embedding; the schema requires vectorize_collection_name=False "
-                "(fail-closed, N12)."
+        if vectorizer_model:
+            configured_model = configured_vectorizer_model(config)
+            model_drift = sorted(
+                f"{key}: expected {value!r}, configured {configured_model.get(key)!r}"
+                for key, value in vectorizer_model.items()
+                if configured_model.get(key) != value
             )
+            if model_drift:
+                raise VectorDbWriteError(
+                    f"collection {collection!r} vectorizer MODEL drifted from the "
+                    f"schema SSOT: {model_drift}; fail-closed (N12/N30: the pooling "
+                    "strategy and vectorizeClassName are part of the contract -- a "
+                    "drifted model silently changes every embedding)."
+                )
         expected = {str(spec["name"]): _expected_property_view(spec) for spec in property_specs}
         configured = _configured_properties(config)
         drift = sorted(
@@ -952,20 +970,49 @@ def _configured_properties(config: Any) -> dict[str, dict[str, object]]:
     return out
 
 
-def _vectorizes_collection_name(config: Any) -> bool:
-    """Whether any configured vector folds the collection NAME into the embedding."""
-    vector_config = getattr(config, "vector_config", None)
-    entries: list[Any] = []
-    if isinstance(vector_config, dict):
-        entries = list(vector_config.values())
-    elif vector_config:
-        entries = list(vector_config)
+def configured_vectorizer_model(config: Any) -> dict[str, object]:
+    """Return the MODEL settings of an existing collection's vectorizer (N30).
+
+    The pinned client models the two surfaces differently, which is exactly where
+    the previous check went wrong:
+
+    - NAMED vectors (``config.vector_config``) expose
+      ``_NamedVectorConfig.vectorizer`` -> ``_NamedVectorizerConfig`` with a
+      ``model`` MAPPING that carries ``vectorizeClassName`` / ``poolingStrategy``.
+      There is NO ``vectorize_collection_name`` attribute there.
+    - the LEGACY surface (``config.vectorizer_config`` -> ``_VectorizerConfig``)
+      has ``model`` plus a separate ``vectorize_collection_name`` flag.
+
+    Both are normalised onto the wire keys the schema SSOT declares.
+    """
+    entries = _vector_config_entries(config)
+    model: dict[str, object] = {}
     for entry in entries:
         inner = getattr(entry, "vectorizer", None)
-        if bool(getattr(inner, "vectorize_collection_name", False)):
-            return True
+        raw_model = getattr(inner, "model", None)
+        if isinstance(raw_model, dict):
+            model.update(raw_model)
+    if model:
+        return model
     legacy = getattr(config, "vectorizer_config", None)
-    return bool(getattr(legacy, "vectorize_collection_name", False))
+    raw_legacy = getattr(legacy, "model", None)
+    if isinstance(raw_legacy, dict):
+        model.update(raw_legacy)
+    if legacy is not None and hasattr(legacy, "vectorize_collection_name"):
+        model.setdefault(
+            "vectorizeClassName", bool(legacy.vectorize_collection_name)
+        )
+    return model
+
+
+def _vector_config_entries(config: Any) -> list[Any]:
+    """Return the named-vector config entries of a read-back collection config."""
+    vector_config = getattr(config, "vector_config", None)
+    if isinstance(vector_config, dict):
+        return list(vector_config.values())
+    if vector_config:
+        return list(vector_config)
+    return []
 
 
 def _enum_value(value: Any) -> str:
@@ -1069,6 +1116,7 @@ def _project_filter(project_id: str) -> object:
 
 __all__ = [
     "DEFAULT_SEARCH_LIMIT",
+    "configured_vectorizer_model",
     "DEFAULT_SEARCH_MODE",
     "FETCH_PAGE_SIZE",
     "FK13_GRPC_PORT",

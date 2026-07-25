@@ -61,26 +61,33 @@ class ReceiptState(StrEnum):
 
 @dataclass(frozen=True)
 class SourceClaim:
-    """A held, fenced claim on one ``(project_id, source_file)`` (N15/D3).
+    """A held, fenced claim on one ``(project_id, source_file)`` (N15/N27/D3).
+
+    A claim NEVER expires by time (N27/D3: the concurrent-sync rejection admits no
+    time-based exception, and Weaviate cannot fence a mutation atomically on an
+    epoch). A claim left behind by a crashed writer is released by an EXPLICIT
+    ADMINISTRATIVE RECLAIM only -- the operator asserts the previous writer is
+    dead. Every mutation is preceded by a fence check, so a resumed previous holder
+    aborts at its next step instead of writing stale chunks.
 
     Attributes:
         owner_id: Identity of the holding writer (one id per ``SyncService``
             instance, so two writers in ONE process still conflict).
-        epoch: Monotonic claim generation. A stale claim is taken over by
-            CREATING the next epoch, never by deleting and re-creating the same
-            record -- so the store itself picks a single winner. Every mutation
-            step re-checks that this epoch is still the active one (fencing), so a
-            resurrected previous holder can never publish a receipt.
-        expires_at: End of the bounded lease for ONE source sync. Only an EXPIRED
-            claim of another owner may be taken over; this is an operation lease,
-            NOT story/session ownership (which never expires, CLAUDE.md §6.7).
+        epoch: Monotonic claim generation. A reclaim CREATES the next epoch, never
+            deletes and re-creates the same record, so the store itself picks a
+            single winner.
+        claimed_at: UTC instant the claim was acquired (diagnostics only -- it is
+            NOT an expiry).
+        reclaimed_from: The owner this claim was administratively taken from
+            (``""`` for a normal acquisition).
     """
 
     project_id: str
     source_file: str
     owner_id: str
     epoch: int
-    expires_at: str
+    claimed_at: str
+    reclaimed_from: str = ""
 
 
 @dataclass(frozen=True)
@@ -264,14 +271,23 @@ class CorpusStorePort(Protocol):
     def try_claim_source(
         self, *, project_id: str, source_file: str, owner_id: str
     ) -> SourceClaim | None:
-        """Atomically claim a source for syncing (D3, N03, N15).
+        """Atomically claim a source for syncing (D3, N03, N15, N27).
 
         Returns the held :class:`SourceClaim` when the claim was acquired, or
-        ``None`` when another owner holds a LIVE claim on this
-        ``(project_id, source_file)``. The claim is STORE-LEVEL / shared (never
-        process-local) and carries owner + epoch + lease, so a claim left behind
-        by a crashed writer is reconciled deterministically instead of wedging the
-        source forever.
+        ``None`` when ANY claim on this ``(project_id, source_file)`` already
+        exists -- with no time-based exception (N27/D3). The claim is STORE-LEVEL /
+        shared (never process-local).
+        """
+        ...
+
+    def reclaim_source(
+        self, *, project_id: str, source_file: str, owner_id: str, reason: str
+    ) -> SourceClaim:
+        """ADMINISTRATIVELY take over a source claim (N27).
+
+        The caller asserts that the previous holder is dead. The takeover creates
+        the NEXT epoch, so the previous holder is fenced out of every further
+        mutation. Never called implicitly -- only from an explicit operator path.
         """
         ...
 
@@ -288,9 +304,8 @@ class CorpusStorePort(Protocol):
         ...
 
 
-#: Bounded lease for ONE source sync (N15). This is an OPERATION lease, not
-#: story/session ownership -- the latter never expires (CLAUDE.md §6.7).
-SOURCE_CLAIM_LEASE_SECONDS: Final[int] = 900
+#: Reason recorded on an administrative reclaim triggered by the operator path.
+ADMIN_RECLAIM_REASON: Final[str] = "operator asserted the previous writer is dead"
 
 
 @dataclass
@@ -298,16 +313,24 @@ class SyncService:
     """Implements the bounded-window corpus sync against a :class:`CorpusStorePort`.
 
     D3's concurrent-reject is enforced via a STORE-LEVEL atomic source claim
-    (N03/N15): two service instances over one shared store cannot both write the
-    same ``(project_id, source_file)`` -- the loser is REJECTED fail-closed (not
-    serialized). ``owner_id`` is per SERVICE INSTANCE, so two writers inside one
-    process still conflict. Partial writes/deletes anywhere are rejected before the
-    receipt is published (R12), and EVERY object is validated before the first
-    mutation of a run (N17).
+    (N03/N15/N27): two service instances over one shared store cannot both write
+    the same ``(project_id, source_file)`` -- the loser is REJECTED fail-closed
+    (not serialized, and with NO time-based exception). ``owner_id`` is per SERVICE
+    INSTANCE, so two writers inside one process still conflict.
+
+    A claim left behind by a crashed writer is released only by an EXPLICIT
+    administrative reclaim (``reclaim=True``, driven by an operator command), which
+    creates the next epoch and thereby fences the previous holder out of every
+    further mutation. Partial writes/deletes anywhere are rejected before the
+    receipt is published (R12), EVERY object is validated before the first mutation
+    of a run (N17), and every mutation is preceded by a fence check (N27).
     """
 
     store: CorpusStorePort
     owner_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    #: Explicit ADMINISTRATIVE takeover of a foreign claim (N27). Never defaulted
+    #: on: the operator asserts that the previous writer is dead.
+    reclaim: bool = False
 
     def sync_source(
         self,
@@ -323,6 +346,12 @@ class SyncService:
         Validation runs BEFORE the claim is written (N17): the claim record is a
         mutation, so an invalid object set must not leave one behind.
         """
+        if not objects:
+            raise SyncError(
+                f"source {source_file!r} carries no objects; an empty generation is "
+                "not a sync target (remove a source through the vanished-source "
+                "path). Fail-closed (N29)."
+            )
         _validate_objects_against_target(
             objects, project_id=project_id, source_file=source_file, source_type=source_type
         )
@@ -338,15 +367,28 @@ class SyncService:
             self.store.release_source(claim=claim)
 
     def _claim(self, *, project_id: str, source_file: str) -> SourceClaim:
-        """Acquire the store-level source claim or reject fail-closed (D3/N15)."""
+        """Acquire the store-level source claim or reject fail-closed (D3/N27).
+
+        A held claim is NEVER taken over implicitly -- not after any amount of
+        time. Only the explicit administrative ``reclaim`` flag takes it over.
+        """
         claim = self.store.try_claim_source(
             project_id=project_id, source_file=source_file, owner_id=self.owner_id
         )
-        if claim is None:
+        if claim is not None:
+            return claim
+        if not self.reclaim:
             raise ConcurrentSyncRejectedError(
-                f"concurrent sync of {(project_id, source_file)!r} rejected (D3/N03)"
+                f"concurrent sync of {(project_id, source_file)!r} rejected (D3/N03); "
+                "a claim left behind by a dead writer requires an EXPLICIT "
+                "administrative reclaim (N27) -- it never expires by time."
             )
-        return claim
+        return self.store.reclaim_source(
+            project_id=project_id,
+            source_file=source_file,
+            owner_id=self.owner_id,
+            reason=ADMIN_RECLAIM_REASON,
+        )
 
     def reconcile_sources(
         self,
@@ -365,7 +407,7 @@ class SyncService:
 
         The COMPLETE incoming matrix is validated before the FIRST mutation (N17).
         """
-        _validate_matrix(project_id, objects_by_source)
+        _validate_matrix(project_id, producer, objects_by_source)
         results = self._delete_vanished_sources(
             project_id=project_id,
             producer=producer,
@@ -403,7 +445,7 @@ class SyncService:
 
         The COMPLETE incoming matrix is validated before the FIRST mutation (N17).
         """
-        _validate_matrix(project_id, objects_by_source)
+        _validate_matrix(project_id, producer, objects_by_source)
         results = self._delete_vanished_sources(
             project_id=project_id,
             producer=producer,
@@ -456,13 +498,16 @@ class SyncService:
             uuids = [str(o["uuid"]) for o in rows]
             claim = self._claim(project_id=project_id, source_file=vanished)
             try:
+                # FENCE BEFORE the delete (N27): a writer whose claim was
+                # administratively taken over must not mutate the source at all --
+                # checking afterwards would already have destroyed the generation.
+                self.store.assert_claim_held(claim=claim)
                 deleted = self.store.delete_objects(uuids=uuids) if uuids else 0
                 if uuids and deleted != len(uuids):
                     raise PartialWriteError(
                         f"partial delete for vanished source {vanished!r}: {deleted} of "
                         f"{len(uuids)} deleted (R12)."
                     )
-                self.store.assert_claim_held(claim=claim)
             finally:
                 self.store.release_source(claim=claim)
             results.append(
@@ -490,7 +535,11 @@ class SyncService:
         # itself a mutation, so nothing may be written before validation passes.
         project_id = claim.project_id
         source_file = claim.source_file
-        # (1) Write the new should-generation fully + verify EXACT transport count.
+        # (1) FENCE BEFORE THE FIRST WRITE (N27): if this writer's claim was
+        # administratively taken over while it was paused, it must not write stale
+        # chunks at all -- the previous implementation fenced only AFTER the upsert.
+        self.store.assert_claim_held(claim=claim)
+        # Write the new should-generation fully + verify EXACT transport count.
         should_uuids = {obj.uuid for obj in objects}
         written = self.store.upsert_objects(objects=objects)
         if written != len(objects):
@@ -510,8 +559,8 @@ class SyncService:
                 f"should-set not persisted for {source_file!r}: {len(missing)} of "
                 f"{len(should_uuids)} new UUIDs absent after write (R12)."
             )
-        # (2) FENCE before the delete: a writer whose claim was taken over must not
-        # remove the old generation either -- the new owner may still need it (N15).
+        # (2) FENCE again before the delete: the new owner may still need the old
+        # generation (N15/N27).
         self.store.assert_claim_held(claim=claim)
         # Delete old/foreign chunks of the SAME source AFTER + verify count.
         to_delete = [uid for uid in persisted_uuids if uid not in should_uuids]
@@ -521,12 +570,14 @@ class SyncService:
                 f"partial delete for {source_file!r}: transport reported {deleted} of "
                 f"{len(to_delete)} old UUIDs deleted (R12)."
             )
-        # (3) FENCE again before publishing: if the claim was taken over while the
-        # window was open, this writer's generation is no longer authoritative and
-        # it must NOT publish a completion marker (N15).
+        # (3) FENCE a third time before publishing: if the claim was taken over
+        # while the window was open, this writer's generation is no longer
+        # authoritative and it must NOT publish a completion (N15/N27).
         self.store.assert_claim_held(claim=claim)
-        # (4) Publish the digest-bound receipt ONLY after a verified full window.
-        # The store seals it with the atomic completion sequence (N16).
+        # (4) Publish the completion ONLY after a verified full window. The store
+        # establishes the completion order and the identity in ONE immutable
+        # conditional create, and verifies the sealed receipt BEFORE persisting it
+        # (N16/N28/N29).
         sealed = self.store.set_receipt(
             receipt=SyncReceipt.for_completion(
                 project_id, source_file, source_type, corpus_revision
@@ -545,23 +596,52 @@ class SyncService:
 
 
 def _validate_matrix(
-    project_id: str, objects_by_source: Mapping[str, Sequence[StoryContextObject]]
+    project_id: str,
+    producer: str,
+    objects_by_source: Mapping[str, Sequence[StoryContextObject]],
 ) -> None:
-    """Validate the COMPLETE incoming matrix before ANY mutation (N17/AC10).
+    """Validate the COMPLETE incoming matrix before ANY mutation (N17/N29/AC10).
 
     ``reconcile_sources`` / ``full_reindex`` delete vanished sources and write
     claims; if a LATER source in the same run turned out to be invalid, those
     mutations would already have happened. Validating everything up front keeps the
     zero-mutation guarantee for an invalid run.
+
+    Checks per source, before anything is claimed, deleted or written:
+
+    - the object list is NON-EMPTY (N29). An empty entry validated over zero
+      objects, derived ``source_type=""`` and then claimed, deleted the persisted
+      generation and reserved a completion before the malformed receipt was finally
+      rejected. Removing a source is the vanished-source path, not an empty entry;
+    - all objects of a source share ONE source_type;
+    - that source_type is OWNED by the calling producer (source/producer closure,
+      FK-13 §13.3.2 / §13.9.5) -- ``story_sync`` may not write concept chunks and
+      vice versa;
+    - every object matches the target (project, source, identity).
     """
+    owned = source_types_for_producer(producer)
+    if not owned:
+        raise SyncError(f"unknown producer {producer!r}; fail-closed (N29).")
     for source_file, objects in objects_by_source.items():
+        if not objects:
+            raise SyncError(
+                f"source {source_file!r} carries no objects; an empty generation is "
+                "not a sync target (remove a source through the vanished-source "
+                "path). Fail-closed (N29)."
+            )
         source_types = {str(obj.properties.get("source_type", "")) for obj in objects}
         if len(source_types) > 1:
             raise SyncError(
                 f"source {source_file!r} mixes source types {sorted(source_types)}; "
                 "fail-closed (N17)."
             )
-        source_type = next(iter(source_types), "")
+        source_type = next(iter(source_types))
+        if source_type not in owned:
+            raise SyncError(
+                f"source {source_file!r} has source_type {source_type!r} which "
+                f"producer {producer!r} does not own (owns {sorted(owned)}); "
+                "fail-closed (N29 producer closure)."
+            )
         _validate_objects_against_target(
             objects, project_id=project_id, source_file=source_file, source_type=source_type
         )
@@ -620,7 +700,7 @@ def _validate_objects_against_target(
 
 
 __all__ = [
-    "SOURCE_CLAIM_LEASE_SECONDS",
+    "ADMIN_RECLAIM_REASON",
     "ClaimSupersededError",
     "ConcurrentSyncRejectedError",
     "SourceClaim",

@@ -262,3 +262,59 @@ def test_n20_concepts_dir_has_no_default() -> None:
         parser.parse_args(["validate", "--corpus"])
     args = parser.parse_args(["--concepts-dir", "concepts", "validate", "--corpus"])
     assert args.concepts_dir == "concepts"
+
+
+# --------------------------------------------------------------------------- #
+# N27: the EXPLICIT administrative reclaim is an operator flag, never automatic
+# --------------------------------------------------------------------------- #
+
+
+def test_n27_sync_without_reclaim_is_rejected_on_a_held_claim(tmp_path: Path) -> None:
+    """A claim left behind by a dead writer blocks the sync until an operator acts."""
+    import pytest
+    from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient, corpus_store
+
+    from agentkit.backend.vectordb.cli import build_parser
+    from agentkit.backend.vectordb.engine import WeaviateRetrievalPort
+    from agentkit.backend.vectordb.mcp_server import McpToolService
+    from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
+    from agentkit.backend.vectordb.sync import ConcurrentSyncRejectedError, SyncService
+
+    root = _corpus(tmp_path)
+    env = {
+        "PROJECT_ID": "acme",
+        "WEAVIATE_HTTP_ENDPOINT": "http://weaviate.acme.local:8080",
+        "WEAVIATE_GRPC_ENDPOINT": "weaviate.acme.local:50051",
+    }
+    binding = RuntimeBinding.from_env(env, command="python", args=(), cwd=str(tmp_path))
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    # A dead writer left a claim on the only concept source.
+    dead = store.try_claim_source(
+        project_id="acme", source_file="technical-design/a.md", owner_id="dead-writer"
+    )
+    assert dead is not None
+
+    def factory(concepts_dir: Path) -> McpToolService:
+        return McpToolService(
+            binding=binding,
+            retrieval=WeaviateRetrievalPort(client=client, store=store, binding=binding),  # type: ignore[arg-type]
+            sync=SyncService(store=store, owner_id="cli-writer"),
+            concepts_dir=concepts_dir, stories_dir=tmp_path,
+        )
+
+    parser = build_parser()
+    args = parser.parse_args(["--concepts-dir", str(root), "sync"])
+    args.service_factory = factory  # type: ignore[attr-defined]
+    with pytest.raises(ConcurrentSyncRejectedError, match="administrative reclaim"):
+        args.func(args)
+    assert client.objects == {}
+
+    # WITH the explicit operator flag the claim is taken over and the sync runs.
+    reclaim_args = parser.parse_args(["--concepts-dir", str(root), "sync", "--reclaim"])
+    reclaim_args.service_factory = factory  # type: ignore[attr-defined]
+    assert int(reclaim_args.func(reclaim_args)) == 0
+    assert len(client.objects) > 0
+    assert any(
+        record.get("reclaimed_from") == "dead-writer" for record in client.claim_history
+    )

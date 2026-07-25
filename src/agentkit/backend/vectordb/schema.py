@@ -284,6 +284,15 @@ def weaviate_property_specs() -> list[dict[str, object]]:
 #: and consistent with this configuration (N02 adjudication vs FK-13 §13.2/§13.3).
 FK13_VECTORIZER: Final[str] = "text2vec_transformers"
 
+#: The vectorizer MODEL settings FK-13 §13.2 requires, in the wire-key form the
+#: client reports back (N30). ``vectorizeClassName`` must stay False (the
+#: collection name is not part of any embedding) and the pooling strategy is
+#: pinned, because a drifted model silently changes every vector.
+FK13_VECTORIZER_MODEL: Final[dict[str, object]] = {
+    "poolingStrategy": "masked_mean",
+    "vectorizeClassName": False,
+}
+
 
 def property_data_type(name: str) -> str:
     """Return the declared Weaviate data type of a schema property.
@@ -314,6 +323,7 @@ def search_property_spec(source_type: str) -> tuple[tuple[str, str, bool], ...]:
 
 __all__ = [
     "FK13_VECTORIZER",
+    "FK13_VECTORIZER_MODEL",
     "REQUIRED_OBJECT_FIELDS",
     "REQUIRED_SEARCH_PROPERTIES",
     "SOURCE_TYPES",

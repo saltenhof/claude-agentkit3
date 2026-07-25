@@ -245,6 +245,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
     Composes the real SyncService/adapter from the env and WRITES. A connection
     or validation fault fails closed (non-zero), never reports success at zero
     written chunks. ``--service-factory`` is an injectable seam for tests.
+
+    ``--reclaim`` is the EXPLICIT administrative takeover of a source claim left
+    behind by a dead writer (N27): claims never expire by time, so recovering one
+    is an operator decision -- the operator asserts the previous writer is dead.
     """
     concepts_dir = Path(args.concepts_dir)
     factory = getattr(args, "service_factory", None) or _default_service_factory
@@ -255,6 +259,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 -- connection/binding fault -> fail closed
         print(json.dumps({"status": "sync-failed", "error": str(exc)}, indent=2))
         return int(ExitCode.INTERNAL_FAILURE)
+    if getattr(args, "reclaim", False):
+        service.sync.reclaim = True
     result = handle_tool_call(service, "concept_sync", {"full_reindex": bool(getattr(args, "full", False))})
     if result.get("error"):
         print(json.dumps({"status": "sync-blocked", **result}, indent=2))
@@ -298,6 +304,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync = sub.add_parser("sync", help="Ring 3: productive concept sync")
     sync.add_argument("--full", action="store_true")
+    sync.add_argument(
+        "--reclaim",
+        action="store_true",
+        help=(
+            "ADMINISTRATIVELY take over a source claim left behind by a dead writer "
+            "(N27). Claims never expire by time; using this asserts that the "
+            "previous writer is dead."
+        ),
+    )
     sync.set_defaults(func=cmd_sync)
     return parser
 

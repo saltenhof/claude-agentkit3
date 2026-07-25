@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING
 from agentkit.backend.vectordb.engine import (
     CLAIM_COLLECTION,
     RECEIPT_COLLECTION,
-    SEQUENCE_COLLECTION,
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
@@ -62,9 +61,12 @@ class RecordingWeaviateClient:
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, dict[str, object]] = field(default_factory=dict)
     claims: dict[str, dict[str, object]] = field(default_factory=dict)
-    sequences: dict[str, dict[str, object]] = field(default_factory=dict)
     search_calls: list[dict[str, object]] = field(default_factory=list)
     ensure_calls: list[dict[str, object]] = field(default_factory=list)
+    #: Every upsert call (a completion must NEVER be an upsert, N28).
+    upsert_calls: list[str] = field(default_factory=list)
+    #: Every claim record ever created, including superseded generations (N27).
+    claim_history: list[dict[str, object]] = field(default_factory=list)
     search_results: list[tuple[str, dict[str, object], float]] = field(default_factory=list)
     upsert_written_override: int | None = None
     delete_confirmed_override: int | None = None
@@ -75,6 +77,12 @@ class RecordingWeaviateClient:
     #: Called with the collection name AFTER an upsert -- the seam a concurrent
     #: writer would act through (used to stage a mid-window claim takeover, N15).
     after_upsert: Callable[[str], None] | None = None
+    #: Called with the collection name BEFORE a delete -- the seam a concurrent
+    #: administrative reclaim would act through (N27 vanished-delete fence).
+    before_delete: Callable[[str], None] | None = None
+    #: Called with (collection, uuid) after a successful conditional create -- the
+    #: instant a concurrent writer could act on a freshly acquired claim (N27).
+    after_insert: Callable[[str, str], None] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _local: threading.local = field(default_factory=threading.local)
 
@@ -124,8 +132,6 @@ class RecordingWeaviateClient:
             return self.receipts
         if collection == CLAIM_COLLECTION:
             return self.claims
-        if collection == SEQUENCE_COLLECTION:
-            return self.sequences
         return self.objects
 
     # -- search (the REAL retrieval path) ---------------------------------- #
@@ -167,6 +173,7 @@ class RecordingWeaviateClient:
 
     # -- mutations --------------------------------------------------------- #
     def upsert(self, *, collection: str, objects: Sequence[Mapping[str, object]]) -> int:
+        self.upsert_calls.append(collection)
         store = self._store_for(collection)
         written = 0
         with self._lock:
@@ -207,12 +214,18 @@ class RecordingWeaviateClient:
             won = uuid not in store
             if won:
                 store[uuid] = dict(properties)
+                if collection == CLAIM_COLLECTION:
+                    self.claim_history.append(dict(properties))
         if use_barrier:
             assert self.insert_barrier is not None
             self.insert_barrier.wait()
+        if won and self.after_insert is not None:
+            self.after_insert(collection, uuid)
         return won
 
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int:
+        if self.before_delete is not None:
+            self.before_delete(collection)
         if self.delete_confirmed_override is not None:
             override = self.delete_confirmed_override
             self.delete_confirmed_override = None
@@ -232,11 +245,13 @@ class RecordingWeaviateClient:
         collection: str,
         property_specs: Sequence[Mapping[str, object]],
         vectorizer: str = "self_provided",
+        vectorizer_model: Mapping[str, object] | None = None,
     ) -> None:
         self.ensure_calls.append(
             {
                 "collection": collection,
                 "vectorizer": vectorizer,
+                "vectorizer_model": dict(vectorizer_model or {}),
                 "properties": tuple(str(s["name"]) for s in property_specs),
             }
         )

@@ -21,14 +21,17 @@ from tests.unit.vectordb.corpus_doubles import (
     corpus_store,
 )
 
-from agentkit.backend.vectordb.engine import CLAIM_COLLECTION, WeaviateCorpusStore
+from agentkit.backend.vectordb.engine import (
+    CLAIM_COLLECTION,
+    RECEIPT_COLLECTION,
+    WeaviateCorpusStore,
+)
 from agentkit.backend.vectordb.schema import (
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     deterministic_uuid,
 )
 from agentkit.backend.vectordb.sync import (
-    SOURCE_CLAIM_LEASE_SECONDS,
     ClaimSupersededError,
     ConcurrentSyncRejectedError,
     PartialWriteError,
@@ -310,18 +313,100 @@ def test_full_reindex_story_does_not_touch_concept_and_vice_versa() -> None:
 
 
 def test_project_isolation_two_projects() -> None:
+    """Removing a source is the VANISHED-source path (an empty entry is invalid, N29)."""
     client = RecordingWeaviateClient()
     a = chunk_object("acme", "concept/a.md", "a1")
     b = chunk_object("other", "concept/a.md", "a1")  # same source, other project
     _seed(client, a)
     _seed(client, b)
     service = SyncService(store=corpus_store(client))
-    service.sync_source(
-        project_id="acme", source_file="concept/a.md", source_type="concept",
-        objects=[], corpus_revision="rev",  # empty should-set -> delete acme's only
+    service.reconcile_sources(
+        project_id="acme", producer="concept_sync",
+        objects_by_source={}, corpus_revision="rev",
     )
     assert a.uuid not in client.objects
     assert b.uuid in client.objects  # other project untouched
+
+
+def test_n29_empty_generation_is_not_a_sync_target() -> None:
+    client = RecordingWeaviateClient()
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="carries no objects"):
+        service.sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[], corpus_revision="rev",
+        )
+    assert client.claims == {}
+
+
+def test_n29_empty_matrix_entry_mutates_nothing_at_all() -> None:
+    """N29: the empty entry is rejected BEFORE the vanished-source delete runs."""
+    client = RecordingWeaviateClient()
+    stale = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, stale)
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="carries no objects"):
+        service.reconcile_sources(
+            project_id="acme", producer="concept_sync",
+            objects_by_source={"concept/a.md": []}, corpus_revision="rev",
+        )
+    assert stale.uuid in client.objects, "the vanished delete must not have run"
+    assert client.claims == {}
+    assert client.receipts == {}
+
+
+def test_n29_a_malformed_receipt_is_never_persisted() -> None:
+    """N29: the sealed receipt is verified BEFORE it is written."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    malformed = SyncReceipt.for_completion("acme", "concept/a.md", "", "rev")
+    with pytest.raises(SyncError, match="source_type"):
+        store.set_receipt(receipt=malformed)
+    assert client.receipts == {}, "an unverified receipt must never reach the store"
+
+
+def test_n27_vanished_delete_is_fenced_before_it_deletes() -> None:
+    """N27: a takeover DURING the vanished-source delete must prevent the delete."""
+    client = RecordingWeaviateClient()
+    stale = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, stale)
+    store = corpus_store(client)
+
+    def _take_over(collection: str, _uuid: str) -> None:
+        if collection != CLAIM_COLLECTION:
+            return
+        # The instant writer A holds its claim, an operator hands the source to B.
+        client.after_insert = None
+        store.reclaim_source(
+            project_id="acme", source_file="concept/gone.md",
+            owner_id="writer-b", reason="test takeover",
+        )
+
+    client.after_insert = _take_over
+    with pytest.raises(ClaimSupersededError, match="superseded"):
+        SyncService(store=store, owner_id="writer-a").reconcile_sources(
+            project_id="acme", producer="concept_sync",
+            objects_by_source={}, corpus_revision="rev",
+        )
+    assert stale.uuid in client.objects, "a superseded writer must not delete"
+
+
+def test_n29_producer_closure_is_validated_for_the_whole_matrix() -> None:
+    """A producer may not write another producer's source type (N29)."""
+    client = RecordingWeaviateClient()
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="does not own"):
+        service.reconcile_sources(
+            project_id="acme", producer="concept_sync",
+            objects_by_source={
+                "stories/x/story.md": [
+                    chunk_object("acme", "stories/x/story.md", "s1", "story")
+                ]
+            },
+            corpus_revision="rev",
+        )
+    assert client.claims == {}
+    assert client.objects == {}
 
 
 # --------------------------------------------------------------------------- #
@@ -367,7 +452,6 @@ def test_n17_no_claim_is_written_before_objects_are_validated() -> None:
     assert client.claims == {}, "no claim may be written for an invalid object set"
     assert client.objects == {}
     assert client.receipts == {}
-    assert client.sequences == {}
 
 
 def test_n17_invalid_later_source_prevents_the_vanished_delete() -> None:
@@ -439,7 +523,8 @@ def _clock(start: datetime) -> tuple[Callable[[], datetime], list[datetime]]:
     return read, now
 
 
-def test_n15_claim_record_carries_owner_epoch_and_lease() -> None:
+def test_n15_claim_record_carries_owner_and_epoch_but_no_expiry() -> None:
+    """N27: a claim carries owner + epoch and NO expiry field at all."""
     client = RecordingWeaviateClient()
     store = corpus_store(client)
     claim = store.try_claim_source(
@@ -448,17 +533,17 @@ def test_n15_claim_record_carries_owner_epoch_and_lease() -> None:
     assert claim is not None
     assert claim.owner_id == "writer-a"
     assert claim.epoch == 1
+    assert claim.reclaimed_from == ""
     record = next(iter(client.claims.values()))
     assert record["owner_id"] == "writer-a"
     assert record["epoch"] == "1"
-    assert record["expires_at"] == claim.expires_at
-    assert parse_utc_timestamp(str(record["expires_at"])) > parse_utc_timestamp(
-        str(record["claimed_at"])
-    )
+    parse_utc_timestamp(str(record["claimed_at"]))
+    assert "expires_at" not in record, "a claim must not carry a wall-clock expiry (N27)"
+    assert not hasattr(claim, "expires_at")
 
 
-def test_n15_expired_claim_of_a_crashed_writer_is_reclaimed_with_a_new_epoch() -> None:
-    """A crash must NOT wedge the deterministic claim uuid forever."""
+def test_n27_a_claim_never_expires_by_time() -> None:
+    """D3 admits NO time-based exception: a held claim rejects forever (N27)."""
     client = RecordingWeaviateClient()
     start = datetime(2026, 7, 25, 12, 0, tzinfo=UTC)
     read, now = _clock(start)
@@ -467,31 +552,78 @@ def test_n15_expired_claim_of_a_crashed_writer_is_reclaimed_with_a_new_epoch() -
         project_id="acme", source_file="concept/a.md", owner_id="crashed-writer"
     )
     assert crashed is not None
-    # While the lease is LIVE another owner is still rejected (D3 preserved).
+    # A YEAR later the claim is STILL rejected -- no automatic takeover.
+    now[0] = start + timedelta(days=365)
     assert (
         store.try_claim_source(
             project_id="acme", source_file="concept/a.md", owner_id="writer-b"
         )
         is None
     )
-    # After the bounded lease expires the source is reclaimable with epoch+1.
-    now[0] = start + timedelta(seconds=SOURCE_CLAIM_LEASE_SECONDS + 1)
-    taken_over = store.try_claim_source(
-        project_id="acme", source_file="concept/a.md", owner_id="writer-b"
+    # ...and a normal sync of another writer is rejected, not silently taken over.
+    with pytest.raises(ConcurrentSyncRejectedError, match="administrative reclaim"):
+        SyncService(store=store, owner_id="writer-b").sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev",
+        )
+    assert client.objects == {}
+
+
+def test_n27_explicit_administrative_reclaim_takes_over_and_fences() -> None:
+    """The ONLY recovery is the explicit operator reclaim (N27)."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    crashed = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="crashed-writer"
     )
-    assert taken_over is not None
-    assert taken_over.epoch == crashed.epoch + 1
-    assert taken_over.owner_id == "writer-b"
-    # The CRASHED holder is fenced out and can no longer publish anything.
-    with pytest.raises(ClaimSupersededError, match="superseded"):
-        store.assert_claim_held(claim=crashed)
-    store.release_source(claim=taken_over)
-    # ...and a fresh writer can complete the source for real.
-    result = SyncService(store=store, owner_id="writer-c").sync_source(
+    assert crashed is not None
+    service = SyncService(store=store, owner_id="writer-b", reclaim=True)
+    result = service.sync_source(
         project_id="acme", source_file="concept/a.md", source_type="concept",
         objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev",
     )
     assert result.written == 1
+    # The reclaim is RECORDED (who was taken over, and why).
+    reclaim_record = next(
+        r for r in client.claim_history if r.get("reclaimed_from") == "crashed-writer"
+    )
+    assert reclaim_record["epoch"] == "2"
+    assert reclaim_record["reclaim_reason"]
+    # The crashed holder is fenced out for good.
+    with pytest.raises(ClaimSupersededError, match="superseded"):
+        store.assert_claim_held(claim=crashed)
+
+
+def test_n27_stale_writer_cannot_write_after_an_administrative_takeover() -> None:
+    """The FIRST fence sits before the first WRITE, not after it (N27).
+
+    Writer A pauses, B is administratively granted the claim and completes, A
+    resumes -- A must not write a single stale chunk.
+    """
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    writer_a = SyncService(store=store, owner_id="writer-a")
+    claim_a = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="writer-a"
+    )
+    assert claim_a is not None
+    # B takes over administratively and completes the source.
+    SyncService(store=store, owner_id="writer-b", reclaim=True).sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "from-b")], corpus_revision="rev-b",
+    )
+    written_by_b = dict(client.objects)
+    receipts_after_b = dict(client.receipts)
+    # A resumes with its stale claim: it must abort BEFORE writing anything.
+    with pytest.raises(ClaimSupersededError, match="superseded"):
+        writer_a._sync_impl(  # noqa: SLF001 -- the resumed in-flight window
+            claim=claim_a,
+            source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "stale-from-a")],
+            corpus_revision="rev-a",
+        )
+    assert client.objects == written_by_b, "no stale chunk may be written"
+    assert client.receipts == receipts_after_b, "no stale completion may be published"
 
 
 def test_n15_superseded_writer_cannot_publish_a_receipt() -> None:
@@ -517,7 +649,8 @@ def test_n15_superseded_writer_cannot_publish_a_receipt() -> None:
                 "owner_id": "writer-b",
                 "epoch": "2",
                 "claimed_at": utc_now(),
-                "expires_at": utc_now(),
+                "reclaimed_from": "writer-a",
+                "reclaim_reason": "test takeover",
             },
         )
 
@@ -554,7 +687,7 @@ def test_n15_vanished_source_delete_requires_the_claim() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_n16_completion_sequence_is_reserved_atomically() -> None:
+def test_n28_each_completion_is_one_immutable_conditional_create() -> None:
     client = RecordingWeaviateClient()
     store = corpus_store(client)
     for source in ("concept/a.md", "concept/b.md", "concept/c.md"):
@@ -562,15 +695,18 @@ def test_n16_completion_sequence_is_reserved_atomically() -> None:
             project_id="acme", source_file=source, source_type="concept",
             objects=[chunk_object("acme", source, "c1")], corpus_revision="rev",
         )
-    # Every number is a distinct CONDITIONAL CREATE token, so the order is a real
-    # total order rather than a racy max+1 read.
-    reserved = sorted(int(str(doc["sequence"])) for doc in client.sequences.values())
-    assert reserved == [1, 2, 3]
+    # The completion RECORD itself is the position: one conditional create per
+    # completion, never a reservation followed by a separate publish.
+    assert RECEIPT_COLLECTION not in client.upsert_calls, (
+        "a completion must never be an upsert -- only an immutable create (N28)"
+    )
     receipts = sorted(store.list_receipts(project_id="acme"), key=lambda r: r.sequence)
     assert [r.sequence for r in receipts] == [1, 2, 3]
+    for receipt in receipts:
+        receipt.verify()
 
 
-def test_n16_two_concurrent_completions_get_distinct_sequences() -> None:
+def test_n28_two_concurrent_completions_get_distinct_positions() -> None:
     client = RecordingWeaviateClient()
     client.insert_barrier = threading.Barrier(2, timeout=10)
     store = corpus_store(client)

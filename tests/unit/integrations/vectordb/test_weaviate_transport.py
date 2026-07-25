@@ -24,8 +24,11 @@ import weaviate
 from weaviate.classes.config import DataType, Tokenization
 from weaviate.collections.classes.config import (
     Vectorizers,
+    _NamedVectorConfig,
+    _NamedVectorizerConfig,
     _Property,
     _PropertyVectorizerConfig,
+    _VectorizerConfig,
 )
 from weaviate.collections.data import _DataCollection
 from weaviate.collections.queries.bm25.query import _BM25Query
@@ -46,7 +49,10 @@ from agentkit.integration_clients.vectordb.errors import (
     VectorDbUnavailableError,
     VectorDbWriteError,
 )
-from agentkit.integration_clients.vectordb.weaviate_adapter import _RealWeaviateClient
+from agentkit.integration_clients.vectordb.weaviate_adapter import (
+    _RealWeaviateClient,
+    configured_vectorizer_model,
+)
 
 _ENV = {
     "PROJECT_ID": "acme",
@@ -139,11 +145,12 @@ class _FakeData:
 
 @dataclass
 class _ConfigView:
-    """Mirror of the fields production reads from ``_CollectionConfig`` (N12)."""
+    """Mirror of the fields production reads from ``_CollectionConfig`` (N12/N30)."""
 
     properties: list[_Property]
     vectorizer: Vectorizers | None = None
-    vector_config: dict[str, object] | None = None
+    vector_config: dict[str, _NamedVectorConfig] | None = None
+    vectorizer_config: _VectorizerConfig | None = None
 
 
 @dataclass
@@ -517,11 +524,15 @@ def _schema_properties() -> list[_Property]:
 
 
 def _ensure(config: _ConfigView, vectorizer: str) -> None:
+    """Verify an EXISTING collection against the schema SSOT (incl. the model)."""
+    from agentkit.backend.vectordb.schema import FK13_VECTORIZER_MODEL
+
     client = _client(_collection(config=config), existing={STORY_CONTEXT_COLLECTION})
     client.ensure_collection(
         collection=STORY_CONTEXT_COLLECTION,
         property_specs=weaviate_property_specs(),
         vectorizer=vectorizer,
+        vectorizer_model=FK13_VECTORIZER_MODEL if vectorizer == "text2vec_transformers" else None,
     )
 
 
@@ -533,9 +544,7 @@ def test_n12_existing_collection_with_self_provided_vectorizer_fails_closed() ->
 
 def test_n12_existing_collection_with_property_drift_fails_closed() -> None:
     props = _schema_properties()[:-1]  # one schema property missing
-    config = _ConfigView(
-        properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS
-    )
+    config = _ConfigView(properties=props, vector_config=_named_vector_config())
     with pytest.raises(VectorDbWriteError, match="configuration drifted"):
         _ensure(config, "text2vec_transformers")
 
@@ -543,42 +552,138 @@ def test_n12_existing_collection_with_property_drift_fails_closed() -> None:
 def test_n12_existing_collection_with_wrong_data_type_fails_closed() -> None:
     props = _schema_properties()
     props[0] = _read_property(str(props[0].name), DataType.BOOL)  # content: TEXT -> BOOL
-    config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
+    config = _ConfigView(properties=props, vector_config=_named_vector_config())
     with pytest.raises(VectorDbWriteError, match="'data_type': 'boolean'"):
         _ensure(config, "text2vec_transformers")
 
 
 def test_n12_matching_existing_collection_is_accepted() -> None:
     config = _ConfigView(
-        properties=_schema_properties(), vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS
+        properties=_schema_properties(), vector_config=_named_vector_config()
     )
     _ensure(config, "text2vec_transformers")  # no raise
 
 
+def _named_vector_config(
+    vectorizer: Vectorizers = Vectorizers.TEXT2VEC_TRANSFORMERS,
+    **model: object,
+) -> dict[str, _NamedVectorConfig]:
+    """Build the REAL read-back named-vector config of the installed client (N30).
+
+    The previous test fabricated an object exposing ``vectorize_collection_name``,
+    an attribute ``_NamedVectorizerConfig`` does NOT have -- which is exactly how
+    the production check could look at the wrong place and still pass. Everything
+    here comes from the installed classes.
+    """
+    settings: dict[str, object] = {
+        "poolingStrategy": "masked_mean",
+        "vectorizeClassName": False,
+    }
+    settings.update(model)
+    return {
+        "default": _NamedVectorConfig(
+            vectorizer=_NamedVectorizerConfig(
+                vectorizer=vectorizer, model=settings, source_properties=None
+            ),
+            vector_index_config=None,
+        )
+    }
+
+
+def test_n30_named_vectorizer_config_has_no_vectorize_collection_name_attribute() -> None:
+    """Guard the CLASS SHAPE the production check depends on (N30)."""
+    import dataclasses
+
+    fields = {f.name for f in dataclasses.fields(_NamedVectorizerConfig)}
+    assert fields == {"vectorizer", "model", "source_properties"}
+    assert "vectorize_collection_name" not in fields
+    # The legacy surface is the one that carries the flag directly.
+    legacy_fields = {f.name for f in dataclasses.fields(_VectorizerConfig)}
+    assert {"vectorizer", "model", "vectorize_collection_name"} <= legacy_fields
+
+
 def test_n12_named_vector_config_is_the_authoritative_surface() -> None:
     """With named vectors the legacy ``vectorizer`` field is None -- use vector_config."""
-
-    @dataclass
-    class _VecCfg:
-        vectorizer: object
-
-    @dataclass
-    class _Inner:
-        vectorizer: Vectorizers
-
     config = _ConfigView(
         properties=_schema_properties(),
         vectorizer=None,
-        vector_config={"default": _VecCfg(vectorizer=_Inner(Vectorizers.TEXT2VEC_TRANSFORMERS))},
+        vector_config=_named_vector_config(),
     )
     _ensure(config, "text2vec_transformers")
     drifted = _ConfigView(
         properties=_schema_properties(),
         vectorizer=None,
-        vector_config={"default": _VecCfg(vectorizer=_Inner(Vectorizers.NONE))},
+        vector_config=_named_vector_config(Vectorizers.NONE),
     )
     with pytest.raises(VectorDbWriteError, match="vectorizer 'self_provided'"):
         _ensure(drifted, "text2vec_transformers")
+
+
+def test_n30_model_settings_are_read_from_the_real_named_config() -> None:
+    """The MODEL is where vectorizeClassName / poolingStrategy actually live."""
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=None,
+        vector_config=_named_vector_config(),
+    )
+    assert configured_vectorizer_model(config) == {
+        "poolingStrategy": "masked_mean",
+        "vectorizeClassName": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "drift,match",
+    [
+        ({"vectorizeClassName": True}, "vectorizeClassName"),
+        ({"poolingStrategy": "cls"}, "poolingStrategy"),
+    ],
+)
+def test_n30_drifted_vectorizer_model_fails_closed(
+    drift: dict[str, object], match: str
+) -> None:
+    """A real config with a drifted MODEL must NOT pass verification (N30)."""
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=None,
+        vector_config=_named_vector_config(**drift),
+    )
+    with pytest.raises(VectorDbWriteError, match=match):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n30_legacy_vectorizer_surface_is_also_checked() -> None:
+    """The pre-named-vector surface carries the flag as its own attribute."""
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS,
+        vector_config=None,
+        vectorizer_config=_VectorizerConfig(
+            vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS,
+            model={"poolingStrategy": "masked_mean"},
+            vectorize_collection_name=True,
+        ),
+    )
+    with pytest.raises(VectorDbWriteError, match="vectorizeClassName"):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n30_created_collection_uses_the_ssot_model() -> None:
+    """Creation takes the pooling strategy / class-name flag from the schema SSOT."""
+    from agentkit.backend.vectordb.schema import FK13_VECTORIZER_MODEL
+
+    collections = _FakeCollections(collection=_collection())
+    client = _RealWeaviateClient(_FakeConnection(collections))
+    client.ensure_collection(
+        collection=STORY_CONTEXT_COLLECTION,
+        property_specs=weaviate_property_specs(),
+        vectorizer="text2vec_transformers",
+        vectorizer_model=FK13_VECTORIZER_MODEL,
+    )
+    created = collections.created[0]["vector_config"]
+    inner = created.vectorizer  # type: ignore[union-attr]
+    assert inner.poolingStrategy == FK13_VECTORIZER_MODEL["poolingStrategy"]
+    assert inner.vectorizeClassName == FK13_VECTORIZER_MODEL["vectorizeClassName"]
 
 
 def test_n12_creation_uses_the_fk13_server_side_vectorizer() -> None:
@@ -757,14 +862,24 @@ class _RaisingData(_FakeData):
         return self.exists_result
 
 
-def test_n14_installed_client_routes_duplicates_through_unexpected_status_code() -> None:
-    """Documents the REAL behaviour: ``insert`` does not raise ObjectAlreadyExists."""
-    from weaviate.exceptions import ObjectAlreadyExistsException, UnexpectedStatusCodeError
+def test_n14_object_already_exists_exception_is_also_a_lost_claim() -> None:
+    """BEHAVIOURAL (P2-1): both real exception shapes are handled as a lost claim.
 
-    source = inspect.getsource(_DataCollection.insert)
-    assert "UnexpectedStatusCodeError" in source
-    assert "already exists" in source
-    assert ObjectAlreadyExistsException is not UnexpectedStatusCodeError
+    ``insert`` routes a duplicate id through ``UnexpectedStatusCodeError`` (covered
+    by the constructed-response tests); other client paths raise
+    ``ObjectAlreadyExistsException``. Production must treat BOTH as "the claim is
+    taken", and neither as a write error.
+    """
+    from weaviate.exceptions import ObjectAlreadyExistsException
+
+    data = _RaisingData(error=ObjectAlreadyExistsException("claim-1"))
+    client = _client(_collection(data=data))
+    assert (
+        client.insert_object(
+            collection="__agentkit_source_claims", uuid="claim-1", properties={"state": "claimed"}
+        )
+        is False
+    )
 
 
 def test_n14_real_duplicate_response_is_a_lost_claim() -> None:
@@ -854,7 +969,7 @@ def test_n18_existing_collection_with_field_tokenised_content_fails_closed() -> 
         tokenization=Tokenization.FIELD,  # drifted: whole-value narrative field
         searchable=True,
     )
-    config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
+    config = _ConfigView(properties=props, vector_config=_named_vector_config())
     with pytest.raises(VectorDbWriteError, match="'tokenization': 'field'"):
         _ensure(config, "text2vec_transformers")
 
@@ -869,31 +984,8 @@ def test_n18_existing_collection_with_unsearchable_content_fails_closed() -> Non
         tokenization=Tokenization.WORD,
         searchable=False,  # drifted: BM25 cannot use it at all
     )
-    config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
+    config = _ConfigView(properties=props, vector_config=_named_vector_config())
     with pytest.raises(VectorDbWriteError, match="'searchable': False"):
-        _ensure(config, "text2vec_transformers")
-
-
-def test_n12_existing_collection_that_vectorises_the_name_fails_closed() -> None:
-    @dataclass
-    class _VecCfg:
-        vectorizer: object
-
-    @dataclass
-    class _Inner:
-        vectorizer: Vectorizers
-        vectorize_collection_name: bool
-
-    config = _ConfigView(
-        properties=_schema_properties(),
-        vectorizer=None,
-        vector_config={
-            "default": _VecCfg(
-                vectorizer=_Inner(Vectorizers.TEXT2VEC_TRANSFORMERS, True)
-            )
-        },
-    )
-    with pytest.raises(VectorDbWriteError, match="collection NAME"):
         _ensure(config, "text2vec_transformers")
 
 
@@ -906,7 +998,7 @@ def test_n12_drifted_per_property_vectorisation_fails_closed() -> None:
         skip_vectorization=False,  # drifted: an identifier in the embedding
         tokenization=Tokenization.FIELD,
     )
-    config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
+    config = _ConfigView(properties=props, vector_config=_named_vector_config())
     with pytest.raises(VectorDbWriteError, match="'skip_vectorization': False"):
         _ensure(config, "text2vec_transformers")
 

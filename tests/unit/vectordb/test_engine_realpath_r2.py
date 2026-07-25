@@ -33,7 +33,12 @@ from agentkit.backend.vectordb.engine import (
 from agentkit.backend.vectordb.mcp_server import McpToolService, handle_tool_call
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.schema import STORY_CONTEXT_COLLECTION
-from agentkit.backend.vectordb.sync import ConcurrentSyncRejectedError, PartialWriteError, SyncService
+from agentkit.backend.vectordb.sync import (
+    ConcurrentSyncRejectedError,
+    PartialWriteError,
+    SyncReceipt,
+    SyncService,
+)
 from agentkit.concepts.parser import discover_concept_files
 from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
 
@@ -789,3 +794,82 @@ def test_n23_explicit_authority_scope_activates_the_precedence(tmp_path: Path) -
     client.search_results = [concept_hit("c1", "FK-13", 0.1, module="vectordb")]
     result = handle_tool_call(service, "concept_search", {"query": "retrieval"})
     assert "authority_over-direct" in result["results"][0]["rank_reasons"]
+
+
+# --------------------------------------------------------------------------- #
+# N28: completions are immutable, position-bound and replay-proof
+# --------------------------------------------------------------------------- #
+
+
+def test_n28_an_established_completion_position_is_never_overwritten(
+    tmp_path: Path,
+) -> None:
+    """A persisted completion is IMMUTABLE: its position cannot be re-used (N28).
+
+    This is the replay path: re-inserting a saved, still digest-valid completion
+    over the CURRENT position must LOSE, so the established completion order can
+    never be rewritten and the reported freshness cannot be pulled backwards.
+    (Publishing an older corpus revision again is a legitimate NEW completion at a
+    NEW position -- that is not a replay.)
+    """
+    service, client = _service(tmp_path)
+    store = service.sync.store
+    service.sync.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev-1",
+    )
+    saved_doc = dict(next(iter(client.receipts.values())))  # the rev-1 completion
+    service.sync.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev-2",
+    )
+    latest_uuid, latest_doc = next(iter(client.receipts.items()))
+    assert latest_doc["corpus_revision"] == "rev-2"
+
+    # Replay the saved rev-1 completion OVER the current position: the conditional
+    # create must lose and the record must stay byte-identical.
+    assert (
+        client.insert_object(
+            collection=RECEIPT_COLLECTION, uuid=latest_uuid, properties=saved_doc
+        )
+        is False
+    )
+    assert client.receipts[latest_uuid] == latest_doc
+    still_latest = store.get_receipt(project_id="acme", source_file="concept/a.md")
+    assert still_latest is not None
+    assert still_latest.corpus_revision == "rev-2", "freshness must not be rewritten"
+    # Superseded positions are pruned, so the log stays bounded; the winning
+    # completion is the only one that decides freshness.
+    assert len(client.receipts) == 1
+
+
+def test_n28_a_moved_completion_record_is_fail_closed(tmp_path: Path) -> None:
+    """A completion stored at a position it does not bind to is rejected (N28)."""
+    service, client = _service(tmp_path)
+    service.sync.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev-1",
+    )
+    uid, doc = next(iter(client.receipts.items()))
+    del client.receipts[uid]
+    client.receipts["11111111-2222-4333-8444-555555555555"] = doc  # moved record
+    with pytest.raises(VectorDbUnavailableError, match="immutable and position-bound"):
+        service.sync.store.list_receipts(project_id="acme")
+
+
+def test_n28_a_stalled_writer_cannot_publish_ahead_of_a_later_one(tmp_path: Path) -> None:
+    """The position is established BY the publish, so order cannot be reversed."""
+    service, client = _service(tmp_path)
+    store = service.sync.store
+    # B completes first...
+    b = store.set_receipt(
+        receipt=SyncReceipt.for_completion("acme", "concept/b.md", "concept", "rev-b")
+    )
+    # ...then A (which "stalled" before publishing) completes.
+    a = store.set_receipt(
+        receipt=SyncReceipt.for_completion("acme", "concept/a.md", "concept", "rev-a")
+    )
+    assert a.sequence > b.sequence, "the LAST completion holds the highest position"
+    rows = handle_tool_call(service, "story_list_sources", {})
+    concept_row = next(s for s in rows["sources"] if s["source_type"] == "concept")
+    assert concept_row["last_revision"] == "rev-a"

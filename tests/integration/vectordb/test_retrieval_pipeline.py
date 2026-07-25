@@ -53,14 +53,31 @@ class IndexingFakeStore:
     ) -> SourceClaim | None:
         key = (project_id, source_file)
         if key in self._claims:
-            return None
+            return None  # N27: never a time-based takeover
         claim = SourceClaim(
             project_id=project_id,
             source_file=source_file,
             owner_id=owner_id,
             epoch=1,
-            expires_at=utc_now(),
+            claimed_at=utc_now(),
         )
+        self._claims[key] = claim
+        return claim
+
+    def reclaim_source(
+        self, *, project_id: str, source_file: str, owner_id: str, reason: str
+    ) -> SourceClaim:
+        key = (project_id, source_file)
+        previous = self._claims.get(key)
+        claim = SourceClaim(
+            project_id=project_id,
+            source_file=source_file,
+            owner_id=owner_id,
+            epoch=(previous.epoch if previous else 0) + 1,
+            claimed_at=utc_now(),
+            reclaimed_from=previous.owner_id if previous else "",
+        )
+        del reason
         self._claims[key] = claim
         return claim
 
