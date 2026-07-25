@@ -447,10 +447,12 @@ def test_n08_receipt_from_props_rejects_a_foreign_identity() -> None:
             state="completed",
             completed_at="2026-07-25T00:00:00Z",
             sequence=1,
+            generation=1,
         ),
         "state": "completed",
         "completed_at": "2026-07-25T00:00:00Z",
         "sequence": "1",
+        "generation": "1",
     }
     with pytest.raises(VectorDbUnavailableError, match="identity mismatch"):
         receipt_from_props("acme", "concept/a.md", props)
@@ -533,7 +535,7 @@ def test_r12_reconcile_partial_delete_rejected_no_receipt(tmp_path: Path) -> Non
     # The destructive delete is storage-conditional (D9): a short confirmed count
     # means an object is no longer owned by the generation this run observed, so the
     # run fails closed and publishes nothing -- the R12 guarantee, new fault name.
-    with pytest.raises(ClaimSupersededError, match="ownership of at least one object"):
+    with pytest.raises(ClaimSupersededError, match="not older than this claim"):
         service.reconcile_sources(
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev",
@@ -1205,11 +1207,15 @@ def test_n28_a_stalled_writer_cannot_publish_ahead_of_a_later_one(tmp_path: Path
     store = service.sync.store
     # B completes first...
     b = store.set_receipt(
-        receipt=SyncReceipt.for_completion("acme", "concept/b.md", "concept", "rev-b")
+        receipt=SyncReceipt.for_completion(
+        "acme", "concept/b.md", "concept", "rev-b", generation=1
+    )
     )
     # ...then A (which "stalled" before publishing) completes.
     a = store.set_receipt(
-        receipt=SyncReceipt.for_completion("acme", "concept/a.md", "concept", "rev-a")
+        receipt=SyncReceipt.for_completion(
+        "acme", "concept/a.md", "concept", "rev-a", generation=1
+    )
     )
     assert a.sequence > b.sequence, "the LAST completion holds the highest position"
     rows = handle_tool_call(service, "story_list_sources", {})

@@ -19,7 +19,7 @@ from agentkit.backend.vectordb.concept_corpus.graph import build_graph
 from agentkit.backend.vectordb.concept_corpus.resolver import rank_hits
 from agentkit.backend.vectordb.concept_corpus.validator import validate_corpus
 from agentkit.backend.vectordb.ingest.adapter import concept_chunks_to_objects
-from agentkit.backend.vectordb.schema import OWNING_CLAIM_PROPERTY
+from agentkit.backend.vectordb.schema import OWNING_GENERATION_PROPERTY
 from agentkit.backend.vectordb.sync import (
     ClaimSupersededError,
     SourceClaim,
@@ -41,12 +41,15 @@ class IndexingFakeStore:
     """Fake at the external boundary: stores objects + supports retrieval.
 
     Implements the FULL :class:`CorpusStorePort`, including the fenced source claim
-    (owner/epoch, N15) and the atomic completion sequence (N16).
+    and the PERSISTENT monotonic source generation (N15/N37) plus the atomic
+    completion position (N16).
     """
 
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, SyncReceipt] = field(default_factory=dict)
     _claims: dict[tuple[str, str], SourceClaim] = field(default_factory=dict)
+    #: Highest generation EVER allocated per source -- survives a release (N37).
+    _generations: dict[tuple[str, str], int] = field(default_factory=dict)
     _sequence: int = 0
 
     def try_claim_source(
@@ -55,30 +58,34 @@ class IndexingFakeStore:
         key = (project_id, source_file)
         if key in self._claims:
             return None  # N27: never a time-based takeover
-        claim = SourceClaim(
-            project_id=project_id,
-            source_file=source_file,
-            owner_id=owner_id,
-            epoch=1,
-            claimed_at=utc_now(),
-        )
-        self._claims[key] = claim
-        return claim
+        return self._allocate(key, owner_id=owner_id, reclaimed_from="")
 
     def reclaim_source(
         self, *, project_id: str, source_file: str, owner_id: str, reason: str
     ) -> SourceClaim:
+        del reason
         key = (project_id, source_file)
         previous = self._claims.get(key)
-        claim = SourceClaim(
-            project_id=project_id,
-            source_file=source_file,
+        return self._allocate(
+            key,
             owner_id=owner_id,
-            epoch=(previous.epoch if previous else 0) + 1,
-            claimed_at=utc_now(),
             reclaimed_from=previous.owner_id if previous else "",
         )
-        del reason
+
+    def _allocate(
+        self, key: tuple[str, str], *, owner_id: str, reclaimed_from: str
+    ) -> SourceClaim:
+        """Allocate the NEXT generation of a source; the ladder never resets (N37)."""
+        generation = self._generations.get(key, 0) + 1
+        self._generations[key] = generation
+        claim = SourceClaim(
+            project_id=key[0],
+            source_file=key[1],
+            owner_id=owner_id,
+            generation=generation,
+            claimed_at=utc_now(),
+            reclaimed_from=reclaimed_from,
+        )
         self._claims[key] = claim
         return claim
 
@@ -88,13 +95,17 @@ class IndexingFakeStore:
             raise ClaimSupersededError(f"claim {claim!r} superseded by {held!r}")
 
     def release_source(self, *, claim: SourceClaim) -> None:
-        self._claims.pop((claim.project_id, claim.source_file), None)
+        held = self._claims.get((claim.project_id, claim.source_file))
+        if held is not None and held.generation == claim.generation:
+            # Only the HOLDER releases; the ladder position stays (N37).
+            del self._claims[(claim.project_id, claim.source_file)]
 
     # -- CorpusStorePort --
     def list_objects_for_source(self, *, project_id: str, source_file: str) -> Sequence[Mapping[str, object]]:
         return [
             {"uuid": uid, "source_file": o["source_file"], "source_type": o["source_type"],
-             "project_id": o["project_id"]}
+             "project_id": o["project_id"],
+             OWNING_GENERATION_PROPERTY: o.get(OWNING_GENERATION_PROPERTY)}
             for uid, o in self.objects.items()
             if o["project_id"] == project_id and o["source_file"] == source_file
         ]
@@ -108,29 +119,30 @@ class IndexingFakeStore:
         ]
 
     def upsert_objects(
-        self, *, objects: Sequence[StoryContextObject], owning_claim: str
+        self, *, objects: Sequence[StoryContextObject], owning_generation: int
     ) -> int:
-        """Write objects stamped with the writing claim's ownership token (D9)."""
-        if not owning_claim:
+        """Write objects stamped with the writing source generation (N37)."""
+        if owning_generation < 1:
             raise AssertionError("an object version must never be written unstamped")
         for obj in objects:
             self.objects[obj.uuid] = {
                 **obj.properties,
                 "uuid": obj.uuid,
-                OWNING_CLAIM_PROPERTY: owning_claim,
+                OWNING_GENERATION_PROPERTY: owning_generation,
             }
         return len(objects)
 
-    def delete_objects_owned_by(
-        self, *, uuids: Sequence[str], owning_claim: str
+    def delete_objects_older_than(
+        self, *, uuids: Sequence[str], owning_generation: int
     ) -> int:
-        """Delete ONLY while the object still carries ``owning_claim`` (D9)."""
-        if not owning_claim:
-            raise AssertionError("a delete must be bound to an observed owner")
+        """Delete ONLY objects written by a strictly OLDER generation (N37)."""
+        if owning_generation < 1:
+            raise AssertionError("a delete must be ordered against a generation")
         n = 0
         for uid in uuids:
             props = self.objects.get(uid)
-            if props is None or str(props.get(OWNING_CLAIM_PROPERTY, "")) != owning_claim:
+            written = props.get(OWNING_GENERATION_PROPERTY) if props else None
+            if not isinstance(written, int) or written >= owning_generation:
                 continue
             del self.objects[uid]
             n += 1

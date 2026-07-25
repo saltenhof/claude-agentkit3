@@ -24,11 +24,13 @@ from typing import TYPE_CHECKING, Final
 
 from agentkit.backend.vectordb.engine import (
     CLAIM_COLLECTION,
+    CLAIM_STATE_HELD,
+    CLAIM_STATE_RELEASED,
     RECEIPT_COLLECTION,
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
-    OWNING_CLAIM_PROPERTY,
+    OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     deterministic_uuid,
@@ -241,7 +243,12 @@ class RecordingWeaviateClient:
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int:
         if self.before_delete is not None:
             self.before_delete(collection)
-        if self.delete_confirmed_override is not None:
+        # The probe is about the CORPUS delete (R12); auxiliary ladder/receipt
+        # housekeeping must not consume it.
+        if (
+            self.delete_confirmed_override is not None
+            and collection == STORY_CONTEXT_COLLECTION
+        ):
             override = self.delete_confirmed_override
             self.delete_confirmed_override = None
             return override
@@ -254,17 +261,17 @@ class RecordingWeaviateClient:
                     deleted += 1
         return deleted
 
-    def delete_by_ids_if_property_equals(
-        self, *, collection: str, uuids: Sequence[str], prop: str, value: str
+    def delete_by_ids_if_property_below(
+        self, *, collection: str, uuids: Sequence[str], prop: str, limit: int
     ) -> int:
-        """Delete ONLY the ids whose ``prop`` still equals ``value`` (D9).
+        """Delete ONLY the ids whose numeric ``prop`` is strictly below ``limit`` (N37).
 
         Held to the same semantics as ``data.delete_many(where=...)``: the condition
-        is evaluated together with the delete, atomically per object, so an object
-        that a newer owner has re-stamped is simply not matched.
+        is evaluated together with the delete, atomically per object, so an object a
+        NEWER generation wrote is simply not matched -- in either race order.
         """
         self.conditional_delete_calls.append(
-            {"collection": collection, "prop": prop, "value": value, "uuids": tuple(uuids)}
+            {"collection": collection, "prop": prop, "limit": limit, "uuids": tuple(uuids)}
         )
         if self.before_delete is not None:
             self.before_delete(collection)
@@ -273,11 +280,19 @@ class RecordingWeaviateClient:
         with self._lock:
             for uid in uuids:
                 props = store.get(str(uid))
-                if props is None or str(props.get(prop, "")) != value:
+                if props is None:
+                    continue
+                value = props.get(prop)
+                if isinstance(value, bool) or not isinstance(value, int):
+                    continue
+                if value >= limit:
                     continue
                 del store[str(uid)]
                 deleted += 1
-        if self.delete_confirmed_override is not None:
+        if (
+            self.delete_confirmed_override is not None
+            and collection == STORY_CONTEXT_COLLECTION
+        ):
             # Probe: the store confirms FEWER objects than were requested (R12).
             override, self.delete_confirmed_override = self.delete_confirmed_override, None
             return override
@@ -308,23 +323,63 @@ class RecordingWeaviateClient:
         )
 
 
-#: Ownership token a SEEDED object carries, i.e. what a previous, finished claim
-#: generation wrote. Production stamps every write (D9), so seeded fixtures must
+#: Source generation a SEEDED object carries, i.e. what a previous, finished
+#: generation wrote. Production stamps every write (N37/N38), so seeded fixtures must
 #: too -- an unstamped object is a separate, explicitly tested fail-closed case.
-PREVIOUS_OWNER_TOKEN: Final[str] = "1|previous-owner"
+PREVIOUS_GENERATION: Final[int] = 1
 
 
 def seed_object(
     client: RecordingWeaviateClient,
     obj: StoryContextObject,
     *,
-    owning_claim: str = PREVIOUS_OWNER_TOKEN,
+    owning_generation: int | None = PREVIOUS_GENERATION,
 ) -> None:
-    """Seed an already-persisted object as a PREVIOUS generation wrote it (D9)."""
+    """Seed an already-persisted object as a PREVIOUS generation wrote it (N37).
+
+    A persisted object implies a FINISHED generation of its source, so the claim
+    ladder is seeded to match: the generation's claim and release markers are written
+    too, which is what makes the next acquisition strictly higher. Without that the
+    fixture would describe an impossible corpus -- objects from generation N with a
+    ladder that has never reached N.
+    """
     props: dict[str, object] = {**obj.properties, "uuid": obj.uuid}
-    if owning_claim:
-        props[OWNING_CLAIM_PROPERTY] = owning_claim
+    if owning_generation is not None:
+        props[OWNING_GENERATION_PROPERTY] = owning_generation
+        seed_generation_history(
+            client,
+            project_id=str(obj.properties["project_id"]),
+            source_file=str(obj.properties["source_file"]),
+            generation=owning_generation,
+        )
     client.objects[obj.uuid] = props
+
+
+def seed_generation_history(
+    client: RecordingWeaviateClient,
+    *,
+    project_id: str,
+    source_file: str,
+    generation: int,
+    owner_id: str = "previous-owner",
+) -> None:
+    """Seed the ladder of a source as a FINISHED generation left it (N37)."""
+    now = "2026-07-25T00:00:00Z"
+    base = {
+        "project_id": project_id,
+        "source_file": source_file,
+        "owner_id": owner_id,
+        "generation": str(generation),
+        "claimed_at": now,
+        "reclaimed_from": "",
+        "reclaim_reason": "",
+    }
+    client.claims[
+        WeaviateCorpusStore._claim_uuid(project_id, source_file, generation)  # noqa: SLF001
+    ] = {**base, "state": CLAIM_STATE_HELD}
+    client.claims[
+        WeaviateCorpusStore._release_uuid(project_id, source_file, generation)  # noqa: SLF001
+    ] = {**base, "state": CLAIM_STATE_RELEASED}
 
 
 def _matches_filters(

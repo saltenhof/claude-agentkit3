@@ -13,7 +13,6 @@ import pytest
 
 from agentkit.integration_clients.vectordb import (
     VectorDbUnavailableError,
-    VectorDbWriteError,
     WeaviateStoryAdapter,
 )
 from agentkit.integration_clients.vectordb.weaviate_adapter import FK13_GRPC_PORT
@@ -119,17 +118,17 @@ def test_story_search_malformed_hit_fails_closed() -> None:
         adapter.story_search("query", project_id="AG3", limit=20)
 
 
-def test_story_sync_returns_count() -> None:
+def test_n38_the_adapter_offers_no_write_path_of_its_own() -> None:
+    """There is ONE way into StoryContext: the claim-aware sync owner (N38).
+
+    The adapter used to expose ``story_sync``, which upserted directly -- unclaimed,
+    unstamped and without a completion. Objects written that way could not take part
+    in the delete closure at all, so the second door is closed rather than guarded.
+    """
     adapter = WeaviateStoryAdapter(_FakeClient())
-    written = adapter.story_sync(objects=[{"story_id": "AG3-001"}])
-    assert written == 1
-
-
-def test_story_sync_write_failure_blocks_fail_closed() -> None:
-    """NEGATIVE: an indexing write failure raises a typed write error."""
-    adapter = WeaviateStoryAdapter(_FakeClient(raise_on_upsert=True))
-    with pytest.raises(VectorDbWriteError):
-        adapter.story_sync(objects=[{"story_id": "AG3-001"}])
+    assert not hasattr(adapter, "story_sync")
+    # What it does expose is its client, for the sync owner to build a store on.
+    assert adapter.corpus_client is not None
 
 
 def test_close_is_best_effort() -> None:
@@ -339,9 +338,12 @@ def test_real_client_upsert_counts_objects() -> None:
         query=_FakeQuery(_FakeResponse([])), batch=_FakeBatch(ctx)
     )
     connection = _FakeConnection(collection)
-    adapter = WeaviateStoryAdapter(_real_client(connection))  # type: ignore[arg-type]
+    client = _real_client(connection)
 
-    written = adapter.story_sync(objects=[{"story_id": "A"}, {"story_id": "B"}])
+    written = client.upsert(
+        collection="StoryContext",
+        objects=[{"story_id": "A"}, {"story_id": "B"}],
+    )
 
     assert written == 2
     assert [o["story_id"] for o in ctx.added] == ["A", "B"]

@@ -11,12 +11,13 @@ productively.
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.unit.vectordb.corpus_doubles import (
-    PREVIOUS_OWNER_TOKEN,
+    PREVIOUS_GENERATION,
     RecordingWeaviateClient,
     chunk_object,
     corpus_store,
@@ -29,7 +30,7 @@ from agentkit.backend.vectordb.engine import (
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
-    OWNING_CLAIM_PROPERTY,
+    OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     deterministic_uuid,
@@ -39,11 +40,9 @@ from agentkit.backend.vectordb.sync import (
     ConcurrentSyncRejectedError,
     PartialWriteError,
     ReceiptState,
-    SourceClaim,
     SyncError,
     SyncReceipt,
     SyncService,
-    claim_ownership_token,
     parse_utc_timestamp,
     utc_now,
 )
@@ -53,19 +52,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def claim_uuid_for(project_id: str, source_file: str, epoch: int) -> str:
-    """The store's deterministic claim uuid for one generation (N15)."""
-    return WeaviateCorpusStore._claim_uuid(project_id, source_file, epoch)  # noqa: SLF001
+def claim_uuid_for(project_id: str, source_file: str, generation: int) -> str:
+    """The store's deterministic claim uuid for one generation (N15/N37)."""
+    return WeaviateCorpusStore._claim_uuid(project_id, source_file, generation)  # noqa: SLF001
 
 
 def _seed(
     client: RecordingWeaviateClient,
     obj: StoryContextObject,
     *,
-    owning_claim: str = PREVIOUS_OWNER_TOKEN,
+    owning_generation: int | None = PREVIOUS_GENERATION,
 ) -> None:
-    """Seed a persisted object as a PREVIOUS claim generation wrote it (D9)."""
-    seed_object(client, obj, owning_claim=owning_claim)
+    """Seed a persisted object as a PREVIOUS source generation wrote it (N37)."""
+    seed_object(client, obj, owning_generation=owning_generation)
 
 
 # --------------------------------------------------------------------------- #
@@ -148,16 +147,16 @@ def test_vanished_source_file_is_deleted_and_counted() -> None:
 def test_full_reindex_partial_vanished_delete_is_rejected() -> None:
     """R12: an unconfirmed delete blocks the reindex instead of counting a phantom.
 
-    The destructive delete is storage-CONDITIONAL (D9), so a short confirmed count
-    means the condition no longer held for some object -- the ownership moved on.
-    Either way the run fails closed and reports no completion; D9 changed the NAME of
+    The destructive delete is storage-CONDITIONAL (N37), so a short confirmed count
+    means at least one object is not older than this claim's generation. Either way
+    the run fails closed and reports no completion; the mechanism changed the NAME of
     the fault, not the guarantee.
     """
     client = RecordingWeaviateClient()
     _seed(client, chunk_object("acme", "concept/gone.md", "g1"))
     client.delete_confirmed_override = 0  # the store confirms nothing
     service = SyncService(store=corpus_store(client))
-    with pytest.raises(ClaimSupersededError, match="ownership of at least one object"):
+    with pytest.raises(ClaimSupersededError, match="not older than this claim"):
         service.full_reindex(
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev-1",
@@ -363,6 +362,7 @@ def test_n29_empty_matrix_entry_mutates_nothing_at_all() -> None:
     client = RecordingWeaviateClient()
     stale = chunk_object("acme", "concept/gone.md", "g1")
     _seed(client, stale)
+    ladder = dict(client.claims)
     service = SyncService(store=corpus_store(client))
     with pytest.raises(SyncError, match="carries no objects"):
         service.reconcile_sources(
@@ -370,7 +370,7 @@ def test_n29_empty_matrix_entry_mutates_nothing_at_all() -> None:
             objects_by_source={"concept/a.md": []}, corpus_revision="rev",
         )
     assert stale.uuid in client.objects, "the vanished delete must not have run"
-    assert client.claims == {}
+    assert client.claims == ladder, "no claim beyond the seeded history"
     assert client.receipts == {}
 
 
@@ -378,7 +378,9 @@ def test_n29_a_malformed_receipt_is_never_persisted() -> None:
     """N29: the sealed receipt is verified BEFORE it is written."""
     client = RecordingWeaviateClient()
     store = corpus_store(client)
-    malformed = SyncReceipt.for_completion("acme", "concept/a.md", "", "rev")
+    malformed = SyncReceipt.for_completion(
+        "acme", "concept/a.md", "", "rev", generation=1
+    )
     with pytest.raises(SyncError, match="source_type"):
         store.set_receipt(receipt=malformed)
     assert client.receipts == {}, "an unverified receipt must never reach the store"
@@ -390,10 +392,20 @@ def test_n29_a_malformed_receipt_is_never_persisted() -> None:
 
 
 def _assert_zero_mutation(
-    client: RecordingWeaviateClient, seeded: StoryContextObject
+    client: RecordingWeaviateClient,
+    seeded: StoryContextObject,
+    *,
+    ladder_before: dict[str, dict[str, object]] | None = None,
 ) -> None:
-    """Assert a rejected run left NO trace at all (claim, write, delete, receipt)."""
-    assert client.claims == {}, "no claim may be written for an unpublishable run"
+    """Assert a rejected run left NO trace at all (claim, write, delete, receipt).
+
+    ``ladder_before`` is the claim ladder as the fixture seeded it: a persisted object
+    implies a finished generation, so the ladder is NOT empty at the start. The
+    assertion is that the run added nothing to it.
+    """
+    assert client.claims == (ladder_before or {}), (
+        "no claim may be written for an unpublishable run"
+    )
     assert client.upsert_calls == [], "nothing may be written"
     assert client.receipts == {}, "no completion may be reserved"
     assert seeded.uuid in client.objects, "the persisted generation must survive"
@@ -410,6 +422,7 @@ def test_n34_a_blank_corpus_revision_mutates_nothing_at_all(revision: str) -> No
     client = RecordingWeaviateClient()
     old = chunk_object("acme", "concept/a.md", "old")
     _seed(client, old)
+    ladder = dict(client.claims)
     service = SyncService(store=corpus_store(client))
     with pytest.raises(SyncError, match="corpus_revision"):
         service.sync_source(
@@ -417,7 +430,7 @@ def test_n34_a_blank_corpus_revision_mutates_nothing_at_all(revision: str) -> No
             objects=[chunk_object("acme", "concept/a.md", "new")],
             corpus_revision=revision,
         )
-    _assert_zero_mutation(client, old)
+    _assert_zero_mutation(client, old, ladder_before=ladder)
 
 
 def test_n34_reconcile_with_a_blank_revision_spares_the_vanished_source() -> None:
@@ -425,6 +438,7 @@ def test_n34_reconcile_with_a_blank_revision_spares_the_vanished_source() -> Non
     client = RecordingWeaviateClient()
     vanished = chunk_object("acme", "concept/gone.md", "g1")
     _seed(client, vanished)
+    ladder = dict(client.claims)
     service = SyncService(store=corpus_store(client))
     with pytest.raises(SyncError, match="corpus_revision"):
         service.reconcile_sources(
@@ -435,7 +449,7 @@ def test_n34_reconcile_with_a_blank_revision_spares_the_vanished_source() -> Non
             },
             corpus_revision="",
         )
-    _assert_zero_mutation(client, vanished)
+    _assert_zero_mutation(client, vanished, ladder_before=ladder)
 
 
 def test_n34_full_reindex_with_a_blank_revision_deletes_nothing() -> None:
@@ -443,6 +457,7 @@ def test_n34_full_reindex_with_a_blank_revision_deletes_nothing() -> None:
     client = RecordingWeaviateClient()
     stored = chunk_object("acme", "concept/old.md", "o1")
     _seed(client, stored)
+    ladder = dict(client.claims)
     service = SyncService(store=corpus_store(client))
     with pytest.raises(SyncError, match="corpus_revision"):
         service.full_reindex(
@@ -453,7 +468,7 @@ def test_n34_full_reindex_with_a_blank_revision_deletes_nothing() -> None:
             },
             corpus_revision="",
         )
-    _assert_zero_mutation(client, stored)
+    _assert_zero_mutation(client, stored, ladder_before=ladder)
 
 
 def test_n34_every_mandatory_completion_input_is_gated() -> None:
@@ -462,6 +477,7 @@ def test_n34_every_mandatory_completion_input_is_gated() -> None:
         client = RecordingWeaviateClient()
         old = chunk_object("acme", "concept/a.md", "old")
         _seed(client, old)
+        ladder = dict(client.claims)
         service = SyncService(store=corpus_store(client))
         args: dict[str, object] = {
             "project_id": "acme",
@@ -475,27 +491,37 @@ def test_n34_every_mandatory_completion_input_is_gated() -> None:
                 objects=[chunk_object("acme", "concept/a.md", "new")],
                 **args,  # type: ignore[arg-type]
             )
-        _assert_zero_mutation(client, old)
+        _assert_zero_mutation(client, old, ladder_before=ladder)
 
 
 def test_n34_a_blank_receipt_field_is_still_rejected_at_publication() -> None:
     """The receipt's own verification stays as strict as before (defence in depth)."""
-    blank = SyncReceipt.for_completion("acme", "concept/a.md", "concept", "   ")
+    blank = SyncReceipt.for_completion(
+        "acme", "concept/a.md", "concept", "   ", generation=1
+    )
     with pytest.raises(SyncError, match="corpus_revision"):
         blank.stamped(sequence=1).verify()
 
 
 # --------------------------------------------------------------------------- #
-# D9: the DESTRUCTIVE delete is storage-conditional on the OBSERVED ownership
+# N37: the DESTRUCTIVE delete is storage-conditional on the GENERATION ORDER
 #
-# In every test below the takeover happens AFTER this writer established ownership
-# and BEFORE its delete lands -- precisely the window a preceding application-side
-# check cannot close, which is why there is no such check any more.
+# The condition is "written by a generation strictly OLDER than mine", where mine is
+# the deleting claim's own generation. Both race orders are covered: the newer owner
+# writing BEFORE this writer reads, and AFTER. The previous model (equality against
+# an OBSERVED token) survived only the second order -- it authorised the delete from
+# whatever it happened to read, which is exactly how a resumed writer could remove a
+# newer generation's data.
 # --------------------------------------------------------------------------- #
 
 
-def test_d9_superseded_holder_cannot_delete_what_the_new_owner_wrote() -> None:
-    """The vanished-source delete must not remove the NEW owner's object version."""
+def _writer(store: WeaviateCorpusStore, owner: str) -> SyncService:
+    return SyncService(store=store, owner_id=owner)
+
+
+def test_n37_superseded_holder_cannot_delete_a_newer_generation_written_after_it_read(
+) -> None:
+    """ORDER 1: the newer owner rewrites the objects AFTER this writer read them."""
     client = RecordingWeaviateClient()
     stale = chunk_object("acme", "concept/gone.md", "g1")
     _seed(client, stale)
@@ -504,33 +530,106 @@ def test_d9_superseded_holder_cannot_delete_what_the_new_owner_wrote() -> None:
     def _take_over_and_rewrite(collection: str) -> None:
         if collection != STORY_CONTEXT_COLLECTION:
             return
-        # Writer A holds the claim and has passed every check it will ever make.
-        # Only NOW does an operator hand the source to B, and B writes the object,
-        # which re-stamps it with B's ownership token.
         client.before_delete = None
         new_claim = store.reclaim_source(
             project_id="acme", source_file="concept/gone.md",
             owner_id="writer-b", reason="test takeover",
         )
-        store.upsert_objects(
-            objects=[stale], owning_claim=claim_ownership_token(new_claim)
-        )
+        store.upsert_objects(objects=[stale], owning_generation=new_claim.generation)
 
     client.before_delete = _take_over_and_rewrite
-    with pytest.raises(ClaimSupersededError, match="ownership of at least one object"):
-        SyncService(store=store, owner_id="writer-a").reconcile_sources(
+    with pytest.raises(ClaimSupersededError, match="not older than this claim"):
+        _writer(store, "writer-a").reconcile_sources(
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev",
         )
-    assert stale.uuid in client.objects, "the new owner's data must survive"
-    assert client.objects[stale.uuid][OWNING_CLAIM_PROPERTY] == "2|writer-b"
-    # The protection is STORAGE-side: the delete was really attempted and simply
-    # could not match, rather than being skipped by a preceding check.
+    assert stale.uuid in client.objects, "the newer generation's data must survive"
+    assert client.objects[stale.uuid][OWNING_GENERATION_PROPERTY] == 3
+    # The protection is STORAGE-side: the delete was attempted and could not match.
     assert client.conditional_delete_calls, "the delete must have been attempted"
-    assert client.conditional_delete_calls[-1]["value"] == PREVIOUS_OWNER_TOKEN
+    assert client.conditional_delete_calls[-1]["limit"] == 2
 
 
-def test_d9_superseded_holder_cannot_delete_the_new_generation_mid_window() -> None:
+def test_n37_superseded_holder_cannot_delete_a_newer_generation_written_before_it_read(
+) -> None:
+    """ORDER 2 (the counter-scenario): the newer owner writes and COMPLETES first.
+
+    Writer A passes its fence, B reclaims and finishes, and only THEN does A resume
+    and read. A now reads B's chunks; under the superseded observed-token model A
+    would group them under B's token and delete them. Ordered against A's OWN
+    generation they are not older, so A cannot touch them.
+    """
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    writer_a = _writer(store, "writer-a")
+    stale = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, stale)
+
+    # A acquires its generation and is then superseded BEFORE it reads anything.
+    claim_a = store.try_claim_source(
+        project_id="acme", source_file="concept/gone.md", owner_id="writer-a"
+    )
+    assert claim_a is not None
+    store.assert_claim_held(claim=claim_a)  # A's fence passes here
+    claim_b = store.reclaim_source(
+        project_id="acme", source_file="concept/gone.md",
+        owner_id="writer-b", reason="test takeover",
+    )
+    store.upsert_objects(objects=[stale], owning_generation=claim_b.generation)
+    store.release_source(claim=claim_b)  # B is done and gone
+
+    # A resumes and drives its OWN delete with the rows it now reads.
+    rows = store.list_objects_for_source_types(
+        project_id="acme", source_types=("concept",)
+    )
+    with pytest.raises(ClaimSupersededError, match="not older than this claim"):
+        writer_a._delete_older_generations(rows, claim=claim_a)  # noqa: SLF001
+    assert stale.uuid in client.objects, "the newer generation's data must survive"
+    assert client.objects[stale.uuid][OWNING_GENERATION_PROPERTY] == claim_b.generation
+
+
+def test_n37_the_ladder_is_persistent_across_normal_releases() -> None:
+    """A normal release must NOT reset the generation (the old model's fatal gap)."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    seen: list[int] = []
+    for owner in ("w1", "w2", "w3"):
+        claim = store.try_claim_source(
+            project_id="acme", source_file="concept/a.md", owner_id=owner
+        )
+        assert claim is not None
+        seen.append(claim.generation)
+        store.release_source(claim=claim)
+    assert seen == [1, 2, 3], "every acquisition allocates the NEXT generation"
+    # A reclaim continues the same ladder rather than starting its own.
+    taken = store.reclaim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="w4", reason="test"
+    )
+    assert taken.generation == 4
+
+
+def test_n37_a_released_generation_does_not_block_the_next_writer() -> None:
+    """D3 still holds: a HELD generation rejects, a RELEASED one does not."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    held = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="w1"
+    )
+    assert held is not None
+    assert (
+        store.try_claim_source(
+            project_id="acme", source_file="concept/a.md", owner_id="w2"
+        )
+        is None
+    ), "a held generation rejects a concurrent writer (D3)"
+    store.release_source(claim=held)
+    nxt = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="w2"
+    )
+    assert nxt is not None and nxt.generation == 2
+
+
+def test_n37_superseded_holder_cannot_delete_the_new_generation_mid_window() -> None:
     """Same guarantee inside the per-source window (the old-generation delete)."""
     client = RecordingWeaviateClient()
     old = chunk_object("acme", "concept/a.md", "old")
@@ -545,20 +644,19 @@ def test_d9_superseded_holder_cannot_delete_the_new_generation_mid_window() -> N
             project_id="acme", source_file="concept/a.md",
             owner_id="writer-b", reason="test takeover",
         )
-        store.upsert_objects(objects=[old], owning_claim=claim_ownership_token(new_claim))
+        store.upsert_objects(objects=[old], owning_generation=new_claim.generation)
 
     client.before_delete = _take_over_and_rewrite
     with pytest.raises(ClaimSupersededError):
-        SyncService(store=store, owner_id="writer-a").sync_source(
+        _writer(store, "writer-a").sync_source(
             project_id="acme", source_file="concept/a.md", source_type="concept",
             objects=[chunk_object("acme", "concept/a.md", "new")], corpus_revision="rev",
         )
-    assert old.uuid in client.objects, "the new owner's version must survive"
-    assert client.objects[old.uuid][OWNING_CLAIM_PROPERTY] == "2|writer-b"
+    assert old.uuid in client.objects, "the newer generation's version must survive"
     assert client.receipts == {}, "and no completion may be published"
 
 
-def test_d9_the_legitimate_delete_still_removes_every_old_chunk() -> None:
+def test_n37_the_legitimate_delete_still_removes_every_old_chunk() -> None:
     """The condition must not cost the delete closure (R05): all old chunks go."""
     client = RecordingWeaviateClient()
     old = [chunk_object("acme", "concept/gone.md", f"g{i}") for i in range(3)]
@@ -573,40 +671,38 @@ def test_d9_the_legitimate_delete_still_removes_every_old_chunk() -> None:
     assert sum(r.deleted for r in results) == 3
 
 
-def test_d9_old_chunks_of_several_generations_are_all_removed() -> None:
-    """Chunks written by DIFFERENT previous generations are all caught.
+def test_n37_old_chunks_of_several_generations_are_all_removed() -> None:
+    """Chunks written by DIFFERENT previous generations are all caught at once.
 
-    This is why the condition compares against the OBSERVED token per object instead
-    of an ordering: claim epochs repeat across runs (a released claim is discarded),
-    so an "older than mine" predicate would silently skip chunks.
+    One ordering condition covers them all -- no grouping by an observed value, which
+    is what made the previous model both fragile and unauthorised.
     """
     client = RecordingWeaviateClient()
-    first = chunk_object("acme", "concept/gone.md", "g1")
-    second = chunk_object("acme", "concept/gone.md", "g2")
-    third = chunk_object("acme", "concept/gone.md", "g3")
-    _seed(client, first, owning_claim="1|owner-x")
-    _seed(client, second, owning_claim="3|owner-y")  # ended a takeover chain
-    _seed(client, third, owning_claim="1|owner-z")  # a later, fresh claim again
-    service = SyncService(store=corpus_store(client), owner_id="writer-now")
-    results = service.reconcile_sources(
+    store = corpus_store(client)
+    for chunk_id, generation in (("g1", 1), ("g2", 3), ("g3", 5)):
+        _seed(
+            client,
+            chunk_object("acme", "concept/gone.md", chunk_id),
+            owning_generation=generation,
+        )
+    # Seeding the objects also seeded the ladder, so the high-water is 5 and this
+    # run's claim is 6 -- one condition strictly above every seeded generation.
+    results = SyncService(store=store, owner_id="writer-now").reconcile_sources(
         project_id="acme", producer="concept_sync",
         objects_by_source={}, corpus_revision="rev",
     )
     assert client.objects == {}
     assert sum(r.deleted for r in results) == 3
-    # One conditional delete per observed generation, none skipped.
-    assert {str(c["value"]) for c in client.conditional_delete_calls} == {
-        "1|owner-x", "3|owner-y", "1|owner-z",
-    }
+    assert client.conditional_delete_calls[-1]["limit"] == 6
 
 
-def test_d9_an_object_without_an_ownership_token_is_never_deleted() -> None:
-    """Fail-closed: unknown ownership cannot be bound to a storage condition."""
+def test_n37_an_object_without_a_generation_is_never_deleted() -> None:
+    """Fail-closed: an unorderable object cannot take part in a conditional delete."""
     client = RecordingWeaviateClient()
     unstamped = chunk_object("acme", "concept/gone.md", "g1")
-    _seed(client, unstamped, owning_claim="")  # no marker at all
+    _seed(client, unstamped, owning_generation=None)  # no marker at all
     service = SyncService(store=corpus_store(client))
-    with pytest.raises(VectorDbUnavailableError, match="no ownership token"):
+    with pytest.raises(SyncError, match="no readable writing generation"):
         service.reconcile_sources(
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev",
@@ -614,7 +710,7 @@ def test_d9_an_object_without_an_ownership_token_is_never_deleted() -> None:
     assert unstamped.uuid in client.objects
 
 
-def test_d9_every_write_carries_the_writing_generation_token() -> None:
+def test_n37_every_write_carries_the_writing_generation() -> None:
     """The stamp is applied by the store, so an unstamped write is impossible."""
     client = RecordingWeaviateClient()
     service = SyncService(store=corpus_store(client), owner_id="writer-a")
@@ -623,30 +719,172 @@ def test_d9_every_write_carries_the_writing_generation_token() -> None:
         objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev",
     )
     stored = next(iter(client.objects.values()))
-    assert stored[OWNING_CLAIM_PROPERTY] == "1|writer-a"
+    assert stored[OWNING_GENERATION_PROPERTY] == 1
 
 
-def test_d9_the_store_refuses_an_unstamped_write() -> None:
-    """The token is mandatory at the store boundary (no unstamped object versions)."""
+def test_n37_the_store_refuses_an_unstamped_write() -> None:
+    """The generation is mandatory at the store boundary (no unorderable objects)."""
     store = corpus_store(RecordingWeaviateClient())
-    with pytest.raises(VectorDbUnavailableError, match="without an ownership token"):
+    with pytest.raises(VectorDbUnavailableError, match="non-positive owning generation"):
         store.upsert_objects(
-            objects=[chunk_object("acme", "concept/a.md", "c1")], owning_claim=""
+            objects=[chunk_object("acme", "concept/a.md", "c1")], owning_generation=0
         )
 
 
-def test_d9_the_token_pairs_the_epoch_with_the_owner() -> None:
-    """Epochs repeat across runs, so only the PAIR identifies one generation."""
-    first = SourceClaim(
-        project_id="acme", source_file="concept/a.md", owner_id="writer-a",
-        epoch=1, claimed_at=utc_now(),
+# --------------------------------------------------------------------------- #
+# N39: a superseded completion can never become freshness-authoritative
+# --------------------------------------------------------------------------- #
+
+
+def test_n39_a_stale_completion_appended_after_a_newer_one_never_wins() -> None:
+    """ORDER 1: the newer generation publishes FIRST, the superseded one appends."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    newer = store.set_receipt(
+        receipt=SyncReceipt.for_completion(
+            "acme", "concept/a.md", "concept", "rev-b", generation=6
+        )
     )
-    later_run = SourceClaim(
-        project_id="acme", source_file="concept/a.md", owner_id="writer-b",
-        epoch=1, claimed_at=utc_now(),
+    stale = store.set_receipt(
+        receipt=SyncReceipt.for_completion(
+            "acme", "concept/a.md", "concept", "rev-a", generation=5
+        )
     )
-    assert claim_ownership_token(first) != claim_ownership_token(later_run)
-    assert claim_ownership_token(first).startswith("1|")
+    assert stale.sequence > newer.sequence, "the stale writer took a LATER position"
+    winner = store.get_receipt(project_id="acme", source_file="concept/a.md")
+    assert winner is not None
+    assert winner.corpus_revision == "rev-b", "freshness follows the GENERATION"
+    assert winner.generation == 6
+    # ... and the stale append must not have pruned the newer, valid completion.
+    revisions = {
+        r.corpus_revision for r in store.list_receipts(project_id="acme")
+    }
+    assert "rev-b" in revisions
+
+
+def test_n39_a_newer_completion_supersedes_and_prunes_the_older_one() -> None:
+    """ORDER 2: the normal order still supersedes and prunes as before."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    store.set_receipt(
+        receipt=SyncReceipt.for_completion(
+            "acme", "concept/a.md", "concept", "rev-a", generation=5
+        )
+    )
+    store.set_receipt(
+        receipt=SyncReceipt.for_completion(
+            "acme", "concept/a.md", "concept", "rev-b", generation=6
+        )
+    )
+    winner = store.get_receipt(project_id="acme", source_file="concept/a.md")
+    assert winner is not None and winner.corpus_revision == "rev-b"
+    revisions = {r.corpus_revision for r in store.list_receipts(project_id="acme")}
+    assert revisions == {"rev-b"}, "the superseded generation is pruned"
+
+
+def test_n39_a_completion_without_a_generation_is_rejected() -> None:
+    """A completion that cannot be ordered against a takeover is never trusted."""
+    unordered = SyncReceipt.for_completion("acme", "concept/a.md", "concept", "rev")
+    with pytest.raises(SyncError, match="not a positive source generation"):
+        unordered.stamped(sequence=1).verify()
+
+
+def test_n39_the_digest_binds_the_generation() -> None:
+    """The generation decides freshness, so it must be part of the binding (N16)."""
+    sealed = SyncReceipt.for_completion(
+        "acme", "concept/a.md", "concept", "rev", generation=5
+    ).stamped(sequence=1)
+    sealed.verify()
+    forged = replace(sealed, generation=9)
+    with pytest.raises(SyncError, match="does not bind its own fields"):
+        forged.verify()
+
+
+def test_n39_the_published_completion_carries_the_claim_generation() -> None:
+    """The sync publishes under the generation it actually held."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    for _ in range(2):  # advance the ladder
+        claim = store.try_claim_source(
+            project_id="acme", source_file="concept/a.md", owner_id="w"
+        )
+        assert claim is not None
+        store.release_source(claim=claim)
+    result = SyncService(store=store).sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev",
+    )
+    assert result.written == 1
+    receipt = store.get_receipt(project_id="acme", source_file="concept/a.md")
+    assert receipt is not None and receipt.generation == 3
+
+
+# --------------------------------------------------------------------------- #
+# N40: an EMPTY matrix must not skip the completion-input gate
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("revision", ["", "   "])
+def test_n40_reconcile_with_an_empty_matrix_and_blank_revision_deletes_nothing(
+    revision: str,
+) -> None:
+    """The run-wide gate runs at ENTRY, before the vanished-source delete."""
+    client = RecordingWeaviateClient()
+    vanished = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, vanished)
+    ladder = dict(client.claims)
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="corpus_revision"):
+        service.reconcile_sources(
+            project_id="acme", producer="concept_sync",
+            objects_by_source={}, corpus_revision=revision,
+        )
+    _assert_zero_mutation(client, vanished, ladder_before=ladder)
+
+
+def test_n40_full_reindex_with_an_empty_matrix_and_blank_revision_deletes_nothing(
+) -> None:
+    client = RecordingWeaviateClient()
+    vanished = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, vanished)
+    ladder = dict(client.claims)
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="corpus_revision"):
+        service.full_reindex(
+            project_id="acme", producer="concept_sync",
+            objects_by_source={}, corpus_revision="",
+        )
+    _assert_zero_mutation(client, vanished, ladder_before=ladder)
+
+
+def test_n40_an_empty_matrix_with_a_blank_project_id_deletes_nothing() -> None:
+    """Every RUN-WIDE completion input is gated, not just the revision."""
+    client = RecordingWeaviateClient()
+    vanished = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, vanished)
+    ladder = dict(client.claims)
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="project_id"):
+        service.reconcile_sources(
+            project_id="", producer="concept_sync",
+            objects_by_source={}, corpus_revision="rev",
+        )
+    _assert_zero_mutation(client, vanished, ladder_before=ladder)
+
+
+def test_n40_the_gate_is_derived_from_the_receipt_contract() -> None:
+    """P2-5: a new mandatory receipt field cannot silently miss the gate."""
+    from agentkit.backend.vectordb.sync import (
+        COMPLETION_INPUT_FIELDS,
+        RECEIPT_MANDATORY_FIELDS,
+        RECEIPT_SEALED_FIELDS,
+        RUN_WIDE_COMPLETION_INPUTS,
+    )
+
+    assert set(COMPLETION_INPUT_FIELDS) == set(RECEIPT_MANDATORY_FIELDS) - set(
+        RECEIPT_SEALED_FIELDS
+    )
+    assert set(RUN_WIDE_COMPLETION_INPUTS) <= set(COMPLETION_INPUT_FIELDS)
 
 
 def test_n29_producer_closure_is_validated_for_the_whole_matrix() -> None:
@@ -701,13 +939,14 @@ def test_second_writer_of_a_claimed_source_is_rejected() -> None:
 def test_n17_no_claim_is_written_before_objects_are_validated() -> None:
     """The claim record is itself a mutation -- validation must precede it."""
     client = RecordingWeaviateClient()
+    ladder = dict(client.claims)
     service = SyncService(store=corpus_store(client))
     with pytest.raises(SyncError, match="project_id='other'"):
         service.sync_source(
             project_id="acme", source_file="concept/a.md", source_type="concept",
             objects=[chunk_object("other", "concept/a.md", "c1")], corpus_revision="rev",
         )
-    assert client.claims == {}, "no claim may be written for an invalid object set"
+    assert client.claims == ladder, "no claim may be written for an invalid object set"
     assert client.objects == {}
     assert client.receipts == {}
 
@@ -717,6 +956,7 @@ def test_n17_invalid_later_source_prevents_the_vanished_delete() -> None:
     client = RecordingWeaviateClient()
     stale = chunk_object("acme", "concept/gone.md", "g1")
     _seed(client, stale)
+    ladder = dict(client.claims)
     service = SyncService(store=corpus_store(client))
     matrix = {
         "concept/a.md": [chunk_object("acme", "concept/a.md", "a1")],
@@ -730,7 +970,7 @@ def test_n17_invalid_later_source_prevents_the_vanished_delete() -> None:
             objects_by_source=matrix, corpus_revision="rev",
         )
     assert stale.uuid in client.objects, "the vanished source must NOT be deleted yet"
-    assert client.claims == {}
+    assert client.claims == ladder, "no claim beyond the seeded history"
     assert client.receipts == {}
 
 
@@ -738,6 +978,7 @@ def test_n17_full_reindex_validates_before_deleting() -> None:
     client = RecordingWeaviateClient()
     stale = chunk_object("acme", "concept/gone.md", "g1")
     _seed(client, stale)
+    ladder = dict(client.claims)
     service = SyncService(store=corpus_store(client))
     with pytest.raises(SyncError, match="source_file="):
         service.full_reindex(
@@ -746,7 +987,7 @@ def test_n17_full_reindex_validates_before_deleting() -> None:
             corpus_revision="rev",
         )
     assert stale.uuid in client.objects
-    assert client.claims == {}
+    assert client.claims == ladder, "no claim beyond the seeded history"
 
 
 def test_n17_mixed_source_types_in_one_source_are_rejected() -> None:
@@ -767,8 +1008,13 @@ def test_n17_mixed_source_types_in_one_source_are_rejected() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# N15/N27: claims carry owner + epoch + an acquisition TIMESTAMP (no expiry) and
-# are FENCED; a held claim is released only by an explicit administrative reclaim
+# N15/N27/N37: claims carry owner + a PERSISTENT generation + an acquisition
+# TIMESTAMP (never an expiry) and are FENCED.
+#
+# P2-4, precisely: EVERY normal sync releases its claim in a ``finally`` block, and
+# the release keeps the ladder position (N37). Only a claim left behind by a CRASHED
+# writer still needs an explicit administrative reclaim -- there is no time-based
+# takeover for it, no matter how old it is.
 # --------------------------------------------------------------------------- #
 
 
@@ -782,8 +1028,8 @@ def _clock(start: datetime) -> tuple[Callable[[], datetime], list[datetime]]:
     return read, now
 
 
-def test_n15_claim_record_carries_owner_and_epoch_but_no_expiry() -> None:
-    """N27: a claim carries owner + epoch and NO expiry field at all."""
+def test_n15_claim_record_carries_owner_and_generation_but_no_expiry() -> None:
+    """N27: a claim carries owner + generation and NO expiry field at all."""
     client = RecordingWeaviateClient()
     store = corpus_store(client)
     claim = store.try_claim_source(
@@ -791,11 +1037,11 @@ def test_n15_claim_record_carries_owner_and_epoch_but_no_expiry() -> None:
     )
     assert claim is not None
     assert claim.owner_id == "writer-a"
-    assert claim.epoch == 1
+    assert claim.generation == 1
     assert claim.reclaimed_from == ""
     record = next(iter(client.claims.values()))
     assert record["owner_id"] == "writer-a"
-    assert record["epoch"] == "1"
+    assert record["generation"] == "1"
     parse_utc_timestamp(str(record["claimed_at"]))
     assert "expires_at" not in record, "a claim must not carry a wall-clock expiry (N27)"
     assert not hasattr(claim, "expires_at")
@@ -846,7 +1092,7 @@ def test_n27_explicit_administrative_reclaim_takes_over_and_fences() -> None:
     reclaim_record = next(
         r for r in client.claim_history if r.get("reclaimed_from") == "crashed-writer"
     )
-    assert reclaim_record["epoch"] == "2"
+    assert reclaim_record["generation"] == "2"
     assert reclaim_record["reclaim_reason"]
     # The crashed holder is fenced out for good.
     with pytest.raises(ClaimSupersededError, match="superseded"):
@@ -897,16 +1143,17 @@ def test_n15_superseded_writer_cannot_publish_a_receipt() -> None:
         if collection != STORY_CONTEXT_COLLECTION:
             return
         client.after_upsert = None
-        # A concurrent owner takes the claim over mid-window (epoch 2).
+        # A concurrent owner takes the claim over mid-window with the NEXT generation
+        # (the seeded history put the holder at 2, so the takeover is 3).
         client.insert_object(
             collection=CLAIM_COLLECTION,
-            uuid=claim_uuid_for("acme", "concept/a.md", 2),
+            uuid=claim_uuid_for("acme", "concept/a.md", 3),
             properties={
                 "project_id": "acme",
                 "source_file": "concept/a.md",
                 "state": "claimed",
                 "owner_id": "writer-b",
-                "epoch": "2",
+                "generation": "3",
                 "claimed_at": utc_now(),
                 "reclaimed_from": "writer-a",
                 "reclaim_reason": "test takeover",
@@ -976,7 +1223,9 @@ def test_n28_two_concurrent_completions_get_distinct_positions() -> None:
 
     def _complete(source: str) -> None:
         sealed = store.set_receipt(
-            receipt=SyncReceipt.for_completion("acme", source, "concept", "rev")
+            receipt=SyncReceipt.for_completion(
+                "acme", source, "concept", "rev", generation=1
+            )
         )
         with lock:
             outcomes.append(sealed.sequence)
@@ -1010,7 +1259,9 @@ def test_n16_every_ordering_and_identity_field_is_digest_bound(
     """Editing ANY bound field invalidates the digest (replay protection)."""
     import dataclasses
 
-    sealed = SyncReceipt.for_completion("acme", "concept/a.md", "concept", "rev").stamped(
+    sealed = SyncReceipt.for_completion(
+        "acme", "concept/a.md", "concept", "rev", generation=1
+    ).stamped(
         sequence=7
     )
     sealed.verify()
@@ -1022,7 +1273,9 @@ def test_n16_every_ordering_and_identity_field_is_digest_bound(
 def test_n16_receipt_timestamp_must_be_utc() -> None:
     import dataclasses
 
-    sealed = SyncReceipt.for_completion("acme", "concept/a.md", "concept", "rev").stamped(
+    sealed = SyncReceipt.for_completion(
+        "acme", "concept/a.md", "concept", "rev", generation=1
+    ).stamped(
         sequence=1
     )
     naive = dataclasses.replace(sealed, completed_at="2026-07-25T00:00:00")
@@ -1032,6 +1285,8 @@ def test_n16_receipt_timestamp_must_be_utc() -> None:
 
 
 def test_n16_unstamped_receipt_never_verifies() -> None:
-    unstamped = SyncReceipt.for_completion("acme", "concept/a.md", "concept", "rev")
+    unstamped = SyncReceipt.for_completion(
+        "acme", "concept/a.md", "concept", "rev", generation=1
+    )
     with pytest.raises(SyncError):
         unstamped.verify()

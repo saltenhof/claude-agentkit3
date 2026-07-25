@@ -402,11 +402,11 @@ def _conditional_delete(
     collection = _collection()
     collection.data = data
     client = _client(collection)
-    deleted = client.delete_by_ids_if_property_equals(
+    deleted = client.delete_by_ids_if_property_below(
         collection=STORY_CONTEXT_COLLECTION,
         uuids=uuids,
-        prop="owning_claim",
-        value="1|writer-a",
+        prop="owning_generation",
+        limit=7,
     )
     return deleted, data
 
@@ -423,7 +423,9 @@ def test_d9_the_condition_travels_with_the_delete() -> None:
     assert isinstance(where, _FilterAnd)
     targets = {p.target: p for p in where.filters}  # type: ignore[attr-defined]
     assert targets["_id"].value == [uid]
-    assert targets["owning_claim"].value == "1|writer-a"
+    assert targets["owning_generation"].value == 7
+    # An ORDERING, not an equality: that is what authorises the delete (N37).
+    assert str(targets["owning_generation"].operator).endswith("LESS_THAN")
 
 
 def test_d9_a_condition_that_no_longer_matches_deletes_nothing() -> None:
@@ -468,9 +470,9 @@ def test_d9_ids_are_sent_in_bounded_batches_and_counted_exactly() -> None:
     condition = next(
         p.value
         for p in first.filters  # type: ignore[attr-defined]
-        if p.target == "owning_claim"
+        if p.target == "owning_generation"
     )
-    assert condition == "1|writer-a"
+    assert condition == 7
 
 
 # --------------------------------------------------------------------------- #
@@ -656,7 +658,12 @@ def _read_property(
     )
 
 
-_TYPE_MAP = {"TEXT": DataType.TEXT, "BOOL": DataType.BOOL, "TEXT[]": DataType.TEXT_ARRAY}
+_TYPE_MAP = {
+    "TEXT": DataType.TEXT,
+    "BOOL": DataType.BOOL,
+    "TEXT[]": DataType.TEXT_ARRAY,
+    "INT": DataType.INT,
+}
 _TOKEN_MAP = {"WORD": Tokenization.WORD, "FIELD": Tokenization.FIELD}
 
 

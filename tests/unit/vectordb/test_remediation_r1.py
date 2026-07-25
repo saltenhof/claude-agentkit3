@@ -84,9 +84,11 @@ def test_r02_corpus_store_delegates_to_client_exact_counts() -> None:
     client = RecordingWeaviateClient()
     store = corpus_store(client)
     objs = [chunk_object("acme", "stories/x/story.md", "c1", "story")]
-    assert store.upsert_objects(objects=objs, owning_claim="1|writer-a") == 1
+    assert store.upsert_objects(objects=objs, owning_generation=1) == 1
     store.set_receipt(
-        receipt=SyncReceipt.for_completion("acme", "stories/x/story.md", "story", "rev")
+        receipt=SyncReceipt.for_completion(
+            "acme", "stories/x/story.md", "story", "rev", generation=1
+        )
     )
     receipt = store.get_receipt(project_id="acme", source_file="stories/x/story.md")
     assert receipt is not None and receipt.corpus_revision == "rev"

@@ -59,24 +59,24 @@ def test_schema_carries_all_concept_extension_properties() -> None:
 
 
 def test_schema_carries_the_ownership_marker() -> None:
-    """FK-13 §13.3.1 `owning_claim` (D9): filterable, whole-value, NOT embedded."""
+    """FK-13 §13.3.1 `owning_generation` (D9/N37): numeric, filterable, NOT embedded."""
     from agentkit.backend.vectordb.schema import (
         FK13_VECTOR_SOURCE_PROPERTIES,
-        OWNING_CLAIM_PROPERTY,
+        OWNING_GENERATION_PROPERTY,
         property_spec,
     )
 
-    assert OWNING_CLAIM_PROPERTY in set(property_names())
-    spec = property_spec(OWNING_CLAIM_PROPERTY)
-    assert spec.data_type == "TEXT"
+    assert OWNING_GENERATION_PROPERTY in set(property_names())
+    spec = property_spec(OWNING_GENERATION_PROPERTY)
+    assert spec.data_type == "INT", "the delete orders against it, so it is numeric"
     assert spec.filterable, "the destructive delete filters on it storage-side"
-    assert not spec.vectorized, "an ownership marker must never enter the embedding"
-    assert spec.tokenization == "FIELD", "the condition compares the whole value"
-    assert OWNING_CLAIM_PROPERTY not in FK13_VECTOR_SOURCE_PROPERTIES
+    assert not spec.vectorized, "an ordering marker must never enter the embedding"
+    assert spec.tokenization == "", "a numeric property is not tokenised"
+    assert OWNING_GENERATION_PROPERTY not in FK13_VECTOR_SOURCE_PROPERTIES
     # It is an operational marker, not part of any tool's return contract.
     for source_type in SOURCE_TYPES:
         names = {name for name, _dt, _ne in search_property_spec(source_type)}
-        assert OWNING_CLAIM_PROPERTY not in names
+        assert OWNING_GENERATION_PROPERTY not in names
 
 
 def test_source_types_match_fk13() -> None:
