@@ -57,15 +57,31 @@ class _DefersToEntry(BaseModel):
     reason: str = ""
 
 
+#: Optional frontmatter fields whose EXPLICIT YAML null means "empty".
+#: FK-13 §13.9.6's own example writes ``parent_concept_id:`` and
+#: ``superseded_by:`` with no value, so an explicit null for an optional field is
+#: the documented way to say "absent" -- not a wrong type (N20).
+_NULLABLE_OPTIONALS: frozenset[str] = frozenset(
+    {"parent_concept_id", "superseded_by", "module", "section_number"}
+)
+
+
 class ConceptFrontmatter(BaseModel):
     """Typed, strictly-validated concept frontmatter (FK-13 §13.9.6).
 
     Required: ``concept_id``, ``title``, ``status``, ``doc_kind``. For
     ``doc_kind == appendix`` the ``parent_concept_id`` is mandatory (validated in
     the corpus validator as E-SCHEMA-004 since it needs the corpus context).
+
+    Unknown keys are IGNORED, not rejected (N20): §13.9.6 fixes the mandatory
+    fields and the meaning of the modelled ones, but it does not close the key set
+    -- FK-13's own document carries ``cross_cutting``/``formal_scope``, and the
+    formal-spec corpus adds ``spec_kind``/``version``/``prose_refs``. Every
+    MODELLED field stays strictly typed with no coercion (AC10); a typo in a
+    mandatory field therefore still surfaces as E-SCHEMA-002.
     """
 
-    model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", strict=True, populate_by_name=True)
 
     concept_id: str
     title: str
@@ -83,6 +99,12 @@ class ConceptFrontmatter(BaseModel):
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> ConceptFrontmatter:
         """Validate a parsed mapping strictly; map enum/type errors to codes."""
+        # An EXPLICIT YAML null for an optional field means "empty" (FK-13 §13.9.6
+        # writes exactly that in its own example); every other type stays strict.
+        data = {
+            key: ("" if value is None and key in _NULLABLE_OPTIONALS else value)
+            for key, value in data.items()
+        }
         # Enum + type pre-checks: a non-string or disallowed value is a named
         # schema error (no coercion, AC10).
         for field_name, allowed in (("status", {"active", "draft", "archived"}), ("doc_kind", {"core", "appendix"})):

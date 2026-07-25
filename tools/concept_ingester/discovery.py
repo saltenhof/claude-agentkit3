@@ -243,8 +243,16 @@ def _project_chunk(
     """Project ONE SSOT chunk (+ BC profile) into the ingester ConceptChunk shape.
 
     Uses the SSOT chunk's ``content_hash`` and ``chunk_id`` verbatim (R06: no
-    local re-hash, no second parser).
+    local re-hash, no second parser). The BC/contract fields that the replaced
+    ingester projected from the raw frontmatter (``contract_state``,
+    ``applies_policies``, formal references, glossary linkage and exported terms)
+    are projected again (N20) -- they are not part of the typed FK-13 §13.9.6
+    model, so they come from the document's RAW frontmatter, read with the same
+    strict loader.
     """
+    raw = _raw_frontmatter(doc.raw_text)
+    glossary = raw.get("glossary") if isinstance(raw.get("glossary"), dict) else None
+    defers_to_edges = tuple(f"{target}|{scope}" for target, scope, _reason in doc.defers_to_full)
     return ConceptChunk(
         chunk_id=ssot_chunk.chunk_id,
         layer=ssot_chunk.layer,
@@ -263,19 +271,37 @@ def _project_chunk(
         cross_cutting=not bool(domain),
         surface=surface,
         domain_display_name=display,
-        contract_state="",
-        applies_policies=(),
+        contract_state=_string(raw.get("contract_state")),
+        applies_policies=_string_tuple(raw.get("applies_policies")),
         defers_to_ids=ssot_chunk.defers_to,
-        defers_to_edges=tuple(f"{t}|" for t in ssot_chunk.defers_to),
-        formal_ref_ids=(),
+        defers_to_edges=defers_to_edges,
+        formal_ref_ids=_string_tuple(raw.get("formal_refs")),
         supersedes_ids=doc.supersedes,
         superseded_by_id=doc.superseded_by,
         authority_scopes=ssot_chunk.authority_over,
-        has_glossary=False,
-        exported_term_ids=(),
+        has_glossary=glossary is not None,
+        exported_term_ids=_exported_term_ids(glossary),
         schema_projection_version=SCHEMA_PROJECTION_VERSION,
         domain_registry_hash=PARSER_VERSION,
         metadata=_chunk_metadata(doc, ssot_chunk),
+    )
+
+
+def _string_tuple(raw: Any) -> tuple[str, ...]:
+    """Project a raw frontmatter list into a tuple of non-empty strings."""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(value for item in raw if (value := _string(item)))
+
+
+def _exported_term_ids(glossary: Any) -> tuple[str, ...]:
+    """Project the exported glossary term ids of a contract document (N20)."""
+    if not isinstance(glossary, dict):
+        return ()
+    return tuple(
+        _slugify_term(_string(entry.get("id")))
+        for entry in (glossary.get("exported_terms") or [])
+        if isinstance(entry, dict) and _string(entry.get("id"))
     )
 
 

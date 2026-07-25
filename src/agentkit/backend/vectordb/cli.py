@@ -266,7 +266,15 @@ def cmd_sync(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(prog="concept", description="FK-13 concept corpus operations")
-    parser.add_argument("--concepts-dir", default="concept", help="concept corpus root")
+    # N20: NO default. The concept corpus root is project configuration
+    # (``ProjectConfig.concepts_dir``); defaulting to the literal ``concept``
+    # silently pointed every operation at AK3's OWN development corpus, which is
+    # not an FK-13 target-project corpus. Fail closed instead of guessing.
+    parser.add_argument(
+        "--concepts-dir",
+        required=True,
+        help="Concept corpus root of the TARGET project (no default, fail-closed).",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     lint = sub.add_parser("lint", help="Ring 1: lint (soft)")

@@ -132,8 +132,42 @@ def test_missing_required_field_fails_closed() -> None:
         ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
 
 
-def test_extra_unknown_field_fails_closed() -> None:
-    fm = _GOOD + "bogus_field: nope\n"
+def test_unmodelled_field_is_ignored_not_rejected() -> None:
+    """N20: FK-13 §13.9.6 fixes the MANDATORY fields, it does not close the key set.
+
+    FK-13's own document carries ``cross_cutting``/``formal_scope`` and the
+    formal-spec corpus adds ``spec_kind``/``version``/``prose_refs``; rejecting
+    unmodelled keys made the parser unable to read the very corpus it governs.
+    Unmodelled keys are therefore IGNORED -- while every MODELLED field stays
+    strictly typed (see the tests below).
+    """
+    fm = _GOOD + "cross_cutting: true\nformal_scope: prose-only\nspec_kind: entities\n"
+    parsed = ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
+    assert parsed.concept_id == "FK-13"
+    assert not hasattr(parsed, "cross_cutting")
+
+
+def test_typo_in_a_mandatory_field_still_fails_closed() -> None:
+    """Ignoring unmodelled keys must not hide a misspelled MANDATORY field."""
+    fm = _GOOD.replace("title:", "titel:")
+    with pytest.raises(FrontmatterError, match="title"):
+        ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
+
+
+@pytest.mark.parametrize("field_name", ["parent_concept_id", "superseded_by", "section_number"])
+def test_explicit_null_for_an_optional_field_means_empty(field_name: str) -> None:
+    """N20: FK-13 §13.9.6's own example writes ``parent_concept_id:`` with no value.
+
+    An explicit YAML null for an OPTIONAL string field is the documented way to say
+    "absent"; it is not a wrong type. A null in a MANDATORY field still fails.
+    """
+    fm = _GOOD + f"{field_name}:\n"
+    parsed = ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
+    assert getattr(parsed, field_name) == ""
+
+
+def test_explicit_null_in_a_mandatory_field_still_fails_closed() -> None:
+    fm = _GOOD.replace("status: active", "status:")
     with pytest.raises(FrontmatterError):
         ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
 
