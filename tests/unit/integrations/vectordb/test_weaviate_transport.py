@@ -1070,6 +1070,7 @@ def test_pagination_reads_every_page_of_a_large_result_set(
     query = _PagingQuery(total=25)
     rows = _paging_client(query).fetch_by_property(
         collection=STORY_CONTEXT_COLLECTION,
+        project_id="acme",
         prop="project_id",
         value="acme",
         return_props=("project_id",),
@@ -1088,6 +1089,7 @@ def test_pagination_beyond_the_hard_ceiling_fails_closed(
     with pytest.raises(VectorDbUnavailableError, match="refusing a truncated answer"):
         _paging_client(_PagingQuery(total=1000)).fetch_by_property(
             collection=STORY_CONTEXT_COLLECTION,
+            project_id="acme",
             prop="project_id",
             value="acme",
             return_props=("project_id",),
@@ -1101,6 +1103,7 @@ def test_malformed_pagination_page_is_fail_closed(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(VectorDbUnavailableError, match="malformed pagination"):
         _paging_client(_PagingQuery(total=100, overflow=True)).fetch_by_property_any(
             collection=STORY_CONTEXT_COLLECTION,
+            project_id="acme",
             prop="source_type",
             values=("concept",),
             return_props=("project_id",),
@@ -1334,6 +1337,7 @@ def test_pagination_at_the_exact_ceiling_is_complete_not_an_error(
     query = _PagingQuery(total=20)
     rows = _paging_client(query).fetch_by_property(
         collection=STORY_CONTEXT_COLLECTION,
+        project_id="acme",
         prop="project_id",
         value="acme",
         return_props=("project_id",),
@@ -1378,6 +1382,7 @@ def test_pagination_repeating_a_page_is_fail_closed(monkeypatch: pytest.MonkeyPa
     with pytest.raises(VectorDbUnavailableError, match="appeared twice"):
         client.fetch_by_property(
             collection=STORY_CONTEXT_COLLECTION,
+            project_id="acme",
             prop="project_id",
             value="acme",
             return_props=("project_id",),
@@ -1537,3 +1542,150 @@ def test_n43_the_unstamped_delete_counts_are_exact() -> None:
             project_id="acme",
             source_file="concept/a.md",
         )
+
+
+# --------------------------------------------------------------------------- #
+# N51: EVERY read carries the project filter server-side (AC4)
+#
+# The earlier audit left this open with the argument that post-filtering is harmless
+# because every mutation is scoped. That was wrong on two counts: AC4 covers READS, and
+# a foreign project's volume can change the OUTCOME of this project's read -- the
+# pagination ceiling is counted over what the server returns, not over what the app
+# keeps. These tests assert the EMITTED filter, not the intent.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class _FilterAwarePaging:
+    """A server that HONOURS the emitted filter while paging (offset + limit)."""
+
+    rows: list[tuple[str, dict[str, object]]]
+    calls: list[dict[str, object]] = field(default_factory=list)
+
+    def fetch_objects(self, **kwargs: object) -> _Response:
+        from weaviate.collections.queries.fetch_objects.query import _FetchObjectsQuery
+
+        _bind_real(_FetchObjectsQuery.fetch_objects, kwargs)
+        self.calls.append(dict(kwargs))
+        matching = [
+            _Obj(uid, dict(props), _Meta(score=1.0))
+            for uid, props in self.rows
+            if _filter_matches(kwargs["filters"], props)
+        ]
+        limit = int(str(kwargs["limit"]))
+        offset = int(str(kwargs["offset"]))
+        return _Response(matching[offset : offset + limit])
+
+
+def _filter_matches(flt: object, props: dict[str, object]) -> bool:
+    """Evaluate the emitted Weaviate filter against a stored row."""
+    from weaviate.collections.classes.filters import _FilterAnd, _FilterValue
+
+    if isinstance(flt, _FilterAnd):
+        return all(_filter_matches(part, props) for part in flt.filters)
+    if isinstance(flt, _FilterValue):
+        operator = str(flt.operator)
+        actual = props.get(str(flt.target))
+        if operator.endswith("EQUAL"):
+            return actual == flt.value
+        if operator.endswith("CONTAINS_ANY"):
+            return actual in list(flt.value)  # type: ignore[arg-type]
+    raise AssertionError(f"unsupported filter in this fake: {flt!r}")
+
+
+def _emitted_read_filter(
+    *, project_id: str = "acme", prop: str = "source_file", value: str = "concept/a.md"
+) -> object:
+    query = _FilterAwarePaging(rows=[])
+    _paging_client(query).fetch_by_property(  # type: ignore[arg-type]
+        collection=STORY_CONTEXT_COLLECTION,
+        project_id=project_id,
+        prop=prop,
+        value=value,
+        return_props=("project_id",),
+    )
+    return query.calls[0]["filters"]
+
+
+def test_n51_a_source_read_emits_the_project_filter_server_side() -> None:
+    """The condition the server receives contains BOTH clauses."""
+    from weaviate.collections.classes.filters import _FilterAnd
+
+    flt = _emitted_read_filter()
+    assert isinstance(flt, _FilterAnd)
+    targets = {p.target: p for p in flt.filters}  # type: ignore[attr-defined]
+    assert targets["project_id"].value == "acme"
+    assert str(targets["project_id"].operator).endswith("EQUAL")
+    assert targets["source_file"].value == "concept/a.md"
+
+
+def test_n51_a_source_type_read_emits_the_project_filter_server_side() -> None:
+    from weaviate.collections.classes.filters import _FilterAnd
+
+    query = _FilterAwarePaging(rows=[])
+    _paging_client(query).fetch_by_property_any(
+        collection=STORY_CONTEXT_COLLECTION,
+        project_id="acme",
+        prop="source_type",
+        values=("concept",),
+        return_props=("project_id",),
+    )
+    flt = query.calls[0]["filters"]
+    assert isinstance(flt, _FilterAnd)
+    targets = {p.target: p for p in flt.filters}  # type: ignore[attr-defined]
+    assert targets["project_id"].value == "acme"
+    assert str(targets["source_type"].operator).endswith("CONTAINS_ANY")
+
+
+def test_n51_a_project_only_read_emits_exactly_one_clause() -> None:
+    """No redundant duplicate of the project filter when it IS the whole condition."""
+    from weaviate.collections.classes.filters import _FilterValue
+
+    flt = _emitted_read_filter(prop="project_id", value="acme")
+    assert isinstance(flt, _FilterValue)
+    assert flt.target == "project_id"
+    assert flt.value == "acme"
+
+
+def test_n51_a_foreign_projects_volume_cannot_break_this_projects_read() -> None:
+    """The counterexample: a foreign project holds MORE rows than the ceiling.
+
+    With an app-side post-filter the foreign rows still had to be paged, so this read
+    would hit ``MAX_FETCH_OBJECTS`` and refuse a truncated answer -- an operation broken
+    by data it may not even see. With the filter on the server the foreign volume is
+    invisible.
+    """
+    from agentkit.integration_clients.vectordb.weaviate_adapter import MAX_FETCH_OBJECTS
+
+    foreign = [
+        (f"other-{i}", {"project_id": "other", "source_file": "concept/a.md"})
+        for i in range(MAX_FETCH_OBJECTS + 10)
+    ]
+    mine = [("mine-1", {"project_id": "acme", "source_file": "concept/a.md"})]
+    query = _FilterAwarePaging(rows=[*foreign, *mine])
+    rows = _paging_client(query).fetch_by_property(
+        collection=STORY_CONTEXT_COLLECTION,
+        project_id="acme",
+        prop="source_file",
+        value="concept/a.md",
+        return_props=("project_id", "source_file"),
+    )
+    assert [uid for uid, _props in rows] == ["mine-1"]
+
+
+def test_n51_a_foreign_project_on_the_same_source_is_never_returned() -> None:
+    """Isolation, not just volume: foreign rows of the same source stay invisible."""
+    query = _FilterAwarePaging(
+        rows=[
+            ("acme-1", {"project_id": "acme", "source_file": "concept/a.md"}),
+            ("other-1", {"project_id": "other", "source_file": "concept/a.md"}),
+        ]
+    )
+    rows = _paging_client(query).fetch_by_property(
+        collection=STORY_CONTEXT_COLLECTION,
+        project_id="acme",
+        prop="source_file",
+        value="concept/a.md",
+        return_props=("project_id", "source_file"),
+    )
+    assert [uid for uid, _props in rows] == ["acme-1"]

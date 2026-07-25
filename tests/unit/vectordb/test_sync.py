@@ -888,11 +888,27 @@ def test_n41_the_sweep_cannot_delete_the_newer_owners_rows() -> None:
     removed = service._delete_older_generations(older, claim=claim)  # noqa: SLF001
     assert removed == 0
     assert newer.uuid in client.objects, "a newer generation's row is untouchable"
-    # ... and a row of an OLDER generation in the same sweep IS removed.
-    older = chunk_object("acme", "concept/a.md", "older")
-    store.upsert_objects(objects=[older], owning_generation=claim.generation - 1) if (
-        claim.generation > 1
-    ) else None
+
+    # ... and the SAME pass does remove a row of an older generation, so the exclusion
+    # above is the predicate at work and not an empty candidate set. (P2-11: the
+    # previous trailing setup was dead for a generation-1 fixture and asserted nothing;
+    # the ladder is advanced here so an older generation actually exists.)
+    store.release_source(claim=claim)
+    later = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="writer-b"
+    )
+    assert later is not None and later.generation > claim.generation
+    old_row = chunk_object("acme", "concept/a.md", "older")
+    store.upsert_objects(objects=[old_row], owning_generation=claim.generation)
+    _legacy2, older2 = service._classify_source_rows(  # noqa: SLF001
+        store.list_objects_for_source(project_id="acme", source_file="concept/a.md"),
+        claim=later,
+        should_uuids=set(),
+    )
+    assert [str(row["uuid"]) for row in older2] == [old_row.uuid]
+    assert service._delete_older_generations(older2, claim=later) == 1  # noqa: SLF001
+    assert old_row.uuid not in client.objects
+    assert newer.uuid in client.objects, "and the newer row still survives"
 
 
 def test_n41_the_sweep_is_bounded_by_the_holders_own_generation() -> None:

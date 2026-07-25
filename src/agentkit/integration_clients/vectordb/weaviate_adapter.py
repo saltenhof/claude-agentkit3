@@ -584,16 +584,21 @@ class _RealWeaviateClient:
         self,
         *,
         collection: str,
+        project_id: str,
         prop: str,
         value: str,
         return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]:
-        """Fetch ``(uuid, properties)`` for objects where ``prop == value``."""
+        """Fetch ``(uuid, properties)`` for objects where ``prop == value``, scoped
+        to ``project_id`` SERVER-SIDE (AC4/N51)."""
         from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
 
         return self._fetch_all_pages(
             collection=collection,
-            flt=Filter.by_property(prop).equal(value),
+            flt=_scoped_read_condition(
+                project_id=project_id,
+                predicate=None if prop == "project_id" else Filter.by_property(prop).equal(value),
+            ),
             return_props=return_props,
         )
 
@@ -601,16 +606,21 @@ class _RealWeaviateClient:
         self,
         *,
         collection: str,
+        project_id: str,
         prop: str,
         values: Sequence[str],
         return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]:
-        """Fetch ``(uuid, properties)`` where ``prop`` is in ``values``."""
+        """Fetch ``(uuid, properties)`` where ``prop`` is in ``values``, scoped to
+        ``project_id`` SERVER-SIDE (AC4/N51)."""
         from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
 
         return self._fetch_all_pages(
             collection=collection,
-            flt=Filter.by_property(prop).contains_any(list(values)),
+            flt=_scoped_read_condition(
+                project_id=project_id,
+                predicate=Filter.by_property(prop).contains_any(list(values)),
+            ),
             return_props=return_props,
         )
 
@@ -1183,6 +1193,33 @@ def configured_vectorizer_model(config: Any) -> dict[str, object]:
             "vectorizeClassName", bool(legacy.vectorize_collection_name)
         )
     return model
+
+
+def _scoped_read_condition(*, project_id: str, predicate: Any | None) -> Any:
+    """Build a project-scoped READ filter (AC4/N51).
+
+    Every read carries the project filter on the SERVER, not as a post-filter in the
+    app layer. Post-filtering was not merely redundant: the paginated read still had to
+    transport another project's rows, so a foreign project holding the same source -- or
+    simply enough rows to pass ``MAX_FETCH_OBJECTS`` -- could change the OUTCOME of this
+    project's operation (a truncation refusal that has nothing to do with this project's
+    data). AC4 covers reads, not only mutations.
+
+    Args:
+        project_id: The authoritative bound project.
+        predicate: The read's own condition, or ``None`` when the project scope IS the
+            whole condition (then exactly one clause is emitted -- no redundant
+            duplicate of the project filter).
+
+    Returns:
+        The Weaviate filter to send.
+    """
+    from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
+
+    project_clause = Filter.by_property("project_id").equal(project_id)
+    if predicate is None:
+        return project_clause
+    return Filter.all_of([project_clause, predicate])
 
 
 def _scoped_delete_condition(

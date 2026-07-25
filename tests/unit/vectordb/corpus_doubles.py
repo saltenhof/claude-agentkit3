@@ -73,6 +73,8 @@ class RecordingWeaviateClient:
     claim_history: list[dict[str, object]] = field(default_factory=list)
     #: Every STORAGE-CONDITIONAL delete (a destructive delete must be one, D9).
     conditional_delete_calls: list[dict[str, object]] = field(default_factory=list)
+    #: Every scoped READ (AC4/N51: the project filter is server-side, not app-side).
+    read_calls: list[dict[str, object]] = field(default_factory=list)
     #: Probe: the store REJECTS the claim release marker (N45 -- the source stays held).
     fail_release: bool = False
     #: Probe: the store neither creates the release marker nor holds it (N45).
@@ -98,8 +100,19 @@ class RecordingWeaviateClient:
 
     # -- reads ------------------------------------------------------------- #
     def fetch_by_property(
-        self, *, collection: str, prop: str, value: str, return_props: Sequence[str]
+        self,
+        *,
+        collection: str,
+        project_id: str,
+        prop: str,
+        value: str,
+        return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]:
+        """Read scoped to ``project_id`` AND ``prop == value`` (AC4/N51).
+
+        The project clause is applied HERE, like the server does, so a test cannot pass
+        by relying on an app-side post-filter that production no longer needs.
+        """
         # Synchronise the FIRST claim read of each thread: both a read-then-write
         # claim (which would then race) and the conditional-create claim pass here,
         # so the race is real for either implementation. Later reads (e.g. the
@@ -113,13 +126,34 @@ class RecordingWeaviateClient:
             self.fetch_barrier.wait()
         if collection == STORY_CONTEXT_COLLECTION and self.suppress_source_fetch:
             return []
-        return self._fetch(collection, lambda p: p.get(prop) == value, return_props)
+        self.read_calls.append(
+            {"collection": collection, "project_id": project_id, "prop": prop}
+        )
+        return self._fetch(
+            collection,
+            lambda p: p.get("project_id") == project_id and p.get(prop) == value,
+            return_props,
+        )
 
     def fetch_by_property_any(
-        self, *, collection: str, prop: str, values: Sequence[str], return_props: Sequence[str]
+        self,
+        *,
+        collection: str,
+        project_id: str,
+        prop: str,
+        values: Sequence[str],
+        return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]:
+        """Read scoped to ``project_id`` AND ``prop in values`` (AC4/N51)."""
         wanted = set(values)
-        return self._fetch(collection, lambda p: p.get(prop) in wanted, return_props)
+        self.read_calls.append(
+            {"collection": collection, "project_id": project_id, "prop": prop}
+        )
+        return self._fetch(
+            collection,
+            lambda p: p.get("project_id") == project_id and p.get(prop) in wanted,
+            return_props,
+        )
 
     def _fetch(
         self,

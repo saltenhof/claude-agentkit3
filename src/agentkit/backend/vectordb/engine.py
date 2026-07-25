@@ -101,11 +101,23 @@ class CorpusClientPort(Protocol):
     """The thin-adapter corpus surface the engine needs (R02)."""
 
     def fetch_by_property(
-        self, *, collection: str, prop: str, value: str, return_props: Sequence[str]
+        self,
+        *,
+        collection: str,
+        project_id: str,
+        prop: str,
+        value: str,
+        return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]: ...
 
     def fetch_by_property_any(
-        self, *, collection: str, prop: str, values: Sequence[str], return_props: Sequence[str]
+        self,
+        *,
+        collection: str,
+        project_id: str,
+        prop: str,
+        values: Sequence[str],
+        return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]: ...
 
     def search_objects(
@@ -178,6 +190,7 @@ class WeaviateCorpusStore:
     ) -> Sequence[Mapping[str, object]]:
         rows = self.client.fetch_by_property(
             collection=self.collection,
+            project_id=project_id,
             prop="source_file",
             value=source_file,
             return_props=(
@@ -192,6 +205,8 @@ class WeaviateCorpusStore:
              "project_id": p.get("project_id", ""), "content_hash": p.get("content_hash", ""),
              OWNING_GENERATION_PROPERTY: p.get(OWNING_GENERATION_PROPERTY)}
             for uid, p in rows
+            # Redundant after N51 (the project filter is server-side); kept as defence
+            # in depth, never as the isolation mechanism.
             if str(p.get("project_id", "")) == project_id
         ]
 
@@ -200,6 +215,7 @@ class WeaviateCorpusStore:
     ) -> Sequence[Mapping[str, object]]:
         rows = self.client.fetch_by_property_any(
             collection=self.collection,
+            project_id=project_id,
             prop="source_type",
             values=tuple(source_types),
             return_props=(
@@ -404,6 +420,7 @@ class WeaviateCorpusStore:
         """Return the highest completion position already established (N28)."""
         rows = self.client.fetch_by_property(
             collection=RECEIPT_COLLECTION,
+            project_id=project_id,
             prop="project_id",
             value=project_id,
             return_props=RECEIPT_PROPERTIES,
@@ -438,6 +455,7 @@ class WeaviateCorpusStore:
         """Return every persisted completion of a project (each verified, N08/N28)."""
         rows = self.client.fetch_by_property(
             collection=RECEIPT_COLLECTION,
+            project_id=project_id,
             prop="project_id",
             value=project_id,
             return_props=RECEIPT_PROPERTIES,
@@ -699,18 +717,22 @@ class WeaviateCorpusStore:
     def _generation_rows(
         self, project_id: str, source_file: str
     ) -> list[tuple[str, Mapping[str, object]]]:
-        """Return this source's ladder records (claims AND release markers)."""
-        rows = self.client.fetch_by_property(
-            collection=CLAIM_COLLECTION,
-            prop="source_file",
-            value=source_file,
-            return_props=CLAIM_PROPERTIES,
+        """Return this source's ladder records (claims AND release markers).
+
+        Read with the SAME server-side project scope as the corpus (AC4/N51): the
+        app-side filter that used to follow was not enough, because another project
+        holding the same ``source_file`` still had to be transported and could push this
+        read into the pagination ceiling.
+        """
+        return list(
+            self.client.fetch_by_property(
+                collection=CLAIM_COLLECTION,
+                project_id=project_id,
+                prop="source_file",
+                value=source_file,
+                return_props=CLAIM_PROPERTIES,
+            )
         )
-        return [
-            (uid, props)
-            for uid, props in rows
-            if props.get("project_id") == project_id
-        ]
 
     @staticmethod
     def _highest_generation(rows: Sequence[tuple[str, Mapping[str, object]]]) -> int:
