@@ -1510,6 +1510,20 @@ class _ControllableIndex:
         return 1
 
 
+def _canonical_story_dir(story_dir: Path, story_id: str) -> Path:
+    """Return the CANONICAL ``<parent>/stories/<story-id>/`` directory (N21).
+
+    The production export verifies that the artefact really lives in a
+    ``stories/`` root and that the directory identifies the story, because the
+    indexed ``source_file`` must be the path ``story_sync`` also discovers. The
+    split harness therefore builds the canonical layout instead of an arbitrary
+    scratch folder.
+    """
+    canonical = story_dir.parent / "stories" / story_id
+    canonical.mkdir(parents=True, exist_ok=True)
+    return canonical
+
+
 class _RealSuccessorExport:
     """Production-faithful successor export: drives the REAL ``export_story_md``."""
 
@@ -1523,7 +1537,7 @@ class _RealSuccessorExport:
     def export(self, *, story_id: str, story_dir: Path) -> object:
         result = export_story_md(
             story_id,
-            story_dir,
+            _canonical_story_dir(story_dir, story_id),
             project_id="ak3",
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,
@@ -1561,7 +1575,7 @@ class _RealSupersededIndex:
         )
         result = export_story_md(
             story_id,
-            self._stories_root / story_id,
+            _canonical_story_dir(self._stories_root / story_id, story_id),
             project_id="ak3",
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,

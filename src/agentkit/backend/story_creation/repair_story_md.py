@@ -8,15 +8,16 @@ re-exports defective / missing files deterministically. The report is the
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.backend.story_creation.story_md_export import (
     MIN_STORY_MD_BYTES,
+    STORY_DIR_RE,
     STORY_MD_FILENAME,
     _validate_frontmatter,
     export_story_md,
+    story_dir_story_id,
 )
 
 if TYPE_CHECKING:
@@ -27,8 +28,10 @@ if TYPE_CHECKING:
         StoryIndexPort,
     )
 
-#: A story directory is ``{PREFIX}-{number}`` optionally followed by ``_slug``.
-_STORY_DIR_RE = re.compile(r"^(?P<story_id>[A-Z][A-Z0-9]{1,9}-\d+)(?:[_-].*)?$")
+#: A story directory is ``{PREFIX}-{number}`` optionally followed by a slug.
+#: ONE definition, shared with the export (``story_md_export.STORY_DIR_RE``) so
+#: both agree on which directory belongs to which story.
+_STORY_DIR_RE = STORY_DIR_RE
 
 
 @dataclass(frozen=True)
@@ -50,8 +53,7 @@ class RepairReport:
 
 def _story_id_from_dir(directory: Path) -> str | None:
     """Derive the story display-ID from a story directory name."""
-    match = _STORY_DIR_RE.match(directory.name)
-    return match.group("story_id") if match else None
+    return story_dir_story_id(directory.name)
 
 
 def _needs_repair(story_md: Path) -> bool:

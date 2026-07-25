@@ -153,16 +153,47 @@ def resolve_authoritative_project_id(
 
 
 def _project_id_from_config(project_root: str | None) -> str:
-    """Return the project configuration's ``project_prefix`` (empty if unresolvable)."""
-    from agentkit.backend.config.loader import find_project_root, load_project_config
-    from agentkit.backend.exceptions import AgentKitError
+    """Return the project configuration's ``project_prefix``, or ``""`` if ABSENT.
 
+    Absence and invalidity are strictly separated (N22/D2): only a genuinely
+    missing project configuration (no discoverable project root, or no
+    ``project.yaml``) yields ``""`` so the env binding can be the authority. An
+    EXISTING but malformed / schema-invalid / unreadable configuration is a hard
+    :class:`ProjectBindingError` -- silently falling back to ``PROJECT_ID`` there
+    would let a broken config bind the operation to the wrong project.
+    """
+    from agentkit.backend.config.defaults import DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE
+    from agentkit.backend.config.loader import find_project_root, load_project_config
+    from agentkit.backend.exceptions import AgentKitError, ConfigError
+
+    if project_root:
+        root = Path(project_root)
+    else:
+        try:
+            root = find_project_root()
+        except (AgentKitError, OSError):
+            return ""  # genuinely no project context
+    config_path = root / DEFAULT_CONFIG_DIR / DEFAULT_CONFIG_FILE
+    if not config_path.is_file():
+        return ""  # genuine absence: the env binding may be the authority
     try:
-        root = Path(project_root) if project_root else find_project_root()
         config = load_project_config(root)
-    except (AgentKitError, OSError, ValueError):
-        return ""
+    except ConfigError as exc:
+        raise ProjectBindingError(
+            f"project configuration {config_path} exists but is invalid: {exc}; "
+            "fail-closed (D2/N22: an invalid config is never treated as absent)."
+        ) from exc
+    except (AgentKitError, OSError) as exc:
+        raise ProjectBindingError(
+            f"project configuration {config_path} could not be read: {exc}; "
+            "fail-closed (D2/N22)."
+        ) from exc
     prefix = config.project_prefix or config.project_key.upper()
+    if not prefix.strip():
+        raise ProjectBindingError(
+            f"project configuration {config_path} carries no usable project_prefix; "
+            "fail-closed (D2)."
+        )
     return prefix.strip()
 
 
