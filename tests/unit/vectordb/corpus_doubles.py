@@ -275,16 +275,32 @@ class RecordingWeaviateClient:
         return deleted
 
     def delete_by_ids_if_property_below(
-        self, *, collection: str, uuids: Sequence[str], prop: str, limit: int
+        self,
+        *,
+        collection: str,
+        uuids: Sequence[str],
+        prop: str,
+        limit: int,
+        project_id: str,
+        source_file: str,
     ) -> int:
         """Delete ONLY the ids whose numeric ``prop`` is strictly below ``limit`` (N37).
 
-        Held to the same semantics as ``data.delete_many(where=...)``: the condition
-        is evaluated together with the delete, atomically per object, so an object a
-        NEWER generation wrote is simply not matched -- in either race order.
+        Held to the same semantics as ``data.delete_many(where=...)``: the condition is
+        evaluated together with the delete, atomically per object, so an object a NEWER
+        generation wrote is simply not matched -- in either race order. The project and
+        source predicates are part of that condition too (AC4/N48), so a row of another
+        project or source cannot be removed even if its id were passed in.
         """
         self.conditional_delete_calls.append(
-            {"collection": collection, "prop": prop, "limit": limit, "uuids": tuple(uuids)}
+            {
+                "collection": collection,
+                "prop": prop,
+                "limit": limit,
+                "uuids": tuple(uuids),
+                "project_id": project_id,
+                "source_file": source_file,
+            }
         )
         if self.before_delete is not None:
             self.before_delete(collection)
@@ -293,7 +309,7 @@ class RecordingWeaviateClient:
         with self._lock:
             for uid in uuids:
                 props = store.get(str(uid))
-                if props is None:
+                if props is None or not _in_scope(props, project_id, source_file):
                     continue
                 value = props.get(prop)
                 if isinstance(value, bool) or not isinstance(value, int):
@@ -312,16 +328,30 @@ class RecordingWeaviateClient:
         return deleted
 
     def delete_by_ids_if_property_absent(
-        self, *, collection: str, uuids: Sequence[str], prop: str
+        self,
+        *,
+        collection: str,
+        uuids: Sequence[str],
+        prop: str,
+        project_id: str,
+        source_file: str,
     ) -> int:
         """Delete ONLY the ids that carry NO value for ``prop`` at all (N43).
 
         Same semantics as ``delete_many(where=Filter.by_property(p).is_none(True))``:
         the condition is evaluated together with the delete, so a row written by ANY
-        generation is structurally out of reach.
+        generation is structurally out of reach -- and so is a row of another project or
+        source, because those predicates are part of the same condition (AC4/N48).
         """
         self.conditional_delete_calls.append(
-            {"collection": collection, "prop": prop, "absent": True, "uuids": tuple(uuids)}
+            {
+                "collection": collection,
+                "prop": prop,
+                "absent": True,
+                "uuids": tuple(uuids),
+                "project_id": project_id,
+                "source_file": source_file,
+            }
         )
         if self.before_delete is not None:
             self.before_delete(collection)
@@ -330,7 +360,9 @@ class RecordingWeaviateClient:
         with self._lock:
             for uid in uuids:
                 props = store.get(str(uid))
-                if props is None or props.get(prop) is not None:
+                if props is None or not _in_scope(props, project_id, source_file):
+                    continue
+                if props.get(prop) is not None:
                     continue
                 del store[str(uid)]
                 deleted += 1
@@ -424,6 +456,16 @@ def seed_generation_history(
     client.claims[
         WeaviateCorpusStore._release_uuid(project_id, source_file, generation)  # noqa: SLF001
     ] = {**base, "state": CLAIM_STATE_RELEASED}
+
+
+def _in_scope(
+    props: Mapping[str, object], project_id: str, source_file: str
+) -> bool:
+    """Whether a stored row satisfies the delete's project/source predicates (AC4)."""
+    return (
+        str(props.get("project_id", "")) == project_id
+        and str(props.get("source_file", "")) == source_file
+    )
 
 
 def _matches_filters(

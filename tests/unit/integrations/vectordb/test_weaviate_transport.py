@@ -407,6 +407,8 @@ def _conditional_delete(
         uuids=uuids,
         prop="owning_generation",
         limit=7,
+        project_id="acme",
+        source_file="concept/a.md",
     )
     return deleted, data
 
@@ -426,6 +428,11 @@ def test_d9_the_condition_travels_with_the_delete() -> None:
     assert targets["owning_generation"].value == 7
     # An ORDERING, not an equality: that is what authorises the delete (N37).
     assert str(targets["owning_generation"].operator).endswith("LESS_THAN")
+    # EVERY delete carries project isolation, not only the ones a finding named
+    # (AC4/N48): the ids come from a project-scoped read, but the delete must not
+    # depend on the caller having read correctly.
+    assert targets["project_id"].value == "acme"
+    assert targets["source_file"].value == "concept/a.md"
 
 
 def test_d9_a_condition_that_no_longer_matches_deletes_nothing() -> None:
@@ -1472,6 +1479,8 @@ def test_n44_the_real_transport_uses_the_strict_counters() -> None:
             uuids=["11111111-1111-5111-8111-111111111111"],
             prop="owning_generation",
             limit=7,
+            project_id="acme",
+            source_file="concept/a.md",
         )
 
 
@@ -1492,6 +1501,8 @@ def test_n43_the_unstamped_delete_sends_an_is_null_condition() -> None:
         collection=STORY_CONTEXT_COLLECTION,
         uuids=[uid],
         prop="owning_generation",
+        project_id="acme",
+        source_file="concept/a.md",
     )
     assert deleted == 1
     where = data.delete_many_calls[0]["where"]
@@ -1500,6 +1511,9 @@ def test_n43_the_unstamped_delete_sends_an_is_null_condition() -> None:
     assert targets["_id"].value == [uid]
     assert str(targets["owning_generation"].operator).endswith("IS_NULL")
     assert targets["owning_generation"].value is True
+    # AC4/N48: the legacy delete carries project isolation as well.
+    assert targets["project_id"].value == "acme"
+    assert targets["source_file"].value == "concept/a.md"
 
 
 def test_n43_the_unstamped_delete_counts_are_exact() -> None:
@@ -1520,4 +1534,6 @@ def test_n43_the_unstamped_delete_counts_are_exact() -> None:
             collection=STORY_CONTEXT_COLLECTION,
             uuids=["11111111-1111-5111-8111-111111111111"],
             prop="owning_generation",
+            project_id="acme",
+            source_file="concept/a.md",
         )

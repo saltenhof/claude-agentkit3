@@ -757,6 +757,8 @@ class _RealWeaviateClient:
         uuids: Sequence[str],
         prop: str,
         limit: int,
+        project_id: str,
+        source_file: str,
     ) -> int:
         """Delete the given uuids ONLY where ``prop`` is strictly below ``limit`` (N37).
 
@@ -785,6 +787,8 @@ class _RealWeaviateClient:
             uuids: Candidate object ids.
             prop: Numeric property carrying the ordering value.
             limit: Exclusive upper bound; only strictly smaller values are deleted.
+            project_id: Authoritative bound project -- part of the condition (AC4).
+            source_file: The claimed source -- part of the condition (AC4).
 
         Returns:
             The exact number of objects Weaviate confirmed deleted.
@@ -799,11 +803,11 @@ class _RealWeaviateClient:
         deleted = 0
         for start in range(0, len(ids), MAX_CONDITIONAL_DELETE_IDS):
             batch = ids[start : start + MAX_CONDITIONAL_DELETE_IDS]
-            condition = Filter.all_of(
-                [
-                    Filter.by_id().contains_any(batch),
-                    Filter.by_property(prop).less_than(limit),
-                ]
+            condition = _scoped_delete_condition(
+                batch,
+                project_id=project_id,
+                source_file=source_file,
+                predicate=Filter.by_property(prop).less_than(limit),
             )
             try:
                 result = coll.data.delete_many(where=condition)
@@ -819,7 +823,13 @@ class _RealWeaviateClient:
         return deleted
 
     def delete_by_ids_if_property_absent(
-        self, *, collection: str, uuids: Sequence[str], prop: str
+        self,
+        *,
+        collection: str,
+        uuids: Sequence[str],
+        prop: str,
+        project_id: str,
+        source_file: str,
     ) -> int:
         """Delete the given uuids ONLY where ``prop`` is NOT SET at all (N43).
 
@@ -829,13 +839,16 @@ class _RealWeaviateClient:
         condition structurally cannot touch it -- not the caller's own, and not a newer
         owner's.
 
-        Counters are validated exactly, like every other transport call (AC10/R12): a
-        new call inherits that obligation instead of starting permissive.
+        Counters are validated exactly and the condition carries project/source
+        isolation, like every other transport call (AC10/R12/AC4): a new call inherits
+        those obligations instead of starting permissive.
 
         Args:
             collection: Collection to delete from.
             uuids: Candidate object ids.
             prop: Property that must be absent for a row to be deleted.
+            project_id: Authoritative bound project -- part of the condition (AC4).
+            source_file: The claimed source -- part of the condition (AC4).
 
         Returns:
             The exact number of objects the store confirms deleted.
@@ -851,11 +864,11 @@ class _RealWeaviateClient:
         deleted = 0
         for start in range(0, len(ids), MAX_CONDITIONAL_DELETE_IDS):
             batch = ids[start : start + MAX_CONDITIONAL_DELETE_IDS]
-            condition = Filter.all_of(
-                [
-                    Filter.by_id().contains_any(batch),
-                    Filter.by_property(prop).is_none(True),
-                ]
+            condition = _scoped_delete_condition(
+                batch,
+                project_id=project_id,
+                source_file=source_file,
+                predicate=Filter.by_property(prop).is_none(True),
             )
             try:
                 result = coll.data.delete_many(where=condition)
@@ -1170,6 +1183,38 @@ def configured_vectorizer_model(config: Any) -> dict[str, object]:
             "vectorizeClassName", bool(legacy.vectorize_collection_name)
         )
     return model
+
+
+def _scoped_delete_condition(
+    batch: Sequence[str], *, project_id: str, source_file: str, predicate: Any
+) -> Any:
+    """Build the filter for a scoped, conditional delete (AC4/N48).
+
+    EVERY delete carries project isolation, not only the ones a finding happened to
+    name: the ids come from a project-filtered read, but a delete must not depend on
+    the caller having read correctly. ``project_id`` AND ``source_file`` are therefore
+    part of the condition the store evaluates, next to the id set and the
+    operation-specific ``predicate``.
+
+    Args:
+        batch: The candidate object ids of this batch.
+        project_id: Authoritative bound project.
+        source_file: The claimed source the ids belong to.
+        predicate: The operation's own condition (ordering or IS-NULL).
+
+    Returns:
+        The combined Weaviate filter.
+    """
+    from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
+
+    return Filter.all_of(
+        [
+            Filter.by_id().contains_any(list(batch)),
+            Filter.by_property("project_id").equal(project_id),
+            Filter.by_property("source_file").equal(source_file),
+            predicate,
+        ]
+    )
 
 
 def _exact_count(value: Any, *, field_name: str, context: str) -> int:

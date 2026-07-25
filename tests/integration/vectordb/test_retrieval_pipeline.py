@@ -133,27 +133,42 @@ class IndexingFakeStore:
         return len(objects)
 
     def delete_objects_older_than(
-        self, *, uuids: Sequence[str], owning_generation: int
+        self,
+        *,
+        project_id: str,
+        source_file: str,
+        uuids: Sequence[str],
+        owning_generation: int,
     ) -> int:
-        """Delete ONLY objects written by a strictly OLDER generation (N37)."""
+        """Delete ONLY objects written by a strictly OLDER generation (N37/AC4)."""
         if owning_generation < 1:
             raise AssertionError("a delete must be ordered against a generation")
         n = 0
         for uid in uuids:
             props = self.objects.get(uid)
-            written = props.get(OWNING_GENERATION_PROPERTY) if props else None
+            if props is None:
+                continue
+            if props.get("project_id") != project_id or props.get("source_file") != source_file:
+                continue
+            written = props.get(OWNING_GENERATION_PROPERTY)
             if not isinstance(written, int) or written >= owning_generation:
                 continue
             del self.objects[uid]
             n += 1
         return n
 
-    def delete_objects_without_generation(self, *, uuids: Sequence[str]) -> int:
-        """Delete ONLY rows that carry no writing generation at all (N43)."""
+    def delete_objects_without_generation(
+        self, *, project_id: str, source_file: str, uuids: Sequence[str]
+    ) -> int:
+        """Delete ONLY rows that carry no writing generation at all (N43/AC4)."""
         n = 0
         for uid in uuids:
             props = self.objects.get(uid)
-            if props is None or props.get(OWNING_GENERATION_PROPERTY) is not None:
+            if props is None:
+                continue
+            if props.get("project_id") != project_id or props.get("source_file") != source_file:
+                continue
+            if props.get(OWNING_GENERATION_PROPERTY) is not None:
                 continue
             del self.objects[uid]
             n += 1

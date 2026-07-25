@@ -130,11 +130,24 @@ class CorpusClientPort(Protocol):
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int: ...
 
     def delete_by_ids_if_property_below(
-        self, *, collection: str, uuids: Sequence[str], prop: str, limit: int
+        self,
+        *,
+        collection: str,
+        uuids: Sequence[str],
+        prop: str,
+        limit: int,
+        project_id: str,
+        source_file: str,
     ) -> int: ...
 
     def delete_by_ids_if_property_absent(
-        self, *, collection: str, uuids: Sequence[str], prop: str
+        self,
+        *,
+        collection: str,
+        uuids: Sequence[str],
+        prop: str,
+        project_id: str,
+        source_file: str,
     ) -> int: ...
 
     def ensure_collection(
@@ -234,7 +247,12 @@ class WeaviateCorpusStore:
         return self.client.upsert(collection=self.collection, objects=docs)
 
     def delete_objects_older_than(
-        self, *, uuids: Sequence[str], owning_generation: int
+        self,
+        *,
+        project_id: str,
+        source_file: str,
+        uuids: Sequence[str],
+        owning_generation: int,
     ) -> int:
         """Delete objects ONLY where the writing generation is STRICTLY OLDER (N37).
 
@@ -254,6 +272,8 @@ class WeaviateCorpusStore:
           including objects from several different earlier generations at once.
 
         Args:
+            project_id: Authoritative bound project -- part of the condition (AC4).
+            source_file: The claimed source -- part of the condition (AC4).
             uuids: Candidate object ids.
             owning_generation: The deleting claim's own generation (exclusive bound).
 
@@ -273,9 +293,13 @@ class WeaviateCorpusStore:
             uuids=tuple(uuids),
             prop=OWNING_GENERATION_PROPERTY,
             limit=owning_generation,
+            project_id=project_id,
+            source_file=source_file,
         )
 
-    def delete_objects_without_generation(self, *, uuids: Sequence[str]) -> int:
+    def delete_objects_without_generation(
+        self, *, project_id: str, source_file: str, uuids: Sequence[str]
+    ) -> int:
         """Delete objects that carry NO writing generation at all (N43).
 
         The condition is an IS-NULL evaluated by the store, so it can only ever match
@@ -285,7 +309,9 @@ class WeaviateCorpusStore:
         adopting foreign content into a generation.
 
         Args:
-            uuids: Candidate object ids (already scoped to one claimed source).
+            project_id: Authoritative bound project -- part of the condition (AC4).
+            source_file: The claimed source -- part of the condition (AC4).
+            uuids: Candidate object ids of that source.
 
         Returns:
             The exact number of objects the store confirms deleted.
@@ -296,6 +322,8 @@ class WeaviateCorpusStore:
             collection=self.collection,
             uuids=tuple(uuids),
             prop=OWNING_GENERATION_PROPERTY,
+            project_id=project_id,
+            source_file=source_file,
         )
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
@@ -600,16 +628,36 @@ class WeaviateCorpusStore:
             )
 
     def _release_marker_exists(self, claim: SourceClaim) -> bool:
-        """Whether this generation's release marker is persisted (idempotency, N45)."""
+        """Whether THIS generation's valid release marker is persisted (N45/N50).
+
+        The deterministic uuid alone is not proof. Accepting any row stored at that id
+        meant a malformed duplicate -- e.g. one carrying ``state=claimed`` -- made the
+        sync report a successful release while the source stayed HELD, which is exactly
+        the silent-success path N45 closed. The persisted record is therefore validated
+        in FULL: it must be a ``released`` marker for this project, source, owner and
+        generation. Anything else is not this claim's release.
+
+        Args:
+            claim: The claim whose release is being confirmed.
+
+        Returns:
+            ``True`` only for a complete, matching release marker.
+        """
         wanted = self._release_uuid(
             claim.project_id, claim.source_file, claim.generation
         )
-        return any(
-            uid == wanted
-            for uid, _props in self._generation_rows(
-                claim.project_id, claim.source_file
-            )
-        )
+        expected = {
+            "project_id": claim.project_id,
+            "source_file": claim.source_file,
+            "state": CLAIM_STATE_RELEASED,
+            "owner_id": claim.owner_id,
+            "generation": str(claim.generation),
+        }
+        for uid, props in self._generation_rows(claim.project_id, claim.source_file):
+            if uid != wanted:
+                continue
+            return all(props.get(name) == value for name, value in expected.items())
+        return False
 
     def _prune_generations_below(
         self, project_id: str, source_file: str, generation: int
