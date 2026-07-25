@@ -339,6 +339,9 @@ def test_n08_tampered_receipt_digest_is_fail_closed(tmp_path: Path) -> None:
         ({"completed_at": None}, "completed_at"),
         ({"sequence": "not-a-number"}, "sequence"),
         ({"sequence": "0"}, "sequence"),
+        # N16: an UNKNOWN receipt state is REJECTED, never silently skipped.
+        ({"state": "half_done"}, "unknown state"),
+        ({"state": "in_progress"}, "does not bind"),
     ],
 )
 def test_n08_malformed_receipt_fields_are_fail_closed(

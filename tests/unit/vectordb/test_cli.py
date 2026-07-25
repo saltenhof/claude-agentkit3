@@ -240,3 +240,25 @@ def test_r08_validate_staged_consumes_deletions(tmp_path: Path) -> None:
     build_candidate_corpus(root, {"technical-design/b.md": ""}, dest=dest)
     assert not (dest / "technical-design" / "b.md").exists()
     assert (dest / "technical-design" / "a.md").exists()
+
+
+# --------------------------------------------------------------------------- #
+# N20: the CLI must not default onto AK3's OWN development corpus
+# --------------------------------------------------------------------------- #
+
+
+def test_n20_concepts_dir_has_no_default() -> None:
+    """The concept corpus root is project configuration -- no silent default.
+
+    Defaulting to the literal ``concept`` pointed every operation at AK3's own
+    development corpus instead of the target project's configured ``concepts_dir``.
+    """
+    import pytest
+
+    from agentkit.backend.vectordb.cli import build_parser
+
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["validate", "--corpus"])
+    args = parser.parse_args(["--concepts-dir", "concepts", "validate", "--corpus"])
+    assert args.concepts_dir == "concepts"

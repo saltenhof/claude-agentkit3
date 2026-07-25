@@ -909,3 +909,64 @@ def test_n12_drifted_per_property_vectorisation_fails_closed() -> None:
     config = _ConfigView(properties=props, vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS)
     with pytest.raises(VectorDbWriteError, match="'skip_vectorization': False"):
         _ensure(config, "text2vec_transformers")
+
+
+def test_pagination_at_the_exact_ceiling_is_complete_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N25: reaching the ceiling exactly is a COMPLETE read, not a truncation."""
+    from agentkit.integration_clients.vectordb import weaviate_adapter
+
+    monkeypatch.setattr(weaviate_adapter, "FETCH_PAGE_SIZE", 10)
+    monkeypatch.setattr(weaviate_adapter, "MAX_FETCH_OBJECTS", 20)
+    query = _PagingQuery(total=20)
+    rows = _paging_client(query).fetch_by_property(
+        collection=STORY_CONTEXT_COLLECTION,
+        prop="project_id",
+        value="acme",
+        return_props=("project_id",),
+    )
+    assert len(rows) == 20
+    # The last call is the single-object PROBE that proves nothing follows.
+    assert query.calls[-1]["limit"] == 1
+    assert query.calls[-1]["offset"] == 20
+
+
+@dataclass
+class _NonAdvancingQuery:
+    """A server that returns the SAME page again for the next offset."""
+
+    calls: list[dict[str, object]] = field(default_factory=list)
+
+    def fetch_objects(self, **kwargs: object) -> _Response:
+        from weaviate.collections.queries.fetch_objects.query import _FetchObjectsQuery
+
+        _bind_real(_FetchObjectsQuery.fetch_objects, kwargs)
+        self.calls.append(dict(kwargs))
+        limit = int(str(kwargs["limit"]))
+        return _Response(
+            [
+                _Obj(f"u{i}", {"project_id": "acme"}, _Meta(score=1.0))
+                for i in range(limit)
+            ]
+        )
+
+
+def test_pagination_repeating_a_page_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """N25: a duplicated uuid across pages means the set is both dup'd and short."""
+    from agentkit.integration_clients.vectordb import weaviate_adapter
+
+    monkeypatch.setattr(weaviate_adapter, "FETCH_PAGE_SIZE", 5)
+    collection = _FakeCollection(
+        query=_NonAdvancingQuery(),  # type: ignore[arg-type]
+        data=_FakeData(),
+        config=_FakeConfig(_ConfigView(properties=[])),
+    )
+    client = _RealWeaviateClient(_FakeConnection(_FakeCollections(collection=collection)))
+    with pytest.raises(VectorDbUnavailableError, match="appeared twice"):
+        client.fetch_by_property(
+            collection=STORY_CONTEXT_COLLECTION,
+            prop="project_id",
+            value="acme",
+            return_props=("project_id",),
+        )

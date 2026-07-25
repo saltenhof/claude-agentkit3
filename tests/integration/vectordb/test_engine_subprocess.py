@@ -248,3 +248,56 @@ def test_r06_ingester_projects_the_scope_qualified_authority_metadata(tmp_path: 
     # The governance consumer reads owned + scope-qualified delegated scopes; an
     # UNQUALIFIED deferral (FK-01, no scope) authorizes nothing.
     assert authorization_scopes(chunk) == frozenset({"helper.scope", "vectordb"})
+
+
+_CONTRACT_DOC = """\
+---
+concept_id: FK-20
+title: Contract doc
+module: vectordb
+status: active
+doc_kind: core
+contract_state: ratified
+applies_policies: [policy-a, policy-b]
+formal_refs: [formal.state-storage]
+authority_over:
+  - scope: contracts
+glossary:
+  exported_terms:
+    - id: Bounded Window
+      definition: The switch window of a generation replace.
+    - id: Sync Receipt
+      definition: The digest-bound completion marker.
+---
+
+# Contract doc
+
+## Glossar
+
+Terms.
+"""
+
+
+def test_n20_ingester_projects_the_contract_and_glossary_fields(tmp_path: Path) -> None:
+    """N20: the SSOT migration must not drop the BC/contract projections.
+
+    ``contract_state``, ``applies_policies``, formal references, the glossary
+    linkage and the exported term ids were hardcoded empty after the migration,
+    silently losing the replaced ingester's behaviour. They are not part of the
+    typed FK-13 §13.9.6 model, so they come from the raw frontmatter.
+    """
+    from tools.concept_ingester.discovery import discover
+
+    root = tmp_path / "concept" / "technical-design"
+    root.mkdir(parents=True)
+    (root / "20_contract.md").write_text(_CONTRACT_DOC, encoding="utf-8")
+    result = discover(tmp_path / "concept")
+    chunk = result.chunks[0]
+
+    assert chunk.contract_state == "ratified"
+    assert chunk.applies_policies == ("policy-a", "policy-b")
+    assert chunk.formal_ref_ids == ("formal.state-storage",)
+    assert chunk.has_glossary is True
+    assert chunk.exported_term_ids == ("bounded-window", "sync-receipt")
+    # The glossary terms themselves are still projected (unchanged behaviour).
+    assert {term.term for term in result.glossary_terms} == {"Bounded Window", "Sync Receipt"}
