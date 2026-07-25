@@ -818,6 +818,57 @@ class _RealWeaviateClient:
             deleted += confirmed
         return deleted
 
+    def delete_by_ids_if_property_absent(
+        self, *, collection: str, uuids: Sequence[str], prop: str
+    ) -> int:
+        """Delete the given uuids ONLY where ``prop`` is NOT SET at all (N43).
+
+        The condition is an IS-NULL on the storage side, so it can only ever match rows
+        that carry no value for ``prop``. That is what makes the legacy backfill safe
+        without adopting anything: a row written by ANY generation is stamped, so this
+        condition structurally cannot touch it -- not the caller's own, and not a newer
+        owner's.
+
+        Counters are validated exactly, like every other transport call (AC10/R12): a
+        new call inherits that obligation instead of starting permissive.
+
+        Args:
+            collection: Collection to delete from.
+            uuids: Candidate object ids.
+            prop: Property that must be absent for a row to be deleted.
+
+        Returns:
+            The exact number of objects the store confirms deleted.
+
+        Raises:
+            VectorDbWriteError: On a transport fault, a reported failure or a
+                missing/invalid/impossible count.
+        """
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
+
+        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        ids = [str(uid) for uid in uuids]
+        deleted = 0
+        for start in range(0, len(ids), MAX_CONDITIONAL_DELETE_IDS):
+            batch = ids[start : start + MAX_CONDITIONAL_DELETE_IDS]
+            condition = Filter.all_of(
+                [
+                    Filter.by_id().contains_any(batch),
+                    Filter.by_property(prop).is_none(True),
+                ]
+            )
+            try:
+                result = coll.data.delete_many(where=condition)
+            except Exception as exc:  # noqa: BLE001 -- surface a partial delete
+                raise VectorDbWriteError(
+                    f"unstamped-row delete failed for {len(batch)} object(s) with "
+                    f"{prop} unset: {exc} (R12 partial delete)."
+                ) from exc
+            deleted += _conditional_delete_counts(
+                result, prop=f"{prop} IS NULL", limit=0, requested=len(batch)
+            )
+        return deleted
+
     def ensure_collection(
         self,
         *,
@@ -1181,7 +1232,8 @@ def _conditional_delete_counts(
         VectorDbWriteError: On a missing/invalid counter, a reported failure or a
             count that exceeds the request.
     """
-    context = f"conditional delete of {requested} object(s) with {prop} < {limit}"
+    predicate = prop if prop.endswith("IS NULL") else f"{prop} < {limit}"
+    context = f"conditional delete of {requested} object(s) with {predicate}"
     failed = _exact_count(
         getattr(result, "failed", _MISSING_COUNT), field_name="failed", context=context
     )

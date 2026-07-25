@@ -133,6 +133,10 @@ class CorpusClientPort(Protocol):
         self, *, collection: str, uuids: Sequence[str], prop: str, limit: int
     ) -> int: ...
 
+    def delete_by_ids_if_property_absent(
+        self, *, collection: str, uuids: Sequence[str], prop: str
+    ) -> int: ...
+
     def ensure_collection(
         self,
         *,
@@ -269,6 +273,29 @@ class WeaviateCorpusStore:
             uuids=tuple(uuids),
             prop=OWNING_GENERATION_PROPERTY,
             limit=owning_generation,
+        )
+
+    def delete_objects_without_generation(self, *, uuids: Sequence[str]) -> int:
+        """Delete objects that carry NO writing generation at all (N43).
+
+        The condition is an IS-NULL evaluated by the store, so it can only ever match
+        rows written before the ownership-ordering property existed. A row written by
+        ANY generation is stamped, so this can never touch the caller's own data and
+        never a newer owner's -- which is what makes the legacy backfill safe without
+        adopting foreign content into a generation.
+
+        Args:
+            uuids: Candidate object ids (already scoped to one claimed source).
+
+        Returns:
+            The exact number of objects the store confirms deleted.
+        """
+        if not uuids:
+            return 0
+        return self.client.delete_by_ids_if_property_absent(
+            collection=self.collection,
+            uuids=tuple(uuids),
+            prop=OWNING_GENERATION_PROPERTY,
         )
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:

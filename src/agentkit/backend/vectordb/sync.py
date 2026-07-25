@@ -284,7 +284,15 @@ def parse_utc_timestamp(value: str) -> datetime:
 
 @dataclass(frozen=True)
 class SyncResult:
-    """Outcome of one sync call (complete result/error envelope)."""
+    """Outcome of one sync call (complete result/error envelope).
+
+    Attributes:
+        backfilled: Legacy rows of this source that carried NO writing generation and
+            were removed so the corpus could converge (N43). Recorded rather than
+            silent -- a run that had to repair pre-existing rows should be visible in
+            its own result. It is deliberately NOT part of the MCP tool envelope: the
+            FK-13 §13.4.1 return fields are a fixed contract.
+    """
 
     project_id: str
     source_file: str
@@ -294,6 +302,7 @@ class SyncResult:
     corpus_revision: str
     receipt_digest: str
     error: str = ""
+    backfilled: int = 0
 
 
 @runtime_checkable
@@ -335,6 +344,14 @@ class CorpusStorePort(Protocol):
         delete -- a preceding application check can always be overtaken. Returns the
         EXACT count confirmed deleted (R12); a lower count means at least one object
         belongs to a generation that is NOT older than the caller's."""
+        ...
+
+    def delete_objects_without_generation(self, *, uuids: Sequence[str]) -> int:
+        """Delete objects that carry NO writing generation at all (N43).
+
+        The IS-NULL condition MUST be evaluated by the store, so it can only ever
+        match rows predating the ownership-ordering property. Returns the EXACT count
+        confirmed deleted (R12)."""
         ...
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
@@ -628,9 +645,7 @@ class SyncService:
             # claim release is CONFIRMED afterwards (N45).
             deleted = self._with_release(
                 claim,
-                functools.partial(
-                    self._delete_older_generations, rows, claim=claim
-                ),
+                functools.partial(self._delete_vanished_generation, rows, claim=claim),
             )
             results.append(
                 SyncResult(
@@ -644,6 +659,155 @@ class SyncService:
                 )
             )
         return results
+
+    def _delete_vanished_generation(
+        self, rows: Sequence[Mapping[str, object]], *, claim: SourceClaim
+    ) -> int:
+        """Remove EVERY row of a vanished source, stamped or not (N37 + N43).
+
+        A vanished source has no should-set, so all of its rows must go. Stamped rows
+        are removed under the generation ordering; rows predating the property are
+        removed under the IS-NULL condition, so a legacy source converges instead of
+        blocking every retry.
+
+        Args:
+            rows: The vanished source's rows, as read.
+            claim: The HELD claim of that source.
+
+        Returns:
+            The total number of rows removed.
+        """
+        legacy = [
+            str(row["uuid"])
+            for row in rows
+            if row.get(OWNING_GENERATION_PROPERTY) is None
+        ]
+        stamped = [
+            row for row in rows if row.get(OWNING_GENERATION_PROPERTY) is not None
+        ]
+        removed = 0
+        if legacy:
+            confirmed = self.store.delete_objects_without_generation(uuids=legacy)
+            if confirmed != len(legacy):
+                raise SyncError(
+                    f"legacy backfill for vanished source {claim.source_file!r} "
+                    f"removed {confirmed} of {len(legacy)} unstamped row(s); the "
+                    "corpus did not converge (fail-closed, N43)."
+                )
+            removed += confirmed
+        return removed + self._delete_older_generations(stamped, claim=claim)
+
+    def _backfill_unstamped(
+        self, *, claim: SourceClaim, should_uuids: frozenset[str] | set[str]
+    ) -> int:
+        """Make a source's PRE-EXISTING unstamped rows converge (N43).
+
+        Rows written before the ownership-ordering property existed carry no
+        generation, so they cannot be ordered against a claim: the destructive delete
+        refuses them fail-closed, and without this step a reindex would fail
+        identically on every retry -- writing current rows, then dying on one legacy
+        row, never publishing freshness and never removing it.
+
+        The recovery is EXPLICIT, CLAIM-OWNED and fail-closed, and it never adopts
+        foreign content into a generation:
+
+        - rows that are part of THIS generation's should-set need nothing: the upsert
+          overwrites them and thereby stamps them;
+        - the remaining unstamped rows of this source are DELETED under an IS-NULL
+          storage condition, which structurally cannot match any stamped row -- not
+          this writer's and not a newer owner's. Their content is not lost: it is
+          either re-written by this generation or genuinely gone from the source;
+        - a row whose generation is PRESENT but unusable (non-integer, zero, negative)
+          is a named error, never a guess. It is neither orderable nor covered by the
+          IS-NULL condition, so adopting or deleting it would be an assumption.
+
+        Args:
+            claim: The HELD claim of the source being converged (the authority for
+                touching it at all).
+            should_uuids: The uuids this generation is about to write.
+
+        Returns:
+            The number of legacy rows removed (recorded in :class:`SyncResult`).
+
+        Raises:
+            SyncError: For a row with a present-but-unusable generation, or when the
+                store confirms fewer deletes than were requested.
+        """
+        rows = self.store.list_objects_for_source(
+            project_id=claim.project_id, source_file=claim.source_file
+        )
+        legacy: list[str] = []
+        for row in rows:
+            raw = row.get(OWNING_GENERATION_PROPERTY)
+            if raw is None:
+                if str(row["uuid"]) not in should_uuids:
+                    legacy.append(str(row["uuid"]))
+                continue
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+                raise SyncError(
+                    f"object {row.get('uuid')!r} of {claim.source_file!r} carries an "
+                    f"unusable writing generation ({raw!r}): it is neither orderable "
+                    "nor an unstamped legacy row, so it is never adopted or deleted "
+                    "on a guess (fail-closed, N43)."
+                )
+        if not legacy:
+            return 0
+        removed = self.store.delete_objects_without_generation(uuids=legacy)
+        if removed != len(legacy):
+            raise SyncError(
+                f"legacy backfill for {claim.source_file!r} removed {removed} of "
+                f"{len(legacy)} unstamped row(s); the corpus did not converge, so the "
+                "run must not report success (fail-closed, N43)."
+            )
+        return removed
+
+    def _sweep_older_generations(
+        self, *, claim: SourceClaim, should_uuids: frozenset[str] | set[str]
+    ) -> int:
+        """Remove older-generation rows that appeared AFTER the main delete (N41).
+
+        Runs once, after this generation's completion is published, under the same
+        held claim and with the same storage-side predicate
+        (``owning_generation < mine``). It exists because the pre-write fence and the
+        upsert are separate operations: a superseded writer can append objects of its
+        own, LOWER generation after this writer's delete has already run, and with
+        changed content those objects carry different uuids, so nothing else in this
+        window touches them.
+
+        Rows at a generation >= this claim's are deliberately NOT candidates: a higher
+        generation means a newer owner took over after this completion, and its data is
+        not this writer's to remove. Its own completion supersedes this one.
+
+        Args:
+            claim: The HELD claim whose generation bounds the sweep.
+            should_uuids: The uuids this generation wrote.
+
+        Returns:
+            The number of stale rows removed.
+
+        Raises:
+            SyncError: For a row whose generation cannot be read at all.
+            ClaimSupersededError: When the conditional delete confirms fewer rows than
+                it identified -- a newer generation re-stamped one of them while the
+                sweep ran, so this window is no longer authoritative.
+        """
+        rows = self.store.list_objects_for_source(
+            project_id=claim.project_id, source_file=claim.source_file
+        )
+        stale: list[Mapping[str, object]] = []
+        for row in rows:
+            if str(row["uuid"]) in should_uuids:
+                continue
+            raw = row.get(OWNING_GENERATION_PROPERTY)
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+                raise SyncError(
+                    f"object {row.get('uuid')!r} of {claim.source_file!r} carries no "
+                    f"readable writing generation ({raw!r}) after the completion; "
+                    "fail-closed (N41)."
+                )
+            if raw < claim.generation:
+                stale.append(row)
+        return self._delete_older_generations(stale, claim=claim)
 
     def _delete_older_generations(
         self,
@@ -726,10 +890,17 @@ class SyncService:
         # ``uuid5(project|source|chunk)`` and the content is the same -- so a late
         # writer re-writes an identical object rather than destroying anything.
         self.store.assert_claim_held(claim=claim)
-        # Write the new should-generation fully + verify EXACT transport count. Every
-        # object version carries the ownership token of THIS claim generation (D9),
-        # which is what makes the delete below storage-conditional.
         should_uuids = {obj.uuid for obj in objects}
+        # (1a) BACKFILL first (N43): rows predating the ownership-ordering property
+        # cannot be ordered against anything, so without this the delete below would
+        # refuse them and EVERY retry would fail identically -- a corpus that can
+        # never converge. Rows that are part of THIS generation are simply overwritten
+        # (and thereby stamped) by the upsert; the rest are removed under an IS-NULL
+        # condition, which can never touch a stamped row.
+        backfilled = self._backfill_unstamped(claim=claim, should_uuids=should_uuids)
+        # Write the new should-generation fully + verify EXACT transport count. Every
+        # object version carries the generation of THIS claim (N37), which is what
+        # makes the deletes below storage-conditional.
         written = self.store.upsert_objects(
             objects=objects, owning_generation=claim.generation
         )
@@ -778,14 +949,27 @@ class SyncService:
             )
         )
         sealed.verify()
+        # (5) POST-COMPLETION SWEEP (N41, shape 3). The pre-write fence and the upsert
+        # are separate operations, so a writer that was superseded between them can
+        # still have appended objects of its OWN, lower generation -- and with CHANGED
+        # content those carry DIFFERENT uuids, so they are not overwritten by this
+        # generation and they survived the delete above (they landed after it). They
+        # were always removable -- the next sync's ``persisted - should`` catches them,
+        # because their generation is strictly lower than every later claim's -- but
+        # "eventually" is not good enough while retrieval can serve two contradictory
+        # versions of the same section. One more storage-conditional pass, run AFTER
+        # the completion, closes that interval at the completion instead of at the next
+        # sync. Same predicate, same fail-closed semantics, no application-side check.
+        swept = self._sweep_older_generations(claim=claim, should_uuids=should_uuids)
         return SyncResult(
             project_id=project_id,
             source_file=source_file,
             source_type=source_type,
             written=written,
-            deleted=deleted,
+            deleted=deleted + swept,
             corpus_revision=corpus_revision,
             receipt_digest=sealed.digest,
+            backfilled=backfilled,
         )
 
 
