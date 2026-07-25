@@ -2,7 +2,8 @@ story_id: AG3-172
 story_title_short: "postgres-schema-xdist-race"
 title: "Bug: nicht-deterministische Pflichtsuite — Postgres-Schema-/Katalog-Race unter xdist (could not open relation with OID) in _verify_evidence_command_kind_present"
 type: implementation
-status: in_progress
+status: completed
+completed_at: "2026-07-25T20:45:00Z"
 phase: setup
 created: "2026-07-21"
 size: M
