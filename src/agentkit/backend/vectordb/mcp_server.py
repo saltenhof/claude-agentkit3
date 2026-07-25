@@ -103,6 +103,11 @@ class McpToolService:
     sync: SyncService
     concepts_dir: Path
     stories_dir: Path
+    #: Authority scope the ranking rules 1/2 evaluate against (N23). FK-13 §13.9.5
+    #: defines NO scope parameter for ``concept_search``, so this stays empty in
+    #: production until such an input is ratified; it is a field (not a derived
+    #: value) so the split from ``module`` is explicit and testable.
+    query_authority_scope: str = ""
 
     # ------------------------------------------------------------------ #
     # story_search
@@ -194,17 +199,21 @@ class McpToolService:
             limit=int(validated["limit"]),
             filters=filters,
         )
-        # Authority ranking in the app layer (FK-13 §13.9.11) against the query
-        # scope/module and the interface/test DETAIL carried by the query text
-        # (R10: rule 3 is reachable from production, not hard-wired to "").
+        # Authority ranking in the app layer (FK-13 §13.9.11).
+        #
+        # ``module`` is the FK-13 §13.9.5 module filter and is passed ONLY as the
+        # query module (rule 5). It is NOT reused as the authority scope: FK-13
+        # models ``module`` and ``authority_over`` scopes separately, and §13.9.5
+        # defines no scope parameter for ``concept_search`` (N23). The scope input
+        # therefore stays EXPLICIT and unpopulated until a scope parameter is
+        # ratified -- rules 1/2 are inert rather than wrong.
         discovery = discover_concept_files(self.concepts_dir)
         graph = build_graph(discovery)
-        module = str(filters.get("module", ""))
         ranked = rank_hits(
             graph,
             hits,
-            query_scope=module,
-            query_module=module,
+            query_authority_scope=self.query_authority_scope,
+            query_module=str(filters.get("module", "")),
             query_detail=derive_query_detail(str(validated["query"])),
         )
         return {

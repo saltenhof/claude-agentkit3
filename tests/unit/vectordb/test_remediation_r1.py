@@ -24,6 +24,7 @@ from agentkit.backend.vectordb.concept_corpus.graph import build_graph
 from agentkit.backend.vectordb.concept_corpus.resolver import (
     APPENDIX_DETAIL_BOOST,
     MODULE_MATCH_BOOST,
+    TIER_DIRECT_AUTHORITY,
     derive_query_detail,
     rank_hits,
 )
@@ -309,23 +310,78 @@ def _graph(tmp_path: Path) -> ConceptGraph:
 def test_r10_rule1_authority_over_for_query_scope_outranks(tmp_path: Path) -> None:
     graph = _graph(tmp_path)
     hits = [{"concept_id": "FK-14", "score": 0.9}, {"concept_id": "FK-13", "score": 0.5}]
-    ranked = rank_hits(graph, hits, query_scope="vectordb")
+    ranked = rank_hits(graph, hits, query_authority_scope="vectordb")
     assert ranked[0].concept_id == "FK-13"  # owns the queried scope despite lower base
     assert "authority_over-direct" in ranked[0].reasons
+    # N23: the precedence is a TIER -- no similarity score can reverse it.
+    assert ranked[0].tier == TIER_DIRECT_AUTHORITY
+    assert ranked[0].tier < ranked[1].tier
     # Counterexample: for an UNRELATED scope the base score decides again.
-    other = rank_hits(graph, hits, query_scope="unrelated")
+    other = rank_hits(graph, hits, query_authority_scope="unrelated")
     assert other[0].concept_id == "FK-14"
 
 
 def test_r10_rule2_scoped_authority_target_boosted(tmp_path: Path) -> None:
-    graph = _graph(tmp_path)
-    hits = [{"concept_id": "FK-13", "score": 0.5}, {"concept_id": "FK-14", "score": 0.5}]
-    ranked = rank_hits(graph, hits, query_scope="vectordb")
-    fk13 = next(r for r in ranked if r.concept_id == "FK-13")
-    fk14 = next(r for r in ranked if r.concept_id == "FK-14")
-    assert "scoped-authority-target" in fk13.reasons
-    assert "scoped-authority-target" not in fk14.reasons
-    assert fk13.authority_score > fk14.authority_score
+    """Rule 2 in ISOLATION: the deferral TARGET (which owns no scope itself) beats
+    the deferring source. Rule 1 must not be able to explain the outcome, so the
+    target deliberately declares NO authority_over."""
+    root = tmp_path / "concept" / "technical-design"
+    root.mkdir(parents=True)
+    (root / "15.md").write_text(
+        dedent(
+            """            ---
+            concept_id: FK-15
+            title: Target
+            module: other
+            status: active
+            doc_kind: core
+            ---
+
+            # Target
+
+            ## P
+
+            p.
+            """
+        ),
+        encoding="utf-8",
+    )
+    (root / "16.md").write_text(
+        dedent(
+            """            ---
+            concept_id: FK-16
+            title: Deferrer
+            module: other
+            status: active
+            doc_kind: core
+            defers_to:
+              - target: FK-15
+                scope: vectordb
+            ---
+
+            # Deferrer
+
+            ## P
+
+            p.
+            """
+        ),
+        encoding="utf-8",
+    )
+    graph = build_graph(discover_concept_files(tmp_path / "concept"))
+    hits = [{"concept_id": "FK-15", "score": 0.5}, {"concept_id": "FK-16", "score": 0.9}]
+    ranked = rank_hits(graph, hits, query_authority_scope="vectordb")
+    target = next(r for r in ranked if r.concept_id == "FK-15")
+    deferrer = next(r for r in ranked if r.concept_id == "FK-16")
+    assert "scoped-authority-target" in target.reasons
+    assert "scoped-authority-target" not in deferrer.reasons
+    # A TIER decides, so the deferrer's higher similarity score cannot reverse it.
+    assert target.tier < deferrer.tier
+    assert ranked[0].concept_id == "FK-15"
+    # Counterexample: for a DIFFERENT scope there is no scoped deferral at all.
+    other = rank_hits(graph, hits, query_authority_scope="unrelated")
+    assert all("scoped-authority-target" not in r.reasons for r in other)
+    assert other[0].concept_id == "FK-16"
 
 
 def test_r10_rule3_appendix_boost_only_for_detail(tmp_path: Path) -> None:
@@ -354,16 +410,17 @@ def test_r10_rule3_appendix_boost_only_for_detail(tmp_path: Path) -> None:
     graph = build_graph(discover_concept_files(tmp_path / "concept"))
     hits = [{"concept_id": "FK-13", "score": 0.5}, {"concept_id": "FK-13-A", "score": 0.5}]
 
+    normalised = 0.5 / 1.5  # score/(1+score), N23
     ranked_empty = rank_hits(graph, hits)
     empty_app = next(r for r in ranked_empty if r.concept_id == "FK-13-A")
     assert "appendix-interface" not in empty_app.reasons
-    assert empty_app.authority_score == pytest.approx(0.5)
+    assert empty_app.authority_score == pytest.approx(normalised)
 
     ranked_detail = rank_hits(graph, hits, query_detail="interface")
     detail_app = next(r for r in ranked_detail if r.concept_id == "FK-13-A")
     assert "appendix-interface" in detail_app.reasons
     # The boost is real, and it lifts the appendix ABOVE the core doc.
-    assert detail_app.authority_score == pytest.approx(0.5 + APPENDIX_DETAIL_BOOST)
+    assert detail_app.authority_score == pytest.approx(normalised + APPENDIX_DETAIL_BOOST)
     assert ranked_detail[0].concept_id == "FK-13-A"
 
 
@@ -420,10 +477,11 @@ def test_r10_rule5_module_match_boost_exists_and_is_guarded(tmp_path: Path) -> N
     graph = _graph(tmp_path)  # FK-13 owns 'vectordb' in module 'vectordb'
     hits = [{"concept_id": "FK-14", "score": 0.5}]
 
-    boosted = rank_hits(graph, hits, query_scope="unowned-scope", query_module="other")[0]
+    normalised = 0.5 / 1.5  # score/(1+score), N23
+    boosted = rank_hits(graph, hits, query_authority_scope="unowned-scope", query_module="other")[0]
     assert "module-match" in boosted.reasons
-    assert boosted.authority_score == pytest.approx(0.5 + MODULE_MATCH_BOOST)
+    assert boosted.authority_score == pytest.approx(normalised + MODULE_MATCH_BOOST)
 
-    guarded = rank_hits(graph, hits, query_scope="vectordb", query_module="other")[0]
+    guarded = rank_hits(graph, hits, query_authority_scope="vectordb", query_module="other")[0]
     assert "module-match" not in guarded.reasons
-    assert guarded.authority_score == pytest.approx(0.5)
+    assert guarded.authority_score == pytest.approx(normalised)
