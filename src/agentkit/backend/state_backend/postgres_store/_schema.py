@@ -599,6 +599,19 @@ def _ensure_reporting_indexes(conn: _CompatConnection) -> None:
 def _ensure_story_identity_constraints(conn: _CompatConnection) -> None:
     """Apply idempotent story-identity constraints.
 
+    The existence guard is scoped to ``current_schema()`` (join ``pg_constraint``
+    -> ``pg_class`` -> ``pg_namespace``), exactly like
+    :func:`_ensure_failure_corpus_constraints`. ``pg_constraint`` is a
+    PER-DATABASE catalog and constraint names are only unique per table, so an
+    unscoped ``conname`` probe reads FOREIGN schemas: in a database that already
+    carries another versioned or test schema with the same-named FK, the guard
+    would report "present" and the freshly bootstrapped schema would silently
+    keep ``story_contexts.project_key`` UNREFERENCED. That is a fail-open
+    integrity hole in production (several ``ak3_v*`` schemas in one database) and
+    a source of non-determinism under xdist: whichever worker schema is
+    bootstrapped FIRST gets the FK, every later worker schema does not, so the
+    schema shape depends on execution order (AG3-172 AC5).
+
     Rollback plan: drop ``story_contexts_project_key_fkey``,
     ``story_contexts_story_uuid_idx``,
     ``story_contexts_project_story_number_idx`` and
@@ -612,8 +625,11 @@ def _ensure_story_identity_constraints(conn: _CompatConnection) -> None:
         BEGIN
             IF NOT EXISTS (
                 SELECT 1
-                FROM pg_constraint
-                WHERE conname = 'story_contexts_project_key_fkey'
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE c.conname = 'story_contexts_project_key_fkey'
+                  AND n.nspname = current_schema()
             ) THEN
                 ALTER TABLE story_contexts
                 ADD CONSTRAINT story_contexts_project_key_fkey
