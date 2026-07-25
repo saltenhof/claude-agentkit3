@@ -108,6 +108,15 @@ Tokenisierung ist unzulaessig.
 | `section_heading` | TEXT | Ja | Abschnitts-Überschrift |
 | `content_hash` | TEXT | Nein | SHA-256 für Change-Detection |
 | `project_id` | TEXT | Nein | Projekt-Identifikator (Multi-Projekt) |
+| `owning_generation` | INT | Nein | Quell-Generation, die diese Objektversion geschrieben hat (§13.9.9, D9); Ordnungsbedingung des zerstoerenden Deletes |
+
+**`owning_generation` ist kein zweiter Besitz-Wahrheitstraeger.** Autoritativ
+bleibt der Claim-Datensatz (§13.9.9): er entscheidet, **wer** eine Quelle haelt.
+Das Feld traegt nur die **Ordnung** — die Generation, unter der die Objektversion
+geschrieben wurde — und bindet den zerstoerenden Loeschschritt storage-seitig an
+„nachweislich aeltere Generation". Es ist numerisch (die Bedingung ist ein
+Vergleich, keine Gleichheit), geht nicht in die Einbettung ein und ist nicht Teil
+der Rueckgabefelder der Werkzeuge (§13.4.1/§13.9.5).
 
 ### 13.3.2 Datenquellen
 
@@ -411,8 +420,9 @@ Chunking-Strategie für Konzeptdokumente ist identisch mit §13.3.3
 | `project_id` | String | Nein | Projektfilter |
 | `concept_id` | String | Nein | Filter auf spezifisches Konzept |
 | `module` | String | Nein | Modulfilter |
+| `authority_scope` | String | Nein | `authority_over`-Scope, zu dem Zustaendigkeit gefragt wird; Ranking-Eingang der Regeln 1/2 (§13.9.11), kein Filter |
 | `is_appendix` | Boolean | Nein | Nur Appendices / nur Core / beides |
-| `concept_status` | String | Nein | `active` (Default), `draft`, `archived` |
+| `concept_status` | Liste[String] | Nein | Statusmenge der Ergebnisse; Default `["active"]`; zulaessig `active`, `draft`, `archived` |
 | `limit` | Integer | Nein | Max Ergebnisse (Default: 10) |
 
 **Rückgabe:** `concept_id`, `title`, `module`, `section_heading`,
@@ -420,8 +430,26 @@ Chunking-Strategie für Konzeptdokumente ist identisch mit §13.3.3
 `authority_over`, `normative_rules`, `concept_status`, `score`,
 `snippet`.
 
-**Default-Filter:** `concept_status=active`. Draft und archived
+**Default-Filter:** `concept_status=["active"]`. Draft und archived
 müssen explizit angefragt werden.
+
+**Gemischte Statusmengen (D8).** `concept_status` ist eine **Liste**;
+mehrere Status duerfen gleichzeitig angefragt werden („zeig mir alles zu
+Thema X, Gueltiges zuerst"). Der Filter wird als echte Mengen-Bedingung
+im Transport ausgewertet, nicht clientseitig nachgefiltert. Innerhalb
+einer gemischten Menge ordnet Regel 4 der Authority-Auflösung
+(§13.9.11): Aktive stehen vor Draft und Archived. **Fail-closed, keine
+Koerzierung:** eine leere Liste, ein unbekannter Wert, ein Duplikat, ein
+falscher Elementtyp und ein **blosser String** statt einer Liste sind
+Validierungsfehler; es gibt keine stille Normalisierung.
+
+**`authority_scope` ist Ranking-Eingang, kein Filter.** Der Wert
+schraenkt die Treffermenge nicht ein; er benennt den Scope, gegen den
+die Authority-Auflösung (§13.9.11) rankt. `module` („wo ein Dokument
+liegt") und `authority_scope` („wofuer es zustaendig ist") sind
+verschiedene Eingaenge: `authority_scope` wird **nie** aus `module`
+abgeleitet. Fehlt der Parameter, bleiben die Regeln 1/2 wirkungslos
+und die Regeln 3/4/5 gelten unveraendert.
 
 Intern filtert `concept_search` die `StoryContext`-Collection auf
 `source_type="concept"` und projiziert die konzeptspezifischen
@@ -660,6 +688,99 @@ transaktionalen CAS-Mechanismus und **keinen** Generations-Zeiger; die
 Konsistenzgarantie ist bewusst auf „generationskonsistent mit kurzem
 Umschaltfenster" abgeschwaecht (PO-Entscheidung).
 
+**Quell-Generation (D9/N37).** Jede Quelle `(project_id, source_file)` traegt
+eine **persistente, streng monoton steigende Generation**. **Jede** Akquisition
+des Claims — normale Uebernahme *und* administrativer Reclaim — vergibt per
+konditionalem Create die naechste Nummer, und eine normale Freigabe **erhaelt die
+Leiterposition** (sie setzt nur eine Freigabe-Markierung). Ein uebernehmender
+Besitzer haelt damit zwangslaeufig eine **hoehere** Generation als der Halter, den
+er ueberholt. Ohne diese Persistenz gaebe es keine entscheidbare Ordnungsaussage
+darueber, welche Generation eine Objektversion geschrieben hat.
+
+**Besitzwechsel waehrend eines offenen Fensters (D9).** Der Claim wird nur durch
+einen **ausdruecklichen administrativen Reclaim** uebernommen. Ein solcher Reclaim
+kann zwischen einer Besitzpruefung und der darauf folgenden Mutation liegen; eine
+vorgelagerte Pruefung kann dieses Fenster grundsaetzlich nicht schliessen. Deshalb
+gilt:
+
+- Jede geschriebene Objektversion traegt in `owning_generation` (§13.3.1) die
+  Generation, unter der sie geschrieben wurde.
+- Der **zerstoerende** Schritt (Loeschen alter bzw. verschwundener Chunks) ist
+  **storage-seitig** an „Generation des Objekts **strikt kleiner** als die
+  Generation des loeschenden Claims" gebunden. Die Bedingung vergleicht gegen die
+  **eigene** Generation des Loeschenden, nicht gegen einen gelesenen Wert: eine
+  Gleichheit gegen den beobachteten Wert schliesst nur das Intervall zwischen
+  Lesen und Loeschen und belegt **nicht**, zu welcher Generation der Wert gehoert.
+  Ein ueberholter Halter kann damit — in **beiden** Wettlauf-Reihenfolgen —
+  strukturell nicht loeschen, was eine neuere Generation geschrieben hat. Es gibt
+  an dieser Stelle **keine** vorgelagerte Ersatzpruefung.
+- Die **Completion** ist an dieselbe Generation gebunden: gueltig-massgeblich ist
+  die Completion mit der **hoechsten Generation** der Quelle, nicht die mit der
+  hoechsten Position. Ein ueberholter Schreiber, der nach dem neueren Besitzer
+  publiziert, kann daher weder die gemeldete Frische zuruecknehmen noch die
+  gueltige Completion des neueren Besitzers verdraengen. Insert-only allein
+  genuegte dafuer nicht: es verhindert das Ueberschreiben, nicht das Anhaengen.
+- Der **Chunk-Write** bleibt unbewacht: Pre-Write-Fence und Upsert sind getrennte
+  Operationen, also kann ein ueberholter Halter danach noch Objekte **seiner**
+  (niedrigeren) Generation anhaengen. Die frueher hier notierte Begruendung, das sei
+  idempotent, weil derselbe Inhalt unter derselben UUID lande, ist **falsch**: bei
+  **geaendertem** Inhalt entstehen **andere** UUIDs, die von der neueren Generation
+  nicht ueberschrieben werden - es sind zusaetzliche, eigene Zeilen.
+- Der **erforderliche Abschluss-Delete** liest deshalb unmittelbar **vor** der
+  Completion frisch und laeuft **vor** dem Receipt: die gemeldete Frische rueckt nie
+  vor einem zerstoerenden Schritt vor, der noch nicht stattgefunden hat.
+
+**Offener Restbefund (nicht ratifiziert).** Der Abschluss-Delete entfernt genau die
+Zeilen, die seine **Beobachtungsgrenze** erfasst hat. Diese Grenze ist **nicht** der
+Zeitpunkt des Loeschens, sondern der **paginierte Lesevorgang** davor: Lesen und
+Loeschen sind getrennte Operationen, und eine Paginierung ist **kein Snapshot**. Nicht
+erfasst sind daher
+
+- Zeilen, die **nach** dem Abschluss-Delete eintreffen, und
+- Zeilen, die **waehrend** des paginierten Lesens eintreffen und nicht in dessen
+  Kandidatenmenge gelangen (z. B. weil ihre Seite bereits gelesen war).
+
+Solche Zeilen bleiben liegen, bis dieselbe Quelle das naechste Mal synchronisiert wird
+- und dieser Zeitpunkt ist **nicht zeitlich begrenzt**. Ein einzelner endlicher
+Durchgang kann ein spaeter oder nebenlaeufig eintreffendes Schreiben nicht abdecken; er
+verkleinert das Fenster auf den **Regelfall** und schliesst es nicht. Konkret bleibt
+offen: nach Stillstand, administrativem Reclaim und wiederanlaufendem Zombie-Schreiber
+koennen Zeilen einer niedrigeren Generation neben den aktuellen liegen und vom
+Retrieval mitgeliefert werden, waehrend `corpus_revision` den neueren Stand meldet.
+
+Was **gesichert** ist: ein ueberholter Halter kann Daten einer neueren Generation
+**nie loeschen** (storage-seitige Ordnungsbedingung, in beiden Wettlauf-Reihenfolgen
+belegt) und die gemeldete Frische **nie zurueckdrehen** (Completions sind
+insert-only, positionsgebunden und nach Generation geordnet). Was **nicht** gesichert
+ist: die Abwesenheit zusaetzlicher, veralteter Zeilen zwischen dem Abschluss-Delete
+und dem naechsten Sync. Es wird **keine** transaktionale Atomizitaet und **keine**
+zeitliche Schranke behauptet.
+
+Dieser Restbefund ist ein **offener, nicht ratifizierter Punkt** in der Verantwortung
+einer **Folgestory**; er ist ausdruecklich **kein** akzeptierter Vertrag. Der
+Aufloesungsraum ist auf drei Formen begrenzt: (a) den Stale-Write storage-seitig
+verhindern - an diesem Rand nicht verfuegbar, (b) das Retrieval nicht-autoritative
+Generationen ausschliessen lassen - dafuer sind **zwei** Diskriminatoren kohaerent,
+`corpus_revision` oder ein interner quellenweiser `(source_file, owning_generation)`-
+Autoritaetsfilter; beide koppeln die Abfrage an die Completion-Menge und tragen
+denselben quellenweisen Lookup samt wachsender Filterbreite. Ausgeschlossen ist
+nicht die *interne* Nutzung der Generation, sondern allein ihre Sichtbarkeit auf der
+**Abfrageoberflaeche** (§13.9.5). (c) ein **ratifizierter Vertrag**, der
+eine potenziell unbegrenzte Post-Completion-Inkonsistenz ehrlich modelliert. (c)
+erfordert eine PO-Entscheidung; keine der drei ist in dieser Story getroffen.
+
+**Konvergenz vorbestehender Zeilen.** Zeilen, die vor Einfuehrung von
+`owning_generation` (§13.3.1) geschrieben wurden, tragen keine Generation und sind
+damit gegen keine Generation ordenbar. Ein Sync wuerde sie fail-closed abweisen und
+bei jedem Retry identisch scheitern — der Korpus koennte nie konvergieren. Deshalb
+gilt: der **haltende** Besitzer einer Quelle raeumt deren ungestempelte Zeilen
+explizit auf. Zeilen, die zur neuen Generation gehoeren, werden durch den Upsert
+ohnehin ersetzt (und damit gestempelt); die uebrigen werden unter einer
+**IS-NULL-Bedingung** entfernt, die strukturell keine gestempelte Zeile treffen
+kann. Eine Zeile mit **vorhandener, aber unbrauchbarer** Generation wird **nicht**
+geraten: sie ist ein benannter Fehler. Fremde Inhalte werden dabei nie in eine
+Generation uebernommen.
+
 **Freshness-Indikator:** `corpus_revision` (nicht mtime — Datei-
 system-Timestamps sind bei Git-Operationen unzuverlässig).
 
@@ -667,7 +788,13 @@ system-Timestamps sind bei Git-Operationen unzuverlässig).
 
 `concept_status`-Feld mit Werten `active`, `draft`, `archived`.
 Archivierte Konzepte bleiben im Index (historische Referenzierbar-
-keit). `concept_search` filtert standardmäßig auf `active`.
+keit). `concept_search` filtert standardmäßig auf `["active"]`.
+
+Der Statusfilter ist eine **Menge** (§13.9.5, D8): mehrere Status
+duerfen zusammen angefragt werden, die Ergebnismenge ist dann gemischt,
+und Regel 4 der Authority-Auflösung (§13.9.11) ordnet innerhalb dieser
+Menge. Der Default bleibt ausschliesslich `active` — Draft und Archived
+erscheinen nur, wenn sie explizit angefragt werden.
 
 Pfad `{concepts_dir}/archiv/` → automatisch `concept_status=archived`.
 Ergänzende Frontmatter-Felder: `superseded_by`, `supersedes`.
@@ -683,6 +810,25 @@ Regeln:
 3. Appendix kann für Interface-/Test-Detail höher ranken als Core
 4. Archived/Draft-Konzepte erhalten Abzug
 5. Module-Match boosted nur ohne stärkeren Cross-Module-Authority
+
+**Bezugsgroesse der Regeln 1 und 2:** Beide ranken gegen den
+`authority_scope` aus §13.9.5 — den Scope, zu dem der Aufrufer
+Zustaendigkeit erfragt. Regel 1 greift, wenn ein Dokument diesen Scope
+in `authority_over` fuehrt; Regel 2 greift fuer das **Ziel** eines auf
+diesen Scope qualifizierten `defers_to`. Der Scope ist ein expliziter
+Eingang und wird **nie** aus `module` abgeleitet. Ohne `authority_scope`
+greifen die Regeln 1 und 2 nicht; die Regeln 3, 4 und 5 bleiben
+unveraendert wirksam. Die normative Praezedenz der Regeln 1, 2 und 4 ist
+nicht durch Aehnlichkeitswerte ueberstimmbar; die Regeln 3 und 5 wirken
+nur innerhalb gleicher Praezedenz.
+
+**Wirkungsbereich der Regel 4 (D8):** Der Abzug fuer Draft und Archived
+wirkt innerhalb **gemischter Statusmengen** — also dann, wenn
+`concept_status` (§13.9.5) mehr als einen Status anfragt. Bei der
+Default-Anfrage (`["active"]`) ist die Ergebnismenge statushomogen und
+Regel 4 aendert folgerichtig keine Reihenfolge. Der Abzug ist eine
+Praezedenz-Stufe: kein Aehnlichkeitswert hebt ein Draft- oder
+Archived-Dokument ueber ein aktives.
 
 ### 13.9.12 Ausfallverhalten
 

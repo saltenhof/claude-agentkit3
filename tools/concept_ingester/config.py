@@ -30,12 +30,22 @@ class IngesterConfig:
     @classmethod
     def from_env(cls) -> IngesterConfig:
         repo = _repo_root()
+        host = os.environ.get("AK3_WEAVIATE_HOST")
+        http_port = os.environ.get("AK3_WEAVIATE_HTTP_PORT")
+        grpc_port = os.environ.get("AK3_WEAVIATE_GRPC_PORT")
+        # No localhost default (R06 / D2): the endpoint must come from explicit
+        # configuration. A missing endpoint fails closed at connect time.
+        if not host or not http_port or not grpc_port:
+            raise RuntimeError(
+                "concept_ingester requires AK3_WEAVIATE_HOST, AK3_WEAVIATE_HTTP_PORT "
+                "and AK3_WEAVIATE_GRPC_PORT to be set explicitly (no localhost default)."
+            )
         return cls(
             repo_root=repo,
             concept_root=repo / "concept",
-            weaviate_host=os.environ.get("AK3_WEAVIATE_HOST", "127.0.0.1"),
-            weaviate_http_port=int(os.environ.get("AK3_WEAVIATE_HTTP_PORT", "9903")),
-            weaviate_grpc_port=int(os.environ.get("AK3_WEAVIATE_GRPC_PORT", "50051")),
+            weaviate_host=host,
+            weaviate_http_port=int(http_port),
+            weaviate_grpc_port=int(grpc_port),
             collection_name=os.environ.get("AK3_CONCEPT_COLLECTION", "Ak3ConceptChunk"),
             chunk_max_chars=int(os.environ.get("AK3_CONCEPT_CHUNK_MAX", "12000")),
         )

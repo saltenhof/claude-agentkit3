@@ -77,7 +77,12 @@ def write_doc(
     defers_to: str = "[]",
     content: str = "The system must retain locks.",
 ) -> None:
-    """Write one valid temporary domain concept with a single H2 chunk."""
+    """Write one valid temporary domain concept with a single H2 chunk.
+
+    ``status`` and ``doc_kind`` are MANDATORY frontmatter fields (FK-13 §13.9.6);
+    without them the SSOT discovery core reports E-SCHEMA-002 and the ingester
+    adapter refuses the corpus (no partial corpus, AG3-174 R06).
+    """
     path = concept_root / "domain-design" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -85,6 +90,8 @@ def write_doc(
 concept_id: {doc_id}
 title: {doc_id}
 module: test
+status: active
+doc_kind: core
 authority_over: {authority}
 defers_to: {defers_to}
 ---

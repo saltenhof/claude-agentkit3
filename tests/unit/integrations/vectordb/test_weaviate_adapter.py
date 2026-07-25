@@ -13,9 +13,9 @@ import pytest
 
 from agentkit.integration_clients.vectordb import (
     VectorDbUnavailableError,
-    VectorDbWriteError,
     WeaviateStoryAdapter,
 )
+from agentkit.integration_clients.vectordb.weaviate_adapter import FK13_GRPC_PORT
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -118,17 +118,17 @@ def test_story_search_malformed_hit_fails_closed() -> None:
         adapter.story_search("query", project_id="AG3", limit=20)
 
 
-def test_story_sync_returns_count() -> None:
+def test_n38_the_adapter_offers_no_write_path_of_its_own() -> None:
+    """There is ONE way into StoryContext: the claim-aware sync owner (N38).
+
+    The adapter used to expose ``story_sync``, which upserted directly -- unclaimed,
+    unstamped and without a completion. Objects written that way could not take part
+    in the delete closure at all, so the second door is closed rather than guarded.
+    """
     adapter = WeaviateStoryAdapter(_FakeClient())
-    written = adapter.story_sync(objects=[{"story_id": "AG3-001"}])
-    assert written == 1
-
-
-def test_story_sync_write_failure_blocks_fail_closed() -> None:
-    """NEGATIVE: an indexing write failure raises a typed write error."""
-    adapter = WeaviateStoryAdapter(_FakeClient(raise_on_upsert=True))
-    with pytest.raises(VectorDbWriteError):
-        adapter.story_sync(objects=[{"story_id": "AG3-001"}])
+    assert not hasattr(adapter, "story_sync")
+    # What it does expose is its client, for the sync owner to build a store on.
+    assert adapter.corpus_client is not None
 
 
 def test_close_is_best_effort() -> None:
@@ -149,16 +149,12 @@ def test_close_swallows_errors() -> None:
 
 def test_connect_connection_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     """NEGATIVE: a connect fault (package present) surfaces as unavailable."""
-    import sys
-    import types
-
-    fake_weaviate = types.ModuleType("weaviate")
+    import weaviate
 
     def _boom(**_kwargs: object) -> object:
         raise OSError("connection refused")
 
-    fake_weaviate.connect_to_local = _boom  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "weaviate", fake_weaviate)
+    monkeypatch.setattr(weaviate, "connect_to_custom", _boom)
     with pytest.raises(VectorDbUnavailableError):
         WeaviateStoryAdapter.connect(host="localhost", port=8080)
 
@@ -306,7 +302,7 @@ def test_real_client_search_maps_properties_and_score(
                 _FakeObj(
                     {"story_id": "AG3-001", "title": "T1", "snippet": "s1"}, 0.88
                 ),
-                _FakeObj({"story_id": "AG3-002", "title": "T2"}, None),
+                _FakeObj({"story_id": "AG3-002", "title": "T2", "snippet": "s2"}, 0.42),
             ]
         )
     )
@@ -318,10 +314,22 @@ def test_real_client_search_maps_properties_and_score(
 
     assert [h.story_id for h in hits] == ["AG3-001", "AG3-002"]
     assert hits[0].score == pytest.approx(0.88)
-    assert hits[1].score == pytest.approx(0.0)  # missing score => 0.0
     assert connection.collections.requested == ["StoryContext"]
     assert query.last_kwargs["query"] == "q"
     assert query.last_kwargs["limit"] == 20
+
+
+def test_real_client_missing_score_is_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC10: a missing score is a hard error, NOT a 0.0 repair."""
+    _install_fake_filter(monkeypatch)
+    query = _FakeQuery(
+        _FakeResponse([_FakeObj({"story_id": "AG3-002", "title": "T2"}, None)])
+    )
+    collection = _FakeCollection(query=query, batch=_FakeBatch(_FakeBatchCtx()))
+    connection = _FakeConnection(collection)
+    adapter = WeaviateStoryAdapter(_real_client(connection))  # type: ignore[arg-type]
+    with pytest.raises(VectorDbUnavailableError, match="no numeric 'score'"):
+        adapter.story_search("q", project_id="AG3", limit=20)
 
 
 def test_real_client_upsert_counts_objects() -> None:
@@ -330,9 +338,12 @@ def test_real_client_upsert_counts_objects() -> None:
         query=_FakeQuery(_FakeResponse([])), batch=_FakeBatch(ctx)
     )
     connection = _FakeConnection(collection)
-    adapter = WeaviateStoryAdapter(_real_client(connection))  # type: ignore[arg-type]
+    client = _real_client(connection)
 
-    written = adapter.story_sync(objects=[{"story_id": "A"}, {"story_id": "B"}])
+    written = client.upsert(
+        collection="StoryContext",
+        objects=[{"story_id": "A"}, {"story_id": "B"}],
+    )
 
     assert written == 2
     assert [o["story_id"] for o in ctx.added] == ["A", "B"]
@@ -351,20 +362,28 @@ def test_real_client_is_ready_and_close() -> None:
 
 
 def test_connect_builds_real_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The connect() happy path returns an adapter over a _RealWeaviateClient."""
-    import sys
-    import types
+    """The connect() happy path passes BOTH endpoints into connect_to_custom (R03)."""
+    import inspect
+
+    import weaviate
 
     collection = _FakeCollection(
         query=_FakeQuery(_FakeResponse([])), batch=_FakeBatch(_FakeBatchCtx())
     )
     connection = _FakeConnection(collection)
+    captured: dict[str, object] = {}
+    real_signature = inspect.signature(weaviate.connect_to_custom)
 
-    fake_weaviate = types.ModuleType("weaviate")
-    fake_weaviate.connect_to_local = (  # type: ignore[attr-defined]
-        lambda **_kwargs: connection
-    )
-    monkeypatch.setitem(sys.modules, "weaviate", fake_weaviate)
+    def _connect(**kwargs: object) -> object:
+        real_signature.bind(**kwargs)  # the double is not more permissive
+        captured.update(kwargs)
+        return connection
+
+    monkeypatch.setattr(weaviate, "connect_to_custom", _connect)
 
     adapter = WeaviateStoryAdapter.connect(host="localhost", port=8080)
     assert adapter.is_ready() is True
+    assert captured["http_host"] == "localhost"
+    assert captured["http_port"] == 8080
+    assert captured["grpc_host"] == "localhost"
+    assert captured["grpc_port"] == FK13_GRPC_PORT

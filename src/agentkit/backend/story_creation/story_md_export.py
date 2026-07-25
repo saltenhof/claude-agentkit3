@@ -21,6 +21,13 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import yaml
 
 from agentkit.backend.utils.io import atomic_write_text
+from agentkit.backend.vectordb.ingest.classify import (
+    STORIES_DIR_NAME as _STORIES_DIR_NAME,
+)
+from agentkit.backend.vectordb.ingest.classify import (
+    STORY_DIR_RE as _STORY_DIR_RE,
+)
+from agentkit.backend.vectordb.sync import SyncError
 from agentkit.integration_clients.vectordb import VectorDbError
 
 if TYPE_CHECKING:
@@ -28,6 +35,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.story_context_manager.story_model import Story, StorySpecification
+    from agentkit.backend.vectordb.schema import StoryContextObject
 
 #: Minimum acceptable ``story.md`` size in bytes (FK-21 §21.11.5).
 MIN_STORY_MD_BYTES = 500
@@ -82,15 +90,32 @@ class StoryIndexPort(Protocol):
     blocker, fail-closed).
     """
 
-    def index_story(self, *, story_id: str, objects: Sequence[dict[str, object]]) -> int:
-        """Index the story chunks; return the count written. Raises on failure."""
+    def index_story(
+        self, *, story_id: str, project_id: str, objects: Sequence[StoryContextObject]
+    ) -> int:
+        """Index the story chunks; return the count written. Raises on failure.
+
+        The objects are the TYPED projection (N42). Flattening them to property dicts
+        dropped ``chunk_id``, and the indexer then had to re-derive that identity input
+        -- which produced uuids the production identity validation rejects for every
+        normally projected story. The identity now travels with the object.
+        """
         ...
 
 
 def _render_frontmatter(story: Story, exported_at: str) -> str:
-    """Render the YAML frontmatter block (FK-21 §21.11.3)."""
+    """Render the YAML frontmatter block (FK-21 §21.11.3).
+
+    Carries the REAL story ``title``, ``status`` and ``story_type`` (R04): the
+    exported ``story.md`` is the ingest source for the StoryContext projection, so
+    the frontmatter must hold the actual metadata instead of leaving the ingest to
+    fall back to the story id / an empty status.
+    """
     data = {
         "story_id": story.story_display_id,
+        "title": story.title,
+        "status": story.status.value,
+        "story_type": story.story_type.value,
         "labels": list(story.labels),
         "exported_at": exported_at,
     }
@@ -156,19 +181,122 @@ def _render_body(story: Story, spec: StorySpecification | None) -> str:
     return "\n".join(parts).rstrip("\n") + "\n"
 
 
-def _story_index_objects(story: Story, spec: StorySpecification | None) -> list[dict[str, object]]:
-    """Build the indexing payload chunks (FK-21 §21.11.4)."""
-    return [
-        {
-            "story_id": story.story_display_id,
-            "title": story.title,
-            "problem": spec.need if spec is not None else "",
-            "solution": spec.solution if spec is not None else "",
-            "story_type": story.story_type.value,
-            "module": story.module,
-            "epic": story.epic,
-        }
-    ]
+#: Story corpus root name and the canonical story-directory pattern are owned by
+#: the ingest classifier (ONE definition shared by export, repair and ingest).
+STORIES_DIR_NAME = _STORIES_DIR_NAME
+STORY_DIR_RE = _STORY_DIR_RE
+
+
+def canonical_story_source_file(
+    story_dir: Path, story_id: str, project_root: Path
+) -> str:
+    """Verify and return the PROJECT-RELATIVE corpus path of a story artefact (R04).
+
+    FK-13 §13.3.2/§13.3.1 fix the story corpus layout as
+    ``stories/<story>/story.md``; the indexed ``source_file`` must be that
+    project-relative path, never an absolute filesystem path (the content hash and
+    the deterministic object identity are derived from it). Using the SAME shape
+    the ingest classifier recognises keeps export and ``story_sync`` on ONE corpus
+    identity.
+
+    The path is VERIFIED against the AUTHORITATIVE project root, not fabricated
+    (N21/N31):
+
+    - ``story_dir`` must resolve INSIDE ``project_root`` (no ``..`` escape, no
+      foreign drive, no arbitrary absolute path whose parent merely happens to be
+      called ``stories``);
+    - its project-relative path must be exactly ``stories/<directory>``;
+    - the directory must IDENTIFY ``story_id`` (``<STORY-ID>[-slug]``).
+
+    Args:
+        story_dir: The story directory.
+        story_id: Story display-ID the export was requested for.
+        project_root: The authoritative project root the corpus is relative to.
+
+    Returns:
+        e.g. ``stories/AK3-042/story.md``.
+
+    Raises:
+        ValueError: On any containment or identity violation (fail-closed).
+    """
+    from agentkit.backend.vectordb.ingest.classify import (
+        classify_source_file,
+        story_id_from_story_dir_name,
+    )
+
+    resolved = story_dir.resolve()
+    root = project_root.resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"story directory {resolved} resolves OUTSIDE the project root {root}; "
+            "the corpus path must be project-relative (R04/N31, fail-closed)."
+        ) from exc
+    parts = relative.as_posix().split("/")
+    if len(parts) != 2 or parts[0] != STORIES_DIR_NAME:
+        raise ValueError(
+            f"story directory {relative.as_posix()!r} is not contained in the "
+            f"{STORIES_DIR_NAME!r} root of {root}; the canonical corpus layout is "
+            "'<project>/stories/<story>/story.md' (R04/N21/N31, fail-closed)."
+        )
+    directory = parts[1]
+    if story_id_from_story_dir_name(directory) != story_id:
+        raise ValueError(
+            f"story directory {directory!r} does not identify story {story_id!r}; the "
+            f"corpus identity would be '{STORIES_DIR_NAME}/{directory}/"
+            f"{STORY_MD_FILENAME}' and story_sync could never resolve it back to "
+            "this story (R04/N21, fail-closed)."
+        )
+    rel = f"{STORIES_DIR_NAME}/{directory}/{STORY_MD_FILENAME}"
+    if classify_source_file(rel) != "story":
+        raise ValueError(
+            f"{rel!r} is not a canonical story source path "
+            f"(expected '{STORIES_DIR_NAME}/<story>/{STORY_MD_FILENAME}'); "
+            "fail-closed (R04)."
+        )
+    return rel
+
+
+def story_dir_story_id(directory_name: str) -> str | None:
+    """Return the story id a story-directory name identifies (``None`` if none).
+
+    Delegates to the SHARED canonical parser owned by the ingest classifier, so
+    export, repair scan and research ingest agree (N32).
+    """
+    from agentkit.backend.vectordb.ingest.classify import story_id_from_story_dir_name
+
+    return story_id_from_story_dir_name(directory_name)
+
+
+def _story_index_objects(
+    project_id: str,
+    story: Story,
+    story_md_path: Path,
+    source_file: str,
+) -> list[StoryContextObject]:
+    """Build the indexing payload via the typed AG3-174 story-ingest projection (R04).
+
+    Re-chunks the WRITTEN ``story.md`` through the SSOT chunker so every object
+    carries ``content``/``project_id``/``source_type``/``source_file``/
+    ``content_hash``/headings and a deterministic UUID derived from the
+    PROJECT-RELATIVE ``source_file`` (AC3/R04). The export never sends the old
+    minimal ``problem/solution`` shape.
+    """
+    from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
+
+    objects = story_file_to_objects(project_id, story_md_path, source_file=source_file)
+    # Carry the story-level metadata that is not part of the story.md frontmatter
+    # (module/epic) onto each chunk for filtering.
+    for obj in objects:
+        if story.module:
+            obj.properties["module"] = story.module
+        if story.epic:
+            obj.properties["epic"] = story.epic
+    # The TYPED objects are handed on unchanged (N42): ``chunk_id`` is the input the
+    # deterministic uuid was derived from, so flattening them here would force the
+    # indexer to guess it back and produce identities production rejects.
+    return objects
 
 
 def _validate_frontmatter(text: str) -> str | None:
@@ -194,16 +322,26 @@ def export_story_md(
     story_id: str,
     story_dir: Path,
     *,
+    project_id: str,
+    project_root: Path,
     story_attributes: StoryAttributesPort,
     index: StoryIndexPort,
+    source_file: str | None = None,
 ) -> StoryMdExportResult:
     """Deterministically export a story as ``story.md`` (FK-21 §21.11).
 
     Args:
         story_id: Story display-ID (e.g. ``"AK3-042"``).
         story_dir: The story directory; ``story.md`` is written inside it.
+        project_id: Bound multi-tenant discriminator for the indexed objects (R04).
+        project_root: AUTHORITATIVE project root. ``story_dir`` and any supplied
+            ``source_file`` are resolved and validated against it BEFORE anything
+            is rendered or written (N31): a rejected path leaves no file on disk.
         story_attributes: Authoritative story-attribute read surface.
         index: Incremental Weaviate indexing surface (hard blocker on failure).
+        source_file: PROJECT-RELATIVE corpus path of the exported artefact (R04).
+            When given it must EQUAL the verified canonical path -- it is a
+            cross-check, never a bypass.
 
     Returns:
         A :class:`StoryMdExportResult`; on ANY blocker ``success=False`` with a
@@ -211,6 +349,24 @@ def export_story_md(
     """
     target = story_dir / STORY_MD_FILENAME
     target_str = str(target)
+
+    # N31: the corpus path is validated FIRST -- before rendering, before writing.
+    # A non-canonical or non-contained directory must leave NOTHING on disk.
+    try:
+        rel_source = canonical_story_source_file(story_dir, story_id, project_root)
+        if source_file is not None and source_file != rel_source:
+            raise ValueError(
+                f"supplied source_file {source_file!r} diverges from the verified "
+                f"canonical corpus path {rel_source!r}; it is a cross-check, not a "
+                "bypass (R04/N31, fail-closed)."
+            )
+    except ValueError as exc:
+        return StoryMdExportResult(
+            success=False,
+            story_md_path=target_str,
+            file_size_bytes=_safe_size(target),
+            error=f"story corpus path rejected: {exc}",
+        )
 
     detail = story_attributes.get_story_detail(story_id)
     if detail is None:
@@ -263,12 +419,29 @@ def export_story_md(
         )
 
     # Automatic incremental Weaviate indexing -- HARD blocker (FK-21 §21.11.4).
+    # Routed through the typed AG3-174 story-ingest projection (R04): full
+    # StoryContext fields + deterministic UUIDs from the PROJECT-RELATIVE path,
+    # project-bounded.
+    try:
+        objects = _story_index_objects(project_id, story, target, rel_source)
+    except ValueError as exc:
+        return StoryMdExportResult(
+            success=False,
+            story_md_path=target_str,
+            file_size_bytes=size,
+            error=f"story indexing projection rejected the export: {exc}",
+        )
     try:
         index.index_story(
             story_id=story.story_display_id,
-            objects=_story_index_objects(story, spec),
+            project_id=project_id,
+            objects=objects,
         )
-    except VectorDbError as exc:
+    except (VectorDbError, SyncError) as exc:
+        # SyncError too (N42): the index routes through the claim-aware sync
+        # owner, so a rejected claim, an unpublishable generation or a superseded
+        # window arrives as a SyncError -- and it must block the export exactly
+        # like a transport fault instead of escaping unhandled.
         indexing_error = f"Weaviate indexing failed: {exc} (fail-closed: indexing " \
             "failure blocks the export, no catch-up path, FK-21 §21.11.4)"
         return StoryMdExportResult(
@@ -296,9 +469,13 @@ def _safe_size(path: Path) -> int:
 
 __all__ = [
     "MIN_STORY_MD_BYTES",
+    "STORIES_DIR_NAME",
+    "STORY_DIR_RE",
     "STORY_MD_FILENAME",
     "StoryAttributesPort",
     "StoryIndexPort",
     "StoryMdExportResult",
+    "canonical_story_source_file",
     "export_story_md",
+    "story_dir_story_id",
 ]

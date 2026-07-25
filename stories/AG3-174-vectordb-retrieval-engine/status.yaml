@@ -2,10 +2,27 @@ story_id: AG3-174
 story_title_short: "vectordb-retrieval-engine"
 title: "VektorDB-Retrieval-Engine (harnessuebergreifend): Packaging, Projektbindung, generischer Ingest-Kern, StoryContext-Schema, Story-/Research-/Concept-Ingest, concept_validate + Corpus-Build, concept_sync (generationskonsistent, Bounded-Window), Authority-Resolver, MCP-Server mit den fuenf FK-13-Tools"
 type: implementation
-status: ready
+status: completed
+completed_at: "2026-07-25T21:05:00Z"
 phase: setup
 created: "2026-07-21"
 size: L
+# ABNAHME (11 Codex-Review-Runden, review-1..9-codex.md): Codex r11
+# APPROVE-WITH-CARVE-OUT. Alle 67 Findings (R01-R14, N01-N53, P2-1..P2-13)
+# geschlossen. AC1-AC5 und AC7-AC12 erfuellt; AC6 TEILWEISE erfuellt.
+# PO-Ratifizierungen dieser Story: D7 (authority_scope als Tool-Parameter),
+# D8 (gemischte Status-Ergebnismengen), D9 (storage-konditionaler Guard nur
+# fuer den zerstoerenden Schritt) — alle in po-decisions.md.
+# AC6-CARVE-OUT (PO-Mandat 2026-07-25, "eine Runde weiter, dann Schnitt"):
+# Ein endlicher Post-Completion-Sweep kann einen Stale-Write nicht abfangen,
+# der DANACH eintrifft. Was haelt: kein Loeschen der Daten einer neueren
+# Generation, keine Umkehrung gemeldeter Freshness, Receipt-last,
+# Legacy-Konvergenz. Was NICHT haelt: ein nach dem Abschluss-Delete
+# eintreffender Stale-Write bleibt bis zum naechsten Sync dieser Quelle
+# sichtbar — zeitlich NICHT begrenzt. In FK-13 §13.9.9 ehrlich verankert als
+# offener, NICHT ratifizierter Rest; Folgestory-Vorschlag in report.md,
+# Anlage braucht PO-Zustimmung.
+# Landevoraussetzung erfuellt: AG3-172 ist gelandet (Merge 67aacafd).
 # Herkunft: Neuschnitt des VektorDB-Vorhabens nach PO-Vorgabe (Speed,
 # weniger Storys). Ersetzt den alten Schnitt AG3-161..171 (Historie in
 # cut-history/). Konzeptarbeit ist vorab mit dem PO erfolgt und normativ

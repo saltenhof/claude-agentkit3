@@ -1496,11 +1496,11 @@ class _ControllableIndex:
         self.indexed: list[str] = []
 
     def index_story(
-        self, *, story_id: str, objects: object
+        self, *, story_id: str, project_id: str, objects: object
     ) -> int:
         from agentkit.integration_clients.vectordb import VectorDbWriteError
 
-        del objects
+        del objects, project_id
         fail = story_id in self.fail_ids or (
             self.fail_first_non_source and story_id != "AK3-001"
         )
@@ -1508,6 +1508,20 @@ class _ControllableIndex:
             raise VectorDbWriteError(f"injected Weaviate write fault for {story_id}")
         self.indexed.append(story_id)
         return 1
+
+
+def _canonical_story_dir(story_dir: Path, story_id: str) -> Path:
+    """Return the CANONICAL ``<parent>/stories/<story-id>/`` directory (N21).
+
+    The production export verifies that the artefact really lives in a
+    ``stories/`` root and that the directory identifies the story, because the
+    indexed ``source_file`` must be the path ``story_sync`` also discovers. The
+    split harness therefore builds the canonical layout instead of an arbitrary
+    scratch folder.
+    """
+    canonical = story_dir.parent / "stories" / story_id
+    canonical.mkdir(parents=True, exist_ok=True)
+    return canonical
 
 
 class _RealSuccessorExport:
@@ -1521,9 +1535,12 @@ class _RealSuccessorExport:
         self.results: list[StoryMdExportResult] = []
 
     def export(self, *, story_id: str, story_dir: Path) -> object:
+        canonical = _canonical_story_dir(story_dir, story_id)
         result = export_story_md(
             story_id,
-            story_dir,
+            canonical,
+            project_id="ak3",
+            project_root=canonical.parent.parent,
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,
         )
@@ -1558,9 +1575,12 @@ class _RealSupersededIndex:
             source_story_id=story_id,
             successor_ids=superseded_by,
         )
+        canonical = _canonical_story_dir(self._stories_root / story_id, story_id)
         result = export_story_md(
             story_id,
-            self._stories_root / story_id,
+            canonical,
+            project_id="ak3",
+            project_root=canonical.parent.parent,
             story_attributes=self._story_service,  # type: ignore[arg-type]
             index=self._index,
         )

@@ -121,6 +121,11 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     "governance/guard_system/secret_scan.py": "governance-secret-scan (guard git-history scan)",
     "installer/project_structure.py": "installer-bootstrap (git clone at project registration)",
     "installer/bootstrap_checkpoints/cp11_to_12.py": "installer-bootstrap (git config core.hooksPath checkpoint)",
+    # AG3-174 FK-13 Ring 2 commit gate: ``concept validate --staged`` reads staged
+    # concept files (``git diff --cached`` + ``git show :<path>``) on the dev
+    # machine to build the candidate corpus. Dev-local read, NOT a backend
+    # worktree op (the firing pre-commit install is AG3-176, out of scope here).
+    "vectordb/cli.py": "AG3-174 (FK-13 Ring 2 candidate-corpus staged-file read)",
 }
 
 #: The utils.git worktree/tree-hash primitives the AG3-152 closure/merge block

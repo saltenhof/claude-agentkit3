@@ -9,6 +9,11 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.backend.vectordb.project_binding import (
+    ProjectBindingError,
+    resolve_authoritative_project_id,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -117,6 +122,14 @@ def add_story_parsers(
         required=False,
         help="Project root carrying .agentkit/config/project.yaml (Weaviate host/port).",
     )
+    export_story_md_parser.add_argument(
+        "--project-id",
+        required=False,
+        help=(
+            "Cross-check against the AUTHORITATIVE project id (project_prefix / "
+            "PROJECT_ID). A divergent value is rejected (D2)."
+        ),
+    )
     repair_story_md_parser = subparsers.add_parser(
         "repair-story-md",
         help="Scan, validate and re-export defective/missing story.md files (FK-21 §21.11.6)",
@@ -130,6 +143,14 @@ def add_story_parsers(
         "--project-root",
         required=False,
         help="Project root carrying .agentkit/config/project.yaml (Weaviate host/port).",
+    )
+    repair_story_md_parser.add_argument(
+        "--project-id",
+        required=False,
+        help=(
+            "Cross-check against the AUTHORITATIVE project id (project_prefix / "
+            "PROJECT_ID). A divergent value is rejected (D2)."
+        ),
     )
 
 
@@ -454,6 +475,22 @@ def _build_story_attributes() -> StoryAttributesPort:
     return StoryService()
 
 
+def _authoritative_project_id(args: argparse.Namespace) -> str:
+    """Derive the AUTHORITATIVE project id for a story-document command (N06/D2).
+
+    The CLI ``--project-id`` is a cross-check, not a source of truth: the value
+    comes from the project configuration (``project_prefix``) or, when no config
+    is resolvable, from the ``PROJECT_ID`` environment binding. A missing
+    authority and a divergent supplied value are both hard errors -- there is no
+    empty fallback and no arbitrary project override.
+    """
+    return resolve_authoritative_project_id(
+        project_root=getattr(args, "project_root", None),
+        supplied=getattr(args, "project_id", None),
+        env=os.environ,
+    )
+
+
 def _cmd_export_story_md(
     args: argparse.Namespace,
     *,
@@ -467,14 +504,26 @@ def _cmd_export_story_md(
     from agentkit.integration_clients.vectordb import VectorDbError
 
     try:
+        project_id = _authoritative_project_id(args)
+    except ProjectBindingError as exc:
+        print(f"export-story-md failed [ProjectBinding]: {exc}", file=sys.stderr)
+        return 1
+
+    try:
         index = build_weaviate_index(args.project_root)
     except VectorDbError as exc:
         print(f"export-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
         return 1
 
+    story_dir = Path(args.story_dir)
     result = export_story_md(
         args.story_id,
-        Path(args.story_dir),
+        story_dir,
+        project_id=project_id,
+        # N31: the authoritative project root the corpus path is validated against.
+        # ``--project-root`` when given, else the parent of the ``stories/`` root
+        # the story directory lives in.
+        project_root=Path(args.project_root) if args.project_root else story_dir.parent.parent,
         story_attributes=build_story_attributes(),
         index=index,
     )
@@ -505,6 +554,12 @@ def _cmd_repair_story_md(
     from agentkit.integration_clients.vectordb import VectorDbError
 
     try:
+        project_id = _authoritative_project_id(args)
+    except ProjectBindingError as exc:
+        print(f"repair-story-md failed [ProjectBinding]: {exc}", file=sys.stderr)
+        return 1
+
+    try:
         index = build_weaviate_index(args.project_root)
     except VectorDbError as exc:
         print(f"repair-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
@@ -512,6 +567,7 @@ def _cmd_repair_story_md(
 
     report = repair_story_md(
         Path(args.stories_root),
+        project_id=project_id,
         story_attributes=build_story_attributes(),
         index=index,
     )

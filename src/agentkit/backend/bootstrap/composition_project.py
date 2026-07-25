@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -84,6 +85,24 @@ def _default_split_source_state_loader(
     )
 
 
+def resolve_split_export_project_id(project_root: str | None) -> str:
+    """Resolve the AUTHORITATIVE ``project_id`` for the split export paths (N26/D2).
+
+    FK-13 §13.4.3 binds ``PROJECT_ID`` to the project configuration's
+    ``project_prefix``. Passing the ``project_key`` instead (``acme`` vs ``AC``)
+    indexes the split-generated chunks under an id the bound MCP server never
+    queries, so they are invisible to every search. A missing or invalid binding
+    fails closed rather than guessing.
+    """
+    from agentkit.backend.vectordb.project_binding import (
+        resolve_authoritative_project_id,
+    )
+
+    return resolve_authoritative_project_id(
+        project_root=project_root, supplied=None, env=os.environ
+    )
+
+
 def build_story_split_service(
     *,
     project_key: str,
@@ -150,6 +169,11 @@ def build_story_split_service(
         project_key=project_key,
     )
     story_attributes = StoryService()
+    # N26/D2: the indexed ``project_id`` is the AUTHORITATIVE binding
+    # (``project_prefix`` per FK-13 §13.4.3), NOT the project key. Resolved ONCE
+    # here and injected into both export paths.
+    project_id = resolve_split_export_project_id(project_root)
+    corpus_root = Path(project_root) if project_root else stories_root.parent
     host, port = _resolve_host_port(project_root)
     index = WeaviateStoryIndex(WeaviateStoryAdapter.connect(host=host, port=port))
     if source_state_loader is None:
@@ -169,6 +193,8 @@ def build_story_split_service(
             return export_story_md(
                 story_id,
                 story_dir,
+                project_id=project_id,
+                project_root=corpus_root,
                 story_attributes=story_attributes,
                 index=index,
             )
@@ -191,6 +217,8 @@ def build_story_split_service(
             result = export_story_md(
                 story_id,
                 stories_root / story_id,
+                project_id=project_id,
+                project_root=corpus_root,
                 story_attributes=story_attributes,
                 index=index,
             )
