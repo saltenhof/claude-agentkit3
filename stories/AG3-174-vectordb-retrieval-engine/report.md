@@ -1,4 +1,4 @@
-# AG3-174 — Story Report (post Codex review r5 remediation + D7)
+# AG3-174 — Story Report (post Codex review r6 remediation)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
@@ -6,12 +6,21 @@
   job). Q1 is **RATIFIED as D7** and implemented — see "D7 implementation" below.
   Q2 (the `doc_kind` vocabulary vs. AK3's own corpus) is still **PENDING**; per D7
   it does not block this story, because neither the CLI nor the MCP entry point
-  guesses the corpus directory any more.
-- **AC5 (authority ranking): MET.** All five FK-13 §13.9.11 rules are implemented,
-  active and tested. Rules 3/4/5 were already active; rules 1 and 2 became
-  productive with **D7**, which ratified the optional `authority_scope` parameter
-  of §13.9.5 as the scope they rank against. The scope comes from the caller and is
-  never derived from `module`. This resolves the r5 "PENDING RATIFICATION" note.
+  guesses the corpus directory any more. Two further points are with the PO:
+  **N33** (residual check-then-mutate window in the claim fencing) and **N36**
+  (the rule-4 incoherence below).
+- **AC5 (authority ranking): NOT MET — BLOCKED on the N36 ratification.**
+  The earlier claim in this report that AC5 was met is **withdrawn**. Rules 1, 2, 3
+  and 5 are implemented, active and revert-verified; **rule 4 is behaviourally
+  inert**. Every `concept_search` applies exactly ONE `concept_status` filter
+  (default `active`, otherwise `draft` or `archived`), so active and non-active
+  documents can never coexist in a real result set — a "demotion for draft/archived"
+  therefore cannot change any real ordering. That is an incoherence inside FK-13
+  itself (§13.9.10's filter design vs. §13.9.11's rule 4) and needs ratification,
+  not a code guess; it is with the PO. The rule-4 test is kept as-is (not deleted,
+  not weakened), but **its premise is unreachable under the current filter
+  contract**: it only observes a demotion because the recording client returns an
+  active hit for a draft-scoped query, which a real Weaviate filter would exclude.
 
 ## SSOT-adapter decision (recorded per DoD)
 
@@ -239,7 +248,45 @@ CORRECT, so no further parser relaxation was added. The N23 authority-scope spli
 was confirmed right, and no scope source was invented — the ratification that
 followed (D7) supplied one explicitly.
 
-## D7 implementation -- `authority_scope` (closes Q1, makes AC5 attainable)
+## Codex review r6 remediation (3 code fixes; 2 items parked with the PO)
+
+r6 reduced 18 open items to four root causes plus one P2, and passed D7. The three
+items that needed no decision are fixed here; N33 and N36 are with the PO and were
+deliberately NOT touched (see Q3/Q4).
+
+**N34 (= N17/N29) -- the pre-mutation gate now covers the RECEIPT'S INPUTS.**
+`sync_source` validated the objects but not `corpus_revision`, so a run with valid
+objects and `corpus_revision=""` claimed the source, wrote the new generation and
+deleted the old one, and only failed when the sealed receipt was verified at
+publication time — a mutated corpus with no publishable completion. Every
+caller-supplied mandatory completion field (`project_id`, `source_file`,
+`source_type`, `corpus_revision`) is now validated BEFORE the claim, in all three
+sync paths: `sync_source` directly, and `reconcile_sources` / `full_reindex` inside
+`_validate_matrix`, which runs before the vanished-source delete. The mandatory
+field list is one constant shared by the gate and `SyncReceipt.verify`, and both now
+reject whitespace-only values (a strengthening, not a relaxation).
+
+**N35 (= N12/N30) -- named-vector `source_properties` are part of the contract.**
+`configured_vectorizer_model` compared only `model`, so a collection that embeds
+only `title` instead of the SSOT-selected narrative properties passed composition
+as long as pooling and `vectorizeClassName` matched — semantic search would then
+answer from titles alone. The pinned client's `_NamedVectorizerConfig` has exactly
+three behaviour-defining fields (`vectorizer`, `model`, `source_properties`, verified
+by introspection and pinned by a class-shape test); ALL THREE are now compared.
+`FK13_VECTOR_SOURCE_PROPERTIES` is derived from the schema SSOT (the properties
+declared `vectorized`), declared explicitly at creation and compared on read-back.
+Two asymmetries of the installed client are worth recording: the CREATE model
+carries the selection as `_VectorConfigCreate.properties` (the inner
+`_Text2VecTransformersConfig` has no such field), while the READ model exposes it as
+`_NamedVectorizerConfig.source_properties`; and a read-back `None` means
+"server-derived from the per-property `skip_vectorization` flags", which are
+verified property by property in the same call — so `None` is deliberately NOT
+treated as drift, and that decision is pinned by its own test.
+
+**P2-3 -- stale lease wording removed** from `corpus_doubles.corpus_store` and the
+`test_sync` section header; both now describe timestamp-only, no-expiry semantics.
+
+## D7 implementation -- `authority_scope` (closes Q1)
 
 PO decision **D7** (`po-decisions.md`, commit `8fd75656`) ratified an optional
 `authority_scope` parameter for `concept_search` and thereby authorised the ONE
@@ -293,13 +340,75 @@ non-blocking by CI design, and repairing that is Q2, not this story.
 ### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
 
 **Resolved.** The PO ratified the optional `authority_scope` parameter on
-2026-07-25 (D7). Rules 1 and 2 are productive, AC5 is met, and the concept change
-is anchored in FK-13 §13.9.5/§13.9.11 with the accompanying decision record. The
-question below is kept for the record; it is no longer open.
+2026-07-25 (D7). Rules 1 and 2 are productive and the concept change is anchored in
+FK-13 §13.9.5/§13.9.11 with the accompanying decision record. Codex r6 confirmed
+the change as "accurate and bounded" and the implementation as strict. AC5 is
+nonetheless still open — not because of D7, but because of the rule-4 incoherence
+(N36, see the header and Q3). The question below is kept for the record.
 
 *Original question:* should `concept_search` gain a ratified authority-scope
 parameter, or should the scope come from another ratified source (e.g. a module ->
 scope mapping)? — Answered: an explicit parameter; the mapping was rejected.
+
+### Q3 -- the residual check-then-mutate window in the claim fencing (N33) -- WITH THE PO
+
+Every fence is a READ (`assert_claim_held`) followed by a SEPARATE mutation. An
+administrative reclaim landing between the two still lets the superseded holder
+write, delete or publish once. Not touched in this round by instruction; the
+existing fences are unchanged and not weakened. Observations for the decision:
+
+- The Weaviate seam offers no general epoch-conditional mutation. Verified against
+  the installed client: `data.insert` is conditional on the OBJECT ID only (that is
+  the primitive the immutable claim and completion records already exploit), and
+  `data.update(uuid, …)`, `data.replace(uuid, …)` and `data.delete_by_id(uuid)` take
+  no precondition parameter at all.
+- **One genuine option does exist and is worth weighing:** `data.delete_many(where=…)`
+  is FILTER-conditional. If the writing epoch (or owner) were stamped on the chunk
+  objects, the destructive delete — the only irreversible step — could be made
+  conditional at the storage level by filtering on it. That is a schema change (a new
+  `StoryContext` property with its own ownership question) and therefore a decision,
+  not something to slip in; recorded here because it turns "no mechanism exists"
+  into "a mechanism exists for the step that actually hurts".
+- The window is bounded differently per step, which matters for a risk decision:
+  the CHUNK write is idempotent (deterministic uuid5 per chunk, so a stale writer
+  re-writes identical content), the vanished-source DELETE is destructive, and the
+  COMPLETION is insert-only and position-bound (a stale writer can only ever add a
+  new position, never overwrite an established one — N28). The genuinely damaging
+  case is therefore the destructive delete, not the write or the publish.
+- A takeover protocol that provably quiesces the old process cannot be built inside
+  this module: the superseded writer may be a different OS process, so quiescing
+  needs an out-of-band signal (process supervision) that AK3's vectordb layer does
+  not own. Under D3's fail-closed intent, the cheapest honest options are either
+  moving the claim to a store that offers conditional updates, or ratifying the
+  residual single-step window explicitly (in the spirit of the already-ratified
+  bounded-window shadow replace, DR 2026-07-21 Rand 5) and documenting that a
+  reclaim requires the operator to have established that the previous writer is
+  dead — which the `--reclaim` flag already asserts semantically.
+
+### Q4 -- rule 4 vs. the single-`concept_status` filter (N36) -- WITH THE PO
+
+FK-13 §13.9.11 rule 4 demotes archived/draft concepts, but §13.9.5/§13.9.10 give
+`concept_search` exactly ONE `concept_status` value (default `active`), so a real
+result set is status-homogeneous and the demotion can never reorder anything.
+Observations for the decision:
+
+- The two coherent resolutions are (a) a ratified result-set contract in which
+  statuses may coexist — e.g. `concept_status` accepting a LIST, or an explicit
+  "include non-active" flag — after which rule 4 becomes observable and testable on
+  the real filter path; or (b) revising rule 4 (and AC5) to state that status is a
+  FILTER concern, not a ranking concern.
+- Option (a) is the smaller change to the ranking model and would make rule 4 the
+  thing that keeps a `draft` from outranking the `active` document when a caller
+  deliberately asks for both. It is also the only variant under which "all five
+  rules" can honestly be claimed.
+- The code needs no ranking change for (a): `_status_tier_penalty` and its
+  whole-tier demotion already work, and the resolver is fed the real corpus status
+  from the graph, not the transport filter. What (a) needs is the tool contract and
+  the transport filter, i.e. one ratified parameter shape.
+- Recorded honestly: the current rule-4 test passes only because the recording
+  client is free to return an active hit for a draft-scoped query. It stays in place
+  as the pin for the demotion logic, and this report states that its premise is
+  unreachable in production until the ratification.
 
 ### Q2 -- the `doc_kind` vocabulary of §13.9.6 vs. AK3's own corpus (N20) -- STILL PENDING
 
@@ -353,11 +462,10 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
-  after the D7 implementation: **4 failed, 9862 passed, 40 skipped, 521 errors**;
-  total coverage **85.69 %** (gate 85 % reached; 85.87 % before D7 -- the 0.18 pp
-  is run-to-run variance in the Docker-absent suites, no AG3-174 module lost
-  coverage). The same 4 failures as before, i.e. neither r4, r5 nor D7 introduced
-  any.
+  after the r6 remediation: **4 failed, 9879 passed, 40 skipped, 521 errors**;
+  total coverage **85.64 %** (gate 85 % reached; 85.87 % before D7 -- the delta is
+  run-to-run variance in the Docker-absent suites, no AG3-174 module lost coverage).
+  The same 4 failures as before, i.e. neither r4, r5, D7 nor r6 introduced any.
   - The 4 failures are all `tests/unit/concept_toolchain` baseline-digest /
     byte-count drift against the committed blob -- PRE-EXISTING (reproduced at
     `96a21dbb` with this story's files reverted) and named out of scope.
@@ -370,6 +478,12 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for r6 (8 scenarios, all RED): the single-source completion-input
+  gate, the matrix completion-input gate (proving the vanished-source delete stays
+  unreached), the whitespace-strict receipt verification, the source-property
+  comparison, the read-back projection reading the installed field name, the explicit
+  declaration at creation, the SSOT list being derived from the schema instead of
+  hand-written, and the real CLI composition passing the selection through.
 - Revert-check for D7 (7 scenarios, all RED): the scope not being threaded into the
   resolver, the scope being derived from `module` as a fallback, the scope leaking
   into the transport filters, a lenient (coercing) optional validator, the contract
