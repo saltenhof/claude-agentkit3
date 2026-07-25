@@ -1,9 +1,23 @@
-# AG3-174 — Story Report (post Codex review r6 remediation + D7/D8/D9)
+# AG3-174 — Story Report (post Codex review r7 remediation)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
 - **Status:** implemented, NOT landed (landing gated on AG3-172, orchestrator's
-  job). **The code side is complete; Q2 is the only open item.**
+  job). After the r7 remediation **AC3 and AC6 are met**, so all 12 ACs pass. Open
+  items are Q2 (a PO concept question that does not block) and one PO
+  RE-CONFIRMATION: D9's ratified INVARIANT is unchanged, but the delegated mechanism
+  was replaced (see "Codex review r7 remediation"), and Codex asked for the
+  replacement to be confirmed.
+- **AC3 (story/research indexing): MET.** Story export, split and repair no longer
+  index through a second write path. `WeaviateStoryAdapter.story_sync` is removed and
+  every `StoryContext` producer runs through the claim-aware sync owner, so an
+  exported story is claimed, generation-stamped, completed -- and therefore
+  re-syncable and deletable (N38, proven as export -> resync -> vanished delete).
+- **AC6 (bounded window / concurrency): MET.** A superseded holder can no longer
+  delete a newer generation's data in EITHER race order, and a superseded completion
+  can no longer become freshness-authoritative or prune a valid newer one (N37/N39).
+  Both properties are enforced storage-side against the source's persistent monotonic
+  generation, not by a preceding check.
 - **Question ledger.** Every question this story raised is now either ratified and
   implemented, or explicitly out of the story's hands:
 
@@ -17,6 +31,11 @@
   Q2 does not block this story: neither the CLI nor the MCP entry point guesses the
   corpus directory any more, and D7 recorded it as non-blocking. It does keep the
   two LLM-backed nightly concept gates from producing a signal (see Q2 below).
+
+  D9 stays RATIFIED as to its invariant; what needs a PO re-confirmation is the
+  REPLACEMENT MECHANISM (persistent monotonic source generation), because the
+  mechanism first implemented under D9 was wrong. The decision record says so
+  explicitly.
 - **AC5 (authority ranking): MET, and now proven filter-faithfully.** All five
   FK-13 §13.9.11 rules are active. Rules 1/2 became productive with **D7**; rule 4
   became *observable* with **D8**, which ratified `concept_status` as a status SET
@@ -459,6 +478,102 @@ guaranteed is the non-deletability of a newer owner's data, not the indivisibili
 of the window. The bounded-window line of DR 2026-07-21 Rand 5 is continued, not
 overridden.
 
+## Codex review r7 remediation (N37, N38, N39, N40 + P2-4/P2-5)
+
+r7 passed 10 of 12 ACs and confirmed AC5 as met and filter-faithful. The two
+remaining blockers, AC3 and AC6, had ONE root cause, and it is now removed.
+
+### The root cause: there was no persistent generation identity per source
+
+Two mechanisms failed before this one, both for the same underlying reason:
+
+1. The PO's proposal (**"the object's epoch is older than mine"**) could not work
+   because the claim epoch was EPHEMERAL: `release_source` deleted the claim record,
+   so the next normal acquisition restarted at 1. Codex confirmed that finding.
+2. My replacement (**equality against the OBSERVED token**) was not sound either, and
+   the reason is the sharper version of the same point: equality against a value you
+   READ closes only the interval between reading and deleting. It never establishes
+   WHOSE generation that value is. Counter-scenario (the one my tests did not cover):
+   A passes its fence, B reclaims and completes, A resumes, reads B's chunks carrying
+   B's token, groups them under exactly that token and deletes B's data. My tests
+   covered only the opposite order.
+
+So the fix is at the root: **the source generation is now persistent and strictly
+monotonic.**
+
+### The mechanism, and why it holds where the other two did not
+
+- **Ladder.** Every acquisition of a source claim -- normal AND administrative
+  reclaim -- allocates the NEXT generation by conditional create. A normal release no
+  longer deletes the ladder position: it adds an insert-only `released` marker, and
+  housekeeping only prunes strictly BELOW the highest generation, so the ladder can
+  never reset. A source is HELD when its highest generation has a `claimed` record
+  and no `released` marker -- D3's "a held claim rejects, no matter how old" is
+  unchanged. Everything stays in ONE record type: the claim record remains the
+  authority on WHO holds a source; the generation only ORDERS.
+- **Delete.** Every write stamps `owning_generation` (a numeric `StoryContext`
+  property), and both destructive deletes are bound storage-side to
+  `owning_generation < my own generation`. The bound is a number the deleter OWNS, so
+  there is nothing to mislead it about.
+- **Completion.** The receipt carries the publishing generation, the digest binds it,
+  and per-source freshness is selected by the highest GENERATION (pruning follows the
+  same order). Insert-only prevented an overwrite but not a stale APPEND -- which is
+  exactly how a superseded writer could take a later position, become
+  freshness-authoritative and prune the newer owner's valid completion.
+
+**Why both race orders hold.** The condition never references anything the newer
+generation controls:
+
+| order | what happens | why it is safe |
+|---|---|---|
+| newer generation writes AFTER this writer read | its objects carry a HIGHER generation | `< mine` cannot match them |
+| newer generation writes and COMPLETES BEFORE this writer reads (the r7 counter-scenario) | this writer reads objects of the higher generation | `< mine` still cannot match them; the short count fails the run closed |
+| a LATER normal run wrote (no takeover at all) | ladder persisted, so that run is higher | `< mine` cannot match |
+| legitimately deletable old chunks, from SEVERAL earlier generations | all strictly below | one condition removes them all |
+| a previous run ended on a takeover chain (e.g. generation 3) and released | the next claim is 4, not 1 | ordering still decides -- this is what killed proposal 1 |
+
+Both orders are tested, in both destructive paths.
+
+### N38 -- one write path into `StoryContext` (AC3)
+
+`WeaviateStoryAdapter.story_sync()` upserted objects directly, so an automatically
+exported story landed unstamped, took no claim and published no completion; a later
+MCP sync or vanished-delete then read no generation and had to refuse it. The
+adapter's write method is **removed** (not guarded -- removed), and
+`WeaviateStoryIndex` now routes export/split/repair through the claim-aware
+`SyncService`: one claim per source, the generation stamp, the verified generation and
+a published completion. The collection bootstrap is shared with the MCP runtime
+(`ensure_corpus_collections`), so no path can create a collection without the ordering
+property. Tested as the full chain export -> resync -> vanished delete, plus a
+concurrent export being rejected under D3.
+
+### N40 -- the empty matrix no longer skips the gate
+
+`_validate_matrix` validated the completion inputs INSIDE its loop over the incoming
+sources, so an EMPTY matrix reached `_delete_vanished_sources` with a blank
+`corpus_revision` unchecked. The run-wide fields are now validated at function ENTRY,
+outside the loop, and the tests cover reconcile and full-reindex with an empty matrix,
+a blank revision (and a blank project id) and a seeded vanished source.
+
+### P2
+
+P2-4: the claim-release wording is corrected -- every normal sync releases in a
+`finally`, and only a CRASHED writer's claim needs an administrative reclaim.
+P2-5: `COMPLETION_INPUT_FIELDS` is now DERIVED from `RECEIPT_MANDATORY_FIELDS` minus
+the store-sealed fields, so a future mandatory receipt field joins the pre-mutation
+gate automatically.
+
+### The D9 decision record is corrected, not quietly patched
+
+The record now carries a dated addendum naming the superseded mechanism, why it fell
+(both the delete and the completion side), and what replaced it. The two statements
+Codex flagged as substantively wrong -- "newer data cannot be deleted" (of the token
+model) and "a stale completion append is harmless" -- are marked FALSE and corrected.
+D9's ratified content (the invariant, and securing only the destructive step) is
+unchanged; only the delegated mechanism changed. **The replacement model should be
+re-confirmed by the PO**, as Codex asked -- that confirmation is not something this
+story can grant itself.
+
 ## Ratification needed -- NOT decided in this story
 
 ### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
@@ -557,12 +672,11 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m pip install -e ".[dev]"` -- OK
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
-- `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
-  after r6 + D7/D8/D9: **4 failed, 9904 passed, 40 skipped, 521 errors**. The same 4
-  failures as in every earlier round, i.e. none of r4, r5, r6, D7, D8 or D9
-  introduced any.
-- `.venv\Scripts\python -m pytest --cov=agentkit --cov-report=term` -- total
-  coverage **86.53 %** (gate 85 % reached, with margin).
+- `.venv\Scripts\python -m pytest --cov=agentkit --cov-report=term` (project addopts
+  `-n 4 --dist loadfile`) -- after the r7 remediation: **4 failed, 9922 passed,
+  40 skipped, 521 errors**; total coverage **86.71 %**, AG3-174 modules **93.90 %**
+  (gate 85 % reached, with margin). The same 4 failures as in every earlier round,
+  i.e. none of r4, r5, r6, r7, D7, D8 or D9 introduced any.
   - **Correction, stated plainly:** the coverage figures reported in the r5, D7, r6
     and D8 rounds (85.87 / 85.69 / 85.64 / 85.53 %) are NOT trustworthy and are
     withdrawn. The project's `addopts` contain no `--cov`, so a plain `pytest` run
@@ -591,7 +705,21 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
-- Revert-check for D9 (10 scenarios, all RED): the store deleting unconditionally
+- Revert-check for r7 (13 scenarios, all RED): the delete ordering against an
+  OBSERVED value instead of the deleter's own generation (both race orders + the
+  mid-window path), a destructive release resetting the ladder, a released generation
+  wrongly blocking the next writer, the transport sending an equality instead of an
+  ordering, the unorderable-object refusal, the schema property, the export bypassing
+  the sync owner, freshness ordered by position instead of generation, pruning by
+  position, the digest not binding the generation, a completion without a generation
+  being accepted, the run-wide gate, and the derived completion-input gate.
+  - One further scenario was DROPPED rather than reported as a passing revert: making
+    `_highest_generation` ignore `released` markers changes nothing, because the
+    generation's `claimed` record is itself retained -- the ladder is carried by not
+    deleting the claim record, which the "destructive release" scenario already pins.
+    A revert that reverts nothing is not evidence.
+- Revert-check for D9 (10 scenarios, all RED -- the D9 mechanism itself was later
+  superseded by N37; see the r7 section): the store deleting unconditionally
   instead of through the ownership condition, the write not stamping the token, the
   store accepting an unstamped write, the fail-close on an unreadable owner, the
   token collapsing to the epoch alone, grouping collapsing to one observed token
