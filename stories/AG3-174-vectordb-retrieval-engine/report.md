@@ -1,14 +1,22 @@
-# AG3-174 — Story Report (post Codex review r6 remediation + D8)
+# AG3-174 — Story Report (post Codex review r6 remediation + D7/D8/D9)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
 - **Status:** implemented, NOT landed (landing gated on AG3-172, orchestrator's
-  job). Q1 is **RATIFIED as D7** and implemented; the rule-4 incoherence (N36) is
-  **RATIFIED as D8** and implemented — see the two implementation sections below.
-  Q2 (the `doc_kind` vocabulary vs. AK3's own corpus) is still **PENDING**; per D7
-  it does not block this story, because neither the CLI nor the MCP entry point
-  guesses the corpus directory any more. One point remains with the PO: **N33**
-  (the residual check-then-mutate window in the claim fencing, Q3 below).
+  job). **The code side is complete; Q2 is the only open item.**
+- **Question ledger.** Every question this story raised is now either ratified and
+  implemented, or explicitly out of the story's hands:
+
+  | # | Subject | State |
+  |---|---|---|
+  | Q1 (N23) | authority scope for `concept_search` | **RATIFIED as D7**, implemented |
+  | Q4 (N36) | rule 4 vs. the single-status filter | **RATIFIED as D8**, implemented |
+  | Q3 (N33) | residual check-then-mutate window on the destructive step | **RATIFIED as D9**, implemented |
+  | Q2 (N20) | `doc_kind` vocabulary vs. AK3's own corpus | **STILL PENDING** with the PO |
+
+  Q2 does not block this story: neither the CLI nor the MCP entry point guesses the
+  corpus directory any more, and D7 recorded it as non-blocking. It does keep the
+  two LLM-backed nightly concept gates from producing a signal (see Q2 below).
 - **AC5 (authority ranking): MET, and now proven filter-faithfully.** All five
   FK-13 §13.9.11 rules are active. Rules 1/2 became productive with **D7**; rule 4
   became *observable* with **D8**, which ratified `concept_status` as a status SET
@@ -372,6 +380,85 @@ draft that OWNS the queried authority scope still loses to an active document (r
 beats rule 1, whole-tier); the default returns active only and an `["archived"]`
 query returns nothing; and a 7-case strictness matrix covers every rejected shape.
 
+## D9 implementation -- the destructive step is storage-conditional (closes Q3)
+
+PO decision **D9** (`po-decisions.md`, commit `6f190620`) resolved N33. It secured
+only the DESTRUCTIVE step storage-side and had the two harmless windows documented
+honestly; it rejected accepting the whole window (a real data-loss risk on the
+delete) and full fencing of all three steps (needs process supervision this layer
+does not own).
+
+**Binding invariant.** A superseded holder must NEVER delete data the newer owner
+has written — enforced storage-side, not by a preceding check.
+
+**The proposal did not hold as stated; the mechanism is a corrected form of it.**
+The proposal was: stamp the writing ownership epoch on the chunk objects and bind
+the delete to "the object's epoch is OLDER than mine". Checking it first (as
+instructed) showed the ordering predicate is unsound here: **claim epochs are not
+monotonic across runs.** `release_source` discards the claim record, so the next
+`try_claim_source` starts at epoch 1 again; only a takeover chain increments
+(`reclaim_source` = `active.epoch + 1`). Consequences:
+
+- Normal case: the old chunks were written by a previous COMPLETED sync that also
+  held epoch 1, while my fresh claim is epoch 1 -> `1 < 1` is false -> the
+  legitimate delete removes NOTHING and vanished sources are never cleaned up
+  (silent breach of the delete closure, R05).
+- The chain case the coordinator asked about, in reverse: a previous run ended at
+  epoch 3 and released; my fresh claim is epoch 1 and must delete objects stamped 3
+  -> `3 < 1` is false -> again nothing is deleted.
+
+So the ordering is replaced by **equality against the OBSERVED token**
+(compare-and-delete). It needs no monotonicity assumption and still excludes the
+new owner's data, because a superseding owner necessarily writes under a DIFFERENT
+token: while a delete is pending the claim is unreleased, so the only way to take
+it over is `reclaim_source`, which yields a strictly greater epoch.
+
+**And yes, the epoch needs to be paired with the owner.** Epoch values repeat
+across runs, so the epoch alone identifies a generation only via the argument "a
+repeated epoch cannot coexist with a live holder". The token is therefore
+`<epoch>|<owner_id>` (`claim_ownership_token`), which makes the guarantee
+structural instead of argued.
+
+**Data model.** `StoryContext` gains `owning_claim` (FK-13 §13.3.1): TEXT,
+whole-value tokenised, filterable, **never** vectorised and not part of any tool's
+return contract. It is carried through creation AND read-back verification by the
+existing N12/N35 machinery (`weaviate_property_specs()` -> `ensure_collection` ->
+`_verify_existing_collection`), and a contract test pins all of those properties.
+It is explicitly NOT a second ownership truth: the claim record stays authoritative;
+this is the marker ON THE DATA that a storage-side condition can reference.
+
+**Code.** `upsert_objects(objects=..., owning_claim=...)` stamps every write in the
+store and refuses an unstamped one, so an unstamped object version cannot exist.
+`delete_objects_owned_by` groups the candidates by the token they were READ with and
+issues one `delete_many(where=by_id ∈ batch AND owning_claim == observed)` per group
+via the new adapter method — the one storage-side precondition the pinned client
+offers for a destructive operation (verified: `update`/`replace`/`delete_by_id` take
+no precondition at all). A short confirmed count is fail-closed
+(`ClaimSupersededError`). **Both** destructive deletes now run this way: the
+vanished-source delete and the old-generation delete inside the per-source window —
+the invariant is about deletion, not about which function performs it, and leaving
+the second one unguarded would have kept the identical data-loss risk one function
+away. The preceding `assert_claim_held` calls in front of both deletes are **gone**,
+deliberately and with no application-side replacement.
+
+**Edge cases checked.** (a) every legitimately deletable chunk is still caught,
+including chunks written by SEVERAL different previous generations in one delete;
+(b) an object with no readable ownership token is never deleted — fail-closed, and
+sound because the capability has no installed base (recorded under D8), while every
+object AK3 writes is stamped; (c) the takeover chain (epoch 3 deleting what epoch 1
+wrote, and vice versa) works because nothing depends on ordering; (d) the ownership
+token pairs epoch and owner, see above.
+
+**Remaining windows, named as known and harmless (D9 point 4).** FK-13 §13.9.9 now
+states them normatively: the **chunk write** is idempotent (deterministic uuid5,
+identical content, so a late writer rewrites the same object), and the
+**completion** is insert-only and position-bound (N28: a superseded holder can only
+append a new position, never overwrite one, and reported freshness is built only
+from verified completions). No transactional atomicity is claimed anywhere — what is
+guaranteed is the non-deletability of a newer owner's data, not the indivisibility
+of the window. The bounded-window line of DR 2026-07-21 Rand 5 is continued, not
+overridden.
+
 ## Ratification needed -- NOT decided in this story
 
 ### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
@@ -387,40 +474,26 @@ nonetheless still open — not because of D7, but because of the rule-4 incohere
 parameter, or should the scope come from another ratified source (e.g. a module ->
 scope mapping)? — Answered: an explicit parameter; the mapping was rejected.
 
-### Q3 -- the residual check-then-mutate window in the claim fencing (N33) -- WITH THE PO
+### Q3 -- the residual check-then-mutate window (N33) -- RATIFIED as D9
 
-Every fence is a READ (`assert_claim_held`) followed by a SEPARATE mutation. An
-administrative reclaim landing between the two still lets the superseded holder
-write, delete or publish once. Not touched in this round by instruction; the
-existing fences are unchanged and not weakened. Observations for the decision:
+**Resolved.** The PO ratified D9 on 2026-07-25: secure only the DESTRUCTIVE step
+storage-side and document the two harmless windows honestly. Implemented as
+described under "D9 implementation", including the correction that the proposed
+"epoch older than mine" predicate does not hold (claim epochs are not monotonic
+across runs) and is replaced by equality against the observed ownership token.
 
-- The Weaviate seam offers no general epoch-conditional mutation. Verified against
-  the installed client: `data.insert` is conditional on the OBJECT ID only (that is
-  the primitive the immutable claim and completion records already exploit), and
-  `data.update(uuid, …)`, `data.replace(uuid, …)` and `data.delete_by_id(uuid)` take
-  no precondition parameter at all.
-- **One genuine option does exist and is worth weighing:** `data.delete_many(where=…)`
-  is FILTER-conditional. If the writing epoch (or owner) were stamped on the chunk
-  objects, the destructive delete — the only irreversible step — could be made
-  conditional at the storage level by filtering on it. That is a schema change (a new
-  `StoryContext` property with its own ownership question) and therefore a decision,
-  not something to slip in; recorded here because it turns "no mechanism exists"
-  into "a mechanism exists for the step that actually hurts".
-- The window is bounded differently per step, which matters for a risk decision:
-  the CHUNK write is idempotent (deterministic uuid5 per chunk, so a stale writer
-  re-writes identical content), the vanished-source DELETE is destructive, and the
-  COMPLETION is insert-only and position-bound (a stale writer can only ever add a
-  new position, never overwrite an established one — N28). The genuinely damaging
-  case is therefore the destructive delete, not the write or the publish.
-- A takeover protocol that provably quiesces the old process cannot be built inside
-  this module: the superseded writer may be a different OS process, so quiescing
-  needs an out-of-band signal (process supervision) that AK3's vectordb layer does
-  not own. Under D3's fail-closed intent, the cheapest honest options are either
-  moving the claim to a store that offers conditional updates, or ratifying the
-  residual single-step window explicitly (in the spirit of the already-ratified
-  bounded-window shadow replace, DR 2026-07-21 Rand 5) and documenting that a
-  reclaim requires the operator to have established that the previous writer is
-  dead — which the `--reclaim` flag already asserts semantically.
+The facts that shaped the decision, kept for the record:
+
+- The pinned client offers no general epoch-conditional mutation: `insert` is
+  conditional on the OBJECT ID only, while `update`, `replace` and `delete_by_id`
+  take no precondition at all. `delete_many(where=...)` IS filter-conditional --
+  which is exactly the step that needed it.
+- The three fenced steps carry very different risk: the chunk write is idempotent,
+  the completion is insert-only and position-bound (N28), and only the delete is
+  destructive.
+- A takeover protocol that provably quiesces the old process cannot live in this
+  layer: the superseded writer may be another OS process, so quiescing needs
+  out-of-band process supervision that the vectordb layer does not own.
 
 ### Q4 -- rule 4 vs. the single-`concept_status` filter (N36) -- RATIFIED as D8
 
@@ -485,10 +558,27 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
-  after r6 + D8: **4 failed, 9891 passed, 40 skipped, 521 errors**; total coverage
-  **85.53 %** (gate 85 % reached; 85.87 % before D7 -- the delta is run-to-run
-  variance in the Docker-absent suites, no AG3-174 module lost coverage). The same 4
-  failures as before, i.e. none of r4, r5, D7, r6 or D8 introduced any.
+  after r6 + D7/D8/D9: **4 failed, 9904 passed, 40 skipped, 521 errors**. The same 4
+  failures as in every earlier round, i.e. none of r4, r5, r6, D7, D8 or D9
+  introduced any.
+- `.venv\Scripts\python -m pytest --cov=agentkit --cov-report=term` -- total
+  coverage **86.53 %** (gate 85 % reached, with margin).
+  - **Correction, stated plainly:** the coverage figures reported in the r5, D7, r6
+    and D8 rounds (85.87 / 85.69 / 85.64 / 85.53 %) are NOT trustworthy and are
+    withdrawn. The project's `addopts` contain no `--cov`, so a plain `pytest` run
+    measures nothing; `coverage report` was therefore re-reading a STALE `.coverage`
+    data file while re-parsing the CURRENT sources, which is exactly why the number
+    drifted downward as the change added statements. Measured properly with an
+    explicit `--cov` run, the total is **86.53 %**.
+  - Worth knowing beyond this story: because the default invocation collects no
+    coverage, the 85 % guardrail is not enforced by simply running `pytest`. Reported
+    rather than fixed here -- changing the project-wide pytest configuration is
+    outside AG3-174's scope.
+  - `sync.py` shows an apparently low per-file value. Its missing lines are the
+    module-level ones (imports, class/def statements), i.e. an xdist/pytest-cov
+    import-time measurement artefact, not an untested branch -- the module has 54
+    dedicated tests. The artefact can only UNDERSTATE the total, so the gate result
+    holds a fortiori.
   - The 4 failures are all `tests/unit/concept_toolchain` baseline-digest /
     byte-count drift against the committed blob -- PRE-EXISTING (reproduced at
     `96a21dbb` with this story's files reverted) and named out of scope.
@@ -501,6 +591,13 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for D9 (10 scenarios, all RED): the store deleting unconditionally
+  instead of through the ownership condition, the write not stamping the token, the
+  store accepting an unstamped write, the fail-close on an unreadable owner, the
+  token collapsing to the epoch alone, grouping collapsing to one observed token
+  (which is what would silently skip old chunks), the short-count fail-close, the
+  transport sending a bare id list instead of the AND-condition, a reported failure
+  not being fail-closed, and the schema property being removed.
 - Revert-check for D8 (7 scenarios, all RED): bare-string coercion, duplicate
   de-duplication, the server-side set condition collapsing to a single equality, the
   empty-set fail-close, the advertised array contract, the double ignoring the
