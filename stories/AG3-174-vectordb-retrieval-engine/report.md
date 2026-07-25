@@ -1,4 +1,4 @@
-# AG3-174 — Story Report (post Codex review r1 remediation)
+# AG3-174 — Story Report (post Codex review r3 remediation)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
@@ -56,9 +56,75 @@ via "MCP provides it".
   PO-Neuschnitt deliberately excluded. The retrieval engine is the prerequisite;
   the consumer is a separate, reviewable unit.
 
+## Codex review r3 remediation (18 findings)
+
+The r3 verdict named 13 still-open findings plus 5 new P0. All were closed at the
+root; the recurring cause of the r1/r2 churn -- tests that did not pin real
+behaviour -- was addressed structurally:
+
+1. **One recording double at the deepest seam.** `tests/unit/vectordb/
+   corpus_doubles.py` stands in for the thin Weaviate CLIENT only, so
+   `WeaviateCorpusStore`, `SyncService`, `WeaviateRetrievalPort` and
+   `McpToolService` all execute productively above it. The double validates its
+   own returned hits with the REAL adapter helper, so it can never be more
+   permissive than the transport.
+2. **Transport-level tests bind against the REAL library signature.**
+   `tests/unit/integrations/vectordb/test_weaviate_transport.py` fakes only the
+   Weaviate `collections` facade / `connect_*` factory and binds every faked call
+   against the installed `weaviate-client` signature. That is exactly what R03
+   needed: `connect_to_local` cannot take a distinct `grpc_host`, and the old
+   `**kwargs` double hid the resulting `TypeError`.
+3. **Every fix was revert-checked.** For all 18 findings the production fix was
+   temporarily undone and the pinning test confirmed RED (23 revert scenarios,
+   all red).
+
+Production bugs fixed (not symptom patches): `connect_to_custom` (R03), the
+`story_search` limit/ranking contract (N09), per-hit ranking identity (N10), no
+`setdefault` repair default for hits (N11), collection-drift verification (N12),
+per-object target validation before the first write (N13), the `delete_by_id`
+bool + full-reindex counters (R12), an ATOMIC store claim (N03), a story corpus
+revision distinct from the concept digest and a completion-ordered "latest
+receipt" (N04), verified receipts (N08), strict absence semantics for EVERY
+optional MCP argument (R13), real caller paths for the story ingest (R04),
+rejected absent/coerced story frontmatter (N05), an authoritative project-id
+binding for export/repair (N06), a fail-closed concept ingester (R06), a
+reachable appendix-detail rule and an asserted module-match boost (R10), and the
+advertised input schema plus real calls for all five tools (R01).
+
+Two gaps found while remediating and closed in the same pass:
+
+- **`concept_path` was accepted and ignored** (FK-13 §13.9.5 defines it). It now
+  syncs the selected document only, and `concept_path` + `full_reindex` is a
+  named rejection (a full reindex would delete the rest of the corpus).
+- **Filtered corpus reads used a single capped `limit`**, which would silently
+  truncate a large corpus and make the delete closure miss objects. Reads are now
+  fully paged with a fail-closed ceiling (AC10 pagination axis).
+
+### Interpretations recorded (no concept deviation)
+
+- **Authority query scope.** FK-13 §13.9.5 defines no scope/detail parameter for
+  `concept_search`. The resolver's `query_scope`/`query_module` are bound to the
+  `module` filter, and the rule-3 interface/test DETAIL is derived
+  deterministically from the query TEXT (`derive_query_detail`). This keeps rules
+  1/2/3/5 reachable from production without inventing a parameter outside the
+  FK-13 table.
+- **Canonical story source path.** The indexed `source_file` of an exported story
+  is the canonical `stories/<story>/story.md` (FK-13 §13.3.2) derived from the
+  story directory, which is exactly the shape `classify_source_file` recognises.
+  Using the raw filesystem-relative path would risk an identity the `story_sync`
+  delete closure never produces.
+- **Env key.** The CLI export/repair authority is `PROJECT_ID` (FK-13 §13.4.3).
+  The previously accepted `AGENTKIT_PROJECT_ID` fallback was removed (it had no
+  other reader in the repo) rather than kept as a second truth.
+
 ## Validators (project venv only)
 
 - `.venv\Scripts\python -m pip install -e ".[dev]"` -- OK
-- `.venv\Scripts\python -m ruff check src tests` -- clean
+- `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
-- `.venv\Scripts\python -m pytest` (AG3-174 scope) -- 294 passed; coverage >= 85%
+- `.venv\Scripts\python -m pytest` -- see the orchestrator return for the exact
+  counts; the AG3-174 scope (unit/contract/integration vectordb + concepts +
+  story_creation + cli + story_split) is fully green. The remaining full-suite
+  failures/errors are the documented pre-existing ones (Docker/Postgres infra
+  absent, AG3-172 xdist schema race, `concept_toolchain` baseline-digest drift,
+  `e2e/github_live`) and are untouched by this story.
