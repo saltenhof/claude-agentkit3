@@ -21,6 +21,7 @@ from tests.unit.vectordb.corpus_doubles import (
     chunk_object,
     concept_hit,
     corpus_store,
+    seed_object,
     story_hit,
 )
 
@@ -38,8 +39,8 @@ from agentkit.backend.vectordb.schema import (
     STORY_CONTEXT_COLLECTION,
 )
 from agentkit.backend.vectordb.sync import (
+    ClaimSupersededError,
     ConcurrentSyncRejectedError,
-    PartialWriteError,
     SyncReceipt,
     SyncService,
 )
@@ -525,11 +526,14 @@ def test_r12_reconcile_partial_delete_rejected_no_receipt(tmp_path: Path) -> Non
     stale_a = chunk_object("acme", "gone.md", "a1")
     stale_b = chunk_object("acme", "gone.md", "b1")
     for obj in (stale_a, stale_b):
-        client.objects[obj.uuid] = {**obj.properties, "uuid": obj.uuid}
+        seed_object(client, obj)  # as a previous claim generation wrote it (D9)
     client.delete_confirmed_override = 1  # only 1 of 2 confirmed
     store = corpus_store(client)
     service = SyncService(store=store)
-    with pytest.raises(PartialWriteError, match="partial delete"):
+    # The destructive delete is storage-conditional (D9): a short confirmed count
+    # means an object is no longer owned by the generation this run observed, so the
+    # run fails closed and publishes nothing -- the R12 guarantee, new fault name.
+    with pytest.raises(ClaimSupersededError, match="ownership of at least one object"):
         service.reconcile_sources(
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev",
@@ -663,7 +667,7 @@ def test_concept_path_with_full_reindex_is_rejected(tmp_path: Path) -> None:
 def test_n07_incremental_concept_sync_deletes_vanished(tmp_path: Path) -> None:
     service, client = _service(tmp_path)
     stale = chunk_object("acme", "technical-design/99_gone.md", "g1")
-    client.objects[stale.uuid] = {**stale.properties, "uuid": stale.uuid}
+    seed_object(client, stale)  # as a previous claim generation wrote it (D9)
     result = handle_tool_call(service, "concept_sync", {"full_reindex": False})
     assert result["deleted"] >= 1
     assert stale.uuid not in client.objects

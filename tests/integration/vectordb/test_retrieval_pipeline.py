@@ -19,6 +19,7 @@ from agentkit.backend.vectordb.concept_corpus.graph import build_graph
 from agentkit.backend.vectordb.concept_corpus.resolver import rank_hits
 from agentkit.backend.vectordb.concept_corpus.validator import validate_corpus
 from agentkit.backend.vectordb.ingest.adapter import concept_chunks_to_objects
+from agentkit.backend.vectordb.schema import OWNING_CLAIM_PROPERTY
 from agentkit.backend.vectordb.sync import (
     ClaimSupersededError,
     SourceClaim,
@@ -106,17 +107,33 @@ class IndexingFakeStore:
             if o["project_id"] == project_id and o["source_type"] in types
         ]
 
-    def upsert_objects(self, *, objects: Sequence[StoryContextObject]) -> int:
+    def upsert_objects(
+        self, *, objects: Sequence[StoryContextObject], owning_claim: str
+    ) -> int:
+        """Write objects stamped with the writing claim's ownership token (D9)."""
+        if not owning_claim:
+            raise AssertionError("an object version must never be written unstamped")
         for obj in objects:
-            self.objects[obj.uuid] = {**obj.properties, "uuid": obj.uuid}
+            self.objects[obj.uuid] = {
+                **obj.properties,
+                "uuid": obj.uuid,
+                OWNING_CLAIM_PROPERTY: owning_claim,
+            }
         return len(objects)
 
-    def delete_objects(self, *, uuids: Sequence[str]) -> int:
+    def delete_objects_owned_by(
+        self, *, uuids: Sequence[str], owning_claim: str
+    ) -> int:
+        """Delete ONLY while the object still carries ``owning_claim`` (D9)."""
+        if not owning_claim:
+            raise AssertionError("a delete must be bound to an observed owner")
         n = 0
         for uid in uuids:
-            if uid in self.objects:
-                del self.objects[uid]
-                n += 1
+            props = self.objects.get(uid)
+            if props is None or str(props.get(OWNING_CLAIM_PROPERTY, "")) != owning_claim:
+                continue
+            del self.objects[uid]
+            n += 1
         return n
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:

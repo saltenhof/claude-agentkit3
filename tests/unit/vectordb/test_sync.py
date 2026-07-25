@@ -16,9 +16,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.unit.vectordb.corpus_doubles import (
+    PREVIOUS_OWNER_TOKEN,
     RecordingWeaviateClient,
     chunk_object,
     corpus_store,
+    seed_object,
 )
 
 from agentkit.backend.vectordb.engine import (
@@ -27,6 +29,7 @@ from agentkit.backend.vectordb.engine import (
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
+    OWNING_CLAIM_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     deterministic_uuid,
@@ -36,12 +39,15 @@ from agentkit.backend.vectordb.sync import (
     ConcurrentSyncRejectedError,
     PartialWriteError,
     ReceiptState,
+    SourceClaim,
     SyncError,
     SyncReceipt,
     SyncService,
+    claim_ownership_token,
     parse_utc_timestamp,
     utc_now,
 )
+from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -52,8 +58,14 @@ def claim_uuid_for(project_id: str, source_file: str, epoch: int) -> str:
     return WeaviateCorpusStore._claim_uuid(project_id, source_file, epoch)  # noqa: SLF001
 
 
-def _seed(client: RecordingWeaviateClient, obj: StoryContextObject) -> None:
-    client.objects[obj.uuid] = {**obj.properties, "uuid": obj.uuid}
+def _seed(
+    client: RecordingWeaviateClient,
+    obj: StoryContextObject,
+    *,
+    owning_claim: str = PREVIOUS_OWNER_TOKEN,
+) -> None:
+    """Seed a persisted object as a PREVIOUS claim generation wrote it (D9)."""
+    seed_object(client, obj, owning_claim=owning_claim)
 
 
 # --------------------------------------------------------------------------- #
@@ -134,16 +146,23 @@ def test_vanished_source_file_is_deleted_and_counted() -> None:
 
 
 def test_full_reindex_partial_vanished_delete_is_rejected() -> None:
-    """R12: an unconfirmed delete blocks the reindex instead of counting a phantom."""
+    """R12: an unconfirmed delete blocks the reindex instead of counting a phantom.
+
+    The destructive delete is storage-CONDITIONAL (D9), so a short confirmed count
+    means the condition no longer held for some object -- the ownership moved on.
+    Either way the run fails closed and reports no completion; D9 changed the NAME of
+    the fault, not the guarantee.
+    """
     client = RecordingWeaviateClient()
     _seed(client, chunk_object("acme", "concept/gone.md", "g1"))
-    client.delete_confirmed_override = 0  # transport confirms nothing
+    client.delete_confirmed_override = 0  # the store confirms nothing
     service = SyncService(store=corpus_store(client))
-    with pytest.raises(PartialWriteError, match="partial delete"):
+    with pytest.raises(ClaimSupersededError, match="ownership of at least one object"):
         service.full_reindex(
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev-1",
         )
+    assert client.receipts == {}, "an unconfirmed delete must not report a completion"
 
 
 # --------------------------------------------------------------------------- #
@@ -466,30 +485,168 @@ def test_n34_a_blank_receipt_field_is_still_rejected_at_publication() -> None:
         blank.stamped(sequence=1).verify()
 
 
-def test_n27_vanished_delete_is_fenced_before_it_deletes() -> None:
-    """N27: a takeover DURING the vanished-source delete must prevent the delete."""
+# --------------------------------------------------------------------------- #
+# D9: the DESTRUCTIVE delete is storage-conditional on the OBSERVED ownership
+#
+# In every test below the takeover happens AFTER this writer established ownership
+# and BEFORE its delete lands -- precisely the window a preceding application-side
+# check cannot close, which is why there is no such check any more.
+# --------------------------------------------------------------------------- #
+
+
+def test_d9_superseded_holder_cannot_delete_what_the_new_owner_wrote() -> None:
+    """The vanished-source delete must not remove the NEW owner's object version."""
     client = RecordingWeaviateClient()
     stale = chunk_object("acme", "concept/gone.md", "g1")
     _seed(client, stale)
     store = corpus_store(client)
 
-    def _take_over(collection: str, _uuid: str) -> None:
-        if collection != CLAIM_COLLECTION:
+    def _take_over_and_rewrite(collection: str) -> None:
+        if collection != STORY_CONTEXT_COLLECTION:
             return
-        # The instant writer A holds its claim, an operator hands the source to B.
-        client.after_insert = None
-        store.reclaim_source(
+        # Writer A holds the claim and has passed every check it will ever make.
+        # Only NOW does an operator hand the source to B, and B writes the object,
+        # which re-stamps it with B's ownership token.
+        client.before_delete = None
+        new_claim = store.reclaim_source(
             project_id="acme", source_file="concept/gone.md",
             owner_id="writer-b", reason="test takeover",
         )
+        store.upsert_objects(
+            objects=[stale], owning_claim=claim_ownership_token(new_claim)
+        )
 
-    client.after_insert = _take_over
-    with pytest.raises(ClaimSupersededError, match="superseded"):
+    client.before_delete = _take_over_and_rewrite
+    with pytest.raises(ClaimSupersededError, match="ownership of at least one object"):
         SyncService(store=store, owner_id="writer-a").reconcile_sources(
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev",
         )
-    assert stale.uuid in client.objects, "a superseded writer must not delete"
+    assert stale.uuid in client.objects, "the new owner's data must survive"
+    assert client.objects[stale.uuid][OWNING_CLAIM_PROPERTY] == "2|writer-b"
+    # The protection is STORAGE-side: the delete was really attempted and simply
+    # could not match, rather than being skipped by a preceding check.
+    assert client.conditional_delete_calls, "the delete must have been attempted"
+    assert client.conditional_delete_calls[-1]["value"] == PREVIOUS_OWNER_TOKEN
+
+
+def test_d9_superseded_holder_cannot_delete_the_new_generation_mid_window() -> None:
+    """Same guarantee inside the per-source window (the old-generation delete)."""
+    client = RecordingWeaviateClient()
+    old = chunk_object("acme", "concept/a.md", "old")
+    _seed(client, old)
+    store = corpus_store(client)
+
+    def _take_over_and_rewrite(collection: str) -> None:
+        if collection != STORY_CONTEXT_COLLECTION:
+            return
+        client.before_delete = None
+        new_claim = store.reclaim_source(
+            project_id="acme", source_file="concept/a.md",
+            owner_id="writer-b", reason="test takeover",
+        )
+        store.upsert_objects(objects=[old], owning_claim=claim_ownership_token(new_claim))
+
+    client.before_delete = _take_over_and_rewrite
+    with pytest.raises(ClaimSupersededError):
+        SyncService(store=store, owner_id="writer-a").sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "new")], corpus_revision="rev",
+        )
+    assert old.uuid in client.objects, "the new owner's version must survive"
+    assert client.objects[old.uuid][OWNING_CLAIM_PROPERTY] == "2|writer-b"
+    assert client.receipts == {}, "and no completion may be published"
+
+
+def test_d9_the_legitimate_delete_still_removes_every_old_chunk() -> None:
+    """The condition must not cost the delete closure (R05): all old chunks go."""
+    client = RecordingWeaviateClient()
+    old = [chunk_object("acme", "concept/gone.md", f"g{i}") for i in range(3)]
+    for obj in old:
+        _seed(client, obj)
+    service = SyncService(store=corpus_store(client))
+    results = service.reconcile_sources(
+        project_id="acme", producer="concept_sync",
+        objects_by_source={}, corpus_revision="rev",
+    )
+    assert client.objects == {}, "every old chunk of a vanished source is removed"
+    assert sum(r.deleted for r in results) == 3
+
+
+def test_d9_old_chunks_of_several_generations_are_all_removed() -> None:
+    """Chunks written by DIFFERENT previous generations are all caught.
+
+    This is why the condition compares against the OBSERVED token per object instead
+    of an ordering: claim epochs repeat across runs (a released claim is discarded),
+    so an "older than mine" predicate would silently skip chunks.
+    """
+    client = RecordingWeaviateClient()
+    first = chunk_object("acme", "concept/gone.md", "g1")
+    second = chunk_object("acme", "concept/gone.md", "g2")
+    third = chunk_object("acme", "concept/gone.md", "g3")
+    _seed(client, first, owning_claim="1|owner-x")
+    _seed(client, second, owning_claim="3|owner-y")  # ended a takeover chain
+    _seed(client, third, owning_claim="1|owner-z")  # a later, fresh claim again
+    service = SyncService(store=corpus_store(client), owner_id="writer-now")
+    results = service.reconcile_sources(
+        project_id="acme", producer="concept_sync",
+        objects_by_source={}, corpus_revision="rev",
+    )
+    assert client.objects == {}
+    assert sum(r.deleted for r in results) == 3
+    # One conditional delete per observed generation, none skipped.
+    assert {str(c["value"]) for c in client.conditional_delete_calls} == {
+        "1|owner-x", "3|owner-y", "1|owner-z",
+    }
+
+
+def test_d9_an_object_without_an_ownership_token_is_never_deleted() -> None:
+    """Fail-closed: unknown ownership cannot be bound to a storage condition."""
+    client = RecordingWeaviateClient()
+    unstamped = chunk_object("acme", "concept/gone.md", "g1")
+    _seed(client, unstamped, owning_claim="")  # no marker at all
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(VectorDbUnavailableError, match="no ownership token"):
+        service.reconcile_sources(
+            project_id="acme", producer="concept_sync",
+            objects_by_source={}, corpus_revision="rev",
+        )
+    assert unstamped.uuid in client.objects
+
+
+def test_d9_every_write_carries_the_writing_generation_token() -> None:
+    """The stamp is applied by the store, so an unstamped write is impossible."""
+    client = RecordingWeaviateClient()
+    service = SyncService(store=corpus_store(client), owner_id="writer-a")
+    service.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev",
+    )
+    stored = next(iter(client.objects.values()))
+    assert stored[OWNING_CLAIM_PROPERTY] == "1|writer-a"
+
+
+def test_d9_the_store_refuses_an_unstamped_write() -> None:
+    """The token is mandatory at the store boundary (no unstamped object versions)."""
+    store = corpus_store(RecordingWeaviateClient())
+    with pytest.raises(VectorDbUnavailableError, match="without an ownership token"):
+        store.upsert_objects(
+            objects=[chunk_object("acme", "concept/a.md", "c1")], owning_claim=""
+        )
+
+
+def test_d9_the_token_pairs_the_epoch_with_the_owner() -> None:
+    """Epochs repeat across runs, so only the PAIR identifies one generation."""
+    first = SourceClaim(
+        project_id="acme", source_file="concept/a.md", owner_id="writer-a",
+        epoch=1, claimed_at=utc_now(),
+    )
+    later_run = SourceClaim(
+        project_id="acme", source_file="concept/a.md", owner_id="writer-b",
+        epoch=1, claimed_at=utc_now(),
+    )
+    assert claim_ownership_token(first) != claim_ownership_token(later_run)
+    assert claim_ownership_token(first).startswith("1|")
 
 
 def test_n29_producer_closure_is_validated_for_the_whole_matrix() -> None:
@@ -763,7 +920,9 @@ def test_n15_superseded_writer_cannot_publish_a_receipt() -> None:
             objects=[chunk_object("acme", "concept/a.md", "new")], corpus_revision="rev",
         )
     assert client.receipts == {}, "a superseded writer must not publish a receipt"
-    assert old.uuid in client.objects, "and must not delete the old generation"
+    # Whether the OLD generation survives is no longer the guarantee: D9 protects
+    # what the NEW OWNER wrote (proven by the two d9 takeover tests below), and the
+    # bounded switch window is documented rather than claimed away.
 
 
 def test_n15_vanished_source_delete_requires_the_claim() -> None:

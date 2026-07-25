@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
 from agentkit.backend.vectordb.schema import (
+    OWNING_CLAIM_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     search_property_spec,
@@ -120,6 +121,10 @@ class CorpusClientPort(Protocol):
 
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int: ...
 
+    def delete_by_ids_if_property_equals(
+        self, *, collection: str, uuids: Sequence[str], prop: str, value: str
+    ) -> int: ...
+
     def ensure_collection(
         self,
         *,
@@ -150,11 +155,12 @@ class WeaviateCorpusStore:
             collection=self.collection,
             prop="source_file",
             value=source_file,
-            return_props=("content_hash", "source_type", "project_id"),
+            return_props=("content_hash", "source_type", "project_id", OWNING_CLAIM_PROPERTY),
         )
         return [
             {"uuid": uid, "source_file": source_file, "source_type": p.get("source_type", ""),
-             "project_id": p.get("project_id", ""), "content_hash": p.get("content_hash", "")}
+             "project_id": p.get("project_id", ""), "content_hash": p.get("content_hash", ""),
+             OWNING_CLAIM_PROPERTY: p.get(OWNING_CLAIM_PROPERTY, "")}
             for uid, p in rows
             if str(p.get("project_id", "")) == project_id
         ]
@@ -166,23 +172,71 @@ class WeaviateCorpusStore:
             collection=self.collection,
             prop="source_type",
             values=tuple(source_types),
-            return_props=("source_file", "project_id", "source_type"),
+            return_props=("source_file", "project_id", "source_type", OWNING_CLAIM_PROPERTY),
         )
         return [
             {"uuid": uid, "source_file": p.get("source_file", ""),
-             "source_type": p.get("source_type", ""), "project_id": p.get("project_id", "")}
+             "source_type": p.get("source_type", ""), "project_id": p.get("project_id", ""),
+             OWNING_CLAIM_PROPERTY: p.get(OWNING_CLAIM_PROPERTY, "")}
             for uid, p in rows
             if str(p.get("project_id", "")) == project_id
         ]
 
-    def upsert_objects(self, *, objects: Sequence[StoryContextObject]) -> int:
+    def upsert_objects(
+        self, *, objects: Sequence[StoryContextObject], owning_claim: str
+    ) -> int:
+        """Write objects STAMPED with the writing claim's ownership token (D9).
+
+        The stamp is applied here and nowhere else, so it is structurally impossible
+        to persist an object version without the marker the destructive delete
+        conditions on. The stamp does not touch the object identity: the uuid stays
+        ``uuid5(project|source|chunk)`` and ``content_hash`` stays content-derived,
+        so a re-sync still replaces the same object.
+        """
+        if not owning_claim:
+            raise VectorDbUnavailableError(
+                "refusing to write objects without an ownership token; the "
+                "destructive delete conditions on it (fail-closed, D9)."
+            )
         # Exact confirmed count: the adapter inspects batch failures and raises
         # on a partial batch (R12); a clean return == len(objects).
-        docs = [{**obj.properties, "uuid": obj.uuid} for obj in objects]
+        docs = [
+            {**obj.properties, "uuid": obj.uuid, OWNING_CLAIM_PROPERTY: owning_claim}
+            for obj in objects
+        ]
         return self.client.upsert(collection=self.collection, objects=docs)
 
-    def delete_objects(self, *, uuids: Sequence[str]) -> int:
-        return self.client.delete_by_ids(collection=self.collection, uuids=tuple(uuids))
+    def delete_objects_owned_by(self, *, uuids: Sequence[str], owning_claim: str) -> int:
+        """Delete objects ONLY while they still carry ``owning_claim`` (D9).
+
+        The precondition is evaluated by the store together with the delete, so a
+        holder that was superseded between its ownership assertion and this call
+        cannot remove what the new owner has written: the new owner's write stamps a
+        DIFFERENT token, and this condition then matches nothing.
+
+        Args:
+            uuids: Candidate object ids, all observed carrying ``owning_claim``.
+            owning_claim: The token observed on those objects.
+
+        Returns:
+            The exact number of objects the store confirms deleted.
+
+        Raises:
+            VectorDbUnavailableError: When no ownership token was observed -- an
+                object whose ownership cannot be read must not be deleted under a
+                storage-side condition (fail-closed, D9).
+        """
+        if not owning_claim:
+            raise VectorDbUnavailableError(
+                "refusing to delete objects that carry no ownership token: the "
+                "delete could not be bound to the observed owner (fail-closed, D9)."
+            )
+        return self.client.delete_by_ids_if_property_equals(
+            collection=self.collection,
+            uuids=tuple(uuids),
+            prop=OWNING_CLAIM_PROPERTY,
+            value=owning_claim,
+        )
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
         """Return the LATEST verified completion of one source (N28)."""

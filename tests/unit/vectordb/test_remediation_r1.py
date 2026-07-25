@@ -18,6 +18,7 @@ from tests.unit.vectordb.corpus_doubles import (
     RecordingWeaviateClient,
     chunk_object,
     corpus_store,
+    seed_object,
 )
 
 from agentkit.backend.vectordb.concept_corpus.graph import build_graph
@@ -83,7 +84,7 @@ def test_r02_corpus_store_delegates_to_client_exact_counts() -> None:
     client = RecordingWeaviateClient()
     store = corpus_store(client)
     objs = [chunk_object("acme", "stories/x/story.md", "c1", "story")]
-    assert store.upsert_objects(objects=objs) == 1
+    assert store.upsert_objects(objects=objs, owning_claim="1|writer-a") == 1
     store.set_receipt(
         receipt=SyncReceipt.for_completion("acme", "stories/x/story.md", "story", "rev")
     )
@@ -168,7 +169,7 @@ def test_r05_incremental_deletes_vanished_source(tmp_path: Path) -> None:
     handle_tool_call(service, "story_sync", {"full_reindex": True})
     # Seed a STALE story source, then vanish the real one.
     stale = chunk_object("acme", "stories/AG3-GONE/story.md", "g1", "story")
-    client.objects[stale.uuid] = {**stale.properties, "uuid": stale.uuid}
+    seed_object(client, stale)  # as a previous claim generation wrote it (D9)
     (tmp_path / "stories" / "AG3-1" / "story.md").unlink()
     result = handle_tool_call(service, "story_sync", {"full_reindex": False})
     assert result["deleted"] >= 2  # the stale source AND the vanished story.md

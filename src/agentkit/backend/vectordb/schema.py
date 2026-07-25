@@ -71,6 +71,11 @@ class PropertySpec:
         return self.data_type in ("TEXT", "TEXT[]")
 
 
+#: Property carrying the ownership token of the claim generation that wrote an
+#: object version (D9). The destructive delete is bound to it storage-side.
+OWNING_CLAIM_PROPERTY: Final[str] = "owning_claim"
+
+
 def _narrative(name: str) -> PropertySpec:
     """A vectorised, word-tokenised, BM25-searchable narrative field."""
     return PropertySpec(name, "TEXT", True, TOKENIZATION_WORD, True)
@@ -115,6 +120,13 @@ STORY_CONTEXT_PROPERTIES: Final[tuple[PropertySpec, ...]] = (
     _identifier("section_number"),
     _rules("normative_rules"),
     _identifier("concept_status"),
+    # --- Ownership marker (D9) ---
+    # The ownership TOKEN of the claim generation that wrote this object version.
+    # It is not a second ownership truth -- the claim record stays the authority --
+    # but it is what makes the DESTRUCTIVE delete storage-conditional: a delete is
+    # bound to the token the deleter observed, so a superseded holder can never
+    # remove data a newer owner wrote. Whole-value filterable, never embedded.
+    _identifier(OWNING_CLAIM_PROPERTY),
 )
 
 #: Property names that MUST be present and correctly typed on every object.
@@ -336,6 +348,7 @@ def search_property_spec(source_type: str) -> tuple[tuple[str, str, bool], ...]:
 
 
 __all__ = [
+    "OWNING_CLAIM_PROPERTY",
     "FK13_VECTORIZER",
     "FK13_VECTORIZER_MODEL",
     "FK13_VECTOR_SOURCE_PROPERTIES",

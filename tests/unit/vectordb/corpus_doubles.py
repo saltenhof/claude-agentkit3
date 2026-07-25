@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from agentkit.backend.vectordb.engine import (
     CLAIM_COLLECTION,
@@ -28,6 +28,7 @@ from agentkit.backend.vectordb.engine import (
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
+    OWNING_CLAIM_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     deterministic_uuid,
@@ -67,6 +68,8 @@ class RecordingWeaviateClient:
     upsert_calls: list[str] = field(default_factory=list)
     #: Every claim record ever created, including superseded generations (N27).
     claim_history: list[dict[str, object]] = field(default_factory=list)
+    #: Every STORAGE-CONDITIONAL delete (a destructive delete must be one, D9).
+    conditional_delete_calls: list[dict[str, object]] = field(default_factory=list)
     search_results: list[tuple[str, dict[str, object], float]] = field(default_factory=list)
     upsert_written_override: int | None = None
     delete_confirmed_override: int | None = None
@@ -251,6 +254,35 @@ class RecordingWeaviateClient:
                     deleted += 1
         return deleted
 
+    def delete_by_ids_if_property_equals(
+        self, *, collection: str, uuids: Sequence[str], prop: str, value: str
+    ) -> int:
+        """Delete ONLY the ids whose ``prop`` still equals ``value`` (D9).
+
+        Held to the same semantics as ``data.delete_many(where=...)``: the condition
+        is evaluated together with the delete, atomically per object, so an object
+        that a newer owner has re-stamped is simply not matched.
+        """
+        self.conditional_delete_calls.append(
+            {"collection": collection, "prop": prop, "value": value, "uuids": tuple(uuids)}
+        )
+        if self.before_delete is not None:
+            self.before_delete(collection)
+        store = self._store_for(collection)
+        deleted = 0
+        with self._lock:
+            for uid in uuids:
+                props = store.get(str(uid))
+                if props is None or str(props.get(prop, "")) != value:
+                    continue
+                del store[str(uid)]
+                deleted += 1
+        if self.delete_confirmed_override is not None:
+            # Probe: the store confirms FEWER objects than were requested (R12).
+            override, self.delete_confirmed_override = self.delete_confirmed_override, None
+            return override
+        return deleted
+
     def ensure_collection(
         self,
         *,
@@ -274,6 +306,25 @@ class RecordingWeaviateClient:
                 "properties": tuple(str(s["name"]) for s in property_specs),
             }
         )
+
+
+#: Ownership token a SEEDED object carries, i.e. what a previous, finished claim
+#: generation wrote. Production stamps every write (D9), so seeded fixtures must
+#: too -- an unstamped object is a separate, explicitly tested fail-closed case.
+PREVIOUS_OWNER_TOKEN: Final[str] = "1|previous-owner"
+
+
+def seed_object(
+    client: RecordingWeaviateClient,
+    obj: StoryContextObject,
+    *,
+    owning_claim: str = PREVIOUS_OWNER_TOKEN,
+) -> None:
+    """Seed an already-persisted object as a PREVIOUS generation wrote it (D9)."""
+    props: dict[str, object] = {**obj.properties, "uuid": obj.uuid}
+    if owning_claim:
+        props[OWNING_CLAIM_PROPERTY] = owning_claim
+    client.objects[obj.uuid] = props
 
 
 def _matches_filters(

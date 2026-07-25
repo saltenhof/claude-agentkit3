@@ -50,6 +50,11 @@ FETCH_PAGE_SIZE: Final[int] = 1000
 #: Hard ceiling for one filtered result set; beyond it the read fails closed.
 MAX_FETCH_OBJECTS: Final[int] = 200_000
 
+#: Ids per conditional (``delete_many``) delete batch. The condition travels WITH
+#: the delete, so the batch size only bounds the filter payload -- never the
+#: guarantee (D9).
+MAX_CONDITIONAL_DELETE_IDS: Final[int] = 100
+
 #: Schema data-type token -> the Weaviate wire name reported by the server.
 WEAVIATE_DATA_TYPE_NAMES: Final[dict[str, str]] = {
     "TEXT": "text",
@@ -753,6 +758,70 @@ class _RealWeaviateClient:
                 ) from exc
             if confirmed:
                 deleted += 1
+        return deleted
+
+    def delete_by_ids_if_property_equals(
+        self,
+        *,
+        collection: str,
+        uuids: Sequence[str],
+        prop: str,
+        value: str,
+    ) -> int:
+        """Delete the given uuids ONLY while ``prop`` still equals ``value`` (D9).
+
+        This is the one storage-side precondition the pinned client offers for a
+        destructive operation: ``data.delete_many`` takes a FILTER, so the condition
+        is evaluated by Weaviate together with the delete. ``delete_by_id`` and
+        ``update``/``replace`` accept no precondition at all, which is why an
+        application-side ownership check could always be overtaken between the check
+        and the mutation.
+
+        The ids are sent in bounded batches, and every batch is counted exactly: a
+        batch that reports a failure raises, and the returned total is the number of
+        objects Weaviate confirms it removed. A total below ``len(uuids)`` means the
+        condition no longer held for some object -- the CALLER decides what that
+        means (for the sync it means the claim was taken over).
+
+        Args:
+            collection: Collection to delete from.
+            uuids: Candidate object ids.
+            prop: Property carrying the condition value.
+            value: The value the property must still have.
+
+        Returns:
+            The exact number of objects Weaviate confirmed deleted.
+
+        Raises:
+            VectorDbWriteError: When Weaviate reports a failed delete.
+        """
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
+
+        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        ids = [str(uid) for uid in uuids]
+        deleted = 0
+        for start in range(0, len(ids), MAX_CONDITIONAL_DELETE_IDS):
+            batch = ids[start : start + MAX_CONDITIONAL_DELETE_IDS]
+            condition = Filter.all_of(
+                [
+                    Filter.by_id().contains_any(batch),
+                    Filter.by_property(prop).equal(value),
+                ]
+            )
+            try:
+                result = coll.data.delete_many(where=condition)
+            except Exception as exc:  # noqa: BLE001 -- surface a partial delete
+                raise VectorDbWriteError(
+                    f"conditional delete failed for {len(batch)} object(s) with "
+                    f"{prop}={value!r}: {exc} (R12 partial delete)."
+                ) from exc
+            failed = int(getattr(result, "failed", 0) or 0)
+            if failed:
+                raise VectorDbWriteError(
+                    f"conditional delete reported {failed} failed object(s) with "
+                    f"{prop}={value!r}; fail-closed (R12 partial delete)."
+                )
+            deleted += int(getattr(result, "successful", 0) or 0)
         return deleted
 
     def ensure_collection(

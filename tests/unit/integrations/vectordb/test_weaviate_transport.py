@@ -124,6 +124,11 @@ class _FakeData:
     existing_ids: set[str] = field(default_factory=set)
     inserted: list[dict[str, object]] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
+    #: Every conditional delete production issued (D9): (kwargs incl. the filter).
+    delete_many_calls: list[dict[str, object]] = field(default_factory=list)
+    #: Queued ``(successful, failed)`` outcomes for consecutive conditional deletes.
+    delete_many_results: list[tuple[int, int]] = field(default_factory=list)
+    delete_many_raises: bool = False
 
     def delete_by_id(self, uuid: str) -> bool:
         _bind_real(_DataCollection.delete_by_id, {"uuid": uuid})
@@ -142,6 +147,20 @@ class _FakeData:
         self.existing_ids.add(uid)
         self.inserted.append(dict(kwargs))
         return uid
+
+    def delete_many(self, **kwargs: object) -> object:
+        """Record the FILTER production sent and report the configured outcome (D9)."""
+        _bind_real(_DataCollection.delete_many, kwargs)
+        from weaviate.collections.classes.batch import DeleteManyReturn
+
+        self.delete_many_calls.append(dict(kwargs))
+        if self.delete_many_raises:
+            raise RuntimeError("transport error during conditional delete")
+        outcome = self.delete_many_results.pop(0) if self.delete_many_results else (1, 0)
+        successful, failed = outcome
+        return DeleteManyReturn(
+            failed=failed, matches=successful + failed, objects=None, successful=successful
+        )
 
 
 @dataclass
@@ -364,6 +383,94 @@ def test_n02_hybrid_mode_requests_score() -> None:
     assert call["kind"] == "hybrid"
     assert call["return_metadata"] == ["score"]
     assert call["limit"] == 5
+
+
+# --------------------------------------------------------------------------- #
+# D9: the destructive delete carries its ownership condition to the store
+# --------------------------------------------------------------------------- #
+
+
+def _conditional_delete(
+    uuids: list[str],
+    *,
+    results: list[tuple[int, int]] | None = None,
+    raises: bool = False,
+) -> tuple[int, _FakeData]:
+    data = _FakeData(
+        delete_many_results=list(results or []), delete_many_raises=raises
+    )
+    collection = _collection()
+    collection.data = data
+    client = _client(collection)
+    deleted = client.delete_by_ids_if_property_equals(
+        collection=STORY_CONTEXT_COLLECTION,
+        uuids=uuids,
+        prop="owning_claim",
+        value="1|writer-a",
+    )
+    return deleted, data
+
+
+def test_d9_the_condition_travels_with_the_delete() -> None:
+    """The ownership condition is part of the DELETE, not a preceding check."""
+    from weaviate.collections.classes.filters import _FilterAnd
+
+    uid = "11111111-1111-5111-8111-111111111111"
+    deleted, data = _conditional_delete([uid], results=[(1, 0)])
+    assert deleted == 1
+    assert len(data.delete_many_calls) == 1
+    where = data.delete_many_calls[0]["where"]
+    assert isinstance(where, _FilterAnd)
+    targets = {p.target: p for p in where.filters}  # type: ignore[attr-defined]
+    assert targets["_id"].value == [uid]
+    assert targets["owning_claim"].value == "1|writer-a"
+
+
+def test_d9_a_condition_that_no_longer_matches_deletes_nothing() -> None:
+    """The store simply removes nothing -- the caller sees the short count."""
+    deleted, _data = _conditional_delete(
+        ["11111111-1111-5111-8111-111111111111"], results=[(0, 0)]
+    )
+    assert deleted == 0
+
+
+def test_d9_a_failed_conditional_delete_is_fail_closed() -> None:
+    """A reported failure must never be counted as a delete (R12)."""
+    with pytest.raises(VectorDbWriteError, match="failed object"):
+        _conditional_delete(
+            ["11111111-1111-5111-8111-111111111111"], results=[(0, 1)]
+        )
+
+
+def test_d9_a_transport_fault_during_the_conditional_delete_raises() -> None:
+    with pytest.raises(VectorDbWriteError, match="conditional delete failed"):
+        _conditional_delete(["11111111-1111-5111-8111-111111111111"], raises=True)
+
+
+def test_d9_ids_are_sent_in_bounded_batches_and_counted_exactly() -> None:
+    """Batching bounds the filter payload, never the guarantee."""
+    from agentkit.integration_clients.vectordb.weaviate_adapter import (
+        MAX_CONDITIONAL_DELETE_IDS,
+    )
+
+    total = MAX_CONDITIONAL_DELETE_IDS + 5
+    uuids = [f"{i:08d}-1111-5111-8111-111111111111" for i in range(total)]
+    outcomes = [(MAX_CONDITIONAL_DELETE_IDS, 0), (5, 0)]
+    deleted, data = _conditional_delete(uuids, results=outcomes)
+    assert deleted == total
+    assert len(data.delete_many_calls) == 2
+    first = data.delete_many_calls[0]["where"]
+    ids = next(
+        p.value for p in first.filters if p.target == "_id"  # type: ignore[attr-defined]
+    )
+    assert len(ids) == MAX_CONDITIONAL_DELETE_IDS
+    # Every id of the batch still carries the SAME ownership condition.
+    condition = next(
+        p.value
+        for p in first.filters  # type: ignore[attr-defined]
+        if p.target == "owning_claim"
+    )
+    assert condition == "1|writer-a"
 
 
 # --------------------------------------------------------------------------- #

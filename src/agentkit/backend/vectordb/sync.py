@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
 from agentkit.backend.vectordb.ingest.classify import source_types_for_producer
 from agentkit.backend.vectordb.schema import (
+    OWNING_CLAIM_PROPERTY,
     StoryContextObject,
     deterministic_uuid,
     validate_object,
@@ -88,6 +89,23 @@ class SourceClaim:
     epoch: int
     claimed_at: str
     reclaimed_from: str = ""
+
+
+def claim_ownership_token(claim: SourceClaim) -> str:
+    """Return the token identifying ONE claim generation (D9).
+
+    Every object version is stamped with this token, and the destructive delete is
+    bound to the token it observed, so a superseded holder structurally cannot remove
+    what a newer owner wrote.
+
+    The token pairs the epoch with the OWNER rather than using the epoch alone. The
+    epoch is monotonic only WITHIN a supersession chain: a released claim is
+    discarded, so the next acquisition starts at epoch 1 again. Epoch values
+    therefore repeat across runs, and only the pair is unique per generation. That
+    makes the guarantee structural instead of resting on the argument that a repeated
+    epoch cannot collide with a live holder.
+    """
+    return f"{claim.epoch}|{claim.owner_id}"
 
 
 #: Every receipt field that MUST carry a non-blank value for a completion to be
@@ -266,16 +284,24 @@ class CorpusStorePort(Protocol):
         """Return existing objects for a set of source_types (full_reindex scope)."""
         ...
 
-    def upsert_objects(self, *, objects: Sequence[StoryContextObject]) -> int:
-        """Insert/replace objects (deterministic uuids); return the EXACT count
-        of objects confirmed written (R12). A return value below
-        ``len(objects)`` indicates a partial batch and MUST NOT be reported as
-        success; batch failures are surfaced as a lower count, not an exception,
-        so the SyncService can reject the partial window fail-closed."""
+    def upsert_objects(
+        self, *, objects: Sequence[StoryContextObject], owning_claim: str
+    ) -> int:
+        """Insert/replace objects (deterministic uuids) STAMPED with the writing
+        claim's ownership token (D9); return the EXACT count of objects confirmed
+        written (R12). A return value below ``len(objects)`` indicates a partial
+        batch and MUST NOT be reported as success; batch failures are surfaced as a
+        lower count, not an exception, so the SyncService can reject the partial
+        window fail-closed."""
         ...
 
-    def delete_objects(self, *, uuids: Sequence[str]) -> int:
-        """Delete objects by uuid; return the EXACT count confirmed deleted (R12)."""
+    def delete_objects_owned_by(self, *, uuids: Sequence[str], owning_claim: str) -> int:
+        """Delete objects ONLY while they still carry ``owning_claim`` (D9).
+
+        The ownership condition MUST be evaluated by the store together with the
+        delete -- a preceding application check can always be overtaken. Returns the
+        EXACT count confirmed deleted (R12); a lower count means the ownership of at
+        least one object moved on."""
         ...
 
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
@@ -528,19 +554,14 @@ class SyncService:
         results: list[SyncResult] = []
         for vanished in sorted(vanished_sources):
             rows = [o for o in existing if str(o.get("source_file")) == vanished]
-            uuids = [str(o["uuid"]) for o in rows]
             claim = self._claim(project_id=project_id, source_file=vanished)
             try:
-                # FENCE BEFORE the delete (N27): a writer whose claim was
-                # administratively taken over must not mutate the source at all --
-                # checking afterwards would already have destroyed the generation.
-                self.store.assert_claim_held(claim=claim)
-                deleted = self.store.delete_objects(uuids=uuids) if uuids else 0
-                if uuids and deleted != len(uuids):
-                    raise PartialWriteError(
-                        f"partial delete for vanished source {vanished!r}: {deleted} of "
-                        f"{len(uuids)} deleted (R12)."
-                    )
+                # The destructive delete is bound to the OBSERVED ownership of each
+                # object and evaluated BY THE STORE (D9). There is deliberately NO
+                # preceding ownership check here: a check followed by a separate
+                # delete is exactly the window this decision removes, and keeping one
+                # would only restore the illusion of safety.
+                deleted = self._delete_owned(rows, source_file=vanished)
             finally:
                 self.store.release_source(claim=claim)
             results.append(
@@ -555,6 +576,55 @@ class SyncService:
                 )
             )
         return results
+
+    def _delete_owned(
+        self, rows: Sequence[Mapping[str, object]], *, source_file: str
+    ) -> int:
+        """Delete the given objects STORAGE-CONDITIONALLY on their observed owner (D9).
+
+        The candidates are grouped by the ownership token they were read with, and
+        each group is deleted under the condition that the token is still the one
+        observed. The condition is evaluated by the store together with the delete,
+        so this is a compare-and-delete rather than a check followed by a delete.
+
+        Why equality against the OBSERVED token and not "older than mine": the claim
+        epoch is not monotonic across runs (a released claim is discarded, so the next
+        acquisition starts at 1 again). An ordering predicate would therefore skip
+        legitimately deletable chunks whenever the previous generation held the same
+        or a higher epoch -- and silently stop removing vanished sources. Equality
+        needs no ordering assumption and still excludes a newer owner's data, because
+        a superseding owner necessarily writes under a DIFFERENT token.
+
+        Args:
+            rows: Objects to delete, as read (uuid + ownership token).
+            source_file: The source they belong to (diagnostics).
+
+        Returns:
+            The number of objects confirmed deleted.
+
+        Raises:
+            ClaimSupersededError: When fewer objects were deleted than requested --
+                the ownership of at least one object moved on, so this writer's
+                window is no longer authoritative.
+        """
+        by_token: dict[str, list[str]] = {}
+        for row in rows:
+            token = str(row.get(OWNING_CLAIM_PROPERTY, ""))
+            by_token.setdefault(token, []).append(str(row["uuid"]))
+        deleted = 0
+        for token, uuids in sorted(by_token.items()):
+            deleted += self.store.delete_objects_owned_by(
+                uuids=uuids, owning_claim=token
+            )
+        requested = sum(len(uuids) for uuids in by_token.values())
+        if deleted != requested:
+            raise ClaimSupersededError(
+                f"conditional delete for {source_file!r} removed {deleted} of "
+                f"{requested} objects: the ownership of at least one object changed "
+                "while this window was open, so a superseded holder was prevented "
+                "from deleting the new owner's data (fail-closed, D9)."
+            )
+        return deleted
 
     def _sync_impl(
         self,
@@ -572,9 +642,13 @@ class SyncService:
         # administratively taken over while it was paused, it must not write stale
         # chunks at all -- the previous implementation fenced only AFTER the upsert.
         self.store.assert_claim_held(claim=claim)
-        # Write the new should-generation fully + verify EXACT transport count.
+        # Write the new should-generation fully + verify EXACT transport count. Every
+        # object version carries the ownership token of THIS claim generation (D9),
+        # which is what makes the delete below storage-conditional.
         should_uuids = {obj.uuid for obj in objects}
-        written = self.store.upsert_objects(objects=objects)
+        written = self.store.upsert_objects(
+            objects=objects, owning_claim=claim_ownership_token(claim)
+        )
         if written != len(objects):
             raise PartialWriteError(
                 f"partial write for {source_file!r}: transport reported {written} of "
@@ -592,17 +666,12 @@ class SyncService:
                 f"should-set not persisted for {source_file!r}: {len(missing)} of "
                 f"{len(should_uuids)} new UUIDs absent after write (R12)."
             )
-        # (2) FENCE again before the delete: the new owner may still need the old
-        # generation (N15/N27).
-        self.store.assert_claim_held(claim=claim)
-        # Delete old/foreign chunks of the SAME source AFTER + verify count.
-        to_delete = [uid for uid in persisted_uuids if uid not in should_uuids]
-        deleted = self.store.delete_objects(uuids=to_delete) if to_delete else 0
-        if deleted != len(to_delete):
-            raise PartialWriteError(
-                f"partial delete for {source_file!r}: transport reported {deleted} of "
-                f"{len(to_delete)} old UUIDs deleted (R12)."
-            )
+        # (2) Delete the superseded chunks of the SAME source. Destructive, therefore
+        # bound to the OBSERVED ownership of each object and evaluated by the store
+        # (D9) -- NOT preceded by an ownership check, which could always be overtaken
+        # before the delete landed.
+        stale_rows = [o for o in persisted if str(o["uuid"]) not in should_uuids]
+        deleted = self._delete_owned(stale_rows, source_file=source_file)
         # (3) FENCE a third time before publishing: if the claim was taken over
         # while the window was open, this writer's generation is no longer
         # authoritative and it must NOT publish a completion (N15/N27).
@@ -799,4 +868,5 @@ __all__ = [
     "SyncReceipt",
     "SyncResult",
     "SyncService",
+    "claim_ownership_token",
 ]
