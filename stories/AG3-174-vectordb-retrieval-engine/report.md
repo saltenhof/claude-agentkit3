@@ -117,14 +117,49 @@ Two gaps found while remediating and closed in the same pass:
   The previously accepted `AGENTKIT_PROJECT_ID` fallback was removed (it had no
   other reader in the repo) rather than kept as a second truth.
 
+## Open WARNINGs that need a PO decision (not silently closed)
+
+1. **Story/research sources must carry frontmatter.** N05 makes ABSENT
+   frontmatter a hard error, and AC10 forbids a partial write -- so ONE research
+   `.md` without a frontmatter block fails the WHOLE `story_sync` of that project
+   with `story_source_invalid` (zero writes). `story.md` always has frontmatter
+   (it is a deterministic export, FK-21 §21.11.3), but agent-written research
+   notes may not, and there is no `.storyignore` counterpart to `.conceptignore`
+   (§13.9.13) in this story's scope. **Decision needed:** either the story corpus
+   convention requires frontmatter for research documents, or a follow-up story
+   adds a story-corpus exclude mechanism. The current behaviour is the
+   conservative FAIL-CLOSED one.
+2. **AK3's own `concept/` corpus does not satisfy the FK-13 §13.9.6 schema.**
+   `discover_concept_files(Path("concept"))` reports 347 parse errors and 0
+   documents: 253x `doc_kind` outside `core|appendix` (the repo uses
+   `decision-record`, `policy`, `decision-log`, ...), 88x extra frontmatter keys
+   the strict model forbids (`cross_cutting`, `formal_scope`, `spec_kind`,
+   `glossary`, ...), 6x missing mandatory fields. This is PRE-EXISTING (the
+   strict core landed in this story's r1 commits) but it means the FK-13 concept
+   tooling cannot read AK3's OWN corpus -- only a target project's FK-13-shaped
+   one. **Decision needed:** extend FK-13 §13.9.6 (doc_kind vocabulary + tolerated
+   extra keys) or treat the AK3 development corpus as a separate corpus class
+   with its own profile. Not changed here: it is a concept decision, outside this
+   story's scope.
+
 ## Validators (project venv only)
 
 - `.venv\Scripts\python -m pip install -e ".[dev]"` -- OK
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
-- `.venv\Scripts\python -m pytest` -- see the orchestrator return for the exact
-  counts; the AG3-174 scope (unit/contract/integration vectordb + concepts +
-  story_creation + cli + story_split) is fully green. The remaining full-suite
-  failures/errors are the documented pre-existing ones (Docker/Postgres infra
-  absent, AG3-172 xdist schema race, `concept_toolchain` baseline-digest drift,
-  `e2e/github_live`) and are untouched by this story.
+- `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
+  **4 failed, 9770 passed, 40 skipped, 521 errors**; total coverage **86.44 %**
+  (gate 85 % reached).
+  - The 4 failures are all `tests/unit/concept_toolchain` baseline-digest /
+    byte-count drift against the committed blob -- PRE-EXISTING (reproduced at
+    `96a21dbb` with this story's files reverted) and named out of scope.
+  - The 521 errors are the Docker/Postgres-backed suites; Docker Desktop is not
+    available in this environment (`_ping` 500), so every `*_pg` / postgres
+    fixture errors at setup. Unrelated to this story.
+  - Before this remediation the same suite had **29** non-infra failures; 26 of
+    them were caused by this story's own earlier `concept_ingester` SSOT
+    migration (lost qualified authority metadata) and are now fixed.
+- Scoped run of the AG3-174 modules (`tests/{unit,contract,integration}` vectordb
+  + `tests/unit/concepts`): **318 passed**, module coverage **92.25 %**.
+- Revert-check: for all 18 r3 findings the production fix was temporarily undone
+  and the pinning test confirmed RED (23 scenarios, 23 red).
