@@ -29,7 +29,9 @@ def test_unauthorized_scope_and_scope_qualified_defers_to_counter_probe(tmp_path
     concept = tmp_path / "concept"
     baseline = concept / "_meta/baseline.yaml"
     write_doc(concept, "owner.md", "OWNER", "[{scope: lock.lifecycle}]")
-    write_doc(concept, "consumer.md", "CONSUMER", "[]", "[OWNER]")
+    # An UNQUALIFIED deferral (no scope) in the FK-13 §13.9.6 entry form: it names
+    # a target but authorizes no scope, so the assertion stays unauthorized.
+    write_doc(concept, "consumer.md", "CONSUMER", "[]", "[{target: OWNER}]")
     write_empty_baseline(baseline)
     evaluator = ScriptedEvaluator(lambda chunk: _classification("lock.lifecycle"))
 

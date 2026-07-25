@@ -275,13 +275,43 @@ def _project_chunk(
         exported_term_ids=(),
         schema_projection_version=SCHEMA_PROJECTION_VERSION,
         domain_registry_hash=PARSER_VERSION,
-        metadata={
-            "doc_kind": doc.doc_kind,
-            "status": doc.effective_status,
-            "section_number": ssot_chunk.section_number,
-            "concept_status": doc.effective_status,
-        },
+        metadata=_chunk_metadata(doc, ssot_chunk),
     )
+
+
+def _chunk_metadata(doc: Any, ssot_chunk: Any) -> dict[str, Any]:
+    """Project the QUALIFIED authority/deferral metadata of a chunk.
+
+    ``authority_over_full`` / ``defers_to_full`` / ``supersedes_full`` are JSON
+    strings of the qualified frontmatter entries (scope/target/reason). The
+    VectorDB stores flat ID lists (FK-13 §13.9.3), but the governance consumers
+    (W2/W3, ``tools/concept_governance``) need the SCOPE-QUALIFIED form to decide
+    authorization -- flattening it away made every scope look unauthorized.
+    """
+    return {
+        "doc_kind": doc.doc_kind,
+        "status": doc.effective_status,
+        "section_number": ssot_chunk.section_number,
+        "concept_status": doc.effective_status,
+        "parent_concept_id": doc.parent_concept_id,
+        "authority_over_full": _json_dump(
+            [{"scope": scope} for scope in doc.authority_scopes]
+        ),
+        "defers_to_full": _json_dump(
+            [
+                {"target": target, "scope": scope, "reason": reason}
+                for target, scope, reason in doc.defers_to_full
+            ]
+        ),
+        "supersedes_full": _json_dump(
+            [{"target": target, "scope": "", "reason": ""} for target in doc.supersedes]
+        ),
+    }
+
+
+def _json_dump(value: object) -> str:
+    """Serialise a metadata projection deterministically."""
+    return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
 def _section_anchor(heading: str, ordering: int) -> str:

@@ -193,3 +193,58 @@ def test_r06_ingester_config_has_no_localhost_default(monkeypatch) -> None:  # t
 
     with pytest.raises(RuntimeError, match="no localhost default"):
         IngesterConfig.from_env()
+
+
+_QUALIFIED_DOC = """\
+---
+concept_id: FK-14
+title: Helper
+module: vectordb
+status: active
+doc_kind: core
+authority_over:
+  - scope: helper.scope
+defers_to:
+  - target: FK-13
+    scope: vectordb
+    reason: base
+  - target: FK-01
+supersedes: [FK-00]
+---
+
+# Helper
+
+## Rule
+
+Text.
+"""
+
+
+def test_r06_ingester_projects_the_scope_qualified_authority_metadata(tmp_path: Path) -> None:
+    """The SSOT projection must keep the QUALIFIED authority/deferral entries.
+
+    The VectorDB stores flat ID lists (FK-13 §13.9.3), but the W2/W3 governance
+    consumers decide authorization from the SCOPE-QUALIFIED form. Flattening it
+    away made every asserted scope look unauthorized.
+    """
+    import json
+
+    from concept_governance.chunks import authorization_scopes
+    from tools.concept_ingester.discovery import discover
+
+    root = tmp_path / "concept" / "technical-design"
+    root.mkdir(parents=True)
+    (root / "14_helper.md").write_text(_QUALIFIED_DOC, encoding="utf-8")
+    chunk = discover(tmp_path / "concept").chunks[0]
+
+    assert json.loads(chunk.metadata["authority_over_full"]) == [{"scope": "helper.scope"}]
+    assert json.loads(chunk.metadata["defers_to_full"]) == [
+        {"reason": "base", "scope": "vectordb", "target": "FK-13"},
+        {"reason": "", "scope": "", "target": "FK-01"},
+    ]
+    assert json.loads(chunk.metadata["supersedes_full"]) == [
+        {"reason": "", "scope": "", "target": "FK-00"}
+    ]
+    # The governance consumer reads owned + scope-qualified delegated scopes; an
+    # UNQUALIFIED deferral (FK-01, no scope) authorizes nothing.
+    assert authorization_scopes(chunk) == frozenset({"helper.scope", "vectordb"})

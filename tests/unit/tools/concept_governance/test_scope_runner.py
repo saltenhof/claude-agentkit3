@@ -65,10 +65,14 @@ def test_live_scope_without_discovery_chunks_fails_instead_of_being_omitted(tmp_
     write_doc(concept, "owner.md", "OWNER", "[{scope: lock.lifecycle}]")
     meta = concept / "_meta/meta-owner.md"
     meta.parent.mkdir(parents=True, exist_ok=True)
+    # A VALID document (FK-13 §13.9.6 mandatory fields present) that owns a live
+    # scope but has an EMPTY body, so discovery yields no chunk for it. The scope
+    # must therefore be reported as an incomplete sweep instead of being omitted.
+    # (Previously this state was produced by INVALID frontmatter, which the
+    # ingester adapter now refuses outright -- AG3-174 R06.)
     meta.write_text(
-        "---\nconcept_id: META\ntitle: Meta\nmodule: meta\n"
-        "authority_over: [{scope: meta.governance}]\ndefers_to: []\n---\n"
-        "## Rule\n\nThe meta rule must hold.\n",
+        "---\nconcept_id: META\ntitle: Meta\nmodule: meta\nstatus: active\n"
+        "doc_kind: core\nauthority_over: [{scope: meta.governance}]\ndefers_to: []\n---\n",
         encoding="utf-8",
     )
     write_empty_baseline(baseline)
