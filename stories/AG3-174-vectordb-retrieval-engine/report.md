@@ -1,4 +1,4 @@
-# AG3-174 — Story Report (post Codex review r9 remediation; concurrency residual carved out)
+# AG3-174 — Story Report (post Codex review r10 remediation; concurrency residual carved out)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
@@ -20,6 +20,12 @@
   `export_story_md` -> `WeaviateStoryIndex` -> `WeaviateCorpusStore` -> `SyncService`
   with the double only at the Weaviate client seam, and the objects come from
   `story_file_to_objects` over a written `story.md`.
+- **AC4 (project isolation): PASS again.** Every corpus read now carries the project
+  filter SERVER-SIDE (N51), not as an app-layer post-filter -- including the claim-ladder
+  read, which had the same defect and was not in the review's list. Every delete already
+  carried it (N48). The emitted filters are asserted, and a foreign project holding
+  `MAX_FETCH_OBJECTS + 10` rows on the same source can neither be returned nor break
+  this project's read.
 - **AC10 (strict validation): MET again.** The conditional-delete counters were a
   REGRESSION of R12 -- `getattr(..., 0)`, `or 0`, `int(...)` -- introduced in code
   written to fix something else. They are now exact: both counters must exist as
@@ -861,27 +867,50 @@ write, so a takeover landing after it still lets a superseded holder publish a
 lower-generation completion and run its own final delete. What protects the newer rows
 is ONLY the ordering predicate -- never the fence. The test now says that.
 
-### Transport-call audit (explicitly requested)
+### Transport-call audit (corrected after N51)
 
-Every transport call added across this story, checked against the three obligations:
+Every transport call added or touched across this story, against the four obligations.
+**The first version of this table was wrong**: it excused the corpus READS with the
+argument that post-filtering the project in the app layer is harmless because every
+mutation carries the scoped condition. Codex rejected that in r10 and was right -- AC4
+covers reads, and a foreign project's VOLUME can change the outcome of this project's
+read (the pagination ceiling counts what the server returns, not what the app keeps).
+The row is corrected, and the same second look found one further read with the identical
+defect that the review had not named.
 
-| call | exact counters | project isolation | generation predicate |
+| call | exact counters | project isolation (server-side) | source/generation predicate |
 |---|---|---|---|
-| `delete_by_ids_if_property_below` (ordering delete) | yes (`_conditional_delete_counts`) | yes -- `project_id` + `source_file` in the condition (added now) | yes -- `< own generation` |
-| `delete_by_ids_if_property_absent` (legacy delete) | yes (same validator, from the start) | yes -- added now | n/a by design: it matches ONLY rows with no generation, which is what makes it safe |
-| `delete_by_ids` (unconditional) | yes -- counts only confirmed `True` returns | structural: used ONLY on the claim/receipt collections, whose uuids fold in project + source; never on `StoryContext` | n/a (auxiliary records, not corpus rows) |
-| `upsert` | yes -- exact confirmed count, partial batch rejected (R12) | every object is validated against the bound target before the write (N13) | writes the stamp itself |
-| `insert_object` | conditional create, boolean return, no count to coerce | uuid folds in project + source | n/a |
-| `search_objects` / `fetch_by_property*` | n/a (reads) | reads are project-post-filtered; every MUTATION is scoped, which is where AC4 binds | n/a |
+| `delete_by_ids_if_property_below` (ordering delete) | yes | yes -- `project_id` + `source_file` in the condition | `< own generation` |
+| `delete_by_ids_if_property_absent` (legacy delete) | yes | yes -- same shared scope builder | IS-NULL only, which is what makes it safe |
+| `delete_by_ids` (unconditional) | yes -- counts only confirmed `True` | structural: used ONLY on the claim/receipt collections, never on `StoryContext` (pinned by a test). **P2-9 correction:** claim/release uuids fold in project + source + generation, but a COMPLETION uuid is `uuid5(project\|sequence)` -- so it folds in the project, NOT the source. The ids passed always come from a project-scoped read of that collection. | n/a |
+| `upsert` | yes -- partial batch rejected (R12) | every object validated against the bound target before the write (N13) | writes the generation stamp itself |
+| `insert_object` | conditional create, boolean return, no count to coerce | uuid folds in project (+ source for claims) | n/a |
+| `fetch_by_property` (source rows, receipts, claim ladder) | n/a | **yes, since N51** -- `all_of(project_id == …, <predicate>)`; a project-only read emits exactly one clause | source predicate where applicable |
+| `fetch_by_property_any` (source types) | n/a | **yes, since N51** | `source_type contains_any` |
+| `search_objects` (retrieval) | n/a | yes -- `project_id` AND `source_type` were already hard filters (R02/N01) | the caller's typed filters |
 
-Two of these obligations had already been missed once each (N44 counters, N48
-isolation), so the rule is now pinned structurally rather than restated: a test asserts
-that no `StoryContext` row can be deleted through the unconditional call and that both
-conditional deletes pass the authoritative scope. **One observation left open on
-purpose:** `fetch_by_property` pages by a single property and post-filters the project
-in Python, so a read is broader than strictly necessary. It is not an isolation defect
-(no mutation follows without the scoped condition), and narrowing it would change the
-read contract, so it is recorded rather than changed in this round.
+Three obligations had each been missed once by a NEW code path (N44 counters, N48 delete
+isolation, N51 read isolation), so two of them are now pinned structurally rather than
+restated: a test asserts that no `StoryContext` row can be deleted through the
+unconditional call and that both conditional deletes pass the authoritative scope, and
+the transport tests assert the ACTUAL emitted read filter rather than the intent.
+
+**Does anything else in the audit deserve the same second look?** I went through the
+remaining rows again with N51's lesson (an obligation is not satisfied by an app-layer
+compensation):
+
+- `_generation_rows` -- the claim-ladder read -- had the SAME defect and is fixed in the
+  same commit. It was not in the review's list; a foreign project holding the same
+  `source_file` could have pushed the ladder read into the ceiling.
+- `search_objects` already filtered `project_id` server-side, so retrieval was never
+  exposed.
+- The receipt reads already filtered by `project_id` as their only predicate.
+- `delete_by_ids` on the auxiliary collections is the one place that still relies on the
+  identity of the id rather than on a predicate. It is not a compensation in the app
+  layer -- the id itself carries the project -- but it is the weakest of the guarantees
+  in this table, and the completion-uuid shape (project, not source) is the reason P2-9
+  existed at all. I am naming it rather than leaving it implicit: if a future path ever
+  deletes corpus rows, it must not use this call, which is why that is now a test.
 
 ## Codex review r9 -- pile 2: the carve-out
 
@@ -920,7 +949,7 @@ those are closed here and should be treated as its foundation.
 | # | Option | Cost / consequence | Prerequisite |
 |---|---|---|---|
 | 1 | Eliminate or storage-fence the stale write | Not available at this seam (verified over three rounds: the pinned client offers no write precondition). Emulating it with generation-scoped uuids destroys the deterministic chunk identity that idempotent re-sync, the delete closure and the identity validation all rest on -- i.e. a new data model plus retrieval deduplication. | A different storage primitive or a deliberate identity-model change |
-| 2 | Exclude non-authoritative generations at retrieval | Coherent ONLY with `corpus_revision` as the discriminator, never the generation (retrieval spans many sources with no per-source bound, and FK-13 deliberately keeps that ordinal off the query surface). Couples every query to the completion set, grows the filter with the number of sources in scope, and leaves the rows present for unfiltered readers and counts. | A ratified retrieval-side contract change (§13.9.5) |
+| 2 | Exclude non-authoritative generations at retrieval | Two discriminators are technically coherent, and the choice is a trade-off rather than an exclusion (P2-10). (a) `corpus_revision`: visibility derives from the freshness marker the concept already owns, so nothing new appears on the query surface. (b) An INTERNAL per-source `(source_file, owning_generation)` authority filter: equally coherent, and it keeps the discriminator out of the tool contract as long as it is never exposed as a parameter -- but it needs the authoritative generation per source in scope, i.e. the same per-source lookup and the same filter growth. Both couple every query to the completion set, grow the filter with the number of sources in scope, and leave the rows present for unfiltered readers and counts. What FK-13 rules out is putting the generation on the QUERY SURFACE, not using it internally. | A ratified retrieval-side contract change (§13.9.5) |
 | 3 | Ratify a contract that models the bounded-in-practice/unbounded-in-theory inconsistency honestly | Cheapest in code, but it is a normative statement about what the corpus may show; it must say plainly that a search can transiently return superseded rows. | **PO decision** |
 
 **Acceptance criteria it would own.** (a) A stale write that lands after a completion is
@@ -933,6 +962,39 @@ generation ladder, completion ordering or legacy convergence.
 **Dependency.** Depends on AG3-174 (it builds on the persistent generation, the
 storage-conditional deletes and the completion ordering). It does not block AG3-174's
 landing, which stays gated on AG3-172.
+
+## Codex review r10 remediation (N51, N52, N53 + three nits)
+
+Every finding in the history is closed; r10 left one code defect, two documentation
+precisions and three nits.
+
+**N51 (AC4) -- reads.** Fixed as described in the AC4 bullet and the corrected audit
+table above. The honest part: this is the row my r9 audit deliberately left open with a
+wrong argument, so the finding is on the audit, not on a new code path.
+
+**N52 -- the residual starts at the observation frontier, not at the delete.** The fresh
+read and the conditional deletes are separate operations, and pagination is not a
+snapshot: a row can arrive after its page was read and never enter the candidate set.
+FK-13 §13.9.9 now defines the residual from the paginated read's frontier and lists both
+uncovered classes explicitly -- arrivals AFTER the final delete, and arrivals DURING the
+read that miss its candidate set. The earlier "removes everything that arrived before it"
+was exactly the kind of overstatement the carve-out must not contain.
+
+**N53 -- addendum 2's receipt-fence claim is marked false and superseded.** The fence is
+a read followed by a separate write, so a takeover landing after it lets a superseded
+holder append a lower-generation completion; N39 makes it non-authoritative but does not
+prevent publication. The sentence is struck through in place, the actual guarantee is
+stated (generation ordering prevents winning or pruning), and addendum 3 records both
+this and the N52 supersession.
+
+**Nits.** P2-9: the audit's uuid claim is corrected -- completion uuids are
+`uuid5(project|sequence)`, so they fold in the project but NOT the source. P2-10: option
+2 is now a trade-off between two coherent discriminators (`corpus_revision` or an
+internal per-source authority filter), not a categorical exclusion; what FK-13 rules out
+is exposing the generation on the query surface. P2-11: the dead trailing setup in the
+newer-owner sweep test is live -- it advances the ladder and proves the same pass removes
+an older-generation row, so the exclusion above it is the predicate at work rather than
+an empty candidate set.
 
 ## Ratification needed -- NOT decided in this story
 
@@ -1033,10 +1095,10 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest --cov=agentkit --cov-report=term` (project addopts
-  `-n 4 --dist loadfile`) -- after the r9 remediation: **4 failed, 9969 passed,
-  40 skipped, 521 errors**; total coverage **86.72 %**, AG3-174 modules **93.21 %**
+  `-n 4 --dist loadfile`) -- after the r10 remediation: **4 failed, 9974 passed,
+  40 skipped, 521 errors**; total coverage **86.73 %**, AG3-174 modules **93.22 %**
   (gate 85 % reached, with margin). The same 4 failures as in every earlier round, i.e.
-  none of r4-r9, N41/N43 or D7-D9 introduced any.
+  none of r4-r10, N41/N43 or D7-D9 introduced any.
   - **Correction, stated plainly:** the coverage figures reported in the r5, D7, r6
     and D8 rounds (85.87 / 85.69 / 85.64 / 85.53 %) are NOT trustworthy and are
     withdrawn. The project's `addopts` contain no `--cov`, so a plain `pytest` run
@@ -1065,6 +1127,14 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for r10 (5 scenarios, all RED): the read-scope builder dropping the
+  project clause, the project-only read emitting a redundant duplicate, the source-type
+  read losing its scope, the claim-ladder read falling back to an app-side filter, and
+  the classification no longer including older rows (which is what makes P2-11's
+  trailing block live).
+  - One case came back GREEN first and is named: my initial P2-11 case reverted a TEST
+    line, which proves nothing about production. Retargeted at the production predicate
+    the block exercises, it is RED.
 - Revert-check for pile 1 (8 scenarios, all RED): the receipt published before the
   required delete, the missing prevalidation, the legacy delete moved back before the
   upsert, the conditional-delete filter without project/source predicates, the vanished
