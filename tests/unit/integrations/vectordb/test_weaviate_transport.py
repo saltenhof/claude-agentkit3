@@ -367,6 +367,54 @@ def test_n02_hybrid_mode_requests_score() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# D8: a set-valued filter becomes a REAL server-side condition
+# --------------------------------------------------------------------------- #
+
+
+def _emitted_filter(filters: dict[str, object], hits: int = 1) -> object:
+    """Return the Weaviate filter object the adapter actually sent."""
+    objs = [_Obj(f"u{i}", _concept_props(), _Meta(score=0.5)) for i in range(hits)]
+    collection = _collection(_Response(objs))
+    _retrieval(_client(collection)).search(
+        project_id="acme", source_type="concept", query="q",
+        search_mode="hybrid", limit=5, filters=filters,
+    )
+    return collection.query.calls[0]["filters"]
+
+
+def test_d8_a_status_set_is_sent_as_a_real_or_of_equalities() -> None:
+    """The set must be evaluated by Weaviate, never post-filtered on the client."""
+    from weaviate.collections.classes.filters import _FilterOr
+
+    flt = _emitted_filter({"concept_status": ("active", "draft")})
+    # The whole condition is an AND of (project_id, source_type, status-set).
+    status_parts = [
+        part for part in flt.filters if isinstance(part, _FilterOr)  # type: ignore[attr-defined]
+    ]
+    assert len(status_parts) == 1
+    values = {p.value for p in status_parts[0].filters}  # type: ignore[attr-defined]
+    targets = {p.target for p in status_parts[0].filters}  # type: ignore[attr-defined]
+    assert values == {"active", "draft"}
+    assert targets == {"concept_status"}
+
+
+def test_d8_a_single_status_stays_a_plain_equality() -> None:
+    """The default query keeps the exact condition it has always issued."""
+    from weaviate.collections.classes.filters import _FilterOr
+
+    flt = _emitted_filter({"concept_status": ("active",)})
+    assert not any(isinstance(part, _FilterOr) for part in flt.filters)  # type: ignore[attr-defined]
+    status = [p for p in flt.filters if p.target == "concept_status"]  # type: ignore[attr-defined]
+    assert [p.value for p in status] == ["active"]
+
+
+def test_d8_an_empty_filter_set_is_fail_closed() -> None:
+    """An empty set selects nothing; it must never widen to "no filter"."""
+    with pytest.raises(VectorDbUnavailableError, match="empty set"):
+        _emitted_filter({"concept_status": ()})
+
+
+# --------------------------------------------------------------------------- #
 # N11: no repair default for hit properties
 # --------------------------------------------------------------------------- #
 

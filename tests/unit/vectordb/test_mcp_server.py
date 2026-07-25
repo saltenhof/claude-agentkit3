@@ -160,7 +160,11 @@ async def test_r01_every_tool_advertises_its_real_input_schema(tmp_path: Path) -
     }
     assert concept_props["authority_scope"]["type"] == "string"
     assert concept_props["is_appendix"]["type"] == "boolean"
-    assert concept_props["concept_status"]["enum"] == list(CONCEPT_STATUSES)
+    # D8: the status filter is advertised as a SET (enum on the item schema).
+    assert concept_props["concept_status"]["type"] == "array"
+    assert concept_props["concept_status"]["items"]["enum"] == list(CONCEPT_STATUSES)
+    assert concept_props["concept_status"]["minItems"] == 1
+    assert concept_props["concept_status"]["uniqueItems"] is True
     assert set(tools["concept_sync"].inputSchema["properties"]) == {
         "project_id", "full_reindex", "concept_path"
     }

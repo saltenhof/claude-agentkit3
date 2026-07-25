@@ -134,6 +134,13 @@ class RecordingWeaviateClient:
             return self.claims
         return self.objects
 
+    @staticmethod
+    def matches_filters(
+        props: Mapping[str, object], filters: Mapping[str, object]
+    ) -> bool:
+        """Apply the caller filters exactly as the real transport does (D8/N36)."""
+        return _matches_filters(props, filters)
+
     # -- search (the REAL retrieval path) ---------------------------------- #
     def search_objects(
         self,
@@ -159,12 +166,17 @@ class RecordingWeaviateClient:
                 "property_spec": tuple(property_spec),
             }
         )
-        # The real query filters server-side on project_id AND source_type.
+        # The real query filters server-side on project_id AND source_type AND
+        # EVERY caller filter (N36/D8): the double used to ignore the filters, which
+        # is how a "draft" query could observe an ACTIVE hit that a real Weaviate
+        # filter would have excluded. A set-valued filter is membership, a scalar is
+        # equality -- the same semantics the adapter builds.
         results = [
             r
             for r in self.search_results
             if r[1].get("source_type") == source_type
             and r[1].get("project_id") == project_id
+            and _matches_filters(r[1], filters)
         ]
         # Hold the double to the SAME strictness as the real transport (N11).
         for uid, props, _score in results:
@@ -262,6 +274,29 @@ class RecordingWeaviateClient:
                 "properties": tuple(str(s["name"]) for s in property_specs),
             }
         )
+
+
+def _matches_filters(
+    props: Mapping[str, object], filters: Mapping[str, object]
+) -> bool:
+    """Return whether one hit satisfies EVERY caller filter (D8/N36).
+
+    Mirrors :meth:`_RealWeaviateClient.search_objects`: a set-valued filter is a
+    membership test (the real adapter emits an OR of equalities), everything else is
+    equality. Booleans compare as booleans; other scalars compare as strings, which
+    is what the adapter sends over the wire.
+    """
+    for prop, expected in filters.items():
+        actual = props.get(prop)
+        if isinstance(expected, (list, tuple, set, frozenset)):
+            if str(actual) not in {str(v) for v in expected}:
+                return False
+        elif isinstance(expected, bool):
+            if actual is not expected:
+                return False
+        elif str(actual) != str(expected):
+            return False
+    return True
 
 
 def corpus_store(

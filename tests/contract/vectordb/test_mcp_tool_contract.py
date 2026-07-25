@@ -77,7 +77,8 @@ FK13_PARAM_TYPES: dict[str, str] = {
     "module": "string",
     "authority_scope": "string",
     "is_appendix": "boolean",
-    "concept_status": "string",
+    # D8: a status SET, not a single value.
+    "concept_status": "array",
     "concept_path": "string",
 }
 
@@ -115,7 +116,16 @@ def test_enum_and_bound_defaults_match_fk13() -> None:
     search_mode = contract_for("story_search").input_schema()["properties"]["search_mode"]
     assert search_mode["enum"] == list(SEARCH_MODES) == ["hybrid", "vector", "keyword"]
     concept_status = contract_for("concept_search").input_schema()["properties"]["concept_status"]
-    assert concept_status["enum"] == list(CONCEPT_STATUSES) == ["active", "draft", "archived"]
+    # D8: the enum moved to the ITEM schema; the parameter itself is a set with at
+    # least one entry and no duplicates -- exactly what the strict validator enforces.
+    assert concept_status["type"] == "array"
+    assert concept_status["items"] == {
+        "type": "string",
+        "enum": list(CONCEPT_STATUSES),
+    }
+    assert list(CONCEPT_STATUSES) == ["active", "draft", "archived"]
+    assert concept_status["minItems"] == 1
+    assert concept_status["uniqueItems"] is True
     limit = contract_for("story_search").input_schema()["properties"]["limit"]
     assert limit["minimum"] == 1
     assert limit["maximum"] == MAX_LIMIT

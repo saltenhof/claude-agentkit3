@@ -50,6 +50,8 @@ class ToolParam:
     enum: tuple[str, ...] = ()
     minimum: int | None = None
     maximum: int | None = None
+    item_type: str = ""
+    item_enum: tuple[str, ...] = ()
 
     def json_schema(self) -> dict[str, object]:
         """Return the JSON-Schema fragment advertised for this parameter.
@@ -57,6 +59,11 @@ class ToolParam:
         The type NEVER includes ``null``: an explicit JSON ``null`` is invalid
         for every optional parameter (R13), and only an absent key falls back to
         the documented default.
+
+        An ``array`` parameter advertises its element type/enum plus the two
+        constraints the strict validator enforces: at least one entry and no
+        duplicates (D8 -- an empty or duplicated set is a named error, never
+        silently normalised).
         """
         schema: dict[str, object] = {"type": self.json_type, "description": self.description}
         if self.enum:
@@ -65,6 +72,13 @@ class ToolParam:
             schema["minimum"] = self.minimum
         if self.maximum is not None:
             schema["maximum"] = self.maximum
+        if self.json_type == "array":
+            items: dict[str, object] = {"type": self.item_type}
+            if self.item_enum:
+                items["enum"] = list(self.item_enum)
+            schema["items"] = items
+            schema["minItems"] = 1
+            schema["uniqueItems"] = True
         return schema
 
 
@@ -164,8 +178,12 @@ TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
             ),
             ToolParam("is_appendix", "boolean", False, "Only appendices / only core."),
             ToolParam(
-                "concept_status", "string", False, "active (default), draft or archived.",
-                enum=CONCEPT_STATUSES,
+                "concept_status", "array", False,
+                'Status SET of the result; default ["active"]. Several statuses may '
+                "be requested together; ranking rule 4 then orders active before "
+                "draft/archived (D8).",
+                item_type="string",
+                item_enum=CONCEPT_STATUSES,
             ),
             _LIMIT,
         ),
@@ -301,16 +319,68 @@ def validate_bool(args: Mapping[str, Any], *, name: str) -> bool:
     return value
 
 
-def validate_concept_status(args: Mapping[str, Any]) -> str:
-    """Validate ``concept_status``: absent -> ``active`` (§13.9.10); else strict."""
-    value = optional_str(args, "concept_status")
+def validate_concept_status(args: Mapping[str, Any]) -> tuple[str, ...]:
+    """Validate the ``concept_status`` SET (FK-13 §13.9.5/§13.9.10, D8).
+
+    The filter is a LIST so several statuses can be requested together; ranking
+    rule 4 then orders active before draft/archived. Semantics, fail-closed and
+    without any coercion (consistent with D2/D7):
+
+    - key ABSENT -> ``("active",)``, the documented default;
+    - a BARE STRING is a named error, not a one-element list;
+    - explicit ``null``, an empty list, an unknown value, a duplicate and a
+      non-string element are named errors.
+
+    Args:
+        args: The RAW tool arguments as they arrived.
+
+    Returns:
+        The requested statuses in the caller's order (no normalisation).
+
+    Raises:
+        ToolArgumentError: For any of the rejected shapes above.
+    """
+    if "concept_status" not in args:
+        return ("active",)
+    value = args["concept_status"]
     if value is None:
-        return "active"
-    if value not in CONCEPT_STATUSES:
         raise ToolArgumentError(
-            f"concept_status {value!r} must be one of {CONCEPT_STATUSES} (AC10)"
+            "argument 'concept_status' is explicitly null; omit the key to use the "
+            'default ["active"] (R13, no silent fallback)'
         )
-    return value
+    if isinstance(value, str):
+        raise ToolArgumentError(
+            f"concept_status must be a LIST of status values, got the bare string "
+            f"{value!r}; use [{value!r}] (D8, no coercion)"
+        )
+    if not isinstance(value, (list, tuple)):
+        raise ToolArgumentError(
+            f"concept_status must be a list of status values, got "
+            f"{type(value).__name__} (D8/AC10)"
+        )
+    if not value:
+        raise ToolArgumentError(
+            "concept_status is an empty list; omit the key to use the default "
+            '["active"] (D8, an empty status set selects nothing)'
+        )
+    seen: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            raise ToolArgumentError(
+                f"concept_status entry {entry!r} must be a string, got "
+                f"{type(entry).__name__} (D8/AC10)"
+            )
+        if entry not in CONCEPT_STATUSES:
+            raise ToolArgumentError(
+                f"concept_status {entry!r} must be one of {CONCEPT_STATUSES} (AC10)"
+            )
+        if entry in seen:
+            raise ToolArgumentError(
+                f"concept_status lists {entry!r} twice; a duplicate is rejected "
+                "rather than de-duplicated (D8, no silent normalisation)"
+            )
+        seen.append(entry)
+    return tuple(seen)
 
 
 def resolve_project_id(binding: RuntimeBinding, args: Mapping[str, Any]) -> str:

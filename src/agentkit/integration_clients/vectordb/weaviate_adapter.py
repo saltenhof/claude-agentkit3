@@ -456,6 +456,25 @@ class _RealWeaviateClient:
         for prop, value in filters.items():
             if isinstance(value, bool):
                 parts.append(Filter.by_property(prop).equal(value))
+            elif isinstance(value, (list, tuple, set, frozenset)):
+                # A SET filter is evaluated server-side as a real OR of equalities
+                # (D8): the caller may ask for several concept statuses at once, and
+                # post-filtering on the client would break `limit` and the server's
+                # own ranking. A single value keeps the plain equality the default
+                # query has always issued.
+                values = [str(v) for v in value]
+                if not values:
+                    raise VectorDbUnavailableError(
+                        f"filter {prop!r} is an empty set; an empty set selects "
+                        "nothing (fail-closed, D8)."
+                    )
+                parts.append(
+                    Filter.by_property(prop).equal(values[0])
+                    if len(values) == 1
+                    else Filter.any_of(
+                        [Filter.by_property(prop).equal(v) for v in values]
+                    )
+                )
             else:
                 parts.append(Filter.by_property(prop).equal(str(value)))
         flt = Filter.all_of(parts) if len(parts) > 1 else parts[0]

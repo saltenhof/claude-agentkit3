@@ -221,7 +221,7 @@ def test_r02_concept_search_issues_real_scoped_query(tmp_path: Path) -> None:
     call = client.search_calls[0]
     assert call["collection"] == STORY_CONTEXT_COLLECTION
     assert call["source_type"] == "concept"
-    assert call["filters"]["concept_status"] == "active"  # default active (AC7)
+    assert call["filters"]["concept_status"] == ("active",)  # default active (AC7/D8)
     assert call["search_mode"] == "hybrid"
     assert call["project_id"] == "acme"
     # The requested property profile carries the concept extension (N11/§13.9.3).
@@ -584,7 +584,7 @@ def test_r13_absent_optional_falls_back_to_the_documented_default(tmp_path: Path
     assert call["limit"] == 10  # DEFAULT_LIMIT
     assert call["search_mode"] == "hybrid"
     assert call["project_id"] == "acme"
-    assert call["filters"] == {"concept_status": "active"}
+    assert call["filters"] == {"concept_status": ("active",)}
 
 
 # --------------------------------------------------------------------------- #
@@ -963,31 +963,116 @@ def test_d7_absent_scope_never_derives_one_and_leaves_rules_345_intact(
     assert "appendix-interface" in reasons["FK-13-A"]
     assert "module-match" in reasons["FK-13-A"]
     assert "module-match" in reasons["FK-13"]
-    assert "module-match" not in reasons["FK-11"]
     # ... and the rule-3 boost still lifts the appendix over the higher-scoring core.
     assert [r["concept_id"] for r in results][0] == "FK-13-A"
+    # The module filter is a REAL transport filter, so the foreign-module hit never
+    # reaches the ranking at all (the double applies the filters like Weaviate).
+    assert "FK-11" not in reasons
     # The scope was never forwarded to the transport as a filter either.
     assert "authority_scope" not in client.search_calls[0]["filters"]  # type: ignore[operator]
 
 
-def test_d7_rule4_demotes_a_draft_even_when_it_owns_the_queried_scope(
+# --------------------------------------------------------------------------- #
+# D8: mixed status result sets -- rule 4 proven on the REAL filter path (N36)
+#
+# Rule 4 was behaviourally inert while `concept_status` accepted exactly ONE value:
+# a real result set was status-homogeneous, so a demotion could never reorder
+# anything, and the old "proof" only worked because the double ignored the filter.
+# The double now applies every filter like Weaviate, and D8 makes the filter a SET.
+# --------------------------------------------------------------------------- #
+
+
+def test_d8_a_mixed_status_query_returns_both_and_ranks_active_first(
     tmp_path: Path,
 ) -> None:
+    """The filter really returns both statuses AND rule 4 puts the active one first."""
+    service, client = _service(tmp_path, with_draft_owner=True)
+    client.search_results = [
+        # The DRAFT scores 90x better and is returned by the transport.
+        concept_hit("c-draft", "FK-90", 9.0, module="planning", concept_status="draft"),
+        concept_hit("c-active", "FK-13", 0.1, module="vectordb", concept_status="active"),
+    ]
+    result = handle_tool_call(
+        service,
+        "concept_search",
+        {"query": "chunk sizes", "concept_status": ["active", "draft"]},
+    )
+    ranked = result["results"]
+    # 1. The transport really produced a MIXED set (the premise rule 4 needs).
+    assert {r["concept_id"] for r in ranked} == {"FK-13", "FK-90"}
+    assert {r["concept_status"] for r in ranked} == {"active", "draft"}
+    # 2. Rule 4 ordered the active document first despite the far worse score.
+    assert [r["concept_id"] for r in ranked] == ["FK-13", "FK-90"]
+    assert "status-penalty(draft)" in ranked[1]["rank_reasons"]
+    assert ranked[1]["score"] > ranked[0]["score"]
+    # 3. The filter reached the transport as a SET, not as a post-filter.
+    assert client.search_calls[0]["filters"]["concept_status"] == ("active", "draft")  # type: ignore[index]
+
+
+def test_d8_rule4_outranks_a_direct_authority_of_a_draft(tmp_path: Path) -> None:
     """A live rule 1 must not lift a non-active owner: rule 4 demotes whole tiers."""
     service, client = _service(tmp_path, with_draft_owner=True)
     client.search_results = [
         # FK-90 OWNS `chunking` but is draft in the corpus, and it scores far better.
-        concept_hit("c-draft-owner", "FK-90", 9.0, module="planning"),
-        concept_hit("c-active", "FK-13", 0.1, module="vectordb"),
+        concept_hit("c-draft-owner", "FK-90", 9.0, module="planning", concept_status="draft"),
+        concept_hit("c-active", "FK-13", 0.1, module="vectordb", concept_status="active"),
     ]
     ranked = handle_tool_call(
         service, "concept_search",
-        {"query": "chunk sizes", "authority_scope": "chunking", "concept_status": "draft"},
+        {
+            "query": "chunk sizes",
+            "authority_scope": "chunking",
+            "concept_status": ["active", "draft"],
+        },
     )["results"]
     assert [r["concept_id"] for r in ranked] == ["FK-13", "FK-90"]
     # Rule 1 DID fire for the draft -- and rule 4's whole-tier demotion still wins.
     assert "authority_over-direct" in ranked[1]["rank_reasons"]
     assert "status-penalty(draft)" in ranked[1]["rank_reasons"]
+
+
+def test_d8_the_default_still_returns_active_only(tmp_path: Path) -> None:
+    """The default is unchanged: drafts appear ONLY when explicitly requested."""
+    service, client = _service(tmp_path, with_draft_owner=True)
+    hits = [
+        concept_hit("c-draft", "FK-90", 9.0, module="planning", concept_status="draft"),
+        concept_hit("c-active", "FK-13", 0.1, module="vectordb", concept_status="active"),
+    ]
+    client.search_results = list(hits)
+    default = handle_tool_call(service, "concept_search", {"query": "chunk sizes"})
+    assert [r["concept_id"] for r in default["results"]] == ["FK-13"]
+    assert client.search_calls[0]["filters"]["concept_status"] == ("active",)  # type: ignore[index]
+    # An explicit archived-only query excludes both of them (filter faithfulness).
+    client.search_results = list(hits)
+    archived = handle_tool_call(
+        service, "concept_search", {"query": "chunk sizes", "concept_status": ["archived"]}
+    )
+    assert archived["results"] == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("draft", "bare string", id="bare-string"),
+        pytest.param(None, "explicitly null", id="null"),
+        pytest.param([], "empty list", id="empty-list"),
+        pytest.param(["draft", "draft"], "twice", id="duplicate"),
+        pytest.param(["published"], "must be one of", id="unknown-value"),
+        pytest.param(["active", 7], "must be a string", id="wrong-element-type"),
+        pytest.param({"active": True}, "must be a list", id="wrong-container"),
+    ],
+)
+def test_d8_concept_status_set_is_strictly_validated(
+    tmp_path: Path, value: object, expected: str
+) -> None:
+    """No coercion (D8): every malformed status set is a NAMED error."""
+    service, client = _service(tmp_path)
+    client.search_results = [concept_hit("c1", "FK-13", 0.5)]
+    with pytest.raises(ToolArgumentError, match=expected):
+        handle_tool_call(
+            service, "concept_search", {"query": "retrieval", "concept_status": value}
+        )
+    assert client.search_calls == []  # rejected BEFORE the query is issued
 
 
 def test_d7_a_huge_similarity_score_cannot_overturn_a_direct_authority(
@@ -1023,7 +1108,7 @@ def test_d7_authority_scope_is_a_ranking_input_not_a_filter(tmp_path: Path) -> N
         {"query": "retrieval", "authority_scope": "vectordb", "module": "vectordb"},
     )
     filters = client.search_calls[0]["filters"]
-    assert filters == {"concept_status": "active", "module": "vectordb"}  # scope absent
+    assert filters == {"concept_status": ("active",), "module": "vectordb"}  # scope absent
 
 
 @pytest.mark.parametrize(
