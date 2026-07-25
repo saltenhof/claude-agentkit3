@@ -1647,6 +1647,28 @@ def test_n51_a_project_only_read_emits_exactly_one_clause() -> None:
     assert flt.value == "acme"
 
 
+def test_p2_12_a_project_id_read_with_a_divergent_value_is_fail_closed() -> None:
+    """The project-only single-clause form must not silently drop a divergent value.
+
+    The optimization emits ONE clause when ``prop == "project_id"``. A caller passing
+    a different ``value`` would then have its predicate quietly discarded and read the
+    BOUND project instead of the one it asked for. That is a named error, not a
+    reinterpretation (P2-12).
+    """
+    with pytest.raises(VectorDbUnavailableError, match="value == project_id"):
+        _emitted_read_filter(project_id="acme", prop="project_id", value="other")
+
+
+def test_p2_12_a_project_id_read_with_the_bound_value_still_emits_one_clause() -> None:
+    """The legitimate project-only read is unaffected by the divergence guard."""
+    from weaviate.collections.classes.filters import _FilterValue
+
+    flt = _emitted_read_filter(project_id="acme", prop="project_id", value="acme")
+    assert isinstance(flt, _FilterValue)
+    assert flt.target == "project_id"
+    assert flt.value == "acme"
+
+
 def test_n51_a_foreign_projects_volume_cannot_break_this_projects_read() -> None:
     """The counterexample: a foreign project holds MORE rows than the ceiling.
 

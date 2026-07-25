@@ -229,8 +229,19 @@ idempotenter Re-Sync, Delete-Closure und Identitaetspruefung beruhen. Ein
 **Retrieval-Filter auf die Generation** wurde verworfen, weil eine Abfrage viele
 Quellen umfasst und keine quellenweise Schranke kennt, und weil damit ein internes
 Nebenlaeufigkeits-Ordinal auf die Abfrageoberflaeche geriete, die FK-13 bewusst
-davon freihaelt; ein Filter auf `corpus_revision` waere die einzige kohaerente
-Variante dieser Form und ist fuer den erreichten Schutz nicht erforderlich.
+davon freihaelt; ~~ein Filter auf `corpus_revision` waere die einzige kohaerente
+Variante dieser Form~~ und ist fuer den erreichten Schutz nicht erforderlich.
+
+> **Praezisierung (2026-07-25, Nachtrag 3 / P2-10b):** Der durchgestrichene
+> Halbsatz ist **zu kategorisch**. Kohaerent sind **zwei** Diskriminatoren:
+> `corpus_revision` **oder** ein interner quellenweiser
+> `(source_file, owning_generation)`-Autoritaetsfilter. Beide koppeln die Abfrage
+> an die Completion-Menge und tragen denselben quellenweisen Lookup samt
+> wachsender Filterbreite; die Wahl ist ein Trade-off, keine Eindeutigkeit.
+> Unveraendert gilt: ausgeschlossen ist nicht die *interne* Nutzung der
+> Generation, sondern allein ihre Sichtbarkeit auf der **Abfrageoberflaeche**
+> (FK-13 §13.9.5). Der zweite Halbsatz (fuer den erreichten Schutz nicht
+> erforderlich) bleibt gueltig.
 
 **Zusaetzlich (Finding N43):** Vorbestehende Zeilen ohne `owning_generation` sind
 gegen keine Generation ordenbar und haetten jeden Reindex dauerhaft blockiert. Der

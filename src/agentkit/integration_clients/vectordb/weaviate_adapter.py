@@ -590,14 +590,26 @@ class _RealWeaviateClient:
         return_props: Sequence[str],
     ) -> Sequence[tuple[str, dict[str, object]]]:
         """Fetch ``(uuid, properties)`` for objects where ``prop == value``, scoped
-        to ``project_id`` SERVER-SIDE (AC4/N51)."""
+        to ``project_id`` SERVER-SIDE (AC4/N51).
+
+        A caller that filters on ``project_id`` itself must pass the bound project as
+        ``value``; a divergent value is a named error rather than a silently dropped
+        predicate (P2-12), so the project-only single-clause form can never widen the
+        generic fetch semantics.
+        """
         from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
 
+        project_only = prop == "project_id"
+        if project_only and value != project_id:
+            raise VectorDbUnavailableError(
+                f"fetch_by_property on 'project_id' requires value == project_id, "
+                f"got {value!r} != {project_id!r}; fail-closed (AC4/P2-12)."
+            )
         return self._fetch_all_pages(
             collection=collection,
             flt=_scoped_read_condition(
                 project_id=project_id,
-                predicate=None if prop == "project_id" else Filter.by_property(prop).equal(value),
+                predicate=None if project_only else Filter.by_property(prop).equal(value),
             ),
             return_props=return_props,
         )

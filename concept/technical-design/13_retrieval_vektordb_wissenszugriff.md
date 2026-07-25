@@ -760,8 +760,12 @@ Dieser Restbefund ist ein **offener, nicht ratifizierter Punkt** in der Verantwo
 einer **Folgestory**; er ist ausdruecklich **kein** akzeptierter Vertrag. Der
 Aufloesungsraum ist auf drei Formen begrenzt: (a) den Stale-Write storage-seitig
 verhindern - an diesem Rand nicht verfuegbar, (b) das Retrieval nicht-autoritative
-Generationen ausschliessen lassen - kohaerent nur ueber `corpus_revision`, mit
-Kopplung der Abfrage an die Completion-Menge, (c) ein **ratifizierter Vertrag**, der
+Generationen ausschliessen lassen - dafuer sind **zwei** Diskriminatoren kohaerent,
+`corpus_revision` oder ein interner quellenweiser `(source_file, owning_generation)`-
+Autoritaetsfilter; beide koppeln die Abfrage an die Completion-Menge und tragen
+denselben quellenweisen Lookup samt wachsender Filterbreite. Ausgeschlossen ist
+nicht die *interne* Nutzung der Generation, sondern allein ihre Sichtbarkeit auf der
+**Abfrageoberflaeche** (§13.9.5). (c) ein **ratifizierter Vertrag**, der
 eine potenziell unbegrenzte Post-Completion-Inkonsistenz ehrlich modelliert. (c)
 erfordert eine PO-Entscheidung; keine der drei ist in dieser Story getroffen.
 

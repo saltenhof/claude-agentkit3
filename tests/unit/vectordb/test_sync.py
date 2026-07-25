@@ -2006,18 +2006,53 @@ def test_every_storycontext_delete_is_conditional_and_scoped() -> None:
     source-scoped ones; the unconditional ``delete_by_ids`` is reserved for the
     auxiliary claim/receipt collections, whose ids fold in project and source.
     """
+    import ast
     import inspect
+    import textwrap
 
     from agentkit.backend.vectordb import engine
 
     source = inspect.getsource(engine.WeaviateCorpusStore)
-    # The unconditional delete is never aimed at the corpus collection.
-    for line in source.splitlines():
-        if "delete_by_ids(" in line and "if_property" not in line:
-            assert "self.collection" not in line, line
+    tree = ast.parse(textwrap.dedent(source))
+
+    # Spellings that denote the corpus collection. A future path must not reach the
+    # unconditional delete through ANY of them -- the previous string scan only saw
+    # `self.collection` and a `collection=STORY_CONTEXT_COLLECTION` call would have
+    # evaded it (P2-13).
+    corpus_spellings = {"collection", "STORY_CONTEXT_COLLECTION", "STORY_CONTEXT"}
+
+    def _denotes_corpus(node: ast.expr) -> bool:
+        if isinstance(node, ast.Attribute):
+            return node.attr in corpus_spellings
+        if isinstance(node, ast.Name):
+            return node.id in corpus_spellings
+        return False
+
+    unconditional = 0
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        target = call.func
+        if not isinstance(target, ast.Attribute) or target.attr != "delete_by_ids":
+            continue
+        unconditional += 1
+        for kw in call.keywords:
+            if kw.arg == "collection":
+                assert not _denotes_corpus(kw.value), (
+                    "the unconditional delete_by_ids must never target the corpus "
+                    f"collection (line {call.lineno})"
+                )
+    assert unconditional, "no unconditional delete_by_ids call found -- guard is dead"
+
     # Both corpus deletes pass the authoritative scope.
     for name in ("delete_by_ids_if_property_below", "delete_by_ids_if_property_absent"):
-        call = source[source.index(name) : source.index(name) + 400]
-        assert "project_id=project_id" in call, name
-        assert "source_file=source_file" in call, name
+        scoped = [
+            c
+            for c in ast.walk(tree)
+            if isinstance(c, ast.Call)
+            and isinstance(c.func, ast.Attribute)
+            and c.func.attr == name
+        ]
+        assert scoped, name
+        for call in scoped:
+            passed = {kw.arg for kw in call.keywords if kw.arg is not None}
+            assert {"project_id", "source_file"} <= passed, (name, sorted(passed))
 
