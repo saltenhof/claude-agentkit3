@@ -1,10 +1,12 @@
-# AG3-174 — Story Report (post Codex review r8 remediation)
+# AG3-174 — Story Report (post Codex review r8 remediation + N41/N43)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
 - **Status:** implemented, NOT landed (landing gated on AG3-172, orchestrator's
-  job). **AC6 remains open** (N41/N43 are with the PO) and so does Q2; D9's
-  replacement mechanism still awaits the PO's re-confirmation.
+  job). All 12 ACs now pass on the real production path. Q2 remains open (a PO concept
+  question that does not block), and D9's replacement mechanism still awaits the PO's
+  re-confirmation -- the mechanism was delegated to the implementation, so this report
+  states what was built rather than assuming the confirmation.
 - **A note on how AC status is reported here.** In r7 this report claimed all 12 ACs.
   Codex found 9, and it was right: AC3's proof ran through a FIXTURE-shaped identity
   (the test built its uuid the same wrong way the code did), and AC10 had a fresh
@@ -24,11 +26,13 @@
   written to fix something else. They are now exact: both counters must exist as
   non-boolean integers, negatives and impossible totals are faults, and a reported
   failure is fail-closed (N44). A new transport call inherits the AC10 obligation.
-- **AC6 (bounded window / concurrency): NOT met -- with the PO.** The generation
-  model's core holds (Codex confirmed both race orders, the A->B->C chain and the
-  ladder), but the chunk-WRITE race (N41) and the absence of a convergent path for
-  pre-existing unstamped rows (N43) are open. Both are scope questions, so they are
-  deliberately untouched here; the N41 analysis the coordinator asked for is below.
+- **AC6 (bounded window / concurrency): MET.** The generation model's core was
+  already confirmed (both race orders, the A->B->C chain, the ladder). The two
+  remaining gaps are now closed: the stale chunk-WRITE window ends at the completion
+  instead of at the next sync (N41, shape 3), and pre-existing unstamped rows converge
+  instead of blocking every retry forever (N43). Both are storage-conditional and
+  claim-owned, with no application-side ownership check anywhere in the destructive
+  path. See "N41/N43 remediation" below.
 - **Question ledger.** Every question this story raised is now either ratified and
   implemented, or explicitly out of the story's hands:
 
@@ -717,6 +721,101 @@ worth it only if the PO wants ZERO visible exposure, and then with `corpus_revis
 as the discriminator, not the generation. Shape 1 should be a separate story if it is
 wanted at all.
 
+## N41/N43 remediation (shape 3 + convergent backfill)
+
+### N41 -- shape 3: one post-completion sweep
+
+**What the defect actually was.** The pre-write fence and the upsert are separate
+operations, so a superseded writer can append objects of its OWN, lower generation
+after this generation's delete has already run. With CHANGED content those objects
+carry DIFFERENT uuids, so nothing else in the window touches them -- which is exactly
+why the old "the write is idempotent, same uuid, same content" premise hid the defect.
+
+**What was built.** After publishing its completion, the completing owner runs ONE more
+pass over its own source: read the source's rows, take those that are not part of this
+generation, and delete the ones whose `owning_generation` is strictly BELOW this
+claim's -- through the same storage-conditional predicate as the in-window delete, under
+the still-held claim, with no application-side check. Rows at a generation >= this
+claim's are deliberately NOT candidates: a higher generation means a newer owner took
+over after this completion, and its data is not this writer's to remove (its own
+completion supersedes this one).
+
+**Why this closes N41 without touching identity or retrieval.** It adds no state, no
+property and no contract surface: the predicate, the property and the transport call
+are the ones N37 already established, executed once more at a later point. The object
+identity model is untouched (still `uuid5(project|source|chunk)`), so idempotent
+re-sync, the delete closure and the N42 identity validation are unaffected. Retrieval
+is untouched: no query-side filter, no per-source bound, and no internal concurrency
+ordinal on the tool surface. What changes is only WHEN the window closes -- at the
+completion instead of at the next sync of that source.
+
+**Residual, stated honestly.** A stale write that lands AFTER the sweep still waits for
+the next sync of that source, which removes it for the reasons already analysed (its
+generation is strictly lower than every later claim's). No transactional atomicity is
+claimed anywhere.
+
+**Tests.** The race is driven with DIFFERING content, so the stale rows are genuinely
+distinct rows: (a) a superseded writer appends after the takeover and the next owner's
+completion sweeps it; (b) the tightest window -- the stale row is injected at the
+instant the completion record is created, i.e. after the in-window delete, so only a
+post-completion pass can remove it; (c) the sweep cannot delete a newer generation's
+rows (driven at the predicate, because a taken-over holder never reaches its own
+completion -- the fence rejects it -- so the bound, not the fence, must be what
+protects them); (d) every conditional delete in a run, sweep included, uses the
+HOLDER'S OWN generation as its bound.
+
+### N43 -- a convergent, claim-owned backfill
+
+**Why it is our debt.** The rows are orphaned because THIS story's schema change
+introduced the ordering property; declaring "no installed base" would be exactly the
+assumption that bites later.
+
+**What was built.** Before writing, the holder of a source converges that source's
+unstamped rows:
+
+- rows that are part of THIS generation need nothing -- the upsert overwrites them and
+  thereby stamps them;
+- the remaining unstamped rows are deleted under an **IS-NULL** storage condition,
+  which structurally cannot match any stamped row -- not the caller's own and not a
+  newer owner's. Nothing is adopted: content is either rewritten by this generation or
+  genuinely gone from the source;
+- a row whose generation is PRESENT but unusable (non-integer, zero, negative) is a
+  NAMED error, never a guess: it is neither orderable nor covered by IS-NULL, so
+  adopting or deleting it would be an assumption;
+- the vanished-source path converges the same way (IS-NULL for legacy rows, the
+  ordering predicate for stamped ones), so a legacy source can be removed at all;
+- the repair is RECORDED in `SyncResult.backfilled` -- a run that had to repair
+  pre-existing rows is visible in its own result. It is deliberately not added to the
+  MCP tool envelope: the FK-13 §13.4.1 return fields are a fixed contract.
+
+**Fail-closed boundaries.** The backfill only ever runs under a HELD claim for that
+source (a source held by another writer is rejected by D3 before anything is touched);
+a partial backfill -- fewer rows confirmed than requested -- raises and publishes no
+completion; and the IS-NULL condition is evaluated by the store, so the scope cannot
+widen by an application mistake. The new transport call carries the exact-counter
+validation from the start (the N44 lesson), not as a follow-up.
+
+**Tests.** The scenario Codex named -- current rows written, then one legacy row -- now
+converges on the FIRST run, removes the legacy row, publishes freshness, and a second
+run is a clean no-op; a legacy row that is still current is stamped by the write rather
+than deleted; a vanished legacy source converges; a vanished source with mixed
+stamped/unstamped rows converges; the backfill's uuid list contains ONLY unstamped
+rows (the stamped one is removed by the ordering predicate instead); an unclaimed
+backfill is impossible; a partial backfill is fail-closed; and the emitted transport
+filter really is `by_id CONTAINS_ANY ... AND owning_generation IS NULL`.
+
+### The false premise is corrected in both places
+
+FK-13 §13.9.9 no longer claims the chunk write is harmless "because the content is the
+same". It states what the window actually is: the write stays unguarded, changed
+content produces DIFFERENT uuids that the newer generation does not overwrite, and the
+window is therefore bounded by the post-completion sweep -- with whatever lands after
+it removed by the next sync. It also documents the legacy-row convergence. The D9
+record gets a second dated addendum that marks the "same content" premise FALSE, records
+the analysis that led to shape 3 (removability was never the problem; promptness and
+misreporting were), and names the two rejected shapes with the reasons. No atomicity is
+claimed in either place, and §13.9.6/`doc_kind` stays untouched.
+
 ## Ratification needed -- NOT decided in this story
 
 ### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
@@ -816,10 +915,10 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest --cov=agentkit --cov-report=term` (project addopts
-  `-n 4 --dist loadfile`) -- after the r8 remediation: **4 failed, 9942 passed,
-  40 skipped, 521 errors**; total coverage **86.71 %**, AG3-174 modules **93.21 %**
-  (gate 85 % reached, with margin). The same 4 failures as in every earlier round,
-  i.e. none of r4-r8 or D7-D9 introduced any.
+  `-n 4 --dist loadfile`) -- after N41/N43: **4 failed, 9955 passed, 40 skipped,
+  521 errors**; total coverage **86.72 %**, AG3-174 modules **93.16 %** (gate 85 %
+  reached, with margin). The same 4 failures as in every earlier round, i.e. none of
+  r4-r8, N41/N43 or D7-D9 introduced any.
   - **Correction, stated plainly:** the coverage figures reported in the r5, D7, r6
     and D8 rounds (85.87 / 85.69 / 85.64 / 85.53 %) are NOT trustworthy and are
     withdrawn. The project's `addopts` contain no `--cov`, so a plain `pytest` run
@@ -848,6 +947,18 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for N41/N43 (9 scenarios, all RED): the sweep not existing, the sweep
+  without its ordering bound, the sweep bound not being the holder's own generation, the
+  backfill not existing, the backfill also taking the should-set rows, the
+  unusable-generation error, the partial-backfill fail-close, the vanished path not
+  converging legacy rows, and the transport sending an ordering instead of the IS-NULL
+  condition.
+  - TWO of these came back GREEN first and are named as such: the sweep-bound case
+    (the test never observed the sweep's bound, because the sweep had no candidates ->
+    a stale row is now injected at the completion so both conditional deletes are
+    observed) and the transport IS-NULL case (no test inspected the emitted filter, so
+    changing it was invisible -> a transport test now asserts the real filter, plus the
+    exact-counter strictness on that new call).
 - Revert-check for r8 (10 scenarios, all RED): the coercive delete counters (missing,
   string, float, bool, None -- on the helper AND on the real transport call), the
   negative-count guard, the impossible-total guard, the confirmed claim release (after a
