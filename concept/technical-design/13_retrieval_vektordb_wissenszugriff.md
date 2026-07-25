@@ -108,6 +108,13 @@ Tokenisierung ist unzulaessig.
 | `section_heading` | TEXT | Ja | Abschnitts-Überschrift |
 | `content_hash` | TEXT | Nein | SHA-256 für Change-Detection |
 | `project_id` | TEXT | Nein | Projekt-Identifikator (Multi-Projekt) |
+| `owning_claim` | TEXT | Nein | Besitz-Token der Claim-Generation, die diese Objektversion geschrieben hat (§13.9.9, D9); Bedingung des zerstoerenden Deletes |
+
+**`owning_claim` ist kein zweiter Besitz-Wahrheitstraeger.** Autoritativ bleibt
+der Claim-Datensatz (§13.9.9); das Feld ist die Markierung *auf den Daten*, die
+den zerstoerenden Loeschschritt storage-seitig an den beobachteten Besitzer
+bindet. Es geht nicht in die Einbettung ein und ist nicht Teil der
+Rueckgabefelder der Werkzeuge (§13.4.1/§13.9.5).
 
 ### 13.3.2 Datenquellen
 
@@ -678,6 +685,29 @@ wird ueber `corpus_revision` markiert. An dieser Stelle gibt es **keinen**
 transaktionalen CAS-Mechanismus und **keinen** Generations-Zeiger; die
 Konsistenzgarantie ist bewusst auf „generationskonsistent mit kurzem
 Umschaltfenster" abgeschwaecht (PO-Entscheidung).
+
+**Besitzwechsel waehrend eines offenen Fensters (D9).** Der Claim (§13.9.9,
+D3/N27) wird nur durch einen **ausdruecklichen administrativen Reclaim**
+uebernommen. Ein solcher Reclaim kann zwischen einer Besitzpruefung und der
+darauf folgenden Mutation liegen; eine vorgelagerte Pruefung kann dieses Fenster
+grundsaetzlich nicht schliessen. Deshalb gilt:
+
+- Jede geschriebene Objektversion traegt in `owning_claim` (§13.3.1) das
+  Besitz-Token ihrer schreibenden Claim-Generation.
+- Der **zerstoerende** Schritt (Loeschen alter bzw. verschwundener Chunks) ist
+  **storage-seitig** an das beobachtete `owning_claim` gebunden: geloescht wird
+  nur, was noch dem beobachteten Besitzer gehoert. Ein ueberholter Halter kann
+  damit strukturell **nicht** loeschen, was der neuere Besitzer geschrieben hat.
+  Es gibt an dieser Stelle **keine** vorgelagerte Ersatzpruefung.
+- Zwei Restfenster bleiben **bewusst offen und sind unschaedlich**: der
+  **Chunk-Write** ist idempotent (deterministische UUID, gleicher Inhalt), und
+  die **Completion** ist insert-only und positionsgebunden — ein ueberholter
+  Halter kann nur eine neue Position anfuegen, nichts ueberschreiben, und die
+  gemeldete Frische wird nur aus verifizierten Completions gebildet.
+
+Auch hier wird **keine** transaktionale Atomizitaet behauptet: gesichert ist die
+Nicht-Loeschbarkeit fremder, neuerer Daten — nicht die Unteilbarkeit des
+Fensters.
 
 **Freshness-Indikator:** `corpus_revision` (nicht mtime — Datei-
 system-Timestamps sind bei Git-Operationen unzuverlässig).
