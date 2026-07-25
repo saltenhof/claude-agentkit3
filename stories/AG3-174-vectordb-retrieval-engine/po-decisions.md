@@ -243,6 +243,73 @@ Randfall. Der PO nimmt die Verlaengerung der Story bewusst in Kauf.
 
 ---
 
+## D9 — Restfenster beim Claim-Takeover: nur der zerstoerende Schritt wird
+## storage-seitig abgesichert (Nachtrag 2026-07-25)
+
+**Herkunft:** Codex-Review r6, Finding N33 (= N15/N27). Dem PO am 2026-07-25
+vorgelegt, nachdem der Coding-Agent die Faktenlage am Weaviate-Rand verifiziert
+hatte.
+
+**Frage:** Jeder Fence ist ein Read (`assert_claim_held`) gefolgt von einer
+separaten Mutation. Ein administrativer Reclaim (D-Serie: kein Zeitablauf, nur
+bewusster Eingriff) kann genau dazwischen landen — dann mutiert der ueberholte
+Halter trotzdem. Weaviate bietet an diesem Rand **keine** allgemeine
+epoch-konditionale Mutation (`update`/`replace`/`delete_by_id` kennen keine
+Vorbedingung; `insert` ist nur auf die Objekt-ID konditional).
+
+**Verifizierte Risiko-Asymmetrie der drei gefencten Schritte:**
+1. **Chunk-Write** — idempotent (deterministische uuid5): ein Nachzuegler
+   schreibt denselben Inhalt unter derselben ID. Harmlos.
+2. **Completion/Receipt** — insert-only und positionsgebunden (N28): ein
+   ueberholter Halter kann nur eine neue Position anfuegen, nichts
+   ueberschreiben. Harmlos.
+3. **Vanished-Source-Delete** — **der einzige zerstoerende Schritt.** Hier
+   koennte ein Nachzuegler Daten loeschen, die der neue Besitzer gerade
+   geschrieben hat.
+
+Und genau fuer diesen Schritt existiert eine storage-seitige Bedingung:
+`data.delete_many(where=…)` ist filter-konditional.
+
+**Entscheidung (PO, 2026-07-25):** **Nur der zerstoerende Schritt wird
+storage-seitig an den Besitz gebunden.** Die beiden harmlosen Schritte werden
+**ehrlich dokumentiert** statt kaschiert — keine Atomizitaetsbehauptung.
+Verworfen: das Restfenster komplett zu akzeptieren (der Loeschschritt bleibt
+sonst ein echtes Datenverlustrisiko) und die Vollabsicherung aller drei Schritte
+(braucht Prozessaufsicht ausserhalb dieser Schicht, die die VektorDB-Ebene nicht
+besitzt — eigene Story, AG3-174 wuerde darauf warten).
+
+**Zu erfuellende Invariante (verbindlich; das Wie ist Umsetzungsdesign):**
+> Ein ueberholter Halter darf **niemals** Daten loeschen, die der neuere
+> Besitzer geschrieben hat — und dies muss **storage-seitig** erzwungen sein,
+> nicht durch eine vorgelagerte Pruefung.
+
+**Mechanismus-Vorschlag (zu pruefen, nicht vorgeschrieben):** Die
+Besitz-Epoche der schreibenden Generation auf die Chunk-Objekte stempeln
+(`StoryContext`-Feld) und den Vanished-Source-Delete per `delete_many` an
+„Epoche des Objekts **aelter als** meine Epoche" binden. Ein ueberholter Halter
+haelt eine kleinere Epoche und kann damit die Objekte des neueren Besitzers
+strukturell nicht treffen. Der Agent prueft Tragfaehigkeit und Randfaelle
+(insbesondere: erwischt der Filter alle legitim zu loeschenden Alt-Chunks?) und
+melde, falls der Vorschlag nicht haelt — dann kommt die Frage zurueck.
+
+**Umsetzungsauftrag:**
+1. **Datenmodell:** ein Feld im `StoryContext`-Schema fuer die schreibende
+   Besitz-Epoche; als Schema-SSOT-Aenderung mit Read-back-Verifikation (N12/N35)
+   konsistent gefuehrt.
+2. **Code:** Vanished-Source-Delete ausschliesslich storage-konditional; keine
+   Ersatzpruefung im Applikationscode als „Absicherung".
+3. **Tests:** Ein Test uebernimmt **nach** erfolgreicher Besitzpruefung und
+   **vor** dem Loeschen und beweist, dass der ueberholte Halter die Daten des
+   neuen Besitzers nicht loescht; plus Nachweis, dass der legitime Loeschpfad
+   weiterhin alle Alt-Chunks entfernt.
+4. **Dokumentation:** Die verbleibenden zwei Fenster (idempotenter Write,
+   insert-only Completion) werden in FK-13 **oder** — falls keine Normaussage
+   betroffen ist — im Story-Bericht ausdruecklich als bekannt und unschaedlich
+   benannt. Keine Behauptung transaktionaler Atomizitaet, konsistent mit der
+   Bounded-Window-Linie aus DR 2026-07-21 Rand 5.
+
+---
+
 ## Konsequenzen
 
 - **Kein** Umschreiben von Story-Inhalt noetig — mit **einer** Ausnahme:
