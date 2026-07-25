@@ -108,13 +108,15 @@ Tokenisierung ist unzulaessig.
 | `section_heading` | TEXT | Ja | Abschnitts-Überschrift |
 | `content_hash` | TEXT | Nein | SHA-256 für Change-Detection |
 | `project_id` | TEXT | Nein | Projekt-Identifikator (Multi-Projekt) |
-| `owning_claim` | TEXT | Nein | Besitz-Token der Claim-Generation, die diese Objektversion geschrieben hat (§13.9.9, D9); Bedingung des zerstoerenden Deletes |
+| `owning_generation` | INT | Nein | Quell-Generation, die diese Objektversion geschrieben hat (§13.9.9, D9); Ordnungsbedingung des zerstoerenden Deletes |
 
-**`owning_claim` ist kein zweiter Besitz-Wahrheitstraeger.** Autoritativ bleibt
-der Claim-Datensatz (§13.9.9); das Feld ist die Markierung *auf den Daten*, die
-den zerstoerenden Loeschschritt storage-seitig an den beobachteten Besitzer
-bindet. Es geht nicht in die Einbettung ein und ist nicht Teil der
-Rueckgabefelder der Werkzeuge (§13.4.1/§13.9.5).
+**`owning_generation` ist kein zweiter Besitz-Wahrheitstraeger.** Autoritativ
+bleibt der Claim-Datensatz (§13.9.9): er entscheidet, **wer** eine Quelle haelt.
+Das Feld traegt nur die **Ordnung** — die Generation, unter der die Objektversion
+geschrieben wurde — und bindet den zerstoerenden Loeschschritt storage-seitig an
+„nachweislich aeltere Generation". Es ist numerisch (die Bedingung ist ein
+Vergleich, keine Gleichheit), geht nicht in die Einbettung ein und ist nicht Teil
+der Rueckgabefelder der Werkzeuge (§13.4.1/§13.9.5).
 
 ### 13.3.2 Datenquellen
 
@@ -686,28 +688,45 @@ transaktionalen CAS-Mechanismus und **keinen** Generations-Zeiger; die
 Konsistenzgarantie ist bewusst auf „generationskonsistent mit kurzem
 Umschaltfenster" abgeschwaecht (PO-Entscheidung).
 
-**Besitzwechsel waehrend eines offenen Fensters (D9).** Der Claim (§13.9.9,
-D3/N27) wird nur durch einen **ausdruecklichen administrativen Reclaim**
-uebernommen. Ein solcher Reclaim kann zwischen einer Besitzpruefung und der
-darauf folgenden Mutation liegen; eine vorgelagerte Pruefung kann dieses Fenster
-grundsaetzlich nicht schliessen. Deshalb gilt:
+**Quell-Generation (D9/N37).** Jede Quelle `(project_id, source_file)` traegt
+eine **persistente, streng monoton steigende Generation**. **Jede** Akquisition
+des Claims — normale Uebernahme *und* administrativer Reclaim — vergibt per
+konditionalem Create die naechste Nummer, und eine normale Freigabe **erhaelt die
+Leiterposition** (sie setzt nur eine Freigabe-Markierung). Ein uebernehmender
+Besitzer haelt damit zwangslaeufig eine **hoehere** Generation als der Halter, den
+er ueberholt. Ohne diese Persistenz gaebe es keine entscheidbare Ordnungsaussage
+darueber, welche Generation eine Objektversion geschrieben hat.
 
-- Jede geschriebene Objektversion traegt in `owning_claim` (§13.3.1) das
-  Besitz-Token ihrer schreibenden Claim-Generation.
+**Besitzwechsel waehrend eines offenen Fensters (D9).** Der Claim wird nur durch
+einen **ausdruecklichen administrativen Reclaim** uebernommen. Ein solcher Reclaim
+kann zwischen einer Besitzpruefung und der darauf folgenden Mutation liegen; eine
+vorgelagerte Pruefung kann dieses Fenster grundsaetzlich nicht schliessen. Deshalb
+gilt:
+
+- Jede geschriebene Objektversion traegt in `owning_generation` (§13.3.1) die
+  Generation, unter der sie geschrieben wurde.
 - Der **zerstoerende** Schritt (Loeschen alter bzw. verschwundener Chunks) ist
-  **storage-seitig** an das beobachtete `owning_claim` gebunden: geloescht wird
-  nur, was noch dem beobachteten Besitzer gehoert. Ein ueberholter Halter kann
-  damit strukturell **nicht** loeschen, was der neuere Besitzer geschrieben hat.
-  Es gibt an dieser Stelle **keine** vorgelagerte Ersatzpruefung.
-- Zwei Restfenster bleiben **bewusst offen und sind unschaedlich**: der
-  **Chunk-Write** ist idempotent (deterministische UUID, gleicher Inhalt), und
-  die **Completion** ist insert-only und positionsgebunden — ein ueberholter
-  Halter kann nur eine neue Position anfuegen, nichts ueberschreiben, und die
-  gemeldete Frische wird nur aus verifizierten Completions gebildet.
+  **storage-seitig** an „Generation des Objekts **strikt kleiner** als die
+  Generation des loeschenden Claims" gebunden. Die Bedingung vergleicht gegen die
+  **eigene** Generation des Loeschenden, nicht gegen einen gelesenen Wert: eine
+  Gleichheit gegen den beobachteten Wert schliesst nur das Intervall zwischen
+  Lesen und Loeschen und belegt **nicht**, zu welcher Generation der Wert gehoert.
+  Ein ueberholter Halter kann damit — in **beiden** Wettlauf-Reihenfolgen —
+  strukturell nicht loeschen, was eine neuere Generation geschrieben hat. Es gibt
+  an dieser Stelle **keine** vorgelagerte Ersatzpruefung.
+- Die **Completion** ist an dieselbe Generation gebunden: gueltig-massgeblich ist
+  die Completion mit der **hoechsten Generation** der Quelle, nicht die mit der
+  hoechsten Position. Ein ueberholter Schreiber, der nach dem neueren Besitzer
+  publiziert, kann daher weder die gemeldete Frische zuruecknehmen noch die
+  gueltige Completion des neueren Besitzers verdraengen. Insert-only allein
+  genuegte dafuer nicht: es verhindert das Ueberschreiben, nicht das Anhaengen.
+- Ein Restfenster bleibt **bewusst offen und ist unschaedlich**: der
+  **Chunk-Write** ist idempotent (deterministische UUID, gleicher Inhalt) — ein
+  Nachzuegler schreibt dieselbe Objektversion erneut und zerstoert nichts.
 
 Auch hier wird **keine** transaktionale Atomizitaet behauptet: gesichert ist die
-Nicht-Loeschbarkeit fremder, neuerer Daten — nicht die Unteilbarkeit des
-Fensters.
+Nicht-Loeschbarkeit fremder, neuerer Daten und die Nicht-Rueckdrehbarkeit der
+Frische — nicht die Unteilbarkeit des Fensters.
 
 **Freshness-Indikator:** `corpus_revision` (nicht mtime — Datei-
 system-Timestamps sind bei Git-Operationen unzuverlässig).

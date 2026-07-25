@@ -19,6 +19,17 @@ Datum: 2026-07-25. Record gemaess META-CONCEPT-CONSISTENCY P3
 (Blast-Radius-Pflicht bei normativen Aenderungen). Begrenzt auf FK-13 §13.3.1
 (ein neues Feld) und §13.9.9 (Verhalten bei Besitzwechsel).
 
+> **Nachtrag 2026-07-25 (Codex r7, Findings N37/N39) — Mechanismus korrigiert.**
+> Die zuerst umgesetzte Mechanik (**Gleichheit gegen das beobachtete
+> Besitz-Token**) erfuellte die ratifizierte Invariante **nicht** und ist
+> **ersetzt**. Die Invariante selbst und die Entscheidung, nur den zerstoerenden
+> Schritt storage-seitig zu sichern, bleiben unveraendert; ausgetauscht ist
+> ausschliesslich das *Wie*, das diese Entscheidung ausdruecklich der Umsetzung
+> ueberlassen hatte. Abschnitt 2a haelt fest, warum das erste Modell fiel und
+> welches Modell gilt. Die frueheren Aussagen „neuere Daten koennen nicht
+> geloescht werden" (bezogen auf das Token-Modell) und „ein Stale-Append der
+> Completion ist harmlos" waren **falsch** und sind unten korrigiert.
+
 ## 1. Anlass
 
 Codex-Review r6, Finding N33 (= N15/N27): jeder Fence im Corpus-Sync ist ein
@@ -63,6 +74,53 @@ Umsetzung in der Norm:
 - Es wird **keine** transaktionale Atomizitaet behauptet (Linie aus
   DR 2026-07-21 Rand 5).
 
+## 2a. Korrektur des Mechanismus (Nachtrag, Codex r7)
+
+**Was fiel.** Das erste Modell stempelte ein Besitz-Token
+(`<epoche>|<owner_id>`) auf die Objekte und loeschte konditional „alles, was
+dieses **beobachtete** Token noch traegt". Das schliesst nur das Intervall
+zwischen Lesen und Loeschen — es belegt **nicht**, zu welcher Generation das
+gelesene Token gehoert. Gegenszenario: Writer A passiert seinen Fence, B
+uebernimmt per Reclaim und schliesst ab, A setzt fort, liest **Bs** Chunks,
+gruppiert sie unter Bs Token und loescht damit **Bs** Daten. Die
+Invariante war in dieser Reihenfolge verletzt; die damaligen Tests deckten nur
+die umgekehrte Reihenfolge ab.
+
+Zusaetzlich war die Completion-Seite unzureichend: insert-only verhindert das
+**Ueberschreiben**, nicht das **Anhaengen**. Ein ueberholter Schreiber konnte
+nach dem neueren Besitzer eine spaetere Position belegen, damit — bei Ordnung
+nach Position — massgeblich werden und die gueltige Completion des neueren
+Besitzers als „veraltet" entfernen. Die frueher hier notierte Einschaetzung
+„harmlos" war falsch.
+
+**Gemeinsame Wurzel.** Es fehlte eine **persistente, monotone
+Generationsidentitaet pro Quelle**. Epoche allein wiederholt sich ueber Laeufe,
+und auch Epoche + Owner ist kein global geordneter Bezeichner (ein langlebiger
+Sync-Dienst traegt denselben Owner ueber mehrere Akquisitionen).
+
+**Was gilt.** Die Quelle traegt eine **persistente, streng monoton steigende
+Generation**: **jede** Akquisition — normal **und** Reclaim — vergibt per
+konditionalem Create die naechste Nummer, und eine normale Freigabe erhaelt die
+Leiterposition (insert-only Freigabe-Markierung statt Loeschen des Records).
+Darauf aufbauend:
+
+- Objekte tragen `owning_generation` (FK-13 §13.3.1, numerisch).
+- Der zerstoerende Delete ist storage-seitig an „Generation des Objekts **strikt
+  kleiner** als die **eigene** Generation des loeschenden Claims" gebunden. Weil
+  ein uebernehmender Besitzer zwangslaeufig hoeher liegt, haelt die Invariante in
+  **beiden** Wettlauf-Reihenfolgen; und weil jede fruehere Generation strikt
+  darunter liegt, geht kein legitimer Loeschvorgang verloren.
+- Die **Completion** traegt dieselbe Generation und ist ueber sie geordnet:
+  massgeblich ist die hoechste **Generation**, nicht die hoechste Position; das
+  Pruning folgt derselben Ordnung. Ein Stale-Append kann damit weder die Frische
+  zuruecknehmen noch eine gueltige neuere Completion verdraengen.
+- Die Generation ist **kein zweiter Besitz-Wahrheitstraeger**: der Claim-Record
+  entscheidet weiter, **wer** haelt; die Generation ordnet nur.
+
+**Verbleibendes Fenster.** Nur noch der **Chunk-Write** ist unbewacht, und er ist
+idempotent (deterministische UUID, gleicher Inhalt). Es wird weiterhin **keine**
+transaktionale Atomizitaet behauptet.
+
 ## 3. Alternativen
 
 - **Das Restfenster vollstaendig akzeptieren** wurde verworfen: der Loeschschritt
@@ -71,22 +129,20 @@ Umsetzung in der Norm:
   Takeover-Protokoll, das den alten Prozess nachweislich stilllegt — also
   Prozessaufsicht ausserhalb dieser Schicht. Eigene Story; AG3-174 wuerde darauf
   warten.
-- **Bedingung „Epoche des Objekts aelter als meine"** (der urspruengliche
-  Mechanismus-Vorschlag) wurde bei der Pruefung **verworfen**: die Claim-Epoche
-  ist nur *innerhalb* einer Uebernahmekette monoton. Ein freigegebener Claim wird
-  verworfen, die naechste Akquisition beginnt wieder bei Epoche 1. Ein
-  Ordnungspraedikat wuerde daher legitim loeschbare Alt-Chunks ueberspringen,
-  sobald die vorige Generation dieselbe oder eine hoehere Epoche hielt — mit der
-  Folge, dass verschwundene Quellen **stillschweigend nie** entfernt werden
-  (Bruch der Delete-Closure). Gewaehlt ist deshalb **Gleichheit gegen den
-  beobachteten Wert** (Compare-and-Delete): sie braucht keine Ordnungsannahme und
-  schliesst die Daten des neueren Besitzers dennoch aus, weil ein
-  ueberholendes Generationstoken zwangslaeufig ein **anderes** ist.
-- **Nur die Epoche als Token** wurde verworfen: Epochenwerte wiederholen sich
-  ueber Laeufe hinweg, also identifiziert erst das **Paar** aus Epoche und
-  Besitzer eine Generation. Das Token ist `<epoch>|<owner_id>`; damit ruht die
-  Garantie auf der Struktur und nicht auf dem Argument, ein wiederholter
-  Epochenwert koenne nicht mit einem lebenden Halter kollidieren.
+- **Bedingung „Epoche des Objekts aelter als meine" bei EPHEMERER Epoche**
+  wurde verworfen und der Befund von Codex r7 ausdruecklich bestaetigt: die
+  Claim-Epoche war nur *innerhalb* einer Uebernahmekette monoton, weil ein
+  freigegebener Claim-Record geloescht wurde und die naechste Akquisition wieder
+  bei 1 begann. Ein Ordnungspraedikat haette daher legitim loeschbare Alt-Chunks
+  uebersprungen — verschwundene Quellen waeren **stillschweigend nie** entfernt
+  worden (Bruch der Delete-Closure). Die Konsequenz ist **nicht**, die Ordnung
+  aufzugeben, sondern die Leiter **persistent** zu machen (Abschnitt 2a).
+- **Gleichheit gegen den beobachteten Wert** (Compare-and-Delete) wurde zuerst
+  umgesetzt und dann **verworfen**: sie autorisiert nichts (Abschnitt 2a).
+- **Nur die Epoche als Token / Epoche + Owner als Token** wurde verworfen:
+  Epochenwerte wiederholen sich ueber Laeufe, und ein langlebiger Sync-Dienst
+  traegt denselben Owner ueber mehrere Akquisitionen — das Paar ist damit weder
+  global eindeutig noch geordnet.
 - **Eine Ersatzpruefung im Applikationscode „zur Sicherheit" behalten** wurde
   verworfen: sie stellt genau die Scheinsicherheit wieder her, die diese
   Entscheidung beseitigt.
@@ -120,8 +176,8 @@ Lexikalischer Sweep ueber `concept/`, `guardrails/`, `scripts/ci/`, `tools/`,
 
 | Stelle | Klassifikation | Begruendung |
 |---|---|---|
-| FK-13 §13.3.1 (`StoryContext`-Properties) | geaendert | Neues Feld `owning_claim` samt Abgrenzung „kein zweiter Besitz-Wahrheitstraeger". |
-| FK-13 §13.9.9 (Corpus-Build-Lifecycle) | geaendert | Verhalten bei Besitzwechsel: storage-seitig gebundener zerstoerender Schritt, zwei benannte Restfenster, keine Atomizitaetsbehauptung. |
+| FK-13 §13.3.1 (`StoryContext`-Properties) | geaendert | Neues Feld `owning_generation` (INT) samt Abgrenzung „kein zweiter Besitz-Wahrheitstraeger". |
+| FK-13 §13.9.9 (Corpus-Build-Lifecycle) | geaendert | Persistente Quell-Generation; storage-seitig **geordneter** zerstoerender Schritt; generationsgebundene Completion; ein benanntes Restfenster; keine Atomizitaetsbehauptung. |
 | `concept/_meta/decisions/2026-07-21-vectordb-edge-sharpening.md` (Rand 5) | referenziert | Bounded-Window-Linie, die hier fortgeschrieben und nicht aufgehoben wird. |
 | FK-13 §13.9.5 / §13.4.1 (Werkzeug-Vertraege) | nicht-betroffen | Kein Parameter, kein Rueckgabefeld. |
 | FK-13 §13.9.6 (Frontmatter) | nicht-betroffen | Laufzeit-Besitz statt Korpus-Metadatum. |
