@@ -33,6 +33,7 @@ from agentkit.backend.vectordb.contracts import (
     optional_str,
     reject_unknown_args,
     resolve_project_id,
+    validate_authority_scope,
     validate_bool,
     validate_concept_filters,
     validate_search_args,
@@ -103,11 +104,6 @@ class McpToolService:
     sync: SyncService
     concepts_dir: Path
     stories_dir: Path
-    #: Authority scope the ranking rules 1/2 evaluate against (N23). FK-13 §13.9.5
-    #: defines NO scope parameter for ``concept_search``, so this stays empty in
-    #: production until such an input is ratified; it is a field (not a derived
-    #: value) so the split from ``module`` is explicit and testable.
-    query_authority_scope: str = ""
 
     # ------------------------------------------------------------------ #
     # story_search
@@ -191,6 +187,9 @@ class McpToolService:
         """Search concept chunks, authority-ranked (FK-13 §13.9.11)."""
         validated = validate_search_args(self.binding, args)
         filters = validate_concept_filters(args)
+        # The authority scope is a RANKING input (FK-13 §13.9.5, D7) and must not
+        # reach the transport as a filter -- it never restricts the result set.
+        authority_scope = validate_authority_scope(args)
         hits = self.retrieval.search(
             project_id=validated["project_id"],
             source_type="concept",
@@ -201,18 +200,18 @@ class McpToolService:
         )
         # Authority ranking in the app layer (FK-13 §13.9.11).
         #
-        # ``module`` is the FK-13 §13.9.5 module filter and is passed ONLY as the
-        # query module (rule 5). It is NOT reused as the authority scope: FK-13
-        # models ``module`` and ``authority_over`` scopes separately, and §13.9.5
-        # defines no scope parameter for ``concept_search`` (N23). The scope input
-        # therefore stays EXPLICIT and unpopulated until a scope parameter is
-        # ratified -- rules 1/2 are inert rather than wrong.
+        # ``module`` is the §13.9.5 module filter and is passed ONLY as the query
+        # module (rule 5); ``authority_scope`` is the SEPARATE ratified scope input
+        # (D7) that rules 1/2 rank against. The two are never conflated: FK-13
+        # models "where a document lives" and "what it governs" separately, so the
+        # scope is taken from the caller and NEVER derived from ``module`` (N23).
+        # An absent scope leaves rules 1/2 inert and rules 3/4/5 unchanged.
         discovery = discover_concept_files(self.concepts_dir)
         graph = build_graph(discovery)
         ranked = rank_hits(
             graph,
             hits,
-            query_authority_scope=self.query_authority_scope,
+            query_authority_scope=authority_scope,
             query_module=str(filters.get("module", "")),
             query_detail=derive_query_detail(str(validated["query"])),
         )

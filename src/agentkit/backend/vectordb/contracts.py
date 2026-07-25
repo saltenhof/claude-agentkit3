@@ -155,7 +155,13 @@ TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
             _SEARCH_MODE,
             _PROJECT_ID,
             ToolParam("concept_id", "string", False, "Filter on a specific concept."),
-            ToolParam("module", "string", False, "Module filter (also the queried authority scope)."),
+            ToolParam("module", "string", False, "Module filter (where a document lives)."),
+            ToolParam(
+                "authority_scope", "string", False,
+                "authority_over scope the ranking rules 1/2 evaluate against "
+                "(§13.9.11); a RANKING input, not a filter, and never derived "
+                "from module (D7).",
+            ),
             ToolParam("is_appendix", "boolean", False, "Only appendices / only core."),
             ToolParam(
                 "concept_status", "string", False, "active (default), draft or archived.",
@@ -364,6 +370,29 @@ def validate_concept_filters(args: Mapping[str, Any]) -> dict[str, object]:
     return filters
 
 
+def validate_authority_scope(args: Mapping[str, Any]) -> str:
+    """Strictly validate the RANKING input ``authority_scope`` (FK-13 §13.9.5, D7).
+
+    It is deliberately NOT part of :func:`validate_concept_filters`: the scope does
+    not restrict the result set, it names the ``authority_over`` scope the ranking
+    rules 1/2 evaluate against (§13.9.11). Absence is a valid state -- rules 1/2
+    then do not apply and 3/4/5 stay unchanged -- so an absent key yields ``""``.
+    Explicit ``null``, an empty/whitespace string and any non-string are NAMED
+    errors, exactly like every other optional (R13/AC10).
+
+    Args:
+        args: The RAW tool arguments as they arrived.
+
+    Returns:
+        The requested authority scope, or ``""`` when the caller asked for none.
+
+    Raises:
+        ToolArgumentError: The key is present but not a usable scope string.
+    """
+    scope = optional_str(args, "authority_scope")
+    return scope if scope is not None else ""
+
+
 __all__ = [
     "CONCEPT_STATUSES",
     "DEFAULT_LIMIT",
@@ -376,6 +405,7 @@ __all__ = [
     "allowed_keys_for",
     "contract_for",
     "optional_str",
+    "validate_authority_scope",
     "reject_unknown_args",
     "require_str",
     "resolve_project_id",

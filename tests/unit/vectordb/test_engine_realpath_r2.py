@@ -90,6 +90,53 @@ _APPENDIX_DOC = dedent(
     """
 )
 
+#: A DRAFT document that owns the ``chunking`` scope. Rule 1 must not lift it over
+#: an active document: rule 4 demotes by WHOLE tiers (§13.9.11).
+_DRAFT_OWNER_DOC = dedent(
+    """\
+    ---
+    concept_id: FK-90
+    title: Chunking draft
+    module: planning
+    status: draft
+    doc_kind: core
+    authority_over:
+      - scope: chunking
+    ---
+
+    # Chunking draft
+
+    ## Sizes
+
+    Draft chunk sizes.
+    """
+)
+
+#: A document in ANOTHER module that DEFERS to FK-13 for the ``chunking`` scope.
+#: FK-13 does not own that scope directly, so with ``authority_scope=chunking``
+#: only rule 2 can lift it -- and the credit must accrue to the deferral TARGET.
+_DEFERRING_DOC = dedent(
+    """\
+    ---
+    concept_id: FK-11
+    title: Evaluation
+    module: evaluator
+    status: active
+    doc_kind: core
+    defers_to:
+      - target: FK-13
+        scope: chunking
+        reason: Chunking is owned by the retrieval concept
+    ---
+
+    # Evaluation
+
+    ## Chunking
+
+    Chunking rules live in the retrieval concept.
+    """
+)
+
 _STORY_DOC = dedent(
     """\
     ---
@@ -112,12 +159,22 @@ def _binding(cwd: str = ".") -> RuntimeBinding:
     return RuntimeBinding.from_env(_ENV, command="python", args=(), cwd=cwd)
 
 
-def _corpus(tmp_path: Path, *, with_appendix: bool = False) -> Path:
+def _corpus(
+    tmp_path: Path,
+    *,
+    with_appendix: bool = False,
+    with_deferral: bool = False,
+    with_draft_owner: bool = False,
+) -> Path:
     root = tmp_path / "concept" / "technical-design"
     root.mkdir(parents=True, exist_ok=True)
     (root / "13_retrieval.md").write_text(_CONCEPT_DOC, encoding="utf-8")
     if with_appendix:
         (root / "13a_interfaces.md").write_text(_APPENDIX_DOC, encoding="utf-8")
+    if with_deferral:
+        (root / "11_evaluation.md").write_text(_DEFERRING_DOC, encoding="utf-8")
+    if with_draft_owner:
+        (root / "90_chunking_draft.md").write_text(_DRAFT_OWNER_DOC, encoding="utf-8")
     return tmp_path / "concept"
 
 
@@ -126,6 +183,8 @@ def _service(
     client: RecordingWeaviateClient | None = None,
     *,
     with_appendix: bool = False,
+    with_deferral: bool = False,
+    with_draft_owner: bool = False,
 ) -> tuple[McpToolService, RecordingWeaviateClient]:
     client = client or RecordingWeaviateClient()
     binding = _binding(str(tmp_path))
@@ -134,7 +193,12 @@ def _service(
         binding=binding,
         retrieval=WeaviateRetrievalPort(client=client, store=store, binding=binding),  # type: ignore[arg-type]
         sync=SyncService(store=store),
-        concepts_dir=_corpus(tmp_path, with_appendix=with_appendix),
+        concepts_dir=_corpus(
+            tmp_path,
+            with_appendix=with_appendix,
+            with_deferral=with_deferral,
+            with_draft_owner=with_draft_owner,
+        ),
         stories_dir=tmp_path,
     )
     return service, client
@@ -790,10 +854,189 @@ def test_n23_module_filter_is_not_used_as_the_authority_scope(tmp_path: Path) ->
 def test_n23_explicit_authority_scope_activates_the_precedence(tmp_path: Path) -> None:
     """With an EXPLICIT scope the precedence applies -- and it is a tier."""
     service, client = _service(tmp_path)
-    service.query_authority_scope = "vectordb"
     client.search_results = [concept_hit("c1", "FK-13", 0.1, module="vectordb")]
-    result = handle_tool_call(service, "concept_search", {"query": "retrieval"})
+    result = handle_tool_call(
+        service, "concept_search", {"query": "retrieval", "authority_scope": "vectordb"}
+    )
     assert "authority_over-direct" in result["results"][0]["rank_reasons"]
+
+
+# --------------------------------------------------------------------------- #
+# D7: authority_scope is a RATIFIED, explicit ranking input (FK-13 §13.9.5)
+#
+# Rules 1 and 2 of §13.9.11 rank against the scope the CALLER asks about. Each
+# test below drives the REAL tool path (handle_tool_call -> McpToolService ->
+# WeaviateRetrievalPort -> rank_hits over a REAL parsed corpus) and each carries
+# its counterexample: the same hits with a different (or absent) scope must rank
+# differently, which is what proves the scope -- and only the scope -- did it.
+# --------------------------------------------------------------------------- #
+
+
+def test_d7_rule1_direct_authority_beats_a_higher_scoring_adjacent_hit(
+    tmp_path: Path,
+) -> None:
+    """Rule 1: the owner of the QUERIED scope outranks a better-scoring neighbour."""
+    service, client = _service(tmp_path, with_deferral=True)
+    # FK-11 scores far better; FK-13 owns authority_over: vectordb in the corpus.
+    client.search_results = [
+        concept_hit("c-adjacent", "FK-11", 9.5, module="evaluator"),
+        concept_hit("c-owner", "FK-13", 0.05, module="vectordb"),
+    ]
+    ranked = handle_tool_call(
+        service,
+        "concept_search",
+        {"query": "how do we chunk", "authority_scope": "vectordb"},
+    )["results"]
+    assert [r["concept_id"] for r in ranked] == ["FK-13", "FK-11"]
+    assert "authority_over-direct" in ranked[0]["rank_reasons"]
+    # COUNTEREXAMPLE: a scope nobody owns leaves rule 1 silent, so the raw
+    # similarity order returns. Same corpus, same hits -- only the scope changed.
+    counter = handle_tool_call(
+        service,
+        "concept_search",
+        {"query": "how do we chunk", "authority_scope": "unowned-scope"},
+    )["results"]
+    assert [r["concept_id"] for r in counter] == ["FK-11", "FK-13"]
+    assert all("authority_over-direct" not in r["rank_reasons"] for r in counter)
+
+
+def test_d7_rule2_scoped_deferral_target_beats_the_deferring_document(
+    tmp_path: Path,
+) -> None:
+    """Rule 2: the TARGET of a scoped deferral wins -- not the deferrer."""
+    service, client = _service(tmp_path, with_deferral=True)
+    # FK-11 defers_to FK-13 for `chunking`; nobody OWNS `chunking` directly, so
+    # only rule 2 can move anything here.
+    client.search_results = [
+        concept_hit("c-deferrer", "FK-11", 8.0, module="evaluator"),
+        concept_hit("c-target", "FK-13", 0.05, module="vectordb"),
+    ]
+    ranked = handle_tool_call(
+        service, "concept_search", {"query": "chunk sizes", "authority_scope": "chunking"}
+    )["results"]
+    assert [r["concept_id"] for r in ranked] == ["FK-13", "FK-11"]
+    assert "scoped-authority-target" in ranked[0]["rank_reasons"]
+    # The credit must NOT accrue to the deferring source.
+    assert "scoped-authority-target" not in ranked[1]["rank_reasons"]
+    assert "authority_over-direct" not in ranked[0]["rank_reasons"]  # rule 2, not 1
+    # COUNTEREXAMPLE: the deferral is QUALIFIED on `chunking`. Ask about another
+    # scope and the edge must not count -- score order returns.
+    counter = handle_tool_call(
+        service, "concept_search", {"query": "chunk sizes", "authority_scope": "tokenizing"}
+    )["results"]
+    assert [r["concept_id"] for r in counter] == ["FK-11", "FK-13"]
+    assert all("scoped-authority-target" not in r["rank_reasons"] for r in counter)
+
+
+def test_d7_absent_scope_never_derives_one_and_leaves_rules_345_intact(
+    tmp_path: Path,
+) -> None:
+    """No scope supplied -> rules 1/2 inert, NO derivation, 3/4/5 unchanged."""
+    service, client = _service(tmp_path, with_appendix=True, with_deferral=True)
+    client.search_results = [
+        concept_hit("c-appendix", "FK-13-A", 0.2, module="vectordb", is_appendix=True),
+        concept_hit("c-core", "FK-13", 0.3, module="vectordb"),
+        concept_hit("c-other", "FK-11", 0.4, module="evaluator"),
+    ]
+    # Every plausible derivation source is present and must be ignored: the module
+    # filter says `vectordb`, the query text says "vectordb", and the corpus has
+    # both an authority_over: vectordb owner and a scoped deferral.
+    results = handle_tool_call(
+        service,
+        "concept_search",
+        {"query": "vectordb interface chunking", "module": "vectordb"},
+    )["results"]
+    reasons = {r["concept_id"]: r["rank_reasons"] for r in results}
+    assert all("authority_over-direct" not in v for v in reasons.values())
+    assert all("scoped-authority-target" not in v for v in reasons.values())
+    # Rule 3 (appendix + interface detail) and rule 5 (module match) still fire.
+    assert "appendix-interface" in reasons["FK-13-A"]
+    assert "module-match" in reasons["FK-13-A"]
+    assert "module-match" in reasons["FK-13"]
+    assert "module-match" not in reasons["FK-11"]
+    # ... and the rule-3 boost still lifts the appendix over the higher-scoring core.
+    assert [r["concept_id"] for r in results][0] == "FK-13-A"
+    # The scope was never forwarded to the transport as a filter either.
+    assert "authority_scope" not in client.search_calls[0]["filters"]  # type: ignore[operator]
+
+
+def test_d7_rule4_demotes_a_draft_even_when_it_owns_the_queried_scope(
+    tmp_path: Path,
+) -> None:
+    """A live rule 1 must not lift a non-active owner: rule 4 demotes whole tiers."""
+    service, client = _service(tmp_path, with_draft_owner=True)
+    client.search_results = [
+        # FK-90 OWNS `chunking` but is draft in the corpus, and it scores far better.
+        concept_hit("c-draft-owner", "FK-90", 9.0, module="planning"),
+        concept_hit("c-active", "FK-13", 0.1, module="vectordb"),
+    ]
+    ranked = handle_tool_call(
+        service, "concept_search",
+        {"query": "chunk sizes", "authority_scope": "chunking", "concept_status": "draft"},
+    )["results"]
+    assert [r["concept_id"] for r in ranked] == ["FK-13", "FK-90"]
+    # Rule 1 DID fire for the draft -- and rule 4's whole-tier demotion still wins.
+    assert "authority_over-direct" in ranked[1]["rank_reasons"]
+    assert "status-penalty(draft)" in ranked[1]["rank_reasons"]
+
+
+def test_d7_a_huge_similarity_score_cannot_overturn_a_direct_authority(
+    tmp_path: Path,
+) -> None:
+    """Tiered precedence holds with rules 1/2 live: BM25 cannot buy authority."""
+    service, client = _service(tmp_path, with_appendix=True)
+    client.search_results = [
+        # The appendix is in the queried module and matches the interface detail,
+        # so it collects BOTH within-tier boosts on top of a huge BM25 score.
+        concept_hit("c-loud", "FK-13-A", 12.5, module="vectordb", is_appendix=True),
+        concept_hit("c-owner", "FK-13", 0.001, module="vectordb"),
+    ]
+    ranked = handle_tool_call(
+        service, "concept_search",
+        {"query": "interface test", "authority_scope": "vectordb", "module": "vectordb"},
+    )["results"]
+    assert [r["concept_id"] for r in ranked] == ["FK-13", "FK-13-A"]
+    # The loud hit collected the rule-3 AND rule-5 boosts and STILL lost -- both are
+    # bounded WITHIN their tier and can never cross a precedence boundary.
+    assert "appendix-interface" in ranked[1]["rank_reasons"]
+    assert "module-match" in ranked[1]["rank_reasons"]
+    assert ranked[1]["score"] > ranked[0]["score"]
+
+
+def test_d7_authority_scope_is_a_ranking_input_not_a_filter(tmp_path: Path) -> None:
+    """The scope must never reach the transport as a filter (it selects nothing)."""
+    service, client = _service(tmp_path)
+    client.search_results = [concept_hit("c1", "FK-13", 0.5, module="vectordb")]
+    handle_tool_call(
+        service,
+        "concept_search",
+        {"query": "retrieval", "authority_scope": "vectordb", "module": "vectordb"},
+    )
+    filters = client.search_calls[0]["filters"]
+    assert filters == {"concept_status": "active", "module": "vectordb"}  # scope absent
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, "explicitly null"),
+        ("", "empty string"),
+        ("   ", "empty string"),
+        (7, "must be a string"),
+        (["vectordb"], "must be a string"),
+    ],
+)
+def test_d7_authority_scope_is_strictly_validated(
+    tmp_path: Path, value: object, expected: str
+) -> None:
+    """Same strictness regime as every other optional (R13/AC10)."""
+    service, client = _service(tmp_path)
+    client.search_results = [concept_hit("c1", "FK-13", 0.5)]
+    with pytest.raises(ToolArgumentError, match=expected):
+        handle_tool_call(
+            service, "concept_search", {"query": "retrieval", "authority_scope": value}
+        )
+    assert client.search_calls == []  # rejected BEFORE the query is issued
 
 
 # --------------------------------------------------------------------------- #

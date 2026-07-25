@@ -47,8 +47,9 @@ FK13_TOOL_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, .
     "concept_search": (
         ("query",),
         (
-            "search_mode", "project_id", "concept_id", "module", "is_appendix",
-            "concept_status", "limit",
+            # `authority_scope` is the ratified §13.9.5 ranking input (D7).
+            "search_mode", "project_id", "concept_id", "module", "authority_scope",
+            "is_appendix", "concept_status", "limit",
         ),
         (
             "concept_id", "title", "module", "section_heading", "section_number",
@@ -74,6 +75,7 @@ FK13_PARAM_TYPES: dict[str, str] = {
     "full_reindex": "boolean",
     "concept_id": "string",
     "module": "string",
+    "authority_scope": "string",
     "is_appendix": "boolean",
     "concept_status": "string",
     "concept_path": "string",

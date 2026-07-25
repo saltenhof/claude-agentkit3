@@ -7,8 +7,10 @@ Two properties are load-bearing (N23):
 
 1. **``module`` and the authority SCOPE are separate inputs.** FK-13 models the
    document's ``module`` and its ``authority_over`` scopes as different things, so
-   the resolver never derives one from the other. ``query_authority_scope`` is an
-   EXPLICIT input; when it is empty, rules 1 and 2 simply do not apply.
+   the resolver never derives one from the other. ``query_authority_scope`` carries
+   the ratified ``authority_scope`` parameter of §13.9.5 (D7) straight from the
+   caller; when it is empty, rules 1 and 2 simply do not apply while 3/4/5 stay
+   unchanged.
 2. **Normative precedence cannot be outscored.** Rules 1/2/4 decide a PRECEDENCE
    TIER that is compared before any similarity value, so a high BM25 score can
    never lift a non-authoritative (or archived) concept above one that normatively

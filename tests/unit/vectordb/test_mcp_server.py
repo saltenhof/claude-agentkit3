@@ -156,8 +156,9 @@ async def test_r01_every_tool_advertises_its_real_input_schema(tmp_path: Path) -
     concept_props = tools["concept_search"].inputSchema["properties"]
     assert set(concept_props) == {
         "query", "search_mode", "project_id", "concept_id", "module",
-        "is_appendix", "concept_status", "limit",
+        "authority_scope", "is_appendix", "concept_status", "limit",
     }
+    assert concept_props["authority_scope"]["type"] == "string"
     assert concept_props["is_appendix"]["type"] == "boolean"
     assert concept_props["concept_status"]["enum"] == list(CONCEPT_STATUSES)
     assert set(tools["concept_sync"].inputSchema["properties"]) == {
