@@ -148,6 +148,17 @@ class IndexingFakeStore:
             n += 1
         return n
 
+    def delete_objects_without_generation(self, *, uuids: Sequence[str]) -> int:
+        """Delete ONLY rows that carry no writing generation at all (N43)."""
+        n = 0
+        for uid in uuids:
+            props = self.objects.get(uid)
+            if props is None or props.get(OWNING_GENERATION_PROPERTY) is not None:
+                continue
+            del self.objects[uid]
+            n += 1
+        return n
+
     def get_receipt(self, *, project_id: str, source_file: str) -> SyncReceipt | None:
         return self.receipts.get(f"{project_id}|{source_file}")
 

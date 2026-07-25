@@ -311,6 +311,37 @@ class RecordingWeaviateClient:
             return override
         return deleted
 
+    def delete_by_ids_if_property_absent(
+        self, *, collection: str, uuids: Sequence[str], prop: str
+    ) -> int:
+        """Delete ONLY the ids that carry NO value for ``prop`` at all (N43).
+
+        Same semantics as ``delete_many(where=Filter.by_property(p).is_none(True))``:
+        the condition is evaluated together with the delete, so a row written by ANY
+        generation is structurally out of reach.
+        """
+        self.conditional_delete_calls.append(
+            {"collection": collection, "prop": prop, "absent": True, "uuids": tuple(uuids)}
+        )
+        if self.before_delete is not None:
+            self.before_delete(collection)
+        store = self._store_for(collection)
+        deleted = 0
+        with self._lock:
+            for uid in uuids:
+                props = store.get(str(uid))
+                if props is None or props.get(prop) is not None:
+                    continue
+                del store[str(uid)]
+                deleted += 1
+        if (
+            self.delete_confirmed_override is not None
+            and collection == STORY_CONTEXT_COLLECTION
+        ):
+            override, self.delete_confirmed_override = self.delete_confirmed_override, None
+            return override
+        return deleted
+
     def ensure_collection(
         self,
         *,

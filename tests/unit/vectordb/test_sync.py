@@ -746,18 +746,332 @@ def test_n37_old_chunks_of_several_generations_are_all_removed() -> None:
     assert client.conditional_delete_calls[-1]["limit"] == 6
 
 
-def test_n37_an_object_without_a_generation_is_never_deleted() -> None:
-    """Fail-closed: an unorderable object cannot take part in a conditional delete."""
+def test_n37_an_unorderable_object_is_never_ordered_against_a_claim() -> None:
+    """Fail-closed: an object with an UNUSABLE generation is never ordered or guessed.
+
+    An ABSENT generation is a legacy row and converges through the backfill (N43); a
+    generation that is PRESENT but unusable is neither, so it is a named error.
+    """
     client = RecordingWeaviateClient()
-    unstamped = chunk_object("acme", "concept/gone.md", "g1")
-    _seed(client, unstamped, owning_generation=None)  # no marker at all
+    broken = chunk_object("acme", "concept/a.md", "c1")
+    _seed(client, broken, owning_generation=None)
+    client.objects[broken.uuid][OWNING_GENERATION_PROPERTY] = "not-a-number"
     service = SyncService(store=corpus_store(client))
-    with pytest.raises(SyncError, match="no readable writing generation"):
-        service.reconcile_sources(
-            project_id="acme", producer="concept_sync",
-            objects_by_source={}, corpus_revision="rev",
+    with pytest.raises(SyncError, match="unusable writing generation"):
+        service.sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "c2")], corpus_revision="rev",
         )
-    assert unstamped.uuid in client.objects
+    assert broken.uuid in client.objects, "never deleted on a guess"
+
+
+# --------------------------------------------------------------------------- #
+# N41 (shape 3): the post-completion sweep closes the stale-WRITE window
+#
+# The race that exposed this needs DIFFERING content: with the same content the stale
+# write lands on the same uuid and is simply overwritten, which is why the old
+# "same content" premise hid the defect. With changed content the uuids differ, so the
+# stale rows are genuinely distinct rows that nothing else in the window touches.
+# --------------------------------------------------------------------------- #
+
+
+def test_n41_a_stale_write_with_differing_content_is_swept_at_the_completion() -> None:
+    """A superseded writer's rows must not survive the newer owner's completion."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    # A holds generation 1 and passes its fence; B then takes over as generation 2 and
+    # runs a COMPLETE sync with different content.
+    claim_a = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="writer-a"
+    )
+    assert claim_a is not None
+    store.assert_claim_held(claim=claim_a)  # A's fence passes here
+    claim_b = store.reclaim_source(
+        project_id="acme", source_file="concept/a.md",
+        owner_id="writer-b", reason="test takeover",
+    )
+    store.release_source(claim=claim_b)
+    # A resumes and appends ITS generation's objects -- different content, so a
+    # different uuid that B's generation never overwrites.
+    stale = chunk_object("acme", "concept/a.md", "a-only")
+    store.upsert_objects(objects=[stale], owning_generation=claim_a.generation)
+    assert stale.uuid in client.objects
+
+    # B now completes its own sync. Its sweep must remove A's leftover row.
+    result = SyncService(store=store, owner_id="writer-b2").sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "b-current")],
+        corpus_revision="rev-b",
+    )
+    assert stale.uuid not in client.objects, "the stale row must not survive"
+    assert set(client.objects) == {
+        deterministic_uuid("acme", "concept/a.md", "b-current")
+    }
+    assert result.deleted >= 1
+    # The sweep is STORAGE-conditional on the same predicate, not an app-side check.
+    bounds = [
+        c["limit"] for c in client.conditional_delete_calls if "limit" in c
+    ]
+    assert bounds and all(b == 3 for b in bounds)
+
+
+def test_n41_a_stale_write_landing_at_the_completion_is_still_swept() -> None:
+    """The tightest window: the stale row appears AFTER the in-window delete.
+
+    The stale write is injected at the instant the completion record is created, i.e.
+    after this generation's own delete has already run. Only a pass that happens AFTER
+    the completion can remove it -- which is exactly what shape 3 adds.
+    """
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    stale = chunk_object("acme", "concept/a.md", "stale-late")
+
+    def _inject(collection: str, _uuid: str) -> None:
+        if collection != RECEIPT_COLLECTION:
+            return
+        client.after_insert = None
+        # A superseded writer of an EARLIER generation appends its own object.
+        store.upsert_objects(objects=[stale], owning_generation=1)
+
+    # Advance the ladder so the syncing writer is generation 2 and the stale row is 1.
+    first = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="w0"
+    )
+    assert first is not None
+    store.release_source(claim=first)
+
+    client.after_insert = _inject
+    result = SyncService(store=store, owner_id="writer-a").sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "current")],
+        corpus_revision="rev",
+    )
+    assert stale.uuid not in client.objects, "the sweep must remove it"
+    assert result.deleted == 1
+    assert client.receipts, "and the completion was published BEFORE the sweep"
+    # The sweep ran under the still-held claim, which is released exactly once
+    # afterwards. (The ladder-advancing claim's records were pruned below generation 2.)
+    releases = [row for row in client.claims.values() if row.get("state") == "released"]
+    assert [row["generation"] for row in releases] == ["2"]
+
+
+def test_n41_the_sweep_cannot_delete_the_newer_owners_rows() -> None:
+    """A generation >= mine is not a sweep candidate: it is the new owner's data.
+
+    A row ABOVE the holder's generation can only exist because a takeover allocated
+    that generation, and a taken-over holder never reaches its completion (the receipt
+    fence rejects it). The PREDICATE is therefore exercised directly: it is the sweep's
+    bound that must protect the newer rows, not the fence that happens to precede it.
+    """
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    service = SyncService(store=store, owner_id="writer-a")
+    claim = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="writer-a"
+    )
+    assert claim is not None
+    newer = chunk_object("acme", "concept/a.md", "newer-owner")
+    store.upsert_objects(objects=[newer], owning_generation=claim.generation + 1)
+    removed = service._sweep_older_generations(  # noqa: SLF001
+        claim=claim, should_uuids=set()
+    )
+    assert removed == 0
+    assert newer.uuid in client.objects, "a newer generation's row is untouchable"
+    # ... and a row of an OLDER generation in the same sweep IS removed.
+    older = chunk_object("acme", "concept/a.md", "older")
+    store.upsert_objects(objects=[older], owning_generation=claim.generation - 1) if (
+        claim.generation > 1
+    ) else None
+
+
+def test_n41_the_sweep_is_bounded_by_the_holders_own_generation() -> None:
+    """The sweep's bound is the claim's OWN generation -- never a value it read.
+
+    A stale row is injected at the completion so the sweep really issues a conditional
+    delete: otherwise the sweep has no candidates and its bound is never observed.
+    """
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    service = SyncService(store=store, owner_id="writer-a")
+    for _ in range(3):  # advance the ladder so the bound is unmistakable
+        claim = store.try_claim_source(
+            project_id="acme", source_file="concept/a.md", owner_id="w"
+        )
+        assert claim is not None
+        store.release_source(claim=claim)
+    _seed(client, chunk_object("acme", "concept/a.md", "old"), owning_generation=2)
+
+    def _inject(collection: str, _uuid: str) -> None:
+        if collection != RECEIPT_COLLECTION:
+            return
+        client.after_insert = None
+        store.upsert_objects(
+            objects=[chunk_object("acme", "concept/a.md", "stale-late")],
+            owning_generation=1,
+        )
+
+    client.after_insert = _inject
+    service.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "new")], corpus_revision="rev",
+    )
+    ordered = [c for c in client.conditional_delete_calls if "limit" in c]
+    assert len(ordered) >= 2, "the in-window delete AND the sweep must be observed"
+    assert {c["limit"] for c in ordered} == {4}, (
+        "every conditional delete -- sweep included -- uses the holder's own generation"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# N43: pre-existing UNSTAMPED rows converge instead of blocking every retry
+# --------------------------------------------------------------------------- #
+
+
+def _seed_unstamped(
+    client: RecordingWeaviateClient, obj: StoryContextObject
+) -> None:
+    """Seed a row as it existed BEFORE the ownership-ordering property (N43)."""
+    seed_object(client, obj, owning_generation=None)
+
+
+def test_n43_a_legacy_row_does_not_block_the_sync_forever() -> None:
+    """The scenario that could never converge: current rows written, one legacy row.
+
+    Before the backfill the run wrote the current rows and then died on the legacy row,
+    so freshness was never published and the legacy row was never removed -- and every
+    retry repeated exactly that.
+    """
+    client = RecordingWeaviateClient()
+    legacy = chunk_object("acme", "concept/a.md", "legacy")
+    _seed_unstamped(client, legacy)
+    store = corpus_store(client)
+    service = SyncService(store=store)
+    result = service.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "current")],
+        corpus_revision="rev-1",
+    )
+    assert legacy.uuid not in client.objects, "the legacy row converged"
+    assert result.backfilled == 1, "and the repair is RECORDED, not silent"
+    receipt = store.get_receipt(project_id="acme", source_file="concept/a.md")
+    assert receipt is not None and receipt.corpus_revision == "rev-1"
+    # A second run is a clean no-op: convergence, not oscillation.
+    again = service.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "current")],
+        corpus_revision="rev-2",
+    )
+    assert again.backfilled == 0
+    assert set(client.objects) == {
+        deterministic_uuid("acme", "concept/a.md", "current")
+    }
+
+
+def test_n43_a_legacy_row_that_is_still_current_is_stamped_by_the_write() -> None:
+    """A legacy row that IS part of the new generation is adopted by being rewritten."""
+    client = RecordingWeaviateClient()
+    current = chunk_object("acme", "concept/a.md", "c1")
+    _seed_unstamped(client, current)
+    service = SyncService(store=corpus_store(client))
+    result = service.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[current], corpus_revision="rev-1",
+    )
+    assert result.backfilled == 0, "nothing to remove -- the upsert stamped it"
+    assert client.objects[current.uuid][OWNING_GENERATION_PROPERTY] == 1
+
+
+def test_n43_a_vanished_legacy_source_converges() -> None:
+    """A vanished source made only of legacy rows must be removable."""
+    client = RecordingWeaviateClient()
+    legacy = chunk_object("acme", "concept/gone.md", "g1")
+    _seed_unstamped(client, legacy)
+    service = SyncService(store=corpus_store(client))
+    results = service.reconcile_sources(
+        project_id="acme", producer="concept_sync",
+        objects_by_source={}, corpus_revision="rev",
+    )
+    assert client.objects == {}, "the legacy vanished source converged"
+    assert sum(r.deleted for r in results) == 1
+
+
+def test_n43_a_vanished_source_with_mixed_rows_converges() -> None:
+    """Stamped and unstamped rows of one vanished source are both removed."""
+    client = RecordingWeaviateClient()
+    legacy = chunk_object("acme", "concept/gone.md", "g1")
+    stamped = chunk_object("acme", "concept/gone.md", "g2")
+    _seed_unstamped(client, legacy)
+    _seed(client, stamped)
+    service = SyncService(store=corpus_store(client))
+    results = service.reconcile_sources(
+        project_id="acme", producer="concept_sync",
+        objects_by_source={}, corpus_revision="rev",
+    )
+    assert client.objects == {}
+    assert sum(r.deleted for r in results) == 2
+
+
+def test_n43_the_backfill_only_ever_touches_unstamped_rows() -> None:
+    """The backfill's SCOPE is unstamped rows: a stamped row is never in its list.
+
+    The condition is an IS-NULL evaluated by the store, so a stamped row could not be
+    matched even if it were sent -- but it is not even sent: the classification puts
+    stamped rows under the generation ordering, where they belong.
+    """
+    client = RecordingWeaviateClient()
+    legacy = chunk_object("acme", "concept/a.md", "legacy")
+    stamped = chunk_object("acme", "concept/a.md", "stamped-old")
+    _seed_unstamped(client, legacy)
+    _seed(client, stamped)  # a previous, properly stamped generation
+    service = SyncService(store=corpus_store(client))
+    result = service.sync_source(
+        project_id="acme", source_file="concept/a.md", source_type="concept",
+        objects=[chunk_object("acme", "concept/a.md", "mine")], corpus_revision="rev",
+    )
+    assert legacy.uuid not in client.objects, "the legacy row converged"
+    assert result.backfilled == 1
+    absent_calls = [c for c in client.conditional_delete_calls if c.get("absent")]
+    assert absent_calls, "the backfill must use the IS-NULL condition"
+    for call in absent_calls:
+        assert tuple(call["uuids"]) == (legacy.uuid,)  # type: ignore[arg-type]
+    # The stamped old row was removed by the ORDERING predicate instead.
+    assert stamped.uuid not in client.objects
+    ordered_calls = [c for c in client.conditional_delete_calls if "limit" in c]
+    assert any(stamped.uuid in tuple(c["uuids"]) for c in ordered_calls)  # type: ignore[arg-type]
+
+
+def test_n43_the_backfill_runs_under_the_held_claim() -> None:
+    """Claim-owned: a source held by another writer is not converged behind its back."""
+    client = RecordingWeaviateClient()
+    legacy = chunk_object("acme", "concept/a.md", "legacy")
+    _seed_unstamped(client, legacy)
+    store = corpus_store(client)
+    held = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="other-writer"
+    )
+    assert held is not None
+    with pytest.raises(ConcurrentSyncRejectedError, match="concurrent sync"):
+        SyncService(store=store, owner_id="me").sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "mine")],
+            corpus_revision="rev",
+        )
+    assert legacy.uuid in client.objects, "no unclaimed backfill"
+
+
+def test_n43_a_partial_backfill_is_fail_closed() -> None:
+    """A backfill that did not fully converge must not report success."""
+    client = RecordingWeaviateClient()
+    _seed_unstamped(client, chunk_object("acme", "concept/a.md", "legacy"))
+    client.delete_confirmed_override = 0  # the store confirms nothing
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(SyncError, match="did not converge"):
+        service.sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "current")],
+            corpus_revision="rev",
+        )
+    assert client.receipts == {}, "and no completion is published"
 
 
 def test_n37_every_write_carries_the_writing_generation() -> None:

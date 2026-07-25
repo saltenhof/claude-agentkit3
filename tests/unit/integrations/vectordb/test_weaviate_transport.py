@@ -1473,3 +1473,51 @@ def test_n44_the_real_transport_uses_the_strict_counters() -> None:
             prop="owning_generation",
             limit=7,
         )
+
+
+def test_n43_the_unstamped_delete_sends_an_is_null_condition() -> None:
+    """The legacy backfill's condition must be IS-NULL, evaluated by the store (N43).
+
+    An ordering condition (`< 1`) would match nothing and quietly do nothing; only
+    IS-NULL selects exactly the rows that predate the ownership-ordering property.
+    """
+    from weaviate.collections.classes.filters import _FilterAnd
+
+    uid = "11111111-1111-5111-8111-111111111111"
+    data = _FakeData(delete_many_results=[(1, 0)])
+    collection = _collection()
+    collection.data = data
+    client = _client(collection)
+    deleted = client.delete_by_ids_if_property_absent(
+        collection=STORY_CONTEXT_COLLECTION,
+        uuids=[uid],
+        prop="owning_generation",
+    )
+    assert deleted == 1
+    where = data.delete_many_calls[0]["where"]
+    assert isinstance(where, _FilterAnd)
+    targets = {p.target: p for p in where.filters}  # type: ignore[attr-defined]
+    assert targets["_id"].value == [uid]
+    assert str(targets["owning_generation"].operator).endswith("IS_NULL")
+    assert targets["owning_generation"].value is True
+
+
+def test_n43_the_unstamped_delete_counts_are_exact() -> None:
+    """A NEW transport call inherits the AC10 strictness obligation (N44 lesson)."""
+    data = _FakeData()
+
+    class _Loose(_FakeData):
+        def delete_many(self, **kwargs: object) -> object:
+            self.delete_many_calls.append(dict(kwargs))
+            return _LooseReturn(successful="1")
+
+    del data
+    collection = _collection()
+    collection.data = _Loose()
+    client = _client(collection)
+    with pytest.raises(VectorDbWriteError, match="count"):
+        client.delete_by_ids_if_property_absent(
+            collection=STORY_CONTEXT_COLLECTION,
+            uuids=["11111111-1111-5111-8111-111111111111"],
+            prop="owning_generation",
+        )
