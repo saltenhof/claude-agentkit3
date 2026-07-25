@@ -523,16 +523,26 @@ class WeaviateCorpusStore:
             )
 
     def release_source(self, *, claim: SourceClaim) -> None:
-        """Release the held generation by ADDING its release marker (N37).
+        """Release the held generation by ADDING its release marker (N37/N45).
 
         Insert-only: the ladder position survives, so the next acquisition of this
-        source is strictly higher. Best-effort -- a failed marker never masks the
-        caller's fault, and a missing marker only means the next writer must reclaim.
-        """
-        import contextlib
+        source is strictly higher.
 
-        with contextlib.suppress(VectorDbUnavailableError, VectorDbWriteError):
-            self.client.insert_object(
+        The release is CONFIRMED, not best-effort (N45). A suppressed failure left the
+        source held forever: the sync could publish its completion, fail to persist the
+        marker, report success, and every later sync of that source would then be
+        rejected until someone issued an administrative reclaim with no idea why. A
+        release that did not land is therefore a typed, named fault.
+
+        Raises:
+            ClaimReleaseFailedError: When the marker could not be persisted, or the
+                store denied it. An ALREADY EXISTING marker is success -- releasing
+                twice is idempotent, not a fault.
+        """
+        from agentkit.backend.vectordb.sync import ClaimReleaseFailedError
+
+        try:
+            created = self.client.insert_object(
                 collection=CLAIM_COLLECTION,
                 uuid=self._release_uuid(
                     claim.project_id, claim.source_file, claim.generation
@@ -548,6 +558,31 @@ class WeaviateCorpusStore:
                     "reclaim_reason": "",
                 },
             )
+        except (VectorDbUnavailableError, VectorDbWriteError) as exc:
+            raise ClaimReleaseFailedError(
+                f"source {(claim.project_id, claim.source_file)!r} generation "
+                f"{claim.generation} could NOT be released ({exc}); it stays HELD and "
+                "every later sync of it will be rejected until an administrative "
+                "reclaim. Reported instead of suppressed (fail-closed, N45)."
+            ) from exc
+        if not created and not self._release_marker_exists(claim):
+            raise ClaimReleaseFailedError(
+                f"source {(claim.project_id, claim.source_file)!r} generation "
+                f"{claim.generation} could NOT be released: the store neither created "
+                "nor holds the release marker; it stays HELD (fail-closed, N45)."
+            )
+
+    def _release_marker_exists(self, claim: SourceClaim) -> bool:
+        """Whether this generation's release marker is persisted (idempotency, N45)."""
+        wanted = self._release_uuid(
+            claim.project_id, claim.source_file, claim.generation
+        )
+        return any(
+            uid == wanted
+            for uid, _props in self._generation_rows(
+                claim.project_id, claim.source_file
+            )
+        )
 
     def _prune_generations_below(
         self, project_id: str, source_file: str, generation: int

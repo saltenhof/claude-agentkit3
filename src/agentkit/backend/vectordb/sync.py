@@ -30,11 +30,12 @@ transactional atomicity is claimed.
 
 from __future__ import annotations
 
+import functools
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Final, Protocol, TypeVar, runtime_checkable
 
 from agentkit.backend.vectordb.ingest.classify import source_types_for_producer
 from agentkit.backend.vectordb.schema import (
@@ -46,7 +47,10 @@ from agentkit.backend.vectordb.schema import (
 from agentkit.concepts.hashing import sync_receipt_digest
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
+
+#: Return type of an operation run under a held claim (see ``_with_release``).
+_T = TypeVar("_T")
 
 
 class SyncError(RuntimeError):
@@ -63,6 +67,16 @@ class ConcurrentSyncRejectedError(SyncError):
 
 class ClaimSupersededError(SyncError):
     """The source claim was taken over while the window was open (N15 fence)."""
+
+
+class ClaimReleaseFailedError(SyncError):
+    """The source stayed HELD because its release could not be persisted (N45).
+
+    Never silent: an unreleased source blocks every later sync of it until an
+    administrative reclaim, so the operator must learn about it at the moment it
+    happens rather than from an unexplained rejection later. When the sync itself also
+    failed, the primary fault is preserved and this one is attached to it.
+    """
 
 
 class ReceiptState(StrEnum):
@@ -430,15 +444,48 @@ class SyncService:
             objects, project_id=project_id, source_file=source_file, source_type=source_type
         )
         claim = self._claim(project_id=project_id, source_file=source_file)
-        try:
-            return self._sync_impl(
+        return self._with_release(
+            claim,
+            functools.partial(
+                self._sync_impl,
                 claim=claim,
                 source_type=source_type,
                 objects=objects,
                 corpus_revision=corpus_revision,
-            )
-        finally:
-            self.store.release_source(claim=claim)
+            ),
+        )
+
+    def _with_release(
+        self, claim: SourceClaim, operation: Callable[[], _T]
+    ) -> _T:
+        """Run ``operation`` under ``claim`` and CONFIRM its release afterwards (N45).
+
+        The release is not best-effort: a source that stays held blocks every later
+        sync of it until an administrative reclaim, so a failed release is a typed
+        fault (:class:`ClaimReleaseFailedError`).
+
+        When the operation ALSO failed, its exception is the primary one and is
+        re-raised unchanged -- the release failure is attached as a note instead of
+        replacing it. A plain ``finally`` would have substituted the release fault for
+        the real cause of the run's failure.
+
+        Args:
+            claim: The held claim to release.
+            operation: The work to run while holding it.
+
+        Returns:
+            Whatever ``operation`` returned.
+        """
+        try:
+            result = operation()
+        except BaseException as primary:
+            try:
+                self.store.release_source(claim=claim)
+            except ClaimReleaseFailedError as release_failure:
+                primary.add_note(f"additionally: {release_failure}")
+            raise
+        self.store.release_source(claim=claim)
+        return result
 
     def _claim(self, *, project_id: str, source_file: str) -> SourceClaim:
         """Acquire the store-level source claim or reject fail-closed (D3/N27).
@@ -574,15 +621,17 @@ class SyncService:
         for vanished in sorted(vanished_sources):
             rows = [o for o in existing if str(o.get("source_file")) == vanished]
             claim = self._claim(project_id=project_id, source_file=vanished)
-            try:
-                # The destructive delete is bound to the GENERATION ORDER and
-                # evaluated BY THE STORE (N37). There is deliberately NO preceding
-                # ownership check here: a check followed by a separate delete is
-                # exactly the window this decision removes, and keeping one would
-                # only restore the illusion of safety.
-                deleted = self._delete_older_generations(rows, claim=claim)
-            finally:
-                self.store.release_source(claim=claim)
+            # The destructive delete is bound to the GENERATION ORDER and evaluated BY
+            # THE STORE (N37). There is deliberately NO preceding ownership check here:
+            # a check followed by a separate delete is exactly the window this decision
+            # removes, and keeping one would only restore the illusion of safety. The
+            # claim release is CONFIRMED afterwards (N45).
+            deleted = self._with_release(
+                claim,
+                functools.partial(
+                    self._delete_older_generations, rows, claim=claim
+                ),
+            )
             results.append(
                 SyncResult(
                     project_id=project_id,
@@ -929,6 +978,7 @@ def _validate_objects_against_target(
 
 __all__ = [
     "ADMIN_RECLAIM_REASON",
+    "ClaimReleaseFailedError",
     "COMPLETION_INPUT_FIELDS",
     "RECEIPT_MANDATORY_FIELDS",
     "ClaimSupersededError",

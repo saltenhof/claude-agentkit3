@@ -36,6 +36,7 @@ from agentkit.backend.vectordb.schema import (
     deterministic_uuid,
 )
 from agentkit.backend.vectordb.sync import (
+    ClaimReleaseFailedError,
     ClaimSupersededError,
     ConcurrentSyncRejectedError,
     PartialWriteError,
@@ -586,6 +587,55 @@ def test_n37_superseded_holder_cannot_delete_a_newer_generation_written_before_i
         writer_a._delete_older_generations(rows, claim=claim_a)  # noqa: SLF001
     assert stale.uuid in client.objects, "the newer generation's data must survive"
     assert client.objects[stale.uuid][OWNING_GENERATION_PROPERTY] == claim_b.generation
+
+
+def test_n37_end_to_end_a_writer_that_reads_a_newer_generation_cannot_delete_it(
+) -> None:
+    """ORDER 2, END-TO-END through ``sync_source`` (P2-6).
+
+    The previous order-2 proof drove the private delete helper. Here the whole entry
+    path runs: A claims, writes its own generation, and the takeover happens BEFORE A
+    re-reads the source -- so A genuinely READS B's newer rows, computes them as
+    "not mine, therefore stale", and attempts to delete them. The storage condition
+    still refuses, because the bound is A's own generation.
+
+    Note on the OTHER entry path: in ``reconcile_sources`` the vanished-source read
+    happens BEFORE the claim is acquired, and a newer generation can only exist via a
+    reclaim OF that claim. A "read after the newer write" order is therefore
+    structurally impossible there, and the two orders coincide -- the condition is
+    evaluated by the store at delete time either way (covered by the two tests above).
+    """
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    old = chunk_object("acme", "concept/a.md", "old")
+    _seed(client, old)
+
+    def _take_over_and_write(collection: str) -> None:
+        if collection != STORY_CONTEXT_COLLECTION:
+            return
+        client.after_upsert = None
+        newer = store.reclaim_source(
+            project_id="acme", source_file="concept/a.md",
+            owner_id="writer-b", reason="test takeover",
+        )
+        # B writes a chunk of its OWN generation that A will read and consider stale.
+        store.upsert_objects(
+            objects=[chunk_object("acme", "concept/a.md", "b-only")],
+            owning_generation=newer.generation,
+        )
+
+    client.after_upsert = _take_over_and_write
+    with pytest.raises(ClaimSupersededError, match="not older than this claim"):
+        SyncService(store=store, owner_id="writer-a").sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "a-new")],
+            corpus_revision="rev",
+        )
+    # B's chunk survives: A read it, judged it stale, and could not remove it.
+    b_only = deterministic_uuid("acme", "concept/a.md", "b-only")
+    assert b_only in client.objects
+    assert client.objects[b_only][OWNING_GENERATION_PROPERTY] == 3
+    assert client.receipts == {}, "and A publishes no completion"
 
 
 def test_n37_the_ladder_is_persistent_across_normal_releases() -> None:
@@ -1290,3 +1340,85 @@ def test_n16_unstamped_receipt_never_verifies() -> None:
     )
     with pytest.raises(SyncError):
         unstamped.verify()
+
+
+# --------------------------------------------------------------------------- #
+# N45: a claim release is CONFIRMED -- never silently turned into success
+# --------------------------------------------------------------------------- #
+
+
+def test_n45_a_release_failure_after_a_successful_sync_is_surfaced() -> None:
+    """A source that stays HELD must not be reported as a clean sync."""
+    client = RecordingWeaviateClient()
+    client.fail_release = True
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(ClaimReleaseFailedError, match="stays HELD"):
+        service.sync_source(
+            project_id="acme", source_file="concept/a.md", source_type="concept",
+            objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev",
+        )
+    # The window itself completed -- that is exactly why silence was dangerous.
+    assert client.objects, "the generation was written"
+    assert client.receipts, "and the completion was published"
+
+
+def test_n45_a_release_failure_does_not_replace_the_primary_sync_fault() -> None:
+    """When BOTH fail, the sync's own fault surfaces; the release is attached to it.
+
+    A plain ``finally`` substituted the release fault for the real cause of the run's
+    failure, which is the worst of both worlds: the operator sees the symptom and loses
+    the diagnosis.
+    """
+    client = RecordingWeaviateClient()
+    client.fail_release = True
+    store = corpus_store(client)
+    service = SyncService(store=store)
+    claim = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="w"
+    )
+    assert claim is not None
+
+    def _boom() -> None:
+        raise PartialWriteError("the window itself failed")
+
+    with pytest.raises(PartialWriteError, match="the window itself failed") as caught:
+        service._with_release(claim, _boom)  # noqa: SLF001
+    notes = getattr(caught.value, "__notes__", [])
+    assert any("could NOT be released" in note for note in notes), notes
+
+
+def test_n45_the_vanished_delete_path_also_confirms_its_release() -> None:
+    client = RecordingWeaviateClient()
+    _seed(client, chunk_object("acme", "concept/gone.md", "g1"))
+    client.fail_release = True
+    service = SyncService(store=corpus_store(client))
+    with pytest.raises(ClaimReleaseFailedError, match="stays HELD"):
+        service.reconcile_sources(
+            project_id="acme", producer="concept_sync",
+            objects_by_source={}, corpus_revision="rev",
+        )
+
+
+def test_n45_releasing_twice_is_idempotent() -> None:
+    """A repeated release is not a fault -- the marker already exists."""
+    client = RecordingWeaviateClient()
+    store = corpus_store(client)
+    claim = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="w"
+    )
+    assert claim is not None
+    store.release_source(claim=claim)
+    store.release_source(claim=claim)  # no raise
+
+
+def test_n45_a_denied_release_marker_is_surfaced() -> None:
+    """If the store neither creates nor holds the marker, the source stays held."""
+    client = RecordingWeaviateClient()
+    client.deny_release_insert = True
+    store = corpus_store(client)
+    claim = store.try_claim_source(
+        project_id="acme", source_file="concept/a.md", owner_id="w"
+    )
+    assert claim is not None
+    with pytest.raises(ClaimReleaseFailedError, match="neither created nor holds"):
+        store.release_source(claim=claim)

@@ -35,6 +35,7 @@ from agentkit.backend.vectordb.schema import (
     StoryContextObject,
     deterministic_uuid,
 )
+from agentkit.integration_clients.vectordb.errors import VectorDbWriteError
 from agentkit.integration_clients.vectordb.weaviate_adapter import (
     _validated_hit_properties,
 )
@@ -72,6 +73,10 @@ class RecordingWeaviateClient:
     claim_history: list[dict[str, object]] = field(default_factory=list)
     #: Every STORAGE-CONDITIONAL delete (a destructive delete must be one, D9).
     conditional_delete_calls: list[dict[str, object]] = field(default_factory=list)
+    #: Probe: the store REJECTS the claim release marker (N45 -- the source stays held).
+    fail_release: bool = False
+    #: Probe: the store neither creates the release marker nor holds it (N45).
+    deny_release_insert: bool = False
     search_results: list[tuple[str, dict[str, object], float]] = field(default_factory=list)
     upsert_written_override: int | None = None
     delete_confirmed_override: int | None = None
@@ -219,6 +224,14 @@ class RecordingWeaviateClient:
         # winner cannot release its claim) before both have decided. Only the FIRST
         # conditional create of a thread participates, so a retry (e.g. the next
         # sequence candidate) cannot unbalance the barrier.
+        released = collection == CLAIM_COLLECTION and properties.get("state") == (
+            CLAIM_STATE_RELEASED
+        )
+        if released and self.fail_release:
+            raise VectorDbWriteError("release marker rejected by the store (probe)")
+        if released and self.deny_release_insert:
+            # The store neither creates the marker nor already holds it (N45).
+            return False
         use_barrier = self.insert_barrier is not None and not getattr(
             self._local, "barrier_used", False
         )
