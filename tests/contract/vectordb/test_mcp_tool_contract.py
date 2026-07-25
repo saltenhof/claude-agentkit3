@@ -1,0 +1,120 @@
+"""Contract test binding the MCP tool surface to FK-13 §13.4.1 / §13.9.5 (AC8).
+
+The expectations below are transcribed from the FK-13 parameter/return tables, so
+a drift in either direction (code or concept) breaks this test. The ADVERTISED
+``inputSchema`` is asserted against the same table, because the schema and the
+strict validators are generated from one contract SSOT.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from agentkit.backend.vectordb.contracts import (
+    CONCEPT_STATUSES,
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    TOOL_NAMES,
+    contract_for,
+)
+from agentkit.integration_clients.vectordb.weaviate_adapter import SEARCH_MODES
+
+# FK-13 §13.4.1 (story_search / story_list_sources / story_sync) and §13.9.5
+# (concept_search / concept_sync): (required, optional, return fields).
+FK13_TOOL_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {
+    "story_search": (
+        ("query",),
+        ("search_mode", "project_id", "status", "story_type", "limit"),
+        (
+            "story_id", "title", "status", "story_type", "source_type", "module",
+            "epic", "section_heading", "score", "snippet",
+        ),
+    ),
+    "story_list_sources": (
+        (),
+        ("project_id",),
+        # D1 (po-decisions.md): minimal, provable shape.
+        (
+            "project_id", "source_type", "producer", "source_count",
+            "chunk_count", "last_revision",
+        ),
+    ),
+    "story_sync": (
+        (),
+        ("project_id", "full_reindex"),
+        ("project_id", "synced_sources", "written", "deleted", "corpus_revision"),
+    ),
+    "concept_search": (
+        ("query",),
+        (
+            "search_mode", "project_id", "concept_id", "module", "is_appendix",
+            "concept_status", "limit",
+        ),
+        (
+            "concept_id", "title", "module", "section_heading", "section_number",
+            "is_appendix", "parent_concept_id", "defers_to", "authority_over",
+            "normative_rules", "concept_status", "score", "snippet",
+        ),
+    ),
+    "concept_sync": (
+        (),
+        ("project_id", "full_reindex", "concept_path"),
+        ("project_id", "synced_sources", "written", "deleted", "corpus_revision"),
+    ),
+}
+
+#: FK-13 parameter types (String / Boolean / Integer) as JSON-Schema types.
+FK13_PARAM_TYPES: dict[str, str] = {
+    "query": "string",
+    "search_mode": "string",
+    "project_id": "string",
+    "status": "string",
+    "story_type": "string",
+    "limit": "integer",
+    "full_reindex": "boolean",
+    "concept_id": "string",
+    "module": "string",
+    "is_appendix": "boolean",
+    "concept_status": "string",
+    "concept_path": "string",
+}
+
+
+def test_exactly_the_five_fk13_tools_exist() -> None:
+    assert set(TOOL_NAMES) == set(FK13_TOOL_TABLES)
+
+
+@pytest.mark.parametrize("name", sorted(FK13_TOOL_TABLES))
+def test_tool_parameters_and_return_fields_match_fk13(name: str) -> None:
+    required, optional, return_fields = FK13_TOOL_TABLES[name]
+    contract = contract_for(name)
+    assert contract.required_params == required
+    assert set(contract.optional_params) == set(optional)
+    assert set(contract.return_fields) == set(return_fields)
+
+
+@pytest.mark.parametrize("name", sorted(FK13_TOOL_TABLES))
+def test_advertised_input_schema_matches_fk13(name: str) -> None:
+    required, optional, _returns = FK13_TOOL_TABLES[name]
+    schema = contract_for(name).input_schema()
+    assert schema["type"] == "object"
+    assert schema["required"] == list(required)
+    assert set(schema["properties"]) == set(required) | set(optional)
+    # Unknown arguments are refused by the advertised contract itself.
+    assert schema["additionalProperties"] is False
+    for param, advertised in schema["properties"].items():
+        assert advertised["type"] == FK13_PARAM_TYPES[param], param
+        # An optional parameter is NEVER nullable: an explicit JSON null is a
+        # named error, only an ABSENT key falls back to the default (R13).
+        assert "null" not in str(advertised["type"])
+
+
+def test_enum_and_bound_defaults_match_fk13() -> None:
+    search_mode = contract_for("story_search").input_schema()["properties"]["search_mode"]
+    assert search_mode["enum"] == list(SEARCH_MODES) == ["hybrid", "vector", "keyword"]
+    concept_status = contract_for("concept_search").input_schema()["properties"]["concept_status"]
+    assert concept_status["enum"] == list(CONCEPT_STATUSES) == ["active", "draft", "archived"]
+    limit = contract_for("story_search").input_schema()["properties"]["limit"]
+    assert limit["minimum"] == 1
+    assert limit["maximum"] == MAX_LIMIT
+    assert DEFAULT_LIMIT == 10  # FK-13 §13.4.1 "Max Ergebnisse (Default: 10)"
