@@ -1,18 +1,17 @@
-# AG3-174 — Story Report (post Codex review r5 remediation)
+# AG3-174 — Story Report (post Codex review r5 remediation + D7)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
-- **Status:** **PENDING RATIFICATION** — implemented and NOT landed. Two concept
-  points must be ratified by the PO before this story can be called done:
-  Q1 (the authority-scope input of `concept_search`) and Q2 (the `doc_kind`
-  vocabulary vs. AK3's own corpus), both below. Landing is additionally gated on
-  AG3-172 (orchestrator's job).
-- **AC5 (authority ranking): PENDING RATIFICATION — not met.** FK-13 §13.9.11
-  rules 3/4/5 are implemented, tested and active. Rules 1 and 2 rank against the
-  `authority_over` SCOPE being asked about, and FK-13 defines no ratified source
-  for that scope (§13.9.5 has no such parameter). The explicit
-  `query_authority_scope` input therefore stays UNPOPULATED in production and the
-  two rules are INERT. No scope source was invented; see Q1.
+- **Status:** implemented, NOT landed (landing gated on AG3-172, orchestrator's
+  job). Q1 is **RATIFIED as D7** and implemented — see "D7 implementation" below.
+  Q2 (the `doc_kind` vocabulary vs. AK3's own corpus) is still **PENDING**; per D7
+  it does not block this story, because neither the CLI nor the MCP entry point
+  guesses the corpus directory any more.
+- **AC5 (authority ranking): MET.** All five FK-13 §13.9.11 rules are implemented,
+  active and tested. Rules 3/4/5 were already active; rules 1 and 2 became
+  productive with **D7**, which ratified the optional `authority_scope` parameter
+  of §13.9.5 as the scope they rank against. The scope comes from the caller and is
+  never derived from `module`. This resolves the r5 "PENDING RATIFICATION" note.
 
 ## SSOT-adapter decision (recorded per DoD)
 
@@ -122,9 +121,11 @@ Two gaps found while remediating and closed in the same pass:
 - **Env key.** The CLI export/repair authority is `PROJECT_ID` (FK-13 §13.4.3).
   The previously accepted `AGENTKIT_PROJECT_ID` fallback was removed (it had no
   other reader in the repo) rather than kept as a second truth.
-- **Authority scope (superseded by r4).** Binding the resolver's authority scope
-  to the `module` filter was rejected by Codex as needing ratification. The code
-  now keeps the two separate; see the ratification question Q1 below.
+- **Authority scope (superseded by r4, then ratified as D7).** Binding the
+  resolver's authority scope to the `module` filter was rejected by Codex as
+  needing ratification. The code keeps the two separate, and the PO subsequently
+  ratified an explicit `authority_scope` parameter (D7) as the scope source; see
+  "D7 implementation" below.
 
 ## Codex review r4 remediation (11 still-open + 2 regressions + 12 new)
 
@@ -235,30 +236,72 @@ in Q2 below is corrected to FIRST ERROR PER FILE.
 
 **Adjudications carried over unchanged.** The N20 parser boundary was confirmed
 CORRECT, so no further parser relaxation was added. The N23 authority-scope split
-was confirmed right; rules 1+2 stay inert pending PO ratification, and no scope
-source was invented.
+was confirmed right, and no scope source was invented — the ratification that
+followed (D7) supplied one explicitly.
+
+## D7 implementation -- `authority_scope` (closes Q1, makes AC5 attainable)
+
+PO decision **D7** (`po-decisions.md`, commit `8fd75656`) ratified an optional
+`authority_scope` parameter for `concept_search` and thereby authorised the ONE
+bounded concept change this story may make. It rejected both alternatives: a
+`module` -> scope mapping ("where a document lives" and "what it governs" are
+different things) and landing with three of five rules (a silent quality gap in
+the capability's core value, i.e. a ZERO-DEBT violation).
+
+**Concept diff (minimal, two sections + the record).**
+
+- FK-13 §13.9.5: one new row in the normative `concept_search` table
+  (`authority_scope`, String, optional) plus a paragraph stating that it is a
+  RANKING input and not a filter, that `module` and `authority_scope` are separate
+  inputs, that it is never derived from `module`, and that an absent value leaves
+  rules 1/2 inert while 3/4/5 stay unchanged.
+- FK-13 §13.9.11: a paragraph naming the reference quantity of rules 1 and 2 (the
+  `authority_scope` of §13.9.5), that rule 2 credits the deferral TARGET, and that
+  the normative precedence of rules 1/2/4 is not outrankable by similarity while
+  rules 3/5 act within one precedence level only.
+- `concept/_meta/decisions/2026-07-25-concept-search-authority-scope.md`: the P3
+  decision record (decision, four rejected alternatives, impact sweep,
+  Betroffenheitsmatrix). §13.9.6's `doc_kind` vocabulary is explicitly listed as
+  NOT affected — Q2 stays untouched.
+
+**Code.** `authority_scope` is a strictly validated optional in the contract SSOT
+(`contracts.TOOL_CONTRACTS`), so the advertised `inputSchema` and the strict
+validators move together. `validate_authority_scope` is deliberately NOT part of
+`validate_concept_filters`: absence yields `""` (a valid state), while explicit
+`null`, an empty/whitespace string and any non-string are named errors like every
+other optional. `concept_search` passes it as `query_authority_scope` into
+`rank_hits` and never into the transport filters. The `McpToolService`
+`query_authority_scope` FIELD was removed — with a ratified per-call input, a
+service-level default would have been a second source of truth. The stale
+`module` parameter description ("also the queried authority scope") was corrected.
+
+**Gates run** (blocking CI set, all green):
+`check_concept_frontmatter` (90 docs), `compile_formal_specs`,
+`check_concept_reference_integrity` (0 errors / 55 reports),
+`check_concept_decision_record`, `check_concept_code_contracts`,
+`check_architecture_conformance`. The two LLM-backed nightly gates (W2 authority
+prose, W3 scope consistency) cannot execute in this repo at all: both ingest the
+corpus first and abort on the Q2 `doc_kind` gap. That is PRE-EXISTING and
+unchanged in nature — the identical abort happens on a clean tree (272 files) and
+with this change (273); the one extra file is the new decision record, which fails
+for exactly the same reason as all 20 pre-existing decision records
+(`doc_kind 'decision-record' is not in appendix|core`). Both stages are
+non-blocking by CI design, and repairing that is Q2, not this story.
 
 ## Ratification needed -- NOT decided in this story
 
-### Q1 -- an authority-scope input for `concept_search` (N23)
+### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
 
-FK-13 §13.9.11 rules 1 and 2 rank against the `authority_over` SCOPE being asked
-about, but §13.9.5 defines NO scope parameter for `concept_search`. The code no
-longer conflates it with `module` (the r4 finding); the explicit
-`query_authority_scope` input therefore stays UNPOPULATED in production, so rules
-1/2 are inert while rules 3/4/5 work.
+**Resolved.** The PO ratified the optional `authority_scope` parameter on
+2026-07-25 (D7). Rules 1 and 2 are productive, AC5 is met, and the concept change
+is anchored in FK-13 §13.9.5/§13.9.11 with the accompanying decision record. The
+question below is kept for the record; it is no longer open.
 
-**Question:** should `concept_search` gain a ratified authority-scope parameter
-(e.g. `authority_scope: String, optional` in the §13.9.5 table), or should the
-scope come from another ratified source (e.g. a module -> scope mapping)? Until
-that is ratified, rules 1 and 2 cannot fire in production; everything else about
-them is implemented and tested (including the tiered precedence).
+*Original question:* should `concept_search` gain a ratified authority-scope
+parameter, or should the scope come from another ratified source (e.g. a module ->
+scope mapping)? — Answered: an explicit parameter; the mapping was rejected.
 
-**Consequence for the story:** this is exactly why **AC5 is reported as PENDING
-RATIFICATION and NOT met** (see the header). The story does not claim AC5 as
-satisfied, and it does not invent a scope source to make it appear satisfied.
-
-### Q2 -- the `doc_kind` vocabulary of §13.9.6 vs. AK3's own corpus (N20)
+### Q2 -- the `doc_kind` vocabulary of §13.9.6 vs. AK3's own corpus (N20) -- STILL PENDING
 
 Measured on the real `concept/` directory (347 markdown files):
 
@@ -294,8 +337,15 @@ files, not the total number of repairs.
 corpus a valid FK-13 corpus), or is AK3's development corpus a SEPARATE corpus
 class with its own profile (so the FK-13 tooling only ever reads a target
 project's `concepts_dir`)? Both are concept changes; this story implemented
-neither. Nothing silently points at the wrong corpus in the meantime: the CLI
-argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
+neither — D7 explicitly leaves §13.9.6 untouched. Nothing silently points at the
+wrong corpus in the meantime: the CLI argument is required and the MCP entry point
+demands `AGENTKIT_CONCEPTS_DIR`.
+
+**Operational consequence worth naming:** the two LLM-backed nightly concept gates
+(W2 authority prose, W3 scope consistency) ingest `concept/` before they evaluate
+anything, so today they abort on this gap instead of running. They are non-blocking
+by CI design, but they deliver no signal until Q2 is decided. That is a
+pre-existing condition of the repo, not of this story.
 
 ## Validators (project venv only)
 
@@ -303,9 +353,11 @@ argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
-  after the r5 remediation: **4 failed, 9851 passed, 40 skipped, 521 errors**;
-  total coverage **85.87 %** (gate 85 % reached). The same 4 failures as before,
-  i.e. neither r4 nor r5 introduced any.
+  after the D7 implementation: **4 failed, 9862 passed, 40 skipped, 521 errors**;
+  total coverage **85.69 %** (gate 85 % reached; 85.87 % before D7 -- the 0.18 pp
+  is run-to-run variance in the Docker-absent suites, no AG3-174 module lost
+  coverage). The same 4 failures as before, i.e. neither r4, r5 nor D7 introduced
+  any.
   - The 4 failures are all `tests/unit/concept_toolchain` baseline-digest /
     byte-count drift against the committed blob -- PRE-EXISTING (reproduced at
     `96a21dbb` with this story's files reverted) and named out of scope.
@@ -318,6 +370,11 @@ argument is required and the MCP entry point demands `AGENTKIT_CONCEPTS_DIR`.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for D7 (7 scenarios, all RED): the scope not being threaded into the
+  resolver, the scope being derived from `module` as a fallback, the scope leaking
+  into the transport filters, a lenient (coercing) optional validator, the contract
+  parameter being dropped, rules 1/2 degraded from a precedence tier to a bonus, and
+  rule 2 crediting the deferring source instead of the target.
 - Revert-check: for the r3, r4 AND r5 findings each production fix was temporarily
   undone and the pinning test confirmed RED (23 + 28 + 17 scenarios, all red). Four
   of the r5 scenarios came back GREEN on the first pass -- those tests were WEAK,
