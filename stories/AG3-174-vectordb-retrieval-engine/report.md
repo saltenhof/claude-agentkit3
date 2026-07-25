@@ -1,26 +1,23 @@
-# AG3-174 — Story Report (post Codex review r6 remediation)
+# AG3-174 — Story Report (post Codex review r6 remediation + D8)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
 - **Status:** implemented, NOT landed (landing gated on AG3-172, orchestrator's
-  job). Q1 is **RATIFIED as D7** and implemented — see "D7 implementation" below.
+  job). Q1 is **RATIFIED as D7** and implemented; the rule-4 incoherence (N36) is
+  **RATIFIED as D8** and implemented — see the two implementation sections below.
   Q2 (the `doc_kind` vocabulary vs. AK3's own corpus) is still **PENDING**; per D7
   it does not block this story, because neither the CLI nor the MCP entry point
-  guesses the corpus directory any more. Two further points are with the PO:
-  **N33** (residual check-then-mutate window in the claim fencing) and **N36**
-  (the rule-4 incoherence below).
-- **AC5 (authority ranking): NOT MET — BLOCKED on the N36 ratification.**
-  The earlier claim in this report that AC5 was met is **withdrawn**. Rules 1, 2, 3
-  and 5 are implemented, active and revert-verified; **rule 4 is behaviourally
-  inert**. Every `concept_search` applies exactly ONE `concept_status` filter
-  (default `active`, otherwise `draft` or `archived`), so active and non-active
-  documents can never coexist in a real result set — a "demotion for draft/archived"
-  therefore cannot change any real ordering. That is an incoherence inside FK-13
-  itself (§13.9.10's filter design vs. §13.9.11's rule 4) and needs ratification,
-  not a code guess; it is with the PO. The rule-4 test is kept as-is (not deleted,
-  not weakened), but **its premise is unreachable under the current filter
-  contract**: it only observes a demotion because the recording client returns an
-  active hit for a draft-scoped query, which a real Weaviate filter would exclude.
+  guesses the corpus directory any more. One point remains with the PO: **N33**
+  (the residual check-then-mutate window in the claim fencing, Q3 below).
+- **AC5 (authority ranking): MET, and now proven filter-faithfully.** All five
+  FK-13 §13.9.11 rules are active. Rules 1/2 became productive with **D7**; rule 4
+  became *observable* with **D8**, which ratified `concept_status` as a status SET
+  so a result set can legitimately be mixed. The earlier r6 statement "AC5 blocked
+  on the N36 ratification" is superseded by D8, and the earlier D7-era statement
+  "AC5 met" was correctly rejected at the time: back then rule 4 could not fire and
+  the test that appeared to prove it only worked because the recording double
+  ignored the transport filters. **The double now applies every filter exactly like
+  Weaviate**, and the rule-4 proof runs on a genuinely mixed result set.
 
 ## SSOT-adapter decision (recorded per DoD)
 
@@ -335,6 +332,46 @@ for exactly the same reason as all 20 pre-existing decision records
 (`doc_kind 'decision-record' is not in appendix|core`). Both stages are
 non-blocking by CI design, and repairing that is Q2, not this story.
 
+**Note on the corpus count after D8:** the D8 decision record adds a SECOND
+deliberately non-conforming record, so the pre-existing Q2 error class now covers
+**274** files instead of 273. Same class, no new class.
+
+## D8 implementation -- mixed status result sets (closes N36, completes AC5)
+
+PO decision **D8** (`po-decisions.md`, commit `558e1242`) resolved the FK-13
+self-contradiction Codex found as N36 and authorised the second (and last) bounded
+concept change of this story. It chose "allow mixed status sets" over "retire rule 4"
+because drafts matter for concept incubation (DK-16/FK-78), and it kept the default
+unchanged at `["active"]`.
+
+**Concept diff.** FK-13 §13.9.5 (parameter table + default-filter paragraph),
+§13.9.10 (archive handling) and §13.9.11 (rule 4's scope of effect) now describe the
+status filter as a SET with default `["active"]`, evaluated as a real transport
+condition, with rule 4 ordering within a mixed set and remaining a precedence tier.
+`concept/_meta/decisions/2026-07-25-concept-search-mixed-status-result-sets.md`
+carries the P3 record (decision, four rejected alternatives, impact sweep,
+Betroffenheitsmatrix). §13.9.6 and the `doc_kind` vocabulary stay untouched.
+
+**Code.** `concept_status` is an `array` in the contract SSOT, advertised with the
+item enum plus `minItems: 1` and `uniqueItems: true` — the schema now states exactly
+what the validator enforces. `validate_concept_status` returns a tuple and rejects,
+by name and without coercion: a bare string, explicit null, a non-list container, an
+empty list, an unknown value, a duplicate and a non-string element. The adapter turns
+a set-valued filter into a real server-side `any_of` of equalities (a single value
+keeps the exact equality the default query has always issued) and fails closed on an
+empty set; there is no client-side post-filtering, which would have broken `limit`
+and the server's own ranking.
+
+**Tests.** The recording double now applies EVERY filter the way the adapter builds
+it (set = membership, scalar = equality) — that is the root-cause fix for the sham
+proof, and it immediately exposed one further over-permissive assertion elsewhere (a
+foreign-module hit that a real `module` filter excludes), which was corrected rather
+than worked around. On top: a mixed query proves the transport really returns both
+statuses AND that rule 4 puts the active document first despite a 90x worse score; a
+draft that OWNS the queried authority scope still loses to an active document (rule 4
+beats rule 1, whole-tier); the default returns active only and an `["archived"]`
+query returns nothing; and a 7-case strictness matrix covers every rejected shape.
+
 ## Ratification needed -- NOT decided in this story
 
 ### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
@@ -385,30 +422,16 @@ existing fences are unchanged and not weakened. Observations for the decision:
   reclaim requires the operator to have established that the previous writer is
   dead — which the `--reclaim` flag already asserts semantically.
 
-### Q4 -- rule 4 vs. the single-`concept_status` filter (N36) -- WITH THE PO
+### Q4 -- rule 4 vs. the single-`concept_status` filter (N36) -- RATIFIED as D8
 
-FK-13 §13.9.11 rule 4 demotes archived/draft concepts, but §13.9.5/§13.9.10 give
-`concept_search` exactly ONE `concept_status` value (default `active`), so a real
-result set is status-homogeneous and the demotion can never reorder anything.
-Observations for the decision:
-
-- The two coherent resolutions are (a) a ratified result-set contract in which
-  statuses may coexist — e.g. `concept_status` accepting a LIST, or an explicit
-  "include non-active" flag — after which rule 4 becomes observable and testable on
-  the real filter path; or (b) revising rule 4 (and AC5) to state that status is a
-  FILTER concern, not a ranking concern.
-- Option (a) is the smaller change to the ranking model and would make rule 4 the
-  thing that keeps a `draft` from outranking the `active` document when a caller
-  deliberately asks for both. It is also the only variant under which "all five
-  rules" can honestly be claimed.
-- The code needs no ranking change for (a): `_status_tier_penalty` and its
-  whole-tier demotion already work, and the resolver is fed the real corpus status
-  from the graph, not the transport filter. What (a) needs is the tool contract and
-  the transport filter, i.e. one ratified parameter shape.
-- Recorded honestly: the current rule-4 test passes only because the recording
-  client is free to return an active hit for a draft-scoped query. It stays in place
-  as the pin for the demotion logic, and this report states that its premise is
-  unreachable in production until the ratification.
+**Resolved.** The PO ratified mixed status result sets on 2026-07-25 (D8) and chose
+that over retiring rule 4. Implemented as described under "D8 implementation": the
+status filter is a strictly validated SET with the default unchanged at
+`["active"]`, evaluated server-side, and rule 4 orders within a mixed set as a
+precedence tier. As predicted while the question was open, no ranking change was
+needed — `_status_tier_penalty` and its whole-tier demotion already worked off the
+corpus status; what changed is the tool contract, the transport filter and the
+filter faithfulness of the test double.
 
 ### Q2 -- the `doc_kind` vocabulary of §13.9.6 vs. AK3's own corpus (N20) -- STILL PENDING
 
@@ -462,10 +485,10 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest` (project addopts `-n 4 --dist loadfile`) --
-  after the r6 remediation: **4 failed, 9879 passed, 40 skipped, 521 errors**;
-  total coverage **85.64 %** (gate 85 % reached; 85.87 % before D7 -- the delta is
-  run-to-run variance in the Docker-absent suites, no AG3-174 module lost coverage).
-  The same 4 failures as before, i.e. neither r4, r5, D7 nor r6 introduced any.
+  after r6 + D8: **4 failed, 9891 passed, 40 skipped, 521 errors**; total coverage
+  **85.53 %** (gate 85 % reached; 85.87 % before D7 -- the delta is run-to-run
+  variance in the Docker-absent suites, no AG3-174 module lost coverage). The same 4
+  failures as before, i.e. none of r4, r5, D7, r6 or D8 introduced any.
   - The 4 failures are all `tests/unit/concept_toolchain` baseline-digest /
     byte-count drift against the committed blob -- PRE-EXISTING (reproduced at
     `96a21dbb` with this story's files reverted) and named out of scope.
@@ -478,6 +501,11 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for D8 (7 scenarios, all RED): bare-string coercion, duplicate
+  de-duplication, the server-side set condition collapsing to a single equality, the
+  empty-set fail-close, the advertised array contract, the double ignoring the
+  transport filters (which is what made the old rule-4 proof a sham), and rule 4's
+  whole-tier status demotion itself.
 - Revert-check for r6 (8 scenarios, all RED): the single-source completion-input
   gate, the matrix completion-input gate (proving the vanished-source delete stays
   unreached), the whitespace-strict receipt verification, the source-property
