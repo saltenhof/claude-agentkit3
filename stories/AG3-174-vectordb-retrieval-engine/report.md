@@ -1,12 +1,11 @@
-# AG3-174 — Story Report (post Codex review r8 remediation + N41/N43)
+# AG3-174 — Story Report (post Codex review r9 remediation; concurrency residual carved out)
 
 - **Story:** AG3-174 VektorDB-Retrieval-Engine
 - **Branch:** `feat/ag3-174-vectordb-retrieval-engine`
 - **Status:** implemented, NOT landed (landing gated on AG3-172, orchestrator's
-  job). All 12 ACs now pass on the real production path. Q2 remains open (a PO concept
-  question that does not block), and D9's replacement mechanism still awaits the PO's
-  re-confirmation -- the mechanism was delegated to the implementation, so this report
-  states what was built rather than assuming the confirmation.
+  job). **11 ACs pass; AC6 is PARTIALLY met** with one named, unratified residual that
+  the PO cap carved out into a follow-up story (proposal at the end of this report). Q2
+  remains open, and D9's mechanism still awaits the PO's re-confirmation.
 - **A note on how AC status is reported here.** In r7 this report claimed all 12 ACs.
   Codex found 9, and it was right: AC3's proof ran through a FIXTURE-shaped identity
   (the test built its uuid the same wrong way the code did), and AC10 had a fresh
@@ -26,13 +25,18 @@
   written to fix something else. They are now exact: both counters must exist as
   non-boolean integers, negatives and impossible totals are faults, and a reported
   failure is fail-closed (N44). A new transport call inherits the AC10 obligation.
-- **AC6 (bounded window / concurrency): MET.** The generation model's core was
-  already confirmed (both race orders, the A->B->C chain, the ladder). The two
-  remaining gaps are now closed: the stale chunk-WRITE window ends at the completion
-  instead of at the next sync (N41, shape 3), and pre-existing unstamped rows converge
-  instead of blocking every retry forever (N43). Both are storage-conditional and
-  claim-owned, with no application-side ownership check anywhere in the destructive
-  path. See "N41/N43 remediation" below.
+- **AC6 (bounded window / concurrency): PARTIALLY MET.** What holds, and is
+  revert-verified: a superseded holder can never DELETE a newer generation's data (in
+  either race order, storage-side, bound to its own generation), it can never pull
+  reported freshness back (completions are insert-only, position-bound and
+  generation-ordered), every required destructive step now precedes the receipt (N46),
+  legacy rows converge instead of blocking every retry (N43), and every corpus delete
+  carries project/source isolation (N48). **What does NOT hold:** a stale write landing
+  AFTER the required final delete stays visible until the next sync of that source, and
+  that moment is not time-bounded -- one finite pass cannot cover a later arrival. The
+  residual is named precisely below and is owned by a follow-up story; it is **not**
+  presented as an accepted contract, because the PO has not ratified one. The earlier
+  claim in this report that AC6 was met is **withdrawn**.
 - **Question ledger.** Every question this story raised is now either ratified and
   implemented, or explicitly out of the story's hands:
 
@@ -816,6 +820,120 @@ the analysis that led to shape 3 (removability was never the problem; promptness
 misreporting were), and names the two rejected shapes with the reasons. No atomicity is
 claimed in either place, and §13.9.6/`doc_kind` stays untouched.
 
+## Codex review r9 remediation -- pile 1 (ordinary defects)
+
+Six ordering and strictness defects, none of them the structural problem.
+
+**N46 (part 1) -- receipt last.** The completion was published BEFORE the required
+final delete, so a failed cleanup returned an error after freshness had already
+advanced. The required destructive step now runs from a FRESH read immediately before
+the completion: AC6's receipt-last order holds, and reading fresh means the delete
+still covers everything that landed up to that moment.
+
+**N47 -- write before delete.** The legacy cleanup deleted old rows BEFORE the upsert,
+so a failed write left the source with neither its old rows nor a complete replacement,
+and no completion either. The mandated order is restored: prevalidate the complete row
+set (no mutation) -> write and verify the should-set -> IS-NULL legacy delete +
+ordering delete -> receipt. The intervening write failure is now tested in both forms
+(a raising transport and a short confirmed count), which the success test never did.
+
+**N48 -- project isolation on every delete.** The new legacy delete carried neither a
+project nor a source predicate. Both conditional deletes now build their filter through
+ONE shared scope builder that always adds `project_id` AND `source_file` beside the
+operation's own predicate, so a delete never depends on the caller having read
+correctly.
+
+**N49 -- validate the vanished set first.** The vanished path deleted null-generation
+rows before validating the stamped ones. It now classifies and validates the COMPLETE
+row set before the first delete, and reports its legacy repair in
+`SyncResult.backfilled`.
+
+**N50 -- the release marker is validated in full.** Any row at the deterministic uuid
+counted as a release, so a malformed duplicate carrying `state=claimed` made a sync
+report a successful release while the source stayed HELD. State, project, source, owner
+and generation are all checked now.
+
+**P2-7/P2-8 -- two false explanations removed, not trimmed.** The production comments
+and the module contract no longer carry the refuted "same content" premise. And the
+r8 test rationale ("a taken-over holder never reaches its completion, because the
+receipt fence rejects it") was **false**: the fence is a read followed by a separate
+write, so a takeover landing after it still lets a superseded holder publish a
+lower-generation completion and run its own final delete. What protects the newer rows
+is ONLY the ordering predicate -- never the fence. The test now says that.
+
+### Transport-call audit (explicitly requested)
+
+Every transport call added across this story, checked against the three obligations:
+
+| call | exact counters | project isolation | generation predicate |
+|---|---|---|---|
+| `delete_by_ids_if_property_below` (ordering delete) | yes (`_conditional_delete_counts`) | yes -- `project_id` + `source_file` in the condition (added now) | yes -- `< own generation` |
+| `delete_by_ids_if_property_absent` (legacy delete) | yes (same validator, from the start) | yes -- added now | n/a by design: it matches ONLY rows with no generation, which is what makes it safe |
+| `delete_by_ids` (unconditional) | yes -- counts only confirmed `True` returns | structural: used ONLY on the claim/receipt collections, whose uuids fold in project + source; never on `StoryContext` | n/a (auxiliary records, not corpus rows) |
+| `upsert` | yes -- exact confirmed count, partial batch rejected (R12) | every object is validated against the bound target before the write (N13) | writes the stamp itself |
+| `insert_object` | conditional create, boolean return, no count to coerce | uuid folds in project + source | n/a |
+| `search_objects` / `fetch_by_property*` | n/a (reads) | reads are project-post-filtered; every MUTATION is scoped, which is where AC4 binds | n/a |
+
+Two of these obligations had already been missed once each (N44 counters, N48
+isolation), so the rule is now pinned structurally rather than restated: a test asserts
+that no `StoryContext` row can be deleted through the unconditional call and that both
+conditional deletes pass the authoritative scope. **One observation left open on
+purpose:** `fetch_by_property` pages by a single property and post-filters the project
+in Python, so a read is broader than strictly necessary. It is not an isolation defect
+(no mutation follows without the scoped condition), and narrowing it would change the
+read contract, so it is recorded rather than changed in this round.
+
+## Codex review r9 -- pile 2: the carve-out
+
+**The structural finding.** *"One finite sweep cannot close a write that may land
+afterwards."* Codex is right, and the correction is mine to own: my r8 wording claimed
+the window was bounded "up to the completion" while the cleanup ran AFTER it, and then
+admitted later arrivals wait for the next sync. That is neither completion-bounded nor
+finite. Both statements are corrected.
+
+**The residual, stated precisely.** After a stall, an administrative reclaim and a
+zombie writer resuming, a row of a LOWER generation can land after the newer owner's
+final delete and stay visible until the next sync of that source. That moment is not
+time-bounded: it can be minutes, days, or never. During it, retrieval can serve two
+versions of the same section and `story_list_sources` counts the extra rows, while
+`corpus_revision` reports the newer state. What is NOT at risk: deletion of the newer
+generation's data, and the direction of reported freshness.
+
+**Where it is now written down.** FK-13 §13.9.9 states what actually holds, names the
+residual as open and unratified, and assigns it to a follow-up story -- claiming no
+atomicity and no bound. The D9 record carries a third dated addendum recording that
+shape 3 narrowed but did not close the window, why a finite pass cannot cover a later
+arrival, and that the resolution space is exactly Codex's three options with option 3
+requiring PO ratification.
+
+### Follow-up story proposal (NOT created -- a new story needs PO consent)
+
+**Working title.** "Post-completion consistency of the corpus write window".
+
+**Scope.** Close or contractually accept the residual above. It owns the *visibility*
+of stale lower-generation rows after a completion; it does NOT reopen the delete
+ordering, the generation ladder, the completion ordering or the legacy convergence --
+those are closed here and should be treated as its foundation.
+
+**Resolution options, with their costs.**
+
+| # | Option | Cost / consequence | Prerequisite |
+|---|---|---|---|
+| 1 | Eliminate or storage-fence the stale write | Not available at this seam (verified over three rounds: the pinned client offers no write precondition). Emulating it with generation-scoped uuids destroys the deterministic chunk identity that idempotent re-sync, the delete closure and the identity validation all rest on -- i.e. a new data model plus retrieval deduplication. | A different storage primitive or a deliberate identity-model change |
+| 2 | Exclude non-authoritative generations at retrieval | Coherent ONLY with `corpus_revision` as the discriminator, never the generation (retrieval spans many sources with no per-source bound, and FK-13 deliberately keeps that ordinal off the query surface). Couples every query to the completion set, grows the filter with the number of sources in scope, and leaves the rows present for unfiltered readers and counts. | A ratified retrieval-side contract change (§13.9.5) |
+| 3 | Ratify a contract that models the bounded-in-practice/unbounded-in-theory inconsistency honestly | Cheapest in code, but it is a normative statement about what the corpus may show; it must say plainly that a search can transiently return superseded rows. | **PO decision** |
+
+**Acceptance criteria it would own.** (a) A stale write that lands after a completion is
+either impossible, invisible to retrieval, or covered by a ratified, documented
+contract; (b) whichever is chosen, a real-path test drives the stall/reclaim/zombie
+sequence and asserts the chosen guarantee; (c) FK-13 §13.9.9 states the resulting
+guarantee without an unkeepable bound; (d) no regression of AG3-174's delete ordering,
+generation ladder, completion ordering or legacy convergence.
+
+**Dependency.** Depends on AG3-174 (it builds on the persistent generation, the
+storage-conditional deletes and the completion ordering). It does not block AG3-174's
+landing, which stays gated on AG3-172.
+
 ## Ratification needed -- NOT decided in this story
 
 ### Q1 -- an authority-scope input for `concept_search` (N23) -- RATIFIED as D7
@@ -915,10 +1033,10 @@ pre-existing condition of the repo, not of this story.
 - `.venv\Scripts\python -m ruff check src tests tools/concept_ingester` -- clean
 - `.venv\Scripts\python -m mypy src` -- clean (998 files)
 - `.venv\Scripts\python -m pytest --cov=agentkit --cov-report=term` (project addopts
-  `-n 4 --dist loadfile`) -- after N41/N43: **4 failed, 9955 passed, 40 skipped,
-  521 errors**; total coverage **86.72 %**, AG3-174 modules **93.16 %** (gate 85 %
-  reached, with margin). The same 4 failures as in every earlier round, i.e. none of
-  r4-r8, N41/N43 or D7-D9 introduced any.
+  `-n 4 --dist loadfile`) -- after the r9 remediation: **4 failed, 9969 passed,
+  40 skipped, 521 errors**; total coverage **86.72 %**, AG3-174 modules **93.21 %**
+  (gate 85 % reached, with margin). The same 4 failures as in every earlier round, i.e.
+  none of r4-r9, N41/N43 or D7-D9 introduced any.
   - **Correction, stated plainly:** the coverage figures reported in the r5, D7, r6
     and D8 rounds (85.87 / 85.69 / 85.64 / 85.53 %) are NOT trustworthy and are
     withdrawn. The project's `addopts` contain no `--cov`, so a plain `pytest` run
@@ -947,6 +1065,15 @@ pre-existing condition of the repo, not of this story.
 - Scoped run of the AG3-174 modules + their callers (vectordb, concepts,
   story_creation, cli, story_split, tools, concept_authority_prose): **877
   passed**.
+- Revert-check for pile 1 (8 scenarios, all RED): the receipt published before the
+  required delete, the missing prevalidation, the legacy delete moved back before the
+  upsert, the conditional-delete filter without project/source predicates, the vanished
+  path deleting before validating, the vanished path not recording its backfill, the
+  release marker accepted on its uuid alone, and an unconditional delete aimed at the
+  corpus collection.
+  - One case came back GREEN first and is named: my initial `N47-delete-after-write`
+    patch was a no-op (`... if False else 0`), so it reverted nothing. Rewritten to
+    genuinely reintroduce the pre-write legacy delete, it is RED.
 - Revert-check for N41/N43 (9 scenarios, all RED): the sweep not existing, the sweep
   without its ordering bound, the sweep bound not being the holder's own generation, the
   backfill not existing, the backfill also taking the should-set rows, the
