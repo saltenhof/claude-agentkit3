@@ -411,6 +411,7 @@ Chunking-Strategie für Konzeptdokumente ist identisch mit §13.3.3
 | `project_id` | String | Nein | Projektfilter |
 | `concept_id` | String | Nein | Filter auf spezifisches Konzept |
 | `module` | String | Nein | Modulfilter |
+| `authority_scope` | String | Nein | `authority_over`-Scope, zu dem Zustaendigkeit gefragt wird; Ranking-Eingang der Regeln 1/2 (§13.9.11), kein Filter |
 | `is_appendix` | Boolean | Nein | Nur Appendices / nur Core / beides |
 | `concept_status` | String | Nein | `active` (Default), `draft`, `archived` |
 | `limit` | Integer | Nein | Max Ergebnisse (Default: 10) |
@@ -422,6 +423,14 @@ Chunking-Strategie für Konzeptdokumente ist identisch mit §13.3.3
 
 **Default-Filter:** `concept_status=active`. Draft und archived
 müssen explizit angefragt werden.
+
+**`authority_scope` ist Ranking-Eingang, kein Filter.** Der Wert
+schraenkt die Treffermenge nicht ein; er benennt den Scope, gegen den
+die Authority-Auflösung (§13.9.11) rankt. `module` („wo ein Dokument
+liegt") und `authority_scope` („wofuer es zustaendig ist") sind
+verschiedene Eingaenge: `authority_scope` wird **nie** aus `module`
+abgeleitet. Fehlt der Parameter, bleiben die Regeln 1/2 wirkungslos
+und die Regeln 3/4/5 gelten unveraendert.
 
 Intern filtert `concept_search` die `StoryContext`-Collection auf
 `source_type="concept"` und projiziert die konzeptspezifischen
@@ -683,6 +692,17 @@ Regeln:
 3. Appendix kann für Interface-/Test-Detail höher ranken als Core
 4. Archived/Draft-Konzepte erhalten Abzug
 5. Module-Match boosted nur ohne stärkeren Cross-Module-Authority
+
+**Bezugsgroesse der Regeln 1 und 2:** Beide ranken gegen den
+`authority_scope` aus §13.9.5 — den Scope, zu dem der Aufrufer
+Zustaendigkeit erfragt. Regel 1 greift, wenn ein Dokument diesen Scope
+in `authority_over` fuehrt; Regel 2 greift fuer das **Ziel** eines auf
+diesen Scope qualifizierten `defers_to`. Der Scope ist ein expliziter
+Eingang und wird **nie** aus `module` abgeleitet. Ohne `authority_scope`
+greifen die Regeln 1 und 2 nicht; die Regeln 3, 4 und 5 bleiben
+unveraendert wirksam. Die normative Praezedenz der Regeln 1, 2 und 4 ist
+nicht durch Aehnlichkeitswerte ueberstimmbar; die Regeln 3 und 5 wirken
+nur innerhalb gleicher Praezedenz.
 
 ### 13.9.12 Ausfallverhalten
 
