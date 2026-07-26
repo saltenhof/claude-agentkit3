@@ -36,12 +36,14 @@ from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.schema import (
     FK13_VECTOR_SOURCE_PROPERTIES,
     FK13_VECTORIZER_MODEL,
+    OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
 )
 from agentkit.backend.vectordb.sync import (
     ClaimSupersededError,
     ConcurrentSyncRejectedError,
     ReceiptState,
+    SyncError,
     SyncReceipt,
     SyncService,
 )
@@ -1365,6 +1367,49 @@ def test_ag177_rows_of_a_source_without_a_completion_are_not_judged(
     )
     assert row["chunk_count"] == 1
     assert row["stale_chunk_count"] == 0
+
+
+def test_ag177_an_unusable_generation_is_counted_but_is_not_a_sync_case(
+    tmp_path: Path,
+) -> None:
+    """The figure counts THREE classes, and only two of them a sync resolves.
+
+    A row whose generation is PRESENT but unusable is certainly not authoritative, so
+    it is counted — but the remedy the runbook prescribes for the takeover residual
+    does NOT apply to it: the sync refuses it by name (N43). Reporting it as if a sync
+    would clean it up would send an operator after a remedy that aborts, which is why
+    the contract states `> 0` as an actionable finding rather than as proof of a
+    takeover residual (FK-13 §13.4.1/§13.9.9, FK-04 §4.5.14).
+    """
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    source = "technical-design/13_retrieval.md"
+    broken = chunk_object("acme", source, "unusable")
+    seed_object(client, broken, owning_generation=None)
+    # A generation that is PRESENT and unorderable -- the shape a foreign writer or a
+    # defective migration leaves behind. seed_object only writes usable integers, so
+    # the property is set here directly; the ladder is untouched on purpose (this row
+    # belongs to no generation at all).
+    client.objects[broken.uuid][OWNING_GENERATION_PROPERTY] = "not-a-generation"
+
+    row = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert row["stale_chunk_count"] == 1, "not authoritative, so it is reported"
+
+    # The remedy for classes A and B does NOT apply: the sync refuses by name and
+    # leaves the corpus untouched.
+    with pytest.raises(SyncError, match="unusable writing generation"):
+        handle_tool_call(service, "concept_sync", {"full_reindex": False})
+    assert broken.uuid in client.objects, "a refusal never deletes on a guess"
+    still = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert still["stale_chunk_count"] == 1, "the figure does not fall silent either"
 
 
 def test_ag177_an_unfinished_record_does_not_grant_authority(tmp_path: Path) -> None:

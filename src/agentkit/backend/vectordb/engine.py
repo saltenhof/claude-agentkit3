@@ -966,11 +966,13 @@ class WeaviateRetrievalPort:
                     # this source type (persisted completion order, not a
                     # lexicographic maximum over content digests).
                     "last_revision": _last_completed_revision(receipts, source_type),
-                    # AG3-177: how many of the counted chunks are NOT part of their
-                    # source's authoritative generation. > 0 means the ratified
-                    # residual is materialised right now and a sync of the affected
-                    # source removes it (FK-04 §4.5.14). ``chunk_count`` stays the
-                    # PHYSICAL count -- (c) changes detectability, not visibility.
+                    # AG3-177: the EXACT predicate of :func:`stale_chunk_count` --
+                    # rows below their source's authoritative generation, rows with
+                    # no generation, rows with an unusable one. > 0 is an actionable
+                    # finding, NOT proof of a takeover residual: a sync resolves the
+                    # first two classes and REFUSES the third by name (FK-04 §4.5.14).
+                    # ``chunk_count`` stays the PHYSICAL count -- (c) changes
+                    # detectability, not visibility.
                     "stale_chunk_count": stale_chunk_count(rows, authority),
                 }
             )

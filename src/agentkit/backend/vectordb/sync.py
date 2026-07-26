@@ -887,8 +887,11 @@ class SyncService:
         # the newer generation never overwrites (P2-7 -- the earlier "same content"
         # justification was refuted, see FK-13 §13.9.9 and the D9 record). The
         # generation ordering keeps such a writer from DELETING anything of the newer
-        # owner's; the residual visibility of what it wrote is an open, unratified
-        # residual owned by a follow-up story.
+        # owner's; the residual VISIBILITY of what it wrote is the contract AG3-177
+        # ratified (FK-13 §13.9.9): no atomicity and no time bound are claimed, the
+        # rows are REPORTED via ``story_list_sources.stale_chunk_count``, and the
+        # operational duty is to sync the affected source after a takeover
+        # (FK-04 §4.5.14). The sweep below stays -- it covers the common case.
         self.store.assert_claim_held(claim=claim)
         should_uuids = {obj.uuid for obj in objects}
         # (1a) PREVALIDATE the whole source BEFORE mutating anything (N47/N49): a row
