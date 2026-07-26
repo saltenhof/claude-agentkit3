@@ -518,6 +518,47 @@ bestehende aktive Runs erhalten `ownership_epoch=1` und `status='active'`.
 Wiederholtes Anwenden aendert nichts (Idempotenz).
 ```
 
+### 4.5.14 Nach administrativer Uebernahme eines Quell-Claims (VektorDB)
+
+```text
+Symptom: Nach einem administrativen Reclaim eines Quell-Claims meldet
+`story_list_sources` fuer einen Source-Type stale_chunk_count > 0
+(Chunks, die nicht zur autoritativen Generation ihrer Quelle gehoeren).
+Moeglicher Effekt: das Retrieval liefert zusaetzlich eine ueberholte
+Fassung, waehrend corpus_revision den neueren Stand meldet.
+
+Ursache: Der uebernommene (haengende) Schreiber ist wieder angelaufen und
+hat Zeilen SEINER niedrigeren Generation angehaengt, nachdem der
+Abschluss-Delete des neuen Besitzers bereits gelaufen war. Chunk-Write und
+Besitzpruefung sind getrennte Operationen; ein endlicher Durchgang kann ein
+spaeter eintreffendes Schreiben nicht abdecken (FK-13 §13.9.9,
+ratifizierter Restvertrag). Es ist KEIN Datenverlust: die aktuellen Zeilen
+sind unversehrt, ein ueberholter Halter kann sie storage-seitig nicht
+loeschen.
+
+BETRIEBSPFLICHT: Nach JEDEM administrativen Reclaim ist ein Sync der
+betroffenen Quelle zu fahren — nicht erst, wenn die Kennzahl auffaellt.
+Der Reclaim ist eine bewusste Operator-Handlung; der Sync gehoert in
+denselben Ablauf. Es gibt keine Zeitschranke, nach der sich der Zustand
+von selbst aufloest.
+
+Loesung:
+1. Kennzahl lesen (MCP-Tool story_list_sources, Feld stale_chunk_count je
+   Source-Type; > 0 heisst: der Rest ist genau jetzt materialisiert)
+2. Sync der betroffenen Quelle fahren:
+   - Konzept-Korpus: concept sync   (bzw. MCP-Tool concept_sync)
+   - Story-Korpus:   MCP-Tool story_sync
+   Der Sync entfernt die ueberholten Zeilen deterministisch ueber die
+   Generationsordnung (er loescht, was strikt unter SEINER Generation liegt).
+3. Kennzahl erneut lesen: stale_chunk_count muss 0 sein. Bleibt sie > 0,
+   liegt ein anderer Befund vor (z. B. eine Zeile mit vorhandener, aber
+   unbrauchbarer Generation) — diese wird nicht geraten, sondern vom Sync
+   benannt abgewiesen; dann eskalieren, nicht wiederholen.
+
+Nicht tun: Zeilen manuell in der VektorDB loeschen. Der Aufraeumweg ist der
+Sync; ein manueller Eingriff umgeht die Generationsordnung.
+```
+
 ## 4.6 Kapazitäts- und Kostensteuerung
 
 ### 4.6.1 Kosten

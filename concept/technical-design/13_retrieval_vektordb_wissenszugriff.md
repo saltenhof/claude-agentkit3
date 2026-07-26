@@ -174,7 +174,34 @@ Der MCP-Server exponiert drei Tools:
 
 **`story_list_sources`** — Verfügbare Datenquellen auflisten
 
-Liefert Übersicht über indizierte Source-Types und Projekte.
+Ohne Eingabeparameter; das Projekt stammt allein aus der Umgebung (D2).
+Liefert je indiziertem Source-Type **eine** Zeile.
+
+| Rückgabefeld | Typ | Bedeutung |
+|-----------|-----|-------------|
+| `project_id` | String | Projekt, auf das die Zeile sich bezieht |
+| `source_type` | String | Source-Type dieser Zeile |
+| `producer` | String | Erzeuger dieses Source-Types (§13.3.2) |
+| `source_count` | Integer | Anzahl indizierter Quelldateien |
+| `chunk_count` | Integer | **Physische** Anzahl indizierter Chunks — nicht die autoritative Teilmenge |
+| `last_revision` | String | `corpus_revision` der **letzten abgeschlossenen** Synchronisierung dieses Source-Types; leer, wenn keine existiert |
+| `stale_chunk_count` | Integer | Anzahl der Chunks, die **nicht** zur autoritativen Generation ihrer Quelle gehören (§13.9.9) |
+
+Die Shape ist eine **Mindest-Shape** (D1): sie darf um belegbare Kennzahlen
+erweitert werden, nie verkleinert. Für Eingaben gilt weiter die strikte
+Regelung — unbekannte Argumente werden benannt abgewiesen, Abwesenheit und
+explizites `null` sind verschieden, und es wird nichts stillschweigend
+umgedeutet.
+
+`stale_chunk_count` ist der **Erkennbarkeitspfad** des in §13.9.9
+ratifizierten Restvertrags: `> 0` bedeutet, dass genau jetzt Zeilen einer
+überholten Generation neben den aktuellen liegen und dass ein Sync der
+betroffenen Quelle sie entfernt (Betriebspflicht, FK-04 §4.5.14). Gezählt
+werden Zeilen **unterhalb** der autoritativen Generation ihrer Quelle sowie
+Zeilen **ohne** Generation (Bestand vor §13.3.1). **Nicht** gezählt werden
+Zeilen einer Quelle ohne abgeschlossene Synchronisierung — dort gibt es keine
+Bezugsgröße, und eine erfundene wäre geraten — und Zeilen einer **höheren**
+Generation, die zu einem laufenden, noch nicht publizierten Sync gehören.
 
 **`story_sync`** — Inkrementelle Indexierung
 
@@ -730,44 +757,59 @@ gilt:
   Completion frisch und laeuft **vor** dem Receipt: die gemeldete Frische rueckt nie
   vor einem zerstoerenden Schritt vor, der noch nicht stattgefunden hat.
 
-**Offener Restbefund (nicht ratifiziert).** Der Abschluss-Delete entfernt genau die
-Zeilen, die seine **Beobachtungsgrenze** erfasst hat. Diese Grenze ist **nicht** der
-Zeitpunkt des Loeschens, sondern der **paginierte Lesevorgang** davor: Lesen und
-Loeschen sind getrennte Operationen, und eine Paginierung ist **kein Snapshot**. Nicht
-erfasst sind daher
+**Ratifizierter Restvertrag (Variante (c), PO-Entscheidung 2026-07-26).** Der
+Abschluss-Delete entfernt genau die Zeilen, die seine **Beobachtungsgrenze** erfasst
+hat. Diese Grenze ist **nicht** der Zeitpunkt des Loeschens, sondern der **paginierte
+Lesevorgang** davor: Lesen und Loeschen sind getrennte Operationen, und eine
+Paginierung ist **kein Snapshot**. Nicht erfasst sind daher
 
 - Zeilen, die **nach** dem Abschluss-Delete eintreffen, und
 - Zeilen, die **waehrend** des paginierten Lesens eintreffen und nicht in dessen
   Kandidatenmenge gelangen (z. B. weil ihre Seite bereits gelesen war).
 
-Solche Zeilen bleiben liegen, bis dieselbe Quelle das naechste Mal synchronisiert wird
-- und dieser Zeitpunkt ist **nicht zeitlich begrenzt**. Ein einzelner endlicher
-Durchgang kann ein spaeter oder nebenlaeufig eintreffendes Schreiben nicht abdecken; er
-verkleinert das Fenster auf den **Regelfall** und schliesst es nicht. Konkret bleibt
-offen: nach Stillstand, administrativem Reclaim und wiederanlaufendem Zombie-Schreiber
-koennen Zeilen einer niedrigeren Generation neben den aktuellen liegen und vom
-Retrieval mitgeliefert werden, waehrend `corpus_revision` den neueren Stand meldet.
+Ein einzelner endlicher Durchgang kann ein spaeter oder nebenlaeufig eintreffendes
+Schreiben nicht abdecken; er verkleinert das Fenster auf den **Regelfall** und
+schliesst es nicht. Genau dafuer **bleibt** der Abschluss-Delete erhalten — der
+Vertrag ergaenzt ihn, er ersetzt ihn nicht.
 
-Was **gesichert** ist: ein ueberholter Halter kann Daten einer neueren Generation
-**nie loeschen** (storage-seitige Ordnungsbedingung, in beiden Wettlauf-Reihenfolgen
-belegt) und die gemeldete Frische **nie zurueckdrehen** (Completions sind
-insert-only, positionsgebunden und nach Generation geordnet). Was **nicht** gesichert
-ist: die Abwesenheit zusaetzlicher, veralteter Zeilen zwischen dem Abschluss-Delete
-und dem naechsten Sync. Es wird **keine** transaktionale Atomizitaet und **keine**
-zeitliche Schranke behauptet.
+Damit gilt folgender **ratifizierter** Vertrag (Decision Record
+`concept/_meta/decisions/2026-07-26-post-completion-stale-chunk-contract.md`):
 
-Dieser Restbefund ist ein **offener, nicht ratifizierter Punkt** in der Verantwortung
-einer **Folgestory**; er ist ausdruecklich **kein** akzeptierter Vertrag. Der
-Aufloesungsraum ist auf drei Formen begrenzt: (a) den Stale-Write storage-seitig
-verhindern - an diesem Rand nicht verfuegbar, (b) das Retrieval nicht-autoritative
-Generationen ausschliessen lassen - dafuer sind **zwei** Diskriminatoren kohaerent,
-`corpus_revision` oder ein interner quellenweiser `(source_file, owning_generation)`-
-Autoritaetsfilter; beide koppeln die Abfrage an die Completion-Menge und tragen
-denselben quellenweisen Lookup samt wachsender Filterbreite. Ausgeschlossen ist
-nicht die *interne* Nutzung der Generation, sondern allein ihre Sichtbarkeit auf der
-**Abfrageoberflaeche** (§13.9.5). (c) ein **ratifizierter Vertrag**, der
-eine potenziell unbegrenzte Post-Completion-Inkonsistenz ehrlich modelliert. (c)
-erfordert eine PO-Entscheidung; keine der drei ist in dieser Story getroffen.
+- **Zugesichert:** Ein ueberholter Halter kann Daten einer neueren Generation **nie
+  loeschen** (storage-seitige Ordnungsbedingung, in beiden Wettlauf-Reihenfolgen
+  belegt), und die gemeldete Frische kann **nie zurueckgedreht** werden (Completions
+  sind insert-only, positionsgebunden und nach Generation geordnet).
+- **Nicht zugesichert:** die Abwesenheit zusaetzlicher, veralteter Zeilen zwischen dem
+  Abschluss-Delete und dem naechsten Sync derselben Quelle. Es wird **keine**
+  transaktionale Atomizitaet und **keine** zeitliche Schranke behauptet — auch kein
+  „nur kurz": der Zeitpunkt des naechsten Syncs ist nicht begrenzt.
+- **Wirkung:** Nach Stillstand, administrativem Reclaim und wiederanlaufendem
+  Zombie-Schreiber koennen Zeilen einer niedrigeren Generation neben den aktuellen
+  liegen und vom Retrieval mitgeliefert werden, waehrend `corpus_revision` den neueren
+  Stand meldet. Die Abfrageoberflaeche filtert sie **nicht**.
+- **Erkennbarkeit — tragende Bedingung des Vertrags:** `story_list_sources` meldet je
+  Source-Type `stale_chunk_count` (§13.4.1): die Anzahl der Chunks, die nicht zur
+  autoritativen Generation ihrer Quelle gehoeren. **Autoritativ** ist die Generation
+  der Completion mit der **hoechsten Generation** dieser Quelle; eine Quelle ohne
+  abgeschlossene Synchronisierung hat keine Autoritaet und wird nicht beurteilt. `> 0`
+  heisst: der Rest ist **genau jetzt** materialisiert. Ein Rest, den niemand bemerken
+  kann, waere ein verschwiegener Rest (FAIL-CLOSED, SEVERITY-SEMANTIK) — deshalb ist
+  die Meldung Bestandteil des Vertrags und nicht Beiwerk.
+- **Aufraeumweg — deterministisch und bereits vorhanden:** Der naechste Sync derselben
+  Quelle entfernt die Zeilen ueber die Generationsordnung. Es fehlt nicht das Mittel,
+  sondern der **Ausloeser**. Der Ausloeser ist deshalb eine **Betriebspflicht**: nach
+  jedem administrativen Reclaim ist ein Sync der betroffenen Quelle zu fahren
+  (Runbook FK-04 §4.5.14).
+- **Bewusst offen gehalten:** Ein Autoritaetsfilter auf der Abfrageoberflaeche bleibt
+  spaeter entscheidbar, ist hier aber **nicht** getroffen: er kostet einen zusaetzlichen
+  Lesezugriff bei **jeder** Suchanfrage und eine mit der Quellenzahl wachsende
+  Filterbreite — eine Dauerlast auf dem meistgenutzten Pfad des Systems fuer eine
+  Vier-fach-Koinzidenz. Die Messungen liegen in
+  `stories/AG3-177-stale-chunk-visibility-after-takeover/design.md`; die
+  Neubewertungsbedingungen im Decision Record. Ausgeschlossen bleibt allein die
+  **Sichtbarkeit** der Generation auf der Abfrageoberflaeche (§13.9.5), nicht ihre
+  interne Nutzung.
+
 
 **Konvergenz vorbestehender Zeilen.** Zeilen, die vor Einfuehrung von
 `owning_generation` (§13.3.1) geschrieben wurden, tragen keine Generation und sind
