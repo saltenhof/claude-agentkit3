@@ -154,7 +154,7 @@ TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
             "project_id", "source_type", "producer", "source_count",
             "chunk_count", "last_revision",
             # AG3-177: D1 fixed a MINIMAL shape ("Mindestens ..."), so reporting the
-            # non-authoritative subset is a contract-conforming extension. It is
+            # figure's exact predicate is a contract-conforming extension. It is
             # reported HERE because detectability has to sit where an agent or an
             # operator actually looks.
             "stale_chunk_count",

@@ -51,8 +51,11 @@ from typing import TYPE_CHECKING, Final, Protocol, TypeVar, runtime_checkable
 from agentkit.backend.vectordb.ingest.classify import source_types_for_producer
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
+    GenerationClass,
     StoryContextObject,
+    classify_owning_generation,
     deterministic_uuid,
+    is_ordered_generation,
     validate_object,
 )
 from agentkit.concepts.hashing import sync_receipt_digest
@@ -741,18 +744,24 @@ class SyncService:
 
         Raises:
             SyncError: For a row whose generation is PRESENT but unusable (non-integer,
-                zero, negative). It is neither orderable nor an unstamped legacy row,
-                so adopting or deleting it would be a guess -- it is a named error.
+                boolean, zero, negative -- :attr:`GenerationClass.UNUSABLE`). It is
+                neither orderable nor an unstamped legacy row, so adopting or deleting
+                it would be a guess -- it is a named error. An ABSENT or ``null`` value
+                is NOT this class: it is legacy and converges (the storage-side IS-NULL
+                condition matches exactly those rows).
         """
         legacy: list[str] = []
         older: list[Mapping[str, object]] = []
         for row in rows:
             raw = row.get(OWNING_GENERATION_PROPERTY)
-            if raw is None:
-                if str(row["uuid"]) not in should_uuids:
-                    legacy.append(str(row["uuid"]))
-                continue
-            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+            # ONE ladder for both consumers (AG3-177/R2-N2): this path and the source
+            # listing must agree about what a row IS, or the reported remedy is wrong.
+            if not is_ordered_generation(raw):
+                if classify_owning_generation(raw) is GenerationClass.MISSING:
+                    # Absent OR null: not orderable, but converges under IS-NULL.
+                    if str(row["uuid"]) not in should_uuids:
+                        legacy.append(str(row["uuid"]))
+                    continue
                 raise SyncError(
                     f"object {row.get('uuid')!r} of {claim.source_file!r} carries an "
                     f"unusable writing generation ({raw!r}): it is neither orderable "
@@ -842,7 +851,7 @@ class SyncService:
         uuids: list[str] = []
         for row in rows:
             raw = row.get(OWNING_GENERATION_PROPERTY)
-            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+            if not is_ordered_generation(raw):
                 raise SyncError(
                     f"object {row.get('uuid')!r} of {claim.source_file!r} carries no "
                     f"readable writing generation ({raw!r}); it cannot be ordered "

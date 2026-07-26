@@ -25,6 +25,7 @@ from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
+    is_ordered_generation,
     search_property_spec,
 )
 from agentkit.backend.vectordb.sync import (
@@ -1007,22 +1008,24 @@ def authoritative_generations(
 def stale_chunk_count(
     rows: Sequence[Mapping[str, object]], authority: Mapping[str, int]
 ) -> int:
-    """Count rows that are NOT part of their source's authoritative generation.
+    """Count the rows matching the EXACT predicate below (AG3-177).
 
-    This is the observable form of the residual AG3-177 ratified as a contract: after a
-    hung sync, a deliberate administrative takeover and a resurrected writer, rows of an
-    OLDER generation can sit beside the current ones until the next sync of that source
-    removes them -- a moment that is not time-bounded. A residual nobody can notice would
-    be a concealed residual, so it is counted and reported.
+    This is NOT "every row that is not part of the authoritative generation": a row of a
+    HIGHER generation is not part of it either and is deliberately not counted. Reading
+    the figure as a complete non-authoritative count would make a zero look like proof
+    that nothing is in flight, which it is not.
 
-    Counted:
+    Counted, each row against the authoritative generation of ITS source, using the one
+    classification ladder :func:`classify_owning_generation` (so the sync and this
+    listing can never disagree about what a row is):
 
-    - a row whose generation is strictly BELOW its source's authoritative generation
-      (the takeover residual, and exactly what the next sync's ordered delete removes);
-    - a row with NO generation at all (a legacy row predating the ordering property);
-      the same remedy applies -- the next sync converges it;
-    - a row whose generation is present but unusable. It is certainly not authoritative,
-      and it needs attention rather than a sync: the sync path rejects it by name.
+    - :attr:`GenerationClass.ORDERED` strictly BELOW the authority -- the takeover
+      residual, and exactly what the next sync's ordered delete removes;
+    - :attr:`GenerationClass.MISSING` (absent or ``null``) -- a legacy row predating the
+      ordering property; the next sync converges it under its IS-NULL condition;
+    - :attr:`GenerationClass.UNUSABLE` -- present but not orderable. It is certainly not
+      authoritative, and it needs ATTENTION rather than a sync: the sync refuses it by
+      name instead of cleaning it up.
 
     NOT counted:
 
@@ -1031,12 +1034,15 @@ def stale_chunk_count(
     - rows of a generation ABOVE the authoritative one: that is an in-flight newer
       generation whose completion is not published yet, not a remnant.
 
+    Because the three counted classes carry DIFFERENT remedies, a value ``> 0`` is an
+    actionable finding, not proof of a takeover residual (FK-04 §4.5.14).
+
     Args:
         rows: The source rows as read (uuid, source_file, writing generation).
         authority: The authoritative generation per source file.
 
     Returns:
-        The number of non-authoritative rows.
+        The number of rows matching the predicate.
     """
     count = 0
     for row in rows:
@@ -1044,8 +1050,8 @@ def stale_chunk_count(
         if authoritative is None:
             continue
         raw = row.get(OWNING_GENERATION_PROPERTY)
-        if isinstance(raw, bool) or not isinstance(raw, int):
-            count += 1  # absent or unusable -> not part of the authoritative generation
+        if not is_ordered_generation(raw):
+            count += 1  # MISSING (legacy) or UNUSABLE (a named error, not a sync case)
             continue
         if raw < authoritative:
             count += 1

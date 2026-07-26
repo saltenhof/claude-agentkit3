@@ -38,6 +38,8 @@ from agentkit.backend.vectordb.schema import (
     FK13_VECTORIZER_MODEL,
     OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
+    GenerationClass,
+    classify_owning_generation,
 )
 from agentkit.backend.vectordb.sync import (
     ClaimSupersededError,
@@ -1367,6 +1369,79 @@ def test_ag177_rows_of_a_source_without_a_completion_are_not_judged(
     )
     assert row["chunk_count"] == 1
     assert row["stale_chunk_count"] == 0
+
+
+def test_ag177_a_stored_null_generation_is_the_legacy_class_and_a_sync_converges_it(
+    tmp_path: Path,
+) -> None:
+    """A stored ``null`` belongs with MISSING, and BOTH paths must agree (R2-N2).
+
+    An absent property and a stored ``null`` are indistinguishable at this boundary --
+    a read returns the same thing for both -- and the storage-side IS-NULL condition
+    that converges such rows matches exactly both. So ``null`` is the legacy class, not
+    the unusable one, and the promised remedy (a sync cleans it up) has to hold.
+
+    This is where the contract and the code had drifted apart: the listing counted a
+    ``null`` as "present but unusable" (promising escalation) while the sync converged
+    it (delivering cleanup). One classification ladder now serves both.
+    """
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    source = "technical-design/13_retrieval.md"
+    nulled = chunk_object("acme", source, "stored-null")
+    seed_object(client, nulled, owning_generation=None)
+    # The property is PRESENT and holds null -- not absent. Production cannot tell the
+    # two apart, and the IS-NULL condition is not supposed to.
+    client.objects[nulled.uuid][OWNING_GENERATION_PROPERTY] = None
+
+    assert classify_owning_generation(None) is GenerationClass.MISSING
+    reported = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert reported["stale_chunk_count"] == 1, "not authoritative, so it is reported"
+
+    # The promised remedy for this class: a sync converges it (no named refusal).
+    handle_tool_call(service, "concept_sync", {"full_reindex": False})
+
+    assert nulled.uuid not in client.objects, "the IS-NULL condition removed it"
+    healed = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert healed["stale_chunk_count"] == 0
+
+
+@pytest.mark.parametrize("stored", [0, -1, True, "not-a-generation"])
+def test_ag177_an_unorderable_generation_is_the_unusable_class(
+    tmp_path: Path, stored: object
+) -> None:
+    """Zero, negative, boolean and non-integer are the UNUSABLE class -- all refused.
+
+    ``0`` and a negative number are the interesting ones: they are integers, so a
+    naive "below the authority" comparison would have filed them under the takeover
+    residual and promised a sync as the remedy. They are not orderable at all.
+    """
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    source = "technical-design/13_retrieval.md"
+    broken = chunk_object("acme", source, f"unusable-{stored!r}")
+    seed_object(client, broken, owning_generation=None)
+    client.objects[broken.uuid][OWNING_GENERATION_PROPERTY] = stored
+
+    assert classify_owning_generation(stored) is GenerationClass.UNUSABLE
+    reported = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert reported["stale_chunk_count"] == 1
+
+    with pytest.raises(SyncError, match="unusable writing generation"):
+        handle_tool_call(service, "concept_sync", {"full_reindex": False})
+    assert broken.uuid in client.objects, "a refusal never deletes on a guess"
 
 
 def test_ag177_an_unusable_generation_is_counted_but_is_not_a_sync_case(

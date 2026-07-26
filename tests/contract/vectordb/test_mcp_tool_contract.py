@@ -34,7 +34,7 @@ FK13_TOOL_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, .
         (),
         ("project_id",),
         # D1 (po-decisions.md) fixed a MINIMAL, provable shape ("Mindestens ...").
-        # AG3-177 adds the non-authoritative subset as a contract-conforming
+        # AG3-177 adds the exact-predicate figure as a contract-conforming
         # extension: the ratified residual has to be detectable where an agent or an
         # operator actually looks, and the completion set this listing already reads
         # makes it free.
