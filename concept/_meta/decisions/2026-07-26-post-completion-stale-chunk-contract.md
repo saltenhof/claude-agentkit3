@@ -60,16 +60,24 @@ Aufraeumen zur Betriebspflicht erhoben**.
 - **Erkennbarkeit ist die tragende Bedingung, nicht das Beiwerk.**
   `story_list_sources` meldet je Source-Type `stale_chunk_count`.
   Autoritativ ist die Generation der Completion mit der hoechsten
-  Generation dieser Quelle. Die Kennzahl ist ein **exaktes Praedikat**,
-  kein Sammelbegriff „alles Nicht-Autoritative": gezaehlt werden Zeilen
-  **strikt unter** der autoritativen Generation, Zeilen **ohne**
-  Generation und Zeilen mit **vorhandener, aber unbrauchbarer**
-  Generation. **Nicht** gezaehlt werden Zeilen einer **hoeheren**
-  Generation (laufender Sync), und eine Quelle **ohne** abgeschlossene
-  Synchronisierung wird **nicht beurteilt**. `> 0` ist ein
-  handlungspflichtiger Befund, **kein Beweis** fuer einen
-  Uebernahme-Rest: die dritte Klasse loest kein Sync auf, sondern wird
-  vom Sync benannt abgewiesen und braucht eine Eskalation.
+  Generation dieser Quelle. Die Kennzahl ist ein **exaktes Praedikat**
+  (FK-13 §13.4.1), ausdruecklich **kein** Sammelbegriff „alles
+  Nicht-Autoritative": gezaehlt werden Zeilen mit vorhandener, ordenbarer
+  Generation **strikt unter** der autoritativen (Klasse A), Zeilen
+  **ohne** Generation — Property fehlt **oder** ist `null` (Klasse B) —
+  und Zeilen mit vorhandener, **nicht ordenbarer** Generation:
+  nicht-integer, boolesch, 0 oder negativ (Klasse C). **Nicht** gezaehlt
+  werden Zeilen einer **hoeheren** Generation: die gehoeren ebenfalls
+  nicht zur autoritativen Generation, sind aber ein laufender Sync und
+  kein Rest. Eine Quelle **ohne** abgeschlossene Synchronisierung wird
+  **nicht beurteilt**. `> 0` ist ein handlungspflichtiger Befund, **kein
+  Beweis** fuer einen Uebernahme-Rest: Klasse C loest kein Sync auf,
+  sondern wird vom Sync benannt abgewiesen und braucht eine Eskalation.
+  Fehlend und `null` sind **eine** Klasse, weil sie an dieser Grenze
+  nicht unterscheidbar sind und die IS-NULL-Bedingung genau beide
+  erfasst; beide Konsumenten klassifizieren ueber **dieselbe eine
+  Leiter** (`classify_owning_generation`), damit der Vertrag fuer beide
+  wahr ist.
 - **Aufraeumen ist Betriebspflicht:** nach jedem administrativen Reclaim
   ist ein Sync der betroffenen Quelle zu fahren (Runbook FK-04 §4.5.14).
   Der Aufraeumweg existierte bereits und ist deterministisch; es fehlte
@@ -181,15 +189,16 @@ Lexikalischer Sweep ueber `concept/`, `guardrails/`, `scripts/ci/`,
 | Stelle | Klassifikation | Begruendung |
 |---|---|---|
 | FK-13 §13.9.9 (Restbefund) | geaendert | Der offene, nicht ratifizierte Punkt wird durch den ratifizierten Vertrag ersetzt: Zusicherungen, Nicht-Zusicherungen, Erkennbarkeit, Aufraeumweg, offen gehaltene Option. |
-| FK-13 §13.4.1 (`story_list_sources`) | geaendert | Die bisher vage Prosa wird zur expliziten Rueckgabetabelle inkl. `stale_chunk_count`; D1-Mindest-Shape und Eingabe-Strenge bleiben unveraendert. |
-| FK-04 §4.5.14 (neues Runbook) | geaendert | Die Betriebspflicht „nach administrativer Uebernahme einen Sync der betroffenen Quelle fahren" wird dort verankert, wo der Betrieb sie findet. |
+| FK-13 §13.4.1 (`story_list_sources`) | geaendert | Die bisher vage Prosa wird zur expliziten Eingabe- UND Rueckgabetabelle: optionales `project_id` mit D2-Semantik, alle Rueckgabefelder inkl. `stale_chunk_count`, plus die Praedikat-Tabelle der Kennzahl (Klassen A/B/C mit Abhilfe). D1-Mindest-Shape und Eingabe-Strenge bleiben unveraendert. |
+| FK-04 §4.5.14 (neues Runbook) | geaendert | Die Betriebspflicht „nach administrativer Uebernahme einen Sync der betroffenen Quelle fahren" wird dort verankert, wo der Betrieb sie findet. Das Runbook fuehrt die Klassen A/B/C direkt nach dem Symptom und nennt die Uebernahme nur als moegliche Ursache der Klasse A. |
 | FK-13 §13.9.5 / §13.9.6 | nicht-betroffen | Kein Abfrageparameter, kein Frontmatter-Feld; die Generation bleibt von der Abfrageoberflaeche fern. |
 | FK-13 §13.3.1 (`owning_generation`) | nicht-betroffen | Property und ihre Regeln bleiben unveraendert; die Kennzahl aggregiert nur. |
 | `concept/_meta/decisions/2026-07-25-claim-takeover-storage-conditional-delete.md` | geaendert | Vorwaertszeiger (Nachtrag /4); Historie und D9-Entscheidung bleiben gueltig. |
 | `concept/_meta/decisions/2026-07-26-post-completion-stale-chunk-contract.md` | geaendert | Dieses Record persistiert Entscheidung, Alternativen, Messgrundlage und Neubewertungsbedingungen. |
-| `backend/vectordb/engine.py` (`list_sources`) | referenziert-jetzt | Berechnet die Autoritaet je Quelle aus den Abschluss-Records und meldet die nicht-autoritative Teilmenge. |
+| `backend/vectordb/engine.py` (`list_sources`) | referenziert-jetzt | Berechnet die Autoritaet je Quelle aus den Abschluss-Records und meldet die Zeilen des exakten Praedikats. |
+| `backend/vectordb/schema.py` (`classify_owning_generation`) | referenziert-jetzt | Die Klassifikation des Ordnungswertes liegt EINMAL bei der Property; Sync und Auflistung branchen auf derselben Leiter, damit der Vertrag fuer beide wahr ist. |
 | `backend/vectordb/cli.py` (`--reclaim`) | referenziert-jetzt | Nennt die Betriebspflicht an der Stelle der Handlung und verweist auf FK-04 §4.5.14. |
-| `backend/vectordb/sync.py` (Abschluss-Delete) | nicht-betroffen | Der Sweep bleibt unveraendert erhalten; er deckt den Regelfall. |
+| `backend/vectordb/sync.py` (Abschluss-Delete) | nicht-betroffen | Der Sweep bleibt mechanisch unveraendert erhalten; er deckt den Regelfall. Geaendert hat sich nur, dass die Klassifikation aus der gemeinsamen Leiter kommt (Verhalten identisch). |
 
 Diese Ratifizierung autorisiert genau diese Konzeptaenderungen und keine
 weitere. §13.9.6 (`doc_kind`-Vokabular) bleibt ausdruecklich unberuehrt.

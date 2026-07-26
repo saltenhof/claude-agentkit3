@@ -518,41 +518,48 @@ bestehende aktive Runs erhalten `ownership_epoch=1` und `status='active'`.
 Wiederholtes Anwenden aendert nichts (Idempotenz).
 ```
 
-### 4.5.14 Nach administrativer Uebernahme eines Quell-Claims (VektorDB)
+### 4.5.14 stale_chunk_count > 0 im Korpus (VektorDB)
 
 ```text
-Symptom: Nach einem administrativen Reclaim eines Quell-Claims meldet
-`story_list_sources` fuer einen Source-Type stale_chunk_count > 0
-(Chunks, die nicht zur autoritativen Generation ihrer Quelle gehoeren).
+Symptom: `story_list_sources` meldet fuer einen Source-Type
+stale_chunk_count > 0.
+
+WAS DAS HEISST — zuerst lesen: Die Kennzahl zaehlt DREI Klassen, und nur
+zwei davon loest ein Sync auf. > 0 ist ein handlungspflichtiger Befund,
+aber KEIN Beweis fuer einen Uebernahme-Rest (FK-13 §13.4.1/§13.9.9):
+  A) Generation vorhanden, ordenbar, strikt kleiner als die autoritative
+     -> der Sync ENTFERNT sie
+  B) keine Generation: Property fehlt ODER ist null (Bestand vor
+     Einfuehrung der Ordnungs-Property) -> der Sync KONVERGIERT sie
+  C) Generation vorhanden, aber NICHT ordenbar (nicht-integer, boolesch,
+     0, negativ) -> KEIN Sync-Fall: der Sync weist die Zeile benannt ab
+     und laeuft nicht durch -> ESKALIEREN
+Nicht gezaehlt und kein Befund: eine HOEHERE Generation (laufender Sync)
+und Quellen ohne abgeschlossene Synchronisierung (nicht beurteilt).
+
+Ursache je Klasse:
+  A) NUR hier ist eine Claim-Uebernahme die moegliche Ursache: der
+     uebernommene (haengende) Schreiber ist wieder angelaufen und hat
+     Zeilen SEINER niedrigeren Generation angehaengt, nachdem der
+     Abschluss-Delete des neuen Besitzers gelaufen war. Chunk-Write und
+     Besitzpruefung sind getrennte Operationen; ein endlicher Durchgang
+     kann ein spaeter eintreffendes Schreiben nicht abdecken (FK-13
+     §13.9.9, ratifizierter Restvertrag).
+  B) Altbestand aus der Zeit vor der Ordnungs-Property — hat mit einer
+     Uebernahme NICHTS zu tun.
+  C) Fremder Schreiber oder defekte Migration — hat mit einer Uebernahme
+     NICHTS zu tun.
+
+KEIN Datenverlust, in allen drei Faellen: die aktuellen Zeilen sind
+unversehrt, ein ueberholter Halter kann sie storage-seitig nicht loeschen.
 Moeglicher Effekt: das Retrieval liefert zusaetzlich eine ueberholte
 Fassung, waehrend corpus_revision den neueren Stand meldet.
 
-Ursache: Der uebernommene (haengende) Schreiber ist wieder angelaufen und
-hat Zeilen SEINER niedrigeren Generation angehaengt, nachdem der
-Abschluss-Delete des neuen Besitzers bereits gelaufen war. Chunk-Write und
-Besitzpruefung sind getrennte Operationen; ein endlicher Durchgang kann ein
-spaeter eintreffendes Schreiben nicht abdecken (FK-13 §13.9.9,
-ratifizierter Restvertrag). Es ist KEIN Datenverlust: die aktuellen Zeilen
-sind unversehrt, ein ueberholter Halter kann sie storage-seitig nicht
-loeschen.
-
-BETRIEBSPFLICHT: Nach JEDEM administrativen Reclaim ist ein Sync der
-betroffenen Quelle zu fahren — nicht erst, wenn die Kennzahl auffaellt.
-Der Reclaim ist eine bewusste Operator-Handlung; der Sync gehoert in
-denselben Ablauf. Es gibt keine Zeitschranke, nach der sich der Zustand
-von selbst aufloest.
-
-WICHTIG — stale_chunk_count > 0 ist ein handlungspflichtiger Befund, aber
-KEIN Beweis fuer einen Uebernahme-Rest. Die Kennzahl zaehlt drei Klassen, und
-nur zwei davon loest ein Sync auf (FK-13 §13.4.1/§13.9.9):
-  A) Generation strikt kleiner als die autoritative -> Uebernahme-Rest,
-     der Sync ENTFERNT sie
-  B) keine Generation (Bestand vor Einfuehrung der Ordnungs-Property) ->
-     der Sync KONVERGIERT sie
-  C) Generation vorhanden, aber unbrauchbar -> KEIN Sync-Fall: der Sync
-     weist die Zeile benannt ab und laeuft nicht durch (eskalieren)
-Nicht gezaehlt und kein Befund: eine HOEHERE Generation (laufender Sync) und
-Quellen ohne abgeschlossene Synchronisierung (nicht beurteilt).
+BETRIEBSPFLICHT (deckt Klasse A praeventiv ab): Nach JEDEM administrativen
+Reclaim ist ein Sync der betroffenen Quelle zu fahren — nicht erst, wenn
+die Kennzahl auffaellt. Der Reclaim ist eine bewusste Operator-Handlung;
+der Sync gehoert in denselben Ablauf. Es gibt keine Zeitschranke, nach der
+sich der Zustand von selbst aufloest.
 
 Loesung:
 1. Kennzahl lesen (MCP-Tool story_list_sources, Feld stale_chunk_count je

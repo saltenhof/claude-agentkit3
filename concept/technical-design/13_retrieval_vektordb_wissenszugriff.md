@@ -188,7 +188,7 @@ Liefert je indiziertem Source-Type **eine** Zeile.
 | `source_count` | Integer | Anzahl indizierter Quelldateien |
 | `chunk_count` | Integer | **Physische** Anzahl indizierter Chunks — nicht die autoritative Teilmenge |
 | `last_revision` | String | `corpus_revision` der **letzten abgeschlossenen** Synchronisierung dieses Source-Types; leer, wenn keine existiert |
-| `stale_chunk_count` | Integer | Anzahl der Chunks, die **nicht** zur autoritativen Generation ihrer Quelle gehören (§13.9.9) |
+| `stale_chunk_count` | Integer | Anzahl der Chunks, die dem **exakten Prädikat unten** entsprechen. **Nicht** „alle nicht-autoritativen Chunks": eine **höhere** Generation gehört ebenfalls nicht zur autoritativen und wird bewusst **nicht** gezählt (§13.9.9) |
 
 Die Shape ist eine **Mindest-Shape** (D1): sie darf um belegbare Kennzahlen
 erweitert werden, nie verkleinert. Für Eingaben gilt weiter die strikte
@@ -200,18 +200,30 @@ umgedeutet.
 ratifizierten Restvertrags. Die Kennzahl ist ein **exaktes Prädikat**, je Zeile
 gegen die autoritative Generation **ihrer** Quelle (§13.9.9):
 
-| Zeilenklasse | gezählt | Abhilfe |
-|---|---|---|
-| Generation **strikt kleiner** als die autoritative | ja | Sync der Quelle **entfernt** sie (geordneter Delete) |
-| **keine** Generation (Bestand vor §13.3.1) | ja | Sync der Quelle **konvergiert** sie (IS-NULL-Bedingung) |
-| Generation **vorhanden, aber unbrauchbar** (nicht-integer, null, negativ) | ja | **Kein** Sync-Fall: der Sync **weist sie benannt ab** und laeuft nicht durch — eskalieren |
-| Generation **groesser** als die autoritative | **nein** | laufender, noch nicht publizierter Sync — kein Rest |
-| Quelle **ohne** abgeschlossene Synchronisierung | **nein** (nicht beurteilt) | keine Bezugsgroesse; eine erfundene waere geraten |
+| Klasse | Zeilenklasse | gezählt | Abhilfe |
+|---|---|---|---|
+| **A** | Generation vorhanden und ordenbar, **strikt kleiner** als die autoritative | ja | Sync der Quelle **entfernt** sie (geordneter Delete) |
+| **B** | **keine** Generation: Property **fehlt oder ist `null`** (Bestand vor §13.3.1) | ja | Sync der Quelle **konvergiert** sie (IS-NULL-Bedingung) |
+| **C** | Generation **vorhanden, aber nicht ordenbar**: nicht-integer, boolesch, **0** oder negativ | ja | **Kein** Sync-Fall: der Sync **weist sie benannt ab** und laeuft nicht durch — eskalieren |
+| — | Generation **groesser** als die autoritative | **nein** | laufender, noch nicht publizierter Sync — kein Rest |
+| — | Quelle **ohne** abgeschlossene Synchronisierung | **nein** (nicht beurteilt) | keine Bezugsgroesse; eine erfundene waere geraten |
+
+**Fehlend und `null` sind dieselbe Klasse (B), nicht zwei.** An dieser Grenze sind
+sie nicht unterscheidbar — ein Lesevorgang liefert fuer beide dasselbe —, und die
+storage-seitige IS-NULL-Bedingung, die solche Zeilen konvergiert, erfasst genau
+beide. Eine Unterscheidung in der Prosa wuerde etwas zusagen, das kein Code
+einhalten kann. (Das ist **nicht** die Eingabe-Strenge des Werkzeugvertrags: dort
+sind Abwesenheit und explizites `null` verschieden. Hier geht es um einen
+**gespeicherten Property-Wert**, nicht um ein Aufruf-Argument.)
+
+Beide Konsumenten — der Sync, der entscheidet was er loeschen darf, und diese
+Auflistung, die entscheidet was sie melden muss — klassifizieren ueber **dieselbe
+eine Leiter**. Andernfalls koennte der Vertrag fuer einen von beiden nicht wahr sein.
 
 Deshalb gilt: **`> 0` ist ein handlungspflichtiger Befund, aber kein Beweis fuer
 einen Uebernahme-Rest.** Welche der drei gezaehlten Klassen vorliegt, ist zu
-diagnostizieren — nur die ersten zwei loest ein Sync auf, die dritte braucht eine
-Eskalation (FK-04 §4.5.14).
+diagnostizieren — nur A und B loest ein Sync auf, C braucht eine Eskalation
+(FK-04 §4.5.14).
 
 **`story_sync`** — Inkrementelle Indexierung
 
@@ -799,28 +811,32 @@ Damit gilt folgender **ratifizierter** Vertrag (Decision Record
   Stand meldet. Die Abfrageoberflaeche filtert sie **nicht**.
 - **Erkennbarkeit — tragende Bedingung des Vertrags:** `story_list_sources` meldet je
   Source-Type `stale_chunk_count` (§13.4.1). **Autoritativ** ist die Generation der
-  Completion mit der **hoechsten Generation** dieser Quelle. Die Kennzahl ist ein
-  **exaktes Prädikat**, kein Sammelbegriff: gezaehlt wird eine Zeile, deren Generation
-  **strikt kleiner** als die autoritative ist (der Uebernahme-Rest), eine Zeile
-  **ohne** Generation (Bestand vor §13.3.1) und eine Zeile mit **vorhandener, aber
-  unbrauchbarer** Generation. **Nicht** gezaehlt wird eine Zeile einer **hoeheren**
-  Generation (laufender, noch nicht publizierter Sync), und eine Quelle **ohne**
+  Completion mit der **hoechsten Generation** dieser Quelle. Die Kennzahl zaehlt die
+  Zeilen des **exakten Praedikats** aus §13.4.1 — sie ist **nicht** „alle
+  nicht-autoritativen Zeilen": gezaehlt wird eine Zeile, deren Generation vorhanden,
+  ordenbar und **strikt kleiner** als die autoritative ist (Klasse A, der
+  Uebernahme-Rest), eine Zeile **ohne** Generation, also mit fehlender **oder**
+  `null`-Property (Klasse B, Bestand vor §13.3.1), und eine Zeile mit **vorhandener,
+  aber nicht ordenbarer** Generation — nicht-integer, boolesch, 0 oder negativ
+  (Klasse C). **Nicht** gezaehlt wird eine Zeile einer **hoeheren** Generation
+  (laufender, noch nicht publizierter Sync) — sie gehoert ebenfalls nicht zur
+  autoritativen Generation, ist aber kein Rest —, und eine Quelle **ohne**
   abgeschlossene Synchronisierung wird **nicht beurteilt**.
   **`> 0` ist damit ein handlungspflichtiger Befund, aber kein Beweis fuer einen
-  Uebernahme-Rest:** die erste und zweite Klasse loest ein Sync der Quelle auf, die
-  **dritte nicht** — dort weist der Sync die Zeile benannt ab (N43) und braucht eine
-  Eskalation. Welche Klasse vorliegt, ist zu diagnostizieren (FK-04 §4.5.14). Ein
+  Uebernahme-Rest:** Klasse A und B loest ein Sync der Quelle auf, **C nicht** — dort
+  weist der Sync die Zeile benannt ab (N43) und braucht eine Eskalation. Welche Klasse
+  vorliegt, ist zu diagnostizieren (FK-04 §4.5.14). Ein
   Rest, den niemand bemerken kann, waere ein verschwiegener Rest (FAIL-CLOSED,
   SEVERITY-SEMANTIK) — aber eine Kennzahl, die mehr behauptet als sie belegt, waere
   derselbe Fehler mit umgekehrtem Vorzeichen. Deshalb ist die Meldung Bestandteil des
   Vertrags **und** ihr Prädikat Teil der Zusage.
 - **Aufraeumweg — deterministisch und bereits vorhanden:** Der naechste Sync derselben
-  Quelle entfernt die Zeilen der ersten Klasse ueber die Generationsordnung und
-  konvergiert die der zweiten. Es fehlt nicht das Mittel, sondern der **Ausloeser**.
+  Quelle entfernt die Zeilen der Klasse A ueber die Generationsordnung und konvergiert
+  die der Klasse B. Es fehlt nicht das Mittel, sondern der **Ausloeser**.
   Der Ausloeser ist deshalb eine **Betriebspflicht**: nach jedem administrativen
   Reclaim ist ein Sync der betroffenen Quelle zu fahren (Runbook FK-04 §4.5.14).
-  Fuer die **dritte** Klasse gibt es diesen Weg ausdruecklich **nicht** — sie ist ein
-  benannter Fehler und wird nie auf Verdacht geraten.
+  Fuer Klasse **C** gibt es diesen Weg ausdruecklich **nicht** — sie ist ein benannter
+  Fehler und wird nie auf Verdacht geraten.
 - **Bewusst offen gehalten:** Ein Autoritaetsfilter auf der Abfrageoberflaeche bleibt
   spaeter entscheidbar, ist hier aber **nicht** getroffen: er kostet einen zusaetzlichen
   Lesezugriff bei **jeder** Suchanfrage und eine mit der Quellenzahl wachsende
