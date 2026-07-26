@@ -58,11 +58,18 @@ Aufraeumen zur Betriebspflicht erhoben**.
   Quelle. Es wird **keine** transaktionale Atomizitaet und **keine**
   zeitliche Schranke behauptet — auch kein „nur kurz".
 - **Erkennbarkeit ist die tragende Bedingung, nicht das Beiwerk.**
-  `story_list_sources` meldet je Source-Type `stale_chunk_count`: die
-  Anzahl der Chunks, die nicht zur autoritativen Generation ihrer Quelle
-  gehoeren. Autoritativ ist die Generation der Completion mit der
-  hoechsten Generation dieser Quelle. Eine Quelle ohne abgeschlossene
-  Synchronisierung wird nicht beurteilt.
+  `story_list_sources` meldet je Source-Type `stale_chunk_count`.
+  Autoritativ ist die Generation der Completion mit der hoechsten
+  Generation dieser Quelle. Die Kennzahl ist ein **exaktes Praedikat**,
+  kein Sammelbegriff „alles Nicht-Autoritative": gezaehlt werden Zeilen
+  **strikt unter** der autoritativen Generation, Zeilen **ohne**
+  Generation und Zeilen mit **vorhandener, aber unbrauchbarer**
+  Generation. **Nicht** gezaehlt werden Zeilen einer **hoeheren**
+  Generation (laufender Sync), und eine Quelle **ohne** abgeschlossene
+  Synchronisierung wird **nicht beurteilt**. `> 0` ist ein
+  handlungspflichtiger Befund, **kein Beweis** fuer einen
+  Uebernahme-Rest: die dritte Klasse loest kein Sync auf, sondern wird
+  vom Sync benannt abgewiesen und braucht eine Eskalation.
 - **Aufraeumen ist Betriebspflicht:** nach jedem administrativen Reclaim
   ist ein Sync der betroffenen Quelle zu fahren (Runbook FK-04 §4.5.14).
   Der Aufraeumweg existierte bereits und ist deterministisch; es fehlte

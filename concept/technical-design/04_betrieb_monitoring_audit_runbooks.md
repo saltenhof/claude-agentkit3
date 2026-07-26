@@ -542,18 +542,35 @@ Der Reclaim ist eine bewusste Operator-Handlung; der Sync gehoert in
 denselben Ablauf. Es gibt keine Zeitschranke, nach der sich der Zustand
 von selbst aufloest.
 
+WICHTIG — stale_chunk_count > 0 ist ein handlungspflichtiger Befund, aber
+KEIN Beweis fuer einen Uebernahme-Rest. Die Kennzahl zaehlt drei Klassen, und
+nur zwei davon loest ein Sync auf (FK-13 §13.4.1/§13.9.9):
+  A) Generation strikt kleiner als die autoritative -> Uebernahme-Rest,
+     der Sync ENTFERNT sie
+  B) keine Generation (Bestand vor Einfuehrung der Ordnungs-Property) ->
+     der Sync KONVERGIERT sie
+  C) Generation vorhanden, aber unbrauchbar -> KEIN Sync-Fall: der Sync
+     weist die Zeile benannt ab und laeuft nicht durch (eskalieren)
+Nicht gezaehlt und kein Befund: eine HOEHERE Generation (laufender Sync) und
+Quellen ohne abgeschlossene Synchronisierung (nicht beurteilt).
+
 Loesung:
 1. Kennzahl lesen (MCP-Tool story_list_sources, Feld stale_chunk_count je
-   Source-Type; > 0 heisst: der Rest ist genau jetzt materialisiert)
-2. Sync der betroffenen Quelle fahren:
+   Source-Type). > 0 heisst: es liegt genau jetzt eine der Klassen A/B/C vor.
+2. Sync der betroffenen Quelle fahren — das ist gleichzeitig die DIAGNOSE:
    - Konzept-Korpus: concept sync   (bzw. MCP-Tool concept_sync)
    - Story-Korpus:   MCP-Tool story_sync
-   Der Sync entfernt die ueberholten Zeilen deterministisch ueber die
-   Generationsordnung (er loescht, was strikt unter SEINER Generation liegt).
-3. Kennzahl erneut lesen: stale_chunk_count muss 0 sein. Bleibt sie > 0,
-   liegt ein anderer Befund vor (z. B. eine Zeile mit vorhandener, aber
-   unbrauchbarer Generation) — diese wird nicht geraten, sondern vom Sync
-   benannt abgewiesen; dann eskalieren, nicht wiederholen.
+   Laeuft er DURCH, war es A oder B: er entfernt bzw. konvergiert die Zeilen
+   deterministisch (er loescht, was strikt unter SEINER Generation liegt).
+   BRICHT er mit "unusable writing generation" ab, ist es C.
+3. Bei Abbruch (Klasse C): NICHT wiederholen und nichts raten — die Zeile ist
+   weder ordenbar noch eine ungestempelte Legacy-Zeile. Eskalieren: die
+   betroffene UUID steht in der Fehlermeldung; der Ursprung dieser Zeile ist
+   zu klaeren (fremder Schreiber, defekte Migration), bevor irgendetwas an
+   ihr getan wird.
+4. Nach erfolgreichem Sync die Kennzahl erneut lesen: stale_chunk_count muss
+   0 sein. Ist sie es nicht, ist eine weitere Quelle betroffen — Schritt 2 je
+   Quelle wiederholen.
 
 Nicht tun: Zeilen manuell in der VektorDB loeschen. Der Aufraeumweg ist der
 Sync; ein manueller Eingriff umgeht die Generationsordnung.
