@@ -172,29 +172,91 @@ Am Pagination-Seam (F3):
 | `…_a_visible_row_at_a_consumed_offset_survives_and_is_reported` | Der ueberholte Schreiber haengt **waehrend** des paginierten Lesens an. Die Zeile ist ab Anfrage 2 **sichtbar**, liegt aber an einem bereits konsumierten Offset; beide nicht-terminierenden Fenster sind **voll**, keine uuid wiederholt sich, jede vorbestehende Zeile wird genau einmal gelesen. Sie faellt aus der Kandidatenmenge, die **emittierte** Delete-Bedingung kann sie nicht nennen, sie ueberlebt den Abschluss-Delete physisch — und `story_list_sources` meldet sie. Zusaetzlich belegt: die Zeile der **neueren** Generation wird vom Delete verschont |
 | `…_a_row_that_shifts_an_already_read_page_is_fail_closed` | Die andere Reihenfolge ist **kein** stiller Verlust: verschiebt die Zeile eine bereits gelieferte Seite, sieht der Duplikat-Guard die Wiederholung und weist fail-closed ab |
 
-**Revert-Check: 14 von 14 Faellen RED**, danach beide Module restauriert gruen
-(`__pycache__` je Fall gepurgt — ein groessengleicher Patch, im selben
+### Revert-Ledger — eine Zeile pro Lauf, nachrechenbar
+
+`__pycache__` wird je Fall gepurgt: ein groessengleicher Patch, im selben
 Uhrzeit-Sekundenschritt zurueckgesetzt, hinterlaesst sonst gueltiges Bytecode und
-erzeugt Phantom-Ergebnisse): Kennzahl aus dem Envelope entfernt (4 Tests fallen),
-Aelter-Bedingung neutralisiert (2), Zeilen ohne/mit unbrauchbarer Generation
-uebersprungen (2), `<` durch `!=` ersetzt (1), Quellen ohne Completion doch beurteilt
-(1), Completion-Zustandsfilter entfernt (1), Vertragsfeld entfernt (1), **die
-benannte Sync-Abweisung der unbrauchbaren Generation entfernt** (1), **die
-id-Klausel des konditionalen Deletes entfernt** — dann loescht der Delete die
-ueberlebende Zeile mit, und der Test faellt (1), **Kennzahl am Pagination-Seam auf 0
-festgenagelt** (1), **Duplikat-Guard des paginierten Lesens entfernt** (1), **`null`
-als UNUSABLE statt MISSING klassifiziert** (1), **die Positivbedingung der Leiter
-entfernt, sodass 0/negativ als ordenbar gelten** (1), **die Sync-Abweisung durch die
-Legacy-Konvergenz ersetzt** (1), **die Ordnungsbedingung auf `< limit + 1` gelockert,
-sodass der Delete die Zeile der neueren Generation mitnimmt** (1).
+erzeugt Phantom-Ergebnisse. Zeilen- und Dateiangaben beziehen sich auf den Stand
+dieses Commits. Testnamen ohne das Praefix `test_ag177_`; Seam **M** =
+`tests/unit/vectordb/test_engine_realpath_r2.py`, Seam **T** =
+`tests/unit/integrations/vectordb/test_weaviate_transport.py`.
+
+| ID | Produktionsanker (Datei:Zeile) | geaenderte Literale | Zieltest(s) | Seam | Ergebnis |
+|---|---|---|---|---|---|
+| M01 | `engine.py:977` | `"stale_chunk_count": stale_chunk_count(rows, authority),` → **Zeile entfernt** | `a_materialised_residual_is_reported_in_the_source_listing`, `the_reported_residual_disappears_when_the_source_is_synced`, `a_legacy_row_is_reported_as_non_authoritative`, `the_figure_is_part_of_the_published_envelope` | M | **RED** |
+| M02 | `engine.py:1056` | `if raw < authoritative:` → `if False:` (Zaehlzweig Klasse A aus) | `a_materialised_residual_is_reported_in_the_source_listing`, `the_reported_residual_disappears_when_the_source_is_synced` | M | **RED** |
+| M03 | `engine.py:1053` | `if not is_ordered_generation(raw): count += 1; continue` → `… continue` (Klassen B und C nicht mehr gezaehlt) | `a_legacy_row_is_reported_as_non_authoritative`, `an_unusable_generation_is_counted_but_is_not_a_sync_case`, `an_unorderable_generation_is_the_unusable_class`, `a_stored_null_generation_is_the_legacy_class_and_a_sync_converges_it` | M | **RED** |
+| M04 | `engine.py:1056` | `if raw < authoritative:` → `if raw != authoritative:` (zaehlt auch eine hoehere Generation) | `an_in_flight_newer_generation_is_not_reported_as_stale` | M | **RED** |
+| M05 | `engine.py:1050` | `if authoritative is None: continue` → `… authoritative = 1_000_000_000` (beurteilt Quellen ohne Completion) | `rows_of_a_source_without_a_completion_are_not_judged` | M | **RED** |
+| M06 | `engine.py:1001` | `if receipt.state.value != "completed":` → `== "\x00never"` (unfertiger Record erhaelt Autoritaet) | `an_unfinished_record_does_not_grant_authority` | M | **RED** |
+| M07 | `contracts.py:160` | `"stale_chunk_count",` → **Zeile entfernt** (aus `return_fields`) | `the_figure_is_part_of_the_published_envelope` | M | **RED** |
+| M08 | `schema.py:136` | im `raw is None`-Zweig: `return GenerationClass.MISSING` → `return GenerationClass.UNUSABLE` | `a_stored_null_generation_is_the_legacy_class_and_a_sync_converges_it` | M | **RED** |
+| M09 | `schema.py:124` | `… isinstance(raw, int) and raw >= 1` → `… isinstance(raw, int)` (0/negativ gelten als ordenbar) | `an_unorderable_generation_is_the_unusable_class` | M | **RED** |
+| M10 | `sync.py:760` | `if classify_owning_generation(raw) is GenerationClass.MISSING:` → `if True:` (UNUSABLE wird konvergiert statt abgewiesen) | `an_unusable_generation_is_counted_but_is_not_a_sync_case`, `an_unorderable_generation_is_the_unusable_class` | M | **RED** |
+| M11 | `weaviate_adapter.py:1261` | `Filter.by_id().contains_any(list(batch)),` → **Zeile entfernt** (Delete verliert die Bindung an die Kandidatenmenge) | `a_visible_row_at_a_consumed_offset_survives_and_is_reported` | T | **RED** |
+| M12 | `engine.py:977` | `"stale_chunk_count": stale_chunk_count(rows, authority),` → `"stale_chunk_count": 0,` | `a_visible_row_at_a_consumed_offset_survives_and_is_reported` | T | **RED** |
+| M13 | `weaviate_adapter.py:832` | `predicate=Filter.by_property(prop).less_than(limit),` → `… less_than(limit + 1),` | `a_visible_row_at_a_consumed_offset_survives_and_is_reported` | T | **RED** |
+| M14 | `weaviate_adapter.py:672` | `if uid in seen:` → `if False:` (Duplikat-Guard aus) | `a_row_that_shifts_an_already_read_page_is_fail_closed` | T | **RED** |
+
+**Ergebnis: 14 Mutationen, 14 RED, 0 WEAK, 0 SKIP** — danach beide Module restauriert
+gruen (13 bzw. 2 Tests). Die Harness-Ausgabe lautet wortgleich
+`EVIDENCE: 14 RED of 14 cases; 0 weak; 0 skipped (no evidence)`.
+
+**Gegenprobe in der anderen Richtung:** die Zieltest-Spalte deckt **jeden** der 15
+Testfaelle ab (10 Testfunktionen im Seam M, davon eine mit 4 Parametrisierungen = 13
+Faelle, plus 2 im Seam T). Es gibt in dieser Story also keinen Test, den keine
+Mutation pinnt — nachrechenbar durch Auszaehlen der Spalte.
+
+**Zwei Mutationen teilen sich einen Anker, und das ist Absicht:** M01/M12 sitzen beide
+auf `engine.py:977` (Zeile entfernt vs. auf `0` festgenagelt) und M02/M04 beide auf
+`engine.py:1056` (`if False:` vs. `!=`). 14 Mutationen liegen daher auf **12**
+verschiedenen Ankern — wer nach Ankern zaehlt, kommt auf 12 und hat sich nicht
+verrechnet.
+
+#### Nicht in der Erfolgszahl: ausgeschiedene und ungueltige Laeufe
+
+Diese Zeilen sind **kein** Beweis und stehen deshalb ausserhalb des Nenners.
+
+| ID | Anker / Mutation | Ergebnis | Was daraus wurde |
+|---|---|---|---|
+| X1 | `weaviate_adapter.py:1261`, Harness-Literal `Filter.by_id().contains_any(batch),` — ohne `list(` | **SKIP** (Ankerzahl 0, kein Lauf) | Gegen das echte Literal neu angesetzt → **M11**. In r1 faelschlich mitgezaehlt (siehe Korrektur unten) |
+| X2 | `sync.py`, Anker `raise SyncError(` — Mutation „`pass` davor einfuegen" | **WEAK** (5 passed): ein `pass` vor einem `raise` aendert **nichts**, der Patch war ein No-op | Ersetzt durch **M10** (Klassengrenze statt Anweisungsreihenfolge) |
+| X3 | `engine.py`, altes Literal `if isinstance(raw, bool) or not isinstance(raw, int): count += 1 … continue` | **RED** in r1, danach **ausgeschieden** | Das Literal existiert seit der gemeinsamen Klassifikationsleiter (R2-N2) nicht mehr; gleiche Aussage, neuer Anker → **M03** (jetzt 4 Zieltests) |
+
+#### Abgleich der Zahl
+
+Die Prosaliste der r2-Fassung fuehrte **15** Eintraege (11 aus r1 + 4 ergaenzte) und
+widersprach damit ihrer eigenen Kopfzahl 14. Der Fehler war ein **Doppeleintrag**: „die
+benannte Sync-Abweisung … entfernt" (r1) und „die Sync-Abweisung durch die
+Legacy-Konvergenz ersetzt" (r2) beschreiben **denselben Mutations-Slot** — der zweite
+Lauf **ersetzte** den ersten (X2 → M10), er kam nicht hinzu. 15 − 1 = **14**, und das
+deckt sich mit der Harness-Ausgabe. Zusaetzlich waren die Klammerzahlen der Prosaliste
+**fallende Tests**, keine Mutationszahlen; deshalb war nicht erkennbar, ob ein Eintrag
+einen oder zwei Faelle meinte. Die Ledger-Tabelle ersetzt beides.
 
 **Korrektur der Beweisfuehrung (Codex r2).** In der r1-Fassung habe ich „11 von 11"
-gezaehlt, obwohl **ein** Fall mit `[SKIP-ANCHOR]` abgebrochen war: mein Harness-Literal
-sagte `contains_any(batch)`, die Produktion `contains_any(list(batch))`. Ein
-uebersprungener Anker ist **kein** Beweis. Richtig war **10 von 11 mit einem
+gezaehlt, obwohl **ein** Fall mit `[SKIP-ANCHOR]` abgebrochen war (X1): mein
+Harness-Literal sagte `contains_any(batch)`, die Produktion `contains_any(list(batch))`.
+Ein uebersprungener Anker ist **kein** Beweis. Richtig war **10 von 11 mit einem
 uebersprungenen Anker**; der Fall laeuft seither gegen den echten Anker
 (`weaviate_adapter.py:1261`) und ist RED. Das Harness zaehlt Skips jetzt getrennt und
 scheitert an ihnen, statt sie in die Erfolgszahl zu mischen.
+
+**Was beim Abgleich ueberrascht hat** — drei Dinge, und alle drei sind Bookkeeping,
+nicht Substanz:
+
+1. **Die Kopfzahl 14 war zufaellig richtig.** Sie stammte aus der Harness-Ausgabe, die
+   Prosaliste dagegen aus manuellem Fortschreiben. Haette ich nur die Liste gehabt,
+   waere 15 im Report gelandet. Genau die Trennung — generierte Zahl vs. gepflegte
+   Prosa — ist die Fehlerquelle, und die Ledger-Tabelle ist jetzt aus dem Harness
+   abgeleitet, nicht nachgeschrieben.
+2. **Der Doppeleintrag war ausgerechnet der ersetzte WEAK-Fall.** Die Prosaliste trug
+   damit eine Mutation weiter, die es im Harness nicht mehr gibt — der schlechteste
+   Kandidat fuer eine stille Ungenauigkeit.
+3. **Der WEAK-Lauf (X2) stand nirgends im Report.** Ich hatte ihn im Bericht an die
+   Koordination benannt, aber nie in den Record geschrieben. Damit war er genau das,
+   was diese Story beseitigen soll: ein Befund, der ausserhalb des Dokuments existiert.
+   Er steht jetzt drin, mit eigenem Ergebniscode.
 
 **Eine Fixture-Korrektur, offen benannt.** Mein erster Aufbau war **physikalisch
 falsch**: der haengende Schreiber haelt nach seinem Claim eine **hoehere**
@@ -363,7 +425,7 @@ damit einen Sync als Abhilfe versprochen, den der Sync verweigert.
 |---|---|---|
 | 1 — Phase-1-Entwurf ratifiziert, kein Code davor | **erfuellt** | `design.md` (`a3d7ecbb`), `po-decision.md`; Umsetzung erst danach |
 | 2 — ratifizierte Form ohne stille Erweiterung | **erfuellt** | Kennzahl + Vertragstext + Betriebspflicht; kein Retrieval-Filter, kein weiteres Feld |
-| 3 — (c): Rest wird erkennbar **gemeldet**, Vertragstext ohne Beschoenigung | **erfuellt** | 15 Tests an zwei realen Seams, 14/14 revert-verifiziert; §13.9.9 benennt beide Klassen, keine Atomizitaet, keine Zeitschranke — und die Kennzahl behauptet nach F2/R2-N1/R2-N2 nicht mehr, als sie belegt |
+| 3 — (c): Rest wird erkennbar **gemeldet**, Vertragstext ohne Beschoenigung | **erfuellt** | 15 Tests an zwei realen Seams; Revert-Ledger 14 Mutationen / 14 RED / 0 WEAK / 0 SKIP (nachrechenbar, inkl. der drei ausgeschiedenen Laeufe X1-X3); §13.9.9 benennt beide Klassen, keine Atomizitaet, keine Zeitschranke — und die Kennzahl behauptet nach F2/R2-N1/R2-N2 nicht mehr, als sie belegt |
 | 4 — keine Regression der AG3-174-Zusicherungen | **erfuellt** | 10545 passed, 14 skipped; keine Mechanik in `sync.py` geaendert |
 | 5 — §13.9.9 beschreibt den tatsaechlichen Zustand, Record vorhanden, Gates gruen | **erfuellt** | ratifizierter Vertrag ersetzt den offenen Punkt; exaktes Praedikat statt Sammelbegriff (F2/R2-N1); Klassengrenzen deckungsgleich mit dem Code, eine Leiter fuer beide Konsumenten (R2-N2); Eingabevertrag korrekt (F1); Runbook diagnosefaehig (R2-N3); Decision Record; Gates gruen (Ausnahme vorbestehend benannt) |
 | 6 — beide erreichbaren Reihenfolgen, Unerreichbares begruendet | **erfuellt** | vier Reihenfolgen belegt, davon zwei am produktiven Pagination-Pfad; die Fixture beweist jetzt eine **instabile Ordnung** mit sichtbarer Zeile an konsumiertem Offset (R2-N4), nicht verzoegerte Sichtbarkeit; die frueher erklaerte Asymmetrie ist zurueckgezogen, nicht verteidigt |
