@@ -945,6 +945,10 @@ class WeaviateRetrievalPort:
         from agentkit.backend.vectordb.ingest.classify import PRODUCER_BY_SOURCE_TYPE
 
         receipts = self.store.list_receipts(project_id=project_id)
+        # AG3-177 (c): the authoritative generation per source comes from the SAME
+        # completion set this listing already reads, so making the residual
+        # detectable costs no additional transport.
+        authority = authoritative_generations(receipts)
         out: list[Mapping[str, object]] = []
         for source_type, producer in PRODUCER_BY_SOURCE_TYPE.items():
             rows = self.store.list_objects_for_source_types(
@@ -962,9 +966,88 @@ class WeaviateRetrievalPort:
                     # this source type (persisted completion order, not a
                     # lexicographic maximum over content digests).
                     "last_revision": _last_completed_revision(receipts, source_type),
+                    # AG3-177: how many of the counted chunks are NOT part of their
+                    # source's authoritative generation. > 0 means the ratified
+                    # residual is materialised right now and a sync of the affected
+                    # source removes it (FK-04 §4.5.14). ``chunk_count`` stays the
+                    # PHYSICAL count -- (c) changes detectability, not visibility.
+                    "stale_chunk_count": stale_chunk_count(rows, authority),
                 }
             )
         return out
+
+
+def authoritative_generations(
+    receipts: Sequence[SyncReceipt],
+) -> Mapping[str, int]:
+    """Return ``{source_file: authoritative generation}`` from the completions (AG3-177).
+
+    The authoritative generation of a source is the HIGHEST generation among its
+    verified, completed records -- the same ordering :meth:`WeaviateCorpusStore.
+    get_receipt` uses to answer "which completion counts" (N39). A source with no
+    completion has no authority and does not appear here.
+
+    Args:
+        receipts: The project's verified completions, as read.
+
+    Returns:
+        The authoritative generation per source file.
+    """
+    out: dict[str, int] = {}
+    for receipt in receipts:
+        if receipt.state.value != "completed":
+            continue
+        if receipt.generation > out.get(receipt.source_file, 0):
+            out[receipt.source_file] = receipt.generation
+    return out
+
+
+def stale_chunk_count(
+    rows: Sequence[Mapping[str, object]], authority: Mapping[str, int]
+) -> int:
+    """Count rows that are NOT part of their source's authoritative generation.
+
+    This is the observable form of the residual AG3-177 ratified as a contract: after a
+    hung sync, a deliberate administrative takeover and a resurrected writer, rows of an
+    OLDER generation can sit beside the current ones until the next sync of that source
+    removes them -- a moment that is not time-bounded. A residual nobody can notice would
+    be a concealed residual, so it is counted and reported.
+
+    Counted:
+
+    - a row whose generation is strictly BELOW its source's authoritative generation
+      (the takeover residual, and exactly what the next sync's ordered delete removes);
+    - a row with NO generation at all (a legacy row predating the ordering property);
+      the same remedy applies -- the next sync converges it;
+    - a row whose generation is present but unusable. It is certainly not authoritative,
+      and it needs attention rather than a sync: the sync path rejects it by name.
+
+    NOT counted:
+
+    - rows of a source that has no completion at all -- there is no authority to judge
+      them against, and inventing one would be a guess;
+    - rows of a generation ABOVE the authoritative one: that is an in-flight newer
+      generation whose completion is not published yet, not a remnant.
+
+    Args:
+        rows: The source rows as read (uuid, source_file, writing generation).
+        authority: The authoritative generation per source file.
+
+    Returns:
+        The number of non-authoritative rows.
+    """
+    count = 0
+    for row in rows:
+        authoritative = authority.get(str(row.get("source_file", "")))
+        if authoritative is None:
+            continue
+        raw = row.get(OWNING_GENERATION_PROPERTY)
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            count += 1  # absent or unusable -> not part of the authoritative generation
+            continue
+        if raw < authoritative:
+            count += 1
+    return count
 
 
 def _last_completed_revision(

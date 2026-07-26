@@ -249,6 +249,12 @@ def cmd_sync(args: argparse.Namespace) -> int:
     ``--reclaim`` is the EXPLICIT administrative takeover of a source claim left
     behind by a dead writer (N27): claims never expire by time, so recovering one
     is an operator decision -- the operator asserts the previous writer is dead.
+
+    OPERATIONAL DUTY after a takeover (AG3-177, FK-04 §4.5.14): run a sync of the
+    affected source. A writer that resumes after the takeover can leave rows of its
+    older generation beside the current ones; they are removed deterministically by
+    the next sync of that source, and until then ``story_list_sources`` reports them
+    as ``stale_chunk_count``.
     """
     concepts_dir = Path(args.concepts_dir)
     factory = getattr(args, "service_factory", None) or _default_service_factory
@@ -310,7 +316,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "ADMINISTRATIVELY take over a source claim left behind by a dead writer "
             "(N27). Claims never expire by time; using this asserts that the "
-            "previous writer is dead."
+            "previous writer is dead. AFTERWARDS run a sync of the affected source "
+            "(FK-04 §4.5.14): a resumed old writer can leave stale rows behind, "
+            "reported until then as story_list_sources.stale_chunk_count."
         ),
     )
     sync.set_defaults(func=cmd_sync)

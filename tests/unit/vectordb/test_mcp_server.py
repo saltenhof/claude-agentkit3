@@ -234,10 +234,17 @@ def test_return_fields_are_bound_to_the_fk13_tables() -> None:
         "is_appendix", "parent_concept_id", "defers_to", "authority_over",
         "normative_rules", "concept_status", "score", "snippet",
     }
-    # D1 minimal shape of story_list_sources.
-    assert set(contract_for("story_list_sources").return_fields) == {
+    # D1 fixed a MINIMAL shape, so the set may grow but never shrink: the minimum is
+    # asserted as a subset, and the CURRENT shape exactly -- extension stays deliberate.
+    d1_minimum = {
         "project_id", "source_type", "producer", "source_count",
         "chunk_count", "last_revision",
+    }
+    assert d1_minimum <= set(contract_for("story_list_sources").return_fields)
+    assert set(contract_for("story_list_sources").return_fields) == {
+        *d1_minimum,
+        # AG3-177: the ratified residual must be detectable where callers look.
+        "stale_chunk_count",
     }
 
 
