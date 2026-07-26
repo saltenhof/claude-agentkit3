@@ -308,6 +308,18 @@ Aufloesung **nicht** in AG3-174 versucht. Der Vorschlag fuer die Folgestory samt
 Kosten je Form liegt im Story-Report; eine neue Story wird ohne PO-Zustimmung nicht
 angelegt.
 
+### Nachtrag /4 (2026-07-26): der Restbefund ist inzwischen ratifiziert
+
+Der oben als **offen und nicht ratifiziert** festgehaltene Restbefund ist am
+2026-07-26 als **Variante 3 (ratifizierter Vertrag)** entschieden worden; der
+Vertrag steht in
+`concept/_meta/decisions/2026-07-26-post-completion-stale-chunk-contract.md` und
+ist in FK-13 §13.9.9 an die Stelle des offenen Punktes getreten. Die Feststellung
+dieses Records — dass keine der drei Formen **in AG3-174** entschieden wurde —
+bleibt als Historie richtig und wird nicht umgeschrieben. Die D9-Entscheidung selbst
+(storage-seitige Ordnungsbedingung des zerstoerenden Schrittes) ist davon
+unberuehrt und wird nicht ersetzt.
+
 Grundlage: PO-Ratifizierung D9 in
 `stories/AG3-174-vectordb-retrieval-engine/po-decisions.md`. Zusammen mit D7 und
 D8 sind das die Konzeptaenderungen, die AG3-174 gestattet sind. Die Mechanik war in

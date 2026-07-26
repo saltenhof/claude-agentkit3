@@ -1,0 +1,431 @@
+# AG3-177 — Story Report (Phase 1 + Phase 2)
+
+- **Story:** AG3-177 Sichtbarkeit veralteter Chunks nach einer Claim-Uebernahme
+- **Branch:** `feat/ag3-177-stale-chunk-visibility`. AG3-174 ist **bereits auf
+  `main` gemergt** (`f8c40f4c`), diese Story landet also eigenstaendig;
+  `depends_on: [AG3-174]` ist erfuellte Historie, keine offene Kopplung.
+- **Status:** implementiert, nach Codex-Review r1 nachgezogen. **Alle 6 ACs
+  erfuellt.**
+- **Ratifizierte Form:** **Variante (c)** — den Rest vertraglich fassen, **erkennbar
+  machen** und sein Aufraeumen zur Betriebspflicht erheben. Ratifizierung:
+  `po-decision.md` (2026-07-26).
+
+## Was hier NICHT behauptet wird
+
+Der Restbefund ist **nicht geschlossen**. (c) schliesst ihn nicht und behauptet es
+auch nicht: nach Stillstand, administrativem Reclaim und wiederanlaufendem
+Altprozess koennen Zeilen einer niedrigeren Generation neben den aktuellen liegen
+und vom Retrieval mitgeliefert werden. Es gibt **keine** Atomizitaet und **keine**
+zeitliche Schranke — auch kein „nur kurz". Geaendert hat sich, dass dieser Zustand
+**nicht mehr unbemerkt** bleiben kann und dass sein Aufraeumen einen zugewiesenen
+Ausloeser hat.
+
+## Phase 1 — Entwurf und Ratifizierung (AC1)
+
+`design.md` (Commit `a3d7ecbb`) enthaelt die praezise Restaussage (beide
+unabgedeckten Klassen, vier Eintrittsbedingungen), die **verifizierte** — nicht neu
+erfundene — Bewertung der drei Formen, die Messungen auf dem heissen Suchpfad und
+die Empfehlung. Die Vorbewertung war an fuenf Stellen zu korrigieren; das ist dort
+dokumentiert.
+
+**Kein Code vor der Ratifizierung.** Phase 1 lieferte ausschliesslich `design.md`;
+die Umsetzung begann erst nach `po-decision.md`. Diese Reihenfolge war die
+Kernauflage der Story (in AG3-174 sind drei Mechanismen gescheitert, weil ohne
+ratifizierte Entscheidung gebaut wurde).
+
+**Die Messungen in `design.md` bleiben unveraendert** und sind von dieser Umsetzung
+auch nicht invalidiert: sie betreffen die Kosten eines **Filters auf dem Suchpfad**
+(Variante (b)). Diese Umsetzung fasst den Suchpfad nicht an — sie fuegt eine
+Aggregation in `list_sources` hinzu, das die betroffenen Zeilen und die
+Abschluss-Records ohnehin liest.
+
+## Phase 2 — was gebaut wurde (AC2, AC3)
+
+### Erkennbarkeit ist die Lieferung, nicht die Fussnote
+
+`story_list_sources` meldet je Source-Type **`stale_chunk_count`**: die Anzahl der
+Chunks, die dem **exakten Praedikat** unten entsprechen. **Nicht** „alle
+nicht-autoritativen Chunks" (Korrektur R2-N1): eine **hoehere** Generation gehoert
+ebenfalls nicht zur autoritativen und wird bewusst nicht gezaehlt — sonst liesse sich
+eine `0` als Beweis lesen, dass nichts in Flug ist.
+
+- **Autoritaet** (`authoritative_generations`, `engine.py`) ist die **hoechste
+  Generation unter den verifizierten, abgeschlossenen** Records einer Quelle —
+  dieselbe Ordnung, mit der `get_receipt` entscheidet, welche Completion gilt
+  (N39). Eine Quelle **ohne** Completion hat keine Autoritaet und wird **nicht**
+  beurteilt: eine erfundene Bezugsgroesse waere geraten.
+- **Gezaehlt** (`stale_chunk_count`, `engine.py`) werden drei Klassen, jede gegen die
+  autoritative Generation **ihrer** Quelle und ueber **eine** gemeinsame
+  Klassifikationsleiter (`schema.py`, R2-N2):
+  - **A** — Generation vorhanden, ordenbar, **strikt kleiner** als die autoritative:
+    der Uebernahme-Rest, genau das, was der naechste Sync entfernt;
+  - **B** — **keine** Generation, also Property **fehlt oder ist `null`** (Bestand vor
+    `owning_generation`): derselbe Aufraeumweg konvergiert sie unter IS-NULL;
+  - **C** — Generation **vorhanden, aber nicht ordenbar** (nicht-integer, boolesch,
+    `0`, negativ): nicht autoritativ und behandlungsbeduerftig — der Sync weist sie
+    benannt ab, statt sie zu raten.
+- **Nicht gezaehlt** werden Zeilen einer **hoeheren** Generation: das ist ein
+  laufender, noch nicht publizierter Sync, kein Rest.
+- **`> 0` ist ein handlungspflichtiger Befund, aber kein Beweis fuer einen
+  Uebernahme-Rest** (Korrektur aus Codex r1/F2). Klasse A entfernt ein Sync, B
+  konvergiert er — **C loest er nicht** auf: dort weist er die
+  Zeile benannt ab (N43) und braucht eine Eskalation. Meine erste Vertragsfassung
+  hatte `> 0` mit „ein Sync entfernt sie" gleichgesetzt; das haette einen Operator
+  hinter eine Abhilfe geschickt, die abbricht. §13.4.1, §13.9.9, der Decision Record,
+  das Runbook und der Code-Kommentar tragen jetzt dasselbe **exakte Praedikat**.
+- `chunk_count` bleibt die **physische** Zahl. (c) aendert die **Erkennbarkeit**,
+  nicht die Sichtbarkeit — eine stillschweigend gefilterte Zaehlung waere genau die
+  Beschoenigung, die der Vertrag verbietet.
+
+**Kosten: keine.** `list_sources` liest die Zeilen und die Abschluss-Records
+bereits; die Autoritaetskarte wird **einmal** pro Aufruf gebildet, nicht je
+Source-Type. Kein neuer Transportaufruf, keine gespeicherte Kennzahl, keine zweite
+operative Wahrheit — die Zahl wird bei jedem Aufruf aus dem gelesenen Zustand
+berechnet.
+
+### Der Ort der Meldung
+
+`contracts.py` nimmt `stale_chunk_count` in die `return_fields` von
+`story_list_sources` auf. D1 fixierte eine **Mindest**-Shape („Mindestens …"), die
+Erweiterung ist damit vertragskonform. **Kollision mit der Strenge-Regelung: keine** —
+gewachsen ist **allein der Rueckgabe-Envelope**, an der Eingabeseite wurde keine Zeile
+angefasst. Die beiden Vertrags-Pins sind entsprechend nachgezogen: die
+D1-Mindestmenge wird als **Untermenge** geprueft (darf wachsen, nie schrumpfen)
+**und** die aktuelle Menge **exakt** (die Erweiterung bleibt bewusst, nicht
+beliebig).
+
+**Korrektur (Codex r1/F1):** In der ersten Fassung stand hier als Begruendung,
+`story_list_sources` nehme *keine* Eingabeparameter. Das ist **falsch** — das Tool
+hat ein optionales `project_id` mit D2-Semantik (fehlt: gebundenes Projekt;
+identisch: akzeptiert; abweichend: benannt abgewiesen), und ich hatte diese
+Falschaussage auch nach §13.4.1 geschrieben. Beides ist korrigiert; der Parameter
+bleibt, seine Entfernung waere eine Regression von AG3-174/D2.
+
+### Die Betriebspflicht — dort, wo der Betrieb sie findet
+
+- **FK-04 §4.5.14** (neues Runbook, Format `Symptom / Ursache / Loesung` wie die
+  13 bestehenden): Symptom (`stale_chunk_count > 0`), Ursache (wieder angelaufener
+  ueberholter Schreiber; **kein** Datenverlust), **Betriebspflicht** („nach JEDEM
+  administrativen Reclaim einen Sync der betroffenen Quelle fahren — nicht erst,
+  wenn die Kennzahl auffaellt"), Loesungsschritte, Eskalation bei unbrauchbarer
+  Generation und ein ausdrueckliches „nicht manuell in der VektorDB loeschen".
+- **Am Ort der Handlung:** `cli.py` nennt die Pflicht im Docstring des
+  Sync-Kommandos **und** im `--reclaim`-Hilfetext, mit Verweis auf FK-04 §4.5.14 —
+  der Operator liest sie beim Ausloesen der Uebernahme, nicht erst im Story-Report.
+
+### Konzept: FK-13 ist wieder wahr (AC5)
+
+- **§13.9.9:** Der Block „Offener Restbefund (nicht ratifiziert)" ist durch den
+  **ratifizierten Restvertrag** ersetzt: Zugesichertes, **Nicht**-Zugesichertes
+  (ausdruecklich keine Atomizitaet, keine Zeitschranke, kein „nur kurz"), Wirkung,
+  Erkennbarkeit als **tragende Bedingung**, der deterministische Aufraeumweg samt
+  Betriebspflicht, und die bewusst offen gehaltene Option (b). Beide unabgedeckten
+  Klassen bleiben benannt; der Abschluss-Delete bleibt ausdruecklich erhalten.
+- **§13.4.1:** Die vage Prosa („Liefert Übersicht über …") ist durch die
+  **explizite Eingabe- und Rueckgabetabelle** ersetzt: der optionale Parameter
+  `project_id` mit seiner D2-Semantik (fehlt → gebundenes Projekt aus der Umgebung;
+  identischer Wert → akzeptiert; **abweichender** Wert → benannt abgewiesen; die
+  Umgebung bleibt die einzige Autoritaet), alle sieben Rueckgabefelder inkl.
+  `stale_chunk_count`, der Hinweis dass `chunk_count` die **physische** Zahl ist,
+  die Mindest-Shape-Regel — und die **Praedikat-Tabelle** der Kennzahl (welche
+  Zeilenklasse gezaehlt wird und welche Abhilfe je Klasse gilt).
+- **Decision Record (P3):**
+  `concept/_meta/decisions/2026-07-26-post-completion-stale-chunk-contract.md` —
+  Anlass, Entscheidung, gemessene Kostenasymmetrie, **fuenf** verworfene
+  Alternativen mit Begruendung, Neubewertungsbedingungen, Impact-Sweep und
+  Betroffenheitsmatrix.
+- **D9-Record:** erhaelt einen **Vorwaertszeiger** (Nachtrag /4). Seine Historie
+  („in AG3-174 wurde keine der drei Formen entschieden") bleibt richtig und wird
+  nicht umgeschrieben; die D9-Entscheidung selbst wird **nicht** ersetzt, daher
+  `supersedes: []`.
+- **§13.9.6 (`doc_kind`-Vokabular) und §13.9.5 (Abfrageoberflaeche) bleiben
+  unberuehrt.** Es entsteht kein Abfrageparameter und kein Frontmatter-Feld; die
+  Generation bleibt von der Abfrageoberflaeche fern.
+
+## Beweise — 15 Tests an zwei Seams, alle revert-verifiziert (AC3, AC6)
+
+13 in `tests/unit/vectordb/test_engine_realpath_r2.py` durch die **echte** Kette
+`handle_tool_call` -> `McpToolService` -> `WeaviateRetrievalPort` ->
+`WeaviateCorpusStore`, mit dem Double **nur** am Weaviate-Client-Rand; zwei in
+`tests/unit/integrations/vectordb/test_weaviate_transport.py` am **tieferen** Seam
+(echter Adapter inkl. `_fetch_all_pages`, echter Store, echter konditionaler Delete;
+Fake erst an der Weaviate-`collections`-Facade, jeder Aufruf gegen die **installierte**
+Bibliothekssignatur gebunden).
+
+| Test | Aussage |
+|---|---|
+| `…_a_materialised_residual_is_reported_in_the_source_listing` | Der Rest wird **gemeldet** (`stale_chunk_count == 1`), und `chunk_count` bleibt die physische Zahl |
+| `…_the_reported_residual_disappears_when_the_source_is_synced` | Der Aufraeumweg aus dem Runbook wirkt: nach dem Sync `0`, und die Zeile ist physisch weg |
+| `…_a_legacy_row_is_reported_as_non_authoritative` | Eine Zeile ohne Generation ist ebenfalls nicht autoritativ |
+| `…_an_in_flight_newer_generation_is_not_reported_as_stale` | Eine **hoehere** Generation ist ein laufender Sync, kein Rest |
+| `…_rows_of_a_source_without_a_completion_are_not_judged` | Ohne Completion keine Autoritaet — es wird nicht geraten |
+| `…_an_unfinished_record_does_not_grant_authority` | Ein unfertiger Record erzeugt **keinen Fehlalarm** ueber die aktuellen Zeilen |
+| `…_the_figure_is_part_of_the_published_envelope` | Die Kennzahl steht im **veroeffentlichten** Vertrag, und jede Zeile fuellt genau ihn (Integer, kein Bool) |
+| `…_an_unusable_generation_is_counted_but_is_not_a_sync_case` | Die **dritte** Klasse wird gemeldet — und der Sync weist sie **benannt ab**, statt sie aufzuraeumen (F2) |
+| `…_a_stored_null_generation_is_the_legacy_class_and_a_sync_converges_it` | Ein gespeichertes `null` ist **Klasse B**: gemeldet, und der Sync **konvergiert** es (R2-N2) |
+| `…_an_unorderable_generation_is_the_unusable_class` (4 Faelle: `0`, `-1`, `True`, String) | Nicht ordenbar ist **Klasse C**: gemeldet und **abgewiesen**. `0`/`-1` sind die wichtigen — als Integer waeren sie sonst unter Klasse A gelandet (R2-N2) |
+
+Am Pagination-Seam (F3):
+
+| Test | Aussage |
+|---|---|
+| `…_a_visible_row_at_a_consumed_offset_survives_and_is_reported` | Der ueberholte Schreiber haengt **waehrend** des paginierten Lesens an. Die Zeile ist ab Anfrage 2 **sichtbar**, liegt aber an einem bereits konsumierten Offset; beide nicht-terminierenden Fenster sind **voll**, keine uuid wiederholt sich, jede vorbestehende Zeile wird genau einmal gelesen. Sie faellt aus der Kandidatenmenge, die **emittierte** Delete-Bedingung kann sie nicht nennen, sie ueberlebt den Abschluss-Delete physisch — und `story_list_sources` meldet sie. Zusaetzlich belegt: die Zeile der **neueren** Generation wird vom Delete verschont |
+| `…_a_row_that_shifts_an_already_read_page_is_fail_closed` | Die andere Reihenfolge ist **kein** stiller Verlust: verschiebt die Zeile eine bereits gelieferte Seite, sieht der Duplikat-Guard die Wiederholung und weist fail-closed ab |
+
+### Revert-Ledger — eine Zeile pro Lauf, nachrechenbar
+
+`__pycache__` wird je Fall gepurgt: ein groessengleicher Patch, im selben
+Uhrzeit-Sekundenschritt zurueckgesetzt, hinterlaesst sonst gueltiges Bytecode und
+erzeugt Phantom-Ergebnisse. Zeilen- und Dateiangaben beziehen sich auf den Stand
+dieses Commits. Testnamen ohne das Praefix `test_ag177_`; Seam **M** =
+`tests/unit/vectordb/test_engine_realpath_r2.py`, Seam **T** =
+`tests/unit/integrations/vectordb/test_weaviate_transport.py`.
+
+| ID | Produktionsanker (Datei:Zeile) | geaenderte Literale | Zieltest(s) | Seam | Ergebnis |
+|---|---|---|---|---|---|
+| M01 | `engine.py:977` | `"stale_chunk_count": stale_chunk_count(rows, authority),` → **Zeile entfernt** | `a_materialised_residual_is_reported_in_the_source_listing`, `the_reported_residual_disappears_when_the_source_is_synced`, `a_legacy_row_is_reported_as_non_authoritative`, `the_figure_is_part_of_the_published_envelope` | M | **RED** |
+| M02 | `engine.py:1056` | `if raw < authoritative:` → `if False:` (Zaehlzweig Klasse A aus) | `a_materialised_residual_is_reported_in_the_source_listing`, `the_reported_residual_disappears_when_the_source_is_synced` | M | **RED** |
+| M03 | `engine.py:1053` | `if not is_ordered_generation(raw): count += 1; continue` → `… continue` (Klassen B und C nicht mehr gezaehlt) | `a_legacy_row_is_reported_as_non_authoritative`, `an_unusable_generation_is_counted_but_is_not_a_sync_case`, `an_unorderable_generation_is_the_unusable_class`, `a_stored_null_generation_is_the_legacy_class_and_a_sync_converges_it` | M | **RED** |
+| M04 | `engine.py:1056` | `if raw < authoritative:` → `if raw != authoritative:` (zaehlt auch eine hoehere Generation) | `an_in_flight_newer_generation_is_not_reported_as_stale` | M | **RED** |
+| M05 | `engine.py:1050` | `if authoritative is None: continue` → `… authoritative = 1_000_000_000` (beurteilt Quellen ohne Completion) | `rows_of_a_source_without_a_completion_are_not_judged` | M | **RED** |
+| M06 | `engine.py:1001` | `if receipt.state.value != "completed":` → `== "\x00never"` (unfertiger Record erhaelt Autoritaet) | `an_unfinished_record_does_not_grant_authority` | M | **RED** |
+| M07 | `contracts.py:160` | `"stale_chunk_count",` → **Zeile entfernt** (aus `return_fields`) | `the_figure_is_part_of_the_published_envelope` | M | **RED** |
+| M08 | `schema.py:136` | im `raw is None`-Zweig: `return GenerationClass.MISSING` → `return GenerationClass.UNUSABLE` | `a_stored_null_generation_is_the_legacy_class_and_a_sync_converges_it` | M | **RED** |
+| M09 | `schema.py:124` | `… isinstance(raw, int) and raw >= 1` → `… isinstance(raw, int)` (0/negativ gelten als ordenbar) | `an_unorderable_generation_is_the_unusable_class` | M | **RED** |
+| M10 | `sync.py:760` | `if classify_owning_generation(raw) is GenerationClass.MISSING:` → `if True:` (UNUSABLE wird konvergiert statt abgewiesen) | `an_unusable_generation_is_counted_but_is_not_a_sync_case`, `an_unorderable_generation_is_the_unusable_class` | M | **RED** |
+| M11 | `weaviate_adapter.py:1261` | `Filter.by_id().contains_any(list(batch)),` → **Zeile entfernt** (Delete verliert die Bindung an die Kandidatenmenge) | `a_visible_row_at_a_consumed_offset_survives_and_is_reported` | T | **RED** |
+| M12 | `engine.py:977` | `"stale_chunk_count": stale_chunk_count(rows, authority),` → `"stale_chunk_count": 0,` | `a_visible_row_at_a_consumed_offset_survives_and_is_reported` | T | **RED** |
+| M13 | `weaviate_adapter.py:832` | `predicate=Filter.by_property(prop).less_than(limit),` → `… less_than(limit + 1),` | `a_visible_row_at_a_consumed_offset_survives_and_is_reported` | T | **RED** |
+| M14 | `weaviate_adapter.py:672` | `if uid in seen:` → `if False:` (Duplikat-Guard aus) | `a_row_that_shifts_an_already_read_page_is_fail_closed` | T | **RED** |
+
+**Ergebnis: 14 Mutationen, 14 RED, 0 WEAK, 0 SKIP** — danach beide Module restauriert
+gruen (13 bzw. 2 Tests). Die Harness-Ausgabe lautet wortgleich
+`EVIDENCE: 14 RED of 14 cases; 0 weak; 0 skipped (no evidence)`.
+
+**Gegenprobe in der anderen Richtung:** die Zieltest-Spalte deckt **jeden** der 15
+Testfaelle ab (10 Testfunktionen im Seam M, davon eine mit 4 Parametrisierungen = 13
+Faelle, plus 2 im Seam T). Es gibt in dieser Story also keinen Test, den keine
+Mutation pinnt — nachrechenbar durch Auszaehlen der Spalte.
+
+**Zwei Mutationen teilen sich einen Anker, und das ist Absicht:** M01/M12 sitzen beide
+auf `engine.py:977` (Zeile entfernt vs. auf `0` festgenagelt) und M02/M04 beide auf
+`engine.py:1056` (`if False:` vs. `!=`). 14 Mutationen liegen daher auf **12**
+verschiedenen Ankern — wer nach Ankern zaehlt, kommt auf 12 und hat sich nicht
+verrechnet.
+
+#### Nicht in der Erfolgszahl: ausgeschiedene und ungueltige Laeufe
+
+Diese Zeilen sind **kein** Beweis und stehen deshalb ausserhalb des Nenners.
+
+| ID | Anker / Mutation | Ergebnis | Was daraus wurde |
+|---|---|---|---|
+| X1 | `weaviate_adapter.py:1261`, Harness-Literal `Filter.by_id().contains_any(batch),` — ohne `list(` | **SKIP** (Ankerzahl 0, kein Lauf) | Gegen das echte Literal neu angesetzt → **M11**. In r1 faelschlich mitgezaehlt (siehe Korrektur unten) |
+| X2 | `sync.py`, Anker `raise SyncError(` — Mutation „`pass` davor einfuegen" | **WEAK** (5 passed): ein `pass` vor einem `raise` aendert **nichts**, der Patch war ein No-op | Ersetzt durch **M10** (Klassengrenze statt Anweisungsreihenfolge) |
+| X3 | `engine.py`, altes Literal `if isinstance(raw, bool) or not isinstance(raw, int): count += 1 … continue` | **RED** in r1, danach **ausgeschieden** | Das Literal existiert seit der gemeinsamen Klassifikationsleiter (R2-N2) nicht mehr; gleiche Aussage, neuer Anker → **M03** (jetzt 4 Zieltests) |
+
+#### Abgleich der Zahl
+
+Die Prosaliste der r2-Fassung fuehrte **15** Eintraege (11 aus r1 + 4 ergaenzte) und
+widersprach damit ihrer eigenen Kopfzahl 14. Der Fehler war ein **Doppeleintrag**: „die
+benannte Sync-Abweisung … entfernt" (r1) und „die Sync-Abweisung durch die
+Legacy-Konvergenz ersetzt" (r2) beschreiben **denselben Mutations-Slot** — der zweite
+Lauf **ersetzte** den ersten (X2 → M10), er kam nicht hinzu. 15 − 1 = **14**, und das
+deckt sich mit der Harness-Ausgabe. Zusaetzlich waren die Klammerzahlen der Prosaliste
+**fallende Tests**, keine Mutationszahlen; deshalb war nicht erkennbar, ob ein Eintrag
+einen oder zwei Faelle meinte. Die Ledger-Tabelle ersetzt beides.
+
+**Korrektur der Beweisfuehrung (Codex r2).** In der r1-Fassung habe ich „11 von 11"
+gezaehlt, obwohl **ein** Fall mit `[SKIP-ANCHOR]` abgebrochen war (X1): mein
+Harness-Literal sagte `contains_any(batch)`, die Produktion `contains_any(list(batch))`.
+Ein uebersprungener Anker ist **kein** Beweis. Richtig war **10 von 11 mit einem
+uebersprungenen Anker**; der Fall laeuft seither gegen den echten Anker
+(`weaviate_adapter.py:1261`) und ist RED. Das Harness zaehlt Skips jetzt getrennt und
+scheitert an ihnen, statt sie in die Erfolgszahl zu mischen.
+
+**Was beim Abgleich ueberrascht hat** — drei Dinge, und alle drei sind Bookkeeping,
+nicht Substanz:
+
+1. **Die Kopfzahl 14 war zufaellig richtig.** Sie stammte aus der Harness-Ausgabe, die
+   Prosaliste dagegen aus manuellem Fortschreiben. Haette ich nur die Liste gehabt,
+   waere 15 im Report gelandet. Genau die Trennung — generierte Zahl vs. gepflegte
+   Prosa — ist die Fehlerquelle, und die Ledger-Tabelle ist jetzt aus dem Harness
+   abgeleitet, nicht nachgeschrieben.
+2. **Der Doppeleintrag war ausgerechnet der ersetzte WEAK-Fall.** Die Prosaliste trug
+   damit eine Mutation weiter, die es im Harness nicht mehr gibt — der schlechteste
+   Kandidat fuer eine stille Ungenauigkeit.
+3. **Der WEAK-Lauf (X2) stand nirgends im Report.** Ich hatte ihn im Bericht an die
+   Koordination benannt, aber nie in den Record geschrieben. Damit war er genau das,
+   was diese Story beseitigen soll: ein Befund, der ausserhalb des Dokuments existiert.
+   Er steht jetzt drin, mit eigenem Ergebniscode.
+
+**Eine Fixture-Korrektur, offen benannt.** Mein erster Aufbau war **physikalisch
+falsch**: der haengende Schreiber haelt nach seinem Claim eine **hoehere**
+Generation als die letzte Completion, also war seine Zeile korrekterweise
+„in-flight" und nicht „stale" — der Test scheiterte zu Recht. Der Rest entsteht
+erst, wenn die Quelle **nach** der Uebernahme abgeschlossen synchronisiert wurde.
+Die Fixture fuehrt jetzt genau diese Folge und **prueft** die Voraussetzung
+(`authoritative.generation > hung.generation`), statt sie anzunehmen.
+
+**Ein Test bewusst am Funktionsrand begruendet.** Der Completion-Zustandsfilter
+liess sich nicht ueber `set_receipt` beweisen: dieses prunt beim Schreiben die
+niedrigeren Generationen derselben Quelle und kann die zu pruefende Konstellation
+daher nie selbst hinterlassen. Der Record wird deshalb — digest-gueltig, an seiner
+positionsgebundenen UUID, wie ein fremder/legacy Schreiber ihn hinterlaesst —
+direkt eingesetzt und dann durch die **echte** Leseverifikation von
+`list_receipts` gezogen. Das ist der reale Lesepfad, keine Attrappe.
+
+## AC4 — keine Regression der AG3-174-Zusicherungen
+
+Voller Lauf: **10545 passed, 14 skipped**. Die AG3-174-Beweise laufen unveraendert
+mit: kein Loeschen der Daten einer neueren Generation (storage-seitige
+Ordnungsbedingung, beide Wettlauf-Reihenfolgen), keine Umkehrung der gemeldeten
+Freshness, Receipt-last, Legacy-Konvergenz, Projekt-Isolation server-seitig.
+Die **Mechanik** von `sync.py` ist unveraendert — der Abschluss-Delete, die
+Reihenfolge und die Klassifikationsregeln sind identisch (Auflage 6 des PO: „Der
+Post-Completion-Sweep bleibt"). Die Datei selbst wurde zweimal beruehrt: Kommentare
+(F4) und der Wechsel auf die gemeinsame Klassifikationsleiter (R2-N2, Verhalten
+unveraendert, durch die bestehenden Tests belegt).
+
+## AC6 — Race-Reihenfolgen, beide Restklassen belegt
+
+**Ich hatte hier eine Asymmetrie erklaert, und sie hielt nicht.** Meine Begruendung
+war: die zweite unabgedeckte Klasse (eine Zeile, die **waehrend** des paginierten
+Lesens an einer bereits gelesenen Seite vorbei eintrifft) brauche keinen eigenen
+Test, weil der beobachtbare Zustand identisch sei und die Meldung zustandsbasiert
+arbeite. Codex hat dagegengehalten: mein Test **injiziert den Endzustand** und
+faehrt den produktiven Offset-Pagination-Pfad nie — die zweite Klasse entsteht aber
+**in** diesem Pfad (Fensterbildung, Duplikat-Guard, Kandidatenmenge). „Gleicher
+beobachtbarer Zustand" ist nicht „gleicher durchlaufener Pfad". Das ist richtig, und
+ich habe die Behauptung zurueckgezogen statt sie zu verteidigen.
+
+Belegt sind jetzt **alle vier** erreichbaren Reihenfolgen:
+
+1. **Stale-Write nach dem zerstoerenden Schritt** → bleibt liegen, wird gemeldet
+   (MCP-Seam).
+2. **Zerstoerender Schritt nach dem Stale-Write** → entfernt, Kennzahl faellt auf `0`
+   (MCP-Seam).
+3. **Stale-Write waehrend des paginierten Lesens, auf einer bereits gelesenen Seite**
+   → faellt aus der Kandidatenmenge, wird von der emittierten Delete-Bedingung nicht
+   genannt, ueberlebt physisch, wird gemeldet (**Pagination-Seam**, echter Adapter).
+4. **Stale-Write waehrend des Lesens, eine gelieferte Seite verschiebend** → der
+   Duplikat-Guard sieht die Wiederholung und weist **fail-closed** ab. Das begrenzt,
+   wie viel der Restklasse ueberhaupt still verlaufen kann: nur die Reihenfolge, in
+   der die Ordnung des Stores zwischen zwei Anfragen nicht konsistent ist (Weaviate
+   sichert fuer ein unsortiertes `fetch_objects` keine Ordnung zu), ist ein stiller
+   Verlust.
+
+## Validatoren (nur Projekt-venv)
+
+| Lauf | Ergebnis |
+|---|---|
+| `pytest -q --cov=src/agentkit --cov=tools` | **10545 passed, 14 skipped**; **Coverage 90.29 %** (Schwelle 85 %, explizit gemessen — `addopts` enthaelt kein `--cov`) |
+| `mypy src` | **Success: no issues found in 998 source files** |
+| `ruff check src tests tools/concept_ingester tools/concept_governance` | **All checks passed!** |
+| `check_concept_frontmatter` | OK: 90 docs, all lints passed |
+| `compile_formal_specs` | OK: 192 documents, 1802 ids, 2344 references |
+| `check_concept_reference_integrity` | **PASS**: 0 errors, 55 reports (Reports vorbestehend) |
+| `check_concept_code_contracts` | OK: no truth-boundary contract violations |
+| `check_architecture_conformance` | OK: no architecture contract violations |
+| `check_concept_decision_record` | PASS (Trailer `Concept-Decision:` am Konzept-Commit) |
+
+**Vorbestehend rot, nicht von dieser Story:** `check_concept_scope_consistency`
+scheitert repoweit im `concept_ingester`-Schema (**275** Dokumente vor dieser Story,
+**276** danach — mein Record scheitert mit demselben `doc_kind 'decision-record' is
+not in appendix|core` wie **alle 21** Decision Records, die auf `main` liegen; mit
+meinem sind es 22). Das ist ein eigener Befund am Ingester-Schema, kein Ergebnis
+dieser Aenderung — nach SEVERITY-SEMANTIK hiermit gespiegelt, nicht stillschweigend
+uebergangen. (Die Zahl „23" in der ersten Fassung war falsch, Codex r1/F5.)
+`check_concept_authority_prose` ist ein LLM-Gate (`--mode nightly|pre-merge`) und
+wurde hier nicht gefahren.
+
+## Ausdruecklich nicht getan
+
+- **Kein Filter auf dem Suchpfad.** Variante (b) bleibt offen entscheidbar; die
+  Messungen und die Neubewertungsbedingungen liegen in `design.md` bzw. im Decision
+  Record. Die dort bewusst **nicht** erhobene Messung (Filtereinfluss auf
+  Trefferqualitaet/Antwortzeit) ist Vorbedingung **jener** Entscheidung, nicht
+  dieser.
+- **Keine Mechanik in `sync.py` geaendert** — der Abschluss-Delete, die
+  Klassifikationsregeln und die Reihenfolge sind identisch. Geaendert wurden dort
+  Kommentarzeilen (F4) und die Herkunft der Klassifikation (jetzt die gemeinsame
+  Leiter, Verhalten unveraendert). „Kein Eingriff" stand hier vorher und war falsch
+  (R2-N5).
+- **Kein neues Schema, keine neue Property, kein gespeicherter Zaehler.**
+- **Keine Prozessaufsicht** ausserhalb der VektorDB-Schicht (out of scope: ein
+  ueberholter Schreiber kann ein fremder Betriebssystemprozess sein).
+- **§13.9.6 / `doc_kind`** unberuehrt.
+
+## Codex-Review r1 — Remediation (F1–F5)
+
+Codex hat AC1/AC2/AC4 bestaetigt und den Kernalgorithmus als korrekt befunden. Die
+drei P1 trafen alle **die veroeffentlichte Vertragssprache um die Erkennung herum**,
+nicht die Erkennung selbst — in einer Story, deren ganze Lieferung Ehrlichkeit ist,
+die schaerfste moegliche Stelle fuer einen Fehler.
+
+| Befund | Ursache | Fix |
+|---|---|---|
+| **F1 (P1)** §13.4.1 widersprach dem veroeffentlichten Eingabevertrag („Ohne Eingabeparameter") | Ich hatte die Eingabeseite nicht gegen `contracts.py` geprueft, sondern aus dem Kopf formuliert | §13.4.1 zeigt jetzt `project_id` (optional) mit D2-Semantik; der Parameter **bleibt** (Entfernen waere eine Regression von AG3-174/D2); `report.md` korrigiert |
+| **F2 (P1)** `stale_chunk_count > 0` war mit „Uebernahme-Rest, den ein Sync entfernt" gleichgesetzt | Der Code zaehlt **drei** Klassen; die dritte (vorhandene, unbrauchbare Generation) wird vom Sync **abgewiesen**, nicht aufgeraeumt | Exaktes Praedikat in §13.4.1 (Tabelle je Zeilenklasse **mit** Abhilfe), §13.9.9, Decision Record und Code-Kommentar; FK-04 §4.5.14 stellt die **Differentialdiagnose voran** statt sie nachzuschieben; neuer Test fuer die dritte Klasse |
+| **F3 (P1)** die erklaerte Asymmetrie hielt nicht | Mein Test injizierte den **Endzustand** und fuhr den Offset-Pagination-Pfad nie | Zwei Tests am Pagination-Seam mit echtem Adapter; Behauptung zurueckgezogen (siehe AC6) |
+| **F4 (P2)** `sync.py` nannte den Rest weiter „open, unratified" und ordnete ihn einer Folgestory zu | Kommentar aus AG3-174 nicht mitgezogen | Kommentar nennt jetzt den ratifizierten Vertrag, `stale_chunk_count` und FK-04 §4.5.14 — **ohne** Aenderung der Sync-Mechanik |
+| **F5 (P2)** veraltete Provenienz in `report.md` | Aus der Zeit vor dem Branch-Schnitt uebernommen | Branch `feat/ag3-177-stale-chunk-visibility`, AG3-174 auf `main` (`f8c40f4c`), Decision-Record-Zensus 21/22 |
+
+Nicht von dieser Story und **nicht** verfolgt (Anweisung): der rote Jenkins-Lauf
+#1935 (vorbestehende Linux-`mypy`-Fehler zu Windows-`ctypes`) und der
+vorbestehende Q2-Gate-Fehler am Ingester-Schema. Sonar ist strikt gruen.
+
+## Codex-Review r2 — Remediation (R2-N1 bis R2-N5)
+
+Codex hat F1/F4/F5 geschlossen, AC1/AC2/AC4 bestaetigt und die Begrenzungsaussage
+(nur eine **instabile** Ordnung zwischen zwei Anfragen kann still verlaufen) als
+tragfaehig akzeptiert. **Das Muster benannt:** dritte Runde, in der die Erkennung
+stimmt und die veroeffentlichte Beschreibung darueber hinausschiesst. Ich behandle
+Vertragssaetze ab hier wie einen gruenen Test — verdaechtig, bis gegen den Code
+geprueft.
+
+| Befund | Ursache | Fix |
+|---|---|---|
+| **R2-N2 (P1)** echte Code/Vertrag-Divergenz: der Vertrag stellte `null` zur Klasse „vorhanden, aber unbrauchbar" (Zusage: benannte Abweisung), der Sync behandelte es als Legacy und **konvergierte** es | Zwei Produktionspfade klassifizierten denselben gespeicherten Wert unterschiedlich; ein Vertrag kann dann fuer einen von beiden nicht wahr sein | **Entscheidung: `null` gehoert zu MISSING/Legacy** — siehe unten. Und die Klassifikation liegt jetzt **einmal** bei der Property (`schema.py`: `GenerationClass`, `is_ordered_generation`, `classify_owning_generation`); Sync **und** Auflistung branchen auf derselben Leiter. Zwei Tests pinnen beide Semantiken |
+| **R2-N1 (P1)** die Kopfzeilen-Definition sagte weiter „Chunks, die nicht zur autoritativen Generation gehoeren" | Ich hatte das exakte Praedikat **ergaenzt**, die Kurzdefinition aber stehen gelassen | §13.4.1 (Rueckgabetabelle), §13.9.9, Decision Record und der `stale_chunk_count`-Docstring sagen jetzt „die Zeilen des exakten Praedikats" **und** ausdruecklich, dass eine **hoehere** Generation ebenfalls nicht autoritativ ist und bewusst **nicht** zaehlt — eine `0` beweist also nicht, dass nichts in Flug ist |
+| **R2-N3 (P1)** der Runbook-Umbau war nicht gelandet: Symptom breit, Ursache **definitiv** „wiederauferstandener Schreiber", Einschraenkung erst danach | Ich hatte den A/B/C-Block **hinter** den Ursachenteil gesetzt und im Report behauptet, er stehe davor | A/B/C steht jetzt **direkt** nach dem Symptom („WAS DAS HEISST — zuerst lesen"), die Ursachen sind **je Klasse** aufgeschluesselt, und die Uebernahme ist ausdruecklich nur die moegliche Ursache von **Klasse A**. Auch der Titel ist korrigiert: nicht mehr „Nach administrativer Uebernahme", sondern „`stale_chunk_count > 0`" |
+| **R2-N4 (P1)** die „behind"-Fixture bewies verzoegerte **Sichtbarkeit**, nicht instabile Ordnung | `visible_from = read_index + 1` schloss die Zeile aus **jeder** Anfrage des ersten Lesevorgangs aus — das benannte die Luecke um, statt sie zu schliessen | Neue Fixture mit **explizitem Ordnungsskript** je Anfrage: die Zeile ist ab Anfrage 2 **sichtbar** und liegt bei Index 9 — einem bereits konsumierten Offset —, beide nicht-terminierenden Fenster sind **voll**, keine uuid wiederholt sich, und **jede** vorbestehende Zeile wird genau einmal gelesen. Nur die neu eingetroffene faellt heraus |
+| **R2-N5 (P2)** `report.md` war in sich falsch („kein Eingriff in `sync.py`" / „unangetastet") und trug zwei verschiedene Testzahlen | Ich hatte „keine Mechanik geaendert" mit „nicht angefasst" verwechselt und eine Zahl nicht mitgezogen | Jetzt „keine **Mechanik** geaendert" mit Nennung der beiden Beruehrungen; **eine** verifizierte Zahl an allen Stellen |
+
+### Zur `null`-Semantik — was gewaehlt wurde und warum
+
+**Gewaehlt: `null` zaehlt zur Klasse B (MISSING/Legacy), zusammen mit einer fehlenden
+Property.** Begruendung, in dieser Reihenfolge:
+
+1. **An dieser Grenze sind sie nicht unterscheidbar.** Ein Lesevorgang liefert fuer
+   „Property fehlt" und „Property ist `null`" denselben Wert. Eine Prosa, die sie
+   trennt, verspricht etwas, das kein Code einhalten kann — genau der Fehlermodus,
+   den diese Story beseitigen soll.
+2. **Die Storage-Bedingung definiert die Klasse, nicht ich.** Der Aufraeumweg fuer
+   Klasse B ist ein `IS NULL` auf der Storage-Seite, und der erfasst **genau beide**.
+   Eine andere Klassifizierung waere nicht durchsetzbar.
+3. **Es ist, was der Sync ohnehin tut** — die Alternative haette produktives
+   Verhalten geaendert, um eine Vertragszeile zu retten, die ich selbst falsch
+   geschrieben hatte.
+
+Nicht zu verwechseln mit der **Eingabe**-Strenge des Werkzeugvertrags (AC10): dort
+sind Abwesenheit und explizites `null` sehr wohl verschieden. Das ist ein
+Aufruf-Argument; hier geht es um einen gespeicherten Property-Wert. Der Unterschied
+steht jetzt in §13.4.1.
+
+Und die eigentliche Ursache ist behoben, nicht nur der Fall: die Klassifikation
+existiert **einmal** (`classify_owning_generation` samt narrowing-Praedikat
+`is_ordered_generation`), damit ein dritter Konsument nicht erneut auseinanderlaufen
+kann. `0` und negative Werte sind damit ueberall **nicht ordenbar** (Klasse C) —
+vorher haette die Auflistung sie ueber den `<`-Vergleich unter Klasse A gezaehlt und
+damit einen Sync als Abhilfe versprochen, den der Sync verweigert.
+
+## AC-Bilanz
+
+| AC | Status | Beleg |
+|---|---|---|
+| 1 — Phase-1-Entwurf ratifiziert, kein Code davor | **erfuellt** | `design.md` (`a3d7ecbb`), `po-decision.md`; Umsetzung erst danach |
+| 2 — ratifizierte Form ohne stille Erweiterung | **erfuellt** | Kennzahl + Vertragstext + Betriebspflicht; kein Retrieval-Filter, kein weiteres Feld |
+| 3 — (c): Rest wird erkennbar **gemeldet**, Vertragstext ohne Beschoenigung | **erfuellt** | 15 Tests an zwei realen Seams; Revert-Ledger 14 Mutationen / 14 RED / 0 WEAK / 0 SKIP (nachrechenbar, inkl. der drei ausgeschiedenen Laeufe X1-X3); §13.9.9 benennt beide Klassen, keine Atomizitaet, keine Zeitschranke — und die Kennzahl behauptet nach F2/R2-N1/R2-N2 nicht mehr, als sie belegt |
+| 4 — keine Regression der AG3-174-Zusicherungen | **erfuellt** | 10545 passed, 14 skipped; keine Mechanik in `sync.py` geaendert |
+| 5 — §13.9.9 beschreibt den tatsaechlichen Zustand, Record vorhanden, Gates gruen | **erfuellt** | ratifizierter Vertrag ersetzt den offenen Punkt; exaktes Praedikat statt Sammelbegriff (F2/R2-N1); Klassengrenzen deckungsgleich mit dem Code, eine Leiter fuer beide Konsumenten (R2-N2); Eingabevertrag korrekt (F1); Runbook diagnosefaehig (R2-N3); Decision Record; Gates gruen (Ausnahme vorbestehend benannt) |
+| 6 — beide erreichbaren Reihenfolgen, Unerreichbares begruendet | **erfuellt** | vier Reihenfolgen belegt, davon zwei am produktiven Pagination-Pfad; die Fixture beweist jetzt eine **instabile Ordnung** mit sichtbarer Zeile an konsumiertem Offset (R2-N4), nicht verzoegerte Sichtbarkeit; die frueher erklaerte Asymmetrie ist zurueckgezogen, nicht verteidigt |

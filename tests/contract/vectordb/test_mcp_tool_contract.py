@@ -33,10 +33,14 @@ FK13_TOOL_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, .
     "story_list_sources": (
         (),
         ("project_id",),
-        # D1 (po-decisions.md): minimal, provable shape.
+        # D1 (po-decisions.md) fixed a MINIMAL, provable shape ("Mindestens ...").
+        # AG3-177 adds the exact-predicate figure as a contract-conforming
+        # extension: the ratified residual has to be detectable where an agent or an
+        # operator actually looks, and the completion set this listing already reads
+        # makes it free.
         (
             "project_id", "source_type", "producer", "source_count",
-            "chunk_count", "last_revision",
+            "chunk_count", "last_revision", "stale_chunk_count",
         ),
     ),
     "story_sync": (

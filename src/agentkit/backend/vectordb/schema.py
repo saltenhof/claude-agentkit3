@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Final, TypeGuard
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -79,6 +80,64 @@ class PropertySpec:
 #: normal release. That is what makes "written by a generation OLDER than mine" a
 #: decidable, storage-side condition for the destructive delete.
 OWNING_GENERATION_PROPERTY: Final[str] = "owning_generation"
+
+
+class GenerationClass(StrEnum):
+    """How a stored ``owning_generation`` value can be classified (AG3-177).
+
+    The classification lives HERE, with the property, because two production paths
+    depend on it -- the sync decides what it may delete, the source listing decides
+    what it must report -- and a contract can only be true for both if they classify
+    identically. They did not: one counted an absent value as unusable while the other
+    converged it as legacy, so the published remedy was wrong for that row.
+
+    Attributes:
+        MISSING: No usable value is stored: the property is absent OR holds ``null``.
+            These two are NOT distinguishable at this boundary (a read returns the same
+            thing for both), and they must not be: the storage-side ``IS NULL``
+            condition that converges such rows matches exactly both of them. Treating
+            them differently in prose would promise something no code can honour.
+        UNUSABLE: A value IS stored but cannot be ordered against a claim: a
+            non-integer, a boolean, ``0`` or a negative number. Such a row is never
+            adopted and never deleted on a guess -- it is a named error.
+        ORDERED: A usable, positive source generation.
+    """
+
+    MISSING = "missing"
+    UNUSABLE = "unusable"
+    ORDERED = "ordered"
+
+
+def is_ordered_generation(raw: object) -> TypeGuard[int]:
+    """Whether a stored ordering value is a usable, positive source generation.
+
+    The single predicate behind :class:`GenerationClass`. It NARROWS the type, so a
+    caller that has asked once does not have to assert the same thing again -- which is
+    how the two paths drifted apart in the first place.
+
+    Args:
+        raw: The value as read from the store.
+
+    Returns:
+        ``True`` when the value can be ordered against a claim.
+    """
+    return not isinstance(raw, bool) and isinstance(raw, int) and raw >= 1
+
+
+def classify_owning_generation(raw: object) -> GenerationClass:
+    """Classify a stored ordering value -- the SINGLE ladder both paths use.
+
+    Args:
+        raw: The value as read from the store (``None`` for absent or ``null``).
+
+    Returns:
+        Its class.
+    """
+    if raw is None:
+        return GenerationClass.MISSING
+    if not is_ordered_generation(raw):
+        return GenerationClass.UNUSABLE
+    return GenerationClass.ORDERED
 
 
 def _narrative(name: str) -> PropertySpec:
@@ -356,6 +415,9 @@ def search_property_spec(source_type: str) -> tuple[tuple[str, str, bool], ...]:
 
 __all__ = [
     "OWNING_GENERATION_PROPERTY",
+    "GenerationClass",
+    "classify_owning_generation",
+    "is_ordered_generation",
     "FK13_VECTORIZER",
     "FK13_VECTORIZER_MODEL",
     "FK13_VECTOR_SOURCE_PROPERTIES",

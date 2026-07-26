@@ -36,11 +36,16 @@ from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.schema import (
     FK13_VECTOR_SOURCE_PROPERTIES,
     FK13_VECTORIZER_MODEL,
+    OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
+    GenerationClass,
+    classify_owning_generation,
 )
 from agentkit.backend.vectordb.sync import (
     ClaimSupersededError,
     ConcurrentSyncRejectedError,
+    ReceiptState,
+    SyncError,
     SyncReceipt,
     SyncService,
 )
@@ -1221,3 +1226,336 @@ def test_n28_a_stalled_writer_cannot_publish_ahead_of_a_later_one(tmp_path: Path
     rows = handle_tool_call(service, "story_list_sources", {})
     concept_row = next(s for s in rows["sources"] if s["source_type"] == "concept")
     assert concept_row["last_revision"] == "rev-a"
+
+
+# --------------------------------------------------------------------------- #
+# AG3-177 (PO-ratified variant (c)): the residual is DETECTABLE
+#
+# The residual itself stays -- (c) does not close it. What must hold is that a
+# materialised remnant is REPORTED where a caller actually looks, so it can never be a
+# concealed residual (FAIL-CLOSED, SEVERITY-SEMANTIK). The whole chain runs for real:
+# handle_tool_call -> McpToolService -> WeaviateRetrievalPort -> WeaviateCorpusStore,
+# with the double only at the Weaviate client seam.
+# --------------------------------------------------------------------------- #
+
+
+def _stale_row(service: McpToolService, client: RecordingWeaviateClient, source: str) -> str:
+    """Reproduce the residual EXACTLY as the ratified entry condition describes it.
+
+    1. a sync of the source hangs while holding its claim;
+    2. an operator takes the claim over deliberately (no expiry exists, D9);
+    3. the source is synced under the takeover and COMPLETES -- which is why the
+       authoritative generation ends up ABOVE the hung writer's;
+    4. only then does the hung writer resurrect and write its own, lower generation
+       with content that differs, so its rows carry different uuids and sit BESIDE the
+       current ones instead of replacing them.
+
+    Step 3 is what makes the hung writer's rows a REMNANT rather than an in-flight
+    newer generation; a fixture that skips it describes a different situation.
+    """
+    store = service.sync.store
+    hung = store.try_claim_source(
+        project_id="acme", source_file=source, owner_id="hung-writer"
+    )
+    assert hung is not None
+    taken = store.reclaim_source(
+        project_id="acme", source_file=source, owner_id="operator", reason="test takeover"
+    )
+    store.release_source(claim=taken)
+    handle_tool_call(service, "concept_sync", {"full_reindex": False})
+    authoritative = store.get_receipt(project_id="acme", source_file=source)
+    assert authoritative is not None
+    assert authoritative.generation > hung.generation, (
+        "the takeover was followed by a completed sync, so the hung writer is behind"
+    )
+    stale = chunk_object("acme", source, "resurrected")
+    store.upsert_objects(objects=[stale], owning_generation=hung.generation)
+    return stale.uuid
+
+
+def test_ag177_a_materialised_residual_is_reported_in_the_source_listing(
+    tmp_path: Path,
+) -> None:
+    """A stale remnant must be FINDABLE in operation -- reported, not merely described."""
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    listing = handle_tool_call(service, "story_list_sources", {})
+    concept = next(r for r in listing["sources"] if r["source_type"] == "concept")
+    assert concept["stale_chunk_count"] == 0, "a clean corpus reports nothing"
+    clean_chunks = concept["chunk_count"]
+
+    stale_uuid = _stale_row(service, client, "technical-design/13_retrieval.md")
+
+    after = handle_tool_call(service, "story_list_sources", {})
+    concept_after = next(r for r in after["sources"] if r["source_type"] == "concept")
+    assert concept_after["stale_chunk_count"] == 1, "the residual must be reported"
+    # (c) changes DETECTABILITY, not visibility: the physical count still counts it.
+    assert concept_after["chunk_count"] == clean_chunks + 1
+    assert stale_uuid in client.objects
+
+
+def test_ag177_the_reported_residual_disappears_when_the_source_is_synced(
+    tmp_path: Path,
+) -> None:
+    """The remedy the runbook prescribes actually works, and the figure follows it."""
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    stale_uuid = _stale_row(service, client, "technical-design/13_retrieval.md")
+    assert (
+        next(
+            r
+            for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+            if r["source_type"] == "concept"
+        )["stale_chunk_count"]
+        == 1
+    )
+
+    # FK-04 §4.5.14: run a sync of the affected source after the takeover.
+    handle_tool_call(service, "concept_sync", {"full_reindex": False})
+
+    healed = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert healed["stale_chunk_count"] == 0
+    assert stale_uuid not in client.objects, "the ordered delete removed it"
+
+
+def test_ag177_a_legacy_row_is_reported_as_non_authoritative(tmp_path: Path) -> None:
+    """A row predating the ordering property is not authoritative either."""
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    legacy = chunk_object("acme", "technical-design/13_retrieval.md", "legacy")
+    seed_object(client, legacy, owning_generation=None)
+
+    row = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert row["stale_chunk_count"] == 1
+
+
+def test_ag177_an_in_flight_newer_generation_is_not_reported_as_stale(
+    tmp_path: Path,
+) -> None:
+    """A generation ABOVE the authoritative one is in flight, not a remnant."""
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    ahead = chunk_object("acme", "technical-design/13_retrieval.md", "in-flight")
+    seed_object(client, ahead, owning_generation=99)
+
+    row = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert row["stale_chunk_count"] == 0
+
+
+def test_ag177_rows_of_a_source_without_a_completion_are_not_judged(
+    tmp_path: Path,
+) -> None:
+    """No completion means no authority -- inventing one would be a guess."""
+    service, client = _service(tmp_path)
+    orphan = chunk_object("acme", "technical-design/never-synced.md", "c1")
+    seed_object(client, orphan, owning_generation=1)
+
+    row = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert row["chunk_count"] == 1
+    assert row["stale_chunk_count"] == 0
+
+
+def test_ag177_a_stored_null_generation_is_the_legacy_class_and_a_sync_converges_it(
+    tmp_path: Path,
+) -> None:
+    """A stored ``null`` belongs with MISSING, and BOTH paths must agree (R2-N2).
+
+    An absent property and a stored ``null`` are indistinguishable at this boundary --
+    a read returns the same thing for both -- and the storage-side IS-NULL condition
+    that converges such rows matches exactly both. So ``null`` is the legacy class, not
+    the unusable one, and the promised remedy (a sync cleans it up) has to hold.
+
+    This is where the contract and the code had drifted apart: the listing counted a
+    ``null`` as "present but unusable" (promising escalation) while the sync converged
+    it (delivering cleanup). One classification ladder now serves both.
+    """
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    source = "technical-design/13_retrieval.md"
+    nulled = chunk_object("acme", source, "stored-null")
+    seed_object(client, nulled, owning_generation=None)
+    # The property is PRESENT and holds null -- not absent. Production cannot tell the
+    # two apart, and the IS-NULL condition is not supposed to.
+    client.objects[nulled.uuid][OWNING_GENERATION_PROPERTY] = None
+
+    assert classify_owning_generation(None) is GenerationClass.MISSING
+    reported = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert reported["stale_chunk_count"] == 1, "not authoritative, so it is reported"
+
+    # The promised remedy for this class: a sync converges it (no named refusal).
+    handle_tool_call(service, "concept_sync", {"full_reindex": False})
+
+    assert nulled.uuid not in client.objects, "the IS-NULL condition removed it"
+    healed = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert healed["stale_chunk_count"] == 0
+
+
+@pytest.mark.parametrize("stored", [0, -1, True, "not-a-generation"])
+def test_ag177_an_unorderable_generation_is_the_unusable_class(
+    tmp_path: Path, stored: object
+) -> None:
+    """Zero, negative, boolean and non-integer are the UNUSABLE class -- all refused.
+
+    ``0`` and a negative number are the interesting ones: they are integers, so a
+    naive "below the authority" comparison would have filed them under the takeover
+    residual and promised a sync as the remedy. They are not orderable at all.
+    """
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    source = "technical-design/13_retrieval.md"
+    broken = chunk_object("acme", source, f"unusable-{stored!r}")
+    seed_object(client, broken, owning_generation=None)
+    client.objects[broken.uuid][OWNING_GENERATION_PROPERTY] = stored
+
+    assert classify_owning_generation(stored) is GenerationClass.UNUSABLE
+    reported = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert reported["stale_chunk_count"] == 1
+
+    with pytest.raises(SyncError, match="unusable writing generation"):
+        handle_tool_call(service, "concept_sync", {"full_reindex": False})
+    assert broken.uuid in client.objects, "a refusal never deletes on a guess"
+
+
+def test_ag177_an_unusable_generation_is_counted_but_is_not_a_sync_case(
+    tmp_path: Path,
+) -> None:
+    """The figure counts THREE classes, and only two of them a sync resolves.
+
+    A row whose generation is PRESENT but unusable is certainly not authoritative, so
+    it is counted — but the remedy the runbook prescribes for the takeover residual
+    does NOT apply to it: the sync refuses it by name (N43). Reporting it as if a sync
+    would clean it up would send an operator after a remedy that aborts, which is why
+    the contract states `> 0` as an actionable finding rather than as proof of a
+    takeover residual (FK-13 §13.4.1/§13.9.9, FK-04 §4.5.14).
+    """
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    source = "technical-design/13_retrieval.md"
+    broken = chunk_object("acme", source, "unusable")
+    seed_object(client, broken, owning_generation=None)
+    # A generation that is PRESENT and unorderable -- the shape a foreign writer or a
+    # defective migration leaves behind. seed_object only writes usable integers, so
+    # the property is set here directly; the ladder is untouched on purpose (this row
+    # belongs to no generation at all).
+    client.objects[broken.uuid][OWNING_GENERATION_PROPERTY] = "not-a-generation"
+
+    row = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert row["stale_chunk_count"] == 1, "not authoritative, so it is reported"
+
+    # The remedy for classes A and B does NOT apply: the sync refuses by name and
+    # leaves the corpus untouched.
+    with pytest.raises(SyncError, match="unusable writing generation"):
+        handle_tool_call(service, "concept_sync", {"full_reindex": False})
+    assert broken.uuid in client.objects, "a refusal never deletes on a guess"
+    still = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert still["stale_chunk_count"] == 1, "the figure does not fall silent either"
+
+
+def test_ag177_an_unfinished_record_does_not_grant_authority(tmp_path: Path) -> None:
+    """Only a COMPLETION carries authority (same rule as N04).
+
+    Without this, an unfinished record at a higher generation would make every CURRENT
+    row look non-authoritative -- a false alarm that sends operations chasing a
+    remnant that does not exist. A report nobody can trust is as bad as no report.
+
+    The record is inserted directly at its position (the shape a foreign or legacy
+    writer leaves behind), because ``set_receipt`` prunes lower generations of the same
+    source and could therefore never leave this constellation behind itself.
+    """
+    from dataclasses import replace
+
+    service, client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    store = service.sync.store
+    source = "technical-design/13_retrieval.md"
+    published = store.get_receipt(project_id="acme", source_file=source)
+    assert published is not None
+    before = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert before["stale_chunk_count"] == 0
+
+    unfinished = replace(
+        published,
+        state=ReceiptState.IN_PROGRESS,
+        sequence=published.sequence + 1,
+        generation=published.generation + 5,
+        digest="",
+    )
+    sealed = replace(unfinished, digest=unfinished.expected_digest())
+    sealed.verify()  # a digest-valid record, so list_receipts accepts it
+    assert client.insert_object(
+        # the store's own position rule, so the record is where list_receipts looks
+        collection=RECEIPT_COLLECTION,
+        uuid=store._completion_uuid(sealed.project_id, sealed.sequence),
+        properties={
+            "project_id": sealed.project_id,
+            "source_file": sealed.source_file,
+            "source_type": sealed.source_type,
+            "corpus_revision": sealed.corpus_revision,
+            "digest": sealed.digest,
+            "state": sealed.state.value,
+            "completed_at": sealed.completed_at,
+            "sequence": str(sealed.sequence),
+            "generation": str(sealed.generation),
+        },
+    )
+
+    after = next(
+        r
+        for r in handle_tool_call(service, "story_list_sources", {})["sources"]
+        if r["source_type"] == "concept"
+    )
+    assert after["stale_chunk_count"] == 0, "an unfinished record must not raise a false alarm"
+    assert after["chunk_count"] == before["chunk_count"]
+
+
+def test_ag177_the_figure_is_part_of_the_published_envelope(tmp_path: Path) -> None:
+    """Detectability must sit where callers look: in the tool's own return shape."""
+    from agentkit.backend.vectordb.contracts import contract_for
+
+    assert "stale_chunk_count" in contract_for("story_list_sources").return_fields
+    service, _client = _service(tmp_path)
+    handle_tool_call(service, "concept_sync", {"full_reindex": True})
+    for row in handle_tool_call(service, "story_list_sources", {})["sources"]:
+        assert set(row) == set(contract_for("story_list_sources").return_fields)
+        assert isinstance(row["stale_chunk_count"], int)
+        assert not isinstance(row["stale_chunk_count"], bool)

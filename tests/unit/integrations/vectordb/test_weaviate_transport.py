@@ -15,6 +15,7 @@ stands in for (that is exactly how R03's production bug stayed hidden).
 from __future__ import annotations
 
 import inspect
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,15 +37,18 @@ from weaviate.collections.queries.hybrid.query import _HybridQuery
 from weaviate.collections.queries.near_text.query import _NearTextQuery
 
 from agentkit.backend.vectordb.engine import (
+    RECEIPT_COLLECTION,
     WeaviateCorpusStore,
     WeaviateRetrievalPort,
     connect_real_client,
 )
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.schema import (
+    OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     weaviate_property_specs,
 )
+from agentkit.backend.vectordb.sync import SyncReceipt
 from agentkit.integration_clients.vectordb.errors import (
     VectorDbUnavailableError,
     VectorDbWriteError,
@@ -194,13 +198,16 @@ class _FakeCollections:
     existing: set[str] = field(default_factory=set)
     created: list[dict[str, object]] = field(default_factory=list)
     requested: list[str] = field(default_factory=list)
+    #: Per-name collections for tests that need MORE than one (corpus + completions).
+    #: Empty means "one collection stands in for every name", as before.
+    by_name: dict[str, _FakeCollection] = field(default_factory=dict)
 
     def exists(self, name: str) -> bool:
         return name in self.existing
 
     def get(self, name: str) -> _FakeCollection:
         self.requested.append(name)
-        return self.collection
+        return self.by_name.get(name, self.collection)
 
     def create(self, **kwargs: object) -> None:
         self.created.append(kwargs)
@@ -1578,7 +1585,12 @@ class _FilterAwarePaging:
 
 
 def _filter_matches(flt: object, props: dict[str, object]) -> bool:
-    """Evaluate the emitted Weaviate filter against a stored row."""
+    """Evaluate the emitted Weaviate filter against a stored row.
+
+    An id clause targets ``_id``, so a caller that evaluates deletes passes the row's
+    uuid under that key. ``LESS_THAN``/``IS_NULL`` are the predicates the ordering
+    delete and the legacy backfill emit.
+    """
     from weaviate.collections.classes.filters import _FilterAnd, _FilterValue
 
     if isinstance(flt, _FilterAnd):
@@ -1586,6 +1598,10 @@ def _filter_matches(flt: object, props: dict[str, object]) -> bool:
     if isinstance(flt, _FilterValue):
         operator = str(flt.operator)
         actual = props.get(str(flt.target))
+        if operator.endswith("LESS_THAN"):
+            return isinstance(actual, int) and not isinstance(actual, bool) and actual < flt.value
+        if operator.endswith("IS_NULL"):
+            return (actual is None) is bool(flt.value)
         if operator.endswith("EQUAL"):
             return actual == flt.value
         if operator.endswith("CONTAINS_ANY"):
@@ -1711,3 +1727,250 @@ def test_n51_a_foreign_project_on_the_same_source_is_never_returned() -> None:
         return_props=("project_id", "source_file"),
     )
     assert [uid for uid, _props in rows] == ["acme-1"]
+
+
+# --------------------------------------------------------------------------- #
+# AG3-177: the SECOND uncovered class of the ratified residual, proven at the
+# PRODUCTIVE pagination seam.
+#
+# The first class (a write landing AFTER the final delete) is proven at the MCP
+# seam. This one cannot be: it is created BY the paginated read itself, so it only
+# exists where ``_fetch_all_pages`` actually runs -- offset windows, duplicate
+# guard, short-window termination -- with the real adapter, the real store and the
+# real conditional delete. Injecting the end state would exercise none of that.
+# --------------------------------------------------------------------------- #
+
+_AG177_NS = uuid.UUID("2f1c0d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5")
+_AG177_SOURCE = "concept/a.md"
+
+
+def _ag177_row(name: str, *, generation: int | None = 1) -> tuple[str, dict[str, object]]:
+    props: dict[str, object] = {
+        "project_id": "acme",
+        "source_file": _AG177_SOURCE,
+        "source_type": "concept",
+        "content_hash": f"hash-{name}",
+    }
+    if generation is not None:
+        props[OWNING_GENERATION_PROPERTY] = generation
+    return str(uuid.uuid5(_AG177_NS, name)), props
+
+
+@dataclass
+class _UnstableOrderServer:
+    """A store that is written to WHILE it is being paged, with EXPLICIT orderings.
+
+    ``_fetch_all_pages`` asks for successive offset windows, and Weaviate guarantees no
+    order for an UNSORTED ``fetch_objects`` -- so the iteration behind two windows of
+    one read need not be the same sequence. Each request therefore serves its window
+    from the ordering scripted for it, and a uuid that is stored but absent from that
+    request's ordering is simply not part of that iteration.
+
+    That is the whole mechanism, and it is the only shape that can be silent: the
+    arriving row is VISIBLE to the later requests and merely sits at an offset the read
+    has already consumed. Every other placement is caught -- at or beyond the frontier
+    it is delivered, and inside a consumed offset of a STABLE order it pushes a
+    delivered uuid into the next window, where the duplicate guard refuses.
+    """
+
+    content: dict[str, dict[str, object]]
+    orderings: list[list[str]]
+    arrival: tuple[str, dict[str, object]]
+    arrive_after_request: int = 1
+    calls: list[dict[str, object]] = field(default_factory=list)
+    windows: list[list[str]] = field(default_factory=list)
+    delete_calls: list[dict[str, object]] = field(default_factory=list)
+
+    def ordering_for(self, request: int) -> list[str]:
+        """The iteration this request served (the last one repeats once exhausted)."""
+        return self.orderings[min(request, len(self.orderings) - 1)]
+
+    def fetch_objects(self, **kwargs: object) -> _Response:
+        from weaviate.collections.queries.fetch_objects.query import _FetchObjectsQuery
+
+        _bind_real(_FetchObjectsQuery.fetch_objects, kwargs)
+        request = len(self.calls)
+        offset = int(str(kwargs["offset"]))
+        limit = int(str(kwargs["limit"]))
+        self.calls.append(dict(kwargs))
+        visible = [
+            (uid, self.content[uid])
+            for uid in self.ordering_for(request)
+            if uid in self.content
+            and _filter_matches(kwargs["filters"], {**self.content[uid], "_id": uid})
+        ]
+        window = visible[offset : offset + limit]
+        self.windows.append([uid for uid, _props in window])
+        if request + 1 == self.arrive_after_request:
+            uid, props = self.arrival
+            self.content[uid] = props  # the superseded writer appends, mid-read
+        return _Response([_Obj(uid, dict(props), _Meta(score=1.0)) for uid, props in window])
+
+    def delete_many(self, **kwargs: object) -> object:
+        """Apply the emitted condition to the stored state, exactly as sent."""
+        from weaviate.collections.classes.batch import DeleteManyReturn
+
+        _bind_real(_DataCollection.delete_many, kwargs)
+        self.delete_calls.append(dict(kwargs))
+        hit = [
+            uid
+            for uid, props in self.content.items()
+            if _filter_matches(kwargs["where"], {**props, "_id": uid})
+        ]
+        for uid in hit:
+            del self.content[uid]
+        return DeleteManyReturn(failed=0, matches=len(hit), objects=None, successful=len(hit))
+
+
+def _ag177_receipt_collection(store: WeaviateCorpusStore, *, generation: int) -> _FakeCollection:
+    """One real, digest-valid completion of the source, published at ``generation``."""
+    receipt = SyncReceipt.for_completion(
+        project_id="acme",
+        source_file=_AG177_SOURCE,
+        source_type="concept",
+        corpus_revision="rev-1",
+        generation=generation,
+    ).stamped(sequence=1)
+    receipt.verify()
+    props: dict[str, object] = {
+        "project_id": receipt.project_id,
+        "source_file": receipt.source_file,
+        "source_type": receipt.source_type,
+        "corpus_revision": receipt.corpus_revision,
+        "digest": receipt.digest,
+        "state": receipt.state.value,
+        "completed_at": receipt.completed_at,
+        "sequence": str(receipt.sequence),
+        "generation": str(receipt.generation),
+    }
+    # The store's own position rule, so the record sits where list_receipts looks.
+    uid = store._completion_uuid(receipt.project_id, receipt.sequence)
+    return _FakeCollection(
+        query=_FilterAwarePaging(rows=[(uid, props)]),  # type: ignore[arg-type]
+        data=_FakeData(),
+        config=_FakeConfig(_ConfigView(properties=[])),
+    )
+
+
+def _ag177_port(server: _UnstableOrderServer) -> WeaviateRetrievalPort:
+    """The real port over the real store over the real adapter -- fake only at the client."""
+    corpus = _FakeCollection(
+        query=server,  # type: ignore[arg-type]
+        data=server,  # type: ignore[arg-type]
+        config=_FakeConfig(_ConfigView(properties=[])),
+    )
+    collections = _FakeCollections(collection=corpus)
+    client = _RealWeaviateClient(_FakeConnection(collections))
+    store = WeaviateCorpusStore(client=client)  # type: ignore[arg-type]
+    collections.by_name[STORY_CONTEXT_COLLECTION] = corpus
+    collections.by_name[RECEIPT_COLLECTION] = _ag177_receipt_collection(store, generation=2)
+    return WeaviateRetrievalPort(client=client, store=store, binding=_binding())  # type: ignore[arg-type]
+
+
+def test_ag177_a_visible_row_at_a_consumed_offset_survives_and_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The second uncovered class, end to end on the real path -- and it is REPORTED.
+
+    The superseded writer appends after the first window was delivered. From then on the
+    row is VISIBLE to every request; it simply sits at an offset this read has already
+    consumed, because the store's iteration between two requests is not the same
+    sequence. Nothing rescues the read: both non-terminating windows are FULL (so the
+    adapter is forced to ask again), no uuid repeats, and no window exceeds its limit.
+    The read ends on a short window -- which is how EVERY completed read ends, not a
+    guard condition -- believing it saw the whole set.
+
+    Consequence: the row is not in the candidate set, the conditional delete therefore
+    cannot name it, and it survives the completion delete. What must hold is that it
+    does not survive UNNOTICED (FK-13 §13.9.9).
+    """
+    from agentkit.integration_clients.vectordb import weaviate_adapter
+
+    monkeypatch.setattr(weaviate_adapter, "FETCH_PAGE_SIZE", 10)
+    superseded = [_ag177_row(f"r{i}") for i in range(19)]  # generation 1
+    current = _ag177_row("r19", generation=2)  # the new owner's own row
+    originals = [*superseded, current]
+    zombie = _ag177_row("zombie")  # the resurrected writer's own, LOWER generation
+
+    ids = [uid for uid, _props in originals]
+    server = _UnstableOrderServer(
+        content={uid: props for uid, props in originals},
+        arrival=zombie,
+        # Request 1 iterates the 20 stored rows. From request 2 on the iteration is a
+        # DIFFERENT sequence: the arriving row sits at index 9 -- inside the window
+        # [0:10) that request 1 already delivered -- and ``r9``, already delivered, has
+        # dropped out of it. Every pre-existing row is still read exactly once.
+        orderings=[
+            list(ids),
+            [*ids[:9], zombie[0], *ids[10:]],
+            [*ids[:9], zombie[0], *ids[10:]],
+        ],
+    )
+    port = _ag177_port(server)
+    store = port.store
+
+    candidates = store.list_objects_for_source(project_id="acme", source_file=_AG177_SOURCE)
+
+    assert [c["offset"] for c in server.calls] == [0, 10, 20], "three real windows"
+    assert [len(w) for w in server.windows] == [10, 10, 0], (
+        "both non-terminating windows FULL (the read had to continue), the last short"
+    )
+    assert len(set(server.windows[0]) & set(server.windows[1])) == 0, "no uuid repeated"
+    # The row was VISIBLE to the later requests, at an already-consumed offset.
+    assert zombie[0] in server.content
+    assert zombie[0] in server.ordering_for(1)
+    assert server.ordering_for(1).index(zombie[0]) < 10, "an offset already consumed"
+
+    candidate_ids = {str(row["uuid"]) for row in candidates}
+    assert candidate_ids == set(ids), "every pre-existing row was read exactly once"
+    assert zombie[0] not in candidate_ids, "the arriving row fell OUT of the candidate set"
+
+    deleted = store.delete_objects_older_than(
+        project_id="acme", source_file=_AG177_SOURCE, uuids=sorted(candidate_ids),
+        owning_generation=2,
+    )
+
+    assert deleted == 19, "the 19 superseded rows -- the new owner's own row is excluded"
+    emitted = server.delete_calls[0]["where"]
+    id_clause = next(
+        part for part in emitted.filters if str(part.target) == "_id"  # type: ignore[attr-defined]
+    )
+    assert zombie[0] not in list(id_clause.value), "the emitted condition cannot name it"
+    assert set(server.content) == {current[0], zombie[0]}, "so it survives the delete"
+
+    listing = next(
+        row for row in port.list_sources(project_id="acme") if row["source_type"] == "concept"
+    )
+    assert listing["chunk_count"] == 2, "the PHYSICAL count keeps counting it"
+    assert listing["stale_chunk_count"] == 1, "and the residual is REPORTED"
+
+
+def test_ag177_a_row_that_shifts_an_already_read_page_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other placement is NOT a silent miss -- the duplicate guard refuses.
+
+    If the store keeps ONE consistent order, a row landing at a consumed offset pushes a
+    delivered uuid into the next window. The read then sees the same uuid twice, which
+    means the answer would be both duplicated and incomplete, and it fails closed
+    instead of proceeding on a candidate set it cannot trust. Worth pinning: together
+    with "at or beyond the frontier it is delivered", it BOUNDS how much of the residual
+    class can be silent at all -- only an unstable inter-request ordering.
+    """
+    from agentkit.integration_clients.vectordb import weaviate_adapter
+
+    monkeypatch.setattr(weaviate_adapter, "FETCH_PAGE_SIZE", 10)
+    originals = [_ag177_row(f"r{i}") for i in range(20)]
+    zombie = _ag177_row("zombie")
+    ids = [uid for uid, _props in originals]
+    server = _UnstableOrderServer(
+        content={uid: props for uid, props in originals},
+        arrival=zombie,
+        # ONE consistent order: the arriving row takes the front, so everything shifts
+        # right by one and ``r9`` -- delivered in window 1 -- reappears in window 2.
+        orderings=[list(ids), [zombie[0], *ids]],
+    )
+    store = _ag177_port(server).store
+
+    with pytest.raises(VectorDbUnavailableError, match="inconsistent pagination"):
+        store.list_objects_for_source(project_id="acme", source_file=_AG177_SOURCE)

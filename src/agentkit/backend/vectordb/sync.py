@@ -51,8 +51,11 @@ from typing import TYPE_CHECKING, Final, Protocol, TypeVar, runtime_checkable
 from agentkit.backend.vectordb.ingest.classify import source_types_for_producer
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
+    GenerationClass,
     StoryContextObject,
+    classify_owning_generation,
     deterministic_uuid,
+    is_ordered_generation,
     validate_object,
 )
 from agentkit.concepts.hashing import sync_receipt_digest
@@ -741,18 +744,24 @@ class SyncService:
 
         Raises:
             SyncError: For a row whose generation is PRESENT but unusable (non-integer,
-                zero, negative). It is neither orderable nor an unstamped legacy row,
-                so adopting or deleting it would be a guess -- it is a named error.
+                boolean, zero, negative -- :attr:`GenerationClass.UNUSABLE`). It is
+                neither orderable nor an unstamped legacy row, so adopting or deleting
+                it would be a guess -- it is a named error. An ABSENT or ``null`` value
+                is NOT this class: it is legacy and converges (the storage-side IS-NULL
+                condition matches exactly those rows).
         """
         legacy: list[str] = []
         older: list[Mapping[str, object]] = []
         for row in rows:
             raw = row.get(OWNING_GENERATION_PROPERTY)
-            if raw is None:
-                if str(row["uuid"]) not in should_uuids:
-                    legacy.append(str(row["uuid"]))
-                continue
-            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+            # ONE ladder for both consumers (AG3-177/R2-N2): this path and the source
+            # listing must agree about what a row IS, or the reported remedy is wrong.
+            if not is_ordered_generation(raw):
+                if classify_owning_generation(raw) is GenerationClass.MISSING:
+                    # Absent OR null: not orderable, but converges under IS-NULL.
+                    if str(row["uuid"]) not in should_uuids:
+                        legacy.append(str(row["uuid"]))
+                    continue
                 raise SyncError(
                     f"object {row.get('uuid')!r} of {claim.source_file!r} carries an "
                     f"unusable writing generation ({raw!r}): it is neither orderable "
@@ -842,7 +851,7 @@ class SyncService:
         uuids: list[str] = []
         for row in rows:
             raw = row.get(OWNING_GENERATION_PROPERTY)
-            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+            if not is_ordered_generation(raw):
                 raise SyncError(
                     f"object {row.get('uuid')!r} of {claim.source_file!r} carries no "
                     f"readable writing generation ({raw!r}); it cannot be ordered "
@@ -887,8 +896,11 @@ class SyncService:
         # the newer generation never overwrites (P2-7 -- the earlier "same content"
         # justification was refuted, see FK-13 §13.9.9 and the D9 record). The
         # generation ordering keeps such a writer from DELETING anything of the newer
-        # owner's; the residual visibility of what it wrote is an open, unratified
-        # residual owned by a follow-up story.
+        # owner's; the residual VISIBILITY of what it wrote is the contract AG3-177
+        # ratified (FK-13 §13.9.9): no atomicity and no time bound are claimed, the
+        # rows are REPORTED via ``story_list_sources.stale_chunk_count``, and the
+        # operational duty is to sync the affected source after a takeover
+        # (FK-04 §4.5.14). The sweep below stays -- it covers the common case.
         self.store.assert_claim_held(claim=claim)
         should_uuids = {obj.uuid for obj in objects}
         # (1a) PREVALIDATE the whole source BEFORE mutating anything (N47/N49): a row
