@@ -1,0 +1,31 @@
+story_id: AG3-177
+story_title_short: "stale-chunk-visibility-after-takeover"
+title: "Sichtbarkeit veralteter Chunks nach einer Claim-Uebernahme: nicht-autoritative Generationen aus dem Retrieval ausschliessen oder den Rest ratifiziert vertraglich fassen"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-26"
+size: M
+# Herkunft: Herausgeschnitten aus der Abnahme von AG3-174 (PO-Mandat 2026-07-25
+# "eine Runde weiter, dann Schnitt"). Reviewbefunde N41/N46; Schnitt von Codex
+# r10 bestaetigt (Abgrenzung korrekt, Kriterien ausreichend).
+# Befund: Ein endlicher Post-Completion-Sweep kann einen Stale-Write nicht
+# abfangen, der DANACH eintrifft. Nach einer administrativen Uebernahme kann ein
+# wiederauferstandener Altprozess veraltete Chunks schreiben, die bis zum
+# naechsten Sync dieser Quelle in der Suche sichtbar bleiben - und dieser
+# Zeitpunkt ist NICHT zeitlich begrenzt.
+# Abgrenzung: KEIN Integritaetsproblem. Aus AG3-174 gilt unveraendert: kein
+# Loeschen der Daten einer neueren Generation, keine Umkehrung der gemeldeten
+# Freshness, Receipt-last, Legacy-Konvergenz. Offen ist allein die
+# SICHTBARKEIT/Meldung - die Suche kann zwei widersprechende Fassungen desselben
+# Abschnitts liefern, waehrend corpus_revision den neueren Stand meldet.
+# Eintrittsbedingung eng: haengender Sync UND bewusster Admin-Reclaim UND
+# wiederauferstandener Altprozess UND kein nachfolgender Sync.
+# Zweiphasig und verbindlich in dieser Reihenfolge: Phase 1 Entwurfsentscheidung
+# mit PO-Ratifizierung (Aufloesungsraum auf drei Formen begrenzt und
+# vorbewertet), erst danach Umsetzung. Bei AG3-174 sind drei Mechanismen
+# gescheitert, weil ohne ratifizierte Entscheidung gebaut wurde.
+# Nicht neu aufzurollen: Generationsleiter, geordneter Delete,
+# Abschlussordnung, Legacy-Konvergenz (alle in AG3-174 abgenommen).
+depends_on: ["AG3-174"]
+unblocks: []
