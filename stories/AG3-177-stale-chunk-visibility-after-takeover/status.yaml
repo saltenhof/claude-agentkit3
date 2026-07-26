@@ -2,7 +2,7 @@ story_id: AG3-177
 story_title_short: "stale-chunk-visibility-after-takeover"
 title: "Sichtbarkeit veralteter Chunks nach einer Claim-Uebernahme: nicht-autoritative Generationen aus dem Retrieval ausschliessen oder den Rest ratifiziert vertraglich fassen"
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-07-26"
 size: M
