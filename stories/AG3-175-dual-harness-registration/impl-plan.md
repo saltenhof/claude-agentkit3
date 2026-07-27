@@ -9,8 +9,25 @@
   englisch (ARCH-55, `guardrails/architecture-guardrails.md:130`).
 
 **In diesem Plan wird kein Produktionscode und kein Test geschrieben.** Es gibt
-einen **harten Blocker** (§9 Q-0) und **sechs Entscheidungsfragen** (§5 D-1,
-§9 Q-1..Q-5), die vor der Umsetzungsfreigabe beantwortet sein muessen.
+**keinen Blocker**. Offen sind die Dependency-Entscheidung (§5 D-1, liegt beim
+PO) und die Konzept-Nachzuege (§9 Q-1), plus vier kleinere Fragen (§9 Q-1b..Q-5).
+
+> **Revision 2 (Korrektur nach Orchestrator-Rueckmeldung).** Zwei Befunde der
+> Revision 1 waren falsch, beide aus demselben Fehler: Ich habe eine **Absenz
+> aus einer einzelnen Datei** geschlossen, statt das Paket zu durchsuchen.
+>
+> 1. **Q-0 „kein Einstiegspunkt" ist widerlegt.** Der Einstiegspunkt existiert
+>    in `engine.py`, nicht in `mcp_server.py`. Der echte Defekt ist kleiner und
+>    liegt vollstaendig in meinem Scope: **CP 10 registriert das falsche Modul.**
+>    Neu §1.5.
+> 2. **„Der Bundle-Doppelgaenger wird nie deployt" ist widerlegt.** Er wird
+>    kopiert und ist damit ein **dritter Writer** derselben Datei. Neu §1.2 und
+>    §4.2; aus der Aufraeumfrage Q-2 wird eine Korrektheitspflicht.
+>
+> Ausserdem neu: eine **vierte** verpflichtende `env`-Variable
+> (`AGENTKIT_CONCEPTS_DIR`), und der Befund, dass die Conformance-Probe eine
+> **erreichbare Weaviate** braucht (§1.6). §9.0 enthaelt das vollstaendige
+> Re-Audit aller uebrigen Absenz-Behauptungen dieses Plans.
 
 ---
 
@@ -104,7 +121,7 @@ ist der eigentliche Beweis fuer „der zweite Lauf zerstoert die Registrierung":
 
 | Stelle | Was sie tut | Konsequenz fuer das Design |
 |---|---|---|
-| `src/agentkit/bundles/target_project/.codex/config.toml` (3 Zeilen, byte-identisch zu `build_codex_config_toml()`) | **Dritte** Kopie desselben Inhalts. Wird nie deployt: `installer/project_structure.py:95-111` (`_deploy_directory_structure`) spiegelt nur Verzeichnisse (`if item.is_dir()`), nie Dateien. | Inerter SSOT-Doppelgaenger, der bei jeder Aenderung des Hook-Eintrags driftet. Aufloesen oder pinnen — **§9 Q-2**. |
+| `src/agentkit/bundles/target_project/.codex/config.toml` (3 Zeilen, byte-identisch zu `build_codex_config_toml()` — gemessen) | **DRITTER WRITER derselben Datei.** `runner.py:543-558` `_deploy_static_resource_files` kopiert **jede** Nicht-`templates`-**Datei** aus dem Bundle ins Zielprojekt (`if rel.parts[0] == "templates" or item.is_dir(): continue`) via `_copy_file_if_changed` (`runner.py:693-697` → `copy_file`, bedingungsloses Ueberschreiben). Aufgerufen in `runner.py:1148`, also **CP 8**, und **vor** `write_codex_settings` in `runner.py:1186`. Der Filter in `runner.py:1149-1151` betrifft nur die `created`-**Meldung**, nicht die Kopie; `_default_governance_hook_settings_paths` (`runner.py:1380-1386`) listet ohnehin nur `.claude/settings.json` und `.codex/hooks.json`. | **Korrektheitspflicht, nicht Kosmetik** (§4.2). Heute fallen Bundle-Inhalt und Builder-Ausgabe zufaellig zusammen, deshalb faellt es nicht auf. Nach AG3-175 wuerde diese Kopie die MCP-Tabelle bei **jedem** Folgelauf ueberschreiben — dieselbe Zerstoerung wie Befund B(1), aber ueber einen **anderen** Codepfad, den die Scope-Entscheidung nicht benennt. |
 | `src/agentkit/backend/core_types/plane_artifact_names.py:96-99` | `SELF_PROTECTION_HOOK_SETTINGS_PARTS` enthaelt `(".codex", "config.toml")` — **zweites** Pfadliteral neben `installer/paths.py:13,39`. | Nur Namenskonstante, kein I/O. Kein Designzwang, aber: die Datei ist **guard-geschuetzt**. |
 | `src/agentkit/backend/governance/guard_system/protected_paths.py:131-138` | `.codex/config.toml` liegt in `SELF_PROTECTION_HARNESS_FILE_PARTS` → Worker-Mutationen werden verweigert (`tests/unit/governance/guards/test_self_protection_guard.py:70-74`). | Der **Installer** ist der einzige legitime Schreiber. Bestaetigt den Schnitt „ein Writer, im Install-Pfad". Keine Aenderung noetig. |
 | `src/agentkit/backend/governance/principal_capabilities/paths.py:89-92` | klassifiziert die Datei als `PathClass.GOVERNANCE_PLANE` (`tests/unit/governance/principal_capabilities/test_paths.py:55`). | Nur Klassifikation, kein Inhaltswissen. Keine Aenderung noetig. |
@@ -181,43 +198,125 @@ Also: doppelte Keys/Tabellen und ungueltiges UTF-8 erledigt die Stdlib;
 Nicht-Tabellen-Root — die „falsche Root-Shape" aus AC 7 existiert in TOML nicht
 und wird in §6 ehrlich als solche benannt statt erfunden.
 
-### 1.5 NEUER BEFUND — harter Blocker: das registrierte Kommando ist kein Server
+### 1.5 NEUER BEFUND — CP 10 registriert das falsche Modul (kein Blocker)
 
-Das steht weder in der Story noch im Briefing.
+In Revision 1 stand hier ein „harter Blocker: es gibt keinen Einstiegspunkt".
+**Das war falsch.** Ich hatte in `mcp_server.py` nachgesehen — also in dem Modul,
+das die Konfiguration zufaellig nennt — und aus dessen Absenz auf das Paket
+geschlossen. Eine Paketsuche (`grep -rn "if __name__|^def main|run_stdio_server"
+src/agentkit/backend/vectordb/`) findet den Einstiegspunkt sofort.
 
-`src/agentkit/backend/vectordb/mcp_server.py` hat **keinen** Einstiegspunkt:
-kein `main()`, kein `if __name__ == "__main__":`. Die Datei endet mit
-`build_mcp_server()` (Zeile 435-467) und `__all__` (Zeile 470-476). Es gibt auch
-**kein** Console-Script dafuer (`pyproject.toml:54-56` fuehrt nur `agentkit`,
-`agentkit-hook-claude`, `agentkit-hook-codex`).
+**Der Einstiegspunkt existiert, in `engine.py`:**
 
-Gemessen:
+- `engine.py:1258` `def main() -> int:` — „Executable stdio entry point. Reads
+  the env, composes the production engine, and serves. Fails closed (exit 1) on
+  any binding/connection fault."
+- `engine.py:1250-1255` `run_stdio_server(service)` — importiert
+  `build_mcp_server` aus `mcp_server` und ruft `server.run()`.
+- `engine.py:1311-1312` `if __name__ == "__main__": raise SystemExit(main())`.
+- `engine.py:1315-1326` `__all__` exportiert `main` und `run_stdio_server`.
+
+Selbst nachgemessen:
 
 ```
-$ .venv/Scripts/python -m agentkit.backend.vectordb.mcp_server < /dev/null
-EXIT=0
+$ .venv/Scripts/python -m agentkit.backend.vectordb.engine < /dev/null
+{"error": "composition_failed", "detail": "AGENTKIT_CONCEPTS_DIR is missing/empty;
+ the concept corpus root has no default (fail-closed, D2/N20)."}
+EXITCODE=1
 ```
 
-Der Prozess startet, tut nichts und endet sofort. Der AG3-164-Conformance-Check
-klassifiziert das als `mcp_process_exited`. Damit gilt:
+Ein lebender, korrekt fail-closed arbeitender Einstiegspunkt. Der Kontrast zu
+meiner eigenen Messung von `-m …mcp_server` (Exit 0, keine Ausgabe) ist genau
+der Unterschied zwischen Bibliotheksmodul und Programm.
 
-> **Die von der Story vorgeschriebene Registrierung kann den
-> Conformance-Check produktiv nie bestehen.** CP 10 wird fuer jedes Projekt mit
-> aktivierter VektorDB `FAILED` liefern, und AC 1 („nach einem
-> Installationslauf ist der Server in beiden Konfigurationen registriert") ist
-> produktiv unerfuellbar — unabhaengig davon, wie gut AG3-175 selbst wird.
+**Der wirkliche Defekt ist kleiner und liegt vollstaendig in meinem Scope:**
+`cp10.py:152` schreibt
 
-Das ist exakt derselbe Defekttyp, den AG3-164 fuer `agentkit-are-mcp` behoben
-hat (dessen `status.yaml` beschreibt ihn wortgleich: „Der Installer schreibt
-damit einen toten Eintrag und meldet Erfolg"). AG3-164 hat die **Erkennung**
-gebaut; der story-knowledge-base-Eintrag ist der zweite, noch offene Fall
-derselben Klasse. In `AG3-174/report.md`, `AG3-174/story.md` und
-`AG3-176/story.md` kommt weder `__main__` noch `entrypoint` noch
-`-m agentkit.backend.vectordb` vor — der Punkt ist bisher niemandem aufgefallen.
+```python
+"args": ["-m", "agentkit.backend.vectordb.mcp_server"],   # Bibliotheksmodul
+```
 
-Auflegung als Entscheidungsfrage: **§9 Q-0**. Der Plan ist so gebaut, dass er
-mit **beiden** Antworten funktioniert (der Kommandowert ist ein einziger
-Konstantenpunkt in `mcp_registration.py`).
+wo das ausfuehrbare Modul `agentkit.backend.vectordb.engine` ist. `command` und
+`args` sind Felder des `McpServerSpec`, den **AG3-175 selbst rendert** — Scope 1
+und AC 5 machen sie zu meinem Deliverable. Die Korrektur ist keine
+Scope-Ausweitung, sie **ist** der Scope. Nichts geht an den PO zurueck, es
+braucht keine neue Story, und AC 1 ist produktiv erreichbar.
+
+Der Kommandowert nach der Korrektur (eine Konstantenstelle in
+`installer/mcp_registration.py`):
+
+```python
+STORY_KNOWLEDGE_BASE_COMMAND = "python"
+STORY_KNOWLEDGE_BASE_ARGS = ("-m", "agentkit.backend.vectordb.engine")
+```
+
+`"python"` bleibt (statt `sys.executable`), weil FK-50 §50.3 CP 10 diesen Wert
+dokumentiert und `resolve_command` (`mcp_conformance/process.py:80-97`) bare
+Namen ueber `PATH` aufloest. Der Zielprojekt-`python` muss `agentkit` sehen —
+das ist eine Installationsvoraussetzung, keine Rendering-Entscheidung.
+
+### 1.6 NEUER BEFUND — eine VIERTE Pflicht-`env`-Variable, und die Probe braucht Weaviate
+
+Beides von Orchestrator und mir zunaechst uebersehen.
+
+**(a) `AGENTKIT_CONCEPTS_DIR` ist Pflicht und hat keinen Default.**
+`engine.py:1272-1285` prueft vor allem anderen:
+
+```python
+concepts_dir_value = env.get("AGENTKIT_CONCEPTS_DIR", "").strip()
+if not concepts_dir_value:  ->  {"error": "composition_failed", ...}; return 1
+```
+
+Der Kommentar haelt den Grund fest (N20/D2): ein Default auf das Literal
+`concept` hat den Server einmal auf AK3s **eigenen** Entwicklungskorpus gezeigt.
+`AGENTKIT_STORIES_DIR` (`engine.py:1290`) hat dagegen einen Default (`"stories"`).
+
+**Vollstaendige, gemessene Anforderungsmatrix des gestarteten Prozesses**
+(jeweils genau ein Key weggelassen, Rest vollstaendig, Endpunkt auf einen toten
+Port; Ausgabe gekuerzt):
+
+| `env`-Key | Pflicht? | validiert durch | gemessene Ausgabe bei Absenz |
+|---|---|---|---|
+| `PROJECT_ID` | ja | `RuntimeBinding` | `required env key 'PROJECT_ID' is missing from the runtime binding …` |
+| `WEAVIATE_HTTP_ENDPOINT` | ja | `RuntimeBinding` | `required env key 'WEAVIATE_HTTP_ENDPOINT' is missing …` |
+| `WEAVIATE_GRPC_ENDPOINT` | ja | `RuntimeBinding` | `required env key 'WEAVIATE_GRPC_ENDPOINT' is missing …` |
+| `AGENTKIT_CONCEPTS_DIR` | **ja** | `main()` selbst, **nicht** `RuntimeBinding` | `AGENTKIT_CONCEPTS_DIR is missing/empty; the concept corpus root has no default (fail-closed, D2/N20).` |
+| `AGENTKIT_STORIES_DIR` | nein | Default `"stories"`, aufgeloest gegen die **Prozess-`cwd`** | kommt an der `env`-Validierung vorbei, scheitert erst an der Konnektivitaet |
+
+Damit ist die Kernaussage klar: **`runtime_binding.REQUIRED_ENV_KEYS` (3 Keys)
+ist NICHT die Anforderungsmenge des Prozesses (4 Pflicht-Keys).** Ein Spec, der
+`RuntimeBinding` besteht und trotzdem einen Prozess erzeugt, der mit Exit 1
+endet, ist genau der Fehlermodus, gegen den AC 5 existiert. Konsequenz in §3.1
+und §8.
+
+**(b) Die Conformance-Probe braucht eine erreichbare Weaviate.**
+`compose_runtime` (`engine.py:1188-1221`) ruft in dieser Reihenfolge:
+`RuntimeBinding.from_env` (1204) → `connect_real_client(binding)` (1205) →
+`ensure_corpus_collections(client)` (1211) → erst danach kommt
+`run_stdio_server` (1301). Gemessen mit vollstaendigem `env` und totem Endpunkt:
+
+```
+{"error": "composition_failed", "detail": "Could not connect to Weaviate at
+ 127.0.0.1:9999 (grpc 127.0.0.1:59999): … Is Weaviate running and reachable at
+ http://127.0.0.1:9999? (fail-closed, FK-13 §13.2)."}
+EXITCODE=1
+```
+
+Der Prozess erreicht `initialize`/`tools/list` also **nur** mit laufender
+Weaviate. Folgen, ehrlich benannt:
+
+- AC 1 („nach einem Installationslauf ist der Server registriert") setzt in einem
+  echten Lauf eine **laufende Weaviate** voraus. Das ist konsistent mit AG3-176
+  Scope 1 („Der Installer installiert oder startet keine Datenbank — er setzt sie
+  voraus") und mit der Story-Abgrenzung „E2E gegen echte Infrastruktur
+  (nachgelagert mit dem PO)".
+- In der CI ist AC 1/AC 4 damit **nicht** mit dem produktiven Kommando
+  beweisbar. Der Testplan trennt das deshalb in drei Stufen (§8.2a) und
+  behauptet an keiner Stelle mehr, als die jeweilige Stufe traegt.
+- **Nuetzlicher Nebeneffekt:** die beiden Fehlerbilder („`env`-Key fehlt" vs.
+  „Weaviate nicht erreichbar") sind an der `detail`-Zeile unterscheidbar. Genau
+  das macht einen **offline** lauffaehigen Beweis der `env`-Vollstaendigkeit
+  moeglich (§8.2a T1).
 
 ---
 
@@ -229,10 +328,12 @@ Konstantenpunkt in `mcp_registration.py`).
 ProjectConfig (typisiert, aus der CP-5-Mapping)
         │
         ├── project_id  ──> resolve_authoritative_project_id(...)      [SSOT AG3-174]
-        └── pipeline.vectordb.weaviate_{http,grpc}_endpoint
+        ├── pipeline.vectordb.weaviate_{http,grpc}_endpoint
+        ├── concepts_dir       ──> AGENTKIT_CONCEPTS_DIR   (absolut)
+        └── wiki_stories_dir   ──> AGENTKIT_STORIES_DIR    (absolut)
         │
         ▼
-   env-Mapping (genau REQUIRED_ENV_KEYS, nichts sonst)
+   env-Mapping (genau REGISTERED_ENV_KEYS = 5 Keys, nichts sonst)
         │
         ▼
 RuntimeBinding.from_env(env, command=…, args=…, cwd=str(project_root))   [einmal]
@@ -309,12 +410,18 @@ AG3-174-SSOT ein Registrierungsobjekt entsteht, und sie enthaelt die
 spec.env_dict()["PROJECT_ID"]             == spec.project_id
 spec.env_dict()["WEAVIATE_HTTP_ENDPOINT"] == spec.weaviate_http_endpoint
 spec.env_dict()["WEAVIATE_GRPC_ENDPOINT"] == spec.weaviate_grpc_endpoint
-set(spec.env_dict()) == set(REQUIRED_ENV_KEYS)
+set(spec.env_dict()) == set(REGISTERED_ENV_KEYS)          # 5 Keys, §3.1
 ```
 
 Abweichung → `McpServerRegistrationError`. Damit ist ausgeschlossen, dass die
 Projektion andere Werte traegt als der Spec behauptet — das ist die
 „Wertgleichheit" aus AC 5, mechanisch und nicht per Kommentar.
+
+**Korrektur gegenueber Revision 1:** dort stand
+`set(env) == set(REQUIRED_ENV_KEYS)`. Das war falsch und haette den Defekt aus
+§1.6(a) einbetoniert: `REQUIRED_ENV_KEYS` sind die drei Keys, die
+`RuntimeBinding` **validiert**, nicht die vier, die der Prozess **braucht**. Die
+Registrierung schuldet dem Prozess, nicht dem Validator.
 
 `cwd` fuer den Codex-Eintrag und den `.mcp.json`-Eintrag ist **derselbe**
 `str(context.project_root)` — genau der Wert, mit dem auch geprobt wird. Der
@@ -381,17 +488,68 @@ so stehen und nicht als Atomizitaet der Bindung verkauft.
 
 ## 3. Konfigurationsquelle fuer `env` (Befund C)
 
-### 3.1 Woher die Werte kommen
+### 3.1 Woher die Werte kommen — fuenf Keys, nicht drei
 
-| Wert | Quelle | Begruendung |
+| `env`-Key | Quelle (typisiert) | Begruendung |
 |---|---|---|
 | `PROJECT_ID` | `resolve_authoritative_project_id()` (`project_binding.py:104-152`) | SSOT-Resolver aus AG3-174, wiederverwendet. Kein zweiter Resolver. |
-| `WEAVIATE_HTTP_ENDPOINT` | `ProjectConfig.pipeline.vectordb.weaviate_http_endpoint` | Erweiterung des bestehenden Fachmodells, wie im Briefing zugelassen. |
+| `WEAVIATE_HTTP_ENDPOINT` | `ProjectConfig.pipeline.vectordb.weaviate_http_endpoint` | Erweiterung des bestehenden Fachmodells, wie im Briefing zugelassen (§3.2). |
 | `WEAVIATE_GRPC_ENDPOINT` | `ProjectConfig.pipeline.vectordb.weaviate_grpc_endpoint` | dito. |
+| `AGENTKIT_CONCEPTS_DIR` | `ProjectConfig.concepts_dir`, absolut gemacht gegen `project_root` | **Pflicht** (§1.6a). Existiert bereits auf dem CP-5-Pfad — **kein neues Config-Feld noetig**. |
+| `AGENTKIT_STORIES_DIR` | `ProjectConfig.wiki_stories_dir`, absolut gemacht gegen `project_root` | technisch optional, **wird trotzdem explizit gerendert** (Begruendung unten). |
 
-Es werden **genau** diese drei Keys geschrieben — `set(env) == set(REQUIRED_ENV_KEYS)`.
-Kein `GH_REPO`, kein `WEAVIATE_HOST`/`WEAVIATE_HTTP_PORT` (siehe §9 Q-4 zur
-veralteten FK-13-§13.4.3-Beispielliste).
+```python
+REGISTERED_ENV_KEYS: tuple[str, ...] = (
+    "PROJECT_ID", "WEAVIATE_HTTP_ENDPOINT", "WEAVIATE_GRPC_ENDPOINT",
+    "AGENTKIT_CONCEPTS_DIR", "AGENTKIT_STORIES_DIR",
+)
+```
+
+Kein `GH_REPO` (gemessen: der String kommt in `src/agentkit/` **nirgends** vor),
+kein `WEAVIATE_HOST`/`_PORT` (siehe §9 Q-4 zum vollstaendigen Konzept-Delta).
+
+**Die beiden Verzeichniswerte sind schon da.** Gemessen an der
+CP-5-Mapping (§1.3): die Top-Level-Keys enthalten `concepts_dir` und
+`wiki_stories_dir`; `_build_project_yaml` schreibt sie aus `paths.CONCEPTS_DIR`
+bzw. `paths.STORIES_DIR`. `ProjectConfig` traegt sie typisiert
+(`models.py:871-872`, Defaults `"concepts"` / `"stories"`) und validiert sie mit
+`_validate_project_relative_dir` (`models.py:50-70`: nicht leer, nicht absolut,
+nicht laufwerksverankert, kein `..`-Segment). FK-13 §13.9 („das konfigurierte
+`concepts_dir` ist massgeblich") ist damit erfuellt, ohne eine zweite
+Konfigurationsquelle — im Unterschied zu den Endpunkten braucht es hier
+**keine** Modell- oder Scaffold-Erweiterung.
+
+**Warum `AGENTKIT_STORIES_DIR` explizit gerendert wird, obwohl es einen Default
+hat** (die Frage war mir zur eigenen Entscheidung gestellt; ich komme auf
+dasselbe Ergebnis wie die Neigung des Orchestrators, aber der tragende Grund ist
+ein anderer):
+
+1. **`cwd` darf keine Konfigurationsquelle sein.** Der Default ist
+   `Path("stories").resolve()` (`engine.py:1290`) und loest gegen die
+   **Prozess-`cwd`** auf. `runtime_binding`s eigener Docstring (Zeile 6-7) und D2
+   legen fest: „`cwd` is the working / containment boundary, **NOT** a second
+   configuration source". Sich auf den Default zu verlassen wuerde genau diese
+   Regel brechen — ein Konfigurationswert entstuende aus der Arbeitsverzeichnis-
+   Bindung.
+2. **`wiki_stories_dir` ist konfigurierbar.** Ein Projekt, das es abweichend
+   setzt, bekaeme mit dem Default still den falschen Korpus-Root. Das ist
+   dieselbe Fehlerklasse wie N20 (der `concept`-Default zeigte auf AK3s eigenen
+   Korpus) — nur leiser, weil es nicht fail-closed abbricht, sondern **falsche
+   Daten** indiziert. Ein stiller falscher Korpus ist schlimmer als ein Abbruch.
+3. AC 2 verlangt feldweise Wertgleichheit beider Formate „env mit `PROJECT_ID`
+   und Endpunktwerten". Eine implizite, nirgends geschriebene Variable ist nicht
+   vergleichbar.
+
+**Absolut statt relativ**, aus demselben Grund 1: absolute Pfade haengen nicht
+davon ab, dass der Harness die `cwd` des Eintrags tatsaechlich setzt.
+Containment ist doppelt gesichert — `_validate_project_relative_dir` verbietet
+schon Absolutheit und `..` in der Config, und der Renderer prueft zusaetzlich,
+dass der aufgeloeste Pfad unter `project_root` liegt (dieselbe Idee wie
+`assert_project_local_codex_config`, §6.3).
+
+**Grenze, bewusst gezogen:** CP 10 prueft Shape und Containment der beiden
+Verzeichnisse, **nicht ihre Existenz oder ihren Inhalt**. Korpus-Preflight und
+Erstindizierung gehoeren AG3-176 (dessen Scope 1/3).
 
 ### 3.2 Vollstaendige Endpunkte, nicht Host+Ports
 
@@ -571,6 +729,40 @@ Damit ueberlebt eine in CP 10 gemergte MCP-Tabelle den naechsten
 Installationslauf: `render_codex_config` mit `servers=()` mergt den
 Hook-Eintrag ein und **entfernt nichts** (UPSERT-Semantik, §4.4). Genau das ist
 der Nachweis, den das Briefing verlangt (zwei aufeinanderfolgende Laeufe).
+
+**Der dritte Writer muss dafuer ebenfalls weg** (§1.2, korrigierter Befund).
+`_deploy_static_resource_files` (`runner.py:543-558`) kopiert
+`bundles/target_project/.codex/config.toml` in CP 8 ins Zielprojekt — und zwar
+in `runner.py:1148`, also **vor** `write_codex_settings` in Zeile 1186. Solange
+die Bundle-Datei existiert, wuerde sie bei jedem Folgelauf die MCP-Tabelle
+ueberschreiben (`_copy_file_if_changed` → `copy_file`, bedingungslos), und der
+danach laufende semantische Writer wuerde die Tabelle brav wieder anlegen: die
+Datei flatterte bei jedem Lauf. Das ist derselbe Zerstoerungsmechanismus wie
+Befund B(1) auf einem zweiten Pfad.
+
+**Massnahme:** `src/agentkit/bundles/target_project/.codex/config.toml` wird
+**geloescht**. Damit gibt es genau einen Writer, statt einen Sonderfall in
+`_deploy_static_resource_files` einzubauen (FIX-THE-MODEL statt Workaround, und
+SSOT: der Inhalt existiert dann nur noch einmal, im Adapter).
+
+Belege, dass das gefahrlos ist:
+
+- Das Verzeichnis `.codex/` entsteht unabhaengig davon: `_deploy_directory_structure`
+  (`project_structure.py:95-111`) spiegelt Verzeichnisse (`if item.is_dir()`),
+  und `.codex/skills/` bleibt im Bundle.
+- `tests/contract/scaffold_snapshots/test_install_scaffold.py:127` verlangt
+  `(tmp_path/".codex"/"config.toml").is_file()` nach dem Install — bleibt gruen,
+  weil `write_codex_settings` (CP 8, Zeile 1186) die Datei erzeugt. Der Erzeuger
+  wechselt von der Kopie zum Writer, das Ergebnis bleibt.
+- Kein Test pinnt die Bundle-Datei (gemessen: kein Treffer fuer
+  `target_project.*codex` in `tests/`).
+- Gemessen: Bundle-Bytes und `build_codex_config_toml()` sind heute
+  **byte-identisch** — die Loeschung aendert das Installationsergebnis also nicht,
+  sie entfernt nur die zweite Quelle.
+
+Damit ist die Schreiberliste danach vollstaendig: **ein** Writer (CP 8 Hook,
+CP 10 MCP-Tabelle, dieselbe Renderfunktion), **ein** Leser fuer die
+Detach-Klassifikation, **keine** Kopie.
 
 Determinismus des Writes: der Adapter liefert Text mit `\n`; geschrieben wird
 mit `atomic_write_text(path, text, newline="")` (`backend/utils/io.py:20-54`),
@@ -973,7 +1165,9 @@ Bericht; dann bleibt eine Norm-/Code-Luecke, die ich benennen wuerde.
 | `tests/unit/harness_client/test_codex_config_toml.py` | unit | reine Text-zu-Text-Fachlichkeit (Striktheitsmatrix, Erhaltungsmatrix, Ownership, Kanonisierung). Kein Dateisystem. `tests/unit/harness_client/` existiert (die Story schreibt „tests/unit/harness/"; das ist im Repo dieses Verzeichnis). |
 | `tests/unit/installer/test_codex_settings.py` (erweitern) | unit | Containment-/Junction-Ablehnung und Idempotenz von `write_codex_settings`; kleine, isolierte FS-Operationen in `tmp_path`, wie heute schon in dieser Datei. |
 | `tests/unit/installer/checkpoint_engine/test_cp10_dual_registration.py` | unit | folgt der bestehenden Platzierung von `test_cp10_mcp_conformance.py`. Die Story nennt `tests/unit/installer/`. Ehrliche Einordnung: diese Tests starten echte Prozesse und schreiben Dateien — nach der Buchstabendefinition „reine Logik" waeren sie Integration. Konsistenz mit der vorhandenen CP-10-Suite wiegt hier schwerer als die Etikette; die szenariobasierten Mehrlauf-Faelle liegen bewusst darunter in `tests/integration/`. |
-| `tests/integration/installer/test_codex_mcp_registration.py` | integration | szenariobasierte Zielprojekt-/Dateisystemablaeufe: zwei vollstaendige Installationslaeufe, `CODEX_HOME`-Isolation, zweiter Projektordner. |
+| `tests/unit/installer/test_registered_entry_starts.py` | unit | Startbarkeit und `env`-Vollstaendigkeit des gerenderten Eintrags (§8.2a T1/T2). Startet einen kurzlebigen Subprozess gegen einen toten Endpunkt; kein Netz, keine Infrastruktur, deterministisch. |
+| `tests/integration/installer/test_codex_mcp_registration.py` | integration | szenariobasierte Zielprojekt-/Dateisystemablaeufe: zwei vollstaendige Installationslaeufe, `CODEX_HOME`-Isolation, zweiter Projektordner, keine Bundle-Ruecklaufkopie. |
+| `tests/e2e/installer/test_dual_registration_live.py` | e2e (opt-in) | Nur Stufe T3: Register-Lauf gegen eine laufende Weaviate. Niemals Standard-CI (CLAUDE.md). |
 | `tests/integration/installer/test_detach.py` (erweitern) | integration | die Detach-Klassifikation lebt dort schon (`:630-658`). |
 | `tests/contract/installer/test_mcp_registration_binding.py` | contract | Stabilitaet des Vertrags: feldweise Wertgleichheit der beiden Formate, Digest-Bindung, adversariale Matrix als Tabelle. Genau die „Stabilitaet von Schemas/Snapshots/Manifests"-Rolle. |
 | `tests/contract/packaging/test_packaging_pins.py` (erweitern) | contract | der Pin, im bestehenden D5-Muster (`:36-39`). |
@@ -992,7 +1186,9 @@ Weg, den `test_cp10_mcp_conformance.py:105-110` heute schon geht
 | 1 | `…::test_mcp_table_survives_second_install_run` | zwei vollstaendige Laeufe; die MCP-Tabelle ist nach Lauf 2 noch da | den semantischen Writer (Fixstring + Byte-Vergleich in `write_codex_settings`) — genau Befund B(1) |
 | 1 | `…::test_both_merges_preserve_foreign_entries` | fremder `.mcp.json`-Server und fremde TOML-Tabelle ueberleben | den semantischen Merge (Ganzdatei-Rewrite) |
 | 2 | `contract/.../test_mcp_registration_binding.py::test_codex_entry_field_equal_to_mcp_json_entry` | feldweise Gleichheit von `command`, `args`, `cwd` und **jedem** `env`-Paar; `required is True` nur im TOML, `type: "stdio"` nur im JSON (formatspezifisch, explizit im Test benannt) | die gemeinsame `DesiredMcpServer`-Quelle (getrennt konstruierte Eintraege) |
-| 2 | `…::test_env_carries_exactly_the_required_keys` | `set(env) == set(REQUIRED_ENV_KEYS)` in beiden Formaten | das `env` am Spec (heutiger Zustand, Befund A) |
+| 2 | `…::test_env_carries_exactly_the_registered_keys` | `set(env) == set(REGISTERED_ENV_KEYS)` (5 Keys) in **beiden** Formaten | das `env` am Spec (heutiger Zustand, Befund A) |
+| 2 | `…::test_registered_env_keys_cover_runtime_binding_requirements` | `set(REGISTERED_ENV_KEYS) >= set(runtime_binding.REQUIRED_ENV_KEYS)` | **Drift-Sperre**: kommt kuenftig ein Key zu `REQUIRED_ENV_KEYS` hinzu, wird dieser Test rot, statt dass eine unvollstaendige `env` still ausgeliefert wird (§1.6a) |
+| 1/4 | `unit/…/test_cp10_dual_registration.py::test_registered_args_name_the_executable_module` | die gerenderten `args` nennen `agentkit.backend.vectordb.engine` | die Modulkorrektur (§1.5) — mit `mcp_server` rot |
 | 3 | `integration/.../test_codex_mcp_registration.py::test_isolated_codex_home_is_never_written` | mit gesetztem `CODEX_HOME=tmp/codex_home` bleibt dieses Verzeichnis nach dem Install **leer** | **nicht revert-rot.** Es gibt keine Produktionszeile, deren Entfernen den Test rot macht — AK3 liest `CODEX_HOME` nirgends (§6.3). Der Test ist eine Regressionssperre gegen eine kuenftige Aenderung, kein Fix-Beweis. Das wird im Bericht so gesagt. |
 | 3 | `…::test_second_project_does_not_see_registration` | zweiter Projektordner ohne `.codex/config.toml` und ohne `.mcp.json`-Eintrag | ebenfalls nur teilweise: `codex_config_path(project_root)` ist projektrelativ, also strukturell. Revert-rot **nur** gegen eine hypothetische Umstellung auf einen Home-Pfad. Ehrlich als „strukturelle Zusicherung" markiert. |
 | 3 | `unit/installer/test_codex_settings.py::test_junctioned_codex_dir_is_rejected` / `::test_symlinked_config_file_is_rejected` | `path_escapes_project_root`, kein Write, Zieldatei ausserhalb unveraendert | **revert-rot** gegen `assert_project_local_codex_config` (§6.3). Auf Windows via `os.path.isjunction`; auf POSIX via Symlink. Vorbild fuer die Plattformabfrage: `test_installer_namespace.py:55-60` (`_directory_links_supported`). |
@@ -1002,7 +1198,7 @@ Weg, den `test_cp10_mcp_conformance.py:105-110` heute schon geht
 | 5 | `…::test_in_place_mutation_is_impossible` | direkte Zuweisung wirft (`FrozenInstanceError`) | `frozen=True` |
 | 5 | `…::test_negative_matrix_non_default_endpoints` | frei gewaehlte, nicht-Default-Endpunkte landen **wortgleich** in beiden Formaten (kein Default eingesetzt) | jede Default-Synthese |
 | 5 | `…::test_negative_matrix_empty_and_wrong_cwd` | leeres `cwd` → `RuntimeBindingError`; `cwd` ausserhalb des Project-Roots → Ablehnung | die `cwd`-Validierung |
-| 5 | `…::test_negative_matrix_missing_env_field` | je fehlender `REQUIRED_ENV_KEYS`-Eintrag → `RuntimeBindingError`, null Writes | die `from_env`-Bindung |
+| 5 | `…::test_negative_matrix_missing_env_field` | zwei getrennte Klassen, weil die Validatoren verschieden sind: je fehlender `REQUIRED_ENV_KEYS`-Eintrag (3) → `RuntimeBindingError` beim Rendern, null Writes; fehlendes `AGENTKIT_CONCEPTS_DIR` → **kein** `RuntimeBindingError` (es wird von `main()` geprueft, nicht von `RuntimeBinding`), sondern `McpServerRegistrationError` aus der `REGISTERED_ENV_KEYS`-Vollstaendigkeitspruefung, null Writes | die `from_env`-Bindung bzw. die Vollstaendigkeitspruefung. Der Verhaltensbeweis, dass die Aufteilung stimmt, ist §8.2a T2 gegen den echten Prozess. |
 | 5 | `…::test_negative_matrix_divergent_project_id` | `PROJECT_ID`-Env ≠ `project_prefix` → `ProjectBindingError`, null Writes | den Resolver-Aufruf |
 | 6 | `unit/…/test_cp10_dual_registration.py::test_codex_parse_error_writes_nothing` | vorab korrupte `.codex/config.toml` → `FAILED`, **`.mcp.json` byte-identisch** | die Reihenfolge „beide lesen/pruefen/rendern vor Write 1" — bei umgedrehter Reihenfolge waere `.mcp.json` schon geschrieben |
 | 6 | `…::test_io_error_after_first_write_rolls_back_and_names_the_error` | simulierter `OSError` beim zweiten Write → `.mcp.json` byte-identisch zum Before-Image, `reason == "registration_incomplete"` | das Rollback aus dem Before-Image |
@@ -1014,6 +1210,7 @@ Weg, den `test_cp10_mcp_conformance.py:105-110` heute schon geht
 | B-Nachweis | `integration/installer/test_detach.py::test_detach_removes_ak3_hook_plus_mcp_config` | AK3-Hook + AK3-MCP-Tabelle → entfernt, in `removed_bindings` | das neue Praedikat (mit Byte-Vergleich gegen den Fixstring bleibt die Datei liegen) |
 | B-Nachweis | `…::test_detach_preserves_config_with_foreign_table_alongside_mcp` | AK3-Hook + AK3-MCP + `[user.custom]` → `preserved_foreign_files`, Datei bleibt | Schritt 3 des Praedikats |
 | B-Nachweis | `…::test_detach_preserves_ak3_only_config_with_user_comment` | AK3-Inhalt + zusaetzlicher Kommentar → erhalten | **Schritt 5** des Praedikats. Ohne ihn wird dieser Test rot — das ist der Test, der die Nicht-Schwaechung von `preserved_foreign_files` beweist. |
+| B-Nachweis | `integration/installer/test_codex_mcp_registration.py::test_static_resource_deploy_does_not_reintroduce_a_bundle_config` | nach zwei Laeufen gibt es keine Bundle-Kopie, die die MCP-Tabelle ueberschreibt; `bundles/target_project/.codex/` enthaelt keine `config.toml` | die Bundle-Loeschung (§4.2) — mit der Datei flattert die Registrierung zwischen den Laeufen |
 | Pin | `contract/packaging/test_packaging_pins.py::test_tomlkit_pinned_exactly` | `"tomlkit==0.15.1" in dependencies` | den Pin |
 
 **Mocks/Stubs:** genau einer — der simulierte `OSError` fuer den zweiten Write
@@ -1023,15 +1220,63 @@ Write geht ueber **eine** benannte Funktion, die im Test per `monkeypatch` beim
 ersten Aufruf `OSError` wirft. Kein Fake fuer MCP, keinen fuer das Dateisystem
 sonst, keinen fuer die Config.
 
-**Der Conformance-Probe-Server in den Tests:** die bestehende CP-10-Suite nutzt
-`tests/fixtures/minimal_mcp_server.py` als echten, kleinen MCP-Server
-(`test_cp10_mcp_conformance.py:44-45, 74-78`). Der produktive
-story-knowledge-base-Kommandowert ist heute **kein** Server (§1.5) — solange
-Q-0 nicht entschieden ist, koennen die Tests AC 1/AC 4 nur mit diesem
-substituierten Kommando fahren. Das ist ein echter Beweis fuer die
-CP-10-Mechanik, aber **kein** Beweis, dass der produktiv registrierte Server
-startet. Das wird im Bericht getrennt ausgewiesen und **nicht** als AC-1-Beweis
-verkauft.
+### 8.2a Der Beweis, dass der registrierte Eintrag wirklich startet
+
+Das ist die Luecke, die der Beinahe-Fehler aus §1.5/§1.6 sichtbar gemacht hat:
+„der Eintrag ist wohlgeformt" und „der Eintrag startet einen Server" sind zwei
+verschiedene Aussagen, und AC 1/AC 4 behaupten die zweite. Drei Stufen, jede mit
+klar begrenzter Aussagekraft:
+
+**T1 — `tests/unit/installer/test_registered_entry_starts.py::test_rendered_entry_reaches_the_transport_layer`
+(offline, revert-rot, der wichtigste Test).**
+Der Test rendert den echten Spec fuer ein `tmp_path`-Projekt, startet
+`[<command>, *<args>]` als Subprozess mit **genau** der gerenderten `env`, gegen
+einen absichtlich toten Weaviate-Endpunkt, und behauptet:
+
+- Exit-Code 1,
+- die JSON-`detail` ist die **Konnektivitaets**-Meldung
+  (`Could not connect to Weaviate at …`), **nicht** eine `env`-Meldung.
+
+Das beweist zwei Dinge auf einmal, ohne eine Key-Liste nachzuerzaehlen:
+(a) das registrierte Modul ist ausfuehrbar — mit `…mcp_server` endet der Prozess
+mit Exit **0** und leerer Ausgabe (gemessen), der Test wird also rot; und (b) die
+`env` ist **vollstaendig** — fehlte ein Pflicht-Key, waere die `detail` die
+jeweilige `env`-Meldung (alle vier gemessen, §1.6a), der Test wird rot.
+Damit bezieht der Test seine Wahrheit aus dem Prozess selbst und kann nicht
+gegen dessen echte Anforderungen driften — anders als jede gepflegte Konstanten-
+liste. Er ist revert-rot gegen die Modulkorrektur **und** gegen jeden
+weggelassenen `env`-Key.
+
+**T2 — `…::test_missing_env_key_matrix` (offline).** Fuenf Faelle, je ein Key
+weggelassen; erwartet werden die gemessenen `detail`-Strings aus der Tabelle in
+§1.6a. Der `AGENTKIT_STORIES_DIR`-Fall ist der Gegenprobe-Fall: er kommt an der
+`env`-Validierung vorbei (Default) und scheitert an der Konnektivitaet — das
+belegt, dass die vier anderen echte Pflicht-Keys sind und nicht nur mitgeschrieben
+werden.
+
+**T3 — `tests/e2e/installer/test_dual_registration_live.py` (opt-in, `-m e2e`).**
+Vollstaendiger CP-10-Register-Lauf gegen eine **laufende** Weaviate: die
+Conformance-Probe besteht mit dem produktiven Kommando, danach tragen beide
+Dateien den Eintrag. Das ist die einzige Stufe, die AC 1 mit dem produktiven
+Kommando end-to-end zeigt. Sie laeuft nie in der Standard-CI (CLAUDE.md:
+„`tests/e2e/` nur opt-in") und deckt sich mit der Story-Abgrenzung „E2E gegen
+echte Infrastruktur — nachgelagert mit dem PO".
+
+**Was in der CI daraus folgt, ehrlich formuliert.** Weil `compose_runtime` vor
+dem stdio-Serve verbindet und Collections anlegt (§1.6b), kann die
+Conformance-Probe **ohne** laufende Weaviate nicht bestehen. Die CI beweist
+deshalb:
+
+- die CP-10-Mechanik (Probe vor Write, null Writes bei Fehlschlag, Zwei-Dateien-
+  Semantik) mit dem echten `tests/fixtures/minimal_mcp_server.py` als
+  Kommando-Substitut (das etablierte Muster, `test_cp10_mcp_conformance.py:44-45,
+  74-78`),
+- die Startbarkeit und `env`-Vollstaendigkeit des **produktiven** Eintrags ueber
+  T1/T2 offline,
+- das Zusammenspiel beider erst in T3.
+
+Im Bericht steht das getrennt. Ich werde nicht behaupten, die CI beweise AC 1
+mit dem produktiven Kommando.
 
 ### 8.3 Wie gemessen wird
 
@@ -1060,7 +1305,8 @@ Ehrlich vorab benannt, damit im Review keine „stille Testanpassung" auffaellt:
 | `unit/installer/test_codex_settings.py:23-32` | `write_codex_settings` ist weiter idempotent (zweiter Aufruf `None`) | bleibt gruen; ergaenzt um die neuen Containment-Faelle |
 | `integration/installer/test_detach.py:630-641` | byte-gleiche AK3-Datei wird weiter entfernt | bleibt gruen (AK3_ONLY) |
 | `integration/installer/test_detach.py:643-658` | fremde Tabelle wird weiter erhalten | bleibt gruen (MIXED) |
-| `contract/scaffold_snapshots/test_install_scaffold.py:127`, `integration/project_ops/install_fresh/test_install_fresh.py:72`, `unit/installer/test_multi_harness_installer.py:94-162`, `unit/cli/test_main.py:793`, `integration/installer/test_register_project.py:205/260/279` | pruefen Existenz/Abwesenheit von `.codex/config.toml` und `"agentkit-hook-codex"` im Inhalt | bleiben gruen; der Hook-Eintrag bleibt inhaltlich derselbe |
+| `contract/scaffold_snapshots/test_install_scaffold.py:127`, `integration/project_ops/install_fresh/test_install_fresh.py:72`, `unit/installer/test_multi_harness_installer.py:94-162`, `unit/cli/test_main.py:793`, `integration/installer/test_register_project.py:205/260/279` | pruefen Existenz/Abwesenheit von `.codex/config.toml` und `"agentkit-hook-codex"` im Inhalt | bleiben gruen; der Hook-Eintrag bleibt inhaltlich derselbe, nur der Erzeuger wechselt von der Bundle-Kopie zum Writer (§4.2) |
+| **Datei entfaellt:** `src/agentkit/bundles/target_project/.codex/config.toml` | dritter Writer (§1.2/§4.2) | Loeschung. Kein Test pinnt sie (gemessen); die Existenzzusicherung nach dem Install bleibt durch `write_codex_settings` erfuellt |
 
 Der ARE-`.mcp.json`-Eintrag bekommt durch die Typisierung erstmals ein `cwd`
 (heute fehlt es, `cp10.py:157-162`). Das ist eine sichtbare Inhaltsaenderung an
@@ -1071,50 +1317,36 @@ ARE-Server **auch** in `.codex/config.toml` gespiegelt wird, ist offen: **§9 Q-
 
 ## 9. Risiken und offene Fragen
 
-### Q-0 — BLOCKER: der registrierte Server ist nicht startbar
+### Q-0 — erledigt, widerlegt, keine Frage mehr offen
 
-**Sachlage (gemessen, §1.5):** `agentkit.backend.vectordb.mcp_server` hat keinen
-`__main__`/`main()`, es gibt kein Console-Script, und
-`python -m agentkit.backend.vectordb.mcp_server` endet sofort mit Exit 0. Der
-AG3-164-Conformance-Check klassifiziert das als `mcp_process_exited`. Damit ist
-AC 1 **produktiv unerfuellbar**, egal wie gut AG3-175 wird: CP 10 liefert fuer
-jedes VektorDB-Projekt `FAILED`, und es entsteht kein Eintrag.
+Die Blocker-Frage der Revision 1 ist **gegenstandslos**: der Einstiegspunkt
+existiert in `engine.py` (§1.5). Der reale Defekt — CP 10 registriert das
+Bibliotheksmodul statt `engine` — liegt in `command`/`args` des Specs, den
+AG3-175 selbst rendert, und ist damit Scope, nicht Scope-Ausweitung. Keine
+PO-Entscheidung, keine neue Story. AC 1 ist erreichbar (produktiv mit laufender
+Weaviate, §1.6b).
 
-Nach der Severity-Semantik ist das ein **ERROR**, kein Warning: es blockiert
-jeden Install mit aktivierter VektorDB, und AG3-176 macht die VektorDB zur
-Pflicht.
+### 9.0 Re-Audit aller uebrigen Absenz-Behauptungen dieses Plans
 
-1. **Was fehlt:** ein startbarer stdio-Einstiegspunkt fuer den
-   story-knowledge-base-MCP-Server — konkret ein `main()`, das die
-   `RuntimeBinding` aus `os.environ` baut, den `RetrievalPort` verdrahtet und
-   `build_mcp_server(...).run()` ueber stdio faehrt, erreichbar entweder als
-   `python -m agentkit.backend.vectordb.mcp_server` (`__main__`-Block, damit der
-   in FK-50 §50.3 CP 10 dokumentierte Kommandowert stimmt) oder als
-   Console-Script. Fuer Conformance genuegt `initialize` + `tools/list`; eine
-   laufende Weaviate-Instanz ist dafuer **nicht** noetig, wenn der Port lazy
-   verbunden wird.
-2. **Warum es die richtige Wahl ist:** ohne diesen Einstiegspunkt liefert
-   AG3-175 einen Vertrag, den niemand einloesen kann — genau der Defekttyp
-   („toter Eintrag, Erfolg gemeldet"), den AG3-164 als Klasse geschlossen hat.
-   Mit ihm ist AC 1 erstmals mit dem **produktiven** Kommando beweisbar statt
-   nur mit einem Testserver.
-3. **Nachteile, ehrlich:** Serverbau ist per Story-Abgrenzung **out of scope**
-   („Der Server, seine Tools, Ingest, Corpus (AG3-174)"). Die Aenderung in
-   AG3-175 zu machen weitet den Scope und die eine Reviewrunde muss sie
-   mittragen. Sie in eine andere Story zu geben laesst AG3-175 mit einem
-   unerfuellbaren AC 1 landen. Ein `sys.executable` statt `"python"` waere
-   zusaetzlich zu klaeren (der Zielprojekt-`python` muss `agentkit` sehen), das
-   beruehrt aber FK-50s dokumentierten Kommandowert.
-4. **Frage:** Wie soll verfahren werden — (a) AG3-175 darf den minimalen
-   stdio-Einstiegspunkt mitliefern, (b) es wird als Defekt an AG3-174/eine
-   Mikro-Story zurueckgegeben und AG3-175 landet mit einem ausdruecklich
-   eingeschraenkten AC 1 (CP-10-Mechanik gegen `tests/fixtures/minimal_mcp_server.py`
-   bewiesen, produktive Startbarkeit offen und im Bericht als ERROR vermerkt),
-   oder (c) etwas anderes?
+Der Fehler in Q-0 war methodisch: aus der Absenz **in einer Datei** auf die
+Absenz **im Paket** geschlossen. Ich habe daraufhin jede weitere
+Absenz-Behauptung des Plans mit einer Paket-/Repo-weiten Suche nachgeprueft.
 
-Bis zur Antwort ist der Kommandowert im Plan **unveraendert**
-(`"python"`, `["-m", "agentkit.backend.vectordb.mcp_server"]`) und liegt an
-genau einer Konstantenstelle in `installer/mcp_registration.py`.
+| Behauptung | Nachpruefung | Ergebnis |
+|---|---|---|
+| „Der Bundle-Doppelgaenger wird nie deployt" | `grep -rn "target_project" src/agentkit/backend/` → **zweiter** Pfad `runner.py:1138/1148` gefunden, `_deploy_static_resource_files` (`runner.py:543-558`) kopiert **Dateien** | **WIDERLEGT.** Ich hatte nur `_deploy_directory_structure` gelesen und aus seinem `if item.is_dir()` auf „keine Dateien" geschlossen — obwohl ein Kommentar in `models.py:194` von einem deployten Sonar-Profil sprach, also von genau so einer Dateikopie. Korrigiert in §1.2/§4.2. |
+| „AK3 liest `CODEX_HOME` nirgends" | `grep -rn "CODEX_HOME" src/ tools/` → 0 Treffer | bestaetigt |
+| „`remove_codex_settings` hat keinen Produktionsaufrufer" | `grep -rn "remove_codex_settings" src/ tests/` → nur Definition, `__all__`, ein Unit-Test | bestaetigt |
+| „`server_command_from_mcp_entry` hat danach keinen Produktionsaufrufer" | `grep -rn … src/ tests/` → produktiv nur `cp10.py:44/353`, sonst `__all__` + ein Test | bestaetigt |
+| „`paths.py` hat keinen Containment-Helfer" | repo-weite Suche nach `resolve_within_root\|within_root\|is_relative_to\|containment` | bestaetigt; die Alternativen (`ProjectBinding.resolve_within_root`, `skills/links.is_directory_link`, `decommission.py:256`) sind in §6.3 benannt und werden wiederverwendet |
+| „Kein Test fahrt CP 10 im Register-Modus mit dem echten vectordb-Eintrag" | `grep -rn "features_vectordb"` in `tests/` (6 Treffer, alle geprueft) **plus** Suche nach `vectordb` in Test-YAML-Fixtures (0 Treffer) **plus** `conftest.py:85/111` als einziger Setzweg | bestaetigt |
+| „Kein TOML-Writer im Projekt" | `pip list`, plus repo-weite Suche nach `toml`-Importen (einziger Treffer: `test_packaging_pins.py:5`) | bestaetigt |
+| „Kein Test pinnt die Bundle-`config.toml`" | `grep -rn "target_project.*codex\|codex.*target_project" tests/` → 0 Treffer | bestaetigt |
+| „`GH_REPO` wird vom Server nicht gelesen" | `grep -rn "GH_REPO" src/agentkit/` → 0 Treffer | bestaetigt |
+
+Ein Rest, der ausdruecklich **nicht** durch Absenz belegt ist: dass `tomlkit`
+die einzige tragfaehige Writer-Wahl ist (§5) stuetzt sich auf positive
+Messungen an beiden Wheels, nicht auf die Absenz von Alternativen.
 
 ### Q-1 — Konzeptaenderungen, die dieser Plan braucht (nicht vorab autorisiert)
 
@@ -1132,14 +1364,17 @@ Der Plan braucht drei kleine, klar begrenzte Nachzuege:
   **Spiegeldatei** `.codex/config.toml` gilt (FK-76 §76.5.4 erklaert dieselben
   Regeln fuer beide Formate, die FK-50-Tabelle nennt nur `.mcp.json`).
 - **(c) FK-50 §50.3 CP 10 Beispiel-JSON** — der `story-knowledge-base`-Block im
-  Konzept zeigt heute **kein** `env` (FK-50 §50.3 CP 10, Beispielblock). AC 2
-  verlangt `env`. Das Beispiel muesste `env`/`cwd` zeigen, sonst behauptet das
-  Konzept weiter den heutigen Defektzustand.
+  Konzept zeigt heute **kein** `env`, **kein** `cwd` und nennt
+  `"args": ["-m", "agentkit.backend.vectordb.mcp_server"]`, also das **falsche,
+  nicht ausfuehrbare** Modul (§1.5). Das Beispiel muesste `env` (5 Keys), `cwd`
+  und `…vectordb.engine` zeigen, sonst schreibt das Konzept den heutigen
+  Defektzustand fest.
 
 **Frage:** Sind (a), (b), (c) als begleitender Nachzug freigegeben? Falls nein,
 liefere ich Code, der von der Konzeptprosa abweicht — das waere ein
 Konzepttreue-Verstoss, den ich nicht eigenmaechtig eingehe. Ich implementiere
-erst nach der Antwort.
+erst nach der Antwort. **(c) haengt inhaltlich mit Q-4 zusammen** und sollte
+gemeinsam entschieden werden: es ist derselbe Sachverhalt in zwei Konzepten.
 
 ### Q-1b — Wird auch der ARE-Server nach Codex gespiegelt?
 
@@ -1160,19 +1395,25 @@ Story-Wortlaut.
 `story-knowledge-base`? Der Umschaltpunkt ist eine Zeile (die Server-Menge, die
 an den Codex-Renderer geht).
 
-### Q-2 — Der inerte Bundle-Doppelgaenger
+### Q-2 — Der Bundle-Doppelgaenger ist ein dritter Writer (keine offene Frage mehr)
 
-`src/agentkit/bundles/target_project/.codex/config.toml` ist byte-identisch zu
-`build_codex_config_toml()`, wird aber nie deployt (`project_structure.py:95-111`
-spiegelt nur Verzeichnisse) und von keinem Test gepinnt. Nach dieser Story
-driftet er weiter (er kennt keine MCP-Tabelle). Optionen: (a) Datei entfernen
-(das Verzeichnis `.codex/` bleibt, es ist das, was der Installer braucht),
-(b) einen Contract-Test hinzufuegen, der Bundle-Inhalt == `build_codex_config_toml()`
-pinnt, (c) unberuehrt lassen.
+In Revision 1 stand hier „inerter Doppelgaenger, aufraeumen oder liegenlassen?".
+Das war falsch: die Datei **wird** deployt (§1.2) und wuerde die MCP-Tabelle bei
+jedem Folgelauf ueberschreiben. Damit ist es keine Aufraeum-Option, sondern eine
+**notwendige Korrektheitsfolge derselben Aenderung** — genau die Kategorie, die
+die Scope-Entscheidung des Orchestrators fuer die zwei gekoppelten Aufrufstellen
+bereits als in-Scope eingeordnet hat, nur an einer dritten Stelle, die im
+Briefing nicht stand.
 
-Empfehlung (a) oder (b). Das ist eine SSOT-Frage im unmittelbaren Umfeld dieser
-Story, aber nicht ihr Auftrag. **Frage:** welche Option — oder ausdruecklich
-liegenlassen?
+Der Plan enthaelt deshalb die Loeschung von
+`src/agentkit/bundles/target_project/.codex/config.toml` (§4.2, mit vier
+Belegen, dass nichts daran haengt). Kein Sonderfall in
+`_deploy_static_resource_files`, weil ein Workaround die zweite Quelle
+konservieren wuerde.
+
+**Kein Entscheidungsbedarf** — aber ausdruecklich zur Kenntnis, weil es eine
+Datei ausserhalb der „Betroffene Dateien"-Tabelle der Story beruehrt. Widerspruch
+bitte jetzt, nicht im Review.
 
 ### Q-3 — Zwei Aufraeumpunkte im Umfeld, ausdruecklich nicht eingeplant
 
@@ -1190,21 +1431,31 @@ Ich plane fuer **keinen** dieser Punkte eine Aenderung ein (ausser dem
 Durchreichen von `hook_command` in den Adapter, §4.1). **Frage:** stehenlassen,
 oder soll einer davon mit? Ich frage, weil ZERO DEBT sonst gegen mich zeigt.
 
-### Q-4 — FK-13 §13.4.3 nennt andere `env`-Keys als der Code
+### Q-4 — Vollstaendiges Delta zwischen dem deklarierten und dem echten `env`-Vertrag
 
-FK-13 §13.4.3 zeigt `PROJECT_ID`, `WEAVIATE_HOST`, `WEAVIATE_HTTP_PORT`,
-`WEAVIATE_GRPC_PORT`, `GH_REPO`. `runtime_binding.REQUIRED_ENV_KEYS:33-37`
-fordert `PROJECT_ID`, `WEAVIATE_HTTP_ENDPOINT`, `WEAVIATE_GRPC_ENDPOINT` — und
-das ist die von D2 ratifizierte Semantik („Endpunkt", nicht Host+Port). AG3-175
-muss die Keys schreiben, die der **Konsument** verlangt; sonst ist der
-registrierte Server per Konstruktion kaputt. Damit weicht der Code vom
-FK-13-Beispiel ab.
+Der PO will die komplette Liste, nicht eine Teilmenge. FK-13 §13.4.3 deklariert
+(gemessen, Zeilen 255-273) und der Prozess verlangt (gemessen, §1.6a):
 
-Ich entscheide das **nicht**: der Code folgt `REQUIRED_ENV_KEYS` (alles andere
-waere ein garantiert nicht startender Server), aber die Konzeptkorrektur an
-FK-13 §13.4.3 ist eine weitere Konzeptaenderung. **Frage:** gehoert sie zu Q-1
-dazu, oder ist FK-13 fuer diese Story tabu und die Divergenz bleibt als
-benannter offener Punkt im Bericht stehen?
+| # | Element | FK-13 §13.4.3 deklariert | Prozess verlangt wirklich | Delta |
+|---|---|---|---|---|
+| 1 | `PROJECT_ID` | ja | ja | **stimmt** |
+| 2 | Weaviate-Adresse | `WEAVIATE_HOST`, `WEAVIATE_HTTP_PORT`, `WEAVIATE_GRPC_PORT` (3 Keys) | `WEAVIATE_HTTP_ENDPOINT`, `WEAVIATE_GRPC_ENDPOINT` (2 Keys) | **ersetzt** — D2-Semantik „Endpunkt ist ein Konfigurationswert" |
+| 3 | `GH_REPO` | ja | **nein** — der String kommt in `src/agentkit/` nirgends vor (gemessen) | **entfaellt** |
+| 4 | `AGENTKIT_CONCEPTS_DIR` | **fehlt vollstaendig** | **Pflicht, ohne Default** (`engine.py:1272-1285`) | **fehlt im Konzept** — der wichtigste Punkt |
+| 5 | `AGENTKIT_STORIES_DIR` | **fehlt vollstaendig** | optional (Default `"stories"`, `cwd`-relativ) | **fehlt im Konzept** |
+| 6 | `args` | `["{agentkit_path}/vectordb/mcp_server.py"]` — Skriptpfad **und** Bibliotheksmodul | `["-m", "agentkit.backend.vectordb.engine"]` | **zweifach falsch** (Aufrufform + Modul) |
+| 7 | `cwd` | fehlt | Containment-Grenze, von FK-76 §76.5.4 fuer die Codex-Tabelle gefordert und von der Story fuer beide Formate | **fehlt im Konzept** |
+
+`AGENTKIT_CONCEPTS_DIR`/`AGENTKIT_STORIES_DIR` kommen in FK-13 **an keiner
+Stelle** vor (gemessen: die Suche findet nur `concepts_dir` als Config-Begriff in
+§13.9 und §13.13). Und dasselbe Modul-Problem (#6) steht ein zweites Mal in
+FK-50 §50.3 CP 10 — das ist Q-1(c).
+
+Ich entscheide das **nicht**. Der Code folgt zwingend dem Konsumenten (alles
+andere ist ein garantiert nicht startender Server); die Konzeptkorrektur ist
+PO-Sache. **Frage:** wird FK-13 §13.4.3 zusammen mit Q-1 nachgezogen (dann
+vollstaendig entlang der Tabelle oben), oder ist FK-13 fuer diese Story tabu und
+das Delta bleibt als benannter offener Punkt im Bericht?
 
 ### Q-5 — Additive Erweiterung des AG3-174-Resolvers
 
@@ -1228,21 +1479,31 @@ eine zweite Wahrheit und damit schlechter.
 | `ProjectConfig.model_validate` auf der CP-5-Mapping koennte in einer Sonderkonfiguration scheitern | gemessen gruen fuer den Standard-Scaffold; Fehlschlag ist ein benannter `FAILED`/`configuration_invalid`, kein Absturz |
 | Der Conformance-Check startet echte Prozesse; unter `-n 4` koennen Tests dadurch langsam werden | wie die bestehende CP-10-Suite: kleiner Fixture-Server, `--dist loadfile` haelt eine Datei auf einem Worker |
 | `_reject_localhost` verbietet `localhost:50051`/`127.0.0.1:50051`, waehrend FK-13 den lokalen gRPC-Port `:50051` nennt | ratifizierte D2-Semantik, wird **nicht** angefasst; lokaler Betrieb muss den Host anders schreiben. Ein Test dokumentiert die Ablehnung, damit sie nicht kuenftig als Bug „repariert" wird. |
+| AC 1 setzt in einem echten Lauf eine **laufende Weaviate** voraus, weil `compose_runtime` vor dem stdio-Serve verbindet (§1.6b) | keine Vertuschung: dreistufiger Beweis (§8.2a), T3 opt-in, und im Bericht steht getrennt, was die CI traegt und was nicht. Deckt sich mit AG3-176 Scope 1 („setzt die DB voraus") und der Story-Abgrenzung zu E2E. |
+| Der Prozess braucht ausser unserer `env` auch Basis-Variablen (`PATH`, `USERPROFILE`, …) — meine erste Messung mit `env -i` scheiterte an „Could not determine home directory" | kein Produktionsrisiko: `build_minimal_env` (`mcp_conformance/process.py:67-77`) legt die Plattform-Basiskeys (`WIN_BASE_ENV_KEYS`, u. a. `USERPROFILE`/`HOMEDRIVE`/`APPDATA`/`PATH`) unter unsere `env`. Der Testaufbau in §8.2a erbt die Basis-Env bewusst und setzt nur unsere fuenf Keys. |
 | Coverage ≥ 85 % | wird mit den CI-Kommandos aus §8.3 explizit gefahren und mit Ausgabe belegt; keine Zahl ohne `--cov`-Lauf |
 
 ---
 
 ## 10. Reihenfolge der Umsetzung (nach Freigabe)
 
-1. `core_types/mcp_server_registration.py` + Unit-Tests (reine Logik, keine
-   Abhaengigkeiten).
-2. `harness_adapters/codex/config_toml.py` + Striktheits-/Erhaltungsmatrix
-   (nach Entscheidung D-1 zur Dependency).
-3. `config/models.py` Endpunktfelder + `runner.py` `InstallConfig`/CP-5-Stanza.
-4. `installer/mcp_registration.py` (Spec → Desired → Render → Probe → Verify).
-5. `codex_settings.py` auf den Adapter umstellen; `detach.py`-Praedikat.
+1. `core_types/mcp_server_registration.py` (inkl. `REGISTERED_ENV_KEYS`,
+   `AK3_MCP_SERVER_NAMES`) + Unit-Tests — reine Logik, keine Abhaengigkeiten.
+2. `installer/mcp_registration.py`: Kommando-/Args-Korrektur auf
+   `…vectordb.engine`, fuenf `env`-Keys, Spec → Desired → Render → Probe →
+   Verify. Dazu **sofort** `test_registered_entry_starts.py` (§8.2a T1/T2) —
+   dieser Test kommt vor allem anderen, weil er der Test ist, der den
+   Beinahe-Fehler dieser Runde gefunden haette.
+3. `harness_adapters/codex/config_toml.py` + Striktheits-/Erhaltungsmatrix
+   (**haengt an D-1**).
+4. `config/models.py` Endpunktfelder + `runner.py`
+   `InstallConfig`/CP-5-Stanza.
+5. `codex_settings.py` auf den Adapter umstellen; Bundle-Datei loeschen;
+   `detach.py`-Praedikat.
 6. `cp10.py` Zwei-Dateien-Koordination + Reasons.
 7. Integration/Contract-Tests, Revert-Proben, Coverage-Lauf, `mypy`, `ruff`.
 
-Schritt 3 und 6 haengen an Q-0/Q-1; Schritt 2 an D-1. Vor diesen Antworten
-beginne ich nicht.
+Schritt 3 haengt an **D-1** (tomlkit, liegt beim PO). Die Konzept-Nachzuege
+(Q-1, Q-4) sind Dokumentationsschritte am Ende und blockieren die Schritte 1-7
+nicht, muessen aber vor „fertig" entschieden sein. Ich beginne erst mit der
+Freigabe des Orchestrators.
