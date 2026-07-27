@@ -1564,8 +1564,24 @@ nicht, muessen aber vor „fertig" entschieden sein.
 |---|---|---|
 | 1 — `core_types/mcp_server_registration.py` | **fertig** (Commit `2f9ab00a`, erweitert um die Before-Image-Bindung) | 47 Tests in `tests/unit/core_types/test_mcp_server_registration.py` |
 | 2 — `installer/mcp_registration.py` + Startbeweis | **fertig** (Commit `2720a51b`) | 30 Tests in `tests/unit/installer/test_mcp_registration.py`, 8 in `tests/unit/installer/test_registered_entry_starts.py`; Revert-Probe durchgefuehrt (7 rot), Konstante wiederhergestellt und erneut gruen |
-| 3 — Codex-TOML-Writer | **blockiert auf D-1** | — |
-| 4-7 | offen | — |
+| 3 — Codex-TOML-Writer | **fertig** (Commit `7b8e6d53`, D-1 vom PO freigegeben) | 42 Tests in `tests/unit/harness_client/test_codex_config_toml.py`; 13/13 tomlkit-Garantien gegen die installierte 0.15.1 nachgemessen |
+| 4 — Endpunkt-Config | **fertig** (Commit `74af1adc`) | Shape-Negativmatrix + CP-5-Stanza |
+| 5 — ein Writer, Bundle-Loeschung, Detach-Praedikat | **fertig** (Commit `74af1adc`) | 5 neue Detach-Tests |
+| 6 — CP 10 Zwei-Dateien-Ordnung | **fertig** (Commit `74af1adc`) | 23 Tests in `test_cp10_dual_registration.py` |
+| 7 — AC-Tests, Revert-Proben, Coverage | **fertig** | 7 Revert-Proben durchgefuehrt (alle RED), Coverage 91.12 % |
+
+Abschlusslauf: `pytest tests/unit` → **8583 passed, 14 skipped**;
+`pytest tests/contract tests/integration -m "not requires_gh"` → **2146 passed**;
+**Total coverage 91.12 %** (Schwelle 85 % erreicht); `ruff check src tests` und
+`mypy src` (1001 Dateien) sauber. Der Abschlussbericht mit AC-Nachweistabelle,
+Revert-Proben, dem Konzept-Delta als Ratifizierungsvorlage (Q-1/Q-4) und der
+Q-1b-Entscheidung ging als Ergebnisbericht an den Orchestrator.
+
+**Zwei Plan-Aussagen wurden vom Code widerlegt** (beide im Bericht ausgewiesen):
+Component-Groups tragen doch eine Exposure-Restriktion (`HarnessAdaptersCodex` ist
+`internal`), weshalb der Writer nach `harness_adapters/codex_config_toml.py`
+neben `settings_writer.py` wanderte statt unter `codex/` zu liegen; und der
+Architektur-Checker laeuft doch gegen das echte Repo.
 
 Gemessen am Ende von Schritt 2:
 `pytest tests/unit/installer tests/unit/core_types tests/unit/vectordb -q` →

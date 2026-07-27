@@ -39,6 +39,26 @@ def test_tokenizers_pinned_exactly() -> None:
     assert "tokenizers==0.21.0" in deps, "tokenizers pinned ==0.21.0 (PO decision D5)"
 
 
+def test_tomlkit_pinned_exactly() -> None:
+    """AG3-175 decision D-1 (PO-approved): the TOML writer is pinned exactly.
+
+    ``tomllib`` (stdlib) reads only; the semantic merge into a target project's
+    ``.codex/config.toml`` needs a round-trip writer that preserves FOREIGN
+    comments and formatting. Same exact-pin discipline as PO decision D5.
+    """
+    deps = _project_table().get("dependencies")
+    assert isinstance(deps, list)
+    assert "tomlkit==0.15.1" in deps, "tomlkit pinned ==0.15.1 (AG3-175 decision D-1)"
+
+
+def test_no_second_toml_writer_is_declared() -> None:
+    """SINGLE SOURCE OF TRUTH: exactly one TOML writer in the dependency set."""
+    deps = _project_table().get("dependencies")
+    assert isinstance(deps, list)
+    writers = [d for d in deps if isinstance(d, str) and d.startswith(("tomli-w", "tomli_w", "toml=="))]
+    assert writers == [], f"a second TOML writer is declared: {writers}"
+
+
 def test_weaviate_no_longer_optional_extra() -> None:
     optional = _project_table().get("optional-dependencies")
     assert isinstance(optional, dict)

@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from tests.unit.installer.checkpoint_engine.conftest import (
     InMemoryRegistrationRepo,
     make_config,
 )
 
+from agentkit.backend.core_types.mcp_server_registration import DesiredMcpServer
 from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
 from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
@@ -70,8 +72,17 @@ def test_integration_cp10_registers_only_after_real_handshake(
         "args": [str(_MINIMAL_SERVER)],
     }
 
-    def _desired(_ctx: object) -> dict[str, object]:
-        return {"integration-mcp": entry}
+    def _desired(ctx: Any) -> tuple[DesiredMcpServer, ...]:
+        # AG3-175: the desired set is typed so one spec is probed AND written.
+        return (
+            DesiredMcpServer(
+                name="integration-mcp",
+                command=str(entry["command"]),
+                args=tuple(str(a) for a in entry["args"]),
+                cwd=str(ctx.project_root),
+                env=(),
+            ),
+        )
 
     monkeypatch.setattr(cp10_mod, "_desired_mcp_servers", _desired)  # type: ignore[attr-defined]
     config = make_config(
@@ -84,4 +95,8 @@ def test_integration_cp10_registers_only_after_real_handshake(
     result = cp10_mcp_registration(ctx)
     assert result.status is CheckpointStatus.CREATED
     written = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
-    assert written["mcpServers"]["integration-mcp"] == entry
+    assert written["mcpServers"]["integration-mcp"] == {
+        **entry,
+        "cwd": str(tmp_path),
+        "env": {},
+    }
