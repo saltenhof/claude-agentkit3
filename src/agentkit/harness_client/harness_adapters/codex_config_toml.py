@@ -328,16 +328,34 @@ def classify_ownership(
     if foreign_top or foreign_hooks or foreign_servers or not hook_is_ak3:
         return CodexConfigOwnership.MIXED
 
-    # Final gate: byte-compare against the canonical rendering of exactly the AK3
+    # Final gate: compare against the canonical rendering of exactly the AK3
     # content found. This is what keeps a comment-only user edit PRESERVED — a
     # value-based predicate cannot see a comment, and deleting such a file would
     # weaken the preserved_foreign_files guarantee.
     canonical = render_canonical_codex_config(
         hook_command=hook_command, server_tables=ak3_servers
     )
-    if raw == canonical.encode("utf-8"):
+    if _normalize_newlines(raw) == _normalize_newlines(canonical.encode("utf-8")):
         return CodexConfigOwnership.AK3_ONLY
     return CodexConfigOwnership.MIXED
+
+
+def _normalize_newlines(content: bytes) -> bytes:
+    """Return ``content`` with CRLF/CR line endings normalised to LF.
+
+    The ownership gate compares bytes, but a LINE ENDING is an encoding artifact
+    of the same content, not foreign content. Without this normalisation a
+    ``.codex/config.toml`` stored with CRLF — by a Windows editor, by
+    ``core.autocrlf``, or by AK3 itself before this story pinned ``newline=""`` —
+    would never match its canonical rendering, so detach would classify a file AK3
+    wrote ITSELF as foreign and leave it behind. That is the same defect class as
+    the fixed-string byte comparison this predicate replaces.
+
+    Everything the gate must still catch survives normalisation: an added comment,
+    extra blank lines, reordered keys and unknown fields are all differences in
+    content, not in line endings.
+    """
+    return content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
 
 def _server_to_table_mapping(server: DesiredMcpServer) -> dict[str, object]:
