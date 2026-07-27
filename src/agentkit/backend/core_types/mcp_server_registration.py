@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
 #: MCP server key of the FK-13 story-knowledge-base server (FK-50 §50.3 CP 10).
 STORY_KNOWLEDGE_BASE_SERVER: str = "story-knowledge-base"
@@ -236,18 +236,43 @@ class DesiredMcpServer:
         }
 
 
+def before_image_fingerprint(content: bytes | None) -> str | None:
+    """Return the digest of a before-image file, or ``None`` when it was absent.
+
+    The before-image is represented by a digest rather than by its raw bytes:
+    an existing harness config may be invalid UTF-8 (which is itself a rejection
+    case), so it cannot be embedded in a JSON payload verbatim. ``None`` is a
+    genuine state — "the file did not exist" — and must stay distinguishable
+    from "the file existed and was empty", because a rollback has to DELETE in
+    the first case and restore empty content in the second.
+
+    Args:
+        content: The file's bytes as read before any write, or ``None`` if the
+            file did not exist.
+
+    Returns:
+        The hex SHA-256 digest, or ``None`` for an absent file.
+    """
+    if content is None:
+        return None
+    return hashlib.sha256(content).hexdigest()
+
+
 def canonical_registration_payload(
     servers: Sequence[DesiredMcpServer],
     *,
     mcp_json_text: str,
     codex_toml_text: str,
+    before_image: Mapping[str, str | None] | None = None,
 ) -> str:
     """Return the canonical serialisation that the registration digest covers.
 
-    The payload spans BOTH the server specs and the two fully rendered texts.
-    Covering the texts as well is what closes the gap "probed object X, but
-    wrote a text rendered from object Y": the digest can only match if specs and
-    rendered texts belong together.
+    The payload spans the server specs, the two fully rendered texts AND the
+    before-image fingerprints. Covering the texts closes the gap "probed object
+    X, but wrote a text rendered from object Y". Covering the before-image is
+    what makes it a *bound* before-image: a rollback cannot restore the content
+    of another file or another run, because specs, rendered texts and
+    before-image form one digest-protected unit.
 
     Determinism: servers are sorted by name, env pairs are sorted by key, and
     ``json.dumps`` runs with ``sort_keys=True`` and fixed separators, so the
@@ -257,6 +282,8 @@ def canonical_registration_payload(
         servers: The desired servers (any order; sorted internally).
         mcp_json_text: The fully rendered ``.mcp.json`` content.
         codex_toml_text: The fully rendered ``.codex/config.toml`` content.
+        before_image: Mapping of artifact name to before-image fingerprint (see
+            :func:`before_image_fingerprint`). ``None`` means "not bound".
 
     Returns:
         The canonical JSON string.
@@ -276,6 +303,7 @@ def canonical_registration_payload(
         ],
         "mcp_json_text": mcp_json_text,
         "codex_toml_text": codex_toml_text,
+        "before_image": dict(before_image) if before_image is not None else None,
     }
     return json.dumps(
         payload,
@@ -291,6 +319,7 @@ def registration_digest(
     *,
     mcp_json_text: str,
     codex_toml_text: str,
+    before_image: Mapping[str, str | None] | None = None,
 ) -> str:
     """Return the SHA-256 hex digest of the canonical registration payload.
 
@@ -298,12 +327,16 @@ def registration_digest(
         servers: The desired servers.
         mcp_json_text: The fully rendered ``.mcp.json`` content.
         codex_toml_text: The fully rendered ``.codex/config.toml`` content.
+        before_image: Before-image fingerprints to bind into the digest.
 
     Returns:
-        The hex digest binding specs and rendered texts together.
+        The hex digest binding specs, rendered texts and before-image together.
     """
     canonical = canonical_registration_payload(
-        servers, mcp_json_text=mcp_json_text, codex_toml_text=codex_toml_text
+        servers,
+        mcp_json_text=mcp_json_text,
+        codex_toml_text=codex_toml_text,
+        before_image=before_image,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -316,6 +349,7 @@ __all__ = [
     "STORY_KNOWLEDGE_BASE_SERVER",
     "DesiredMcpServer",
     "McpServerRegistrationError",
+    "before_image_fingerprint",
     "canonical_registration_payload",
     "registration_digest",
 ]
