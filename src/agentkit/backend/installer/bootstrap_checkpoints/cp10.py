@@ -26,7 +26,9 @@ from pydantic import ValidationError
 
 from agentkit.backend.config.models import ProjectConfig
 from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_SERVER_SHAPES,
     ARE_MCP_SERVER,
+    ARE_MCP_SERVER_ENV_KEY,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
     McpServerRegistrationError,
@@ -60,6 +62,7 @@ from agentkit.backend.installer.mcp_registration import (
     ProbedRegistration,
     RegistrationBeforeImage,
     RenderedRegistration,
+    assert_cwd_is_project_root,
     build_registration_env,
     desired_server_from_spec,
     probe_registration,
@@ -195,10 +198,10 @@ def _desired_mcp_servers(
         servers.append(
             DesiredMcpServer(
                 name=ARE_MCP_SERVER,
-                command="agentkit-are-mcp",
-                args=(),
+                command=AK3_SERVER_SHAPES[ARE_MCP_SERVER].command,
+                args=AK3_SERVER_SHAPES[ARE_MCP_SERVER].args,
                 cwd=str(context.project_root),
-                env=(("ARE_MCP_SERVER", mcp_server),),
+                env=((ARE_MCP_SERVER_ENV_KEY, mcp_server),),
             )
         )
     return tuple(sorted(servers, key=lambda item: item.name))
@@ -423,20 +426,12 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
             start=start,
         )
 
-    # Phase 4 — idempotency: both files already carry the rendered content.
-    if not changed:
-        return make_result(
-            nid.CP_10_MCP_REGISTRATION,
-            status=CheckpointStatus.PASS,
-            detail=(
-                f"MCP servers {server_keys} already registered in "
-                f"{mcp_path.name} and {CODEX_DIR}/{CODEX_CONFIG_FILE}."
-            ),
-            reason=REASON_ALREADY_SATISFIED,
-            start=start,
-        )
-
-    # Phase 5 — live conformance immediately before the first write (FK-50 CP 10).
+    # Phase 4 — live conformance. It runs BEFORE the idempotency verdict, not
+    # after: FK-50 §50.3 CP 10 defines the idempotent outcome as "bereits
+    # identische Eintraege -> PASS (Conformance erneut bestanden)", i.e. the PASS
+    # ASSERTS a passed handshake. Returning PASS on a byte-identical registration
+    # without probing would report a server that has stopped working as fine.
+    # Read-only modes returned above, so no process starts in DRY_RUN/VERIFY.
     probed, conformance_failure = probe_registration(rendered)
     if conformance_failure is not None:
         reason, detail = conformance_failure
@@ -448,6 +443,21 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
             start=start,
         )
     assert probed is not None  # conformance_failure is None ⇒ receipt present
+
+    # Phase 5 — idempotency: both files already carry the rendered content AND the
+    # conformance check just passed again.
+    if not changed:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.PASS,
+            detail=(
+                f"MCP servers {server_keys} already registered in "
+                f"{mcp_path.name} and {CODEX_DIR}/{CODEX_CONFIG_FILE}; "
+                "conformance re-verified."
+            ),
+            reason=REASON_ALREADY_SATISFIED,
+            start=start,
+        )
 
     # Phases 6-9 — verify the binding, then write both files.
     return _commit_registration(
@@ -479,6 +489,13 @@ def _render_both(
         ``(rendered, changed)`` where ``changed`` is ``True`` when at least one of
         the two files would differ from its before-image.
     """
+    # Containment invariant BEFORE anything is probed or written (AC 5).
+    try:
+        assert_cwd_is_project_root(desired, context.project_root)
+    except McpServerRegistrationError as exc:
+        raise _RegistrationRejectedError(
+            REASON_CONFIGURATION_INVALID, f"{exc} No file was written."
+        ) from exc
     mcp_path = _target_mcp_json_path(context.project_root)
     existing_root, load_error = _load_target_mcp_json(mcp_path)
     if load_error is not None:
@@ -506,6 +523,11 @@ def _render_both(
         raise _RegistrationRejectedError(
             REASON_MCP_CONFIGURATION_INVALID,
             f"Target .mcp.json cannot be merged: {exc}. No file was written.",
+        ) from exc
+    except McpServerRegistrationError as exc:  # AK3 name foreign-occupied
+        raise _RegistrationRejectedError(
+            REASON_MCP_CONFIGURATION_INVALID,
+            f"{exc} No file was written.",
         ) from exc
 
     rendered = RenderedRegistration(

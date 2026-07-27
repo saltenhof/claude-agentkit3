@@ -364,7 +364,7 @@ RuntimeBinding.from_env(env, command=…, args=…, cwd=str(project_root))   [ei
 |---|---|
 | **neu** `src/agentkit/backend/core_types/mcp_server_registration.py` | BC-neutraler Vertrag: `DesiredMcpServer`, `AK3_MCP_SERVER_NAMES`, `canonical_registration_payload()`, `registration_digest()`, `McpServerRegistrationError`. Importiert **nichts** aus `installer/` oder `harness_client/`. |
 | **neu** `src/agentkit/backend/installer/mcp_registration.py` | Installer-Seite: `desired_server_from_spec()`, `RegistrationBeforeImage`, `RenderedRegistration`, `ProbedRegistration`, `probe_registration()`. Darf `vectordb.runtime_binding` und `installer.mcp_conformance` importieren. |
-| **neu** `src/agentkit/harness_client/harness_adapters/codex/config_toml.py` | FK-76-Format: strikter Loader, `classify_ownership()`, `render_codex_config()`, `CodexConfigError`/`CodexConfigRejection`. Importiert nur `core_types.mcp_server_registration` + `tomllib`/`tomlkit`. Kein Dateisystem. |
+| **neu** `src/agentkit/harness_client/harness_adapters/codex_config_toml.py` | FK-76-Format: strikter Loader, `classify_ownership()`, `render_codex_config()`, `CodexConfigError`/`CodexConfigRejection`. Importiert nur `core_types.mcp_server_registration` + `tomllib`/`tomlkit`. Kein Dateisystem. |
 | **geaendert** `installer/codex_settings.py` | wird duenner Installer-Rand: Pfad + Containment + atomarer Write + Idempotenz-Entscheidung + `created_files`; delegiert Rendering/Klassifikation an den Adapter. |
 | **geaendert** `installer/bootstrap_checkpoints/cp10.py` | typisierte Desired-Menge, eine Probe, Zwei-Dateien-Koordination. |
 | **geaendert** `installer/lifecycle/detach.py` | `_remove_ak3_codex_config` nutzt `classify_ownership` statt Byte-Vergleich. Sonst **nichts**. |
@@ -674,7 +674,7 @@ schreibenden Werte nicht kennt, kein Plan ist, sondern eine Behauptung.
 
 ### 4.1 Heimat und Schnittstelle
 
-`src/agentkit/harness_client/harness_adapters/codex/config_toml.py` — reine
+`src/agentkit/harness_client/harness_adapters/codex_config_toml.py` — reine
 Text-zu-Text-Fachlichkeit, kein Dateisystem (das bleibt Installer-Rand). FK-76
 ist normativer Owner des Formats (§76.5), FK-50 CP 10 des Ob/Wann.
 
@@ -976,7 +976,7 @@ das aber falsch:
    Kommentarluecke).
 3. **Nachteile, ehrlich:** 208 KB und 12 Module statt 14 KB und 2 Module; eine
    reichere API, die man disziplinieren muss (deshalb ARCH-23: genau ein
-   Importpunkt, `codex/config_toml.py`); `tomlkit` ist ein Ein-Maintainer-Projekt
+   Importpunkt, `codex_config_toml.py`); `tomlkit` ist ein Ein-Maintainer-Projekt
    im Poetry-Umfeld — bei Aufgabe muesste man auf `tomli-w` plus einen
    Kommentar-Kompromiss zurueckfallen (der Wechsel betraefe dann genau ein
    Modul). Kein Native-Code, kein Plattformrisiko, keine transitiven Deps.
@@ -1264,12 +1264,25 @@ Weg, den `test_cp10_mcp_conformance.py:105-110` heute schon geht
 | **vorbestehender Defekt** (§4.2.1) | `integration/installer/test_codex_mcp_registration.py::test_user_extended_codex_config_survives_two_install_runs` | nutzererweiterte `.codex/config.toml` (fremde Tabelle **und** Kommentar) ueberlebt zwei vollstaendige Installationslaeufe wertgleich | **beide** Ursachen: die Bundle-Kopie (CP 8 `_deploy_static_resource_files`) **und** den Fixstring-Byte-Vergleich in `write_codex_settings`. Dreht man eine davon zurueck, wird der Test rot. Landet mit Schritt 3+5, weil die Bundle-Loeschung allein nicht genuegt. |
 | Pin | `contract/packaging/test_packaging_pins.py::test_tomlkit_pinned_exactly` | `"tomlkit==0.15.1" in dependencies` | den Pin |
 
-**Mocks/Stubs:** genau einer — der simulierte `OSError` fuer den zweiten Write
-(AC 6). Er ist der einzige Weg, den Pfad „I/O-Fehler nach dem ersten Write" zu
-erreichen; das Briefing erlaubt ihn ausdruecklich. Umsetzung minimal: der zweite
-Write geht ueber **eine** benannte Funktion, die im Test per `monkeypatch` beim
-ersten Aufruf `OSError` wirft. Kein Fake fuer MCP, keinen fuer das Dateisystem
-sonst, keinen fuer die Config.
+**Test-Doubles — korrigierte, vollstaendige Liste (Review R06).** Die frueher hier
+stehende Behauptung „genau ein Stub" war **falsch**, und eine unzutreffende
+Ehrlichkeitsaussage ist schlimmer als keine. Tatsaechlich verwendet die Suite:
+
+1. den simulierten `OSError` fuer den zweiten Write (AC 6) — dieser Pfad ist
+   anders nicht erreichbar;
+2. die Substitution von `_desired_mcp_servers` in den CP-10-Mechanik-Tests, damit
+   die Conformance-Probe ohne laufende Weaviate bestehen kann (das etablierte
+   Muster der bestehenden CP-10-Suite);
+3. die Substitution von `check_mcp_conformance` in den Negativ-/Ordnungstests;
+4. eine In-Memory-`registration_repo` (CP 7) in allen Installer-Tests.
+
+**Die Luecke, die (2) hinterlaesst, war real:** hoert CP 10 auf, die produktive
+Ableitung (`RuntimeBinding`, Engine-Kommando) zu benutzen, bleiben alle
+substituierten Tests gruen. Genau diese Klasse hat R04 durchgelassen. Deshalb
+fahren jetzt zwei Tests die **echte** Ableitungsgrenze:
+`test_real_derivation_produces_the_production_spec_unsubstituted` (null Doubles)
+und `test_real_derivation_is_what_the_probe_receives` (nur die Probe-Grenze
+beobachtet; Ableitung, Rendering und Phasenordnung sind produktiv).
 
 ### 8.2a Der Beweis, dass der registrierte Eintrag wirklich startet
 
@@ -1545,7 +1558,7 @@ eine zweite Wahrheit und damit schlechter.
    Verify. Dazu **sofort** `test_registered_entry_starts.py` (§8.2a T1/T2) —
    dieser Test kommt vor allem anderen, weil er der Test ist, der den
    Beinahe-Fehler dieser Runde gefunden haette.
-3. `harness_adapters/codex/config_toml.py` + Striktheits-/Erhaltungsmatrix
+3. `harness_adapters/codex_config_toml.py` + Striktheits-/Erhaltungsmatrix
    (**haengt an D-1**).
 4. `config/models.py` Endpunktfelder + `runner.py`
    `InstallConfig`/CP-5-Stanza.

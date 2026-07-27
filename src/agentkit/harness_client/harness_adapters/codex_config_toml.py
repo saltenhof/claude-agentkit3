@@ -26,13 +26,24 @@ Ownership model (the predicate that replaces byte equality):
 * Inside an AK3 server table, AK3 owns :data:`AK3_OWNED_SERVER_FIELDS`; any other
   field is foreign and is preserved.
 
-Preservation is deliberately conservative in BOTH dimensions. A value-only
-predicate would regress the ``preserved_foreign_files`` guarantee: a file a user
-extended with only a COMMENT contains no foreign *values*, so a value-based
-classification would call it AK3-only and detach would delete it. The final
-classification step therefore compares the raw bytes against the canonical
-rendering of the AK3 content that was found — a byte comparison, but against a
-DERIVED rendering instead of a fixed literal.
+The ownership predicate has TWO independent gates, and both are necessary:
+
+1. **Value gate** (:func:`is_recognised_ak3_server_table`) — every AK3-named server
+   table must equal the registration AK3 *expects* to write
+   (:data:`~agentkit.backend.core_types.mcp_server_registration.AK3_SERVER_SHAPES`
+   plus a ``cwd`` resolving to the project root). Comparing against a rendering of
+   the values FOUND would be self-referential: every value equals itself, so it
+   could detect a spelling deviation but never a value deviation — and a user's own
+   table that merely happens to use an AK3-reserved name would be classified as
+   AK3-owned, with detach deleting their content along with the file.
+2. **Spelling gate** — the bytes must equal the canonical rendering of that
+   recognised content (line endings normalised). This catches what no value check
+   can see: an added comment, extra blank lines, reordered keys. A file a user
+   extended with only a COMMENT holds no foreign *values*, and deleting it would
+   regress the ``preserved_foreign_files`` guarantee.
+
+Anything ambiguous — an empty reserved table, altered values, ``required = false``
+— resolves to MIXED, i.e. preserved. Deleting is irreversible; preserving is not.
 
 Why tomlkit (guardrail ARCH-23: exchangeable libraries stay behind one
 abstraction): this module is the single import point. A value-only writer would
@@ -45,12 +56,14 @@ from __future__ import annotations
 
 import tomllib
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import tomlkit
 
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_MCP_SERVER_NAMES,
+    AK3_SERVER_SHAPES,
     DesiredMcpServer,
 )
 
@@ -269,32 +282,105 @@ def _reject_foreign_occupation(
             continue
         current_command = current.get("command")
         current_args = current.get("args")
-        if current_command is None and current_args is None:
-            continue
+        # An EMPTY reserved table is an ambiguous occupation, not a free slot.
+        # Treating it as unoccupied and filling it would silently claim a table a
+        # user may have created; ``command``/``args`` simply do not match what AK3
+        # would write, so it is rejected like any other foreign occupation.
         if current_command != server.command or list(current_args or []) != list(
             server.args
         ):
             raise CodexConfigError(
                 CodexConfigRejection.SERVER_NAME_FOREIGN_OCCUPIED,
-                f"'{_MCP_SERVERS}.{server.name}' is occupied by a different "
-                f"program (command={current_command!r}, args={current_args!r}); "
-                f"AK3 would register command={server.command!r}, "
-                f"args={list(server.args)!r}. Refusing to overwrite a foreign "
-                "registration under an AK3 server name (fail-closed).",
+                f"'{_MCP_SERVERS}.{server.name}' is occupied by a different or "
+                f"ambiguous registration (command={current_command!r}, "
+                f"args={current_args!r}); AK3 would register "
+                f"command={server.command!r}, args={list(server.args)!r}. Refusing "
+                "to overwrite a foreign registration under an AK3 server name "
+                "(fail-closed).",
             )
 
 
+def is_recognised_ak3_server_table(
+    name: str, entry: Mapping[str, object], *, project_root: Path
+) -> bool:
+    """Return whether ``entry`` is the registration AK3 itself would write.
+
+    Compares against the EXPECTED shape (:data:`AK3_SERVER_SHAPES` plus the
+    project root), never against a rendering of the values found. That distinction
+    is the whole point: a comparison against the found values is self-referential
+    and can only detect a spelling deviation, since every value equals itself — so
+    a user's own table that merely happens to use an AK3-reserved name would be
+    classified as AK3-owned and detach would delete their content with the file.
+
+    Requires: exactly the AK3-owned field set, the expected ``command`` and
+    ``args``, ``required is True``, a ``cwd`` resolving to ``project_root``, and an
+    ``env`` whose KEY set is exactly the expected one with non-empty string values.
+    Environment VALUES are project configuration and therefore not checkable here;
+    everything else about an AK3 registration is fully determined.
+
+    Ambiguous occupations — an empty reserved table, altered values,
+    ``required = false``, an extra or missing field — are deliberately NOT
+    recognised, so they classify as MIXED and are preserved.
+
+    Args:
+        name: The AK3-owned server name.
+        entry: The parsed server table.
+        project_root: The project whose configuration is being classified.
+
+    Returns:
+        ``True`` only for an unambiguous AK3 registration.
+    """
+    shape = AK3_SERVER_SHAPES.get(name)
+    if shape is None:  # pragma: no cover - guarded by AK3_MCP_SERVER_NAMES
+        return False
+    if set(entry) != set(AK3_OWNED_SERVER_FIELDS):
+        return False
+    if entry.get("command") != shape.command:
+        return False
+    args = entry.get("args")
+    if not isinstance(args, list) or tuple(args) != shape.args:
+        return False
+    if entry.get("required") is not True:
+        return False
+    cwd = entry.get("cwd")
+    if not isinstance(cwd, str) or not cwd.strip():
+        return False
+    try:
+        if Path(cwd).resolve() != project_root.resolve():
+            return False
+    except OSError:  # pragma: no cover - unresolvable path is simply not ours
+        return False
+    env = entry.get("env")
+    if not isinstance(env, dict) or set(env) != set(shape.env_keys):
+        return False
+    return all(isinstance(v, str) and v.strip() for v in env.values())
+
+
 def classify_ownership(
-    raw: bytes | None, *, hook_command: str
+    raw: bytes | None, *, hook_command: str, project_root: Path
 ) -> CodexConfigOwnership:
     """Classify an existing Codex configuration by AK3 ownership.
 
-    Never raises: an unreadable file is :attr:`CodexConfigOwnership.UNREADABLE`,
-    because detach must preserve what it cannot read rather than delete it.
+    Two independent gates, in this order:
+
+    1. **Recognition** — every AK3-named server table must be the registration AK3
+       would write (:func:`is_recognised_ak3_server_table`), and the hook entry must
+       be exactly AK3's. This is the VALUE gate.
+    2. **Spelling** — the file must byte-equal the canonical rendering of that
+       recognised content (line endings normalised). This is what still catches an
+       added comment, extra blank lines or reordered keys, which no value-based
+       check can see.
+
+    Only a file passing BOTH is :attr:`CodexConfigOwnership.AK3_ONLY` and therefore
+    safe for detach to remove. Never raises: an unreadable file is
+    :attr:`CodexConfigOwnership.UNREADABLE`, because detach must preserve what it
+    cannot read rather than delete it.
 
     Args:
         raw: The file's bytes, or ``None`` when the file does not exist.
         hook_command: The AK3 hook command that an AK3-owned file carries.
+        project_root: The project being classified; an AK3 registration's ``cwd``
+            resolves to it.
 
     Returns:
         The ownership classification.
@@ -314,19 +400,27 @@ def classify_ownership(
     foreign_top = set(parsed) - AK3_OWNED_TOP_LEVEL_KEYS
     foreign_hooks = set(hooks_table) - AK3_OWNED_HOOK_KEYS
     foreign_servers = set(servers_table) - AK3_MCP_SERVER_NAMES
-    ak3_servers = {
+    ak3_named = {
         name: entry
         for name, entry in servers_table.items()
         if name in AK3_MCP_SERVER_NAMES and isinstance(entry, dict)
     }
     hook_entry = hooks_table.get(_PRE_TOOL_USE)
     hook_is_ak3 = hook_entry == {"command": hook_command}
-    has_ak3_content = hook_is_ak3 or bool(ak3_servers)
+    has_ak3_content = hook_is_ak3 or bool(ak3_named)
 
     if not has_ak3_content:
         return CodexConfigOwnership.FOREIGN
     if foreign_top or foreign_hooks or foreign_servers or not hook_is_ak3:
         return CodexConfigOwnership.MIXED
+    # VALUE gate: an AK3-reserved name occupied by anything other than AK3's own
+    # registration makes the file foreign content that must be preserved.
+    if any(
+        not is_recognised_ak3_server_table(name, entry, project_root=project_root)
+        for name, entry in ak3_named.items()
+    ):
+        return CodexConfigOwnership.MIXED
+    ak3_servers = ak3_named
 
     # Final gate: compare against the canonical rendering of exactly the AK3
     # content found. This is what keeps a comment-only user edit PRESERVED — a
@@ -435,6 +529,7 @@ def render_codex_config(
     raw: bytes | None,
     *,
     hook_command: str,
+    project_root: Path,
     servers: Sequence[DesiredMcpServer] = (),
 ) -> str:
     """Render the Codex configuration with the AK3 content merged in.
@@ -470,7 +565,9 @@ def render_codex_config(
 
     parsed = load_codex_config(raw)
     _reject_foreign_occupation(parsed, servers)
-    ownership = classify_ownership(raw, hook_command=hook_command)
+    ownership = classify_ownership(
+        raw, hook_command=hook_command, project_root=project_root
+    )
     if ownership is CodexConfigOwnership.UNREADABLE:  # pragma: no cover - defensive
         raise CodexConfigError(
             CodexConfigRejection.UNPARSABLE_TOML,
@@ -559,6 +656,7 @@ __all__ = [
     "CodexConfigOwnership",
     "CodexConfigRejection",
     "classify_ownership",
+    "is_recognised_ak3_server_table",
     "load_codex_config",
     "render_canonical_codex_config",
     "render_codex_config",

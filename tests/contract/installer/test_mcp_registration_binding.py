@@ -66,7 +66,10 @@ def _both_entries() -> tuple[dict[str, object], dict[str, object]]:
     server = _desired()
     mcp_text, _ = render_mcp_json_text({}, (server,))  # type: ignore[arg-type]
     codex_text = render_codex_config(
-        None, hook_command=CODEX_HOOK_COMMAND, servers=(server,)  # type: ignore[arg-type]
+        None,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=Path(_PROJECT),
+        servers=(server,),  # type: ignore[arg-type]
     )
     mcp_entry = json.loads(mcp_text)["mcpServers"][STORY_KNOWLEDGE_BASE_SERVER]
     codex_entry = tomllib.loads(codex_text)["mcp_servers"][STORY_KNOWLEDGE_BASE_SERVER]
@@ -134,7 +137,10 @@ def _rendered() -> RenderedRegistration:
     server = _desired()
     mcp_text, _ = render_mcp_json_text({}, (server,))  # type: ignore[arg-type]
     codex_text = render_codex_config(
-        None, hook_command=CODEX_HOOK_COMMAND, servers=(server,)  # type: ignore[arg-type]
+        None,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=Path(_PROJECT),
+        servers=(server,),  # type: ignore[arg-type]
     )
     return RenderedRegistration(
         servers=(server,),  # type: ignore[arg-type]

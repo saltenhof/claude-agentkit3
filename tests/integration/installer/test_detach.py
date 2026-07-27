@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_SERVER_SHAPES,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
 )
@@ -668,6 +669,23 @@ def test_detach_preserves_foreign_codex_config(tmp_path: Path) -> None:
     assert str(Path(".codex/config.toml")) not in result.removed_bindings
 
 
+def _expected_ak3_server(project_root: Path) -> DesiredMcpServer:
+    """The registration AK3 itself would write, per the SSOT shape table.
+
+    The ownership predicate recognises AK3 content by comparing against this
+    expected shape, so a fixture that deviates from it is (correctly) not
+    AK3-owned.
+    """
+    shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
+    return DesiredMcpServer(
+        name=STORY_KNOWLEDGE_BASE_SERVER,
+        command=shape.command,
+        args=shape.args,
+        cwd=str(project_root),
+        env=tuple((key, "value") for key in sorted(shape.env_keys)),
+    )
+
+
 def _write_codex(project_root: Path, content: bytes) -> Path:
     """Write ``.codex/config.toml`` as raw BYTES (no newline translation)."""
     (project_root / ".codex").mkdir(parents=True, exist_ok=True)
@@ -687,15 +705,12 @@ def test_detach_removes_ak3_hook_plus_ak3_mcp_config(tmp_path: Path) -> None:
     """
     project_root = tmp_path / "project"
     project_root.mkdir()
-    server = DesiredMcpServer(
-        name=STORY_KNOWLEDGE_BASE_SERVER,
-        command="python",
-        args=("-m", "agentkit.backend.vectordb.engine"),
-        cwd=str(project_root),
-        env=(("PROJECT_ID", "AG3"),),
-    )
+    server = _expected_ak3_server(project_root)
     content = render_codex_config(
-        None, hook_command=CODEX_HOOK_COMMAND, servers=(server,)
+        None,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=project_root,
+        servers=(server,),
     ).encode("utf-8")
     config_path = _write_codex(project_root, content)
 
@@ -712,14 +727,10 @@ def test_detach_preserves_config_with_a_foreign_table_alongside_the_mcp_entry(
     """Mixed content stays: AK3 hook + AK3 MCP table + a foreign table."""
     project_root = tmp_path / "project"
     project_root.mkdir()
-    server = DesiredMcpServer(
-        name=STORY_KNOWLEDGE_BASE_SERVER,
-        command="python",
-        args=("-m", "agentkit.backend.vectordb.engine"),
-        cwd=str(project_root),
-        env=(),
+    server = _expected_ak3_server(project_root)
+    ak3 = render_codex_config(
+        None, hook_command=CODEX_HOOK_COMMAND, project_root=project_root, servers=(server,)
     )
-    ak3 = render_codex_config(None, hook_command=CODEX_HOOK_COMMAND, servers=(server,))
     config_path = _write_codex(
         project_root, (ak3 + '\n[user.custom]\nkey = "value"\n').encode("utf-8")
     )

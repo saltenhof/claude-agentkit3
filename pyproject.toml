@@ -44,7 +44,7 @@ dependencies = [
     # detach would DELETE it — turning "a comment was lost" into "the file was
     # removed". Pinned exactly (same discipline as PO decision D5). MIT licence,
     # pure Python, no transitive runtime dependencies. Wrapped behind ONE import
-    # point (`harness_adapters/codex/config_toml.py`) per guardrail ARCH-23.
+    # point (`harness_adapters/codex_config_toml.py`) per guardrail ARCH-23.
     "tomlkit==0.15.1",
 ]
 

@@ -26,6 +26,7 @@ from agentkit.backend.utils.io import atomic_write_text
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
     CodexConfigError,
     CodexConfigRejection,
+    render_canonical_codex_config,
     render_codex_config,
 )
 
@@ -115,11 +116,13 @@ def read_codex_config_bytes(project_root: Path) -> bytes | None:
 def build_codex_config_toml() -> str:
     """Return the AgentKit-managed Codex configuration with hooks only.
 
-    Kept as the public name existing callers use (the detach classification, the
-    focused tests). It is now a thin call into the single writer rather than a
-    competing fixed string.
+    Kept as the public name existing callers use. It renders from scratch, so it
+    needs no ownership classification and therefore no project root — it is a thin
+    call into the single writer rather than a competing fixed string.
     """
-    return render_codex_config(None, hook_command=CODEX_HOOK_COMMAND, servers=())
+    return render_canonical_codex_config(
+        hook_command=CODEX_HOOK_COMMAND, server_tables={}
+    )
 
 
 def render_project_codex_config(
@@ -145,7 +148,10 @@ def render_project_codex_config(
     """
     raw = read_codex_config_bytes(project_root)
     return render_codex_config(
-        raw, hook_command=CODEX_HOOK_COMMAND, servers=tuple(servers)
+        raw,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=project_root,
+        servers=tuple(servers),
     )
 
 
@@ -193,7 +199,9 @@ def write_codex_settings(project_root: Path) -> str | None:
     try:
         path = assert_project_local_codex_config(project_root)
         raw = read_codex_config_bytes(project_root)
-        content = render_codex_config(raw, hook_command=CODEX_HOOK_COMMAND, servers=())
+        content = render_codex_config(
+            raw, hook_command=CODEX_HOOK_COMMAND, project_root=project_root, servers=()
+        )
     except CodexConfigError as exc:
         raise InstallationError(
             f"Codex configuration cannot be materialised: {exc}",

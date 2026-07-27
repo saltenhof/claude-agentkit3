@@ -82,6 +82,52 @@ REGISTERED_ENV_KEYS: tuple[str, ...] = (
 #: Wire value of the MCP transport in a ``.mcp.json`` server entry.
 MCP_JSON_STDIO_TYPE: str = "stdio"
 
+#: Environment key of the ARE-MCP server registration (FK-03 §3.1).
+ARE_MCP_SERVER_ENV_KEY: str = "ARE_MCP_SERVER"
+
+
+@dataclass(frozen=True, slots=True)
+class Ak3ServerShape:
+    """The registration AK3 WOULD write for one of its own server names.
+
+    This is the SSOT of the deterministic part of an AK3 registration. It exists
+    because an ownership predicate must compare a found table against what AK3
+    *expects*, never against a rendering of the values it just found — such a
+    comparison is self-referential and can only detect a spelling deviation, never
+    a value deviation, since every value equals itself.
+
+    Only ``cwd`` and the environment VALUES are project-specific and therefore not
+    part of this shape; the field set, command, argument vector and environment
+    KEYS are fully determined.
+
+    Attributes:
+        command: Executable command AK3 registers for this server name.
+        args: Argument vector AK3 registers for this server name.
+        env_keys: Exact set of environment keys AK3 registers.
+    """
+
+    command: str
+    args: tuple[str, ...]
+    env_keys: frozenset[str]
+
+
+#: Expected registration per AK3-owned server name. SINGLE SOURCE OF TRUTH: the
+#: installer derives the values it writes from here, and the harness adapter
+#: recognises AK3 ownership against the same table, so writer and predicate can
+#: never disagree about "what does our own entry look like".
+AK3_SERVER_SHAPES: dict[str, Ak3ServerShape] = {
+    STORY_KNOWLEDGE_BASE_SERVER: Ak3ServerShape(
+        command="python",
+        args=("-m", "agentkit.backend.vectordb.engine"),
+        env_keys=frozenset(REGISTERED_ENV_KEYS),
+    ),
+    ARE_MCP_SERVER: Ak3ServerShape(
+        command="agentkit-are-mcp",
+        args=(),
+        env_keys=frozenset({ARE_MCP_SERVER_ENV_KEY}),
+    ),
+}
+
 #: Digest domain tag: keeps the registration digest from ever colliding with a
 #: digest computed over some other canonical payload in the codebase.
 _DIGEST_DOMAIN: str = "agentkit.mcp-server-registration.v1"
@@ -343,10 +389,13 @@ def registration_digest(
 
 __all__ = [
     "AK3_MCP_SERVER_NAMES",
+    "AK3_SERVER_SHAPES",
     "ARE_MCP_SERVER",
+    "ARE_MCP_SERVER_ENV_KEY",
     "MCP_JSON_STDIO_TYPE",
     "REGISTERED_ENV_KEYS",
     "STORY_KNOWLEDGE_BASE_SERVER",
+    "Ak3ServerShape",
     "DesiredMcpServer",
     "McpServerRegistrationError",
     "before_image_fingerprint",

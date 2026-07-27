@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_SERVER_SHAPES,
     REGISTERED_ENV_KEYS,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
@@ -52,7 +54,9 @@ if TYPE_CHECKING:
 #: target project, and FK-50 documents this value. That the target-project
 #: interpreter must see ``agentkit`` is an installation precondition, not a
 #: rendering decision.
-STORY_KNOWLEDGE_BASE_COMMAND: str = "python"
+STORY_KNOWLEDGE_BASE_COMMAND: str = AK3_SERVER_SHAPES[
+    STORY_KNOWLEDGE_BASE_SERVER
+].command
 
 #: Argument vector of the story-knowledge-base MCP server.
 #:
@@ -63,7 +67,9 @@ STORY_KNOWLEDGE_BASE_COMMAND: str = "python"
 #: is ``engine.main`` (``engine.py:1258``, wired at ``engine.py:1311-1312`` and
 #: exported in ``engine.__all__``); it reads the env, composes the production
 #: engine and serves over stdio, failing closed with exit 1 otherwise.
-STORY_KNOWLEDGE_BASE_ARGS: tuple[str, ...] = ("-m", "agentkit.backend.vectordb.engine")
+STORY_KNOWLEDGE_BASE_ARGS: tuple[str, ...] = AK3_SERVER_SHAPES[
+    STORY_KNOWLEDGE_BASE_SERVER
+].args
 
 #: Artifact key of the Claude-Code project configuration in a before-image.
 MCP_JSON_ARTIFACT: str = "mcp_json"
@@ -378,12 +384,95 @@ def merge_mcp_json_servers(
         raise TypeError(msg)
     changed = False
     for server in servers:
+        _reject_foreign_occupation(merged, server)
         entry = server.to_mcp_json_entry()
         if merged.get(server.name) != entry:
             merged[server.name] = entry
             changed = True
     root["mcpServers"] = merged
     return root, changed
+
+
+def _reject_foreign_occupation(
+    existing: Mapping[str, object], server: DesiredMcpServer
+) -> None:
+    """Reject an AK3 server name occupied by a DIFFERENT program (``.mcp.json``).
+
+    The Codex writer has always refused to overwrite a foreign registration under
+    an AK3 server name; ``.mcp.json`` silently clobbered it. That asymmetry was a
+    real gap against PO decision D6: the same registration would be rejected in one
+    file and overwritten in the other, so "is this entry ours?" had two different
+    answers depending on the format.
+
+    The identity rule is deliberately the SAME one the Codex predicate uses --
+    ``command`` plus ``args``, mirroring FK-76 §76.5.1's handler identity. An entry
+    that exists but carries no command/args at all is an ambiguous occupation and
+    is rejected too, never treated as a free slot.
+
+    Args:
+        existing: The current ``mcpServers`` mapping.
+        server: The desired registration.
+
+    Raises:
+        McpServerRegistrationError: If the name is occupied by a different or
+            ambiguous registration. No mutation happens.
+    """
+    current = existing.get(server.name)
+    if not isinstance(current, dict):
+        return
+    current_command = current.get("command")
+    current_args = current.get("args")
+    if current_command == server.command and list(current_args or []) == list(
+        server.args
+    ):
+        return
+    raise McpServerRegistrationError(
+        f"target .mcp.json server {server.name!r} is occupied by a different or "
+        f"ambiguous registration (command={current_command!r}, "
+        f"args={current_args!r}); AK3 would register command={server.command!r}, "
+        f"args={list(server.args)!r}. Refusing to overwrite a foreign registration "
+        "under an AK3 server name (fail-closed, same identity rule as the Codex "
+        "writer)."
+    )
+
+
+def assert_cwd_is_project_root(
+    servers: Sequence[DesiredMcpServer], project_root: Path
+) -> None:
+    """Assert every desired ``cwd`` IS the project root, before the probe.
+
+    ``cwd`` is the containment boundary of the registered process and never a
+    configuration source (PO decision D2). Production derives it from
+    ``context.project_root``, so today it cannot be wrong -- this is the
+    fail-closed negative invariant AC 5 asks for, held at the boundary rather than
+    trusted: a future refactor that starts deriving ``cwd`` from somewhere else
+    (an env var, a config value, the process cwd) fails here instead of silently
+    probing one directory and registering another.
+
+    Args:
+        servers: The desired registrations.
+        project_root: The authoritative project root.
+
+    Raises:
+        McpServerRegistrationError: On any deviation, before anything is probed
+            or written.
+    """
+    expected = project_root.resolve()
+    for server in servers:
+        try:
+            actual = Path(server.cwd).resolve()
+        except OSError as exc:  # pragma: no cover - unresolvable path
+            raise McpServerRegistrationError(
+                f"server {server.name!r}: cwd {server.cwd!r} cannot be resolved: "
+                f"{exc} (fail-closed)."
+            ) from exc
+        if actual != expected:
+            raise McpServerRegistrationError(
+                f"server {server.name!r}: cwd {server.cwd!r} resolves to {actual}, "
+                f"not to the project root {expected}. The containment boundary is "
+                "always the project root and never a second configuration source "
+                "(D2, fail-closed)."
+            )
 
 
 def render_mcp_json_text(
@@ -418,6 +507,7 @@ __all__ = [
     "ProbedRegistration",
     "RegistrationBeforeImage",
     "RenderedRegistration",
+    "assert_cwd_is_project_root",
     "build_registration_env",
     "desired_server_from_spec",
     "merge_mcp_json_servers",

@@ -376,7 +376,9 @@ def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> 
         raw: bytes | None = config_path.read_bytes()
     except OSError:
         raw = None
-    ownership = classify_ownership(raw, hook_command=CODEX_HOOK_COMMAND)
+    ownership = classify_ownership(
+        raw, hook_command=CODEX_HOOK_COMMAND, project_root=project_root
+    )
     if ownership is not CodexConfigOwnership.AK3_ONLY:
         # Foreign / mixed / unreadable: preserve it, never delete foreign config.
         preserved_files.append(str(config_path.relative_to(project_root)))
