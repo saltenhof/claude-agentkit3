@@ -35,6 +35,17 @@ dependencies = [
     # the embedding model `sentence-transformers/all-MiniLM-L6-v2` (revision
     # e4ce9877...). Drift here would silently change chunk boundaries.
     "tokenizers==0.21.0",
+    # Round-trip TOML writer for the project-local `.codex/config.toml` MCP
+    # registration (FK-76 §76.5.4, AG3-175 decision D-1, PO-approved).
+    # `tomllib` (stdlib) reads only. tomlkit is the sole option that preserves
+    # FOREIGN comments, formatting and key order on a semantic merge: a
+    # value-only writer would delete a target project's own Codex comments, and
+    # the AK3-ownership predicate would then classify the file as AK3-only so
+    # detach would DELETE it — turning "a comment was lost" into "the file was
+    # removed". Pinned exactly (same discipline as PO decision D5). MIT licence,
+    # pure Python, no transitive runtime dependencies. Wrapped behind ONE import
+    # point (`harness_adapters/codex/config_toml.py`) per guardrail ARCH-23.
+    "tomlkit==0.15.1",
 ]
 
 [project.optional-dependencies]
