@@ -2,8 +2,8 @@ story_id: AG3-175
 story_title_short: "dual-harness-registration"
 title: "Projektlokale MCP-Registrierung fuer Claude Code UND Codex (Mini-Story): ein Writer je Harness nach verankertem FK-76-Vertrag, Registrierung erst nach bestandenem Conformance-Check, nie Userspace"
 type: implementation
-status: ready
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-07-21"
 size: M  # von S angehoben (Review 175-P2-1): semantischer TOML-Writer mit
          # Foreign-Data-Erhalt, Zwei-Dateien-Koordination und Conformance-
