@@ -28,15 +28,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from tests.unit.installer.checkpoint_engine.conftest import (
-    InMemoryRegistrationRepo,
-    make_config,
-)
+from tests.unit.installer.checkpoint_engine.conftest import make_config
 
 from agentkit.backend.core_types.mcp_server_registration import (
+    REGISTERED_ENV_KEYS,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
 )
+from agentkit.backend.installer import mcp_registration as mcp_registration_mod
 from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
 from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     cp05_pipeline_config,
@@ -52,15 +51,28 @@ from agentkit.backend.installer.runner import (
     _deploy_static_resource_files,
     _resources_target_project_dir,
 )
+from agentkit.backend.state_backend.store.project_registration_repository import (
+    StateBackendProjectRegistrationRepository,
+)
 
 if TYPE_CHECKING:
     from pytest import MonkeyPatch
 
 
 @pytest.fixture
-def registration_repo() -> InMemoryRegistrationRepo:
-    """Local fixture: the shared one lives in the unit checkpoint conftest."""
-    return InMemoryRegistrationRepo()
+def registration_repo(tmp_path: Path) -> StateBackendProjectRegistrationRepository:
+    """The REAL production registration repository (review finding R06).
+
+    Integration coverage must not lean on an in-memory double: CLAUDE.md allows one
+    only where an isolated UNIT test is otherwise impossible, which does not apply
+    here. The SQLite-backed production implementation is the same class the
+    composition root wires, so this exercises the real seam.
+
+    CP 10 never touches the registry -- ``test_registration_repository_is_never_
+    touched_by_cp10`` proves that rather than assuming it -- but the config must
+    carry a production collaborator regardless.
+    """
+    return StateBackendProjectRegistrationRepository(store_dir=tmp_path)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _MINIMAL_SERVER = _REPO_ROOT / "tests" / "fixtures" / "minimal_mcp_server.py"
@@ -79,7 +91,9 @@ def _conforming_desired(ctx: Any) -> tuple[DesiredMcpServer, ...]:
     )
 
 
-def _context(root: Path, registration_repo: InMemoryRegistrationRepo) -> Any:
+def _context(
+    root: Path, registration_repo: StateBackendProjectRegistrationRepository
+) -> Any:
     config = make_config(
         root,
         bundle_store_root=root.parent / "bundles",
@@ -103,7 +117,7 @@ def _cp8_region(root: Path) -> None:
 
 
 def test_both_configs_registered_and_mcp_table_survives_a_second_run(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo, monkeypatch: MonkeyPatch
+    tmp_path: Path, registration_repo: StateBackendProjectRegistrationRepository, monkeypatch: MonkeyPatch
 ) -> None:
     """AC 1 across RUNS — the core of finding B.
 
@@ -140,7 +154,7 @@ def test_both_configs_registered_and_mcp_table_survives_a_second_run(
 
 
 def test_user_extended_codex_config_survives_two_install_runs(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+    tmp_path: Path, registration_repo: StateBackendProjectRegistrationRepository
 ) -> None:
     """Pre-existing data-loss defect, closed in passing.
 
@@ -187,7 +201,7 @@ def test_bundle_no_longer_ships_a_competing_codex_config() -> None:
 
 
 def test_isolated_codex_home_is_never_written(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo, monkeypatch: MonkeyPatch
+    tmp_path: Path, registration_repo: StateBackendProjectRegistrationRepository, monkeypatch: MonkeyPatch
 ) -> None:
     """AC 3 — no user/global configuration is written.
 
@@ -215,7 +229,7 @@ def test_isolated_codex_home_is_never_written(
 
 
 def test_registration_is_invisible_from_a_second_project_folder(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo, monkeypatch: MonkeyPatch
+    tmp_path: Path, registration_repo: StateBackendProjectRegistrationRepository, monkeypatch: MonkeyPatch
 ) -> None:
     """AC 3 — project-local only; a sibling project sees nothing."""
     monkeypatch.setattr(cp10_mod, "_desired_mcp_servers", _conforming_desired)
@@ -237,7 +251,7 @@ def test_registration_is_invisible_from_a_second_project_folder(
 
 
 def test_junctioned_codex_dir_is_refused_without_writing_the_target(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+    tmp_path: Path, registration_repo: StateBackendProjectRegistrationRepository
 ) -> None:
     """AC 3 — no user path even via a reparse point.
 
@@ -260,3 +274,82 @@ def test_junctioned_codex_dir_is_refused_without_writing_the_target(
         write_codex_settings(root)
 
     assert list(user_dir.iterdir()) == [], "wrote through the reparse point"
+
+
+def test_registration_repository_is_never_touched_by_cp10(
+    tmp_path: Path,
+    registration_repo: StateBackendProjectRegistrationRepository,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The registry belongs to CP 7; CP 10 must not read or write it.
+
+    Proven rather than assumed (review finding R06): the config has to carry a
+    registration collaborator, and this pins that CP 10 leaves it alone, so no
+    reader can mistake the collaborator for part of the tested path.
+    """
+    monkeypatch.setattr(cp10_mod, "_desired_mcp_servers", _conforming_desired)
+    root = tmp_path / "proj"
+    root.mkdir()
+    ctx = _context(root, registration_repo)
+    _cp8_region(root)
+
+    assert cp10_mcp_registration(ctx).status in (
+        CheckpointStatus.CREATED,
+        CheckpointStatus.UPDATED,
+    )
+
+    assert registration_repo.list_all() == [], (
+        "CP 10 touched the project registry, which belongs to CP 7"
+    )
+
+
+def test_full_cp8_to_cp10_region_uses_the_real_derivation(
+    tmp_path: Path,
+    registration_repo: StateBackendProjectRegistrationRepository,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Integration path with NO substituted producer (review finding R06).
+
+    Every other test in this module substitutes ``_desired_mcp_servers`` so the
+    conformance probe can pass without a reachable Weaviate. That leaves the blind
+    spot R06 names: CP 10 could stop using the production derivation and they would
+    all stay green. Here the real derivation runs, the real CP 8 region runs, and
+    only the probe boundary is observed -- so a regression away from the production
+    command, cwd or env fails this test.
+    """
+    observed: list[Any] = []
+
+    def _record(server: Any, **_kwargs: Any) -> Any:
+        from agentkit.backend.installer.mcp_conformance import (
+            McpConformanceReason,
+            McpConformanceResult,
+        )
+
+        observed.append(server)
+        return McpConformanceResult(
+            ok=False,
+            reason=McpConformanceReason.PROCESS_EXITED,
+            detail="not probing a live Weaviate in CI.",
+        )
+
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _record)
+    root = tmp_path / "proj"
+    root.mkdir()
+    ctx = _context(root, registration_repo)
+    _cp8_region(root)
+
+    result = cp10_mcp_registration(ctx)
+
+    # The CP 8 region really ran: the hook entry is materialised.
+    assert "agentkit-hook-codex" in (root / _CODEX_REL).read_text(encoding="utf-8")
+    # The real derivation reached the probe with the production spec.
+    assert len(observed) == 1
+    probed = observed[0]
+    assert probed.command == "python"
+    assert tuple(probed.args) == ("-m", "agentkit.backend.vectordb.engine")
+    assert probed.cwd == str(root)
+    assert probed.env is not None
+    assert set(probed.env) == set(REGISTERED_ENV_KEYS)
+    # And a failing probe writes no registration.
+    assert result.status is CheckpointStatus.FAILED
+    assert not (root / ".mcp.json").exists()

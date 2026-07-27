@@ -254,6 +254,68 @@ def test_merge_rejects_a_non_object_mcp_servers_value() -> None:
         merge_mcp_json_servers({"mcpServers": 5}, (_desired(),))
 
 
+def test_merge_rejects_an_ak3_name_occupied_by_a_different_program() -> None:
+    """R03: the same identity rule the Codex writer uses, in ``.mcp.json`` too.
+
+    Previously ``.mcp.json`` clobbered it silently while Codex refused, so the same
+    registration got two different answers depending on the format (against D6).
+    """
+    existing: dict[str, object] = {
+        "mcpServers": {
+            STORY_KNOWLEDGE_BASE_SERVER: {
+                "command": "someone-elses-tool",
+                "args": ["--serve"],
+            }
+        }
+    }
+    with pytest.raises(McpServerRegistrationError, match="occupied by a different"):
+        merge_mcp_json_servers(existing, (_desired(),))
+
+
+def test_merge_preserves_unknown_fields_of_our_own_entry() -> None:
+    """R03, positive half: identity matches, so unknown fields must SURVIVE.
+
+    The Codex writer preserves unknown harness fields in AK3's own table; dropping
+    them here was the same asymmetry in the other direction -- one format keeping
+    foreign data, the other discarding it.
+    """
+    server = _desired()
+    existing: dict[str, object] = {
+        "mcpServers": {
+            STORY_KNOWLEDGE_BASE_SERVER: {
+                "command": server.command,
+                "args": list(server.args),
+                "unknown_harness_field": "keep me",
+            }
+        }
+    }
+    merged, changed = merge_mcp_json_servers(existing, (server,))
+
+    entry = merged["mcpServers"][STORY_KNOWLEDGE_BASE_SERVER]  # type: ignore[index]
+    assert changed is True
+    assert entry["unknown_harness_field"] == "keep me"
+    # ... and the owned fields are upserted alongside it.
+    assert entry["cwd"] == server.cwd
+    assert entry["env"] == server.env_dict()
+
+
+def test_merge_of_our_own_entry_with_unknown_fields_is_idempotent() -> None:
+    """A second pass must not report a change once the unknown field is kept."""
+    server = _desired()
+    existing: dict[str, object] = {
+        "mcpServers": {
+            STORY_KNOWLEDGE_BASE_SERVER: {
+                "command": server.command,
+                "args": list(server.args),
+                "unknown_harness_field": "keep me",
+            }
+        }
+    }
+    merged, _ = merge_mcp_json_servers(existing, (server,))
+    _, changed_again = merge_mcp_json_servers(merged, (server,))
+    assert changed_again is False
+
+
 def test_rendered_text_keeps_the_previous_serialisation_shape() -> None:
     """indent=2 + sort_keys + trailing newline, as CP 10 wrote it before."""
     text, _ = render_mcp_json_text({}, (_desired(),))

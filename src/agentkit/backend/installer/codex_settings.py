@@ -128,25 +128,36 @@ def build_codex_config_toml() -> str:
 def render_project_codex_config(
     project_root: Path,
     servers: Sequence[DesiredMcpServer] = (),
+    *,
+    raw: bytes | None,
 ) -> str:
-    """Render the full Codex configuration for a project WITHOUT writing it.
+    """Render the full Codex configuration from ALREADY-CAPTURED bytes.
 
     Used by CP 10, which must render BOTH harness files before the first write
     (PO decision D6: a parse/conflict error yields zero writes).
 
+    ``raw`` is a REQUIRED keyword and this function deliberately does NOT read the
+    file: it used to, which meant CP 10 captured the before-image from one read and
+    rendered from another. A concurrent foreign edit between the two could bind a
+    NEWER before-image to a STALER rendering, and the pre-write guard would then
+    find before-image and disk in agreement and authorise exactly the stale
+    overwrite it exists to prevent — silently losing the foreign change. Making the
+    bytes an explicit input is what removes the second read structurally rather
+    than by discipline.
+
     Args:
-        project_root: The target-project root.
+        project_root: The target-project root (containment + ownership context).
         servers: The desired MCP server registrations.
+        raw: The captured file bytes, or ``None`` when the file does not exist.
 
     Returns:
         The content a write would store.
 
     Raises:
-        CodexConfigError: On a non-project-local path or any writer rejection
-            (unreadable/invalid existing configuration, wrongly typed AK3-owned
-            field, AK3 server name occupied by a different program).
+        CodexConfigError: On any writer rejection (unreadable/invalid existing
+            configuration, wrongly typed AK3-owned field, AK3 server name occupied
+            by a different program).
     """
-    raw = read_codex_config_bytes(project_root)
     return render_codex_config(
         raw,
         hook_command=CODEX_HOOK_COMMAND,
@@ -206,6 +217,14 @@ def write_codex_settings(project_root: Path) -> str | None:
         raise InstallationError(
             f"Codex configuration cannot be materialised: {exc}",
             detail={"cause": "CodexConfigError", "code": str(exc.code)},
+        ) from exc
+    except OSError as exc:
+        # The docstring promises InstallationError for unreadable configuration, so
+        # a read failure (ACL change, share lock — the realistic trigger on Windows)
+        # must not escape as a raw OSError and abort the engine untyped.
+        raise InstallationError(
+            f"Codex configuration cannot be read: {exc}",
+            detail={"cause": "OSError", "path": str(codex_config_path(project_root))},
         ) from exc
     if raw is not None and raw == content.encode("utf-8"):
         return None

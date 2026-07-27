@@ -1130,8 +1130,25 @@ nach Phase 3/4 und starten keinen Prozess (`context.mode.mutations_allowed`,
 
 Phase 7 ist eine **Zusatzhaertung ohne AC-Pflicht** (erkennt eine Fremdaenderung
 zwischen Lesen und Schreiben). Sie kostet zwei `read_bytes` und schuetzt die
-Byte-Identitaets-Zusicherung. Falls der Orchestrator sie als Scope-Ausweitung
-sieht: streichbar, ohne dass ein AC faellt.
+Byte-Identitaets-Zusicherung.
+
+> **Korrektur (Review R02).** Bis R02 behoben war, war die Aussage „Phase 7
+> schliesst das Stale-Write-Fenster" **falsch** — und zwar genau im
+> konkurrierenden Fall, fuer den sie gedacht war. Weil jede Datei **zweimal**
+> gelesen wurde (einmal zum Parsen, einmal fuer das Before-Image), konnte eine
+> gleichzeitige Fremdaenderung ein **neueres** Before-Image an ein **aelteres**
+> Rendering binden. Phase 7 verglich dann Before-Image und Platte, fand
+> Uebereinstimmung — und **autorisierte** genau das veraltete Ueberschreiben, das
+> sie verhindern sollte; die Fremdaenderung ging still verloren.
+>
+> Der Waechter ist erst tragfaehig, seit jede Datei in Phase 2 **genau einmal**
+> gelesen wird und Parsen, Rendern und Before-Image aus exakt diesen Bytes
+> stammen (`_load_target_mcp_json_bytes`, `render_project_codex_config(..., raw=)`).
+> Erst mit diesem konsistenten Snapshot gilt die Zusicherung. Belegt durch
+> `test_concurrent_foreign_mcp_json_change_is_never_silently_lost`,
+> `…_codex_change_…` und den Strukturtest
+> `test_phase_two_reads_each_file_exactly_once`; alle drei sind rot, wenn die
+> Zwei-Read-Form wiederhergestellt wird.
 
 ### 7.2 Was das „gebundene Before-Image" konkret ist
 
@@ -1274,7 +1291,17 @@ Ehrlichkeitsaussage ist schlimmer als keine. Tatsaechlich verwendet die Suite:
    die Conformance-Probe ohne laufende Weaviate bestehen kann (das etablierte
    Muster der bestehenden CP-10-Suite);
 3. die Substitution von `check_mcp_conformance` in den Negativ-/Ordnungstests;
-4. eine In-Memory-`registration_repo` (CP 7) in allen Installer-Tests.
+4. eine In-Memory-`registration_repo` (CP 7) in den **Unit**-Tests. Die
+   **Integrationsabdeckung** benutzt seit Review R06 das echte
+   `StateBackendProjectRegistrationRepository` (SQLite-Pfad); dass CP 10 die
+   Registry ueberhaupt nicht anfasst, ist jetzt bewiesen statt angenommen
+   (`test_registration_repository_is_never_touched_by_cp10`).
+
+**Einordnung der Substitution (2) nach R06:** Die CP-10-Mechanik-Tests sind
+**Unit-/Functional-Abdeckung** der Zwei-Dateien-Mechanik, nicht ein Beweis der
+produktiven Verdrahtung. Als solche sind sie benannt. Den produktiven
+Ein-Spec-zu-Probe-Pfad belegen ausschliesslich die nicht-substituierten Tests
+(`test_real_derivation_*`, `test_full_cp8_to_cp10_region_uses_the_real_derivation`).
 
 **Die Luecke, die (2) hinterlaesst, war real:** hoert CP 10 auf, die produktive
 Ableitung (`RuntimeBinding`, Engine-Kommando) zu benutzen, bleiben alle

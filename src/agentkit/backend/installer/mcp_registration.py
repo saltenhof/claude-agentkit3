@@ -386,7 +386,15 @@ def merge_mcp_json_servers(
     for server in servers:
         _reject_foreign_occupation(merged, server)
         entry = server.to_mcp_json_entry()
-        if merged.get(server.name) != entry:
+        current = merged.get(server.name)
+        if isinstance(current, dict):
+            # Identity already matched (else the rejection above fired), so this IS
+            # AK3's own entry: upsert the owned fields and PRESERVE any unknown
+            # harness-specific field, exactly as the Codex writer does for its own
+            # table. Dropping them here was the positive-direction half of the same
+            # asymmetry: one format preserved foreign data, the other discarded it.
+            entry = {**current, **entry}
+        if current != entry:
             merged[server.name] = entry
             changed = True
     root["mcpServers"] = merged

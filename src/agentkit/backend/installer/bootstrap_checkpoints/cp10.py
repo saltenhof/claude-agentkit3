@@ -104,6 +104,32 @@ def _target_mcp_json_path(project_root: Path) -> Path:
     return project_root / ".mcp.json"
 
 
+def _load_target_mcp_json_bytes(
+    raw: bytes | None,
+) -> tuple[dict[str, object] | None, str | None]:
+    """Strict-load the target ``.mcp.json`` from ALREADY-CAPTURED bytes.
+
+    Separated from the path-reading wrapper so a caller that must bind a
+    before-image can parse and render from the *same* bytes it bound. Reading the
+    file twice — once to parse, once for the before-image — allowed a concurrent
+    foreign edit to bind a NEWER before-image to a STALER rendering, which made the
+    pre-write guard authorise exactly the stale overwrite it exists to prevent.
+
+    Args:
+        raw: The file's bytes, or ``None`` when the file does not exist.
+
+    Returns:
+        Same contract as :func:`_load_target_mcp_json`.
+    """
+    if raw is None:
+        return {}, None
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return None, f"target .mcp.json is not valid UTF-8: {exc}"
+    return _parse_target_mcp_json(text)
+
+
 def _load_target_mcp_json(
     mcp_path: Path,
 ) -> tuple[dict[str, object] | None, str | None]:
@@ -132,6 +158,13 @@ def _load_target_mcp_json(
         return None, f"target .mcp.json is not valid UTF-8: {exc}"
     except OSError as exc:
         return None, f"cannot read target .mcp.json: {exc}"
+    return _parse_target_mcp_json(text)
+
+
+def _parse_target_mcp_json(
+    text: str,
+) -> tuple[dict[str, object] | None, str | None]:
+    """Strict-parse already-decoded ``.mcp.json`` text (shared by both loaders)."""
     try:
         loaded: object = json.loads(
             text,
@@ -497,7 +530,20 @@ def _render_both(
             REASON_CONFIGURATION_INVALID, f"{exc} No file was written."
         ) from exc
     mcp_path = _target_mcp_json_path(context.project_root)
-    existing_root, load_error = _load_target_mcp_json(mcp_path)
+
+    # ONE read per file. Parsing, rendering and the bound before-image all derive
+    # from exactly these bytes. Reading twice let a concurrent foreign edit bind a
+    # NEWER before-image to a STALER rendering, after which the pre-write guard
+    # found before-image and disk in agreement and authorised the stale overwrite
+    # it exists to prevent — losing the foreign change silently.
+    try:
+        mcp_before = mcp_path.read_bytes() if mcp_path.is_file() else None
+    except OSError as exc:
+        raise _RegistrationRejectedError(
+            REASON_CONFIGURATION_INVALID,
+            f"Target .mcp.json cannot be read: {exc}. No file was written.",
+        ) from exc
+    existing_root, load_error = _load_target_mcp_json_bytes(mcp_before)
     if load_error is not None:
         raise _RegistrationRejectedError(
             REASON_MCP_CONFIGURATION_INVALID,
@@ -508,15 +554,22 @@ def _render_both(
 
     try:
         codex_before = read_codex_config_bytes(context.project_root)
-        codex_text = render_project_codex_config(context.project_root, desired)
+        codex_text = render_project_codex_config(
+            context.project_root, desired, raw=codex_before
+        )
     except CodexConfigError as exc:
         raise _RegistrationRejectedError(
             REASON_MCP_CONFIGURATION_INVALID,
             f"Target {CODEX_DIR}/{CODEX_CONFIG_FILE} is invalid "
             f"({exc.code}): {exc}. No file was written.",
         ) from exc
+    except OSError as exc:
+        raise _RegistrationRejectedError(
+            REASON_CONFIGURATION_INVALID,
+            f"Target {CODEX_DIR}/{CODEX_CONFIG_FILE} cannot be read: {exc}. "
+            "No file was written.",
+        ) from exc
 
-    mcp_before = mcp_path.read_bytes() if mcp_path.is_file() else None
     try:
         mcp_text, _ = render_mcp_json_text(existing_root, desired)
     except TypeError as exc:  # non-object mcpServers after a strict load
@@ -574,8 +627,21 @@ def _commit_registration(
 
     # Concurrent-modification guard: both files must still match the bound
     # before-image, otherwise another writer changed them since phase 2 and the
-    # rendered content is stale.
-    current_mcp = mcp_path.read_bytes() if mcp_path.is_file() else None
+    # rendered content is stale. A read failure here (ACL change, share lock) is a
+    # NAMED result, not a raw exception out of the checkpoint engine.
+    try:
+        current_mcp = mcp_path.read_bytes() if mcp_path.is_file() else None
+    except OSError as exc:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"Target .mcp.json cannot be re-read before the write: {exc}. "
+                "No file was written."
+            ),
+            reason=REASON_CONFIGURATION_INVALID,
+            start=start,
+        )
     try:
         current_codex = read_codex_config_bytes(context.project_root)
     except CodexConfigError as exc:
@@ -584,6 +650,17 @@ def _commit_registration(
             status=CheckpointStatus.FAILED,
             detail=f"{exc} No file was written.",
             reason=REASON_MCP_CONFIGURATION_INVALID,
+            start=start,
+        )
+    except OSError as exc:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"Target {CODEX_DIR}/{CODEX_CONFIG_FILE} cannot be re-read before "
+                f"the write: {exc}. No file was written."
+            ),
+            reason=REASON_CONFIGURATION_INVALID,
             start=start,
         )
     if (
