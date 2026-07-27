@@ -18,6 +18,7 @@ from agentkit.backend.core_types.mcp_server_registration import (
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
     McpServerRegistrationError,
+    before_image_fingerprint,
     canonical_registration_payload,
     registration_digest,
 )
@@ -262,3 +263,54 @@ def test_canonical_payload_is_domain_tagged() -> None:
         (), mcp_json_text="", codex_toml_text=""
     )
     assert "agentkit.mcp-server-registration.v1" in payload
+
+
+# --------------------------------------------------------------------------- #
+# Before-image binding
+# --------------------------------------------------------------------------- #
+
+
+def test_absent_before_image_fingerprint_is_none() -> None:
+    """``None`` means "file did not exist" — rollback must DELETE, not blank it."""
+    assert before_image_fingerprint(None) is None
+
+
+def test_empty_before_image_is_distinguishable_from_an_absent_one() -> None:
+    assert before_image_fingerprint(b"") is not None
+    assert before_image_fingerprint(b"") != before_image_fingerprint(b"x")
+
+
+def test_before_image_fingerprint_survives_invalid_utf8() -> None:
+    """An existing harness config may be invalid UTF-8; a digest still binds it.
+
+    This is why the payload carries a fingerprint rather than the raw bytes: the
+    bytes could not be embedded in a JSON payload at all.
+    """
+    assert before_image_fingerprint(b"\xff\xfe not utf-8") is not None
+
+
+def test_digest_changes_when_the_bound_before_image_changes() -> None:
+    """Makes the before-image genuinely BOUND, not merely carried alongside."""
+    args = {"mcp_json_text": "{}\n", "codex_toml_text": "[hooks]\n"}
+    absent = registration_digest(
+        (_server(),), **args, before_image={"mcp_json": None, "codex_config": None}
+    )
+    present = registration_digest(
+        (_server(),),
+        **args,
+        before_image={
+            "mcp_json": before_image_fingerprint(b"{}\n"),
+            "codex_config": None,
+        },
+    )
+    assert absent != present
+
+
+def test_digest_without_a_before_image_is_stable() -> None:
+    """Omitting the before-image is a distinct, deterministic state."""
+    args = {"mcp_json_text": "{}\n", "codex_toml_text": "[hooks]\n"}
+    unbound = registration_digest((_server(),), **args)
+    assert unbound == registration_digest((_server(),), **args)
+    assert unbound != registration_digest(
+        (_server(),), **args, before_image={"mcp_json": None, "codex_config": None}
+    )

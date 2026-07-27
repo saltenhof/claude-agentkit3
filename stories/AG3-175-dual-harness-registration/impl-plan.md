@@ -764,6 +764,56 @@ Damit ist die Schreiberliste danach vollstaendig: **ein** Writer (CP 8 Hook,
 CP 10 MCP-Tabelle, dieselbe Renderfunktion), **ein** Leser fuer die
 Detach-Klassifikation, **keine** Kopie.
 
+#### 4.2.1 Ein vorbestehender Defekt, der dabei mitgeschlossen wird
+
+Die Bundle-Kopie ist **nicht nur** ein zukuenftiges Risiko fuer die MCP-Tabelle.
+Sie ist **heute schon** ein Datenverlustpfad, unabhaengig von AG3-175. Gemessen
+am echten Produktionspfad (`_deploy_static_resource_files` auf ein Zielprojekt
+mit nutzererweiterter Datei):
+
+```
+BEFORE (user-extended):        AFTER the static resource deploy:
+# AgentKit-managed …           # AgentKit-managed …
+[hooks.pre_tool_use]           [hooks.pre_tool_use]
+command = "agentkit-hook-codex"command = "agentkit-hook-codex"
+
+# user note: my own Codex
+# settings, please keep
+[user.custom]
+alpha = 1
+
+USER CONTENT SURVIVED: False
+```
+
+Ein Zielprojekt, dessen Nutzer `.codex/config.toml` um eigene
+Codex-Konfiguration erweitert hat, **verliert sie beim naechsten
+Installationslauf** — geloescht in CP 8, bevor `write_codex_settings` die Datei
+ueberhaupt ansieht. Gleichzeitig geht `detach.py:340-362` ausdruecklich den
+Umweg, genau diesen Fremdinhalt zu **erhalten** und als
+`preserved_foreign_files` zu melden (FK-10 §10.2.9, „preserve project code").
+
+**Die Installation zerstoert also, was das Detach sorgfaeltig schuetzt.** Das ist
+ein vorbestehender Widerspruch im Ist-Zustand, kein Nebeneffekt dieser Story. Er
+wird hier **mitgeschlossen**, weil die Loeschung der Bundle-Datei ohnehin
+notwendig ist — aber er ist ausdruecklich als **vorbestehender Defekt** zu
+berichten, nicht als Aufraeumarbeit.
+
+**Zweiter Loeschpfad, wichtig fuer die Testbarkeit:** Die Bundle-Loeschung allein
+behebt den Nutzerdatenverlust **nicht**. `write_codex_settings` vergleicht heute
+byteweise gegen einen Fixstring (`codex_settings.py:41-43`) und schreibt bei
+Abweichung die Datei neu — eine nutzererweiterte Datei weicht ab und wird
+ebenfalls ueberschrieben. Der Verlust hat also **zwei** Ursachen, und der
+vollstaendige Fix braucht **beides**: Bundle-Loeschung **und** semantischen
+Writer.
+
+Konsequenz fuer den Testplan: der ehrliche Beweis
+`test_user_extended_codex_config_survives_two_install_runs` kann erst mit
+**Schritt 3 + 5** gruen werden, nicht mit der Bundle-Loeschung allein. Er wird
+dort geschrieben (§8.2 B-Nachweis-Zeilen) und ist die Revert-Probe fuer beide
+Ursachen gleichzeitig: dreht man die Bundle-Loeschung **oder** den semantischen
+Writer zurueck, wird er rot. Ein frueherer Test, der den heutigen kaputten Stand
+festschreibt, waere wertlos und muesste spaeter invertiert werden.
+
 Determinismus des Writes: der Adapter liefert Text mit `\n`; geschrieben wird
 mit `atomic_write_text(path, text, newline="")` (`backend/utils/io.py:20-54`),
 damit die Bytes auf der Platte exakt `text.encode("utf-8")` sind. Ohne
@@ -1211,6 +1261,7 @@ Weg, den `test_cp10_mcp_conformance.py:105-110` heute schon geht
 | B-Nachweis | `…::test_detach_preserves_config_with_foreign_table_alongside_mcp` | AK3-Hook + AK3-MCP + `[user.custom]` → `preserved_foreign_files`, Datei bleibt | Schritt 3 des Praedikats |
 | B-Nachweis | `…::test_detach_preserves_ak3_only_config_with_user_comment` | AK3-Inhalt + zusaetzlicher Kommentar → erhalten | **Schritt 5** des Praedikats. Ohne ihn wird dieser Test rot — das ist der Test, der die Nicht-Schwaechung von `preserved_foreign_files` beweist. |
 | B-Nachweis | `integration/installer/test_codex_mcp_registration.py::test_static_resource_deploy_does_not_reintroduce_a_bundle_config` | nach zwei Laeufen gibt es keine Bundle-Kopie, die die MCP-Tabelle ueberschreibt; `bundles/target_project/.codex/` enthaelt keine `config.toml` | die Bundle-Loeschung (§4.2) — mit der Datei flattert die Registrierung zwischen den Laeufen |
+| **vorbestehender Defekt** (§4.2.1) | `integration/installer/test_codex_mcp_registration.py::test_user_extended_codex_config_survives_two_install_runs` | nutzererweiterte `.codex/config.toml` (fremde Tabelle **und** Kommentar) ueberlebt zwei vollstaendige Installationslaeufe wertgleich | **beide** Ursachen: die Bundle-Kopie (CP 8 `_deploy_static_resource_files`) **und** den Fixstring-Byte-Vergleich in `write_codex_settings`. Dreht man eine davon zurueck, wird der Test rot. Landet mit Schritt 3+5, weil die Bundle-Loeschung allein nicht genuegt. |
 | Pin | `contract/packaging/test_packaging_pins.py::test_tomlkit_pinned_exactly` | `"tomlkit==0.15.1" in dependencies` | den Pin |
 
 **Mocks/Stubs:** genau einer — der simulierte `OSError` fuer den zweiten Write
@@ -1505,5 +1556,38 @@ eine zweite Wahrheit und damit schlechter.
 
 Schritt 3 haengt an **D-1** (tomlkit, liegt beim PO). Die Konzept-Nachzuege
 (Q-1, Q-4) sind Dokumentationsschritte am Ende und blockieren die Schritte 1-7
-nicht, muessen aber vor „fertig" entschieden sein. Ich beginne erst mit der
-Freigabe des Orchestrators.
+nicht, muessen aber vor „fertig" entschieden sein.
+
+### 10.1 Umsetzungsstand
+
+| Schritt | Stand | Belege |
+|---|---|---|
+| 1 — `core_types/mcp_server_registration.py` | **fertig** (Commit `2f9ab00a`, erweitert um die Before-Image-Bindung) | 47 Tests in `tests/unit/core_types/test_mcp_server_registration.py` |
+| 2 — `installer/mcp_registration.py` + Startbeweis | **fertig** (Commit `2720a51b`) | 30 Tests in `tests/unit/installer/test_mcp_registration.py`, 8 in `tests/unit/installer/test_registered_entry_starts.py`; Revert-Probe durchgefuehrt (7 rot), Konstante wiederhergestellt und erneut gruen |
+| 3 — Codex-TOML-Writer | **blockiert auf D-1** | — |
+| 4-7 | offen | — |
+
+Gemessen am Ende von Schritt 2:
+`pytest tests/unit/installer tests/unit/core_types tests/unit/vectordb -q` →
+**989 passed**; `ruff check` der fuenf Dateien → *All checks passed*;
+`mypy src` → *Success: no issues found in 1000 source files*.
+
+**Zwei Praezisierungen, die sich waehrend der Umsetzung ergaben** (beide im Code
+so umgesetzt, hier zur Nachvollziehbarkeit):
+
+1. **Das Before-Image musste in den Digest.** Der Plan behauptete in §7.2 eine
+   „gebundene" Vor-Aufnahme. Bei der Umsetzung zeigte sich, dass die
+   Digest-Signatur aus §2.4 das nicht leistete: ein ausgetauschtes Before-Image
+   mit identischen Specs und Texten haette denselben Digest ergeben, die
+   Zusicherung waere also falsch gewesen. `canonical_registration_payload`
+   nimmt jetzt zusaetzlich `before_image` (als **Fingerprint**, nicht als
+   Rohbytes — eine vorhandene Harness-Config kann ungueltiges UTF-8 sein und
+   waere in einem JSON-Payload nicht einbettbar). Test:
+   `test_verify_binding_detects_a_swapped_before_image`.
+2. **`desired_server_from_spec` ist typisiert statt `object` + `getattr`.** Der
+   erste Wurf nahm `spec: object` „um keine Importabhaengigkeit zu erzeugen".
+   Das haette mypy-strict unterlaufen und ein falsches Objekt still akzeptiert.
+   Geprueft, dass der typisierte Import erlaubt ist: `entities.md` definiert
+   `may_import_*` an **Boundaries**, nicht an fachlichen Component-Groups, und
+   `installer` ist eine Group; ausserdem sagt AG3-174s Moduldocstring
+   ausdruecklich „consumed UNCHANGED by AG3-175".
