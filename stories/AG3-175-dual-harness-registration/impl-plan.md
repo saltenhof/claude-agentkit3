@@ -1579,9 +1579,29 @@ Q-1b-Entscheidung ging als Ergebnisbericht an den Orchestrator.
 
 **Zwei Plan-Aussagen wurden vom Code widerlegt** (beide im Bericht ausgewiesen):
 Component-Groups tragen doch eine Exposure-Restriktion (`HarnessAdaptersCodex` ist
-`internal`), weshalb der Writer nach `harness_adapters/codex_config_toml.py`
-neben `settings_writer.py` wanderte statt unter `codex/` zu liegen; und der
-Architektur-Checker laeuft doch gegen das echte Repo.
+`exposure: internal`, `entities.md:433-447`), und der Architektur-Checker laeuft
+doch gegen das echte Repo.
+
+**Grund der Platzierungsabweichung — Konzeptvorrang, nicht Bequemlichkeit.** Die
+Story zeigt als betroffene Datei auf `harness_adapters/codex/`; FK-76 §76.9 sagt
+„konkrete Adapter sind nicht direkt importierbar", und das Architekturmodell
+setzt das mit `exposure: internal` auf genau diesem Prefix durch. Bei einem
+Konflikt zwischen Story-Dateizeiger und Konzept gilt **das Konzept**
+(`stories/README.md` §4.2: Konzepte sind die Autoritaet fuer
+Architekturentscheidungen, nicht das Story-Briefing). Deshalb liegt der Writer in
+`harness_adapters/codex_config_toml.py` — ausserhalb des internen Prefix und
+neben `settings_writer.py`, wo der `.codex/hooks.json`-Writer schon liegt. Das
+`codex/`-Subpackage traegt Hook-**Mediation**, keine Settings-Writer. Die
+Abweichung ist keine Umgehung des Story-Scopes, sondern seine konzepttreue
+Ausfuehrung.
+
+**R-1 (Orchestrator-Review) geschlossen.** Der neue gRPC-Validator akzeptierte
+`http://h:1` (via `rpartition(":")`) und haette dem Weaviate-Client den Literal-Host
+`"http://h"` uebergeben — ein plausibler Operator-Fehler waere erst als
+Connect-Fehler aufgefallen. Die akzeptierte Menge beider Validatoren ist jetzt
+**an den Konsumenten gebunden** (`engine._split_endpoint` / `._split_grpc`,
+ratifizierter AG3-174-Code, unangetastet) und mit Tests belegt, die diese Bindung
+behaupten statt sie nur zu dokumentieren.
 
 Gemessen am Ende von Schritt 2:
 `pytest tests/unit/installer tests/unit/core_types tests/unit/vectordb -q` →

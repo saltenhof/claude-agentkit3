@@ -493,6 +493,121 @@ class TestVectorDbConfig:
         )
         assert cfg.vectordb is None
 
+    # ------------------------------------------------------------------ #
+    # AG3-175: Weaviate endpoint shape. The accepted set of both fields is
+    # BOUND to the consumer -- ``vectordb.engine._split_endpoint`` and
+    # ``._split_grpc``. Every value accepted here must be usable by them, and
+    # anything they cannot use must be rejected here, at the first gate an
+    # operator hits.
+    # ------------------------------------------------------------------ #
+
+    def test_endpoints_default_to_none(self) -> None:
+        cfg = VectorDbConfig()
+        assert cfg.weaviate_http_endpoint is None
+        assert cfg.weaviate_grpc_endpoint is None
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "http://weaviate.internal:9903",
+            "https://weaviate.internal:9903",
+            "http://127.0.0.1:9903",
+            "http://[::1]:8080",
+            "http://weaviate.internal:9903/",  # empty path: nothing can be lost
+        ],
+    )
+    def test_valid_http_endpoint_is_accepted(self, endpoint: str) -> None:
+        assert VectorDbConfig(weaviate_http_endpoint=endpoint).weaviate_http_endpoint == endpoint
+
+    @pytest.mark.parametrize(
+        ("endpoint", "needle"),
+        [
+            ("", "must not be empty"),
+            ("   ", "must not be empty"),
+            ("weaviate.internal:9903", "must be http"),
+            ("ftp://weaviate.internal:9903", "must be http"),
+            ("grpc://weaviate.internal:9903", "must be http"),
+            ("http://", "must be http"),
+            ("http://weaviate.internal", "explicit port"),
+            # The consumer keeps only hostname/port/scheme and DISCARDS these,
+            # so accepting them would silently drop operator intent.
+            ("http://weaviate.internal:9903/v1", "without path, query or fragment"),
+            ("http://weaviate.internal:9903?a=1", "without path, query or fragment"),
+            ("http://weaviate.internal:9903#f", "without path, query or fragment"),
+            ("http://user:secret@weaviate.internal:9903", "must not carry userinfo"),
+        ],
+    )
+    def test_invalid_http_endpoint_is_rejected(self, endpoint: str, needle: str) -> None:
+        with pytest.raises(ValidationError, match=needle):
+            VectorDbConfig(weaviate_http_endpoint=endpoint)
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "weaviate.internal:50051",
+            "grpc://weaviate.internal:50051",
+            "grpcs://weaviate.internal:50051",  # grpcs selects a TLS channel
+            "10.0.0.5:50051",
+            "[::1]:50051",
+        ],
+    )
+    def test_valid_grpc_endpoint_is_accepted(self, endpoint: str) -> None:
+        assert VectorDbConfig(weaviate_grpc_endpoint=endpoint).weaviate_grpc_endpoint == endpoint
+
+    @pytest.mark.parametrize(
+        ("endpoint", "needle"),
+        [
+            ("", "must not be empty"),
+            ("   ", "must not be empty"),
+            # R-1: an http(s) scheme used to be ACCEPTED and reached the Weaviate
+            # client as the literal host "http://h" -- a confusing connect failure
+            # instead of a named configuration error.
+            ("http://weaviate.internal:50051", "no other scheme is usable"),
+            ("https://weaviate.internal:50051", "no other scheme is usable"),
+            ("//weaviate.internal:50051", "no other scheme is usable"),
+            ("grpc://http://weaviate.internal:50051", "no other scheme is usable"),
+            # A scheme-like prefix WITHOUT '//' would become part of the host.
+            ("weaviate:internal:50051", "plain hostname"),
+            ("weaviate.internal", "must be host:port"),
+            (":50051", "must be host:port"),
+            ("weaviate.internal:0", "port in 1..65535"),
+            ("weaviate.internal:70000", "port in 1..65535"),
+            ("weaviate.internal:abc", "port in 1..65535"),
+            ("weaviate.internal:50051/foo", "port in 1..65535"),
+        ],
+    )
+    def test_invalid_grpc_endpoint_is_rejected(self, endpoint: str, needle: str) -> None:
+        with pytest.raises(ValidationError, match=needle):
+            VectorDbConfig(weaviate_grpc_endpoint=endpoint)
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["weaviate.internal:50051", "grpc://weaviate.internal:50051", "grpcs://w:50051"],
+    )
+    def test_every_accepted_grpc_endpoint_is_usable_by_the_consumer(
+        self, endpoint: str
+    ) -> None:
+        """The binding to ``_split_grpc`` is asserted, not just documented."""
+        from agentkit.backend.vectordb.engine import _split_grpc
+
+        VectorDbConfig(weaviate_grpc_endpoint=endpoint)
+        host, port, _secure = _split_grpc(endpoint)
+        assert host and not host.startswith(("http", "//"))
+        assert port == 50051
+
+    @pytest.mark.parametrize(
+        "endpoint", ["http://weaviate.internal:9903", "https://w:9903", "http://w:9903/"]
+    )
+    def test_every_accepted_http_endpoint_is_usable_by_the_consumer(
+        self, endpoint: str
+    ) -> None:
+        from agentkit.backend.vectordb.engine import _split_endpoint
+
+        VectorDbConfig(weaviate_http_endpoint=endpoint)
+        host, port, _secure = _split_endpoint(endpoint)
+        assert host and "/" not in host
+        assert port == 9903
+
 
 class TestTelemetryConfig:
     """AC4: telemetry stanza with FK-03 defaults."""
