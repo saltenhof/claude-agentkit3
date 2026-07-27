@@ -1,3 +1,0 @@
-# AgentKit-managed Codex hook configuration.
-[hooks.pre_tool_use]
-command = "agentkit-hook-codex"

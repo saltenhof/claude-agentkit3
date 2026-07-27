@@ -16,7 +16,7 @@ from agentkit.backend.core_types.mcp_server_registration import (
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
 )
-from agentkit.harness_client.harness_adapters.codex.config_toml import (
+from agentkit.harness_client.harness_adapters.codex_config_toml import (
     CodexConfigError,
     CodexConfigOwnership,
     CodexConfigRejection,

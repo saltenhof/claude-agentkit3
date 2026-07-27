@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from agentkit.backend.installer.codex_settings import build_codex_config_toml
+from agentkit.backend.installer.codex_settings import CODEX_HOOK_COMMAND
 from agentkit.backend.installer.paths import (
     AGENTKIT_DIR,
     AGENTKIT_TOOLS_DIR,
@@ -38,6 +38,10 @@ from agentkit.backend.installer.paths import (
     codex_config_path,
 )
 from agentkit.backend.skills import is_directory_link, remove_directory_link
+from agentkit.harness_client.harness_adapters.codex_config_toml import (
+    CodexConfigOwnership,
+    classify_ownership,
+)
 
 #: AK3 Claude hooks are emitted through this wrapper command (settings_writer).
 AK3_CLAUDE_HOOK_WRAPPER = "agentkit-hook-claude"
@@ -338,25 +342,43 @@ def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list
 
 
 def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> list[str]:
-    """Remove ``.codex/config.toml`` ONLY when it byte-equals the AK3 config.
+    """Remove ``.codex/config.toml`` ONLY when it is semantically AK3-owned.
 
-    Install (``codex_settings.write_codex_settings``) writes a fixed AK3 config
-    (``build_codex_config_toml``) and decides a re-write by comparing the on-disk
-    text to that builder output. Detach mirrors that comparison: it removes the
-    file only when its current content equals the AK3-generated config. A file a
-    user extended with foreign Codex config differs and is PRESERVED (reported via
-    ``preserved_files``) rather than deleted wholesale (FK-10 §10.2.9, "preserve
-    project code"; same data-loss class as the settings/hooks surgical strip).
+    AG3-175 replaces the former byte comparison against a FIXED string. That
+    comparison was wrong in one direction: once CP 10 merged an
+    ``[mcp_servers.*]`` registration into the file, the bytes no longer matched
+    the hook-only builder output, so a file AK3 had written ITSELF was classified
+    foreign and left behind — and ``.codex/`` stayed non-empty so the directory
+    cleanup did not fire either.
+
+    The predicate is now ``classify_ownership`` (FK-76 §76.5.4). It is
+    conservative in BOTH directions, which is what keeps the
+    ``preserved_foreign_files`` guarantee from weakening:
+
+    * AK3 hook entry, with or without AK3 MCP tables -> ``AK3_ONLY`` -> removed.
+    * A foreign top-level table, a foreign MCP server, an unknown field in an AK3
+      server table, or merely an added COMMENT -> ``MIXED`` -> PRESERVED. A purely
+      value-based predicate could not see the comment case and would delete the
+      file; the classification's final step compares bytes against the canonical
+      rendering of the AK3 content found, so it can.
+    * No AK3 content -> ``FOREIGN`` -> preserved.
+    * Not decodable / not parsable -> ``UNREADABLE`` -> preserved. Never delete
+      what cannot be read.
+
+    Unchanged: only the classification predicate. No new detach behaviour, and
+    every non-``AK3_ONLY`` outcome still reports through ``preserved_files``
+    (FK-10 §10.2.9, "preserve project code").
     """
     config_path = codex_config_path(project_root)
     if not config_path.is_file():
         return []
     try:
-        current = config_path.read_text(encoding="utf-8")
+        raw: bytes | None = config_path.read_bytes()
     except OSError:
-        current = None
-    if current != build_codex_config_toml():
-        # Foreign/modified content: preserve it, never delete foreign config.
+        raw = None
+    ownership = classify_ownership(raw, hook_command=CODEX_HOOK_COMMAND)
+    if ownership is not CodexConfigOwnership.AK3_ONLY:
+        # Foreign / mixed / unreadable: preserve it, never delete foreign config.
         preserved_files.append(str(config_path.relative_to(project_root)))
         return []
     return _remove_file(config_path, project_root)

@@ -218,6 +218,17 @@ class InstallConfig:
     # to features.are only); both off -> CP 10 SKIPPED (vectordb_disabled).
     features_vectordb: bool = False
     features_are: bool = False
+    # AG3-175 (FK-13 §13.4.3 / FK-76 §76.5.4): the FULL Weaviate endpoints that
+    # CP 10 registers into the MCP server's ``env``. They must travel through
+    # InstallConfig -> CP 5 -> project.yaml, because ``_build_project_yaml``
+    # rebuilds the whole mapping from this config and CP 5 writes it back
+    # whenever it differs: a hand-maintained ``pipeline.vectordb`` stanza would be
+    # DELETED by the next install run. Both are ``None`` by default; with
+    # ``features_vectordb`` on and either missing, CP 10 FAILs closed with
+    # ``configuration_invalid`` rather than synthesising an endpoint (PO
+    # decision D2 -- no localhost/default fallback).
+    vectordb_http_endpoint: str | None = None
+    vectordb_grpc_endpoint: str | None = None
     # AG3-088 (FK-50 §50.3 CP 10c): optional ARE config consumed when
     # ``features_are`` is True — the ``are`` stanza (incl. ``mcp_server`` and the
     # ``module_scope_map``) written into project.yaml. The installer is the
@@ -389,6 +400,19 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
     # FAILs closed — the intended prompt to provision Sonar or opt out
     # consciously. Non-code-producing scaffolds may omit it, but the default
     # story types are code-producing, so it is always written here.
+    # AG3-175: the vectordb stanza is written ONLY when the feature is on AND both
+    # endpoints are declared. A partial stanza is never written -- CP 10 then
+    # FAILs closed with a named reason instead of registering a server that would
+    # refuse its own runtime binding (PO decision D2, no synthesised endpoint).
+    if (
+        config.features_vectordb
+        and config.vectordb_http_endpoint
+        and config.vectordb_grpc_endpoint
+    ):
+        pipeline["vectordb"] = {
+            "weaviate_http_endpoint": config.vectordb_http_endpoint,
+            "weaviate_grpc_endpoint": config.vectordb_grpc_endpoint,
+        }
     if {"implementation", "bugfix"}.intersection(story_types):
         pipeline["sonarqube"] = _default_sonarqube_stanza(config)
         # AG3-056: a code-producing project must likewise declare the ``ci``

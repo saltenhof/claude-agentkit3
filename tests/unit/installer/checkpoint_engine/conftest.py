@@ -76,6 +76,13 @@ def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleSto
     return skills, store
 
 
+#: Explicit, non-default Weaviate endpoints for the engine unit tests. They are
+#: deliberately NOT localhost defaults: ``runtime_binding._reject_localhost``
+#: rejects those (PO decision D2), and CP 10 must never synthesise an endpoint.
+_TEST_HTTP_ENDPOINT = "http://weaviate.test.invalid:9903"
+_TEST_GRPC_ENDPOINT = "weaviate.test.invalid:50051"
+
+
 def make_config(
     root: Path,
     *,
@@ -84,6 +91,8 @@ def make_config(
     repo_existence_probe: object | None = None,
     features_vectordb: bool = False,
     features_are: bool = False,
+    vectordb_http_endpoint: str | None = _TEST_HTTP_ENDPOINT,
+    vectordb_grpc_endpoint: str | None = _TEST_GRPC_ENDPOINT,
     are_module_scope_map: dict[str, str] | None = None,
     repositories: list[dict[str, str]] | None = None,
     github_owner: str | None = "acme",
@@ -110,6 +119,8 @@ def make_config(
         repo_existence_probe=repo_existence_probe,  # type: ignore[arg-type]
         features_vectordb=features_vectordb,
         features_are=features_are,
+        vectordb_http_endpoint=vectordb_http_endpoint,
+        vectordb_grpc_endpoint=vectordb_grpc_endpoint,
         are_module_scope_map=are_module_scope_map,
         sonarqube_available=False,
         ci_available=False,

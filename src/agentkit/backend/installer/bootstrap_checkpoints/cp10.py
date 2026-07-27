@@ -18,19 +18,30 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from agentkit.backend.config.models import ProjectConfig
+from agentkit.backend.core_types.mcp_server_registration import (
+    ARE_MCP_SERVER,
+    STORY_KNOWLEDGE_BASE_SERVER,
+    DesiredMcpServer,
+    McpServerRegistrationError,
+)
 from agentkit.backend.exceptions import InstallationError
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
 from agentkit.backend.installer.checkpoint_engine.context import ScopeInteractionMode
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_ALREADY_SATISFIED,
     REASON_ARE_DISABLED,
+    REASON_CONFIGURATION_INVALID,
     REASON_INAPPLICABLE,
     REASON_MCP_CONFIGURATION_INVALID,
-    REASON_MCP_PROTOCOL_ERROR,
     REASON_PENDING_SELECTION,
+    REASON_REGISTRATION_INCOMPLETE,
     REASON_VECTORDB_DISABLED,
 )
 from agentkit.backend.installer.checkpoint_engine.result_builder import (
@@ -38,10 +49,26 @@ from agentkit.backend.installer.checkpoint_engine.result_builder import (
     make_result,
     planned_result,
 )
-from agentkit.backend.installer.mcp_conformance import (
-    McpServerCommand,
-    check_mcp_conformance,
-    server_command_from_mcp_entry,
+from agentkit.backend.installer.codex_settings import (
+    read_codex_config_bytes,
+    render_project_codex_config,
+    write_codex_config_text,
+)
+from agentkit.backend.installer.mcp_registration import (
+    STORY_KNOWLEDGE_BASE_ARGS,
+    STORY_KNOWLEDGE_BASE_COMMAND,
+    ProbedRegistration,
+    RegistrationBeforeImage,
+    RenderedRegistration,
+    build_registration_env,
+    desired_server_from_spec,
+    probe_registration,
+    render_mcp_json_text,
+)
+from agentkit.backend.installer.paths import (
+    CODEX_CONFIG_FILE,
+    CODEX_DIR,
+    codex_config_path,
 )
 from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.strict_json import (
@@ -51,6 +78,13 @@ from agentkit.backend.installer.strict_json import (
     reject_duplicate_object_pairs,
     reject_non_json_constant,
 )
+from agentkit.backend.utils.io import atomic_write_text
+from agentkit.backend.vectordb.project_binding import (
+    ProjectBindingError,
+    resolve_authoritative_project_id,
+)
+from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
+from agentkit.harness_client.harness_adapters.codex_config_toml import CodexConfigError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -58,10 +92,6 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.checkpoint_engine.context import CheckpointContext
     from agentkit.backend.installer.registration import CheckpointResult
 
-#: MCP server key for the vectordb story-knowledge-base (FK-50 §50.3 CP 10).
-_STORY_KNOWLEDGE_BASE_SERVER = "story-knowledge-base"
-#: MCP server key for the ARE integration (FK-03 §3.1 are.mcp_server).
-_ARE_MCP_SERVER = "are-mcp"
 #: CP 10c fail-closed reason: ARE-MCP precondition missing.
 REASON_ARE_MCP_MISSING = "are_mcp_server_missing"
 
@@ -137,30 +167,145 @@ def _load_target_mcp_json(
     return {str(k): v for k, v in loaded.items()}, None
 
 
-def _desired_mcp_servers(context: CheckpointContext) -> dict[str, object]:
-    """Build the desired ``mcpServers`` entries for the active features.
+def _desired_mcp_servers(
+    context: CheckpointContext,
+) -> tuple[DesiredMcpServer, ...]:
+    """Build the typed desired MCP registrations for the active features.
 
-    Story-knowledge-base entry when ``features.vectordb``; ARE-MCP entry when
-    ``features.are`` (FK-03 §3.1 binds ``are.mcp_server`` to ``features.are``
-    only). Deterministic content so the idempotency comparison is stable.
+    Story-knowledge-base when ``features.vectordb``; ARE-MCP when ``features.are``
+    (FK-03 §3.1 binds ``are.mcp_server`` to ``features.are`` only). Deterministic
+    content, sorted by name, so the idempotency comparison and the registration
+    digest are stable.
+
+    The story-knowledge-base entry is built from ONE ``McpServerSpec`` produced by
+    ``RuntimeBinding.from_env`` — the FK-13 SSOT — so the probed, the written and
+    (per AG3-174) the consumed spec are the same object.
+
+    Raises:
+        McpServerRegistrationError: When the consumed configuration cannot
+            produce a complete registration (caller reports a named FAILED).
+        ProjectBindingError: When no authoritative project id can be derived.
     """
-    servers: dict[str, object] = {}
+    servers: list[DesiredMcpServer] = []
     if context.vectordb_enabled:
-        servers[_STORY_KNOWLEDGE_BASE_SERVER] = {
-            "type": "stdio",
-            "command": "python",
-            "args": ["-m", "agentkit.backend.vectordb.mcp_server"],
-        }
+        servers.append(_story_knowledge_base_server(context))
     if context.are_enabled:
         are_stanza = _are_stanza(context)
         mcp_server = str(are_stanza.get("mcp_server", "")) if are_stanza else ""
-        servers[_ARE_MCP_SERVER] = {
-            "type": "stdio",
-            "command": "agentkit-are-mcp",
-            "args": [],
-            "env": {"ARE_MCP_SERVER": mcp_server},
-        }
-    return servers
+        servers.append(
+            DesiredMcpServer(
+                name=ARE_MCP_SERVER,
+                command="agentkit-are-mcp",
+                args=(),
+                cwd=str(context.project_root),
+                env=(("ARE_MCP_SERVER", mcp_server),),
+            )
+        )
+    return tuple(sorted(servers, key=lambda item: item.name))
+
+
+def _project_config(context: CheckpointContext) -> ProjectConfig:
+    """Return the CP-5-produced project configuration, strictly typed.
+
+    CP 5 publishes the mapping on the run-state in EVERY mode
+    (``cp01_to_06.py`` sets it before the mode branch), so this works for
+    ``register`` as well as the read-only modes where the file is not on disk yet.
+    Validating it through :class:`ProjectConfig` keeps ONE typed configuration
+    truth instead of digging in a raw dict.
+
+    Raises:
+        McpServerRegistrationError: When CP 5 has not run or the mapping is not a
+            valid project configuration.
+    """
+    raw = context.run_state.project_yaml
+    if raw is None:
+        raise McpServerRegistrationError(
+            "CP 5 has not published a project configuration; CP 10 cannot derive "
+            "the MCP registration (fail-closed precondition)."
+        )
+    try:
+        return ProjectConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise McpServerRegistrationError(
+            f"the consumed project configuration is invalid: {exc}"
+        ) from exc
+
+
+def _story_knowledge_base_server(context: CheckpointContext) -> DesiredMcpServer:
+    """Build the story-knowledge-base registration from the typed configuration.
+
+    Sources (all typed, no environment access for configuration values):
+
+    * ``PROJECT_ID`` — ``resolve_authoritative_project_id`` (the FK-13 SSOT
+      resolver; the CP-5 ``project_prefix`` is the authority, a divergent
+      ``PROJECT_ID`` in the installing shell is a hard error).
+    * both Weaviate endpoints — ``pipeline.vectordb``; absent is a named FAILED,
+      never a synthesised default (PO decision D2).
+    * ``AGENTKIT_CONCEPTS_DIR`` / ``AGENTKIT_STORIES_DIR`` — the configured
+      ``concepts_dir`` / ``wiki_stories_dir``, made ABSOLUTE against the project
+      root. Absolute on purpose: the entry point resolves a relative value against
+      the process ``cwd``, and ``cwd`` must not become a second configuration
+      source (D2).
+
+    Raises:
+        McpServerRegistrationError: On any missing/invalid configuration value.
+    """
+    project_config = _project_config(context)
+    vectordb = project_config.pipeline.vectordb
+    http_endpoint = vectordb.weaviate_http_endpoint if vectordb else None
+    grpc_endpoint = vectordb.weaviate_grpc_endpoint if vectordb else None
+    if not http_endpoint or not grpc_endpoint:
+        raise McpServerRegistrationError(
+            "features.vectordb is enabled but pipeline.vectordb does not declare "
+            "both weaviate_http_endpoint and weaviate_grpc_endpoint; the MCP "
+            "server would refuse its own runtime binding. No endpoint is ever "
+            "synthesised (fail-closed, PO decision D2)."
+        )
+    project_id = resolve_authoritative_project_id(
+        project_root=str(context.project_root),
+        supplied=None,
+        env=os.environ,
+        config_project_id=project_config.project_prefix,
+    )
+    env = build_registration_env(
+        project_id=project_id,
+        weaviate_http_endpoint=http_endpoint,
+        weaviate_grpc_endpoint=grpc_endpoint,
+        concepts_dir=_absolute_within_root(
+            context.project_root, project_config.concepts_dir
+        ),
+        stories_dir=_absolute_within_root(
+            context.project_root, project_config.wiki_stories_dir
+        ),
+    )
+    binding = RuntimeBinding.from_env(
+        env,
+        command=STORY_KNOWLEDGE_BASE_COMMAND,
+        args=STORY_KNOWLEDGE_BASE_ARGS,
+        cwd=str(context.project_root),
+    )
+    return desired_server_from_spec(STORY_KNOWLEDGE_BASE_SERVER, binding.spec)
+
+
+def _absolute_within_root(project_root: Path, configured: str) -> str:
+    """Return ``configured`` as an absolute path proven to stay inside the root.
+
+    ``ProjectConfig`` already rejects absolute, drive-anchored and ``..``-bearing
+    layout directories (``_validate_project_relative_dir``); this adds the
+    resolved containment proof so a corpus root can never point outside the
+    project (same discipline as the Codex path guard).
+
+    Raises:
+        McpServerRegistrationError: On a containment violation.
+    """
+    root = project_root.resolve()
+    resolved = (root / configured).resolve()
+    if not resolved.is_relative_to(root):
+        raise McpServerRegistrationError(
+            f"configured directory {configured!r} resolves to {resolved}, outside "
+            f"the project root {root} (containment violation, fail-closed)."
+        )
+    return str(resolved)
 
 
 def _are_stanza(context: CheckpointContext) -> dict[str, object]:
@@ -168,38 +313,6 @@ def _are_stanza(context: CheckpointContext) -> dict[str, object]:
     yaml_data = context.run_state.project_yaml or {}
     are = yaml_data.get("are")
     return are if isinstance(are, dict) else {}
-
-
-def _merge_mcp_servers(
-    existing: dict[str, object], desired: dict[str, object]
-) -> tuple[dict[str, object], bool]:
-    """Merge ``desired`` MCP servers into ``existing`` (idempotent UPSERT).
-
-    Returns ``(merged_root, changed)``. ``changed`` is ``True`` when any server
-    entry was added or differs from the desired content. Other (foreign) server
-    entries are preserved (merge-mode, never clobbered).
-    """
-    root = dict(existing)
-    servers_raw = root.get("mcpServers")
-    # Callers must pass a root from ``_load_target_mcp_json``: when present,
-    # ``mcpServers`` is a dict. Never silently replace a non-object value.
-    if servers_raw is None:
-        servers: dict[str, object] = {}
-    elif isinstance(servers_raw, dict):
-        servers = dict(servers_raw)
-    else:
-        msg = (
-            "mcpServers must be a JSON object after strict load; "
-            f"got {type(servers_raw).__name__}"
-        )
-        raise TypeError(msg)
-    changed = False
-    for key, value in desired.items():
-        if servers.get(key) != value:
-            servers[key] = value
-            changed = True
-    root["mcpServers"] = servers
-    return root, changed
 
 
 def _cp10_plan_result(
@@ -270,25 +383,34 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
             start=start,
         )
 
-    desired = _desired_mcp_servers(context)
-    mcp_path = _target_mcp_json_path(context.project_root)
-    existing_root, load_error = _load_target_mcp_json(mcp_path)
-    if load_error is not None:
-        # Invalid existing config: named FAILED in all modes, no mutation,
-        # no conformance start (AC 8 merge contract / FAIL-CLOSED).
+    # Phase 1 — derive ONE registration from the typed configuration.
+    try:
+        desired = _desired_mcp_servers(context)
+    except (McpServerRegistrationError, ProjectBindingError) as exc:
         return make_result(
             nid.CP_10_MCP_REGISTRATION,
             status=CheckpointStatus.FAILED,
             detail=(
-                f"Target .mcp.json is invalid; refusing registration without "
-                f"mutation: {load_error}."
+                f"MCP registration cannot be derived from the project "
+                f"configuration: {exc} No file was written."
             ),
-            reason=REASON_MCP_CONFIGURATION_INVALID,
+            reason=REASON_CONFIGURATION_INVALID,
             start=start,
         )
-    assert existing_root is not None  # load_error is None ⇒ root is a dict
-    merged, changed = _merge_mcp_servers(existing_root, desired)
-    server_keys = sorted(desired)
+    server_keys = [server.name for server in desired]
+    mcp_path = _target_mcp_json_path(context.project_root)
+
+    # Phase 2/3 — read BOTH before-images, conflict-check BOTH, render BOTH.
+    try:
+        rendered, changed = _render_both(context, desired)
+    except _RegistrationRejectedError as exc:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=exc.detail,
+            reason=exc.reason,
+            start=start,
+        )
 
     # Dry-run / verify: side-effect-free plan or status only (FK-50 §50.2).
     if not context.mode.mutations_allowed:
@@ -301,8 +423,21 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
             start=start,
         )
 
-    # REGISTER only: live conformance immediately before any write.
-    conformance_failure = _conformance_gate(desired, cwd=context.project_root)
+    # Phase 4 — idempotency: both files already carry the rendered content.
+    if not changed:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.PASS,
+            detail=(
+                f"MCP servers {server_keys} already registered in "
+                f"{mcp_path.name} and {CODEX_DIR}/{CODEX_CONFIG_FILE}."
+            ),
+            reason=REASON_ALREADY_SATISFIED,
+            start=start,
+        )
+
+    # Phase 5 — live conformance immediately before the first write (FK-50 CP 10).
+    probed, conformance_failure = probe_registration(rendered)
     if conformance_failure is not None:
         reason, detail = conformance_failure
         return make_result(
@@ -312,90 +447,221 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
             reason=reason,
             start=start,
         )
+    assert probed is not None  # conformance_failure is None ⇒ receipt present
 
-    if not changed and mcp_path.is_file():
+    # Phases 6-9 — verify the binding, then write both files.
+    return _commit_registration(
+        context, probed, server_keys=server_keys, mcp_path=mcp_path, start=start
+    )
+
+
+class _RegistrationRejectedError(Exception):
+    """Internal signal: a pre-write rejection with its CP 10 reason."""
+
+    def __init__(self, reason: str, detail: str) -> None:
+        super().__init__(detail)
+        self.reason = reason
+        self.detail = detail
+
+
+def _render_both(
+    context: CheckpointContext,
+    desired: tuple[DesiredMcpServer, ...],
+) -> tuple[RenderedRegistration, bool]:
+    """Read, conflict-check and fully render BOTH harness files (D6 phases 2-3).
+
+    Nothing is written here. Any rejection raises :class:`_RegistrationRejectedError`,
+    so a parse or conflict error in EITHER file yields zero writes — which is why
+    the reads and renders both happen before the first write rather than
+    interleaved with it.
+
+    Returns:
+        ``(rendered, changed)`` where ``changed`` is ``True`` when at least one of
+        the two files would differ from its before-image.
+    """
+    mcp_path = _target_mcp_json_path(context.project_root)
+    existing_root, load_error = _load_target_mcp_json(mcp_path)
+    if load_error is not None:
+        raise _RegistrationRejectedError(
+            REASON_MCP_CONFIGURATION_INVALID,
+            f"Target .mcp.json is invalid; refusing registration without "
+            f"mutation: {load_error}. No file was written.",
+        )
+    assert existing_root is not None  # load_error is None ⇒ root is a dict
+
+    try:
+        codex_before = read_codex_config_bytes(context.project_root)
+        codex_text = render_project_codex_config(context.project_root, desired)
+    except CodexConfigError as exc:
+        raise _RegistrationRejectedError(
+            REASON_MCP_CONFIGURATION_INVALID,
+            f"Target {CODEX_DIR}/{CODEX_CONFIG_FILE} is invalid "
+            f"({exc.code}): {exc}. No file was written.",
+        ) from exc
+
+    mcp_before = mcp_path.read_bytes() if mcp_path.is_file() else None
+    try:
+        mcp_text, _ = render_mcp_json_text(existing_root, desired)
+    except TypeError as exc:  # non-object mcpServers after a strict load
+        raise _RegistrationRejectedError(
+            REASON_MCP_CONFIGURATION_INVALID,
+            f"Target .mcp.json cannot be merged: {exc}. No file was written.",
+        ) from exc
+
+    rendered = RenderedRegistration(
+        servers=desired,
+        mcp_json_text=mcp_text,
+        codex_toml_text=codex_text,
+        before_image=RegistrationBeforeImage(
+            mcp_json=mcp_before, codex_config=codex_before
+        ),
+    )
+    changed = (
+        mcp_before != mcp_text.encode("utf-8")
+        or codex_before != codex_text.encode("utf-8")
+    )
+    return rendered, changed
+
+
+def _commit_registration(
+    context: CheckpointContext,
+    probed: ProbedRegistration,
+    *,
+    server_keys: list[str],
+    mcp_path: Path,
+    start: float,
+) -> CheckpointResult:
+    """Verify the probe binding, then write both files with honest rollback.
+
+    There is NO shared filesystem transaction across the two files. Each single
+    write is atomic (temp + fsync + ``os.replace``), but not the pair. The crash
+    window between them is documented, never sold as atomicity: a retry re-reads,
+    re-renders deterministically and converges.
+    """
+    rendered = probed.rendered
+    try:
+        probed.verify_binding()
+    except McpServerRegistrationError as exc:
         return make_result(
             nid.CP_10_MCP_REGISTRATION,
-            status=CheckpointStatus.PASS,
-            detail=f"MCP servers {server_keys} already registered in {mcp_path.name}.",
+            status=CheckpointStatus.FAILED,
+            detail=f"{exc} No file was written.",
+            reason=REASON_CONFIGURATION_INVALID,
             start=start,
         )
+
+    # Concurrent-modification guard: both files must still match the bound
+    # before-image, otherwise another writer changed them since phase 2 and the
+    # rendered content is stale.
+    current_mcp = mcp_path.read_bytes() if mcp_path.is_file() else None
+    try:
+        current_codex = read_codex_config_bytes(context.project_root)
+    except CodexConfigError as exc:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=f"{exc} No file was written.",
+            reason=REASON_MCP_CONFIGURATION_INVALID,
+            start=start,
+        )
+    if (
+        current_mcp != rendered.before_image.mcp_json
+        or current_codex != rendered.before_image.codex_config
+    ):
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                "A harness configuration changed between the strict read and the "
+                "write; the rendered registration is stale. No file was written."
+            ),
+            reason=REASON_MCP_CONFIGURATION_INVALID,
+            start=start,
+        )
+
     created = not mcp_path.is_file()
-    _write_mcp_json(mcp_path, merged, context)
+    try:
+        _write_mcp_json_text(mcp_path, rendered.mcp_json_text, context)
+    except OSError as exc:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"Writing {mcp_path.name} failed: {exc}. No file was written; "
+                "the registration is incomplete and a retry converges."
+            ),
+            reason=REASON_REGISTRATION_INCOMPLETE,
+            start=start,
+        )
+
+    try:
+        write_codex_config_text(context.project_root, rendered.codex_toml_text)
+    except (OSError, CodexConfigError) as exc:
+        rollback_note = _rollback_mcp_json(mcp_path, rendered.before_image.mcp_json)
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"Writing {CODEX_DIR}/{CODEX_CONFIG_FILE} failed: {exc}. "
+                f"{mcp_path.name} was already written; {rollback_note} "
+                "A repeated run converges idempotently."
+            ),
+            reason=REASON_REGISTRATION_INCOMPLETE,
+            start=start,
+        )
+
+    _record_created_file(context, mcp_path)
+    _record_created_file(context, codex_config_path(context.project_root))
     status = CheckpointStatus.CREATED if created else CheckpointStatus.UPDATED
     return make_result(
         nid.CP_10_MCP_REGISTRATION,
         status=status,
-        detail=f"Registered MCP servers {server_keys} in {mcp_path.name}.",
+        detail=(
+            f"Registered MCP servers {server_keys} in {mcp_path.name} and "
+            f"{CODEX_DIR}/{CODEX_CONFIG_FILE}."
+        ),
         start=start,
     )
 
 
-def _conformance_gate(
-    desired: dict[str, object],
-    *,
-    cwd: Path,
-) -> tuple[str, str] | None:
-    """Run the generic MCP conformance check for every desired server entry.
+def _rollback_mcp_json(mcp_path: Path, before: bytes | None) -> str:
+    """Best-effort restore of ``.mcp.json`` from the BOUND before-image.
 
-    Returns ``(reason, detail)`` on the first failure; ``None`` when all
-    servers pass. Never writes configuration. Order is sorted by server key
-    for deterministic failure reporting.
+    Returns a human-readable note describing what actually happened. A clean
+    rollback is never claimed when the restore itself failed — the same honesty
+    line as ``runner._rollback_bindings``.
     """
-    for key in sorted(desired):
-        entry = desired[key]
-        if not isinstance(entry, dict):
-            return (
-                REASON_MCP_PROTOCOL_ERROR,
-                f"MCP server entry {key!r} is not an object; refusing registration.",
-            )
-        try:
-            cmd: McpServerCommand = server_command_from_mcp_entry(entry)
-        except ValueError as exc:
-            return (
-                REASON_MCP_PROTOCOL_ERROR,
-                f"MCP server entry {key!r} is invalid: {exc}",
-            )
-        # Bind cwd so relative module paths resolve against the target project.
-        bound = McpServerCommand(
-            command=cmd.command,
-            args=cmd.args,
-            env=cmd.env,
-            cwd=cwd,
+    try:
+        if before is None:
+            if mcp_path.is_file():
+                mcp_path.unlink()
+            return "rolled back: the file did not exist before and was removed."
+        mcp_path.write_bytes(before)
+    except OSError as rollback_exc:
+        return (
+            f"ROLLBACK FAILED ({rollback_exc}); {mcp_path.name} is left in its "
+            "newly written state and must be reconciled by a repeated run."
         )
-        try:
-            result = check_mcp_conformance(bound)
-        except Exception as exc:  # noqa: BLE001 — CP10 boundary: named FAILED
-            return (
-                REASON_MCP_PROTOCOL_ERROR,
-                f"MCP conformance internal fault for server {key!r}: {exc}. "
-                "Registration was not written.",
-            )
-        if not result.ok:
-            reason = (
-                result.reason.value if result.reason is not None else REASON_MCP_PROTOCOL_ERROR
-            )
-            detail = (
-                f"MCP conformance failed for server {key!r}: {result.detail} "
-                "Registration was not written."
-            )
-            return reason, detail
-    return None
+    return "rolled back to its previous content."
 
 
-def _write_mcp_json(
-    mcp_path: Path, root: dict[str, object], context: CheckpointContext
+def _write_mcp_json_text(
+    mcp_path: Path, content: str, context: CheckpointContext
 ) -> None:
-    """Atomically write the target-project ``.mcp.json`` (register mode only).
+    """Atomically write the pre-rendered target ``.mcp.json`` content.
 
-    ``allow_nan=False`` is defense in depth: non-finite numbers must never be
-    re-emitted into the target project configuration.
+    The content is rendered in phase 3 (``mcp_registration.render_mcp_json_text``,
+    ``allow_nan=False`` as defense in depth) so this function only performs the
+    write. ``newline=""`` keeps the bytes on disk equal to the rendered text,
+    which the idempotency comparison and the bound before-image both rely on.
     """
-    from agentkit.backend.installer.file_ops import atomic_write_text
+    del context  # kept for signature symmetry with the created-file recording
+    atomic_write_text(mcp_path, content, newline="")
 
-    content = json.dumps(root, indent=2, sort_keys=True, allow_nan=False) + "\n"
-    atomic_write_text(mcp_path, content)
-    rel = str(mcp_path.relative_to(context.project_root))
+
+def _record_created_file(context: CheckpointContext, path: Path) -> None:
+    """Record a written file on the run-state for the install report."""
+    rel = str(path.relative_to(context.project_root))
     if rel not in context.run_state.created_files:
         context.run_state.created_files.append(rel)
 
@@ -615,7 +881,7 @@ def _are_mcp_registered(
         return False, load_error
     assert loaded is not None
     servers = loaded.get("mcpServers")
-    registered = isinstance(servers, dict) and _ARE_MCP_SERVER in servers
+    registered = isinstance(servers, dict) and ARE_MCP_SERVER in servers
     return registered, None
 
 

@@ -12,6 +12,8 @@ from tests.unit.installer.checkpoint_engine.conftest import (
     make_config,
 )
 
+from agentkit.backend.core_types.mcp_server_registration import DesiredMcpServer
+from agentkit.backend.installer import mcp_registration as mcp_registration_mod
 from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
 from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
     cp10_mcp_registration,
@@ -65,8 +67,26 @@ def _ctx(
 
 
 def _desired_from_specs(specs: dict[str, dict[str, Any]]) -> Any:
-    def _builder(_context: object) -> dict[str, object]:
-        return dict(specs)
+    """Build a typed ``_desired_mcp_servers`` substitute from ``.mcp.json`` specs.
+
+    AG3-175 made the desired set typed (``DesiredMcpServer``) so that ONE spec is
+    probed and written without re-derivation. These tests keep expressing their
+    fixtures in the familiar entry shape; the conversion happens here.
+    """
+
+    def _builder(context: Any) -> tuple[DesiredMcpServer, ...]:
+        return tuple(
+            DesiredMcpServer(
+                name=name,
+                command=str(spec["command"]),
+                args=tuple(str(a) for a in spec.get("args", ())),
+                cwd=str(context.project_root),
+                env=tuple(
+                    (str(k), str(v)) for k, v in dict(spec.get("env", {})).items()
+                ),
+            )
+            for name, spec in sorted(specs.items())
+        )
 
     return _builder
 
@@ -240,7 +260,15 @@ def test_cp10_positive_registers_real_mcp_server(
     mcp_path = tmp_path / ".mcp.json"
     assert mcp_path.is_file()
     servers = json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]
-    assert servers["test-mcp"] == entry
+    # AG3-175: the written entry now also carries ``cwd`` (the containment
+    # boundary the probe used) and ``env``. That is the point of the change --
+    # the probed and the written spec are the SAME object, and the previous
+    # entry could not express ``cwd`` at all.
+    assert servers["test-mcp"] == {
+        **entry,
+        "cwd": str(ctx.project_root),  # type: ignore[attr-defined]
+        "env": {},
+    }
 
 
 def test_cp10_idempotent_rerun_is_pass(
@@ -341,7 +369,7 @@ def test_cp10_dry_run_and_verify_never_start_processes(
         calls.append("called")
         raise AssertionError("conformance must not run in dry-run/verify")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _boom)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _boom)
     for mode in (ExecutionMode.DRY_RUN, ExecutionMode.VERIFY):
         calls.clear()
         ctx = _ctx(tmp_path, registration_repo, features_are=True, mode=mode)
@@ -395,7 +423,7 @@ def test_cp10_rejects_duplicate_top_level_names_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -438,7 +466,7 @@ def test_cp10_rejects_duplicate_nested_names_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -477,7 +505,7 @@ def test_cp10_rejects_non_json_constants_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -523,7 +551,7 @@ def test_cp10_rejects_overflow_non_finite_float_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -555,7 +583,7 @@ def test_cp10_rejects_non_object_root_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -588,7 +616,7 @@ def test_cp10_rejects_non_object_mcp_servers_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -626,7 +654,11 @@ def test_cp10_successful_write_is_strict_reloadable(
     assert root is not None
     servers = root.get("mcpServers")
     assert isinstance(servers, dict)
-    assert servers["owned-mcp"] == entry
+    assert servers["owned-mcp"] == {
+        **entry,
+        "cwd": str(ctx.project_root),  # type: ignore[attr-defined]
+        "env": {},
+    }
     # Standards-strict decoder (no NaN) must also accept the written bytes.
     reloaded = json.loads(
         mcp_path.read_text(encoding="utf-8"),
@@ -654,7 +686,7 @@ def test_cp10_rejects_non_object_server_entry_scalar_and_array(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -695,7 +727,7 @@ def test_cp10_rejects_invalid_utf8_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -754,7 +786,7 @@ def test_cp10_rejects_post_decode_mid_depth_nesting_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -795,7 +827,7 @@ def test_cp10_rejects_decoder_stack_overflow_nesting_without_mutation(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",
@@ -828,7 +860,7 @@ def test_cp10_rejects_lone_surrogates_in_key_and_value(
         calls.append("called")
         raise AssertionError("conformance must not run")
 
-    monkeypatch.setattr(cp10_mod, "check_mcp_conformance", _track)
+    monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _track)
     monkeypatch.setattr(
         cp10_mod,
         "_desired_mcp_servers",

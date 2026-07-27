@@ -88,7 +88,16 @@ def test_cp10b_created_with_vectordb(
 def test_cp10_dry_run_plan_contract_with_vectordb(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
-    """Dry-run is pure plan derivation: no process start, no write (FK-50 §50.2)."""
+    """Dry-run is pure plan derivation: no process start, no write (FK-50 §50.2).
+
+    AG3-175: CP 10 now derives the registration from the CP-5-published project
+    configuration, so the predecessor has to run for real. That is what the
+    testing guardrail asks for anyway ("no manual state setup as a substitute for
+    the pipeline flow") — the previous version called CP 10 with no CP 5 at all.
+    """
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
+        cp05_pipeline_config,
+    )
     from agentkit.backend.installer.checkpoint_engine.reasons import (
         REASON_PLANNED_NO_MUTATION,
     )
@@ -96,6 +105,7 @@ def test_cp10_dry_run_plan_contract_with_vectordb(
     ctx = _ctx(
         tmp_path, registration_repo, mode=ExecutionMode.DRY_RUN, features_vectordb=True
     )
+    cp05_pipeline_config(ctx)  # type: ignore[arg-type]
     result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.CREATED
     assert result.reason == REASON_PLANNED_NO_MUTATION

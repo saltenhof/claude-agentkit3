@@ -11,7 +11,7 @@ ARE-scope paths (pending_selection / resolved / are_disabled).
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from tests.unit.installer.checkpoint_engine.conftest import (
     InMemoryRegistrationRepo,
@@ -321,6 +321,9 @@ def _are_ctx(
     import sys
     from pathlib import Path
 
+    from agentkit.backend.core_types.mcp_server_registration import (
+        DesiredMcpServer,
+    )
     from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp05_pipeline_config,
@@ -335,14 +338,17 @@ def _are_ctx(
         minimal = repo_root / "tests" / "fixtures" / "minimal_mcp_server.py"
         original = cp10_mod._desired_mcp_servers
 
-        def _are_via_test_server(context: object) -> dict[str, object]:
-            return {
-                "are-mcp": {
-                    "type": "stdio",
-                    "command": sys.executable,
-                    "args": [str(minimal)],
-                }
-            }
+        def _are_via_test_server(context: Any) -> tuple[DesiredMcpServer, ...]:
+            # AG3-175: the desired set is typed, so the substitute must be too.
+            return (
+                DesiredMcpServer(
+                    name="are-mcp",
+                    command=sys.executable,
+                    args=(str(minimal),),
+                    cwd=str(context.project_root),
+                    env=(),
+                ),
+            )
 
         cp10_mod._desired_mcp_servers = _are_via_test_server  # type: ignore[assignment]
         try:

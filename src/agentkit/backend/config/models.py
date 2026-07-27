@@ -10,6 +10,7 @@ import re
 from importlib import import_module
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from pydantic import (
     BaseModel,
@@ -539,6 +540,20 @@ class VectorDbConfig(BaseModel):
             LLM evaluation per query (FK-05-020). Default ``5``.
         host: VectorDB server hostname or IP.
         port: VectorDB server port.
+        weaviate_http_endpoint: FULL Weaviate HTTP endpoint
+            (``http(s)://host:port``) registered into the MCP server's ``env``
+            (AG3-175, FK-13 §13.4.3). ``None`` when the project registers no
+            MCP server; CP 10 then FAILs closed rather than defaulting.
+        weaviate_grpc_endpoint: FULL Weaviate gRPC endpoint (``host:port``),
+            same contract.
+
+    The two endpoints are complete VALUES, not host+port parts: the consumer
+    (``vectordb.runtime_binding.RuntimeBinding``) and ``ProjectBinding`` both
+    model them as full endpoint strings, and composing one from parts would have
+    to invent the scheme -- exactly the synthesised endpoint PO decision D2
+    forbids. Only SHAPE is validated here; the single authority for rejecting a
+    synthesised localhost default stays ``runtime_binding._reject_localhost``, so
+    there is no second block list.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -547,6 +562,58 @@ class VectorDbConfig(BaseModel):
     max_llm_candidates: int = 5
     host: str | None = None
     port: int | None = None
+    weaviate_http_endpoint: str | None = None
+    weaviate_grpc_endpoint: str | None = None
+
+    @field_validator("weaviate_http_endpoint")
+    @classmethod
+    def _check_http_endpoint(cls, value: str | None) -> str | None:
+        """Require ``http(s)://host:port`` when the endpoint is declared."""
+        if value is None:
+            return None
+        endpoint = value.strip()
+        if not endpoint:
+            raise ValueError(
+                "vectordb.weaviate_http_endpoint must not be empty when declared "
+                "(FK-03 §3.1, fail-closed: no default endpoint)"
+            )
+        parsed = urlparse(endpoint)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValueError(
+                "vectordb.weaviate_http_endpoint must be http(s)://host:port; "
+                f"got {value!r} (FK-03 §3.1, fail-closed)"
+            )
+        if parsed.port is None:
+            raise ValueError(
+                "vectordb.weaviate_http_endpoint must carry an explicit port; "
+                f"got {value!r} (FK-03 §3.1, fail-closed)"
+            )
+        return endpoint
+
+    @field_validator("weaviate_grpc_endpoint")
+    @classmethod
+    def _check_grpc_endpoint(cls, value: str | None) -> str | None:
+        """Require ``host:port`` with a valid port when the endpoint is declared."""
+        if value is None:
+            return None
+        endpoint = value.strip()
+        if not endpoint:
+            raise ValueError(
+                "vectordb.weaviate_grpc_endpoint must not be empty when declared "
+                "(FK-03 §3.1, fail-closed: no default endpoint)"
+            )
+        host, separator, port = endpoint.rpartition(":")
+        if not separator or not host:
+            raise ValueError(
+                "vectordb.weaviate_grpc_endpoint must be host:port; "
+                f"got {value!r} (FK-03 §3.1, fail-closed)"
+            )
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise ValueError(
+                "vectordb.weaviate_grpc_endpoint needs a port in 1..65535; "
+                f"got {value!r} (FK-03 §3.1, fail-closed)"
+            )
+        return endpoint
 
 
 class TelemetryConfig(BaseModel):
