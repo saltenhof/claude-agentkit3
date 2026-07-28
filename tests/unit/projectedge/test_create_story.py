@@ -107,7 +107,7 @@ def _project_config() -> ProjectConfig:
         pipeline=PipelineConfig(
             config_version=SUPPORTED_CONFIG_VERSION,
             features=Features(multi_llm=False),
-            vectordb=VectorDbConfig(host="weaviate.local", port=8080),
+            vectordb=VectorDbConfig(weaviate_http_endpoint="http://weaviate.local:8080"),
         ),  # type: ignore[call-arg]
     )
 

@@ -4,10 +4,14 @@
 - **Branch:** `feat/ag3-175-dual-harness-registration` (11 Commits, gegen `main`)
 - **Review:** EINE Codex-Runde (PO-Budget), `review-1-codex.md` — 7x P1, 2x P2,
   1x P3, kein P0. **Alle zehn Findings eingearbeitet**, keine zweite Runde.
-- **Status:** **NICHT** `completed`, **nicht** gemerged. Zwei PO-Entscheidungen
-  offen (§8); das Konzept-Delta gehoert zum sauberen Abschluss.
+- **Status:** **completed**. Nicht gemerged und nicht gepusht — der Merge liegt
+  beim Orchestrator nach eigener Verifikation.
 - **Bindende Vorgaben:** `../AG3-174-vectordb-retrieval-engine/po-decisions.md`
-  (D2, D4, D6) und **D-1** (tomlkit, PO-Freigabe im Verlauf dieser Story).
+  (D2, D4, D6) sowie **D-1** (tomlkit), **D-2** (Endpunkt-Konsolidierung) und
+  **D-3** (Konzept-Nachziehung) — PO-Entscheidungen im Verlauf dieser Story.
+- **Konzept-Landung:** Decision Record
+  `concept/_meta/decisions/2026-07-28-vectordb-endpoint-consolidation.md`; die
+  zehn Positionen sind in FK-03, FK-13, FK-50 und FK-76 gelandet (§8).
 
 ---
 
@@ -106,9 +110,9 @@ als Pseudo-Testfall gebaut; die aequivalenten Faelle sind `hooks_not_table` und
 ### Messwerte
 
 ```
-pytest tests/unit -q --cov=src            -> 8651 passed, 14 skipped (6:08)
+pytest tests/unit -q --cov=src            -> 8654 passed, 14 skipped (6:35)
 pytest tests/contract tests/integration -m "not requires_gh" -q --cov=src --cov-append
-                                          -> 2148 passed (4:22)
+                                          -> 2148 passed (5:17)
                                           -> Total coverage 91.14% (Schwelle 85 % erreicht)
 ruff check src tests                      -> All checks passed!
 mypy src                                  -> Success: no issues found in 1001 source files
@@ -321,12 +325,13 @@ tragen ausschliesslich die drei nicht-substituierten Tests.
 
 ---
 
-## 8. Offene PO-Entscheidungen — **nicht** von mir zu schliessen
+## 8. PO-Entscheidungen — entschieden und gelandet
 
-### 8.1 Konzept-Delta (zehn Positionen) — Autorisierung erbeten
+### 8.1 Konzept-Delta (zehn Positionen) — **autorisiert (D-3) und gelandet**
 
-**Keine Konzeptdatei wurde angefasst.** Code folgt dem Konsumenten; die Dokumente
-folgen der PO-Entscheidung.
+Der PO hat die Positionen 1-10 autorisiert; das Editierverbot war fuer genau
+diese Positionen aufgehoben. Alle zehn sind gelandet, begleitet vom Decision
+Record `2026-07-28-vectordb-endpoint-consolidation.md`.
 
 | # | Konzept | Aenderung | Grund (gemessen) |
 |---|---|---|---|
@@ -344,7 +349,14 @@ folgen der PO-Entscheidung.
 Codex hat die Positionen 1-8 als **einzeln korrekt** bewertet; 9 und 10 sind
 Vollstaendigkeit, keine Korrektur.
 
-### 8.2 ARE-Spiegelung — bewusste Ausweitung, Ratifizierung erbeten
+**Position 10 schliesst eine benannte Definitionsluecke:** FK-76 §76.5.4 forderte
+„ein Konflikt mit einem bestehenden, **fremd belegten** Server-Namen ist ein
+harter Fehler", **ohne je zu definieren, wie „fremd belegt" erkannt wird**. Dieser
+undefinierte Begriff war die Ursache **beider** Datenerhaltungsfehler R01 und R03.
+Die Identitaet steht jetzt als neue §76.5.4.1 **einmal fuer beide** Spiegel-Dateien
+in der Norm; §76.5.4.2 traegt die Zwei-Dateien-Fehlersemantik (Position 8).
+
+### 8.2 ARE-Spiegelung — **vom PO ratifiziert**
 
 **Umgesetzt: der generische Pfad.** Der Codex-Writer projiziert **alle**
 gewuenschten Server, nicht nur `story-knowledge-base`.
@@ -353,15 +365,133 @@ gewuenschten Server, nicht nur `story-knowledge-base`.
   Tabelle `[mcp_servers.<id>]`") und ausdruecklich als **Spiegelung** des
   `.mcp.json`-Vertrags. Codex bewertet das als die **bessere** Konzeptlesung und
   das generische Verhalten ausdruecklich als **keinen** Defekt.
-- **Konsequenz, die der PO wissentlich ratifizieren muss:** Ein Projekt mit
-  `features.are: true` erhaelt kuenftig **auch** eine
-  `[mcp_servers.are-mcp]`-Tabelle in `.codex/config.toml`. Das geht ueber den
-  Story-Wortlaut hinaus (Scope 3, AC 1/2 nennen einen Server im Singular).
-  Praktisch heute ohne Wirkung: `agentkit-are-mcp` existiert nicht, CP 10
-  scheitert fuer ARE-Projekte ohnehin fail-closed (AG3-164).
-- **Umschaltpunkt:** eine Zeile — die Server-Menge, die in `_render_both` an
-  `render_project_codex_config` geht, auf `story-knowledge-base` filtern. Zwei
-  Tests waeren anzupassen.
+- **Ratifizierte Konsequenz:** Ein Projekt mit `features.are: true` erhaelt
+  **auch** eine `[mcp_servers.are-mcp]`-Tabelle in `.codex/config.toml`. Das geht
+  ueber den Story-Wortlaut hinaus (Scope 3, AC 1/2 nennen einen Server im
+  Singular) und ist vom PO **wissentlich ratifiziert**. Praktisch heute ohne
+  Wirkung: `agentkit-are-mcp` existiert nicht, CP 10 scheitert fuer ARE-Projekte
+  ohnehin fail-closed (AG3-164).
+- Der Ein-Zeilen-Umschaltpunkt (Server-Menge in `_render_both` filtern) bleibt
+  dokumentiert, wird aber **nicht** genutzt: er wuerde einen
+  konzeptinkonsistenten Sonderfall einfuehren.
+
+---
+
+---
+
+## 8a. Scope-Erweiterung D-2 — VektorDB-Adressquelle konsolidiert
+
+**PO-angeordnete Erweiterung von AG3-175**, entschieden auf ZERO-DEBT-Grundlage.
+
+### 8a.1 Der Befund
+
+Nach der Einfuehrung der zwei Endpunktfelder trug `VectorDbConfig` **beide**
+Formen gleichzeitig:
+
+| Form | gelesen von |
+|---|---|
+| `host` / `port` | `story_creation/runtime_factory.py`, `vectordb/wait_for_weaviate.py` |
+| `weaviate_http_endpoint` / `weaviate_grpc_endpoint` | CP 10 (diese Story) |
+
+Zwei Wege, dieselbe Tatsache auszudruecken — **wo liegt Weaviate** — ohne
+Beziehung zwischen ihnen. Das ist die zweite operative Wahrheit, die FIX THE MODEL
+und SINGLE SOURCE OF TRUTH verbieten. **Weder ich noch Codex haben das gemeldet**;
+aufgefallen ist es dem Orchestrator beim Vorbereiten des FK-03-Vorschlags — und es
+in FK-03 zu dokumentieren haette den Zustand normativ gemacht.
+
+### 8a.2 Die Entscheidung und ihr Zeitpunkt
+
+**Entfernen, sofort, nicht deprecaten.** Der PO hat den vorgeschlagenen
+Deprecation-Pfad mit Folgestory verworfen: es existiert genau **eine**
+AK3-Installation, und das betroffene Projekt hat **nicht begonnen**. Damit ist dies
+die billigste Migration, die je verfuegbar sein wird. Ein Deprecation-Fenster
+haette die zweite Wahrheit fuer seine gesamte Dauer normativ gemacht.
+
+### 8a.3 Umsetzung
+
+1. **`host` / `port` entfernt.** Da `VectorDbConfig` `extra="forbid"` fuehrt, ist
+   ein dennoch gesetzter Schluessel ein **benannter Validierungsfehler** — das
+   macht die Entfernung zu einer echten Entfernung und nicht zu stillem Ignorieren.
+   Test: `test_removed_legacy_host_and_port_are_rejected`.
+2. **Eine oeffentliche Naht statt eines zweiten Parsers.** Die in AG3-174
+   ratifizierten Zerleger `_split_endpoint` / `_split_grpc` sind nach
+   `agentkit/backend/vectordb/endpoints.py` gezogen und heissen dort
+   `split_http_endpoint` / `split_grpc_endpoint`; `vectordb.engine` **re-exportiert
+   sie unter den historischen Namen**. Es gibt damit **genau eine**
+   Implementierung — `engine._split_endpoint is endpoints.split_http_endpoint` ist
+   Identitaet, nicht Kopie. Das neue Modul importiert nur stdlib plus den
+   gemeinsamen Fehlertyp, damit die leichten Konsumenten (Readiness-Probe,
+   Story-Creation-Factory) nicht die Weaviate-Engine mitziehen.
+3. **`story_creation/runtime_factory.py`** leitet Host/Port aus
+   `weaviate_http_endpoint` ueber diese Naht ab; die fail-closed-Bedingung wanderte
+   von „host/port fehlen" auf „Endpunkt fehlt".
+4. **`vectordb/wait_for_weaviate.py`** liest den Endpunkt statt `host`/`port`.
+
+### 8a.4 Seam zu AG3-176 — bewusst **nicht** praeempted
+
+AG3-176 Scope 1 besitzt ausdruecklich das **Ausschliessen** des
+localhost-/Default-Fallbacks fuer den projektgebundenen Installationspfad und das
+**Beibehalten** dokumentierter Defaults fuer den projektlosen Diagnose-CLI-Pfad —
+und nennt `wait_for_weaviate.py:93-125` namentlich.
+
+**Geaendert wurde hier nur die Feldquelle. Alle vier Fallback-Zweige bleiben
+unveraendert:** kein Project-Root, unlesbare Config, keine `vectordb`-Stanza, kein
+Endpunkt. Die Naht ist im Modul-Docstring benannt und durch
+`test_resolve_host_port_falls_back_when_endpoint_absent` gepinnt, damit AG3-176 sie
+findet. Ein malformierter Endpunkt behaelt auf **diesem** Pfad ebenfalls den
+Default (Defence in Depth fuer eine handeditierte Datei — das Config-Modell lehnt
+malformierte Endpunkte beim Laden schon ab); ihn zu verscharfen ist AG3-176s
+Entscheidung, nicht die dieser Story.
+
+### 8a.5 `config_version` — Verdikt: **kein Bump**, mit Beweis
+
+Die Frage ist berechtigt: `SUPPORTED_CONFIG_VERSION = "3.0"` ist der einzige
+akzeptierte Wert, fail-closed, und das Modell fuehrt `extra="forbid"` — formal ist
+das Entfernen von Schluesseln also eine brechende Formataenderung, und FK-03
+§3.2.1 besitzt die Versionierung mit einem AG3-089-Migrationspfad.
+
+**Verdikt: kein Bump.** Die Hypothese des Orchestrators haelt, und zwar aus fuenf
+unabhaengig geprueften Gruenden — nicht angenommen, sondern gemessen:
+
+| # | Beweis | Methode |
+|---|---|---|
+| 1 | Die entfernten Felder waren **optional mit Default `None`** | Modell-Definition |
+| 2 | `InstallConfig` fuehrt **kein** `vectordb_host`/`vectordb_port` — nur die zwei Endpunktfelder | Quellsuche |
+| 3 | `_build_project_yaml` schreibt die `vectordb`-Stanza **ausschliesslich** aus `InstallConfig` und kann nur `{weaviate_http_endpoint, weaviate_grpc_endpoint}` oder **gar keine** Stanza erzeugen | ueber **alle drei** Feature-/Endpunkt-Kombinationen ausgefuehrt und gemessen |
+| 4 | Die `project.yaml`-**Vorlage** (`templates/project.yaml.j2`) enthaelt ueberhaupt keine `vectordb`-Stanza | Datei geprueft |
+| 5 | **Kein** Migrations-/Upgrade-Pfad schreibt die Schluessel; **keine** Fixture, kein Scaffold-Snapshot enthaelt sie | Suche ueber `src`, `tests`, `bundles`, Fixtures, Snapshots |
+
+Zusatzargument, das die Sache abschliesst: **FK-03 hat `host`/`port` nie
+dokumentiert** (das VektorDB-Beispiel fuehrte nur Threshold/Candidates, die
+Defaults-Tabelle ebenso). Der Vollstaendigkeitsanspruch des Kapitels bedeutet: was
+dort nicht steht, ist kein zugesagter Konfigurationsparameter. Es kann also **kein
+AK3-erzeugtes und kein dokumentiert-konfiguriertes** `project.yaml` geben, das die
+Schluessel traegt.
+
+Die Behauptung ist **durch einen Test gepinnt**, damit sie nicht verrottet:
+`test_scaffold_output_can_never_contain_the_removed_keys` fahrt alle drei
+Konfigurationen durch `_build_project_yaml` und erzwingt, dass eine vorhandene
+Stanza genau die zwei Endpunkt-Schluessel enthaelt.
+
+**Restrisiko, ehrlich:** ein **handgeschriebenes** `project.yaml`, das die
+undokumentierten Felder benutzt, schlaegt nach dieser Aenderung beim Laden fehl —
+mit einem benannten Validierungsfehler, nicht still. Das ist genau die
+Migrationskosten-Rechnung, die der PO gemacht hat: eine Installation, nicht
+gestartet.
+
+### 8a.6 Fixture-Fallout — zur neuen Wahrheit korrigiert
+
+Der erste Gesamtlauf nach dem Entfernen zeigte **25 Fehlschlaege** in fuenf
+Dateien. Alle sind zur neuen Wahrheit korrigiert; **kein** Feld wurde
+wiedereingefuehrt, um Tests gruen zu halten:
+
+| Datei | Korrektur |
+|---|---|
+| `tests/unit/config/test_ag3_070_config_model.py` | Defaults/Custom-Values auf die Endpunkte; **neu**: Ablehnungstest fuer die entfernten Keys + Scaffold-Beweis (§8a.5) |
+| `tests/unit/story_creation/test_runtime_factory.py` | fail-closed-Bedingung auf den fehlenden Endpunkt |
+| `tests/unit/vectordb/test_wait_for_weaviate.py` | Stanza auf Endpunkte; **neu**: Fallback-Erhalt als AG3-176-Naht |
+| `tests/integration/story_creation/test_create_story_tool_e2e.py` | `VectorDbConfig(host=…, port=…)` → Endpunkt |
+| `tests/unit/projectedge/test_create_story.py` | dito |
 
 ---
 
@@ -441,5 +571,41 @@ seien gruen, und keine Evidenz in §2 haengt von ihnen ab.
 | `mypy src` sauber | **ja** — 1001 Dateien |
 | `ruff check src tests` sauber | **ja** |
 | Eine Codex-Review-Runde, Findings eingearbeitet | **ja** — 10/10, keine zweite Runde |
-| Konzept-Gates | **offen** — Delta wartet auf PO-Autorisierung (§8.1) |
-| Merge | **nicht erfolgt**, `status.yaml` **nicht** auf `completed` — bewusst, bis §8.1 und §8.2 entschieden sind |
+| Konzept-Gates (blockierend) | **gruen** — Frontmatter (90 Docs), Reference-Integrity (0 Fehler), Decision-Record, Concept-Code-Contracts, Architecture-Conformance (§12.1) |
+| Konzept-Gates (nightly, non-blocking) | **rot, vorbestehend** — Scope-Consistency und Authority-Prose scheitern an einem Discovery-Schemafehler ueber den **gesamten** Korpus (§12.1) |
+| Merge | **nicht erfolgt, nicht gepusht** — liegt beim Orchestrator nach eigener Verifikation |
+
+### 12.1 Konzept-Gates — was lief, was nicht
+
+**Blockierende Gates, alle selbst ausgefuehrt und gruen:**
+
+```
+scripts/ci/check_concept_frontmatter.py         -> OK: 90 docs, all lints passed
+scripts/ci/check_concept_reference_integrity.py -> PASS: 0 error(s), 55 report(s)
+scripts/ci/check_concept_decision_record.py     -> PASS: 0 error(s)
+scripts/ci/check_concept_code_contracts.py      -> OK: no truth-boundary violations
+scripts/ci/check_architecture_conformance.py    -> OK: no architecture violations
+```
+
+Die Reference-Integrity brauchte zwei echte Korrekturen, die hier stehen, damit
+niemand sie fuer kosmetisch haelt:
+
+1. **Ein Fehler war meiner:** der Decision Record verwies auf „FK-13 §13.9.x" —
+   eine Wildcard, die als Ueberschrift nicht existiert. Auf die reale
+   Werkzeugvertrags-Referenz umgeschrieben.
+2. **Drei `STALE_BASELINE`-Fehler** entstanden, weil
+   `concept/_meta/reference-integrity-baseline.yaml` **zeilennummerngebundene**
+   Ausnahmen fuehrt und meine Einfuegungen in FK-03 und FK-76 die betroffenen
+   Zeilen verschoben haben (03:438→494, 76:329→383, 76:331→385). Die Ausnahmen
+   sind auf die neuen Zeilen nachgezogen; es sind **dieselben** vorbestehenden
+   Findings, keine neuen und keine stillgelegten.
+
+**Nightly-Gates (im Jenkinsfile ausdruecklich `non-blocking`): rot, aber
+vorbestehend.** `check_concept_scope_consistency.py` und
+`check_concept_authority_prose.py` scheitern beide an einem Discovery-Schemafehler
+(`doc_kind 'decision-record' is not in appendix|core`), der **jeden** Decision
+Record im Korpus trifft — auch die von Anfang Juli. Gegen einen **gestashten
+Clean-Tree** gemessen: dort scheitern **276** Dokumente, mit meiner Aenderung
+**277**; die +1 ist mein neuer Decision Record, der derselben Klasse angehoert.
+**Nicht** von dieser Story verursacht, und ich melde sie nicht als gruen. Der
+Schemafehler des Ingesters gehoert in eine eigene Story.

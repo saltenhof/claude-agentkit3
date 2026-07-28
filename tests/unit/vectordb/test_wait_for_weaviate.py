@@ -121,7 +121,12 @@ def test_resolve_host_port_defaults_without_project_root() -> None:
 
 
 def test_resolve_host_port_consumes_vectordb_config(tmp_path: Path) -> None:
-    """CONSUMES the AG3-070-owned vectordb stanza for host/port."""
+    """CONSUMES the AG3-070-owned vectordb stanza for host/port.
+
+    PO decision D-2 removed ``vectordb.host``/``port``; host and port are now
+    derived from ``weaviate_http_endpoint`` through the shared public splitter.
+    Only the FIELD SOURCE changed here -- the fallback policy is AG3-176's.
+    """
     config_dir = tmp_path / ".agentkit" / "config"
     config_dir.mkdir(parents=True)
     data = {
@@ -132,7 +137,10 @@ def test_resolve_host_port_consumes_vectordb_config(tmp_path: Path) -> None:
         "pipeline": {
             "config_version": "3.0",
             "features": {"multi_llm": False, "vectordb": True},
-            "vectordb": {"host": "weaviate.internal", "port": 9999},
+            "vectordb": {
+                "weaviate_http_endpoint": "http://weaviate.internal:9999",
+                "weaviate_grpc_endpoint": "weaviate.internal:50051",
+            },
         },
     }
     (config_dir / "project.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
@@ -140,4 +148,31 @@ def test_resolve_host_port_consumes_vectordb_config(tmp_path: Path) -> None:
 
 
 def test_resolve_host_port_falls_back_when_config_missing(tmp_path: Path) -> None:
+    assert _resolve_host_port(str(tmp_path)) == (DEFAULT_HOST, DEFAULT_PORT)
+
+
+def test_resolve_host_port_falls_back_when_endpoint_absent(tmp_path: Path) -> None:
+    """AG3-176 SEAM: the fallback policy is deliberately UNCHANGED by AG3-175.
+
+    AG3-176 Scope 1 owns excluding the localhost/default fallback for the
+    project-bound install path while keeping documented defaults for the
+    project-less diagnostic CLI path, and it names this function. AG3-175 changed
+    only where the value is read from, so a vectordb stanza without an endpoint
+    still yields the documented defaults here.
+    """
+    config_dir = tmp_path / ".agentkit" / "config"
+    config_dir.mkdir(parents=True)
+    data = {
+        "project_key": "ak3",
+        "project_name": "AK3",
+        "repositories": [{"name": "backend", "path": "/tmp/backend"}],
+        "story_types": ["concept"],
+        "pipeline": {
+            "config_version": "3.0",
+            "features": {"multi_llm": False, "vectordb": True},
+            "vectordb": {"similarity_threshold": 0.7},
+        },
+    }
+    (config_dir / "project.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+
     assert _resolve_host_port(str(tmp_path)) == (DEFAULT_HOST, DEFAULT_PORT)

@@ -22,6 +22,7 @@ import sys
 import time
 from typing import TYPE_CHECKING, Final
 
+from agentkit.backend.vectordb.endpoints import split_http_endpoint
 from agentkit.integration_clients.vectordb import (
     VectorDbUnavailableError,
     WeaviateStoryAdapter,
@@ -33,10 +34,10 @@ if TYPE_CHECKING:
 #: Default readiness timeout in seconds (FK-21 §21.11.4: ``--timeout 10``).
 DEFAULT_TIMEOUT_SECONDS: Final[int] = 10
 
-#: Default Weaviate host when ``vectordb.host`` is not configured.
+#: Default Weaviate host for the PROJECT-LESS diagnostic CLI path.
 DEFAULT_HOST: Final[str] = "localhost"
 
-#: Default Weaviate port when ``vectordb.port`` is not configured.
+#: Default Weaviate port for the PROJECT-LESS diagnostic CLI path.
 DEFAULT_PORT: Final[int] = 8080
 
 #: Seconds between readiness probes while waiting.
@@ -97,6 +98,17 @@ def _resolve_host_port(project_root: str | None) -> tuple[str, int]:
     only CONSUMES it. When no project config is resolvable (e.g. a bare
     readiness probe outside a project), the documented localhost defaults apply.
 
+    **AG3-175 (PO decision D-2) changed only the FIELD SOURCE**: ``vectordb.host``
+    / ``vectordb.port`` are removed, so host and port are derived from
+    ``weaviate_http_endpoint`` through the single public splitter
+    (``vectordb.endpoints``). The FALLBACK POLICY is deliberately unchanged.
+
+    **Seam for AG3-176:** that story's Scope 1 owns EXCLUDING the
+    localhost/default fallback for the project-bound install path while KEEPING
+    documented defaults for the project-less diagnostic CLI path -- it names this
+    function explicitly. All four fallback branches below are therefore left
+    exactly as they were; AG3-175 must not pre-empt that decision.
+
     Args:
         project_root: Optional project root carrying
             ``.agentkit/config/project.yaml``.
@@ -119,10 +131,16 @@ def _resolve_host_port(project_root: str | None) -> tuple[str, int]:
         # still fails closed if Weaviate is genuinely unreachable.
         return DEFAULT_HOST, DEFAULT_PORT
     vectordb = config.pipeline.vectordb
-    if vectordb is None:
+    if vectordb is None or not vectordb.weaviate_http_endpoint:
         return DEFAULT_HOST, DEFAULT_PORT
-    host = vectordb.host if vectordb.host else DEFAULT_HOST
-    port = vectordb.port if vectordb.port is not None else DEFAULT_PORT
+    try:
+        host, port, _secure = split_http_endpoint(vectordb.weaviate_http_endpoint)
+    except VectorDbUnavailableError:
+        # A malformed endpoint keeps the documented default for THIS path only;
+        # the config model already rejects malformed endpoints at load time, so
+        # this branch is defence in depth for a hand-edited file. Tightening it is
+        # AG3-176's call, not this story's (see the seam note above).
+        return DEFAULT_HOST, DEFAULT_PORT
     return host, port
 
 

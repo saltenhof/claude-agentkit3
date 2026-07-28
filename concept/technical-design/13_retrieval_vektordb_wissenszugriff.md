@@ -258,18 +258,43 @@ Der MCP-Server wird bei Installation (Checkpoint 10) in
     "story-knowledge-base": {
       "type": "stdio",
       "command": "python",
-      "args": ["{agentkit_path}/vectordb/mcp_server.py"],
+      "args": ["-m", "agentkit.backend.vectordb.engine"],
+      "cwd": "{project_root}",
       "env": {
         "PROJECT_ID": "{project_prefix}",
-        "WEAVIATE_HOST": "localhost",
-        "WEAVIATE_HTTP_PORT": "9903",
-        "WEAVIATE_GRPC_PORT": "50051",
-        "GH_REPO": "{gh_owner}/{gh_repo}"
+        "WEAVIATE_HTTP_ENDPOINT": "{weaviate_http_endpoint}",
+        "WEAVIATE_GRPC_ENDPOINT": "{weaviate_grpc_endpoint}",
+        "AGENTKIT_CONCEPTS_DIR": "{project_root}/{concepts_dir}",
+        "AGENTKIT_STORIES_DIR": "{project_root}/{wiki_stories_dir}"
       }
     }
   }
 }
 ```
+
+**Normative Praezisierung des Registrierungsvertrags** (AG3-175; Decision Record
+`2026-07-28-vectordb-endpoint-consolidation.md`):
+
+- **Ausfuehrbares Modul.** Registriert wird `-m agentkit.backend.vectordb.engine`.
+  `vectordb.mcp_server` ist ein **Bibliotheksmodul**: als `-m` ausgefuehrt laeuft
+  sein Modulrumpf und endet mit Exit 0, ohne zu serven — der
+  MCP-Conformance-Check (FK-50 §50.3 CP 10) wertet das korrekt als
+  `mcp_process_exited`. Der stdio-Einstiegspunkt ist `engine.main`.
+- **Endpunkte statt Host+Port.** Die Registrierung traegt
+  `WEAVIATE_HTTP_ENDPOINT` und `WEAVIATE_GRPC_ENDPOINT` als **vollstaendige
+  Werte**. Host/Port-Bestandteile sind kein Vertragsbestandteil: das Zerlegen ist
+  Konsumentensache (eine Implementierung, `vectordb.endpoints`), und das
+  Zusammensetzen aus Teilen wuerde das Schema erfinden — genau der
+  synthetisierte Endpunkt, den D2 verbietet.
+- **`AGENTKIT_CONCEPTS_DIR` ist Pflicht und hat keinen Default.** Fehlt er,
+  beendet sich der Server fail-closed (N20/D2: ein Default hat den Server einmal
+  auf AK3s eigenen Entwicklungskorpus gezeigt).
+  `AGENTKIT_STORIES_DIR` ist technisch optional, wird aber **explizit** registriert:
+  sein Default loest gegen die Prozess-`cwd` auf, und `cwd` darf nach D2 keine
+  zweite Konfigurationsquelle sein.
+- **`cwd`** ist die Containment-Grenze der registrierten Prozessausfuehrung und
+  immer der Zielprojekt-Root — nie eine Konfigurationsquelle.
+- **`GH_REPO` entfaellt.** Der Server liest den Wert nicht.
 
 ## 13.5 Zweistufiger Abgleich bei Story-Erstellung
 

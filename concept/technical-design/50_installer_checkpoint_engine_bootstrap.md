@@ -493,17 +493,31 @@ Registriert die gewünschten MCP-Server in der **Zielprojekt**-`.mcp.json`
     "story-knowledge-base": {
       "type": "stdio",
       "command": "python",
-      "args": ["-m", "agentkit.backend.vectordb.mcp_server"]
+      "args": ["-m", "agentkit.backend.vectordb.engine"],
+      "cwd": "{project_root}",
+      "env": {
+        "PROJECT_ID": "{project_prefix}",
+        "WEAVIATE_HTTP_ENDPOINT": "{weaviate_http_endpoint}",
+        "WEAVIATE_GRPC_ENDPOINT": "{weaviate_grpc_endpoint}",
+        "AGENTKIT_CONCEPTS_DIR": "{project_root}/{concepts_dir}",
+        "AGENTKIT_STORIES_DIR": "{project_root}/{wiki_stories_dir}"
+      }
     },
     "are-mcp": {
       "type": "stdio",
       "command": "agentkit-are-mcp",
       "args": [],
+      "cwd": "{project_root}",
       "env": { "ARE_MCP_SERVER": "..." }
     }
   }
 }
 ```
+
+Der `env`-Block und `cwd` sind **nicht illustrativ**: ein ohne sie registrierter
+Story-Knowledge-Base-Server verweigert beim Start seine eigene Runtime-Bindung.
+Das ausfuehrbare Modul ist `agentkit.backend.vectordb.engine` (FK-13 §13.4.3);
+`vectordb.mcp_server` ist ein Bibliotheksmodul und endet als `-m` mit Exit 0.
 
 - Story-Knowledge-Base nur bei `features.vectordb: true`.
 - ARE-MCP-Server nur bei `features.are: true` (FK-03 §3.1 bindet
@@ -551,7 +565,9 @@ Check geschrieben — kein Teil-Schreiben, kein Warnpfad.
 | `mcp_protocol_error` | Kein gültiges MCP (JSON-RPC / UTF-8 / Initialize / Tools-Schema) |
 | `mcp_tools_list_empty` | gültige, aber leere tools/list-Antwort |
 | `mcp_process_control_error` | Prozessklammer (Job/Group) nicht herstellbar oder nicht terminierbar |
-| `mcp_configuration_invalid` | Vorhandene Ziel-`.mcp.json` ist nicht strikt ladbar oder strukturell ungültig (UTF-8-/Parser-Fehler inkl. Recursion, doppelte Namen, Nicht-JSON-Konstanten, Surrogates, Nicht-Objekt-Root/`mcpServers`/Server-Eintrag); kein Merge, keine Mutation — getrennt von Wire-`mcp_protocol_error` |
+| `mcp_configuration_invalid` | Eine vorhandene **Ziel-Harness-Konfiguration** ist nicht strikt ladbar oder strukturell ungültig — `.mcp.json` (UTF-8-/Parser-Fehler inkl. Recursion, doppelte Namen, Nicht-JSON-Konstanten, Surrogates, Nicht-Objekt-Root/`mcpServers`/Server-Eintrag) **oder** `.codex/config.toml` (ungültiges UTF-8, unparsebares TOML inkl. doppelter Keys/Tabellen, nicht-tabellenförmiges `mcp_servers`/`hooks`, falsch typisiertes AK3-eigenes Serverfeld, fremd belegter AK3-Servername, Symlink-/Junction-Ausbruch). Der Code gilt für **beide** Spiegel-Dateien: FK-76 §76.5.4 erklärt dieselben Vertragsregeln für beide Formate. Kein Merge, keine Mutation — getrennt von Wire-`mcp_protocol_error` |
+| `configuration_invalid` | Die **konsumierte Projektkonfiguration** fehlt oder ist ungültig — z. B. `features.vectordb` aktiv, aber `pipeline.vectordb` deklariert nicht beide Weaviate-Endpunkte; unauflösbare Projekt-ID; ein `cwd`, das nicht der Zielprojekt-Root ist; ein Lese-`OSError` an einer Harness-Konfiguration (ACL/Share-Lock). Kein Endpunkt wird je synthetisiert (D2). Abgegrenzt von `mcp_configuration_invalid`: dort ist die **Datei** kaputt, hier fehlt die **Eingabe**. PO-ratifizierte Vokabel (Entscheidung D4) |
+| `registration_incomplete` | Ein I/O-Fehler in der **Write-Phase** hat die Zwei-Dateien-Registrierung unvollständig gelassen (Entscheidung D6). `.mcp.json` und `.codex/config.toml` haben **keine** gemeinsame Dateisystemtransaktion; jeder Einzelwrite ist atomar, die Paarung nicht. Das `detail` nennt genau, welche Dateien geschrieben wurden und ob das best-effort-Rollback aus dem gebundenen Before-Image gelungen ist — ein sauberes Rollback wird **nie** behauptet, wenn das Zurückschreiben selbst scheiterte |
 
 **`SKIPPED` vs. `FAILED` (CP 10):**
 

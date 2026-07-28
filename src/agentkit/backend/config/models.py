@@ -544,8 +544,6 @@ class VectorDbConfig(BaseModel):
             Default ``0.7``.
         max_llm_candidates: Maximum number of VectorDB candidates passed to
             LLM evaluation per query (FK-05-020). Default ``5``.
-        host: VectorDB server hostname or IP.
-        port: VectorDB server port.
         weaviate_http_endpoint: FULL Weaviate HTTP endpoint
             (``http(s)://host:port``) registered into the MCP server's ``env``
             (AG3-175, FK-13 §13.4.3). ``None`` when the project registers no
@@ -563,6 +561,17 @@ class VectorDbConfig(BaseModel):
     ``http://localhost:8080`` passes THIS model and is rejected at the binding,
     which CP 10 evaluates before any write.
 
+    **The former ``host`` / ``port`` fields are REMOVED, not deprecated** (PO
+    decision D-2, ZERO DEBT). They said the same thing as
+    ``weaviate_http_endpoint`` with no relation between the two forms -- a second
+    operative truth for one fact. Every consumer now derives host/port from the
+    endpoint through the single public seam ``vectordb.endpoints``. The removal was
+    taken immediately rather than deprecated because there is exactly one AK3
+    installation and it has not started, so no cheaper migration will ever exist.
+    No format version bump: AK3 never emitted either key (the scaffold can only
+    write the two endpoints or nothing) and FK-03 never documented them, so no
+    artefact AK3 produced and no documented operator configuration can contain them.
+
     **The accepted set of both validators is bound to the consumer** --
     ``vectordb.engine._split_endpoint`` and ``._split_grpc`` (ratified AG3-174
     code). Anything those two cannot use is rejected here, at the first gate an
@@ -573,8 +582,6 @@ class VectorDbConfig(BaseModel):
 
     similarity_threshold: float = 0.7
     max_llm_candidates: int = 5
-    host: str | None = None
-    port: int | None = None
     weaviate_http_endpoint: str | None = None
     weaviate_grpc_endpoint: str | None = None
 

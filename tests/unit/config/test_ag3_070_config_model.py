@@ -464,21 +464,69 @@ class TestVectorDbConfig:
         cfg = VectorDbConfig()
         assert cfg.similarity_threshold == 0.7
         assert cfg.max_llm_candidates == 5
-        assert cfg.host is None
-        assert cfg.port is None
+        # PO decision D-2: host/port are REMOVED, not deprecated. The endpoints
+        # are the only way to say where Weaviate is.
+        assert cfg.weaviate_http_endpoint is None
+        assert cfg.weaviate_grpc_endpoint is None
 
     def test_custom_values(self) -> None:
         """VectorDbConfig accepts custom similarity threshold and candidates."""
         cfg = VectorDbConfig(
             similarity_threshold=0.85,
             max_llm_candidates=10,
-            host="localhost",
-            port=8080,
+            weaviate_http_endpoint="http://weaviate.internal:9903",
+            weaviate_grpc_endpoint="weaviate.internal:50051",
         )
         assert cfg.similarity_threshold == 0.85
         assert cfg.max_llm_candidates == 10
-        assert cfg.host == "localhost"
-        assert cfg.port == 8080
+        assert cfg.weaviate_http_endpoint == "http://weaviate.internal:9903"
+        assert cfg.weaviate_grpc_endpoint == "weaviate.internal:50051"
+
+    def test_removed_legacy_host_and_port_are_rejected(self) -> None:
+        """PO decision D-2: the removed keys must FAIL, not be silently ignored.
+
+        ``extra="forbid"`` turns them into a named validation error, which is what
+        makes the removal a real removal rather than a soft deprecation.
+        """
+        with pytest.raises(ValidationError):
+            VectorDbConfig(host="localhost")  # type: ignore[call-arg]
+        with pytest.raises(ValidationError):
+            VectorDbConfig(port=8080)  # type: ignore[call-arg]
+
+    def test_scaffold_output_can_never_contain_the_removed_keys(self) -> None:
+        """Evidence for the config_version verdict (no format bump needed).
+
+        AK3 emits the ``vectordb`` stanza from ``InstallConfig`` only, and that
+        carries no host/port field, so no AK3-generated ``project.yaml`` can ever
+        have contained the removed keys. Pinned so the claim cannot rot.
+        """
+        from pathlib import Path as _Path
+
+        from agentkit.backend.installer.runner import InstallConfig, _build_project_yaml
+
+        for kwargs in (
+            {},
+            {
+                "features_vectordb": True,
+                "vectordb_http_endpoint": "http://w:9903",
+                "vectordb_grpc_endpoint": "w:50051",
+            },
+            {"features_vectordb": True},
+        ):
+            data = _build_project_yaml(
+                InstallConfig(
+                    project_key="d",
+                    project_name="D",
+                    project_root=_Path("T:/tmp/d"),
+                    **kwargs,  # type: ignore[arg-type]
+                )
+            )
+            stanza = data["pipeline"].get("vectordb")  # type: ignore[union-attr]
+            if stanza is not None:
+                assert set(stanza) == {
+                    "weaviate_http_endpoint",
+                    "weaviate_grpc_endpoint",
+                }, stanza
 
     def test_is_frozen(self) -> None:
         """VectorDbConfig is frozen."""

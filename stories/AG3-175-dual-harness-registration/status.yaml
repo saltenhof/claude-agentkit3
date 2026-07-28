@@ -2,7 +2,8 @@ story_id: AG3-175
 story_title_short: "dual-harness-registration"
 title: "Projektlokale MCP-Registrierung fuer Claude Code UND Codex (Mini-Story): ein Writer je Harness nach verankertem FK-76-Vertrag, Registrierung erst nach bestandenem Conformance-Check, nie Userspace"
 type: implementation
-status: in_progress
+status: completed
+completed_at: "2026-07-28T16:40:00Z"
 phase: implementation
 created: "2026-07-21"
 size: M  # von S angehoben (Review 175-P2-1): semantischer TOML-Writer mit
@@ -19,5 +20,22 @@ size: M  # von S angehoben (Review 175-P2-1): semantischer TOML-Writer mit
 # FK-76 §76.5.4 (Decision Record 2026-07-21-vectordb-edge-sharpening.md,
 # Rand 4). Der generische Conformance-Check als Registrierungsvorbedingung
 # stammt aus AG3-164.
+# ABNAHME (EINE Codex-Runde, review-1-codex.md): 7x P1, 2x P2, 1x P3, kein P0 —
+# alle zehn Findings eingearbeitet, keine zweite Runde (PO-Budget). AC1-AC7
+# erfuellt; jede Statusaenderung ist in report.md §2 einem Finding zugeordnet.
+# PO-Entscheidungen dieser Story: D-1 (tomlkit==0.15.1), D-2 (vectordb.host/port
+# ENTFERNT statt deprecated, ZERO DEBT — genau eine AK3-Installation, Projekt
+# nicht gestartet), D-3 (zehn Konzeptpositionen autorisiert und gelandet).
+# Konzept-Landung: FK-03 §3.1/§3.4.2, FK-13 §13.4.3, FK-50 §50.3 CP 10,
+# FK-76 §76.5.4.1 + §76.5.4.2, Decision Record
+# 2026-07-28-vectordb-endpoint-consolidation.md. Blockierende Konzept-Gates gruen;
+# die zwei nightly non-blocking Gates sind vorbestehend rot (Ingester-Schemafehler
+# ueber den ganzen Korpus, 276 Docs auch ohne diese Story) — report.md §12.1.
+# NICHT verifiziert (ausdruecklich, nicht beschoenigt): llm_hub war nicht
+# erreichbar (ECONNREFUSED 127.0.0.1:9600), Codex' eigene Gegen-Review lief damit
+# NICHT; Jenkins und Sonar ohne Credentials nicht erreichbar. Ein produktiver
+# CP-10-Lauf gegen eine laufende Weaviate bleibt offen (E2E, nachgelagert mit PO).
+# ARE-Spiegelung in .codex/config.toml: vom PO ratifiziert (report.md §8.2).
+# Merge/Push bewusst NICHT erfolgt — Orchestrator merged nach eigener Verifikation.
 depends_on: ["AG3-164", "AG3-174"]
 unblocks: ["AG3-176"]

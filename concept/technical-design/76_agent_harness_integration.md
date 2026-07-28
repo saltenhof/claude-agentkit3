@@ -292,6 +292,60 @@ Vertragsregeln wie fuer Claude Code:
   `mcp_servers`-Eintrag oder ein Konflikt mit einem bestehenden, fremd belegten
   Server-Namen ist ein harter Fehler ohne Mutation — kein stiller Passthrough,
   keine Teilschreibung.
+
+### 76.5.4.1 Gleichnamen-Kollisionsidentitaet (beide Spiegel-Dateien)
+
+Bisher forderte §76.5.4 „ein Konflikt mit einem bestehenden, **fremd belegten**
+Server-Namen ist ein harter Fehler", **ohne zu definieren, wie „fremd belegt"
+erkannt wird**. Genau dieser undefinierte Begriff war die Ursache zweier
+Datenerhaltungsfehler (AG3-175 Review-Findings R01 und R03): einmal wurde eine
+fremde Tabelle unter einem AK3-Namen als AK3-eigen eingestuft und beim Detach
+mitgeloescht, einmal wurde ein fremder `.mcp.json`-Eintrag still ueberschrieben,
+waehrend Codex ihn ablehnte. Die Identitaet ist daher **normativ**, und sie gilt
+**einmal fuer beide** Spiegel-Dateien (`.mcp.json` und `.codex/config.toml`) —
+zwei Antworten auf „ist dieser Eintrag unser" sind unzulaessig:
+
+- **Identitaet einer Registrierung ist `command` + `args`.** Das ist dieselbe
+  Identitaetsregel wie fuer Hook-Handler (§76.5.1: `(hook_event_name, matcher,
+  command)`).
+- **Identitaet trifft zu** → die AK3-eigenen Felder werden aktualisiert
+  (`command`, `args`, `cwd`, `env`, `required`), **unbekannte Felder derselben
+  Tabelle bleiben erhalten**. Ein Format darf Fremddaten nicht verwerfen, die das
+  andere erhaelt.
+- **Identitaet trifft nicht zu** — abweichendes `command`/`args`, **oder ein
+  vorhandener Eintrag ohne `command`/`args` (ambivalente Belegung, z. B. eine
+  leere Tabelle)** → **benannter Fehler, null Writes** in **beiden** Dateien. Eine
+  leere reservierte Tabelle ist ausdruecklich **kein** freier Platz.
+- **Anders benannte Server** bleiben in jedem Fall unveraendert.
+
+**Ganzdatei-Eigentum** (die Frage, ob ein Detach die Datei entfernen darf) wird
+**nicht** aus dem reservierten Namen plus kanonischer Schreibweise abgeleitet,
+sondern gegen die **erwartete** AK3-Registrierung geprueft. Veraenderte,
+unvollstaendige oder ambivalente Eintraege gelten als Fremdinhalt und werden
+erhalten. Loeschen ist irreversibel, Erhalten nicht.
+
+### 76.5.4.2 Zwei-Dateien-Fehlersemantik
+
+Es gibt **keine** gemeinsame Dateisystemtransaktion ueber `.mcp.json` und
+`.codex/config.toml` (PO-Entscheidung D6). Verbindlich:
+
+- Beide Bestandsdateien werden **vor dem ersten Write** strikt gelesen,
+  konfliktgeprueft und vollstaendig gerendert. Jede Datei wird dabei **genau
+  einmal** gelesen; Parsen, Rendern und das gebundene Before-Image stammen aus
+  denselben Bytes. Zwei Reads derselben Datei koennen ein neueres Before-Image an
+  ein aelteres Rendering binden und damit ein veraltetes Ueberschreiben
+  autorisieren.
+- Ein Conformance-, Parse- oder Konfliktfehler bewirkt **null Writes**; beide
+  Dateien bleiben byte-identisch.
+- Jeder Einzelwrite ist atomar; die **Paarung** ist es nicht.
+- Ein I/O-Fehler **nach** dem ersten Write loest ein best-effort-Rollback aus dem
+  gebundenen Before-Image aus und liefert `registration_incomplete` (FK-50 §50.3
+  CP 10). Ein gescheitertes Rollback wird als solches gemeldet — ein sauberes
+  Rollback wird nie behauptet.
+- Das Crashfenster zwischen den beiden Writes ist **erkennbar** (die
+  Codex-Datei traegt dann keine `[mcp_servers.<id>]`-Tabelle) und konvergiert beim
+  naechsten Installationslauf. Es wird **dokumentiert, nicht als Atomizitaet
+  verkauft**.
 - **`required = true`:** Ein als erforderlich registrierter Server, der fehlt oder
   die Conformance-Vorbedingung (FK-50 §50.3 CP 10) nicht besteht, blockiert
   fail-closed.
