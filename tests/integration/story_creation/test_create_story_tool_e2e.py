@@ -245,7 +245,7 @@ def _project_config() -> ProjectConfig:
             features=Features(multi_llm=False),
             # host/port present so the (unused-in-test) real factory branch is
             # satisfiable; the test injects a reconciler with a fake adapter.
-            vectordb=VectorDbConfig(host="weaviate.local", port=8080),
+            vectordb=VectorDbConfig(weaviate_http_endpoint="http://weaviate.local:8080"),
         ),  # type: ignore[call-arg]
     )
 

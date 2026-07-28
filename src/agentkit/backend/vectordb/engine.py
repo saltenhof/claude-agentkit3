@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
+from agentkit.backend.vectordb.endpoints import split_grpc_endpoint, split_http_endpoint
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
@@ -1138,51 +1139,14 @@ def connect_real_client(binding: RuntimeBinding) -> CorpusClientPort:
     )
 
 
-def _split_endpoint(endpoint: str) -> tuple[str, int, bool]:
-    """Split an ``http(s)://host:port`` endpoint into ``(host, port, secure)``."""
-    import urllib.parse
-
-    parsed = urllib.parse.urlparse(endpoint)
-    if parsed.scheme not in ("http", "https"):
-        raise VectorDbUnavailableError(
-            f"WEAVIATE_HTTP_ENDPOINT {endpoint!r} must be http(s)://host:port "
-            "(fail-closed, D2)."
-        )
-    if not parsed.hostname or parsed.port is None:
-        raise VectorDbUnavailableError(
-            f"WEAVIATE_HTTP_ENDPOINT {endpoint!r} is not host:port (fail-closed, D2)."
-        )
-    return parsed.hostname, parsed.port, parsed.scheme == "https"
-
-
-def _split_grpc(endpoint: str) -> tuple[str, int, bool]:
-    """Split a gRPC endpoint into ``(host, port, secure)`` fail-closed.
-
-    Accepts ``host:port`` as well as an explicit ``grpc://``/``grpcs://`` scheme;
-    ``grpcs`` selects a TLS gRPC channel.
-    """
-    candidate = endpoint
-    secure = False
-    if candidate.startswith("grpcs://"):
-        secure = True
-        candidate = candidate.removeprefix("grpcs://")
-    elif candidate.startswith("grpc://"):
-        candidate = candidate.removeprefix("grpc://")
-    if ":" not in candidate:
-        raise VectorDbUnavailableError(
-            f"WEAVIATE_GRPC_ENDPOINT {endpoint!r} is not host:port (fail-closed, D2)."
-        )
-    host, _, port = candidate.rpartition(":")
-    if not host:
-        raise VectorDbUnavailableError(
-            f"WEAVIATE_GRPC_ENDPOINT {endpoint!r} is not host:port (fail-closed, D2)."
-        )
-    try:
-        return host, int(port), secure
-    except ValueError as exc:
-        raise VectorDbUnavailableError(
-            f"WEAVIATE_GRPC_ENDPOINT {endpoint!r} has non-integer port (fail-closed, D2)."
-        ) from exc
+#: ``_split_endpoint`` / ``_split_grpc`` now live in ``vectordb.endpoints`` as a
+#: PUBLIC seam (PO decision D-2): removing ``vectordb.host``/``port`` made the
+#: configured endpoint the only way to say where Weaviate is, so the readiness
+#: probe and the story-creation adapter must split it too. Re-exported here under
+#: the historical names so there is ONE implementation and no drift between the
+#: MCP runtime and those consumers.
+_split_endpoint = split_http_endpoint
+_split_grpc = split_grpc_endpoint
 
 
 def compose_runtime(

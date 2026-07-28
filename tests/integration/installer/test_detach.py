@@ -18,9 +18,20 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.backend.installer.codex_settings import build_codex_config_toml
+from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_SERVER_SHAPES,
+    STORY_KNOWLEDGE_BASE_SERVER,
+    DesiredMcpServer,
+)
+from agentkit.backend.installer.codex_settings import (
+    CODEX_HOOK_COMMAND,
+    build_codex_config_toml,
+)
 from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.skills import create_directory_link, is_directory_link
+from agentkit.harness_client.harness_adapters.codex_config_toml import (
+    render_codex_config,
+)
 
 
 def _directory_links_supported() -> bool:
@@ -656,6 +667,135 @@ def test_detach_preserves_foreign_codex_config(tmp_path: Path) -> None:
     assert config_path.read_bytes() == before  # byte-for-byte preserved
     assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
     assert str(Path(".codex/config.toml")) not in result.removed_bindings
+
+
+def _expected_ak3_server(project_root: Path) -> DesiredMcpServer:
+    """The registration AK3 itself would write, per the SSOT shape table.
+
+    The ownership predicate recognises AK3 content by comparing against this
+    expected shape, so a fixture that deviates from it is (correctly) not
+    AK3-owned.
+    """
+    shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
+    return DesiredMcpServer(
+        name=STORY_KNOWLEDGE_BASE_SERVER,
+        command=shape.command,
+        args=shape.args,
+        cwd=str(project_root),
+        env=tuple((key, "value") for key in sorted(shape.env_keys)),
+    )
+
+
+def _write_codex(project_root: Path, content: bytes) -> Path:
+    """Write ``.codex/config.toml`` as raw BYTES (no newline translation)."""
+    (project_root / ".codex").mkdir(parents=True, exist_ok=True)
+    path = project_root / ".codex" / "config.toml"
+    path.write_bytes(content)
+    return path
+
+
+def test_detach_removes_ak3_hook_plus_ak3_mcp_config(tmp_path: Path) -> None:
+    """AG3-175: a file AK3 wrote ITSELF (hook + MCP table) is removed.
+
+    This is the finding-B fix. The previous predicate compared bytes against the
+    hook-ONLY builder output, so once CP 10 merged an ``[mcp_servers.*]`` table the
+    file no longer matched and AK3's own registration was classified foreign and
+    left behind -- with ``.codex/`` staying non-empty so the directory cleanup did
+    not fire either. Revert-red against the ``classify_ownership`` predicate.
+    """
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    server = _expected_ak3_server(project_root)
+    content = render_codex_config(
+        None,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=project_root,
+        servers=(server,),
+    ).encode("utf-8")
+    config_path = _write_codex(project_root, content)
+
+    result = detach_project(project_root)
+
+    assert not config_path.exists()
+    assert str(Path(".codex/config.toml")) in result.removed_bindings
+    assert not (project_root / ".codex").exists()  # empty dir cleaned up too
+
+
+def test_detach_preserves_config_with_a_foreign_table_alongside_the_mcp_entry(
+    tmp_path: Path,
+) -> None:
+    """Mixed content stays: AK3 hook + AK3 MCP table + a foreign table."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    server = _expected_ak3_server(project_root)
+    ak3 = render_codex_config(
+        None, hook_command=CODEX_HOOK_COMMAND, project_root=project_root, servers=(server,)
+    )
+    config_path = _write_codex(
+        project_root, (ak3 + '\n[user.custom]\nkey = "value"\n').encode("utf-8")
+    )
+    before = config_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert config_path.read_bytes() == before
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_detach_preserves_an_ak3_only_config_carrying_a_user_comment(
+    tmp_path: Path,
+) -> None:
+    """THE regression guard for ``preserved_foreign_files``.
+
+    A purely value-based ownership predicate cannot SEE an added comment: the file
+    contains no foreign values, so it would be classified AK3-only and DELETED --
+    strictly weaker than the byte comparison it replaces. The final gate compares
+    against the canonical rendering of the AK3 content found, which is why this
+    file is preserved. Revert-red against exactly that gate.
+    """
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    config_path = _write_codex(
+        project_root,
+        build_codex_config_toml().encode("utf-8") + b"\n# my own note, please keep\n",
+    )
+    before = config_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert config_path.read_bytes() == before
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_detach_preserves_an_unparsable_codex_config(tmp_path: Path) -> None:
+    """Never delete what cannot be read."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    config_path = _write_codex(project_root, b"[unclosed\n")
+    before = config_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert config_path.read_bytes() == before
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_detach_removes_an_ak3_config_stored_with_crlf(tmp_path: Path) -> None:
+    """A line ending is an encoding artifact, not foreign content.
+
+    Found by an existing test: ``write_text`` on Windows stores CRLF, and a strict
+    byte comparison then classified a file AK3 wrote itself as foreign -- the same
+    defect class as the fixed-string comparison. The gate normalises line endings.
+    """
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    crlf = build_codex_config_toml().replace("\n", "\r\n").encode("utf-8")
+    config_path = _write_codex(project_root, crlf)
+
+    result = detach_project(project_root)
+
+    assert not config_path.exists()
+    assert str(Path(".codex/config.toml")) in result.removed_bindings
 
 
 def test_detach_missing_project_root_fails_closed(tmp_path: Path) -> None:

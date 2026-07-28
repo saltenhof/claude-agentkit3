@@ -464,21 +464,69 @@ class TestVectorDbConfig:
         cfg = VectorDbConfig()
         assert cfg.similarity_threshold == 0.7
         assert cfg.max_llm_candidates == 5
-        assert cfg.host is None
-        assert cfg.port is None
+        # PO decision D-2: host/port are REMOVED, not deprecated. The endpoints
+        # are the only way to say where Weaviate is.
+        assert cfg.weaviate_http_endpoint is None
+        assert cfg.weaviate_grpc_endpoint is None
 
     def test_custom_values(self) -> None:
         """VectorDbConfig accepts custom similarity threshold and candidates."""
         cfg = VectorDbConfig(
             similarity_threshold=0.85,
             max_llm_candidates=10,
-            host="localhost",
-            port=8080,
+            weaviate_http_endpoint="http://weaviate.internal:9903",
+            weaviate_grpc_endpoint="weaviate.internal:50051",
         )
         assert cfg.similarity_threshold == 0.85
         assert cfg.max_llm_candidates == 10
-        assert cfg.host == "localhost"
-        assert cfg.port == 8080
+        assert cfg.weaviate_http_endpoint == "http://weaviate.internal:9903"
+        assert cfg.weaviate_grpc_endpoint == "weaviate.internal:50051"
+
+    def test_removed_legacy_host_and_port_are_rejected(self) -> None:
+        """PO decision D-2: the removed keys must FAIL, not be silently ignored.
+
+        ``extra="forbid"`` turns them into a named validation error, which is what
+        makes the removal a real removal rather than a soft deprecation.
+        """
+        with pytest.raises(ValidationError):
+            VectorDbConfig(host="localhost")  # type: ignore[call-arg]
+        with pytest.raises(ValidationError):
+            VectorDbConfig(port=8080)  # type: ignore[call-arg]
+
+    def test_scaffold_output_can_never_contain_the_removed_keys(self) -> None:
+        """Evidence for the config_version verdict (no format bump needed).
+
+        AK3 emits the ``vectordb`` stanza from ``InstallConfig`` only, and that
+        carries no host/port field, so no AK3-generated ``project.yaml`` can ever
+        have contained the removed keys. Pinned so the claim cannot rot.
+        """
+        from pathlib import Path as _Path
+
+        from agentkit.backend.installer.runner import InstallConfig, _build_project_yaml
+
+        for kwargs in (
+            {},
+            {
+                "features_vectordb": True,
+                "vectordb_http_endpoint": "http://w:9903",
+                "vectordb_grpc_endpoint": "w:50051",
+            },
+            {"features_vectordb": True},
+        ):
+            data = _build_project_yaml(
+                InstallConfig(
+                    project_key="d",
+                    project_name="D",
+                    project_root=_Path("T:/tmp/d"),
+                    **kwargs,  # type: ignore[arg-type]
+                )
+            )
+            stanza = data["pipeline"].get("vectordb")  # type: ignore[union-attr]
+            if stanza is not None:
+                assert set(stanza) == {
+                    "weaviate_http_endpoint",
+                    "weaviate_grpc_endpoint",
+                }, stanza
 
     def test_is_frozen(self) -> None:
         """VectorDbConfig is frozen."""
@@ -492,6 +540,121 @@ class TestVectorDbConfig:
             config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)
         )
         assert cfg.vectordb is None
+
+    # ------------------------------------------------------------------ #
+    # AG3-175: Weaviate endpoint shape. The accepted set of both fields is
+    # BOUND to the consumer -- ``vectordb.engine._split_endpoint`` and
+    # ``._split_grpc``. Every value accepted here must be usable by them, and
+    # anything they cannot use must be rejected here, at the first gate an
+    # operator hits.
+    # ------------------------------------------------------------------ #
+
+    def test_endpoints_default_to_none(self) -> None:
+        cfg = VectorDbConfig()
+        assert cfg.weaviate_http_endpoint is None
+        assert cfg.weaviate_grpc_endpoint is None
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "http://weaviate.internal:9903",
+            "https://weaviate.internal:9903",
+            "http://127.0.0.1:9903",
+            "http://[::1]:8080",
+            "http://weaviate.internal:9903/",  # empty path: nothing can be lost
+        ],
+    )
+    def test_valid_http_endpoint_is_accepted(self, endpoint: str) -> None:
+        assert VectorDbConfig(weaviate_http_endpoint=endpoint).weaviate_http_endpoint == endpoint
+
+    @pytest.mark.parametrize(
+        ("endpoint", "needle"),
+        [
+            ("", "must not be empty"),
+            ("   ", "must not be empty"),
+            ("weaviate.internal:9903", "must be http"),
+            ("ftp://weaviate.internal:9903", "must be http"),
+            ("grpc://weaviate.internal:9903", "must be http"),
+            ("http://", "must be http"),
+            ("http://weaviate.internal", "explicit port"),
+            # The consumer keeps only hostname/port/scheme and DISCARDS these,
+            # so accepting them would silently drop operator intent.
+            ("http://weaviate.internal:9903/v1", "without path, query or fragment"),
+            ("http://weaviate.internal:9903?a=1", "without path, query or fragment"),
+            ("http://weaviate.internal:9903#f", "without path, query or fragment"),
+            ("http://user:secret@weaviate.internal:9903", "must not carry userinfo"),
+        ],
+    )
+    def test_invalid_http_endpoint_is_rejected(self, endpoint: str, needle: str) -> None:
+        with pytest.raises(ValidationError, match=needle):
+            VectorDbConfig(weaviate_http_endpoint=endpoint)
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "weaviate.internal:50051",
+            "grpc://weaviate.internal:50051",
+            "grpcs://weaviate.internal:50051",  # grpcs selects a TLS channel
+            "10.0.0.5:50051",
+            "[::1]:50051",
+        ],
+    )
+    def test_valid_grpc_endpoint_is_accepted(self, endpoint: str) -> None:
+        assert VectorDbConfig(weaviate_grpc_endpoint=endpoint).weaviate_grpc_endpoint == endpoint
+
+    @pytest.mark.parametrize(
+        ("endpoint", "needle"),
+        [
+            ("", "must not be empty"),
+            ("   ", "must not be empty"),
+            # R-1: an http(s) scheme used to be ACCEPTED and reached the Weaviate
+            # client as the literal host "http://h" -- a confusing connect failure
+            # instead of a named configuration error.
+            ("http://weaviate.internal:50051", "no other scheme is usable"),
+            ("https://weaviate.internal:50051", "no other scheme is usable"),
+            ("//weaviate.internal:50051", "no other scheme is usable"),
+            ("grpc://http://weaviate.internal:50051", "no other scheme is usable"),
+            # A scheme-like prefix WITHOUT '//' would become part of the host.
+            ("weaviate:internal:50051", "plain hostname"),
+            ("weaviate.internal", "must be host:port"),
+            (":50051", "must be host:port"),
+            ("weaviate.internal:0", "port in 1..65535"),
+            ("weaviate.internal:70000", "port in 1..65535"),
+            ("weaviate.internal:abc", "port in 1..65535"),
+            ("weaviate.internal:50051/foo", "port in 1..65535"),
+        ],
+    )
+    def test_invalid_grpc_endpoint_is_rejected(self, endpoint: str, needle: str) -> None:
+        with pytest.raises(ValidationError, match=needle):
+            VectorDbConfig(weaviate_grpc_endpoint=endpoint)
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["weaviate.internal:50051", "grpc://weaviate.internal:50051", "grpcs://w:50051"],
+    )
+    def test_every_accepted_grpc_endpoint_is_usable_by_the_consumer(
+        self, endpoint: str
+    ) -> None:
+        """The binding to ``_split_grpc`` is asserted, not just documented."""
+        from agentkit.backend.vectordb.engine import _split_grpc
+
+        VectorDbConfig(weaviate_grpc_endpoint=endpoint)
+        host, port, _secure = _split_grpc(endpoint)
+        assert host and not host.startswith(("http", "//"))
+        assert port == 50051
+
+    @pytest.mark.parametrize(
+        "endpoint", ["http://weaviate.internal:9903", "https://w:9903", "http://w:9903/"]
+    )
+    def test_every_accepted_http_endpoint_is_usable_by_the_consumer(
+        self, endpoint: str
+    ) -> None:
+        from agentkit.backend.vectordb.engine import _split_endpoint
+
+        VectorDbConfig(weaviate_http_endpoint=endpoint)
+        host, port, _secure = _split_endpoint(endpoint)
+        assert host and "/" not in host
+        assert port == 9903
 
 
 class TestTelemetryConfig:

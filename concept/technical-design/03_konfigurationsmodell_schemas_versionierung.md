@@ -157,6 +157,11 @@ policy:
 vectordb:
   similarity_threshold: 0.7
   max_llm_candidates: 5
+  # Vollstaendige Endpunkte, KEINE Host/Port-Teile. Pflicht, sobald ein
+  # MCP-Server registriert wird (FK-50 §50.3 CP 10); ohne sie scheitert CP 10
+  # fail-closed mit `configuration_invalid`. Kein localhost-/Default-Fallback (D2).
+  weaviate_http_endpoint: "http://weaviate.internal:9903"
+  weaviate_grpc_endpoint: "weaviate.internal:50051"
 
 telemetry:
   web_call_limit: 200        # Hard-Limit, nur für Research-Stories
@@ -346,6 +351,57 @@ main-Rescan erfordert" (FK-50 Config-Drift-Behandlung). So bleibt Config
 ein erkennbarer Teil der Wahrheit und kann nicht still neben dem
 Gate-Ergebnis driften (FIX THE MODEL).
 
+#### VektorDB-Endpunkte: einzige Adressquelle, operator-eigen
+
+Verankert durch AG3-175 (Decision Record
+`2026-07-28-vectordb-endpoint-consolidation.md`). Der Vollstaendigkeitsanspruch
+dieses Kapitels (siehe Kopf) macht die Dokumentation dieser beiden Parameter
+verbindlich.
+
+**Die beiden Endpunkte sind die EINZIGE Art zu sagen, wo Weaviate liegt.**
+
+| Feld | Form | Pflicht |
+|---|---|---|
+| `vectordb.weaviate_http_endpoint` | `http(s)://host:port` | sobald ein MCP-Server registriert wird |
+| `vectordb.weaviate_grpc_endpoint` | `host:port`, optional `grpc://` / `grpcs://` (`grpcs` = TLS) | dito |
+
+**Validierungssemantik (fail-closed, keine Koerzierung):**
+
+- Beide Werte sind **vollstaendige Endpunkte**, keine Host/Port-Teile. Das
+  Zerlegen ist Konsumentensache und hat genau **eine** Implementierung
+  (`vectordb.endpoints`); Zusammensetzen aus Teilen wuerde das Schema erfinden.
+- HTTP: nur `http`/`https`, Host und **expliziter Port** erforderlich. Pfad,
+  Query, Fragment und Userinfo sind **kein** Vertragsbestandteil und werden
+  abgelehnt — der Konsument verwirft sie, sie stillschweigend zu akzeptieren wuerde
+  Operator-Absicht verschlucken. Credentials gehoeren nie in die Projektconfig.
+- gRPC: `host:port` mit Port in `1..65535`; ausser `grpc://`/`grpcs://` ist **kein**
+  Schema zulaessig, weil der Konsument es sonst als Teil des Hosts weitergaebe.
+- **Kein Default, kein Fallback.** Fehlt einer der beiden Werte bei aktiver
+  MCP-Registrierung, ist das ein benannter harter Fehler (`configuration_invalid`,
+  FK-50 §50.3 CP 10) ohne jede Schreibwirkung. Synthetisierte
+  localhost-Endpunkte sind verboten (D2); die Ablehnung solcher Defaults hat genau
+  **einen** Owner (die Runtime-Bindung), nicht zwei Sperrlisten.
+
+**Herkunft (operator-eigene Werte):** Die Werte reisen
+`InstallConfig` → **CP 5** → `project.yaml`. CP 5 baut die Mapping vollstaendig
+aus der Installationskonfiguration neu und schreibt sie bei Abweichung zurueck —
+eine **handgepflegte** `pipeline.vectordb`-Stanza wuerde vom naechsten
+Installationslauf geloescht. Ein Teil-Stanza wird nie geschrieben: fehlt einer der
+Endpunkte, entsteht gar keine Stanza und CP 10 scheitert benannt.
+
+**`vectordb.host` / `vectordb.port` sind ENTFERNT, nicht deprecated.**
+PO-Entscheidung vom 2026-07-28 auf ZERO-DEBT-Grundlage. Die beiden Felder sagten
+dasselbe wie `weaviate_http_endpoint`, ohne Beziehung zwischen den Formen — eine
+zweite operative Wahrheit fuer eine Tatsache. Der Zeitpunkt war die Begruendung:
+es existiert genau **eine** AK3-Installation, und das Projekt hat nicht begonnen,
+also wird die Migration nie billiger. Kein `config_version`-Bump: AK3 hat die
+Schluessel **nie** emittiert (die Scaffold-Ausgabe kann nur die zwei Endpunkte
+oder gar keine Stanza enthalten) und dieses Kapitel hat sie **nie** dokumentiert —
+es kann also weder ein AK3-erzeugtes noch ein dokumentiert-konfiguriertes
+`project.yaml` geben, das sie traegt. Da das Modell `extra="forbid"` fuehrt, ist
+ein dennoch vorhandener Schluessel ein benannter Validierungsfehler und kein
+stilles Ignorieren.
+
 ### Ebene 3: Story-spezifische Felder (Story-Attribute im AK3-Story-Backend)
 
 Diese Story-Attribute werden pro Story im AK3-Story-Backend gepflegt und
@@ -520,6 +576,8 @@ Fehlende Konfigurationsfelder werden fail-closed behandelt:
 |-----------|---------|-------------|-------------|
 | Similarity-Schwellenwert VektorDB | 0.7 | `vectordb.similarity_threshold` | FK-05-018 |
 | Max LLM-Kandidaten VektorDB | 5 | `vectordb.max_llm_candidates` | FK-05-020 |
+| Weaviate-HTTP-Endpunkt | *kein Default* (Pflicht bei MCP-Registrierung) | `vectordb.weaviate_http_endpoint` | FK-13 §13.4.3, D2 |
+| Weaviate-gRPC-Endpunkt | *kein Default* (Pflicht bei MCP-Registrierung) | `vectordb.weaviate_grpc_endpoint` | FK-13 §13.4.3, D2 |
 | Web-Call-Limit (nur Research) | 200 | `telemetry.web_call_limit` | FK-08-019 |
 | Web-Call-Warnung | 180 | `telemetry.web_call_warning` | FK-08-019 |
 | Policy Major-Threshold | 3 | `policy.major_threshold` | FK-05-209 |

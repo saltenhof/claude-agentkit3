@@ -106,6 +106,7 @@ def resolve_authoritative_project_id(
     project_root: str | None,
     supplied: str | None,
     env: Mapping[str, str],
+    config_project_id: str | None = None,
 ) -> str:
     """Resolve the AUTHORITATIVE project id for a local operation (D2, N06).
 
@@ -120,6 +121,15 @@ def resolve_authoritative_project_id(
             ``None`` falls back to upward discovery from the current directory.
         supplied: The caller-supplied project id (may be ``None``/absent).
         env: The process environment.
+        config_project_id: The configuration authority when the CALLER already
+            holds it, replacing the on-disk lookup. Added for the installer
+            (AG3-175): CP 10 consumes the ``project.yaml`` that CP 5 produced, and
+            in ``dry_run``/``verify`` that file is not on disk yet — treating the
+            authority as unavailable there would mean pretending not to know a
+            value we are about to write. This is NOT a second authority: the
+            divergence check against ``PROJECT_ID`` from the environment and the
+            precedence rule are unchanged, and there is still exactly one
+            implementation of them.
 
     Returns:
         The authoritative project id.
@@ -129,7 +139,11 @@ def resolve_authoritative_project_id(
             empty default), when two authorities diverge, or when ``supplied``
             diverges from the authority (never cross-project).
     """
-    config_id = _project_id_from_config(project_root)
+    config_id = (
+        config_project_id.strip()
+        if config_project_id is not None
+        else _project_id_from_config(project_root)
+    )
     env_raw = env.get(PROJECT_ID_ENV_KEY)
     env_id = env_raw.strip() if isinstance(env_raw, str) else ""
     if config_id and env_id and config_id != env_id:

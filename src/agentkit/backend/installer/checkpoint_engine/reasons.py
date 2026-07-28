@@ -42,6 +42,22 @@ REASON_MCP_PROTOCOL_ERROR: Final = "mcp_protocol_error"
 REASON_MCP_TOOLS_LIST_EMPTY: Final = "mcp_tools_list_empty"
 #: CP 10: process-tree control plane failed (job/group create, assign, terminate).
 REASON_MCP_PROCESS_CONTROL_ERROR: Final = "mcp_process_control_error"
+#: CP 10: the CONSUMED project configuration is absent or invalid — e.g.
+#: ``features.vectordb`` is on but ``pipeline.vectordb`` carries no Weaviate
+#: endpoints. The token is PO-ratified vocabulary (decision D4 names
+#: ``configuration_invalid`` for exactly this area, including duplicate endpoint
+#: keys) and AG3-176 builds its strict config boundary on it. Distinct from
+#: ``mcp_configuration_invalid``, which is about an existing harness config FILE:
+#: here nothing is wrong with the file, the INPUT is missing, and no endpoint is
+#: ever synthesised to paper over it (PO decision D2).
+REASON_CONFIGURATION_INVALID: Final = "configuration_invalid"
+#: CP 10: a write-phase I/O failure left the two-file registration incomplete
+#: (PO decision D6). ``.mcp.json`` and ``.codex/config.toml`` have no shared
+#: filesystem transaction; each single write is atomic, but there is no atomicity
+#: ACROSS them. The ``detail`` states exactly which files were written and whether
+#: the best-effort rollback from the bound before-image succeeded — a clean
+#: rollback is never claimed when the restore itself failed.
+REASON_REGISTRATION_INCOMPLETE: Final = "registration_incomplete"
 #: CP 10: target-project ``.mcp.json`` is present but not strictly loadable or
 #: has an invalid configuration shape (duplicate names, non-JSON constants,
 #: non-object root / ``mcpServers``). Distinct from wire ``mcp_protocol_error``.
@@ -59,6 +75,7 @@ __all__ = [
     "DRY_RUN_PLAN_MARKER",
     "REASON_ALREADY_SATISFIED",
     "REASON_ARE_DISABLED",
+    "REASON_CONFIGURATION_INVALID",
     "REASON_INAPPLICABLE",
     "REASON_MCP_COMMAND_NOT_FOUND",
     "REASON_MCP_CONFIGURATION_INVALID",
@@ -69,6 +86,7 @@ __all__ = [
     "REASON_MCP_TOOLS_LIST_EMPTY",
     "REASON_PENDING_SELECTION",
     "REASON_PLANNED_NO_MUTATION",
+    "REASON_REGISTRATION_INCOMPLETE",
     "REASON_RESERVED",
     "REASON_VECTORDB_DISABLED",
 ]

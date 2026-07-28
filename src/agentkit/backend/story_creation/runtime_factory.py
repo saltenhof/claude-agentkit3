@@ -7,7 +7,7 @@ the non-bypassable create boundary requires is produced by the real runtime --
 never hand-built in a tool/skill. This module constructs that runtime from the
 target project's configuration:
 
-* **Stage 1 (Weaviate) is wired for real** from ``vectordb.host`` / ``port`` via
+* **Stage 1 (Weaviate) is wired for real** from ``vectordb.weaviate_http_endpoint`` via
   :meth:`WeaviateStoryAdapter.connect`. A Weaviate outage raises a typed
   :class:`VectorDbUnavailableError` at reconcile time, so the create path
   fail-closes BEFORE persistence (FK-21 §21.4.3) -- never a dummy / skipped
@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING, cast, get_args
 
 from agentkit.backend.exceptions import ConflictAdjudicationUnavailableError
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
+from agentkit.backend.vectordb.endpoints import split_http_endpoint
 from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClientError
 from agentkit.integration_clients.multi_llm_hub.entities import HubBackendName
 from agentkit.integration_clients.vectordb import (
@@ -259,19 +260,25 @@ def build_story_creation_reconciler(
         A configured :class:`StoryCreationReconciler` (reconcile-only ready).
 
     Raises:
-        VectorDbUnavailableError: When ``vectordb`` host/port are not configured
+        VectorDbUnavailableError: When ``vectordb.weaviate_http_endpoint`` is unset
             (the VectorDB is mandatory infrastructure for story creation, FK-13
             §13.2 / FK-21 §21.4.3) -- fail-closed, never a silent skip.
     """
     vectordb: VectorDbConfig | None = project_config.pipeline.vectordb
-    if vectordb is None or vectordb.host is None or vectordb.port is None:
+    if vectordb is None or not vectordb.weaviate_http_endpoint:
         raise VectorDbUnavailableError(
-            "vectordb.host/port are not configured; the VectorDB is mandatory "
-            "for story creation (FK-13 §13.2 / FK-21 §21.4.3). Story creation "
-            "fails closed -- no creation without the reconciliation runtime."
+            "vectordb.weaviate_http_endpoint is not configured; the VectorDB is "
+            "mandatory for story creation (FK-13 §13.2 / FK-21 §21.4.3). Story "
+            "creation fails closed -- no creation without the reconciliation "
+            "runtime."
         )
 
-    adapter = WeaviateStoryAdapter.connect(host=vectordb.host, port=vectordb.port)
+    # PO decision D-2: the configured endpoint is the ONLY way to say where
+    # Weaviate is. host/port come from the single public splitter, never from a
+    # second parser -- a duplicated split is exactly the drift this consolidation
+    # removed.
+    host, port, _secure = split_http_endpoint(vectordb.weaviate_http_endpoint)
+    adapter = WeaviateStoryAdapter.connect(host=host, port=port)
     if not adapter.is_ready():
         # A reachable-but-not-ready node is still a fail-closed blocker
         # (FK-21 §21.11.4): never proceed to create with an unready VectorDB.

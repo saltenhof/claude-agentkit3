@@ -54,12 +54,16 @@ def test_factory_fails_closed_without_vectordb_config() -> None:
         build_story_creation_reconciler(project_config=_config(vectordb=None))
 
 
-def test_factory_fails_closed_without_host_or_port() -> None:
-    """A vectordb config missing host/port still fails closed (no silent skip)."""
+def test_factory_fails_closed_without_an_http_endpoint() -> None:
+    """A vectordb config without an endpoint still fails closed (no silent skip).
+
+    PO decision D-2 removed host/port; the endpoint is now the only source, so the
+    fail-closed condition moved to it.
+    """
     with pytest.raises(VectorDbUnavailableError):
         build_story_creation_reconciler(
             project_config=_config(
-                vectordb=VectorDbConfig(host=None, port=None),
+                vectordb=VectorDbConfig(weaviate_http_endpoint=None),
             )
         )
 
