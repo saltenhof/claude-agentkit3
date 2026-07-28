@@ -185,6 +185,18 @@ Alle Aenderungen muessen mit `concept/` und `PROJECT_STRUCTURE.md` vereinbar sei
 - Konflikt mit Fach- oder Technikkonzept: hart stoppen, Konflikt benennen, keine implizite Abweichung implementieren.
 - Bestehenden Code, der dem Zielbild widerspricht, nicht durch neue Workarounds stabilisieren; stattdessen am Zielbild ausrichten.
 
+### FEHLENDES BESCHAFFEN STATT UMGEHEN
+Fehlt ein Werkzeug, ein Paket, ein Dienst oder eine Image-Anpassung, wird das **nicht** durch Eigenbau, schwaechere Tests oder einen verengten Entwurf umgangen. Es wird entscheidungsreif vorgelegt:
+
+1. **Was** fehlt — Paket + exakter Version-Pin + Lizenz, bzw. Image/Dienst + konkrete Aenderung.
+2. **Warum** es die richtige Wahl ist — was es bringt, was ohne es schlechter oder unmoeglich wird.
+3. **Welche Nachteile** es ehrlich hat — Dependency-Oberflaeche, transitive Abhaengigkeiten, Wartung, Plattformrisiko. Gibt es keine nennenswerten, wird das klar gesagt und nicht kuenstlich ausbalanciert.
+4. Die **explizite Frage**, ob geladen und integriert werden soll.
+
+Der Auftraggeber hat Administratorrechte und die Docker-Images in der Hand; Beschaffung ist moeglich. Selbst installieren ohne Freigabe bleibt untersagt.
+
+Kann ein Akzeptanzkriterium ohne die fehlende Sache **nicht ehrlich bewiesen** werden, ist das explizit zu melden. Ein schwaecherer, gruen aussehender Test ist ein Guardrail-Verstoss, kein Kompromiss.
+
 ### Anti-Loop
 Nach zwei gescheiterten Versuchen mit derselben Methode:
 
