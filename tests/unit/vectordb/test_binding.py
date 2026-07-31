@@ -67,9 +67,19 @@ def test_resolve_within_root_rejects_traversal(tmp_path: Path) -> None:
 
 
 def test_resolve_within_root_rejects_absolute_escape(tmp_path: Path) -> None:
+    """An absolute path outside the root is a containment violation.
+
+    The escape path is built from the CURRENT filesystem anchor. A hard-coded
+    ``C:/...`` is not absolute on POSIX -- there ``C:`` is an ordinary directory
+    segment, the path resolves INSIDE the root, and the guard correctly does not
+    raise. The test then fails for a reason that has nothing to do with
+    containment.
+    """
     b = _binding(tmp_path)
+    outside = Path(tmp_path.anchor) / "definitely-outside-the-project-root"
+    assert outside.is_absolute()
     with pytest.raises(ProjectBindingError, match="outside project_root"):
-        b.resolve_within_root(Path("C:/Windows/System32/drivers/etc/hosts"))
+        b.resolve_within_root(outside)
 
 
 def test_assert_writable_within_root_batch(tmp_path: Path) -> None:
