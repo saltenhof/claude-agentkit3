@@ -493,9 +493,40 @@ def _posix_group_is_live(
 # --- Windows Job Object (typed ctypes) -------------------------------------- #
 
 
-def _kernel32() -> Any:
+#: Raised when the Windows-only job-object surface is entered off Windows.
+#:
+#: ``ctypes.WinDLL`` and ``ctypes.get_last_error`` exist only on Windows — in
+#: typeshed as well as at runtime. The ``sys.platform`` narrowing below is what
+#: lets the type checker verify this module on EVERY target platform instead of
+#: only on the one it happens to run on. Without it a Windows-local ``mypy``
+#: reports clean while the Linux CI rejects the same code. The comparison must
+#: stay INLINE: narrowing does not travel through a helper call.
+_WINDOWS_ONLY = "Windows-only job-object surface used off Windows"
+
+
+def _last_error() -> int:
+    """Return the Windows last-error code (Windows-only surface).
+
+    Raises:
+        RuntimeError: When called off Windows (a caller-side guard is missing).
+    """
     import ctypes
 
+    if sys.platform != "win32":  # pragma: no cover - guarded by every caller
+        raise RuntimeError(_WINDOWS_ONLY)
+    return ctypes.get_last_error()
+
+
+def _kernel32() -> Any:
+    """Bind the kernel32 entry points used by the job-object surface.
+
+    Raises:
+        RuntimeError: When called off Windows (a caller-side guard is missing).
+    """
+    import ctypes
+
+    if sys.platform != "win32":  # pragma: no cover - guarded by every caller
+        raise RuntimeError(_WINDOWS_ONLY)
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     # Explicit signatures so 64-bit HANDLEs are not truncated.
     k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
@@ -565,7 +596,7 @@ def _create_windows_job() -> int:
 
     handle = k32.CreateJobObjectW(None, None)
     if not handle:
-        err = ctypes.get_last_error()
+        err = _last_error()
         raise ProcessControlError(f"CreateJobObjectW failed (winerr={err}).")
 
     info = _JobObjectExtendedLimitInformation()
@@ -577,7 +608,7 @@ def _create_windows_job() -> int:
         ctypes.sizeof(info),
     )
     if not ok:
-        err = ctypes.get_last_error()
+        err = _last_error()
         try:
             _close_win32_handle(k32, int(handle), label="job-after-setinfo-fail")
         except ProcessControlError as close_exc:
@@ -589,7 +620,6 @@ def _create_windows_job() -> int:
 
 
 def _assign_windows_job(job: int, proc: subprocess.Popen[bytes]) -> None:
-    import ctypes
 
     k32 = _kernel32()
     handle = getattr(proc, "_handle", None)
@@ -597,19 +627,18 @@ def _assign_windows_job(job: int, proc: subprocess.Popen[bytes]) -> None:
         raise ProcessControlError("Windows Popen process handle is unavailable.")
     ok = k32.AssignProcessToJobObject(job, int(handle))
     if not ok:
-        err = ctypes.get_last_error()
+        err = _last_error()
         raise ProcessControlError(f"AssignProcessToJobObject failed (winerr={err}).")
 
 
 def _close_win32_handle(k32: Any, handle: int, *, label: str) -> None:
     """Close a Win32 HANDLE and raise on failure (no silent drop)."""
-    import ctypes
 
     if not handle or handle == _INVALID_HANDLE_VALUE:
         return
     ok = k32.CloseHandle(handle)
     if not ok:
-        err = ctypes.get_last_error()
+        err = _last_error()
         raise ProcessControlError(f"CloseHandle({label}) failed (winerr={err}).")
 
 
@@ -638,7 +667,7 @@ def _resume_suspended_process(pid: int) -> None:
 
     snap = k32.CreateToolhelp32Snapshot(_TH32CS_SNAPTHREAD, 0)
     if not snap or snap == _INVALID_HANDLE_VALUE:
-        err = ctypes.get_last_error()
+        err = _last_error()
         raise ProcessControlError(f"CreateToolhelp32Snapshot failed (winerr={err}).")
 
     resumed = 0
@@ -723,12 +752,11 @@ def _resume_thread_handle(
 
 
 def _terminate_windows_job(job: int, *, deadline: float) -> None:
-    import ctypes
 
     k32 = _kernel32()
     ok = k32.TerminateJobObject(job, 1)
     if not ok:
-        err = ctypes.get_last_error()
+        err = _last_error()
         raise ProcessControlError(f"TerminateJobObject failed (winerr={err}).")
     wait = min(0.2, remaining_budget(deadline))
     if wait > 0:
@@ -736,12 +764,11 @@ def _terminate_windows_job(job: int, *, deadline: float) -> None:
 
 
 def _close_windows_job(job: int) -> None:
-    import ctypes
 
     k32 = _kernel32()
     ok = k32.CloseHandle(job)
     if not ok:
-        err = ctypes.get_last_error()
+        err = _last_error()
         raise ProcessControlError(f"CloseHandle(job) failed (winerr={err}).")
 
 
