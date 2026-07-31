@@ -45,7 +45,7 @@ from . import runmodel
 from .docmodel import anchor_slugs, file_digest_sha256, scan_documents
 from .findings import CheckResult, error
 from .receipts import TargetSpec, compute_target_digest, resolve_selector, verify_receipt_against_atom
-from .runmodel_constants import COVERED_DISPOSITIONS, REGISTER_DIGEST_KEYS, SEMANTIC_GATES
+from .runmodel_constants import RunModelConstants as Vocab
 from .smy import SmyError, parse_smy
 from .units import AnchoredHeading, anchored_outline, lf_normalize
 
@@ -290,7 +290,7 @@ class _PromotionCheck:
                     f"line {number}:expected_authority",
                     f"scope id violates the configured grammar: {row['expected_authority']!r}",
                 )
-            if row["disposition"] in COVERED_DISPOSITIONS:
+            if row["disposition"] in Vocab.COVERED_DISPOSITIONS:
                 self._check_covered_atom(rel, number, row)
 
     def _check_covered_atom(self, rel: str, number: int, row: TsvRow) -> None:
@@ -838,7 +838,7 @@ class _PromotionCheck:
         self.executed.append("dispositions")
         assert self.manifest is not None
         rel = self._rel_path("promotion", PROMOTION_MANIFEST_FILE)
-        for gate_name in SEMANTIC_GATES:
+        for gate_name in Vocab.SEMANTIC_GATES:
             count = sum(1 for gate in self.manifest.semantic_gates if gate.gate == gate_name)
             if count != 1:
                 self._error(rel, "manifest.semantic_gates", f"exactly one {gate_name!r} entry is required, found {count}")
@@ -932,7 +932,7 @@ class _PromotionCheck:
         derived, derive_issues = runmodel.derive_register_digests(self.run_dir)
         for issue in derive_issues:
             self._error(self._rel_path(issue.locator), "file", issue.message)
-        for key in REGISTER_DIGEST_KEYS:
+        for key in Vocab.REGISTER_DIGEST_KEYS:
             digest = self.run.register_digests.get(key)
             if digest is None:
                 self._error(run_rel, f"run.register_digests.{key}", "must be pinned before any scope is promoted")

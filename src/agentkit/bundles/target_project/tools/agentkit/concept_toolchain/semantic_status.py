@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from . import runmodel
 from .docmodel import file_digest_sha256
 from .findings import CheckResult, error
-from .runmodel_constants import SEMANTIC_GATES
+from .runmodel_constants import RunModelConstants as Vocab
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -62,7 +62,7 @@ class _SemanticStatus:
         self.result = result
         self.packs: dict[str, tuple[runmodel.SemanticRequestPack, str]] = {}
         self.receipts: dict[str, runmodel.SemanticReceipt] = {}
-        self.states: dict[str, _GateState] = {gate: _GateState() for gate in SEMANTIC_GATES}
+        self.states: dict[str, _GateState] = {gate: _GateState() for gate in Vocab.SEMANTIC_GATES}
 
     def _error(self, rel_path: str, locator: str, message: str) -> None:
         self.result.findings.append(error(CHECK_ID, rel_path, locator, message))
@@ -163,7 +163,7 @@ class _SemanticStatus:
         if manifest is None:
             return
         manifest_scopes = {scope.scope_id for scope in manifest.scopes}
-        pack_scopes: dict[str, set[str]] = {gate: set() for gate in SEMANTIC_GATES}
+        pack_scopes: dict[str, set[str]] = {gate: set() for gate in Vocab.SEMANTIC_GATES}
         for pack, _ in self.packs.values():
             pack_scopes[pack.gate].add(pack.scope_id)
         for entry in manifest.semantic_gates:

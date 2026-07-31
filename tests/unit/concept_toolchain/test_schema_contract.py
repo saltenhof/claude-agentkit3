@@ -12,25 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from concept_toolchain import runmodel
-from concept_toolchain.runmodel_constants import (
-    ASSERTION_STATUSES,
-    DATA_CLASSES,
-    DECISION_STATUSES,
-    EQUIVALENCE_STATUSES,
-    LIFECYCLES,
-    LOCK_BACKENDS,
-    PARTICIPANT_STATUSES,
-    PROJECTION_KINDS,
-    PROMOTION_DISPOSITIONS,
-    RECEIPT_VERDICTS,
-    ROUND_OUTCOMES,
-    RUN_PROFILES,
-    RUN_STATES,
-    SEMANTIC_GATE_STATUSES,
-    SEMANTIC_GATES,
-    SEMANTIC_RECEIPT_STATUSES,
-    SPAWN_MODES,
-)
+from concept_toolchain.runmodel_constants import RunModelConstants as Vocab
 from tests.unit.concept_toolchain.conftest import TOOLS_DIR
 
 if TYPE_CHECKING:
@@ -43,26 +25,26 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     "run.schema.json": (
         runmodel.RUN_KEYS,
         {
-            "properties.state.enum": RUN_STATES,
-            "properties.profile.enum": RUN_PROFILES,
-            "properties.data_class.enum": DATA_CLASSES,
-            "properties.participants.items.properties.spawn_mode.enum": SPAWN_MODES,
-            "properties.participants.items.properties.status.enum": PARTICIPANT_STATUSES,
+            "properties.state.enum": Vocab.RUN_STATES,
+            "properties.profile.enum": Vocab.RUN_PROFILES,
+            "properties.data_class.enum": Vocab.DATA_CLASSES,
+            "properties.participants.items.properties.spawn_mode.enum": Vocab.SPAWN_MODES,
+            "properties.participants.items.properties.status.enum": Vocab.PARTICIPANT_STATUSES,
         },
     ),
     "lease.schema.json": (runmodel.LEASE_KEYS, {}),
     "round.schema.json": (
         runmodel.ROUND_KEYS,
-        {"properties.participants.items.properties.outcome.enum": ROUND_OUTCOMES},
+        {"properties.participants.items.properties.outcome.enum": Vocab.ROUND_OUTCOMES},
     ),
     "coverage-plan.schema.json": (runmodel.COVERAGE_PLAN_KEYS, {}),
     "promotion-manifest.schema.json": (
         runmodel.MANIFEST_KEYS,
         {
-            "properties.scopes.items.properties.promotion_disposition.enum": PROMOTION_DISPOSITIONS,
-            "properties.scope_locks.items.properties.backend.enum": LOCK_BACKENDS,
-            "properties.semantic_gates.items.properties.gate.enum": SEMANTIC_GATES,
-            "properties.semantic_gates.items.properties.status.enum": SEMANTIC_GATE_STATUSES,
+            "properties.scopes.items.properties.promotion_disposition.enum": Vocab.PROMOTION_DISPOSITIONS,
+            "properties.scope_locks.items.properties.backend.enum": Vocab.LOCK_BACKENDS,
+            "properties.semantic_gates.items.properties.gate.enum": Vocab.SEMANTIC_GATES,
+            "properties.semantic_gates.items.properties.status.enum": Vocab.SEMANTIC_GATE_STATUSES,
             "properties.required_registry_edges.items.oneOf.1.properties.kind.enum": runmodel.REGISTRY_EDGE_KINDS,
         },
     ),
@@ -73,7 +55,7 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     "mutex.schema.json": (runmodel.MUTEX_KEYS, {}),
     "projection-receipt.schema.json": (
         runmodel.RECEIPT_KEYS,
-        {"properties.verdict.enum": RECEIPT_VERDICTS},
+        {"properties.verdict.enum": Vocab.RECEIPT_VERDICTS},
     ),
     "declassification-receipt.schema.json": (
         runmodel.DECLASSIFICATION_KEYS,
@@ -81,32 +63,32 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     ),
     "scope-lock.schema.json": (
         runmodel.SCOPE_LOCK_KEYS,
-        {"properties.backend.enum": LOCK_BACKENDS},
+        {"properties.backend.enum": Vocab.LOCK_BACKENDS},
     ),
     "projection-manifest.schema.json": (
         runmodel.PROJECTION_MANIFEST_KEYS,
         {
-            "properties.entries.items.properties.lifecycle.enum": LIFECYCLES,
-            "properties.entries.items.properties.assertion_status.enum": ASSERTION_STATUSES,
-            "properties.entries.items.properties.lifecycle_source.properties.status.enum": DECISION_STATUSES,
-            "properties.entries.items.properties.required_projections.items.properties.kind.enum": PROJECTION_KINDS,
+            "properties.entries.items.properties.lifecycle.enum": Vocab.LIFECYCLES,
+            "properties.entries.items.properties.assertion_status.enum": Vocab.ASSERTION_STATUSES,
+            "properties.entries.items.properties.lifecycle_source.properties.status.enum": Vocab.DECISION_STATUSES,
+            "properties.entries.items.properties.required_projections.items.properties.kind.enum": Vocab.PROJECTION_KINDS,
             "properties.entries.items.properties.required_projections.items.properties.target_mode.enum": (
                 runmodel.TARGET_MODES
             ),
             "properties.entries.items.properties.required_projections.items.properties.equivalence_status.enum": (
-                EQUIVALENCE_STATUSES
+                Vocab.EQUIVALENCE_STATUSES
             ),
         },
     ),
     "request-pack.schema.json": (
         runmodel.REQUEST_PACK_KEYS,
-        {"properties.gate.enum": SEMANTIC_GATES},
+        {"properties.gate.enum": Vocab.SEMANTIC_GATES},
     ),
     "semantic-receipt.schema.json": (
         runmodel.SEMANTIC_RECEIPT_KEYS,
         {
-            "properties.gate.enum": SEMANTIC_GATES,
-            "properties.status.enum": SEMANTIC_RECEIPT_STATUSES,
+            "properties.gate.enum": Vocab.SEMANTIC_GATES,
+            "properties.status.enum": Vocab.SEMANTIC_RECEIPT_STATUSES,
         },
     ),
 }

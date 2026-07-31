@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 from . import runmodel
 from .docmodel import file_digest_sha256
 from .findings import CheckResult, error
-from .runmodel_constants import LINEAR_STATE_RANK, SHA256_RE
+from .runmodel_constants import RunModelConstants as Vocab
 from .units import derive_units
 
 if TYPE_CHECKING:
@@ -107,7 +107,7 @@ def effective_state_rank(run: runmodel.RunState) -> int | None:
         state = run.recheck.detected_in_state
     if state == "PROMOTION_FAILED":
         state = "PROMOTING"
-    return LINEAR_STATE_RANK.get(state)
+    return Vocab.LINEAR_STATE_RANK.get(state)
 
 
 def glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -507,7 +507,7 @@ class _IncubatorCheckCore(ABC):
         self._check_input_head_prefix(intake_rel, run_rel, intake_rows, rank)
         final_pin = self.run.register_digests.get("source_intake_final_head")
         if final_pin is None:
-            if rank is not None and rank >= LINEAR_STATE_RANK["PROMOTING"]:
+            if rank is not None and rank >= Vocab.LINEAR_STATE_RANK["PROMOTING"]:
                 self._error(
                     run_rel,
                     "run.register_digests.source_intake_final_head",
@@ -526,7 +526,7 @@ class _IncubatorCheckCore(ABC):
         assert self.run is not None
         input_pin = self.run.register_digests.get("source_intake_input_head")
         if input_pin is None:
-            if rank is not None and rank >= LINEAR_STATE_RANK["SYNTHESIZING"]:
+            if rank is not None and rank >= Vocab.LINEAR_STATE_RANK["SYNTHESIZING"]:
                 self._error(
                     run_rel,
                     "run.register_digests.source_intake_input_head",
@@ -637,7 +637,7 @@ class _IncubatorCheckCore(ABC):
                 self.skipped.append(f"baseline-rederivation: git show failed for {path}")
                 return
             row = register_rows[path]
-            if SHA256_RE.fullmatch(row["sha256"]) and _sha256_bytes(blob) != row["sha256"]:
+            if Vocab.SHA256_RE.fullmatch(row["sha256"]) and _sha256_bytes(blob) != row["sha256"]:
                 self._error(rel, path, "baseline digest does not match the committed blob of base_revision")
             if row["bytes"].isdigit() and int(row["bytes"]) != len(blob):
                 self._error(rel, path, "baseline byte count does not match the committed blob of base_revision")
@@ -874,7 +874,7 @@ class _IncubatorCheckCore(ABC):
         rel = self._rel_path(FINDINGS_FILE)
         if self.finding_rows is None:
             rank = effective_state_rank(self.run) if self.run is not None else None
-            if rank is not None and rank >= LINEAR_STATE_RANK["PROMOTING"]:
+            if rank is not None and rank >= Vocab.LINEAR_STATE_RANK["PROMOTING"]:
                 self._error(rel, "file", "findings.tsv is mandatory from PROMOTING onwards (empty with header is allowed)")
             return
         claim_ids = {row["claim_id"] for row in self.claim_rows} if self.claim_rows is not None else None

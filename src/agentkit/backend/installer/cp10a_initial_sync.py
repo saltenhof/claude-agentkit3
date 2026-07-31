@@ -310,7 +310,6 @@ def _prepare_receipts(
 
 
 def _publish_receipts(
-    prepared: PreparedInitialSyncPort,
     paths: tuple[Path, Path],
     before: tuple[bytes | None, bytes | None],
     old: tuple[InitialSyncReceipt | None, InitialSyncReceipt | None],
@@ -438,7 +437,6 @@ def run_initial_sync(
     _open_publication_window(marker, expected_project_id, candidate)
     _commit_prepared(prepared, paths, before, marker)
     published_receipts, changed = _publish_receipts(
-        prepared,
         paths,
         before,
         old,

@@ -70,7 +70,7 @@ try:
     from . import runmodel
     from .docmodel import file_digest_sha256
     from .findings import EXIT_USAGE, CheckResult, error, exit_code, to_envelope
-    from .runmodel_constants import SEMANTIC_GATE_KEYS
+    from .runmodel_constants import RunModelConstants as Vocab
     from .units import derive_units, lf_normalize
 except ImportError:  # pragma: no cover - direct script execution path
     import importlib
@@ -123,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_writer_arguments(units)
     prepare = subparsers.add_parser("prepare", help="Write semantic request packs.")
     _add_writer_arguments(prepare)
-    prepare.add_argument("--gate", required=True, choices=sorted(SEMANTIC_GATE_KEYS), help="Gate key (w2 or w3).")
+    prepare.add_argument("--gate", required=True, choices=sorted(Vocab.SEMANTIC_GATE_KEYS), help="Gate key (w2 or w3).")
     prepare.add_argument("--scope", action="append", default=[], help="Scope id (default: all promotion-manifest scopes).")
     importer = subparsers.add_parser("import", help="Validate and register a semantic receipt.")
     _add_writer_arguments(importer)
@@ -700,7 +700,7 @@ def _write_pack(
     chunks: list[dict[str, str]],
     guard: _MutexGuard,
 ) -> None:
-    gate = SEMANTIC_GATE_KEYS[gate_key]
+    gate = Vocab.SEMANTIC_GATE_KEYS[gate_key]
     payload: dict[str, object] = {
         "schema_version": "1.0.0",
         "gate": gate,

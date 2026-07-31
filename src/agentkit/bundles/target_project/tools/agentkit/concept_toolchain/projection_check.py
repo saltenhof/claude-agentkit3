@@ -38,7 +38,7 @@ from .docmodel import anchor_slugs, file_digest_sha256, load_document, scan_docu
 from .findings import CheckResult, error
 from .promotion_check import run_promotion_check
 from .receipts import compute_target_digest, verify_receipt_against_atom
-from .runmodel_constants import DECISION_STATUSES
+from .runmodel_constants import RunModelConstants as Vocab
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -182,11 +182,11 @@ class _ProjectionCheck:
             self._error(lifecycle_where, f"decision record digest does not match {source.path}")
         document = load_document(self.project_root, "meta", record_path)
         decision_status = document.frontmatter.get("decision_status") if document.frontmatter is not None else None
-        if not isinstance(decision_status, str) or decision_status not in DECISION_STATUSES:
+        if not isinstance(decision_status, str) or decision_status not in Vocab.DECISION_STATUSES:
             self._error(
                 lifecycle_where,
                 f"decision record frontmatter must carry a machine-readable decision_status "
-                f"({', '.join(DECISION_STATUSES)}): {source.path}",
+                f"({', '.join(Vocab.DECISION_STATUSES)}): {source.path}",
             )
             return
         if decision_status != source.status:

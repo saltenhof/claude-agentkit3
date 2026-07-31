@@ -7,7 +7,7 @@ import json
 from typing import TYPE_CHECKING
 
 from concept_toolchain import runmodel
-from concept_toolchain.runmodel_constants import REGISTER_DIGEST_KEYS
+from concept_toolchain.runmodel_constants import RunModelConstants as Vocab
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,7 +36,7 @@ def valid_run_payload() -> dict[str, object]:
             "session_ref": "sess-1",
         },
         "participants": [],
-        "register_digests": dict.fromkeys(REGISTER_DIGEST_KEYS),
+        "register_digests": dict.fromkeys(Vocab.REGISTER_DIGEST_KEYS),
         "blocked": None,
         "recheck": None,
         "last_completed_action": "run-created",
@@ -98,7 +98,7 @@ def test_timestamp_must_be_utc_z(tmp_path: Path) -> None:
 
 
 def test_register_digest_must_be_sha256_or_null(tmp_path: Path) -> None:
-    digests = dict.fromkeys(REGISTER_DIGEST_KEYS)
+    digests = dict.fromkeys(Vocab.REGISTER_DIGEST_KEYS)
     digests["corpus_baseline"] = "not-a-digest"
     payload = valid_run_payload() | {"register_digests": digests}
     run, issues = runmodel.load_run_state(write_payload(tmp_path / "RUN.json", payload))
