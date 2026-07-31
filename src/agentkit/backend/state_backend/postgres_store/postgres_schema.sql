@@ -1130,6 +1130,8 @@
             skill_name      VARCHAR NOT NULL,
             bundle_id       VARCHAR NOT NULL,
             bundle_version  VARCHAR NOT NULL,
+            content_digest  VARCHAR NOT NULL
+                CHECK (content_digest ~ '^[0-9a-f]{64}$'),
             target_path     TEXT NOT NULL,
             binding_mode    VARCHAR NOT NULL CHECK (binding_mode IN ('SYMLINK', 'JUNCTION')),
             status          VARCHAR NOT NULL CHECK (status IN (

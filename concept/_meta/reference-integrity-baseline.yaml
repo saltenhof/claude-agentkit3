@@ -32,7 +32,7 @@ unresolved_references:
     reason: Declared generated read-only artifact; it is intentionally not source-controlled.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/03_konfigurationsmodell_schemas_versionierung.md
-    line: 494
+    line: 508
     reference: tools/qa/schemas
     reason: Installer target-project location, not a source-repository location.
   - code: UNRESOLVED_REPO_PATH
@@ -42,7 +42,7 @@ unresolved_references:
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/13_retrieval_vektordb_wissenszugriff.md
-    line: 107
+    line: 108
     reference: stories/ODIN-042/story.md
     reason: Illustrative target-project story instance, not a repository fixture.
   - code: UNRESOLVED_REPO_PATH
@@ -92,12 +92,12 @@ unresolved_references:
     reason: Runtime-created quarantine location, absent until an adversarial failure occurs.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 296
+    line: 297
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 459
+    line: 460
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
 

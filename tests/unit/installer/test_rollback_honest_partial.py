@@ -77,9 +77,7 @@ class _FakeSkills:
             raise RuntimeError(f"DB outage: delete failed for {skill_name}")
 
 
-def _config(
-    tmp_path: Path, skills: object, store: object
-) -> InstallConfig:
+def _config(tmp_path: Path, skills: object, store: object) -> InstallConfig:
     root = tmp_path / "project"
     root.mkdir(exist_ok=True)
     return InstallConfig(
@@ -246,9 +244,7 @@ def test_failing_skill_partial_state_is_reported_as_rollback_incomplete(
             self.bound: list[str] = []
             self.unbind_attempts: list[str] = []
 
-        def bind_skill(
-            self, skill_name: str, bundle_root: Path, project_root: Path
-        ) -> None:
+        def bind_skill(self, skill_name: str, bundle_root: Path, project_root: Path) -> None:
             del bundle_root, project_root
             if len(self.bound) == 1:
                 raise SkillBindingPartialStateError(
@@ -305,9 +301,7 @@ def test_failing_skill_partial_state_is_reported_as_rollback_incomplete(
     assert "rolled back all" not in str(exc_info.value).lower()
 
 
-def test_real_unbind_residual_maps_to_rollback_incomplete(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_real_unbind_residual_maps_to_rollback_incomplete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AG3-048 Codex-r6 FINDING 1 (end-to-end, REAL ``Skills``): when the REAL
     ``Skills.unbind_skill`` cannot fully remove a prior skill's binding (its
     harness symlink survives the ``unlink`` even though the repo row is deleted),
@@ -349,6 +343,7 @@ def test_real_unbind_residual_maps_to_rollback_incomplete(
             skill_name=first,
             bundle_id=f"{first}-core",
             bundle_version="4.0.0",
+            content_digest="0" * 64,
             target_path=claude_link,
             binding_mode=SkillBindingMode.SYMLINK,
             status=SkillLifecycleStatus.VERIFIED,
@@ -371,9 +366,7 @@ def test_real_unbind_residual_maps_to_rollback_incomplete(
 
     # The real unbind raised SkillBindingPartialStateError -> captured as orphan.
     assert [o["skill_name"] for o in orphaned] == [first]
-    assert "residual" in orphaned[0]["error"].lower() or "could not" in orphaned[
-        0
-    ]["error"].lower()
+    assert "residual" in orphaned[0]["error"].lower() or "could not" in orphaned[0]["error"].lower()
     # Codex-r7: the prior skill's residual is preserved STRUCTURED (list of
     # surviving link paths), not swallowed into the message string only.
     assert orphaned[0]["residual_links"] == [str(claude_link)]
@@ -390,12 +383,16 @@ def test_real_store_discovery_resolves_shipped_bundles() -> None:
     store = SkillBundleStore()  # default root == shipped bundles
     for skill_name in MANDATORY_SKILLS:
         bundle = store.get_bundle(f"{skill_name}-core")
-        assert bundle.bundle_version == "4.0.0"
+        expected_version = "4.1.0" if skill_name == "create-userstory" else "4.0.0"
+        assert bundle.bundle_version == expected_version
         assert (bundle.bundle_root / "SKILL.md").is_file()
         assert (bundle.bundle_root / "manifest.json").is_file()
         # Bundle is resolved from AK3's own packaged bundles tree, NOT from
         # the AK2 source repo (which lives under .../claude-agentkit/userstory).
-        assert bundle.bundle_root.parts[-2:] == (f"{skill_name}-core", "4.0.0")
+        assert bundle.bundle_root.parts[-2:] == (
+            f"{skill_name}-core",
+            expected_version,
+        )
         assert "bundles" in bundle.bundle_root.parts
         assert "skill_bundles" in bundle.bundle_root.parts
         assert "userstory" not in bundle.bundle_root.parts

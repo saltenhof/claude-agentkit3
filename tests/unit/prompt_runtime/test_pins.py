@@ -7,6 +7,7 @@ from hashlib import sha256
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
@@ -22,6 +23,7 @@ from agentkit.backend.prompt_runtime.resources import PROJECT_LOCK_RELPATH
 if TYPE_CHECKING:
     from pathlib import Path
 
+
 def _write_binding_lock(project_root: Path) -> None:
     bundle_dir = prompt_bundle_store_dir(
         "project-bound",
@@ -29,10 +31,7 @@ def _write_binding_lock(project_root: Path) -> None:
         store_root=project_root / "prompt-bundles",
     )
     (bundle_dir / "internal" / "prompts").mkdir(parents=True)
-    template_content = (
-        "# Project Bound Prompt {story_id}\n"
-        "[SENTINEL:worker-implementation-v1:{story_id}]\n"
-    )
+    template_content = "# Project Bound Prompt {story_id}\n[SENTINEL:worker-implementation-v1:{story_id}]\n"
     (bundle_dir / "internal" / "prompts" / "worker-implementation.md").write_text(
         template_content,
         encoding="utf-8",
@@ -288,6 +287,7 @@ def test_run_pin_carries_project_key_when_config_present(
             # Sonar here => conscious opt-out so the completing CP 10d SKIPs.
             sonarqube_available=False,
             ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+            **ready_vectordb_install_kwargs(),
         ),
     )
 

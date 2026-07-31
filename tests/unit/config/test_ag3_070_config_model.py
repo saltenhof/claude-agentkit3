@@ -222,7 +222,7 @@ class TestFeaturesConfig:
         f = Features()
         assert f.are is False
         assert f.multi_repo is False
-        assert f.vectordb is False
+        assert f.vectordb is True
         assert f.multi_llm is True  # FK-01 §1.3 P5 / FK-03 §3.1: default True
         assert f.telemetry is True
         assert f.db is False

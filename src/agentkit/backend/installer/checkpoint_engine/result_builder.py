@@ -74,7 +74,7 @@ def planned_result(
     * ``CREATED``/``UPDATED`` planned mutation -> ``reason=planned_no_mutation``,
       ``detail`` prefixed with the plan marker.
     * ``SKIPPED`` -> the SAME ``skip_reason`` as the register run would carry
-      (e.g. ``vectordb_disabled``/``not_applicable``/``reserved``), ``detail``
+      (e.g. ``are_disabled``/``not_applicable``/``reserved``), ``detail``
       prefixed with the plan marker.
     * ``PASS`` -> already satisfied; no reason needed, ``detail`` plan-marked.
 

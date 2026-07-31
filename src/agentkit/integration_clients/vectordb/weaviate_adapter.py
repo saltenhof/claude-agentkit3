@@ -1,7 +1,7 @@
 """Thin Weaviate runtime adapter for the story knowledge base (FK-13 §13.2).
 
 This is an ``integrations/`` *adapter*: it owns ONLY the transport to Weaviate
-via the optional ``weaviate-client`` dependency. It carries no business rule --
+via the mandatory ``weaviate-client`` dependency. It carries no business rule --
 the two-stage reconciliation, the threshold filter, the readiness *decision* and
 the export indexing policy live in the app layer (``story_creation`` /
 ``agentkit.backend.vectordb``). The adapter never returns a silent empty result on an
@@ -9,15 +9,18 @@ outage: every transport failure raises a typed
 :class:`~agentkit.integration_clients.vectordb.errors.VectorDbError` so the caller can
 fail closed (FK-21 §21.4.3 / §21.11.4).
 
-``weaviate-client`` is an OPTIONAL dependency (``pip install
-'agentkit[weaviate]'``). The import is guarded; when the package is absent any
-operation raises :class:`VectorDbUnavailableError` rather than crashing at import
-time, so the fail-closed path stays testable without the package installed.
+``weaviate-client`` is a MANDATORY base dependency (FK-13 §13.1, decision
+2026-07-21 Rand 1); the former ``agentkit[weaviate]`` extra no longer exists.
+The import is nevertheless guarded so a broken installation surfaces as a typed
+:class:`VectorDbUnavailableError` instead of an import-time crash, and so the
+fail-closed path stays testable without the package installed. A guarded import
+is not an optionality statement.
 """
 
 from __future__ import annotations
 
 import contextlib
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 
@@ -58,12 +61,13 @@ MAX_CONDITIONAL_DELETE_IDS: Final[int] = 100
 #: Sentinel for an ABSENT delete counter. A missing count is a fault, never a zero
 #: (N44: the whole point of R12 was to stop defaults from reporting false success).
 _MISSING_COUNT: Final[object] = object()
+_TEXT_ARRAY_TYPE: Final[str] = "TEXT[]"
 
 #: Schema data-type token -> the Weaviate wire name reported by the server.
 WEAVIATE_DATA_TYPE_NAMES: Final[dict[str, str]] = {
     "TEXT": "text",
     "BOOL": "boolean",
-    "TEXT[]": "text[]",
+    _TEXT_ARRAY_TYPE: "text[]",
     "INT": "int",
 }
 
@@ -71,7 +75,7 @@ WEAVIATE_DATA_TYPE_NAMES: Final[dict[str, str]] = {
 _EXPECTED_PROPERTY_TYPES: Final[dict[str, type]] = {
     "TEXT": str,
     "BOOL": bool,
-    "TEXT[]": list,
+    _TEXT_ARRAY_TYPE: list,
     "INT": int,
 }
 
@@ -98,8 +102,7 @@ def _require_str(raw: Mapping[str, object], key: str) -> str:
     value = raw.get(key)
     if not isinstance(value, str) or not value:
         raise VectorDbUnavailableError(
-            f"Weaviate hit is missing a non-empty string {key!r} (got {value!r}); "
-            "fail-closed (FK-21 §21.4.3 / AC10)."
+            f"Weaviate hit is missing a non-empty string {key!r} (got {value!r}); fail-closed (FK-21 §21.4.3 / AC10)."
         )
     return value
 
@@ -108,14 +111,10 @@ def _require_score(raw: Mapping[str, object]) -> float:
     """Return a mandatory, finite numeric score (no ``0.0`` repair, AC10)."""
     score = raw.get("score")
     if isinstance(score, bool) or not isinstance(score, (int, float)):
-        raise VectorDbUnavailableError(
-            f"Weaviate hit has a non-numeric 'score' ({score!r}); fail-closed (AC10)."
-        )
+        raise VectorDbUnavailableError(f"Weaviate hit has a non-numeric 'score' ({score!r}); fail-closed (AC10).")
     f = float(score)
-    if f != f or f in (float("inf"), float("-inf")):  # NaN / Infinity
-        raise VectorDbUnavailableError(
-            f"Weaviate hit has a non-finite 'score' ({f!r}); fail-closed (AC10)."
-        )
+    if not math.isfinite(f):
+        raise VectorDbUnavailableError(f"Weaviate hit has a non-finite 'score' ({f!r}); fail-closed (AC10).")
     return f
 
 
@@ -125,7 +124,7 @@ class WeaviateClientPort(Protocol):
 
     A thin seam so the fail-closed and search/sync paths stay unit-testable
     with a double at the adapter boundary (mocks exception) without requiring a
-    live Weaviate or the optional ``weaviate-client`` package.
+    live Weaviate or the ``weaviate-client`` package installed.
     """
 
     def is_ready(self) -> bool:
@@ -178,7 +177,7 @@ class WeaviateStoryAdapter:
     """Thin transport adapter to the Weaviate story knowledge base.
 
     The adapter is constructed with an explicit :class:`WeaviateClientPort`.
-    Use :meth:`connect` to build one from a host/port via the optional
+    Use :meth:`connect` to build one from a host/port via the
     ``weaviate-client`` package (fail-closed when the package is absent).
     """
 
@@ -196,20 +195,24 @@ class WeaviateStoryAdapter:
         *,
         host: str,
         port: int,
+        http_secure: bool = False,
         grpc_host: str | None = None,
         grpc_port: int = FK13_GRPC_PORT,
+        grpc_secure: bool = False,
     ) -> WeaviateStoryAdapter:
         """Build an adapter from a real ``weaviate-client`` connection.
 
         Args:
             host: Weaviate server hostname or IP (HTTP endpoint).
             port: Weaviate server HTTP port.
+            http_secure: Use TLS for the HTTP endpoint.
             grpc_host: gRPC hostname; defaults to ``host`` (single-host
                 deployment as documented in FK-13 §13.2). The MCP runtime never
                 uses this default -- it passes both endpoints explicitly from the
                 registered env (D2).
             grpc_port: gRPC port; defaults to the FK-13 §13.2 documented
                 ``50051``.
+            grpc_secure: Use TLS for the gRPC endpoint.
 
         Returns:
             A connected :class:`WeaviateStoryAdapter`.
@@ -222,10 +225,10 @@ class WeaviateStoryAdapter:
         client = _build_real_client(
             http_host=host,
             http_port=port,
-            http_secure=False,
+            http_secure=http_secure,
             grpc_host=grpc_host if grpc_host else host,
             grpc_port=grpc_port,
-            grpc_secure=False,
+            grpc_secure=grpc_secure,
         )
         return cls(client)
 
@@ -244,9 +247,7 @@ class WeaviateStoryAdapter:
         except VectorDbUnavailableError:
             raise
         except Exception as exc:  # noqa: BLE001 -- normalise any client fault
-            raise VectorDbUnavailableError(
-                f"Weaviate readiness probe failed: {exc} (fail-closed, FK-13 §13.2)."
-            ) from exc
+            raise VectorDbUnavailableError(f"Weaviate readiness probe failed: {exc} (fail-closed, FK-13 §13.2).") from exc
 
     def story_search(
         self,
@@ -276,8 +277,7 @@ class WeaviateStoryAdapter:
         """
         if search_mode not in SEARCH_MODES:
             raise VectorDbUnavailableError(
-                f"unsupported search_mode {search_mode!r}; must be one of {SEARCH_MODES} "
-                "(AC10: no leniency)."
+                f"unsupported search_mode {search_mode!r}; must be one of {SEARCH_MODES} (AC10: no leniency)."
             )
         try:
             raw_hits = self._client.search(
@@ -364,9 +364,9 @@ def _build_real_client(
 class _RealWeaviateClient:
     """Adapts the concrete ``weaviate-client`` API to :class:`WeaviateClientPort`.
 
-    Kept intentionally tiny: it only translates method shapes. All policy stays
-    in the app layer; all error normalisation stays in
-    :class:`WeaviateStoryAdapter`.
+    Kept intentionally tiny: it translates method shapes and normalises concrete
+    client transport failures to the typed port errors. All policy stays in the
+    app layer.
     """
 
     def __init__(self, connection: object) -> None:
@@ -399,14 +399,16 @@ class _RealWeaviateClient:
         for the full-property, source_type+filter-scoped retrieval (N01/R05)."""
         if search_mode not in SEARCH_MODES:
             raise VectorDbUnavailableError(
-                f"unsupported search_mode {search_mode!r}; must be one of {SEARCH_MODES} "
-                "(AC10: no leniency)."
+                f"unsupported search_mode {search_mode!r}; must be one of {SEARCH_MODES} (AC10: no leniency)."
             )
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
-        from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+        from weaviate.classes.query import Filter  # noqa: PLC0415 (guarded import; see module docstring)
 
         response = self._run_query(
-            coll, query=query, search_mode=search_mode, limit=limit,
+            coll,
+            query=query,
+            search_mode=search_mode,
+            limit=limit,
             flt=Filter.by_property("project_id").equal(project_id),
         )
         return self._coerce_response(response, search_mode)
@@ -438,9 +440,7 @@ class _RealWeaviateClient:
         actually produces (N02).
         """
         if search_mode not in SEARCH_MODES:
-            raise VectorDbUnavailableError(
-                f"unsupported search_mode {search_mode!r} (AC10)."
-            )
+            raise VectorDbUnavailableError(f"unsupported search_mode {search_mode!r} (AC10).")
         from weaviate.classes.query import Filter  # noqa: PLC0415 (transport dependency)
 
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
@@ -460,15 +460,12 @@ class _RealWeaviateClient:
                 values = [str(v) for v in value]
                 if not values:
                     raise VectorDbUnavailableError(
-                        f"filter {prop!r} is an empty set; an empty set selects "
-                        "nothing (fail-closed, D8)."
+                        f"filter {prop!r} is an empty set; an empty set selects nothing (fail-closed, D8)."
                     )
                 parts.append(
                     Filter.by_property(prop).equal(values[0])
                     if len(values) == 1
-                    else Filter.any_of(
-                        [Filter.by_property(prop).equal(v) for v in values]
-                    )
+                    else Filter.any_of([Filter.by_property(prop).equal(v) for v in values])
                 )
             else:
                 parts.append(Filter.by_property(prop).equal(str(value)))
@@ -535,9 +532,7 @@ class _RealWeaviateClient:
             return_metadata=["distance"],
         )
 
-    def _coerce_response(
-        self, response: Any, search_mode: str = DEFAULT_SEARCH_MODE
-    ) -> Sequence[Mapping[str, object]]:
+    def _coerce_response(self, response: Any, search_mode: str = DEFAULT_SEARCH_MODE) -> Sequence[Mapping[str, object]]:
         hits: list[Mapping[str, object]] = []
         for obj in response.objects:
             props = dict(obj.properties)
@@ -656,7 +651,7 @@ class _RealWeaviateClient:
           ceiling exactly is NOT an error by itself: one extra object is probed,
           and only its existence proves the set is larger than the ceiling (N25).
         """
-        coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        coll = self._collection_for_filtered_read(collection)
         out: list[tuple[str, dict[str, object]]] = []
         seen: set[str] = set()
         offset = 0
@@ -689,6 +684,18 @@ class _RealWeaviateClient:
                     )
                 return out
 
+    def _collection_for_filtered_read(self, collection: str) -> Any:
+        """Resolve a collection and normalise concrete Weaviate client failures."""
+        from weaviate.exceptions import WeaviateBaseError  # noqa: PLC0415
+
+        try:
+            return self._connection.collections.get(collection)  # type: ignore[attr-defined]
+        except WeaviateBaseError as exc:
+            raise VectorDbUnavailableError(
+                f"Weaviate collection {collection!r} is unavailable for a filtered "
+                f"read: {exc} (fail-closed, AC10)."
+            ) from exc
+
     def _fetch_page(
         self,
         coll: Any,
@@ -697,18 +704,24 @@ class _RealWeaviateClient:
         offset: int,
         limit: int,
     ) -> list[Any]:
-        """Fetch ONE page of a filtered read."""
-        page = coll.query.fetch_objects(
-            filters=flt,
-            return_properties=list(return_props),
-            limit=limit,
-            offset=offset,
-        )
+        """Fetch one page and normalise concrete Weaviate read failures."""
+        from weaviate.exceptions import WeaviateBaseError  # noqa: PLC0415
+
+        try:
+            page = coll.query.fetch_objects(
+                filters=flt,
+                return_properties=list(return_props),
+                limit=limit,
+                offset=offset,
+            )
+        except WeaviateBaseError as exc:
+            raise VectorDbUnavailableError(
+                f"Weaviate filtered read failed at offset {offset}: {exc} "
+                "(fail-closed, AC10)."
+            ) from exc
         return list(page.objects)
 
-    def insert_object(
-        self, *, collection: str, uuid: str, properties: Mapping[str, object]
-    ) -> bool:
+    def insert_object(self, *, collection: str, uuid: str, properties: Mapping[str, object]) -> bool:
         """Conditionally CREATE one object; ``False`` when the uuid already exists.
 
         This is the store-level atomic compare-and-create primitive the source
@@ -746,8 +759,7 @@ class _RealWeaviateClient:
             ) from exc
         except Exception as exc:  # noqa: BLE001 -- normalise any client fault
             raise VectorDbWriteError(
-                f"conditional insert of {uuid!r} into {collection!r} failed: {exc} "
-                "(fail-closed, N03)."
+                f"conditional insert of {uuid!r} into {collection!r} failed: {exc} (fail-closed, N03)."
             ) from exc
         return True
 
@@ -765,9 +777,7 @@ class _RealWeaviateClient:
             try:
                 confirmed = coll.data.delete_by_id(str(uid))
             except Exception as exc:  # noqa: BLE001 -- surface partial delete
-                raise VectorDbWriteError(
-                    f"delete failed for {uid!r}: {exc} (R12 partial delete)."
-                ) from exc
+                raise VectorDbWriteError(f"delete failed for {uid!r}: {exc} (R12 partial delete).") from exc
             if confirmed:
                 deleted += 1
         return deleted
@@ -835,12 +845,9 @@ class _RealWeaviateClient:
                 result = coll.data.delete_many(where=condition)
             except Exception as exc:  # noqa: BLE001 -- surface a partial delete
                 raise VectorDbWriteError(
-                    f"conditional delete failed for {len(batch)} object(s) with "
-                    f"{prop} < {limit}: {exc} (R12 partial delete)."
+                    f"conditional delete failed for {len(batch)} object(s) with {prop} < {limit}: {exc} (R12 partial delete)."
                 ) from exc
-            confirmed = _conditional_delete_counts(
-                result, prop=prop, limit=limit, requested=len(batch)
-            )
+            confirmed = _conditional_delete_counts(result, prop=prop, limit=limit, requested=len(batch))
             deleted += confirmed
         return deleted
 
@@ -896,12 +903,9 @@ class _RealWeaviateClient:
                 result = coll.data.delete_many(where=condition)
             except Exception as exc:  # noqa: BLE001 -- surface a partial delete
                 raise VectorDbWriteError(
-                    f"unstamped-row delete failed for {len(batch)} object(s) with "
-                    f"{prop} unset: {exc} (R12 partial delete)."
+                    f"unstamped-row delete failed for {len(batch)} object(s) with {prop} unset: {exc} (R12 partial delete)."
                 ) from exc
-            deleted += _conditional_delete_counts(
-                result, prop=f"{prop} IS NULL", limit=0, requested=len(batch)
-            )
+            deleted += _conditional_delete_counts(result, prop=f"{prop} IS NULL", limit=0, requested=len(batch))
         return deleted
 
     def ensure_collection(
@@ -949,7 +953,7 @@ class _RealWeaviateClient:
         type_map = {
             "TEXT": DataType.TEXT,
             "BOOL": DataType.BOOL,
-            "TEXT[]": DataType.TEXT_ARRAY,
+            _TEXT_ARRAY_TYPE: DataType.TEXT_ARRAY,
             "INT": DataType.INT,
         }
         token_map = {
@@ -978,8 +982,7 @@ class _RealWeaviateClient:
             pooling = str(model.get("poolingStrategy", "masked_mean"))
             if pooling not in ("masked_mean", "cls"):
                 raise VectorDbWriteError(
-                    f"pooling strategy {pooling!r} is not supported by the pinned "
-                    "client (masked_mean|cls); fail-closed (N30)."
+                    f"pooling strategy {pooling!r} is not supported by the pinned client (masked_mean|cls); fail-closed (N30)."
                 )
             vector_config = Configure.Vectors.text2vec_transformers(
                 pooling_strategy=pooling,  # type: ignore[arg-type]  # validated above
@@ -987,11 +990,7 @@ class _RealWeaviateClient:
                 # The embedding must be built from the SSOT-selected narrative
                 # properties, declared EXPLICITLY so a later read-back can prove it
                 # (N35) instead of relying on a server-side default.
-                source_properties=(
-                    list(vector_source_properties)
-                    if vector_source_properties is not None
-                    else None
-                ),
+                source_properties=(list(vector_source_properties) if vector_source_properties is not None else None),
             )
         else:
             vector_config = Configure.Vectors.self_provided()
@@ -1015,8 +1014,7 @@ class _RealWeaviateClient:
             config = collections.get(collection).config.get()
         except Exception as exc:  # noqa: BLE001 -- unreadable config is fail-closed
             raise VectorDbWriteError(
-                f"could not read the configuration of existing collection "
-                f"{collection!r}: {exc} (fail-closed, N12)."
+                f"could not read the configuration of existing collection {collection!r}: {exc} (fail-closed, N12)."
             ) from exc
         configured_vectorizer = _configured_vectorizer(config)
         required_vectorizer = _canonical_vectorizer(vectorizer)
@@ -1116,18 +1114,13 @@ def _configured_vectorizer(config: Any) -> str:
     elif vector_config:
         entries = list(vector_config)
     names = {
-        _canonical_vectorizer(
-            _enum_value(getattr(getattr(entry, "vectorizer", None), "vectorizer", None))
-        )
-        for entry in entries
+        _canonical_vectorizer(_enum_value(getattr(getattr(entry, "vectorizer", None), "vectorizer", None))) for entry in entries
     }
     names.discard("")
     if not names:
         return _canonical_vectorizer(_enum_value(getattr(config, "vectorizer", None)))
     if len(names) > 1:
-        raise VectorDbWriteError(
-            f"collection carries multiple vectorizers {sorted(names)}; fail-closed (N12)."
-        )
+        raise VectorDbWriteError(f"collection carries multiple vectorizers {sorted(names)}; fail-closed (N12).")
     return names.pop()
 
 
@@ -1201,9 +1194,7 @@ def configured_vectorizer_model(config: Any) -> dict[str, object]:
     if isinstance(raw_legacy, dict):
         model.update(raw_legacy)
     if legacy is not None and hasattr(legacy, "vectorize_collection_name"):
-        model.setdefault(
-            "vectorizeClassName", bool(legacy.vectorize_collection_name)
-        )
+        model.setdefault("vectorizeClassName", bool(legacy.vectorize_collection_name))
     return model
 
 
@@ -1234,9 +1225,7 @@ def _scoped_read_condition(*, project_id: str, predicate: Any | None) -> Any:
     return Filter.all_of([project_clause, predicate])
 
 
-def _scoped_delete_condition(
-    batch: Sequence[str], *, project_id: str, source_file: str, predicate: Any
-) -> Any:
+def _scoped_delete_condition(batch: Sequence[str], *, project_id: str, source_file: str, predicate: Any) -> Any:
     """Build the filter for a scoped, conditional delete (AC4/N48).
 
     EVERY delete carries project isolation, not only the ones a finding happened to
@@ -1287,25 +1276,19 @@ def _exact_count(value: Any, *, field_name: str, context: str) -> int:
     """
     if value is _MISSING_COUNT:
         raise VectorDbWriteError(
-            f"{context}: the store reported no {field_name!r} count; an unreported "
-            "count is never a zero (fail-closed, AC10/R12)."
+            f"{context}: the store reported no {field_name!r} count; an unreported count is never a zero (fail-closed, AC10/R12)."
         )
     if isinstance(value, bool) or not isinstance(value, int):
         raise VectorDbWriteError(
-            f"{context}: {field_name} is {value!r} ({type(value).__name__}), not an "
-            "integer; no coercion (fail-closed, AC10/R12)."
+            f"{context}: {field_name} is {value!r} ({type(value).__name__}), not an integer; no coercion (fail-closed, AC10/R12)."
         )
     exact: int = value
     if exact < 0:
-        raise VectorDbWriteError(
-            f"{context}: {field_name} is negative ({exact}); fail-closed (AC10/R12)."
-        )
+        raise VectorDbWriteError(f"{context}: {field_name} is negative ({exact}); fail-closed (AC10/R12).")
     return exact
 
 
-def _conditional_delete_counts(
-    result: Any, *, prop: str, limit: int, requested: int
-) -> int:
+def _conditional_delete_counts(result: Any, *, prop: str, limit: int, requested: int) -> int:
     """Validate one conditional-delete result and return the CONFIRMED count (N44).
 
     Both counters must exist as exact integers, they must be internally consistent
@@ -1328,18 +1311,14 @@ def _conditional_delete_counts(
     """
     predicate = prop if prop.endswith("IS NULL") else f"{prop} < {limit}"
     context = f"conditional delete of {requested} object(s) with {predicate}"
-    failed = _exact_count(
-        getattr(result, "failed", _MISSING_COUNT), field_name="failed", context=context
-    )
+    failed = _exact_count(getattr(result, "failed", _MISSING_COUNT), field_name="failed", context=context)
     successful = _exact_count(
         getattr(result, "successful", _MISSING_COUNT),
         field_name="successful",
         context=context,
     )
     if failed:
-        raise VectorDbWriteError(
-            f"{context}: {failed} object(s) failed; fail-closed (R12 partial delete)."
-        )
+        raise VectorDbWriteError(f"{context}: {failed} object(s) failed; fail-closed (R12 partial delete).")
     if successful > requested or successful + failed > requested:
         raise VectorDbWriteError(
             f"{context}: the store reported {successful} deleted and {failed} failed "
@@ -1420,17 +1399,12 @@ def _validated_hit_properties(
     for name, data_type, non_empty in property_spec:
         if name not in props:
             raise VectorDbUnavailableError(
-                f"Weaviate hit {uid!r} is missing the required property {name!r} "
-                "(no repair default; fail-closed, AC10/N11)."
+                f"Weaviate hit {uid!r} is missing the required property {name!r} (no repair default; fail-closed, AC10/N11)."
             )
         value = props[name]
         expected = _EXPECTED_PROPERTY_TYPES[data_type]
         # bool is a subclass of int: never let a boolean satisfy another type.
-        valid = (
-            isinstance(value, bool)
-            if expected is bool
-            else isinstance(value, expected) and not isinstance(value, bool)
-        )
+        valid = isinstance(value, bool) if expected is bool else isinstance(value, expected) and not isinstance(value, bool)
         if not valid:
             raise VectorDbUnavailableError(
                 f"Weaviate hit {uid!r} property {name!r} is "
@@ -1439,8 +1413,7 @@ def _validated_hit_properties(
             )
         if non_empty and not value:
             raise VectorDbUnavailableError(
-                f"Weaviate hit {uid!r} property {name!r} is empty but mandatory "
-                "(fail-closed, AC10/N11)."
+                f"Weaviate hit {uid!r} property {name!r} is empty but mandatory (fail-closed, AC10/N11)."
             )
     return props
 
@@ -1465,27 +1438,21 @@ def _ranking_metric(obj: Any, search_mode: str) -> float:
                 "vector search ranks by distance, not score (fail-closed, AC10/N02)."
             )
         value = float(distance)
-        if value != value or value in (float("inf"), float("-inf")):
-            raise VectorDbUnavailableError(
-                "near_text hit has a non-finite 'distance'; fail-closed (AC10)."
-            )
+        if not math.isfinite(value):
+            raise VectorDbUnavailableError("near_text hit has a non-finite 'distance'; fail-closed (AC10).")
         return 1.0 / (1.0 + max(0.0, value))
     score = getattr(meta, "score", None) if meta is not None else None
     if score is None or isinstance(score, bool) or not isinstance(score, (int, float)):
-        raise VectorDbUnavailableError(
-            f"Weaviate hit has no numeric 'score' (got {score!r}); fail-closed (AC10)."
-        )
+        raise VectorDbUnavailableError(f"Weaviate hit has no numeric 'score' (got {score!r}); fail-closed (AC10).")
     value = float(score)
-    if value != value or value in (float("inf"), float("-inf")):
-        raise VectorDbUnavailableError(
-            "Weaviate hit has a non-finite 'score'; fail-closed (AC10)."
-        )
+    if not math.isfinite(value):
+        raise VectorDbUnavailableError("Weaviate hit has a non-finite 'score'; fail-closed (AC10).")
     return value
 
 
 def _project_filter(project_id: str) -> object:
     """Build a project-scope filter for the Weaviate query (kept for callers)."""
-    from weaviate.classes.query import Filter  # noqa: PLC0415 (optional dependency)
+    from weaviate.classes.query import Filter  # noqa: PLC0415 (guarded import; see module docstring)
 
     return Filter.by_property("project_id").equal(project_id)
 

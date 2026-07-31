@@ -34,6 +34,7 @@ LAYER_DOMAIN = "domain"
 LAYER_FORMAL = "formal"
 LAYER_TECHNICAL = "technical"
 
+
 class ConceptDiscoveryError(RuntimeError):
     """A concept document failed discovery/parse -- nothing is ingested (R06)."""
 
@@ -176,7 +177,12 @@ def discover_chunks(concept_root: Path, max_chars: int = 0) -> list[ConceptChunk
     return discover(concept_root).chunks
 
 
-def discover(concept_root: Path, max_chars: int = 0) -> DiscoveryResult:
+def discover(
+    concept_root: Path,
+    max_chars: int = 0,
+    *,
+    included_docs: frozenset[str] | None = None,
+) -> DiscoveryResult:
     """Discover chunks + glossary by delegating to the SSOT core (R06).
 
     The file walk, strict frontmatter parse, bound-tokenizer chunking and
@@ -191,7 +197,7 @@ def discover(concept_root: Path, max_chars: int = 0) -> DiscoveryResult:
         raise FileNotFoundError(f"concept root does not exist: {concept_root}")
     repo_root = concept_root.parent
     projection = _load_domain_projection(repo_root)
-    ssot = discover_concept_files(concept_root)
+    ssot = discover_concept_files(concept_root, included_docs=included_docs)
     # R06: FAIL CLOSED on ANY discovery/parse error. Ingesting the successfully
     # parsed SUBSET would publish a silently incomplete corpus -- the same
     # fail-closed rule the MCP concept_sync applies via concept_validate.
@@ -237,9 +243,7 @@ def _bc_for(doc: Any, projection: _DomainProjection) -> tuple[str, str, str]:
     return ("", False, "")
 
 
-def _project_chunk(
-    ssot_chunk: Any, doc: Any, domain: str, surface: str, display: str, mtime: str
-) -> ConceptChunk:
+def _project_chunk(ssot_chunk: Any, doc: Any, domain: str, surface: str, display: str, mtime: str) -> ConceptChunk:
     """Project ONE SSOT chunk (+ BC profile) into the ingester ConceptChunk shape.
 
     Uses the SSOT chunk's ``content_hash`` and ``chunk_id`` verbatim (R06: no
@@ -320,17 +324,15 @@ def _chunk_metadata(doc: Any, ssot_chunk: Any) -> dict[str, Any]:
         "section_number": ssot_chunk.section_number,
         "concept_status": doc.effective_status,
         "parent_concept_id": doc.parent_concept_id,
-        "authority_over_full": _json_dump(
-            [{"scope": scope} for scope in doc.authority_scopes]
-        ),
+        "authority_over_full": _json_dump([{"scope": scope} for scope in doc.authority_scopes]),
         "defers_to_full": _json_dump(
-            [
-                {"target": target, "scope": scope, "reason": reason}
-                for target, scope, reason in doc.defers_to_full
-            ]
+            [{"target": target, "scope": scope, "reason": reason} for target, scope, reason in doc.defers_to_full]
         ),
         "supersedes_full": _json_dump(
-            [{"target": target, "scope": "", "reason": ""} for target in doc.supersedes]
+            [
+                {"target": target, "scope": scope, "reason": reason}
+                for target, scope, reason in doc.supersedes_full
+            ]
         ),
     }
 
@@ -414,7 +416,8 @@ def _build_glossary_term(
     reason = _string(entry.get("reason"))
     payload = json.dumps(
         {"term": raw_id, "definition": definition, "kind": kind, "source": doc.concept_id},
-        sort_keys=True, ensure_ascii=False,
+        sort_keys=True,
+        ensure_ascii=False,
     )
     return GlossaryTerm(
         term_uuid=str(uuid.uuid5(_GLOSSARY_NAMESPACE, f"{doc.concept_id}#{domain}#{kind}#{term_id}")),

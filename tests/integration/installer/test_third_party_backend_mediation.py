@@ -15,6 +15,7 @@ import pytest
 import yaml
 from tests.fixtures.git_repo import ensure_git_repo
 from tests.fixtures.third_party_preflight import FakeThirdPartyClientFactory
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.tokens import issue_project_api_token
@@ -82,9 +83,7 @@ class _TokenRepository:
         return self.rows.get(token_id)
 
     def get_by_hash(self, token_hash: str) -> ProjectApiToken | None:
-        return next(
-            (row for row in self.rows.values() if row.token_hash == token_hash), None
-        )
+        return next((row for row in self.rows.values() if row.token_hash == token_hash), None)
 
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [row for row in self.rows.values() if row.project_key == project_key]
@@ -130,9 +129,7 @@ def mediated_control_plane(
     monkeypatch.setenv("SONAR_BACKEND_TOKEN", "backend-sonar-token")
     monkeypatch.setenv("JENKINS_BACKEND_TOKEN", "backend-jenkins-token")
     tokens = _TokenRepository()
-    issued = issue_project_api_token(
-        project_key="tenant-a", label="ag3-132", repository=tokens
-    )
+    issued = issue_project_api_token(project_key="tenant-a", label="ag3-132", repository=tokens)
     guard = StateBackendInflightIdempotencyGuard()
     clients = FakeThirdPartyClientFactory()
     executor = BoundedThreadExecutor(max_workers=1, max_queued=1)
@@ -143,9 +140,7 @@ def mediated_control_plane(
         operation_loader=load_control_plane_operation_global,
         executor=executor,
     )
-    routes = ControlPlaneApplicationRoutes(
-        third_party_validation_routes=ThirdPartyValidationRoutes(service)
-    )
+    routes = ControlPlaneApplicationRoutes(third_party_validation_routes=ThirdPartyValidationRoutes(service))
     app = ControlPlaneApplication(
         routes=routes,
         auth_middleware=AuthMiddleware(token_repository=tokens),
@@ -175,9 +170,7 @@ def _project_edge(root: Path, base_url: str, token: str) -> ProjectEdgeClient:
     )
 
 
-def _install_config(
-    root: Path, store: SkillBundleStore, client: ProjectEdgeClient, base_url: str
-) -> InstallConfig:
+def _install_config(root: Path, store: SkillBundleStore, client: ProjectEdgeClient, base_url: str) -> InstallConfig:
     skills = Skills(
         bundle_store=store,
         binding_repo=StateBackendSkillBindingRepository(root),
@@ -195,6 +188,7 @@ def _install_config(
         control_plane_base_url=base_url,
         sonarqube_token_env="SONAR_BACKEND_TOKEN",
         ci_token_env="JENKINS_BACKEND_TOKEN",
+        **ready_vectordb_install_kwargs(),
     )
 
 
@@ -209,12 +203,8 @@ def test_register_project_reaches_real_route_and_backend_preflight(
     def _forbidden(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("the installer engine constructed a dev-side client")
 
-    monkeypatch.setattr(
-        "agentkit.integration_clients.sonar.SonarClient.__init__", _forbidden
-    )
-    monkeypatch.setattr(
-        "agentkit.integration_clients.jenkins.JenkinsClient.__init__", _forbidden
-    )
+    monkeypatch.setattr("agentkit.integration_clients.sonar.SonarClient.__init__", _forbidden)
+    monkeypatch.setattr("agentkit.integration_clients.jenkins.JenkinsClient.__init__", _forbidden)
     base_url, token, clients = mediated_control_plane
     root = tmp_path / "tenant-a"
     root.mkdir()
@@ -226,18 +216,12 @@ def test_register_project_reaches_real_route_and_backend_preflight(
     result = install_agentkit(config)
 
     assert result.success is True
-    cp10d = next(
-        item
-        for item in result.checkpoint_results or ()
-        if item.checkpoint == CP_10D_SONARQUBE
-    )
+    cp10d = next(item for item in result.checkpoint_results or () if item.checkpoint == CP_10D_SONARQUBE)
     assert cp10d.status is CheckpointStatus.PASS
     assert clients.sonar_constructions == 1
     assert clients.jenkins_constructions == 1
     assert clients.jenkins_client.triggered == []
-    yaml_data = yaml.safe_load(
-        (root / ".agentkit" / "config" / "project.yaml").read_text(encoding="utf-8")
-    )
+    yaml_data = yaml.safe_load((root / ".agentkit" / "config" / "project.yaml").read_text(encoding="utf-8"))
     request = _third_party_validation_request(config, yaml_data)
     record = load_control_plane_operation_global(request.op_id)
     assert record is None, "read-only validation must release its in-flight claim"
@@ -261,11 +245,7 @@ def test_verify_reprobes_when_external_state_flips_from_pass_to_unreachable(
     clients.sonar_client.reachable = False
     verified = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)
 
-    cp10d = next(
-        item
-        for item in verified.checkpoint_results or ()
-        if item.checkpoint == CP_10D_SONARQUBE
-    )
+    cp10d = next(item for item in verified.checkpoint_results or () if item.checkpoint == CP_10D_SONARQUBE)
     assert verified.success is False
     assert cp10d.status is CheckpointStatus.FAILED
     assert "sonar_unreachable" in (cp10d.detail or "")
@@ -348,9 +328,7 @@ def test_system_unreachable_verdict_passes_through_real_route_fail_closed(
 
     with pytest.raises(InstallationError, match="sonar_unreachable"):
         install_agentkit(config)
-    yaml_data = yaml.safe_load(
-        (root / ".agentkit" / "config" / "project.yaml").read_text(encoding="utf-8")
-    )
+    yaml_data = yaml.safe_load((root / ".agentkit" / "config" / "project.yaml").read_text(encoding="utf-8"))
     request = _third_party_validation_request(config, yaml_data)
     record = load_control_plane_operation_global(request.op_id)
     assert record is None, "failed read-only validation must also release its claim"
@@ -378,9 +356,7 @@ def _self_test_request() -> BranchPluginSelfTestRequest:
     )
 
 
-def _raw_start(
-    base_url: str, token: str, request: BranchPluginSelfTestRequest
-) -> tuple[int, dict[str, object]]:
+def _raw_start(base_url: str, token: str, request: BranchPluginSelfTestRequest) -> tuple[int, dict[str, object]]:
     body = json.dumps(request.model_dump(mode="json")).encode()
     http_request = urllib.request.Request(
         f"{base_url}/v1/projects/tenant-a/installation/branch-plugin-self-test",
@@ -416,12 +392,8 @@ def test_heavy_self_test_is_202_pollable_idempotent_and_persisted(
     request = _self_test_request()
 
     status, accepted = _raw_start(base_url, token, request)
-    terminal = edge.poll_branch_plugin_self_test(
-        request.op_id, timeout_seconds=5, poll_interval_seconds=0.01
-    )
-    replay = edge.start_branch_plugin_self_test(
-        project_key="tenant-a", request=request
-    )
+    terminal = edge.poll_branch_plugin_self_test(request.op_id, timeout_seconds=5, poll_interval_seconds=0.01)
+    replay = edge.start_branch_plugin_self_test(project_key="tenant-a", request=request)
 
     assert status == HTTPStatus.ACCEPTED
     assert accepted["op_id"] == request.op_id

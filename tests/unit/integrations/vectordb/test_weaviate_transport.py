@@ -17,6 +17,8 @@ from __future__ import annotations
 import inspect
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import httpx
@@ -36,8 +38,10 @@ from weaviate.collections.queries.bm25.query import _BM25Query
 from weaviate.collections.queries.hybrid.query import _HybridQuery
 from weaviate.collections.queries.near_text.query import _NearTextQuery
 
+from agentkit.backend.vectordb.commit_recovery import FileCommitRecoveryJournal
 from agentkit.backend.vectordb.engine import (
     RECEIPT_COLLECTION,
+    RUN_RECEIPT_COLLECTION,
     WeaviateCorpusStore,
     WeaviateRetrievalPort,
     connect_real_client,
@@ -58,6 +62,15 @@ from agentkit.integration_clients.vectordb.weaviate_adapter import (
     configured_vector_source_properties,
     configured_vectorizer_model,
 )
+
+_RECOVERY_DIRECTORY = TemporaryDirectory(prefix="agentkit-transport-recovery-")
+
+
+def _recovery_journal() -> FileCommitRecoveryJournal:
+    return FileCommitRecoveryJournal(
+        Path(_RECOVERY_DIRECTORY.name) / "pending-commits"
+    )
+
 
 _ENV = {
     "PROJECT_ID": "acme",
@@ -237,7 +250,10 @@ def _client(collection: _FakeCollection, *, existing: set[str] | None = None) ->
 
 
 def _retrieval(client: _RealWeaviateClient) -> WeaviateRetrievalPort:
-    store = WeaviateCorpusStore(client=client)  # type: ignore[arg-type]
+    store = WeaviateCorpusStore(  # type: ignore[arg-type]
+        client=client,
+        recovery_journal=_recovery_journal(),
+    )
     return WeaviateRetrievalPort(client=client, store=store, binding=_binding())  # type: ignore[arg-type]
 
 
@@ -1068,6 +1084,50 @@ def _paging_client(query: _PagingQuery) -> _RealWeaviateClient:
     return _RealWeaviateClient(_FakeConnection(_FakeCollections(collection=collection)))
 
 
+class _QueryErrorQuery:
+    def fetch_objects(self, **_kwargs: object) -> object:
+        from weaviate.exceptions import WeaviateQueryError
+
+        raise WeaviateQueryError("simulated query outage", "gRPC")
+
+
+class _CollectionErrorCollections:
+    def get(self, _name: str) -> object:
+        from weaviate.exceptions import WeaviateConnectionError
+
+        raise WeaviateConnectionError("simulated collection outage")
+
+
+@dataclass
+class _CollectionErrorConnection:
+    collections: _CollectionErrorCollections = field(
+        default_factory=_CollectionErrorCollections
+    )
+
+
+def test_real_filtered_read_normalizes_query_and_collection_transport_errors() -> None:
+    """Both concrete Weaviate read calls satisfy the typed unavailable contract."""
+    query_client = _paging_client(_QueryErrorQuery())  # type: ignore[arg-type]
+    with pytest.raises(VectorDbUnavailableError, match="filtered read failed"):
+        query_client.fetch_by_property(
+            collection=RUN_RECEIPT_COLLECTION,
+            project_id="acme",
+            prop="run_id",
+            value="run-1",
+            return_props=("run_id",),
+        )
+
+    collection_client = _RealWeaviateClient(_CollectionErrorConnection())
+    with pytest.raises(VectorDbUnavailableError, match="collection.*unavailable"):
+        collection_client.fetch_by_property(
+            collection=RUN_RECEIPT_COLLECTION,
+            project_id="acme",
+            prop="run_id",
+            value="run-1",
+            return_props=("run_id",),
+        )
+
+
 def test_pagination_reads_every_page_of_a_large_result_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1861,9 +1921,17 @@ def _ag177_port(server: _UnstableOrderServer) -> WeaviateRetrievalPort:
     )
     collections = _FakeCollections(collection=corpus)
     client = _RealWeaviateClient(_FakeConnection(collections))
-    store = WeaviateCorpusStore(client=client)  # type: ignore[arg-type]
+    store = WeaviateCorpusStore(  # type: ignore[arg-type]
+        client=client,
+        recovery_journal=_recovery_journal(),
+    )
     collections.by_name[STORY_CONTEXT_COLLECTION] = corpus
     collections.by_name[RECEIPT_COLLECTION] = _ag177_receipt_collection(store, generation=2)
+    collections.by_name[RUN_RECEIPT_COLLECTION] = _FakeCollection(
+        query=_FilterAwarePaging(rows=[]),  # type: ignore[arg-type]
+        data=_FakeData(),
+        config=_FakeConfig(_ConfigView(properties=[])),
+    )
     return WeaviateRetrievalPort(client=client, store=store, binding=_binding())  # type: ignore[arg-type]
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
+from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_RESERVED,
@@ -102,19 +103,11 @@ def cp02_repo_check(context: CheckpointContext) -> CheckpointResult:
     raw_owner = context.config.github_owner
     raw_repo = context.config.github_repo
     # Missing iff absent or whitespace-only (a "   " flag carries no identity).
-    if (
-        raw_owner is None
-        or raw_repo is None
-        or not raw_owner.strip()
-        or not raw_repo.strip()
-    ):
+    if raw_owner is None or raw_repo is None or not raw_owner.strip() or not raw_repo.strip():
         return make_result(
             nid.CP_02_REPO_CHECK,
             status=CheckpointStatus.FAILED,
-            detail=(
-                "Missing github_owner/github_repo; CP 2 cannot verify the repo "
-                "(FK-50 §50.3 CP 2)."
-            ),
+            detail=("Missing github_owner/github_repo; CP 2 cannot verify the repo (FK-50 §50.3 CP 2)."),
             reason=REASON_MISSING_COORDINATES,
             start=start,
         )
@@ -137,10 +130,7 @@ def cp02_repo_check(context: CheckpointContext) -> CheckpointResult:
         return make_result(
             nid.CP_02_REPO_CHECK,
             status=CheckpointStatus.PASS,
-            detail=(
-                f"Coordinate {owner}/{repo} is well-formed (no live gh probe "
-                "injected; format-only check)."
-            ),
+            detail=(f"Coordinate {owner}/{repo} is well-formed (no live gh probe injected; format-only check)."),
             start=start,
         )
     outcome = probe(owner, repo)
@@ -200,59 +190,106 @@ def cp05_pipeline_config(context: CheckpointContext) -> CheckpointResult:
     (digest) and CP 10c (ARE-scope map). Dry-run/verify never write; they still
     publish the would-be mapping so downstream read-only checkpoints can verify.
     """
+    from agentkit.backend.installer.config_boundary import (
+        verify_config_before_first_effect,
+    )
     from agentkit.backend.installer.paths import project_config_path
     from agentkit.backend.installer.runner import (
-        _build_project_yaml,
         _write_yaml_if_changed,
         scaffold_project_structure,
     )
 
     start = time.monotonic()
-    yaml_data = _build_project_yaml(context.config)
-    context.run_state.project_yaml = yaml_data
+    yaml_data = context.run_state.project_yaml
+    if yaml_data is None or context.run_state.project_config is None:
+        raise ProjectError(
+            "CP 5 has no strictly validated candidate configuration",
+            detail={"reason": "configuration_invalid"},
+        )
     yaml_path = project_config_path(context.project_root)
     rel = str(yaml_path.relative_to(context.project_root))
     exists = yaml_path.is_file()
 
     if not context.mode.mutations_allowed:
-        if not exists:
-            planned = CheckpointStatus.CREATED
-            detail = f"Would create {rel}."
-        else:
-            planned = CheckpointStatus.PASS
-            detail = f"{rel} already present; would leave unchanged (idempotent)."
-        if is_dry_run(context.mode):
-            return planned_result(
-                nid.CP_05_PIPELINE_CONFIG,
-                planned_status=planned,
-                detail=detail,
-                start=start,
-            )
-        return make_result(
-            nid.CP_05_PIPELINE_CONFIG,
-            status=planned,
-            detail=detail,
-            start=start,
+        return _cp05_read_only_result(context, exists=exists, rel=rel, start=start)
+
+    before = context.run_state.config_before_image
+    if before is None:
+        raise ProjectError(
+            "CP 5 has no configuration before-image",
+            detail={"reason": "configuration_invalid"},
         )
+    verify_config_before_first_effect(
+        before,
+        context.run_state.project_config,
+    )
 
     # CP 5 materialises the NEUTRAL project scaffold (dirs + runtime working
     # dirs) and then the project.yaml. The active harness bindings are deferred
     # to CP 8 (strictly after CP 7), preserving the
     # ``state_backend_registration_precedes_bundle_binding`` invariant.
-    for scaffold_rel in scaffold_project_structure(context.config, context.project_root):
-        if scaffold_rel not in context.run_state.created_files:
-            context.run_state.created_files.append(scaffold_rel)
+    _materialize_required_corpus_dirs(context)
+    _record_new_scaffold_paths(
+        context,
+        scaffold_project_structure(context.config, context.project_root),
+    )
 
-    if _write_yaml_if_changed(yaml_path, yaml_data):
+    if before.existed:
+        status = CheckpointStatus.PASS
+        detail = f"{rel} is byte-identical to the strictly validated input."
+    elif _write_yaml_if_changed(yaml_path, yaml_data):
         context.run_state.created_files.append(rel)
         status = CheckpointStatus.CREATED if not exists else CheckpointStatus.UPDATED
         detail = f"{'Created' if not exists else 'Updated'} {rel}."
     else:
         status = CheckpointStatus.PASS
         detail = f"{rel} already current; no write (idempotent)."
-    return make_result(
-        nid.CP_05_PIPELINE_CONFIG, status=status, detail=detail, start=start
+    return make_result(nid.CP_05_PIPELINE_CONFIG, status=status, detail=detail, start=start)
+
+
+def _cp05_read_only_result(
+    context: CheckpointContext,
+    *,
+    exists: bool,
+    rel: str,
+    start: float,
+) -> CheckpointResult:
+    planned = CheckpointStatus.PASS if exists else CheckpointStatus.CREATED
+    detail = (
+        f"{rel} already present; would leave unchanged (idempotent)."
+        if exists
+        else f"Would create {rel}."
     )
+    if is_dry_run(context.mode):
+        return planned_result(
+            nid.CP_05_PIPELINE_CONFIG,
+            planned_status=planned,
+            detail=detail,
+            start=start,
+        )
+    return make_result(
+        nid.CP_05_PIPELINE_CONFIG,
+        status=planned,
+        detail=detail,
+        start=start,
+    )
+
+
+def _materialize_required_corpus_dirs(context: CheckpointContext) -> None:
+    project_config = context.run_state.project_config
+    assert project_config is not None
+    for required_rel in (project_config.concepts_dir, project_config.wiki_stories_dir):
+        required_dir = context.project_root / required_rel
+        if required_dir.is_dir():
+            continue
+        required_dir.mkdir(parents=True)
+        context.run_state.created_files.append(str(required_rel))
+
+
+def _record_new_scaffold_paths(context: CheckpointContext, scaffold_paths: list[str]) -> None:
+    for scaffold_rel in scaffold_paths:
+        if scaffold_rel not in context.run_state.created_files:
+            context.run_state.created_files.append(scaffold_rel)
 
 
 def cp06_profile_resolution(context: CheckpointContext) -> CheckpointResult:

@@ -13,7 +13,19 @@ if TYPE_CHECKING:
 
 
 def _manifest_paths() -> list[Path]:
-    return sorted(shipped_skill_bundles_root().glob("*/4.0.0/manifest.json"))
+    latest: dict[str, Path] = {}
+    for path in shipped_skill_bundles_root().glob("*/*/manifest.json"):
+        bundle_id = path.parents[1].name
+        current = latest.get(bundle_id)
+        if current is None or _version_key(path.parent.name) > _version_key(current.parent.name):
+            latest[bundle_id] = path
+    return sorted(latest.values())
+
+
+def _version_key(raw: str) -> tuple[int, int, int]:
+    parts = raw.split(".")
+    assert len(parts) == 3 and all(part.isdecimal() for part in parts)
+    return (int(parts[0]), int(parts[1]), int(parts[2]))
 
 
 def _read_manifest(path: Path) -> dict[str, object]:
@@ -50,9 +62,7 @@ def test_skill_catalog_complete_by_skill_name_and_profile_bundle() -> None:
     by_bundle_id = {str(manifest["bundle_id"]): manifest for manifest in manifests}
     by_skill_name: dict[str, set[str]] = {}
     for manifest in manifests:
-        by_skill_name.setdefault(str(manifest["skill_name"]), set()).add(
-            str(manifest["bundle_id"])
-        )
+        by_skill_name.setdefault(str(manifest["skill_name"]), set()).add(str(manifest["bundle_id"]))
 
     assert by_skill_name["create-userstory"] == {
         "create-userstory-core",
@@ -78,12 +88,7 @@ def test_skill_catalog_complete_by_skill_name_and_profile_bundle() -> None:
 
 
 def test_execute_userstory_core_documents_fk43_eight_steps() -> None:
-    skill_md = (
-        shipped_skill_bundles_root()
-        / "execute-userstory-core"
-        / "4.0.0"
-        / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    skill_md = (shipped_skill_bundles_root() / "execute-userstory-core" / "4.0.0" / "SKILL.md").read_text(encoding="utf-8")
 
     expected_steps = [
         "1. Liest freigegebene Story aus dem AK3-Story-Backend.",
@@ -104,12 +109,7 @@ def test_execute_userstory_core_documents_fk43_eight_steps() -> None:
 
 
 def test_semantic_review_core_documents_dimensions_scores_reasons_and_artifact() -> None:
-    skill_md = (
-        shipped_skill_bundles_root()
-        / "semantic-review-core"
-        / "4.0.0"
-        / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    skill_md = (shipped_skill_bundles_root() / "semantic-review-core" / "4.0.0" / "SKILL.md").read_text(encoding="utf-8")
 
     for dimension in [
         "Naming",

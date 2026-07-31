@@ -40,13 +40,9 @@ class _InMemoryRegistrationRepo:
         reg = self.rows[project_key]
         self.rows[project_key] = reg.model_copy(update={"last_verified_at": verified_at})
 
-    def update_upgraded(
-        self, project_key: str, upgraded_at: datetime, new_digest: str
-    ) -> None:
+    def update_upgraded(self, project_key: str, upgraded_at: datetime, new_digest: str) -> None:
         reg = self.rows[project_key]
-        self.rows[project_key] = reg.model_copy(
-            update={"last_upgraded_at": upgraded_at, "config_digest": new_digest}
-        )
+        self.rows[project_key] = reg.model_copy(update={"last_upgraded_at": upgraded_at, "config_digest": new_digest})
 
     def list_all(self) -> list[ProjectRegistration]:
         return [self.rows[k] for k in sorted(self.rows)]
@@ -92,6 +88,14 @@ def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleSto
     reason="Filesystem supports neither symlinks nor directory junctions",
 )
 def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
+    from tests.fixtures.vectordb_installer import (
+        GRPC_ENDPOINT,
+        HTTP_ENDPOINT,
+        ReadyVectorDbPreflight,
+        passing_mcp_probe,
+    )
+    from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
+
     project_root = tmp_path / "project"
     # CP 11 configures core.hooksPath; real targets are git repos (see helper).
     ensure_git_repo(project_root)
@@ -112,6 +116,11 @@ def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
         # AG3-056 (FIX-5): no live Jenkins here => conscious opt-out so the CI
         # preflight SKIPS.
         ci_available=False,
+        vectordb_http_endpoint=HTTP_ENDPOINT,
+        vectordb_grpc_endpoint=GRPC_ENDPOINT,
+        vectordb_preflight=ReadyVectorDbPreflight(),
+        vectordb_client=RecordingWeaviateClient(),
+        mcp_registration_probe=passing_mcp_probe,
     )
     result = install_agentkit(config)
 

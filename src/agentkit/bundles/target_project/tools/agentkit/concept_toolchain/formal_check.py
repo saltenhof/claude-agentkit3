@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 CHECK_ID = "formal"
 SPEC_BEGIN = "<!-- FORMAL-SPEC:BEGIN -->"
 SPEC_END = "<!-- FORMAL-SPEC:END -->"
+YAML_FENCE = "```yaml"
 OBJECT_KINDS = ("state-machine", "command-set", "event-set", "invariant-set", "scenario-set", "entity-set")
 
 
@@ -91,11 +92,11 @@ def extract_spec_zone(text: str) -> SpecZone | None:
     if end < begin:
         return None
     block = text[begin:end].strip()
-    if not block.startswith("```yaml") or not block.endswith("```"):
+    if not block.startswith(YAML_FENCE) or not block.endswith("```"):
         return None
-    payload = block.removeprefix("```yaml").removesuffix("```").strip("\n")
+    payload = block.removeprefix(YAML_FENCE).removesuffix("```").strip("\n")
     prefix = text[: text.index(SPEC_BEGIN)]
-    fence_offset = text[begin:end].index("```yaml")
+    fence_offset = text[begin:end].index(YAML_FENCE)
     payload_start_line = prefix.count("\n") + text[begin : begin + fence_offset].count("\n") + 3
     return SpecZone(payload=payload, payload_start_line=payload_start_line)
 
@@ -149,25 +150,18 @@ def _load_spec(project_root: Path, path: Path, config: GovernanceConfig, result:
 def _validate_frontmatter(
     rel_path: str, frontmatter: dict[str, object], config: GovernanceConfig, result: CheckResult
 ) -> tuple[str, str, str, tuple[str, ...]] | None:
-    ok = True
-    for field_name in ("id", "context", "spec_kind", "version", "prose_refs"):
-        if field_name not in frontmatter:
-            result.findings.append(
-                error(f"{CHECK_ID}.frontmatter", rel_path, field_name, f"required frontmatter field {field_name!r} is missing")
-            )
-            ok = False
-    if not ok:
+    if not _frontmatter_has_required_fields(rel_path, frontmatter, result):
         return None
     object_id = frontmatter.get("id")
     context = frontmatter.get("context")
     spec_kind = frontmatter.get("spec_kind")
     version = frontmatter.get("version")
     prose_refs = frontmatter.get("prose_refs")
-    for field_name, value in (("id", object_id), ("context", context), ("spec_kind", spec_kind)):
-        if not isinstance(value, str) or not value:
-            message = f"{field_name!r} must be a non-empty string"
-            result.findings.append(error(f"{CHECK_ID}.frontmatter", rel_path, field_name, message))
-            ok = False
+    ok = _validate_frontmatter_strings(
+        rel_path,
+        (("id", object_id), ("context", context), ("spec_kind", spec_kind)),
+        result,
+    )
     if not isinstance(version, (str, int)) or version == "":
         message = "'version' must be a non-empty string or integer"
         result.findings.append(error(f"{CHECK_ID}.frontmatter", rel_path, "version", message))
@@ -186,6 +180,44 @@ def _validate_frontmatter(
             error(f"{CHECK_ID}.frontmatter", rel_path, "id", f"id {object_id!r} does not match the formal_object grammar")
         )
     return object_id, context, spec_kind, tuple(ref for ref in prose_refs if isinstance(ref, str))
+
+
+def _frontmatter_has_required_fields(
+    rel_path: str,
+    frontmatter: dict[str, object],
+    result: CheckResult,
+) -> bool:
+    ok = True
+    for field_name in ("id", "context", "spec_kind", "version", "prose_refs"):
+        if field_name in frontmatter:
+            continue
+        result.findings.append(
+            error(
+                f"{CHECK_ID}.frontmatter",
+                rel_path,
+                field_name,
+                f"required frontmatter field {field_name!r} is missing",
+            )
+        )
+        ok = False
+    return ok
+
+
+def _validate_frontmatter_strings(
+    rel_path: str,
+    fields: tuple[tuple[str, object], ...],
+    result: CheckResult,
+) -> bool:
+    ok = True
+    for field_name, value in fields:
+        if isinstance(value, str) and value:
+            continue
+        message = f"{field_name!r} must be a non-empty string"
+        result.findings.append(
+            error(f"{CHECK_ID}.frontmatter", rel_path, field_name, message)
+        )
+        ok = False
+    return ok
 
 
 def _parse_zone(rel_path: str, text: str, result: CheckResult) -> dict[str, object] | None:
@@ -452,22 +484,39 @@ def _register_scenarios(spec: _SpecDoc, pending: list[_PendingRef], result: Chec
         scenario_id = item["id"]
         assert isinstance(scenario_id, str)
         _register_scenario_states(spec, item, scenario_id, pending, result)
-        trace = item.get("trace")
-        if not isinstance(trace, list) or not trace:
-            message = "scenario requires a non-empty trace list"
-            result.findings.append(error(f"{CHECK_ID}.scenario", spec.rel_path, scenario_id, message))
-        else:
-            for step in trace:
-                command = step.get("command") if isinstance(step, dict) else None
-                if not isinstance(command, str) or not command:
-                    result.findings.append(
-                        error(f"{CHECK_ID}.scenario", spec.rel_path, scenario_id, "every trace step requires a non-empty command")
-                    )
-                    continue
-                pending.append(_PendingRef(spec, scenario_id, "command", command))
+        _register_scenario_trace(spec, item, scenario_id, pending, result)
         pending.extend(
             _PendingRef(spec, scenario_id, "invariant", reference) for reference in _string_list(spec, item, "requires", result)
         )
+
+
+def _register_scenario_trace(
+    spec: _SpecDoc,
+    item: dict[str, object],
+    scenario_id: str,
+    pending: list[_PendingRef],
+    result: CheckResult,
+) -> None:
+    trace = item.get("trace")
+    if not isinstance(trace, list) or not trace:
+        message = "scenario requires a non-empty trace list"
+        result.findings.append(
+            error(f"{CHECK_ID}.scenario", spec.rel_path, scenario_id, message)
+        )
+        return
+    for step in trace:
+        command = step.get("command") if isinstance(step, dict) else None
+        if not isinstance(command, str) or not command:
+            result.findings.append(
+                error(
+                    f"{CHECK_ID}.scenario",
+                    spec.rel_path,
+                    scenario_id,
+                    "every trace step requires a non-empty command",
+                )
+            )
+            continue
+        pending.append(_PendingRef(spec, scenario_id, "command", command))
 
 
 def _register_scenario_states(
@@ -592,28 +641,44 @@ def _check_axis_rules(spec: _SpecDoc, axis: _Axis, result: CheckResult, *, requi
 def _check_reciprocity(project_root: Path, specs: list[_SpecDoc], result: CheckResult) -> None:
     for spec in specs:
         for reference in spec.prose_refs:
-            target = project_root / reference
-            if not target.is_file():
-                result.findings.append(
-                    error(f"{CHECK_ID}.reciprocity", spec.rel_path, "prose_refs", f"prose reference {reference!r} does not exist")
-                )
-                continue
-            payload, _ = split_frontmatter(target.read_text(encoding="utf-8"))
-            if payload is None:
-                continue
-            try:
-                frontmatter = parse_smy(payload)
-            except SmyError as exc:
-                message = f"prose reference {reference!r} has unparseable frontmatter: {exc.message}"
-                result.findings.append(error(f"{CHECK_ID}.reciprocity", spec.rel_path, "prose_refs", message))
-                continue
-            formal_refs = frontmatter.get("formal_refs")
-            if isinstance(formal_refs, list) and formal_refs and spec.object_id not in formal_refs:
-                result.findings.append(
-                    error(
-                        f"{CHECK_ID}.reciprocity",
-                        spec.rel_path,
-                        "prose_refs",
-                        f"prose reference {reference!r} carries formal_refs but does not list {spec.object_id!r}",
-                    )
-                )
+            _check_prose_reference(project_root, spec, reference, result)
+
+
+def _check_prose_reference(
+    project_root: Path,
+    spec: _SpecDoc,
+    reference: str,
+    result: CheckResult,
+) -> None:
+    target = project_root / reference
+    if not target.is_file():
+        result.findings.append(
+            error(
+                f"{CHECK_ID}.reciprocity",
+                spec.rel_path,
+                "prose_refs",
+                f"prose reference {reference!r} does not exist",
+            )
+        )
+        return
+    payload, _ = split_frontmatter(target.read_text(encoding="utf-8"))
+    if payload is None:
+        return
+    try:
+        frontmatter = parse_smy(payload)
+    except SmyError as exc:
+        message = f"prose reference {reference!r} has unparseable frontmatter: {exc.message}"
+        result.findings.append(
+            error(f"{CHECK_ID}.reciprocity", spec.rel_path, "prose_refs", message)
+        )
+        return
+    formal_refs = frontmatter.get("formal_refs")
+    if isinstance(formal_refs, list) and formal_refs and spec.object_id not in formal_refs:
+        result.findings.append(
+            error(
+                f"{CHECK_ID}.reciprocity",
+                spec.rel_path,
+                "prose_refs",
+                f"prose reference {reference!r} carries formal_refs but does not list {spec.object_id!r}",
+            )
+        )

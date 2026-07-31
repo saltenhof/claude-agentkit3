@@ -27,6 +27,7 @@ def _binding(tmp_path: Path, **overrides: object) -> ProjectBinding:
         "concepts_dir": tmp_path / "concept",
         "stories_dir": tmp_path / "stories",
         "weaviate_http_endpoint": "http://weaviate.acme.local:8080",
+        "weaviate_grpc_endpoint": "weaviate.acme.local:50051",
     }
     base.update(overrides)
     return ProjectBinding(**base)  # type: ignore[arg-type]
@@ -40,6 +41,12 @@ def test_project_binding_requires_project_id(tmp_path: Path) -> None:
 def test_project_binding_requires_explicit_endpoint(tmp_path: Path) -> None:
     with pytest.raises(ProjectBindingError, match="endpoint"):
         _binding(tmp_path, weaviate_http_endpoint="")
+
+
+def test_project_binding_requires_the_grpc_endpoint_too(tmp_path: Path) -> None:
+    """Both endpoints are configuration values — no silent empty gRPC binding."""
+    with pytest.raises(ProjectBindingError, match="weaviate_grpc_endpoint"):
+        _binding(tmp_path, weaviate_grpc_endpoint="")
 
 
 def test_project_binding_rejects_localhost_default(tmp_path: Path) -> None:

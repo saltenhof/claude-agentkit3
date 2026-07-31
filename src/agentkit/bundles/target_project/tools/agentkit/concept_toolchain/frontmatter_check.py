@@ -47,7 +47,7 @@ def run_frontmatter_check(project_root: Path, config: GovernanceConfig) -> Check
     _check_supersession_ring(contract_docs, by_id, result)
     _check_parent_graph_acyclic(contract_docs, by_id, result)
     _check_scope_deferral_cycles(contract_docs, result)
-    _check_authority_scope_disjoint(contract_docs, by_id, result)
+    _check_authority_scope_disjoint(contract_docs, result)
     result.summary = f"{len(contract_docs)} documents checked"
     return result
 
@@ -351,7 +351,7 @@ def _check_scope_deferral_cycles(docs: Sequence[ConceptDocument], result: CheckR
 
 
 def _check_authority_scope_disjoint(
-    docs: Sequence[ConceptDocument], by_id: dict[str, ConceptDocument], result: CheckResult
+    docs: Sequence[ConceptDocument], result: CheckResult
 ) -> None:
     holders: dict[str, list[ConceptDocument]] = {}
     for doc in docs:
@@ -368,7 +368,7 @@ def _check_authority_scope_disjoint(
             holders.setdefault(scope, []).append(doc)
     for scope in sorted(holders):
         owners = holders[scope]
-        if len(owners) <= 1 or _connected_by_full_supersession(owners, by_id):
+        if len(owners) <= 1 or _connected_by_full_supersession(owners):
             continue
         ids = ", ".join(sorted(owner.concept_id or owner.rel_path for owner in owners))
         result.findings.append(
@@ -381,7 +381,7 @@ def _check_authority_scope_disjoint(
         )
 
 
-def _connected_by_full_supersession(owners: list[ConceptDocument], by_id: dict[str, ConceptDocument]) -> bool:
+def _connected_by_full_supersession(owners: list[ConceptDocument]) -> bool:
     if len(owners) != 2:
         return False
     first, second = owners

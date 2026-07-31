@@ -43,49 +43,65 @@ class StdoutLinePump:
         buffer = bytearray()
         try:
             while True:
-                try:
-                    chunk = self._stream.read(_READ_CHUNK)
-                except (OSError, ValueError) as exc:
-                    self._safe_put(
-                        TransportError(
-                            McpConformanceReason.PROCESS_EXITED,
-                            f"stdout reader failed: {exc}.",
-                        )
-                    )
+                chunk = self._read_chunk()
+                if chunk is None:
                     return
                 if not chunk:
-                    if buffer and not self._overflow:
-                        self._emit_line(bytes(buffer))
+                    self._finish_buffer(buffer)
                     self._safe_put(None)
                     return
                 if self._overflow:
                     continue
                 buffer.extend(chunk)
-                while True:
-                    nl = buffer.find(b"\n")
-                    if nl < 0:
-                        if len(buffer) > MAX_FRAME_BYTES:
-                            self._safe_put(
-                                TransportError(
-                                    McpConformanceReason.PROTOCOL_ERROR,
-                                    f"MCP stdout frame exceeds {MAX_FRAME_BYTES} bytes.",
-                                )
-                            )
-                            self._overflow = True
-                            buffer.clear()
-                        break
-                    line = bytes(buffer[: nl + 1])
-                    del buffer[: nl + 1]
-                    if not self._emit_line(line):
-                        buffer.clear()
-                        break
-        except BaseException as exc:  # noqa: BLE001 — surface to consumer
+                self._emit_complete_lines(buffer)
+        except Exception as exc:
             self._safe_put(
                 TransportError(
                     McpConformanceReason.PROTOCOL_ERROR,
                     f"stdout pump internal fault: {exc}.",
                 )
             )
+            raise
+
+    def _read_chunk(self) -> bytes | None:
+        try:
+            return self._stream.read(_READ_CHUNK)
+        except (OSError, ValueError) as exc:
+            self._safe_put(
+                TransportError(
+                    McpConformanceReason.PROCESS_EXITED,
+                    f"stdout reader failed: {exc}.",
+                )
+            )
+            return None
+
+    def _finish_buffer(self, buffer: bytearray) -> None:
+        if buffer and not self._overflow:
+            self._emit_line(bytes(buffer))
+
+    def _emit_complete_lines(self, buffer: bytearray) -> None:
+        while True:
+            newline = buffer.find(b"\n")
+            if newline < 0:
+                self._reject_oversize_buffer(buffer)
+                return
+            line = bytes(buffer[: newline + 1])
+            del buffer[: newline + 1]
+            if not self._emit_line(line):
+                buffer.clear()
+                return
+
+    def _reject_oversize_buffer(self, buffer: bytearray) -> None:
+        if len(buffer) <= MAX_FRAME_BYTES:
+            return
+        self._safe_put(
+            TransportError(
+                McpConformanceReason.PROTOCOL_ERROR,
+                f"MCP stdout frame exceeds {MAX_FRAME_BYTES} bytes.",
+            )
+        )
+        self._overflow = True
+        buffer.clear()
 
     def _emit_line(self, line: bytes) -> bool:
         if len(line) > MAX_FRAME_BYTES:
@@ -169,21 +185,17 @@ class StderrDrainPump:
         self._thread.start()
 
     def _run(self) -> None:
-        try:
-            while True:
-                try:
-                    chunk = self._stream.read(_READ_CHUNK)
-                except (OSError, ValueError):
-                    return
-                if not chunk:
-                    return
-                with self._lock:
-                    self._tail.extend(chunk)
-                    if len(self._tail) > STDERR_DETAIL_CHARS:
-                        # Keep only the trailing detail bytes.
-                        self._tail[:] = self._tail[-STDERR_DETAIL_CHARS:]
-        except BaseException:  # noqa: BLE001
-            return
+        while True:
+            try:
+                chunk = self._stream.read(_READ_CHUNK)
+            except (OSError, ValueError):
+                return
+            if not chunk:
+                return
+            with self._lock:
+                self._tail.extend(chunk)
+                if len(self._tail) > STDERR_DETAIL_CHARS:
+                    self._tail[:] = self._tail[-STDERR_DETAIL_CHARS:]
 
     def retained_text(self) -> str:
         with self._lock:

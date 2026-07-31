@@ -102,6 +102,7 @@ def _bind_skill(project_root: Path, skill_name: str) -> None:
             skill_name=skill_name,
             bundle_id="bundle-x",
             bundle_version="4.0.0",
+            content_digest="0" * 64,
             target_path=project_root / ".claude" / "skills" / skill_name,
             binding_mode=SkillBindingMode.JUNCTION,
             status=SkillLifecycleStatus.VERIFIED,

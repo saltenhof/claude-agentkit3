@@ -29,11 +29,13 @@ import hashlib
 import re
 import shutil
 import subprocess
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from . import runmodel
 from .docmodel import file_digest_sha256
 from .findings import CheckResult, error
+from .runmodel_constants import LINEAR_STATE_RANK, SHA256_RE
 from .units import derive_units
 
 if TYPE_CHECKING:
@@ -44,6 +46,16 @@ if TYPE_CHECKING:
     from .runmodel import Issue, TsvRow
 
 CHECK_ID = "incubator"
+RUN_FILE = "RUN.json"
+ROUND_FILE = "ROUND.json"
+CORPUS_BASELINE_FILE = "corpus-baseline.tsv"
+SOURCE_REGISTER_FILE = "source-register.tsv"
+DISPOSITION_LEDGER_FILE = "disposition-ledger.tsv"
+FINDINGS_FILE = "findings.tsv"
+BRIEFING_FILE = "briefing.md"
+PROMOTION_MANIFEST_FILE = "promotion-manifest.json"
+ARTIFACT_PREFIX = "artifact:"
+SOURCE_PREFIX = "source:"
 
 _ROUND_DIR_RE = re.compile(r"^r([1-9]\d*)$")
 _CLASS_RANK = {"open": 0, "internal": 1, "sensitive": 2}
@@ -95,7 +107,7 @@ def effective_state_rank(run: runmodel.RunState) -> int | None:
         state = run.recheck.detected_in_state
     if state == "PROMOTION_FAILED":
         state = "PROMOTING"
-    return runmodel.LINEAR_STATE_RANK.get(state)
+    return LINEAR_STATE_RANK.get(state)
 
 
 def glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -122,7 +134,7 @@ def glob_to_regex(pattern: str) -> re.Pattern[str]:
     return re.compile("".join(out) + "$")
 
 
-class _IncubatorCheck:
+class _IncubatorCheckCore(ABC):
     """Stateful executor for one incubator-check invocation."""
 
     def __init__(self, project_root: Path, config: GovernanceConfig, run_dir: Path) -> None:
@@ -162,6 +174,24 @@ class _IncubatorCheck:
         for issue in issues:
             self._error(rel_path, issue.locator, issue.message)
 
+    @abstractmethod
+    def _check_artifact_register(self) -> None: ...
+
+    @abstractmethod
+    def _check_coverage_plan(self, run: runmodel.RunState) -> None: ...
+
+    @abstractmethod
+    def _check_coverage_registers(self) -> None: ...
+
+    @abstractmethod
+    def _check_promotion_artifacts(self) -> None: ...
+
+    @abstractmethod
+    def _check_declassification_receipts(self) -> None: ...
+
+    @abstractmethod
+    def _check_id_namespace(self) -> None: ...
+
     def _load_register(
         self,
         parts: tuple[str, ...],
@@ -181,13 +211,13 @@ class _IncubatorCheck:
             self.result.complete = False
             self.result.incomplete_reason = f"run directory does not exist: {self.rel}"
             return self.result
-        run_json = self._path("RUN.json")
+        run_json = self._path(RUN_FILE)
         if not run_json.is_file():
             self.result.complete = False
             self.result.incomplete_reason = f"RUN.json not found in {self.rel}"
             return self.result
         run, issues = runmodel.load_run_state(run_json)
-        self._report(self._rel_path("RUN.json"), issues)
+        self._report(self._rel_path(RUN_FILE), issues)
         self.run = run
         self._load_all_registers()
         self._check_layout()
@@ -218,19 +248,19 @@ class _IncubatorCheck:
         return self.result
 
     def _load_all_registers(self) -> None:
-        self.baseline_rows = self._load_register(("baseline", "corpus-baseline.tsv"), runmodel.load_corpus_baseline)
-        self.source_rows = self._load_register(("baseline", "source-register.tsv"), runmodel.load_source_register)
+        self.baseline_rows = self._load_register(("baseline", CORPUS_BASELINE_FILE), runmodel.load_corpus_baseline)
+        self.source_rows = self._load_register(("baseline", SOURCE_REGISTER_FILE), runmodel.load_source_register)
         self.unit_rows = self._load_register(("baseline", "source-units.tsv"), runmodel.load_source_units)
         self.claim_rows = self._load_register(("synthesis", "claims-inventory.tsv"), runmodel.load_claims_inventory)
-        self.ledger_rows = self._load_register(("synthesis", "disposition-ledger.tsv"), runmodel.load_disposition_ledger)
+        self.ledger_rows = self._load_register(("synthesis", DISPOSITION_LEDGER_FILE), runmodel.load_disposition_ledger)
         self.atom_rows = self._load_register(("promotion", "atom-register.tsv"), runmodel.load_atom_register)
-        self.finding_rows = self._load_register(("findings.tsv",), runmodel.load_findings_register)
+        self.finding_rows = self._load_register((FINDINGS_FILE,), runmodel.load_findings_register)
 
     # -- layout and lease ---------------------------------------------------
 
     def _check_layout(self) -> None:
-        if not self._path("briefing.md").is_file():
-            self._error(self._rel_path("briefing.md"), "file", "briefing.md is missing from the run layout")
+        if not self._path(BRIEFING_FILE).is_file():
+            self._error(self._rel_path(BRIEFING_FILE), "file", "briefing.md is missing from the run layout")
 
     def _check_lease(self) -> None:
         lease_path = self._path("LEASE.json")
@@ -262,12 +292,12 @@ class _IncubatorCheck:
                 f"RUN.json lease_fencing_token {self.run.lease_fencing_token} "
                 f"does not equal lease fencing_token {lease.fencing_token}"
             )
-            self._error(self._rel_path("RUN.json"), "run.lease_fencing_token", message)
+            self._error(self._rel_path(RUN_FILE), "run.lease_fencing_token", message)
 
     # -- lifecycle ----------------------------------------------------------
 
     def _check_lifecycle(self, run: runmodel.RunState) -> None:
-        run_rel = self._rel_path("RUN.json")
+        run_rel = self._rel_path(RUN_FILE)
         if run.state == "BLOCKED" and run.blocked is None:
             self._error(run_rel, "run.blocked", "must be non-null in state BLOCKED")
         if run.state != "BLOCKED" and run.blocked is not None:
@@ -306,40 +336,49 @@ class _IncubatorCheck:
     # -- rounds -------------------------------------------------------------
 
     def _check_rounds(self) -> None:
-        rounds_dir = self._path("rounds")
-        numbers: dict[int, Path] = {}
-        if rounds_dir.is_dir():
-            for entry in sorted(rounds_dir.iterdir()):
-                match = _ROUND_DIR_RE.match(entry.name)
-                if match is None or not entry.is_dir():
-                    self._error(
-                        self._rel_path("rounds", entry.name),
-                        "file",
-                        "unexpected entry in rounds/ (expected r<N> directories)",
-                    )
-                    continue
-                numbers[int(match.group(1))] = entry
+        numbers = self._collect_round_directories()
         if self.run is not None:
-            for expected in range(1, self.run.current_round + 1):
-                if expected not in numbers:
-                    self._error(
-                        self._rel_path("rounds"),
-                        f"r{expected}",
-                        f"round directory rounds/r{expected} is missing (current_round {self.run.current_round})",
-                    )
-            for number in sorted(numbers):
-                if number > self.run.current_round:
-                    self._error(
-                        self._rel_path("rounds", f"r{number}"),
-                        "dir",
-                        f"round beyond RUN.json current_round {self.run.current_round}",
-                    )
+            self._check_round_directory_range(numbers)
         for number, entry in sorted(numbers.items()):
             self._check_one_round(number, entry)
 
+    def _collect_round_directories(self) -> dict[int, Path]:
+        rounds_dir = self._path("rounds")
+        numbers: dict[int, Path] = {}
+        if not rounds_dir.is_dir():
+            return numbers
+        for entry in sorted(rounds_dir.iterdir()):
+            match = _ROUND_DIR_RE.match(entry.name)
+            if match is not None and entry.is_dir():
+                numbers[int(match.group(1))] = entry
+                continue
+            self._error(
+                self._rel_path("rounds", entry.name),
+                "file",
+                "unexpected entry in rounds/ (expected r<N> directories)",
+            )
+        return numbers
+
+    def _check_round_directory_range(self, numbers: dict[int, Path]) -> None:
+        assert self.run is not None
+        for expected in range(1, self.run.current_round + 1):
+            if expected not in numbers:
+                self._error(
+                    self._rel_path("rounds"),
+                    f"r{expected}",
+                    f"round directory rounds/r{expected} is missing (current_round {self.run.current_round})",
+                )
+        for number in sorted(numbers):
+            if number > self.run.current_round:
+                self._error(
+                    self._rel_path("rounds", f"r{number}"),
+                    "dir",
+                    f"round beyond RUN.json current_round {self.run.current_round}",
+                )
+
     def _check_one_round(self, number: int, round_dir: Path) -> None:
-        rel = self._rel_path("rounds", round_dir.name, "ROUND.json")
-        round_json = round_dir / "ROUND.json"
+        rel = self._rel_path("rounds", round_dir.name, ROUND_FILE)
+        round_json = round_dir / ROUND_FILE
         if not round_json.is_file():
             self._error(rel, "file", "ROUND.json is missing")
             return
@@ -357,7 +396,7 @@ class _IncubatorCheck:
             for participant_id in sorted(participant_ids - known):
                 self._error(rel, "round.participants", f"participant {participant_id!r} is not registered in RUN.json")
         for entry in sorted(round_dir.iterdir()):
-            if entry.name == "ROUND.json":
+            if entry.name == ROUND_FILE:
                 continue
             if not (entry.name.endswith(".md") and entry.name.removesuffix(".md") in participant_ids):
                 self._error(
@@ -399,7 +438,7 @@ class _IncubatorCheck:
     def _check_sources(self) -> None:
         if self.source_rows is None:
             return
-        rel = self._rel_path("baseline", "source-register.tsv")
+        rel = self._rel_path("baseline", SOURCE_REGISTER_FILE)
         source_ids = {row["source_id"] for row in self.source_rows}
         participant_ids = {participant.participant_id for participant in self.run.participants} if self.run else None
         for number, row in enumerate(self.source_rows, start=2):
@@ -433,7 +472,7 @@ class _IncubatorCheck:
         self._report(intake_rel, issues)
         self._report(intake_rel, runmodel.intake_chain_problems(intake_rows))
         self._check_intake_head(intake_rel, intake_rows)
-        register_rel = self._rel_path("baseline", "source-register.tsv")
+        register_rel = self._rel_path("baseline", SOURCE_REGISTER_FILE)
         intake_keys = {(row["path"], row["sha256"]): row for row in intake_rows}
         register_keys = {(row["path"], row["sha256"]): row for row in self.source_rows}
         for key in sorted(set(intake_keys) - set(register_keys)):
@@ -463,12 +502,12 @@ class _IncubatorCheck:
         """
         if self.run is None:
             return
-        run_rel = self._rel_path("RUN.json")
+        run_rel = self._rel_path(RUN_FILE)
         rank = effective_state_rank(self.run)
         self._check_input_head_prefix(intake_rel, run_rel, intake_rows, rank)
         final_pin = self.run.register_digests.get("source_intake_final_head")
         if final_pin is None:
-            if rank is not None and rank >= runmodel.LINEAR_STATE_RANK["PROMOTING"]:
+            if rank is not None and rank >= LINEAR_STATE_RANK["PROMOTING"]:
                 self._error(
                     run_rel,
                     "run.register_digests.source_intake_final_head",
@@ -483,13 +522,11 @@ class _IncubatorCheck:
                 "(entries were removed or rewritten)",
             )
 
-    def _check_input_head_prefix(
-        self, intake_rel: str, run_rel: str, intake_rows: tuple[TsvRow, ...], rank: int | None
-    ) -> None:
+    def _check_input_head_prefix(self, intake_rel: str, run_rel: str, intake_rows: tuple[TsvRow, ...], rank: int | None) -> None:
         assert self.run is not None
         input_pin = self.run.register_digests.get("source_intake_input_head")
         if input_pin is None:
-            if rank is not None and rank >= runmodel.LINEAR_STATE_RANK["SYNTHESIZING"]:
+            if rank is not None and rank >= LINEAR_STATE_RANK["SYNTHESIZING"]:
                 self._error(
                     run_rel,
                     "run.register_digests.source_intake_input_head",
@@ -526,7 +563,7 @@ class _IncubatorCheck:
         """Enforce set equality between canonical derived paths and derived sources."""
         if self.source_rows is None:
             return
-        rel = self._rel_path("baseline", "source-register.tsv")
+        rel = self._rel_path("baseline", SOURCE_REGISTER_FILE)
         on_disk: dict[str, str] = {}
         for pattern, role in _DERIVED_GLOBS:
             for entry in sorted(self.run_dir.glob(pattern)):
@@ -550,9 +587,9 @@ class _IncubatorCheck:
         """Enforce input == briefing + all sealed proposals + PO inputs (loss-free)."""
         if self.source_rows is None:
             return
-        rel = self._rel_path("baseline", "source-register.tsv")
+        rel = self._rel_path("baseline", SOURCE_REGISTER_FILE)
         input_rows = [row for row in self.source_rows if row["source_phase"] == "input"]
-        briefing_rel = self._rel_path("briefing.md")
+        briefing_rel = self._rel_path(BRIEFING_FILE)
         briefing_rows = [row for row in input_rows if row["role"] == "BRIEFING"]
         if len(briefing_rows) != 1:
             self._error(rel, "file", f"exactly one BRIEFING input source is required, found {len(briefing_rows)}")
@@ -581,7 +618,7 @@ class _IncubatorCheck:
         """Re-derive corpus-baseline.tsv completely from the git base revision."""
         if self.baseline_rows is None:
             return
-        rel = self._rel_path("baseline", "corpus-baseline.tsv")
+        rel = self._rel_path("baseline", CORPUS_BASELINE_FILE)
         if run.base_revision.kind != "git":
             self.skipped.append(f"baseline-rederivation: base_revision kind {run.base_revision.kind!r} is not diffable")
             return
@@ -589,39 +626,49 @@ class _IncubatorCheck:
         if shutil.which("git") is None or not self._git_ok("rev-parse", "--verify", f"{revision}^{{commit}}"):
             self.skipped.append("baseline-rederivation: git or the base revision is unavailable")
             return
-        expected_paths: set[str] = set()
-        for root in sorted(self.config.concept_roots.values()):
-            listing = self._git_stdout("ls-tree", "-r", "--name-only", revision, "--", root)
-            if listing is None:
-                self.skipped.append(f"baseline-rederivation: git ls-tree failed for {root}")
-                return
-            expected_paths.update(line.replace("\\", "/") for line in listing.decode("utf-8").splitlines() if line)
+        expected_paths = self._baseline_paths_at_revision(revision)
+        if expected_paths is None:
+            return
         register_rows = {row["path"]: row for row in self.baseline_rows}
-        for path in sorted(expected_paths - set(register_rows)):
-            self._error(rel, path, "committed corpus file is missing from the baseline register (thinned)")
-        for path in sorted(set(register_rows) - expected_paths):
-            self._error(rel, path, "baseline row has no counterpart in the git tree of base_revision")
+        self._compare_baseline_path_sets(rel, expected_paths, set(register_rows))
         for path in sorted(expected_paths & set(register_rows)):
             blob = self._git_stdout("show", f"{revision}:{path}")
             if blob is None:
                 self.skipped.append(f"baseline-rederivation: git show failed for {path}")
                 return
             row = register_rows[path]
-            if runmodel.SHA256_RE.fullmatch(row["sha256"]) and _sha256_bytes(blob) != row["sha256"]:
+            if SHA256_RE.fullmatch(row["sha256"]) and _sha256_bytes(blob) != row["sha256"]:
                 self._error(rel, path, "baseline digest does not match the committed blob of base_revision")
             if row["bytes"].isdigit() and int(row["bytes"]) != len(blob):
                 self._error(rel, path, "baseline byte count does not match the committed blob of base_revision")
 
+    def _baseline_paths_at_revision(self, revision: str) -> set[str] | None:
+        expected_paths: set[str] = set()
+        for root in sorted(self.config.concept_roots.values()):
+            listing = self._git_stdout("ls-tree", "-r", "--name-only", revision, "--", root)
+            if listing is None:
+                self.skipped.append(f"baseline-rederivation: git ls-tree failed for {root}")
+                return None
+            expected_paths.update(line.replace("\\", "/") for line in listing.decode("utf-8").splitlines() if line)
+        return expected_paths
+
+    def _compare_baseline_path_sets(
+        self,
+        rel: str,
+        expected_paths: set[str],
+        registered_paths: set[str],
+    ) -> None:
+        for path in sorted(expected_paths - registered_paths):
+            self._error(rel, path, "committed corpus file is missing from the baseline register (thinned)")
+        for path in sorted(registered_paths - expected_paths):
+            self._error(rel, path, "baseline row has no counterpart in the git tree of base_revision")
+
     def _git_ok(self, *args: str) -> bool:
-        completed = subprocess.run(
-            ["git", "-C", str(self.project_root), *args], check=False, capture_output=True
-        )
+        completed = subprocess.run(["git", "-C", str(self.project_root), *args], check=False, capture_output=True)
         return completed.returncode == 0
 
     def _git_stdout(self, *args: str) -> bytes | None:
-        completed = subprocess.run(
-            ["git", "-C", str(self.project_root), *args], check=False, capture_output=True
-        )
+        completed = subprocess.run(["git", "-C", str(self.project_root), *args], check=False, capture_output=True)
         return completed.stdout if completed.returncode == 0 else None
 
     def _check_units(self) -> None:
@@ -685,16 +732,36 @@ class _IncubatorCheck:
         source_ids = {row["source_id"] for row in self.source_rows} if self.source_rows is not None else None
         unit_index = {row["unit_id"] for row in self.unit_rows} if self.unit_rows is not None else None
         for number, row in enumerate(self.claim_rows, start=2):
-            if source_ids is not None and row["source_id"] not in source_ids:
-                self._error(rel, f"line {number}:source_id", f"unknown source {row['source_id']!r}")
-            for parent in runmodel.split_refs(row["genealogy_parents"]):
-                if parent not in claim_ids:
-                    self._error(rel, f"line {number}:genealogy_parents", f"unknown genealogy parent {parent!r}")
-            if unit_index is not None:
-                for unit in runmodel.split_refs(row["unit_refs"]):
-                    if unit not in unit_index:
-                        self._error(rel, f"line {number}:unit_refs", f"unknown unit {unit!r}")
+            self._check_claim_row(
+                rel,
+                number,
+                row,
+                claim_ids=claim_ids,
+                source_ids=source_ids,
+                unit_ids=unit_index,
+            )
         self._check_claim_unit_edges(rel)
+
+    def _check_claim_row(
+        self,
+        rel: str,
+        number: int,
+        row: TsvRow,
+        *,
+        claim_ids: set[str],
+        source_ids: set[str] | None,
+        unit_ids: set[str] | None,
+    ) -> None:
+        if source_ids is not None and row["source_id"] not in source_ids:
+            self._error(rel, f"line {number}:source_id", f"unknown source {row['source_id']!r}")
+        for parent in runmodel.split_refs(row["genealogy_parents"]):
+            if parent not in claim_ids:
+                self._error(rel, f"line {number}:genealogy_parents", f"unknown genealogy parent {parent!r}")
+        if unit_ids is None:
+            return
+        for unit in runmodel.split_refs(row["unit_refs"]):
+            if unit not in unit_ids:
+                self._error(rel, f"line {number}:unit_refs", f"unknown unit {unit!r}")
 
     def _check_claim_unit_edges(self, rel: str) -> None:
         if self.claim_rows is None or self.unit_rows is None:
@@ -713,34 +780,64 @@ class _IncubatorCheck:
     def _check_ledger(self) -> None:
         if self.ledger_rows is None:
             return
-        rel = self._rel_path("synthesis", "disposition-ledger.tsv")
+        rel = self._rel_path("synthesis", DISPOSITION_LEDGER_FILE)
         ledger_ids = {row["claim_id"] for row in self.ledger_rows}
-        if self.claim_rows is not None:
-            claim_ids = {row["claim_id"] for row in self.claim_rows}
-            for claim_id in sorted(claim_ids - ledger_ids):
-                self._error(rel, "file", f"inventory claim {claim_id} has no disposition-ledger row")
-            for claim_id in sorted(ledger_ids - claim_ids):
-                self._error(rel, "file", f"ledger row references unknown claim {claim_id}")
+        self._check_ledger_claim_membership(rel, ledger_ids)
         atom_ids = {row["atom_id"] for row in self.atom_rows} if self.atom_rows is not None else None
         finding_ids = {row["finding_id"] for row in self.finding_rows} if self.finding_rows is not None else set()
         for number, row in enumerate(self.ledger_rows, start=2):
-            if atom_ids is not None:
-                for atom in runmodel.split_refs(row["atom_refs"]):
-                    if atom not in atom_ids:
-                        self._error(rel, f"line {number}:atom_refs", f"unknown atom {atom!r}")
-            for finding_id in runmodel.split_refs(row["finding_refs"]):
-                if finding_id not in finding_ids:
-                    self._error(rel, f"line {number}:finding_refs", f"unknown finding {finding_id!r}")
+            self._check_ledger_row(
+                rel,
+                number,
+                row,
+                atom_ids=atom_ids,
+                finding_ids=finding_ids,
+            )
+
+    def _check_ledger_claim_membership(self, rel: str, ledger_ids: set[str]) -> None:
+        if self.claim_rows is None:
+            return
+        claim_ids = {row["claim_id"] for row in self.claim_rows}
+        for claim_id in sorted(claim_ids - ledger_ids):
+            self._error(rel, "file", f"inventory claim {claim_id} has no disposition-ledger row")
+        for claim_id in sorted(ledger_ids - claim_ids):
+            self._error(rel, "file", f"ledger row references unknown claim {claim_id}")
+
+    def _check_ledger_row(
+        self,
+        rel: str,
+        number: int,
+        row: TsvRow,
+        *,
+        atom_ids: set[str] | None,
+        finding_ids: set[str],
+    ) -> None:
+        if atom_ids is not None:
+            for atom in runmodel.split_refs(row["atom_refs"]):
+                if atom not in atom_ids:
+                    self._error(rel, f"line {number}:atom_refs", f"unknown atom {atom!r}")
+        for finding_id in runmodel.split_refs(row["finding_refs"]):
+            if finding_id not in finding_ids:
+                self._error(rel, f"line {number}:finding_refs", f"unknown finding {finding_id!r}")
 
     def _check_ledger_atom_edges(self) -> None:
         """Close the ledger.atom_refs / atom.claim_refs edges bidirectionally."""
         if self.ledger_rows is None or self.atom_rows is None:
             return
-        ledger_rel = self._rel_path("synthesis", "disposition-ledger.tsv")
+        ledger_rel = self._rel_path("synthesis", DISPOSITION_LEDGER_FILE)
         atom_rel = self._rel_path("promotion", "atom-register.tsv")
         claim_ids = {row["claim_id"] for row in self.claim_rows} if self.claim_rows is not None else None
         atom_claims = {row["atom_id"]: set(runmodel.split_refs(row["claim_refs"])) for row in self.atom_rows}
         ledger_atoms = {row["claim_id"]: set(runmodel.split_refs(row["atom_refs"])) for row in self.ledger_rows}
+        self._check_claim_to_atom_edges(ledger_rel, atom_claims)
+        self._check_atom_to_claim_edges(atom_rel, claim_ids, ledger_atoms)
+
+    def _check_claim_to_atom_edges(
+        self,
+        ledger_rel: str,
+        atom_claims: dict[str, set[str]],
+    ) -> None:
+        assert self.ledger_rows is not None
         for number, row in enumerate(self.ledger_rows, start=2):
             for atom_id in sorted(runmodel.split_refs(row["atom_refs"])):
                 claims_of_atom = atom_claims.get(atom_id)
@@ -750,6 +847,14 @@ class _IncubatorCheck:
                         f"line {number}:atom_refs",
                         f"atom {atom_id} does not list claim {row['claim_id']} in claim_refs (edge not closed)",
                     )
+
+    def _check_atom_to_claim_edges(
+        self,
+        atom_rel: str,
+        claim_ids: set[str] | None,
+        ledger_atoms: dict[str, set[str]],
+    ) -> None:
+        assert self.atom_rows is not None
         for number, row in enumerate(self.atom_rows, start=2):
             for claim_id in sorted(runmodel.split_refs(row["claim_refs"])):
                 if claim_ids is not None and claim_id not in claim_ids:
@@ -766,25 +871,46 @@ class _IncubatorCheck:
                     )
 
     def _check_findings_register(self) -> None:
-        rel = self._rel_path("findings.tsv")
+        rel = self._rel_path(FINDINGS_FILE)
         if self.finding_rows is None:
             rank = effective_state_rank(self.run) if self.run is not None else None
-            if rank is not None and rank >= runmodel.LINEAR_STATE_RANK["PROMOTING"]:
+            if rank is not None and rank >= LINEAR_STATE_RANK["PROMOTING"]:
                 self._error(rel, "file", "findings.tsv is mandatory from PROMOTING onwards (empty with header is allowed)")
             return
         claim_ids = {row["claim_id"] for row in self.claim_rows} if self.claim_rows is not None else None
         atom_ids = {row["atom_id"] for row in self.atom_rows} if self.atom_rows is not None else None
         for number, row in enumerate(self.finding_rows, start=2):
-            if claim_ids is not None:
-                for claim in runmodel.split_refs(row["claim_refs"]):
-                    if claim not in claim_ids:
-                        self._error(rel, f"line {number}:claim_refs", f"unknown claim {claim!r}")
-            if atom_ids is not None:
-                for atom in runmodel.split_refs(row["atom_refs"]):
-                    if atom not in atom_ids:
-                        self._error(rel, f"line {number}:atom_refs", f"unknown atom {atom!r}")
+            self._check_finding_row(
+                rel,
+                number,
+                row,
+                claim_ids=claim_ids,
+                atom_ids=atom_ids,
+            )
+
+    def _check_finding_row(
+        self,
+        rel: str,
+        number: int,
+        row: TsvRow,
+        *,
+        claim_ids: set[str] | None,
+        atom_ids: set[str] | None,
+    ) -> None:
+        if claim_ids is not None:
+            for claim in runmodel.split_refs(row["claim_refs"]):
+                if claim not in claim_ids:
+                    self._error(rel, f"line {number}:claim_refs", f"unknown claim {claim!r}")
+        if atom_ids is not None:
+            for atom in runmodel.split_refs(row["atom_refs"]):
+                if atom not in atom_ids:
+                    self._error(rel, f"line {number}:atom_refs", f"unknown atom {atom!r}")
 
     # -- artifact register --------------------------------------------------
+
+
+class _IncubatorCheck(_IncubatorCheckCore):
+    """Artifact, coverage and promotion checks layered on the run core."""
 
     def _check_artifact_register(self) -> None:
         main_rows = self._load_register(("artifact-register.tsv",), runmodel.load_artifact_register)
@@ -795,73 +921,108 @@ class _IncubatorCheck:
         if main_rows is None and local_rows is None:
             return
         local_rel = self._rel_path("artifact-register.local.tsv")
+        self._check_artifact_dispositions(rel, local_rel, main_rows, local_rows)
+        by_path = self._index_artifact_rows(rel, main_rows, local_rows)
+        self.artifact_rows = tuple(by_path.values())
+        source_paths = {row["source_id"]: row["path"] for row in self.source_rows} if self.source_rows is not None else None
+        for row in self.artifact_rows:
+            self._check_artifact_row(rel, row, by_path, source_paths)
+        cyclic = self._check_artifact_cycles(rel, by_path)
+        self._check_effective_classes(rel, by_path, cyclic, source_paths)
+
+    def _check_artifact_dispositions(
+        self,
+        rel: str,
+        local_rel: str,
+        main_rows: tuple[TsvRow, ...] | None,
+        local_rows: tuple[TsvRow, ...] | None,
+    ) -> None:
         for row in main_rows or ():
             if row["vcs_disposition"] != "versioned":
                 self._error(rel, row["path"], "the versioned main register permits only vcs_disposition versioned")
         for row in local_rows or ():
             if row["vcs_disposition"] != "local":
                 self._error(local_rel, row["path"], "the local overlay permits only vcs_disposition local")
+
+    def _index_artifact_rows(
+        self,
+        rel: str,
+        main_rows: tuple[TsvRow, ...] | None,
+        local_rows: tuple[TsvRow, ...] | None,
+    ) -> dict[str, TsvRow]:
         by_path: dict[str, TsvRow] = {}
         for row in (main_rows or ()) + (local_rows or ()):
             if row["path"] in by_path:
                 self._error(rel, "file", f"artifact registered twice across register and local overlay: {row['path']}")
                 continue
             by_path[row["path"]] = row
-        self.artifact_rows = tuple(by_path.values())
-        source_paths = {row["source_id"]: row["path"] for row in self.source_rows} if self.source_rows is not None else None
-        for row in self.artifact_rows:
-            file_path = self.project_root / row["path"]
-            if not file_path.is_file():
-                self._error(rel, row["path"], "registered artifact file does not exist")
-            elif file_digest_sha256(file_path) != row["sha256"]:
-                self._error(rel, row["path"], "registered artifact digest does not match the file")
-            for ref in runmodel.split_refs(row["input_refs"]):
-                self._check_input_ref(rel, row, ref, by_path, source_paths)
-        cyclic = self._check_artifact_cycles(rel, by_path)
-        self._check_effective_classes(rel, by_path, cyclic, source_paths)
+        return by_path
+
+    def _check_artifact_row(
+        self,
+        rel: str,
+        row: TsvRow,
+        by_path: dict[str, TsvRow],
+        source_paths: dict[str, str] | None,
+    ) -> None:
+        file_path = self.project_root / row["path"]
+        if not file_path.is_file():
+            self._error(rel, row["path"], "registered artifact file does not exist")
+        elif file_digest_sha256(file_path) != row["sha256"]:
+            self._error(rel, row["path"], "registered artifact digest does not match the file")
+        for ref in runmodel.split_refs(row["input_refs"]):
+            self._check_input_ref(rel, row, ref, by_path, source_paths)
 
     def _check_input_ref(
         self, rel: str, row: TsvRow, ref: str, by_path: dict[str, TsvRow], source_paths: dict[str, str] | None
     ) -> None:
-        if ref.startswith("artifact:"):
-            target = ref.removeprefix("artifact:")
+        if ref.startswith(ARTIFACT_PREFIX):
+            target = ref.removeprefix(ARTIFACT_PREFIX)
             if target not in by_path:
                 self._error(rel, row["path"], f"input artifact is not registered: {target}")
-        elif source_paths is not None and ref.removeprefix("source:") not in source_paths:
-            self._error(rel, row["path"], f"input source is not registered: {ref.removeprefix('source:')}")
+        elif source_paths is not None and ref.removeprefix(SOURCE_PREFIX) not in source_paths:
+            self._error(rel, row["path"], f"input source is not registered: {ref.removeprefix(SOURCE_PREFIX)}")
 
     def _check_artifact_cycles(self, rel: str, by_path: dict[str, TsvRow]) -> set[str]:
         colors: dict[str, int] = {}
         cyclic: set[str] = set()
-
-        def visit(path: str, stack: tuple[str, ...]) -> None:
-            colors[path] = 1
-            row = by_path.get(path)
-            for ref in runmodel.split_refs(row["input_refs"]) if row else ():
-                if not ref.startswith("artifact:"):
-                    continue
-                target = ref.removeprefix("artifact:")
-                if colors.get(target) == 1:
-                    cycle = (*stack[stack.index(target) :], path) if target in stack else (target, path)
-                    self._error(rel, path, f"provenance cycle detected: {' -> '.join((*cycle, target))}")
-                    cyclic.update(cycle)
-                elif colors.get(target, 0) == 0 and target in by_path:
-                    visit(target, (*stack, target))
-            colors[path] = 2
-
         for path in sorted(by_path):
             if colors.get(path, 0) == 0:
-                visit(path, (path,))
+                self._visit_artifact(path, (path,), rel, by_path, colors, cyclic)
         return cyclic
+
+    def _visit_artifact(
+        self,
+        path: str,
+        stack: tuple[str, ...],
+        rel: str,
+        by_path: dict[str, TsvRow],
+        colors: dict[str, int],
+        cyclic: set[str],
+    ) -> None:
+        colors[path] = 1
+        row = by_path.get(path)
+        refs = runmodel.split_refs(row["input_refs"]) if row else ()
+        for ref in refs:
+            if not ref.startswith(ARTIFACT_PREFIX):
+                continue
+            target = ref.removeprefix(ARTIFACT_PREFIX)
+            if colors.get(target) == 1:
+                cycle = (*stack[stack.index(target) :], path) if target in stack else (target, path)
+                self._error(rel, path, f"provenance cycle detected: {' -> '.join((*cycle, target))}")
+                cyclic.update(cycle)
+            elif colors.get(target, 0) == 0 and target in by_path:
+                self._visit_artifact(target, (*stack, target), rel, by_path, colors, cyclic)
+        colors[path] = 2
 
     def _input_class_rank(
         self, ref: str, by_path: dict[str, TsvRow], source_paths: dict[str, str] | None, effective: Callable[[str], int]
     ) -> int:
         """Rank contribution of one typed input ref (unregistered inputs count as sensitive)."""
-        if ref.startswith("artifact:"):
-            target = ref.removeprefix("artifact:")
+        if ref.startswith(ARTIFACT_PREFIX):
+            target = ref.removeprefix(ARTIFACT_PREFIX)
             return effective(target) if target in by_path else _CLASS_RANK["sensitive"]
-        source_path = (source_paths or {}).get(ref.removeprefix("source:"))
+        source_path = (source_paths or {}).get(ref.removeprefix(SOURCE_PREFIX))
         if source_path is not None and source_path in by_path:
             return effective(source_path)
         return _CLASS_RANK["sensitive"]
@@ -895,10 +1056,10 @@ class _IncubatorCheck:
     def _resolve_input_paths(self, row: TsvRow, source_paths: dict[str, str] | None) -> set[str]:
         paths: set[str] = set()
         for ref in runmodel.split_refs(row["input_refs"]):
-            if ref.startswith("artifact:"):
-                paths.add(ref.removeprefix("artifact:"))
+            if ref.startswith(ARTIFACT_PREFIX):
+                paths.add(ref.removeprefix(ARTIFACT_PREFIX))
             else:
-                source_path = (source_paths or {}).get(ref.removeprefix("source:"))
+                source_path = (source_paths or {}).get(ref.removeprefix(SOURCE_PREFIX))
                 if source_path is not None:
                     paths.add(source_path)
         return paths
@@ -986,7 +1147,7 @@ class _IncubatorCheck:
         if self.baseline_rows is None:
             return
         matchers = [glob_to_regex(pattern) for package in plan.packages for pattern in package.paths]
-        baseline_rel = self._rel_path("baseline", "corpus-baseline.tsv")
+        baseline_rel = self._rel_path("baseline", CORPUS_BASELINE_FILE)
         for number, row in enumerate(self.baseline_rows, start=2):
             package_id = row["package_id"]
             if package_id and package_id != "EXEMPT" and package_id not in package_ids:
@@ -1000,36 +1161,57 @@ class _IncubatorCheck:
         source_cov = self._load_register(("baseline", "source-coverage.tsv"), runmodel.load_source_coverage)
         finding_ids = {row["finding_id"] for row in self.finding_rows} if self.finding_rows is not None else set()
         if source_cov is not None:
-            rel = self._rel_path("baseline", "source-coverage.tsv")
-            authors = {row["source_id"]: row["author_principal_id"] for row in self.source_rows or ()}
-            source_ids = set(authors) if self.source_rows is not None else None
-            for number, row in enumerate(source_cov, start=2):
-                if source_ids is not None and row["source_id"] not in source_ids:
-                    self._error(rel, f"line {number}:source_id", f"unknown source {row['source_id']!r}")
-                author = authors.get(row["source_id"], "")
-                if author and row["reviewer_principal_id"] == author:
-                    self._error(rel, f"line {number}:reviewer_principal_id", "reviewer must not be the source author")
-                for finding_id in runmodel.split_refs(row["finding_refs"]):
-                    if finding_id not in finding_ids:
-                        self._error(rel, f"line {number}:finding_refs", f"unknown finding {finding_id!r}")
+            self._check_source_coverage(source_cov, finding_ids)
         normative_cov = self._load_register(("baseline", "normative-coverage.tsv"), runmodel.load_normative_coverage)
         if normative_cov is not None:
-            rel = self._rel_path("baseline", "normative-coverage.tsv")
-            for number, row in enumerate(normative_cov, start=2):
-                for finding_id in runmodel.split_refs(row["finding_refs"]):
-                    if finding_id not in finding_ids:
-                        self._error(rel, f"line {number}:finding_refs", f"unknown finding {finding_id!r}")
+            self._check_normative_coverage(normative_cov, finding_ids)
+
+    def _check_source_coverage(
+        self,
+        rows: tuple[TsvRow, ...],
+        finding_ids: set[str],
+    ) -> None:
+        rel = self._rel_path("baseline", "source-coverage.tsv")
+        authors = {row["source_id"]: row["author_principal_id"] for row in self.source_rows or ()}
+        source_ids = set(authors) if self.source_rows is not None else None
+        for number, row in enumerate(rows, start=2):
+            if source_ids is not None and row["source_id"] not in source_ids:
+                self._error(rel, f"line {number}:source_id", f"unknown source {row['source_id']!r}")
+            author = authors.get(row["source_id"])
+            if author and row["reviewer_principal_id"] == author:
+                self._error(rel, f"line {number}:reviewer_principal_id", "reviewer must not be the source author")
+            self._check_coverage_finding_refs(rel, number, row, finding_ids)
+
+    def _check_normative_coverage(
+        self,
+        rows: tuple[TsvRow, ...],
+        finding_ids: set[str],
+    ) -> None:
+        rel = self._rel_path("baseline", "normative-coverage.tsv")
+        for number, row in enumerate(rows, start=2):
+            self._check_coverage_finding_refs(rel, number, row, finding_ids)
+
+    def _check_coverage_finding_refs(
+        self,
+        rel: str,
+        number: int,
+        row: TsvRow,
+        finding_ids: set[str],
+    ) -> None:
+        for finding_id in runmodel.split_refs(row["finding_refs"]):
+            if finding_id not in finding_ids:
+                self._error(rel, f"line {number}:finding_refs", f"unknown finding {finding_id!r}")
 
     # -- promotion-side schemas ---------------------------------------------
 
     def _check_promotion_artifacts(self) -> None:
-        manifest_path = self._path("promotion", "promotion-manifest.json")
+        manifest_path = self._path("promotion", PROMOTION_MANIFEST_FILE)
         if manifest_path.is_file():
             manifest, issues = runmodel.load_promotion_manifest(manifest_path)
-            self._report(self._rel_path("promotion", "promotion-manifest.json"), issues)
+            self._report(self._rel_path("promotion", PROMOTION_MANIFEST_FILE), issues)
             if manifest is not None and self.run is not None and manifest.run_id != self.run.run_id:
                 self._error(
-                    self._rel_path("promotion", "promotion-manifest.json"),
+                    self._rel_path("promotion", PROMOTION_MANIFEST_FILE),
                     "manifest.run_id",
                     f"run_id {manifest.run_id!r} does not match RUN.json {self.run.run_id!r}",
                 )
@@ -1064,7 +1246,7 @@ class _IncubatorCheck:
             ("baseline/source-units.tsv", self.unit_rows, "unit_id"),
             ("synthesis/claims-inventory.tsv", self.claim_rows, "claim_id"),
             ("promotion/atom-register.tsv", self.atom_rows, "atom_id"),
-            ("findings.tsv", self.finding_rows, "finding_id"),
+            (FINDINGS_FILE, self.finding_rows, "finding_id"),
         )
         for register_rel, rows, column in registers:
             for number, row in enumerate(rows or (), start=2):

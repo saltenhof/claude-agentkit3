@@ -58,6 +58,7 @@ class ConceptDocument:
     authority_scopes: tuple[str, ...]
     defers_to_targets: tuple[str, ...]
     defers_to_full: tuple[tuple[str, str, str], ...]
+    supersedes_full: tuple[tuple[str, str, str], ...]
     raw_text: str
     body: str
     document_hash: str
@@ -138,6 +139,7 @@ def discover_concept_files(
     concepts_dir: Path,
     *,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    included_docs: frozenset[str] | None = None,
 ) -> DiscoveryResult:
     """Discover and chunk all concept files under ``concepts_dir`` (SSOT owner).
 
@@ -166,6 +168,8 @@ def discover_concept_files(
         if not path.is_file() or path.suffix != MARKDOWN_SUFFIX:
             continue
         rel = path.relative_to(concepts_dir).as_posix()
+        if included_docs is not None and rel not in included_docs:
+            continue
         from agentkit.concepts.ignore import is_ignored
 
         if is_ignored(rel, ignore_patterns):
@@ -174,7 +178,7 @@ def discover_concept_files(
         raw_text = read_text_strict(path)
         file_hashes.append(document_hash(raw_text))
         try:
-            doc = _parse_document(path, rel, raw_text)
+            doc = _parse_document(rel, raw_text)
         except FrontmatterError as exc:
             errors.append(ParseError(path=rel, code=exc.code, message=str(exc)))
             continue
@@ -193,23 +197,17 @@ def discover_concept_files(
     )
 
 
-def _parse_document(path: Path, rel: str, raw_text: str) -> ConceptDocument:
+def _parse_document(rel: str, raw_text: str) -> ConceptDocument:
     """Parse one concept document into a :class:`ConceptDocument`."""
     frontmatter_text, body = split_frontmatter(raw_text)
     if not frontmatter_text:
-        raise FrontmatterError(
-            f"concept document {rel} has no frontmatter block", code="E-SCHEMA-001"
-        )
+        raise FrontmatterError(f"concept document {rel} has no frontmatter block", code="E-SCHEMA-001")
     fm = parse_document_frontmatter(raw_text)
     assert fm is not None  # frontmatter_text present implies parsed
     rel_norm = rel.replace("\\", "/")
     layer = _layer_for(rel_norm)
-    is_archived = rel_norm.split("/")[0] == ARCHIVE_SUBDIR or any(
-        seg == ARCHIVE_SUBDIR for seg in rel_norm.split("/")
-    )
-    defers_full = tuple(
-        (e.target, e.scope, e.reason) for e in fm.defers_to
-    )
+    is_archived = rel_norm.split("/")[0] == ARCHIVE_SUBDIR or any(seg == ARCHIVE_SUBDIR for seg in rel_norm.split("/"))
+    defers_full = fm.defers_to_full
     return ConceptDocument(
         concept_id=fm.concept_id,
         title=fm.title,
@@ -220,12 +218,13 @@ def _parse_document(path: Path, rel: str, raw_text: str) -> ConceptDocument:
         rel_path=rel_norm,
         layer=layer,
         is_archived=is_archived,
-        supersedes=tuple(fm.supersedes),
+        supersedes=fm.supersedes_targets,
         superseded_by=fm.superseded_by,
         tags=tuple(fm.tags),
         authority_scopes=fm.authority_scopes,
         defers_to_targets=fm.defers_to_targets,
         defers_to_full=defers_full,
+        supersedes_full=fm.supersedes_full,
         raw_text=raw_text,
         body=body,
         document_hash=document_hash(raw_text),
@@ -314,16 +313,17 @@ def _extract_normative_rules(text: str) -> str:
     kept verbatim for deterministic conflict checking (not vectorised). Returns
     an empty string when absent.
     """
-    import re  # noqa: PLC0415
-
-    match = re.search(
-        r"```normative-rules\s*\n(.*?)```",
-        text,
-        re.DOTALL,
-    )
-    if match is None:
+    marker = "```normative-rules"
+    marker_start = text.find(marker)
+    if marker_start < 0:
         return ""
-    return match.group(1).strip()
+    header_end = text.find("\n", marker_start + len(marker))
+    if header_end < 0 or text[marker_start + len(marker) : header_end].strip():
+        return ""
+    closing = text.find("```", header_end + 1)
+    if closing < 0:
+        return ""
+    return text[header_end + 1 : closing].strip()
 
 
 __all__ = [

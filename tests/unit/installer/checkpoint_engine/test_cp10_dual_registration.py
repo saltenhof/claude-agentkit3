@@ -83,6 +83,7 @@ def _ctx(
         features_vectordb=features_vectordb,
         vectordb_http_endpoint=http_endpoint,
         vectordb_grpc_endpoint=grpc_endpoint,
+        mcp_registration_probe=None,
     )
     ctx = build_checkpoint_context(config, mode)
     cp05_pipeline_config(ctx)
@@ -144,11 +145,9 @@ def test_foreign_entries_in_both_files_are_preserved(
     _use_conforming(monkeypatch)
     ctx = _ctx(tmp_path, registration_repo)
     root = Path(ctx.project_root)
-    (root / _MCP_JSON).write_text(
-        '{"mcpServers": {"foreign": {"command": "node"}}}\n', encoding="utf-8"
-    )
+    (root / _MCP_JSON).write_text('{"mcpServers": {"foreign": {"command": "node"}}}\n', encoding="utf-8")
     (root / _CODEX_REL).parent.mkdir(parents=True, exist_ok=True)
-    (root / _CODEX_REL).write_bytes(b'# mine\n[user.custom]\nalpha = 1\n')
+    (root / _CODEX_REL).write_bytes(b"# mine\n[user.custom]\nalpha = 1\n")
 
     assert cp10_mcp_registration(ctx).status is CheckpointStatus.UPDATED
 
@@ -204,9 +203,7 @@ def test_field_mutation_after_the_probe_prevents_both_writes(
         probed, failure = real_probe(rendered, **kwargs)
         if probed is None:
             return probed, failure
-        mutated_server = dataclasses.replace(
-            probed.rendered.servers[0], cwd="C:/somewhere-else"
-        )
+        mutated_server = dataclasses.replace(probed.rendered.servers[0], cwd="C:/somewhere-else")
         tampered = dataclasses.replace(probed.rendered, servers=(mutated_server,))
         return dataclasses.replace(probed, rendered=tampered), None
 

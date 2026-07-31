@@ -21,8 +21,10 @@ wiring point. The handler never builds these itself (DI / truth boundary).
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from agentkit.backend.closure.merge_sequence import SanityOutcome
 
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
     from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockRepository
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.types import StoryType
+    from agentkit.backend.vectordb.engine import CorpusClientPort
     from agentkit.backend.verify_system.conformance_service import FidelityResult
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
 
@@ -114,10 +117,7 @@ class ProductiveSanityGatePort:
         self.git_backend.run(repo, "rebase", "--abort")
         return SanityOutcome(
             passed=False,
-            reason=(
-                "pre-merge rebase onto origin/main failed (conflict): "
-                f"{rebase.stderr.strip() or rebase.returncode}"
-            ),
+            reason=(f"pre-merge rebase onto origin/main failed (conflict): {rebase.stderr.strip() or rebase.returncode}"),
         )
 
     def _tests_green(self, story_dir: Path) -> SanityOutcome:
@@ -176,15 +176,9 @@ class ProductiveDocFidelityFeedbackPort:
     llm_client: LlmClient | None = None
     change_evidence_provider: Callable[[StoryContext, Path], str | None] | None = None
 
-    def evaluate_feedback_fidelity(
-        self, ctx: StoryContext, story_dir: Path
-    ) -> tuple[bool, str | None]:
+    def evaluate_feedback_fidelity(self, ctx: StoryContext, story_dir: Path) -> tuple[bool, str | None]:
         """Run the level-4 feedback check through the conformance facade."""
-        change_evidence = (
-            self.change_evidence_provider(ctx, story_dir)
-            if self.change_evidence_provider is not None
-            else None
-        )
+        change_evidence = self.change_evidence_provider(ctx, story_dir) if self.change_evidence_provider is not None else None
         if change_evidence is None or not change_evidence.strip():
             return (
                 False,
@@ -202,40 +196,97 @@ class ProductiveDocFidelityFeedbackPort:
             logger.warning("feedback fidelity evaluation failed: %s", exc)
             return (
                 False,
-                "feedback_fidelity evaluator failed; failure-corpus incident "
-                f"candidate: {type(exc).__name__}: {exc}",
+                f"feedback_fidelity evaluator failed; failure-corpus incident candidate: {type(exc).__name__}: {exc}",
             )
         from agentkit.backend.verify_system.conformance_service import ConformanceVerdict
 
         if result.conformance_verdict is ConformanceVerdict.FAIL:
             return (
                 False,
-                "feedback_fidelity FAIL; failure-corpus incident candidate: "
-                f"{result.reason}",
+                f"feedback_fidelity FAIL; failure-corpus incident candidate: {result.reason}",
             )
         return (True, None)
 
 
 @dataclass(frozen=True)
 class ProductiveVectorDbSyncPort:
-    """VectorDB sync seam (FK-13 §13.7.1, fire-and-forget, non-blocking).
+    """Reliable non-blocking ``story_sync`` submission to the AG3-174 engine."""
 
-    Triggers an async ``story_sync`` so the freshly closed story is searchable.
-    The VectorDB integration is not yet available in the target project (FK-13);
-    the step is MANDATORY but NON-BLOCKING: this seam records a human Warning when
-    the sync cannot be triggered (never a silent skip; the STEP still runs).
-    """
+    client: CorpusClientPort | None = None
 
-    def trigger_sync(
-        self, ctx: StoryContext, story_dir: Path
-    ) -> tuple[bool, str | None]:
-        """Trigger the (async) VectorDB sync; non-blocking Warning when absent."""
-        del ctx, story_dir
-        return (
-            False,
-            "VectorDB sync (story_sync, FK-13 §13.7.1) has no productive "
-            "integration yet -- closed story not yet indexed for retrieval",
+    _executor: ClassVar[ThreadPoolExecutor] = ThreadPoolExecutor(
+        max_workers=2,
+        thread_name_prefix="agentkit-vectordb-sync",
+    )
+    _pending: ClassVar[set[Future[None]]] = set()
+    _pending_lock: ClassVar[threading.Lock] = threading.Lock()
+    _pending_condition: ClassVar[threading.Condition] = threading.Condition(_pending_lock)
+
+    @classmethod
+    def _observe(cls, future: Future[None]) -> None:
+        try:
+            future.result()
+        except Exception:
+            logger.exception("closure story_sync failed after reliable submission")
+        finally:
+            with cls._pending_condition:
+                cls._pending.discard(future)
+                cls._pending_condition.notify_all()
+
+    @classmethod
+    def wait_for_pending(cls, timeout: float | None = None) -> bool:
+        """Wait for currently retained tasks; intended for shutdown and tests."""
+        with cls._pending_condition:
+            return cls._pending_condition.wait_for(
+                lambda: not cls._pending,
+                timeout=timeout,
+            )
+
+    @staticmethod
+    def _sync(project_root: Path, client: CorpusClientPort | None) -> None:
+        from agentkit.backend.config.loader import load_project_config
+        from agentkit.backend.vectordb.engine import compose_runtime
+        from agentkit.backend.vectordb.mcp_server import McpToolService
+
+        config = load_project_config(project_root)
+        vectordb = config.pipeline.vectordb
+        if vectordb is None or vectordb.weaviate_http_endpoint is None or vectordb.weaviate_grpc_endpoint is None:
+            raise ValueError("mandatory VectorDB endpoints are missing")
+        project_id = config.project_prefix
+        if not isinstance(project_id, str) or not project_id:
+            raise ValueError("mandatory project_prefix is missing")
+        env = {
+            "PROJECT_ID": project_id,
+            "WEAVIATE_HTTP_ENDPOINT": vectordb.weaviate_http_endpoint,
+            "WEAVIATE_GRPC_ENDPOINT": vectordb.weaviate_grpc_endpoint,
+            "AGENTKIT_CONCEPTS_DIR": str(project_root / config.concepts_dir),
+            "AGENTKIT_STORIES_DIR": str(project_root / config.wiki_stories_dir),
+        }
+        service = compose_runtime(
+            env,
+            concepts_dir=project_root / config.concepts_dir,
+            stories_dir=project_root / config.wiki_stories_dir,
+            client=client,
+            cwd=str(project_root),
         )
+        if not isinstance(service, McpToolService):
+            raise TypeError("VectorDB engine composition returned an invalid service")
+        result = service.story_sync({"full_reindex": False})
+        if "error" in result:
+            raise RuntimeError(f"story_sync failed: {result['error']}")
+
+    def trigger_sync(self, ctx: StoryContext, story_dir: Path) -> tuple[bool, str | None]:
+        """Submit sync without blocking Closure; retain and observe its Future."""
+        project_root = ctx.project_root or _project_root_for_feedback(story_dir)
+        try:
+            future = self._executor.submit(self._sync, project_root, self.client)
+        except RuntimeError as exc:
+            logger.error("closure story_sync submission failed: %s", exc)
+            return False, f"VectorDB story_sync submission failed: {exc}"
+        with self._pending_condition:
+            self._pending.add(future)
+        future.add_done_callback(self._observe)
+        return True, None
 
 
 def _run_feedback_fidelity_conformance(
@@ -351,9 +402,7 @@ class ProductiveTelemetryEvidencePort:
     project_key: str
     project_root: Path
 
-    def evaluate(
-        self, story_dir: Path, *, story_id: str, run_id: str
-    ) -> TelemetryEvidenceVerdict:
+    def evaluate(self, story_dir: Path, *, story_id: str, run_id: str) -> TelemetryEvidenceVerdict:
         """Run the six FK-68 §68.4 proofs for the run (fail-closed on violation)."""
         from agentkit.backend.closure.gates import TelemetryEvidenceVerdict
         from agentkit.backend.telemetry.contract.results import TelemetryScope
@@ -369,21 +418,20 @@ class ProductiveTelemetryEvidencePort:
             # S1110: the message is hoisted into a local so the kwarg value is a
             # plain identifier (no parenthesised grouping at the call site). The
             # string value is byte-identical to the prior inline form.
-            blocking_reason = "Telemetry-Evidence-Block (FK-68 §68.4): the authoritative " \
-                f"review/llm/web budget config could not be resolved ({exc}) " \
-                "-> fail-closed (cannot verify telemetry evidence -> cannot " \
-                "merge)"
+            blocking_reason = "".join(
+                [
+                    "Telemetry-Evidence-Block (FK-68 §68.4): the authoritative ",
+                    f"review/llm/web budget config could not be resolved ({exc}) ",
+                    "-> fail-closed (cannot verify telemetry evidence -> cannot merge)",
+                ]
+            )
             return TelemetryEvidenceVerdict(
                 passed=False,
                 blocking_reason=blocking_reason,
             )
 
-        reader = StateBackendExecutionEventReader(
-            story_dir, project_key=self.project_key, story_id=story_id
-        )
-        scope = TelemetryScope(
-            project_key=self.project_key, story_id=story_id, run_id=run_id
-        )
+        reader = StateBackendExecutionEventReader(story_dir, project_key=self.project_key, story_id=story_id)
+        scope = TelemetryScope(project_key=self.project_key, story_id=story_id, run_id=run_id)
         contract = TelemetryContract(
             reader,
             StateBackendEmitter(story_dir, default_project_key=self.project_key),
@@ -402,10 +450,7 @@ class ProductiveTelemetryEvidencePort:
         return TelemetryEvidenceVerdict(
             passed=False,
             failing_rule_ids=failing,
-            blocking_reason=(
-                "Telemetry-Evidence-Block (FK-68 §68.4) failed at Closure "
-                f"(fail-closed): {details}"
-            ),
+            blocking_reason=(f"Telemetry-Evidence-Block (FK-68 §68.4) failed at Closure (fail-closed): {details}"),
         )
 
     def _resolve_config(self) -> tuple[set[str], dict[str, str], int]:
@@ -480,9 +525,7 @@ class ProductiveGuardCounterFlushPort:
 
     store_dir: Path
 
-    def flush_on_closure(
-        self, story_dir: Path, *, project_key: str, story_id: str
-    ) -> tuple[bool, str | None]:
+    def flush_on_closure(self, story_dir: Path, *, project_key: str, story_id: str) -> tuple[bool, str | None]:
         """Drain the story's guard counters at Closure; non-blocking Warning on error."""
         del story_dir
         from agentkit.backend.kpi_analytics import GuardCounterService
@@ -491,13 +534,9 @@ class ProductiveGuardCounterFlushPort:
         )
 
         try:
-            GuardCounterService(
-                StateBackendGuardCounterRepository(self.store_dir)
-            ).flush_on_closure(project_key, story_id)
+            GuardCounterService(StateBackendGuardCounterRepository(self.store_dir)).flush_on_closure(project_key, story_id)
         except Exception as exc:  # noqa: BLE001 -- non-blocking post-close step
-            logger.warning(
-                "guard-counter Closure flush failed for story=%s: %s", story_id, exc
-            )
+            logger.warning("guard-counter Closure flush failed for story=%s: %s", story_id, exc)
             return (False, f"guard-counter Closure flush raised: {exc}")
         return (True, None)
 
@@ -527,9 +566,7 @@ class ProductiveModeLockReleasePort:
 
     mode_lock_repo: ModeLockRepository
 
-    def release(
-        self, story_dir: Path, project_key: str, story_id: str
-    ) -> tuple[bool, str | None]:
+    def release(self, story_dir: Path, project_key: str, story_id: str) -> tuple[bool, str | None]:
         """Release this story's mode-lock holder; non-blocking Warning on error."""
         from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
             acquired_mode,

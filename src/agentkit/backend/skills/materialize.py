@@ -254,6 +254,9 @@ def bind_skill_materialized(
             bundle_root, variant_dir, config, project_root, substitutor
         )
         variant_written = True
+        from agentkit.backend.skills.bundle_store import bundle_content_digest
+
+        pinned_content_digest = bundle_content_digest(variant_dir)
 
         # 2. Link the harness bind points at the variant (not the raw bundle).
         binding_mode = _link_harness_bindpoints(
@@ -271,6 +274,7 @@ def bind_skill_materialized(
             skill_name=skill_name,
             bundle_id=bundle_id,
             bundle_version=bundle_version,
+            content_digest=pinned_content_digest,
             target_path=canonical_target,
             binding_mode=binding_mode,
             status=SkillLifecycleStatus.BOUND,
@@ -280,12 +284,17 @@ def bind_skill_materialized(
         # A row is now persisted; the rollback path must delete it on any
         # subsequent failure so no orphan row survives a partial bind.
         row_persisted = True
+        if bundle_content_digest(variant_dir) != pinned_content_digest:
+            raise SkillBindingFailedError(
+                f"Materialized skill content changed while binding {skill_name!r}",
+            )
         verified = SkillBinding(
             binding_id=binding_id,
             project_key=project_root.stem,
             skill_name=skill_name,
             bundle_id=bundle_id,
             bundle_version=bundle_version,
+            content_digest=pinned_content_digest,
             target_path=canonical_target,
             binding_mode=binding_mode,
             status=SkillLifecycleStatus.VERIFIED,

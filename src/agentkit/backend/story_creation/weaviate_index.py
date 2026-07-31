@@ -33,6 +33,7 @@ from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableErro
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from agentkit.backend.vectordb.commit_recovery import FileCommitRecoveryJournal
     from agentkit.backend.vectordb.schema import StoryContextObject
     from agentkit.integration_clients.vectordb import WeaviateStoryAdapter
 
@@ -41,7 +42,11 @@ class WeaviateStoryIndex:
     """Bind the ``StoryIndexPort`` to the claim-aware corpus sync owner (N38)."""
 
     def __init__(
-        self, adapter: WeaviateStoryAdapter, *, sync: SyncService | None = None
+        self,
+        adapter: WeaviateStoryAdapter,
+        *,
+        recovery_journal: FileCommitRecoveryJournal | None = None,
+        sync: SyncService | None = None,
     ) -> None:
         """Initialise with a connected Weaviate adapter.
 
@@ -50,17 +55,27 @@ class WeaviateStoryIndex:
             sync: The corpus sync owner. Built over the adapter's client when
                 omitted; injectable so the export path can be exercised against a
                 double at the transport seam.
+            recovery_journal: Durable project-bound completion owner. Mandatory
+                whenever this adapter constructs its productive write service.
 
         Raises:
             VectorDbUnavailableError: When the adapter's client does not implement
                 the corpus surface the sync owner requires (fail-closed).
         """
         self._adapter = adapter
-        self._sync = sync if sync is not None else self._build_sync(adapter)
+        if sync is not None:
+            self._sync = sync
+            return
+        client = self._corpus_client(adapter)
+        if recovery_journal is None:
+            raise VectorDbUnavailableError(
+                "the productive Weaviate story index requires a durable completion "
+                "recovery owner; refusing an unjournaled write path"
+            )
+        self._sync = self._build_sync(client, recovery_journal)
 
     @staticmethod
-    def _build_sync(adapter: WeaviateStoryAdapter) -> SyncService:
-        """Build the corpus sync owner over the adapter's own connection."""
+    def _corpus_client(adapter: WeaviateStoryAdapter) -> CorpusClientPort:
         client = adapter.corpus_client
         if not isinstance(client, CorpusClientPort):
             raise VectorDbUnavailableError(
@@ -68,8 +83,21 @@ class WeaviateStoryIndex:
                 "for a claimed, generation-stamped write; refusing to index through "
                 "a second write path (fail-closed, N38)."
             )
+        return client
+
+    @staticmethod
+    def _build_sync(
+        client: CorpusClientPort,
+        recovery_journal: FileCommitRecoveryJournal,
+    ) -> SyncService:
+        """Build the corpus sync owner over the adapter's own connection."""
         ensure_corpus_collections(client)
-        return SyncService(store=WeaviateCorpusStore(client=client))
+        return SyncService(
+            store=WeaviateCorpusStore(
+                client=client,
+                recovery_journal=recovery_journal,
+            )
+        )
 
     def index_story(
         self,

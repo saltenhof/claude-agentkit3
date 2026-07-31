@@ -24,24 +24,39 @@ def load_chunks(
     max_chars: int = DEFAULT_MAX_CHARS,
 ) -> tuple[ConceptChunk, ...]:
     """Load working-tree chunks without an external index dependency."""
-    chunks = discover(concept_root, max_chars=max_chars).chunks
-    if included_docs is not None:
-        chunks = [chunk for chunk in chunks if chunk.rel_path in included_docs]
-    return tuple(chunks)
+    canonical_docs = _canonical_docs(concept_root)
+    selected = included_docs
+    if canonical_docs is not None:
+        selected = canonical_docs if selected is None else selected & canonical_docs
+    return tuple(
+        discover(
+            concept_root,
+            max_chars=max_chars,
+            included_docs=selected,
+        ).chunks
+    )
+
+
+def _canonical_docs(concept_root: Path) -> frozenset[str] | None:
+    """Return indexed prose roots when this is the full AK3 concept corpus."""
+    roots = (
+        concept_root / "technical-design",
+        concept_root / "domain-design",
+    )
+    if not any(root.is_dir() for root in roots):
+        return None
+    return frozenset(path.relative_to(concept_root).as_posix() for root in roots if root.is_dir() for path in root.glob("*.md"))
 
 
 def authorization_scopes(chunk: ConceptChunk) -> frozenset[str]:
     """Return authority plus scope-qualified deferral scopes for a chunk."""
     authority = {
-        scope
-        for entry in _entries(chunk, "authority_over_full")
-        if (scope := _non_empty(entry.get("scope"))) is not None
+        scope for entry in _entries(chunk, "authority_over_full") if (scope := _non_empty(entry.get("scope"))) is not None
     }
     delegated = {
         scope
         for entry in _entries(chunk, "defers_to_full")
-        if _non_empty(entry.get("target")) is not None
-        and (scope := _non_empty(entry.get("scope"))) is not None
+        if _non_empty(entry.get("target")) is not None and (scope := _non_empty(entry.get("scope"))) is not None
     }
     return frozenset(authority | delegated)
 

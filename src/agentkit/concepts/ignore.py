@@ -56,36 +56,31 @@ def _glob_to_regex(pattern: str) -> str:
     while i < n:
         ch = pattern[i]
         if ch == "*":
-            if i + 1 < n and pattern[i + 1] == "*":
-                # '**'
-                j = i + 2
-                if j >= n:
-                    # '**' at end -> match everything remaining (direct + deep).
-                    out.append(r".*")
-                    i = j
-                elif pattern[j] == "/" and j + 1 < n:
-                    # '**/<rest>' -> at least one path segment required.
-                    out.append(r"(?:[^/]+/)+")
-                    i = j + 1
-                else:
-                    # '**' followed by a non-slash, or '**/' at end.
-                    out.append(r".*")
-                    i = j + 1 if (j < n and pattern[j] == "/") else j
-            else:
-                # '*' -- within a segment, no '/'.
-                out.append(r"[^/]*")
-                i += 1
+            i = _append_star(pattern, i, out)
         elif ch == "?":
             out.append(r"[^/]")
-            i += 1
-        elif ch in r".+()|^$\\{}[]":
-            out.append(re.escape(ch))
             i += 1
         else:
             out.append(re.escape(ch))
             i += 1
     out.append("$")
     return "".join(out)
+
+
+def _append_star(pattern: str, index: int, out: list[str]) -> int:
+    """Append one ``*``/``**`` translation and return the next input index."""
+    if index + 1 >= len(pattern) or pattern[index + 1] != "*":
+        out.append(r"[^/]*")
+        return index + 1
+    following = index + 2
+    if following >= len(pattern):
+        out.append(r".*")
+        return following
+    if pattern[following] == "/" and following + 1 < len(pattern):
+        out.append(r"(?:[^/]+/)+")
+        return following + 1
+    out.append(r".*")
+    return following + 1 if pattern[following] == "/" else following
 
 
 def load_patterns(lines: Iterable[str]) -> list[IgnorePattern]:

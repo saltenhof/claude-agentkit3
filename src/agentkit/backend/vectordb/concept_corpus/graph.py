@@ -117,39 +117,58 @@ def detect_cycle(graph: ConceptGraph, edge_type: str, *, same_scope: bool = Fals
     stack: set[str] = set()
     path: list[str] = []
 
-    def dfs(node: str) -> list[str] | None:
-        visited.add(node)
-        stack.add(node)
-        path.append(node)
-        for target, _scope in adj.get(node, []):
-            if target not in graph.nodes:
-                continue
-            if same_scope:
-                # Group edges by scope; a cycle needs >=2 edges of the same scope.
-                pass
-            if target in stack:
-                # Found a back-edge; extract the cycle path.
-                idx = path.index(target)
-                cycle = path[idx:] + [target]
-                if same_scope:
-                    if _cycle_has_consistent_scope(cycle, adj):
-                        return cycle
-                    # not a same-scope cycle on this path; keep searching
-                else:
-                    return cycle
-            elif target not in visited:
-                result = dfs(target)
-                if result is not None:
-                    return result
-        path.pop()
-        stack.discard(node)
-        return None
-
     for start in sorted(graph.nodes):
         if start not in visited:
-            result = dfs(start)
+            result = _walk_cycle(
+                start,
+                graph=graph,
+                adjacency=adj,
+                visited=visited,
+                stack=stack,
+                path=path,
+                same_scope=same_scope,
+            )
             if result is not None:
                 return result
+    return None
+
+
+def _walk_cycle(
+    node: str,
+    *,
+    graph: ConceptGraph,
+    adjacency: dict[str, list[tuple[str, str]]],
+    visited: set[str],
+    stack: set[str],
+    path: list[str],
+    same_scope: bool,
+) -> list[str] | None:
+    visited.add(node)
+    stack.add(node)
+    path.append(node)
+    for target, _scope in adjacency.get(node, []):
+        if target not in graph.nodes:
+            continue
+        if target in stack:
+            cycle = path[path.index(target) :] + [target]
+            if not same_scope or _cycle_has_consistent_scope(cycle, adjacency):
+                return cycle
+            continue
+        if target in visited:
+            continue
+        found = _walk_cycle(
+            target,
+            graph=graph,
+            adjacency=adjacency,
+            visited=visited,
+            stack=stack,
+            path=path,
+            same_scope=same_scope,
+        )
+        if found is not None:
+            return found
+    path.pop()
+    stack.discard(node)
     return None
 
 

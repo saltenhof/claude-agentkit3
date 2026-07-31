@@ -8,8 +8,7 @@ from concept_governance.parser import ResponseParseError, parse_response
 
 def test_regex_fallback_recovers_structured_fields_without_deciding_policy() -> None:
     parsed = parse_response(
-        'has\\_normative\\_statements: true; '
-        '"assertion": "The system must retain locks.", "scopes": ["lock.lifecycle"]'
+        'has\\_normative\\_statements: true; "assertion": "The system must retain locks.", "scopes": ["lock.lifecycle"]'
     )
     assert parsed.has_normative_statements is True
     assert parsed.assertions[0].scopes == ("lock.lifecycle",)
@@ -17,6 +16,11 @@ def test_regex_fallback_recovers_structured_fields_without_deciding_policy() -> 
 
 def test_escaped_underscore_json_is_strictly_revalidated() -> None:
     parsed = parse_response('{"has\\_normative\\_statements":false,"assertions":[]}')
+    assert parsed.has_normative_statements is False
+
+
+def test_prefaced_escaped_json_is_extracted_then_strictly_revalidated() -> None:
+    parsed = parse_response('Worked for 12s\n\n{"has\\_normative\\_statements":false,"assertions":[]}')
     assert parsed.has_normative_statements is False
 
 

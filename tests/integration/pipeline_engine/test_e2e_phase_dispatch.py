@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.control_plane.dispatch import PhaseDispatcher, PreStartGuard
 from agentkit.backend.control_plane.models import PhaseMutationRequest
@@ -63,18 +64,14 @@ class _AllowScheduling:
 
 
 class _EscalatingHandler:
-    def on_enter(
-        self, ctx: StoryContext, envelope: PhaseEnvelope
-    ) -> HandlerResult:
+    def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         del ctx, envelope
         return HandlerResult(status=PhaseStatus.ESCALATED, errors=("blocked",))
 
     def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         del ctx, envelope
 
-    def on_resume(
-        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str
-    ) -> HandlerResult:
+    def on_resume(self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str) -> HandlerResult:
         del ctx, envelope, trigger
         return HandlerResult(status=PhaseStatus.ESCALATED)
 
@@ -96,14 +93,13 @@ def _install_project(project_dir: Path) -> None:
             github_repo="demo",
             sonarqube_available=False,
             ci_available=False,
+            **ready_vectordb_install_kwargs(),
         )
     )
     assert result.success
 
 
-def _persist_ctx(
-    project_dir: Path, story_id: str, *, with_project_root: bool = True
-) -> StoryContext:
+def _persist_ctx(project_dir: Path, story_id: str, *, with_project_root: bool = True) -> StoryContext:
     s_dir = resolve_story_dir(project_dir, story_id)
     s_dir.mkdir(parents=True, exist_ok=True)
     ctx = StoryContext(
@@ -169,9 +165,7 @@ def _request(project_dir: Path, story_id: str, op_suffix: str) -> PhaseMutationR
 class TestSequentialDispatchContract:
     """Sequential start_phase calls drive one phase each across the workflow."""
 
-    def test_setup_implementation_closure_one_phase_per_call(
-        self, tmp_path: Path
-    ) -> None:
+    def test_setup_implementation_closure_one_phase_per_call(self, tmp_path: Path) -> None:
         """Setup -> Implementation -> Closure, exactly one phase per start call."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
@@ -183,9 +177,7 @@ class TestSequentialDispatchContract:
             approval_reader=_AllowApproval(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(
-            phase_dispatcher=_boundary_dispatcher(guard=guard)
-        )
+        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
 
         # 1. Setup
         setup = service.start_phase(
@@ -225,9 +217,7 @@ class TestSequentialDispatchContract:
         # Terminal phase -> no next phase to advance to.
         assert closure.phase_dispatch.next_phase is None
 
-    def test_escalated_implementation_stops_before_closure(
-        self, tmp_path: Path
-    ) -> None:
+    def test_escalated_implementation_stops_before_closure(self, tmp_path: Path) -> None:
         """An ESCALATED implementation yields no next phase -> closure not started."""
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
@@ -278,9 +268,7 @@ class TestSequentialDispatchContract:
             approval_reader=_AllowApproval(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(
-            phase_dispatcher=_boundary_dispatcher(guard=guard)
-        )
+        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
         req = _request(project_dir, story_id, "setup")
 
         first = service.start_phase(run_id="run-1", phase="setup", request=req)
@@ -306,9 +294,7 @@ class TestSequentialDispatchContract:
             approval_reader=_Deny(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(
-            phase_dispatcher=_boundary_dispatcher(guard=guard)
-        )
+        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
 
         setup = service.start_phase(
             run_id="run-1",
@@ -320,9 +306,7 @@ class TestSequentialDispatchContract:
         assert setup.phase_dispatch.status == "rejected"
         assert setup.phase_dispatch.dispatched is False
 
-    def test_productive_engine_builds_closure_without_ctx_project_root(
-        self, tmp_path: Path
-    ) -> None:
+    def test_productive_engine_builds_closure_without_ctx_project_root(self, tmp_path: Path) -> None:
         """AG3-123 AC1/AC4 (BLOCKER): the PRODUCTIVE engine-construction path builds.
 
         Drives the REAL composition-root wiring
@@ -350,9 +334,7 @@ class TestSequentialDispatchContract:
         # No dev-local project_root on the persisted context.
         _persist_ctx(project_dir, story_id, with_project_root=False)
 
-        workspace = build_story_workspace_locator().resolve(
-            project_dir.name, story_id, "run-1"
-        )
+        workspace = build_story_workspace_locator().resolve(project_dir.name, story_id, "run-1")
         # IMPLEMENTATION workflow includes the closure phase -> the eager closure
         # handler wiring runs during construction. Thread ONLY the Backend-resolved
         # workspace anchor (exactly as the productive ``build_phase_dispatcher``
@@ -375,9 +357,7 @@ class TestSequentialDispatchContract:
         )
         assert engine is not None
 
-    def test_backend_resolved_workspace_without_ctx_project_root(
-        self, tmp_path: Path
-    ) -> None:
+    def test_backend_resolved_workspace_without_ctx_project_root(self, tmp_path: Path) -> None:
         """AG3-123 AC1/AC4: the REAL flow dispatches with NO dev-local project_root.
 
         Drives the productive ``ControlPlaneRuntimeService`` phase-boundary flow:
@@ -400,9 +380,7 @@ class TestSequentialDispatchContract:
             approval_reader=_AllowApproval(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(
-            phase_dispatcher=_boundary_dispatcher(guard=guard)
-        )
+        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
 
         setup = service.start_phase(
             run_id="run-1",

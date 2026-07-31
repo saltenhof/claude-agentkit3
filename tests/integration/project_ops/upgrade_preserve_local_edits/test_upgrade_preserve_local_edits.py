@@ -16,6 +16,7 @@ test isolates the flow + filesystem behaviour from a live state backend).
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -84,10 +85,21 @@ def _write_valid_config(project_root: Path, *, config_version: str = "3.0") -> P
     return path
 
 
+def _init_git_repo(project_root: Path) -> None:
+    """Exercise hook activation against a real local Git configuration."""
+    subprocess.run(
+        ["git", "init", "--quiet", str(project_root)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_upgrade_preserves_user_edited_config_via_bak(tmp_path: Path) -> None:
     """§51.3.2: a user-edited config is backed up to ``.bak`` and rewritten."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
+    _init_git_repo(project_root)
     config_path = _write_valid_config(project_root, config_version="3.0")
     old_content = config_path.read_text(encoding="utf-8")
 
@@ -129,6 +141,7 @@ def test_upgrade_preserves_unrecognised_pre_commit_via_bak(tmp_path: Path) -> No
     """§51.6.1: an unrecognised pre-commit customization is preserved as ``.bak``."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
+    _init_git_repo(project_root)
     config_path = _write_valid_config(project_root, config_version="3.0")
     hook = project_root / "tools" / "hooks" / "pre-commit"
     hook.parent.mkdir(parents=True)

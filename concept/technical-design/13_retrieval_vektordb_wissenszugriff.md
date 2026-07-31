@@ -44,9 +44,10 @@ Konzepten.
 > **deprecateter Migrations-Konfigschluessel**: In einem unterstuetzten
 > Zielprojekt ist `features.vectordb: false` ein harter Konfigurationsfehler,
 > kein Abschaltpfad. Die Code-seitige Entfernung des Optionalitaetszweigs im
-> Installer (§13.7.1, FK-50 CP 10/10a) ist einer spaeteren Story vorbehalten;
-> bis dahin bleibt der `false`-Zweig ausschliesslich als deprecateter Uebergang
-> bestehen.
+> Installer (§13.7.1, FK-50 CP 10/10a) ist mit AG3-176 umgesetzt: der
+> Checkpoint-Graph kennt keinen `branch_vectordb_enabled`-Knoten mehr, und
+> `features.vectordb: false` wird vor CP 1 mit dem Grund `vectordb_required`
+> abgewiesen.
 
 ## 13.2 Technologie-Stack
 
@@ -233,9 +234,10 @@ diagnostizieren — nur A und B loest ein Sync auf, C braucht eine Eskalation
 | `full_reindex` | Boolean | Nein | Kompletter Neuaufbau (Default: false) |
 
 Liest die exportierten `story.md`-Dateien aus dem Story-Verzeichnis
-und weitere lokale Markdown-Dateien (Konzepte, Architektur,
-Research), chunked sie, vergleicht Hashes, indiziert neue/geänderte
-Chunks.
+und die lokalen Research-Quellen, chunked sie, vergleicht Hashes,
+indiziert neue/geänderte Chunks. Konzept- und Architekturquellen gehören
+**nicht** hierher, sondern in `concept_sync` (§13.9.5, Beschluss
+2026-07-21 „VektorDB-Kantenschaerfung").
 
 ### 13.4.2 Suchmodi
 
@@ -723,7 +725,7 @@ kein Prozessschritt würde sie nutzen.
 |--------------------|-----------------|---------|------------|
 | INDEX.yaml + concept_graph.json | **Post-Commit-Hook** (§30.5.4a) | Automatisch nach jedem Commit mit Änderungen unter dem konfigurierten `concepts_dir` | Pfadbasiertes Dispatching erkennt `concepts_dir`; `concept build` ist deterministisch, kein LLM, ~1s Laufzeit |
 | VectorDB-Sync (Erstindizierung) | **Installer** (CP 10a) | Einmalig bei Installation/Upgrade | Checkpoint-Engine (VektorDB ist Pflicht) |
-| VectorDB-Sync (laufend) | **Post-Commit-Hook** (§30.5.4a) | Nach `concept build` | `concept build --sync`; bei VectorDB-Ausfall: Fehler protokolliert |
+| VectorDB-Sync (laufend) | **Post-Commit-Hook** (§30.5.4a) | Nach `concept build` | Zwei getrennte Aufrufe: erst `concept build`, danach `concept sync` ohne `--full`; ein Build- oder Syncfehler publiziert keine neue Freshness |
 | VectorDB-Sync (manuell) | **Operator / Agent** | CLI `concept sync` oder MCP-Tool | Expliziter Aufruf |
 | Freshness-Gate | **create-userstory Skill** | Vor Story-Erstellung | Vergleicht `corpus_revision` gegen Datei-Stand; Hard Stop bei Stale |
 
@@ -742,7 +744,99 @@ Validierung zuständig — er erzeugt keine Artefakte.
 |---------|--------|-------------------|
 | Installation (CP 10a) | `concept_sync(full_reindex=true)` | Vollständig |
 | Manuell | `concept_sync` MCP-Tool oder CLI | Inkrementell (Hash-basiert) |
-| Nach Corpus Build | Post-Commit-Hook via `concept build --sync` | Inkrementell |
+| Nach Corpus Build | Post-Commit-Hook: `concept build`, danach `concept sync` ohne `--full` | Inkrementell |
+
+**CP-10a-Receipt-Vertrag (normativ, Single Source of Truth):** Die
+Erstindizierung ruft `story_sync(full_reindex=true)` und danach
+`concept_sync(full_reindex=true)` auf. Erst nach Erfolg beider Producer wird je
+ein strikt typisiertes Receipt publiziert.
+
+Ablageort (relativ zum Zielprojekt, nicht zum Repo-Root):
+`.agentkit/receipts/vectordb/story_sync.json` und
+`.agentkit/receipts/vectordb/concept_sync.json`.
+
+Feldschema — strikt, unveraenderlich, keine Zusatzfelder:
+
+| Feld | Typ | Constraint |
+|------|-----|------------|
+| `project_id` | String | Projekt-Identifikator des Laufs |
+| `tool` | Enum | genau `story_sync` oder `concept_sync` |
+| `source_types` | String-Tupel | fest je Tool: `story_sync` = (`story`, `research`), `concept_sync` = (`concept`) |
+| `discovered` | Integer | >= 0, im Korpus vorgefundene Quellen |
+| `unchanged` | Integer | >= 0, hash-identisch uebersprungen |
+| `upserted` | Integer | >= 0, neu geschrieben oder ersetzt |
+| `deleted` | Integer | >= 0, entfernte Alt-Chunks verschwundener Quellen |
+| `failed` | Integer | >= 0; ein Receipt mit `failed > 0` wird nie publiziert |
+| `empty_corpus` | Boolean | true, wenn der Korpus nach dem Lauf keine Quelle enthaelt |
+| `start_revision` | String | `end_revision` des vorherigen Receipts; beim Erstlauf leer |
+| `end_revision` | String | `corpus_revision` nach abgeschlossenem Lauf |
+| `status` | Enum | ausschliesslich `success` — ein Receipt existiert nur fuer einen erfolgreichen Lauf |
+
+**Empty Corpus.** Ein leerer Korpus ist **Erfolg**, kein Fehler. „Null-Zaehler"
+betrifft dabei die Entdeckungsseite: `discovered`, `unchanged` und `upserted`
+sind null. `deleted` **darf positiv sein** — ein zuvor nichtleerer, jetzt leerer
+Korpus loescht seine Alt-Chunks, und genau dieser Uebergang muss sich im Receipt
+abbilden. Ein Receipt mit `empty_corpus=true`, `discovered=0` und `deleted>0`
+ist vertragskonform.
+
+**Reihenfolge: erst abschliessen, dann belegen.** Der Abschluss der Generation
+wird **vor** dem Schreiben der Receipts committet. Ein Receipt darf nur einen
+Zustand beschreiben, der tatsaechlich erreicht wurde; ein vorab geschriebener
+Beleg ist von einem echten nicht unterscheidbar, sobald der Abschluss scheitert
+oder unklar bleibt. Vor einem geklaerten Commit traegt die Receipt-Datei
+deshalb weiterhin den **letzten bewiesenen** Stand, nie einen Kandidaten.
+
+**Publikationsfenster (Intent-Fence).** Der gesamte Abschnitt „Commit **und**
+beide Receipts schreiben" wird durch eine durable Markierung neben den Receipts
+eingezaeunt. Sie entsteht **vor** dem Commit und verschwindet erst, wenn beide
+Dateien geschrieben sind.
+
+Die Reihenfolge ist wesentlich: eine Markierung, die erst **nach** dem Commit
+entstuende, koennte genau die Luecke nicht abdecken, fuer die sie existiert —
+ein Abbruch dazwischen hinterliesse fortgeschrittenen Korpus, alte Receipts und
+keinerlei Spur.
+
+Daraus folgt, was die Markierung aussagt: ihre Anwesenheit behauptet **nicht**,
+dass der Korpus fortgeschritten ist. Sie behauptet, dass der eingezaeunte
+Abschnitt nicht zu Ende gefuehrt wurde und deshalb **niemand beweisen kann**, ob
+Beleg und Korpus zusammenpassen. Genau das macht das Paar fuer Leser
+transaktional — nicht die Schreiboperation, die nur je Datei atomar ist.
+
+Der Zaun wird nur in zwei Faellen wieder entfernt: nach vollstaendiger
+Publikation beider Receipts, oder wenn der Commit **definitiv nicht** erfolgt
+ist und die exakten vorherigen Bytes restauriert wurden — dann stimmen Korpus
+und Beleg wieder ueberein. Bei unbekanntem Ausgang bleibt er bewusst stehen.
+
+**Teilfehler.** Scheitert der zweite Write, werden die exakten vorherigen Bytes
+beider Dateien restauriert; scheitert auch die Restauration, wird das ehrlich
+gemeldet und nicht als Rollback ausgegeben. In beiden Faellen — und ebenso bei
+einem Prozessabbruch an beliebiger Stelle im eingezaeunten Abschnitt — bleibt
+der Zaun stehen.
+
+Ist der Korpus dabei bereits fortgeschritten, wird er **nicht** zurueckgerollt.
+Dieser Rest ist bewusst gewaehlt und wird nicht stillschweigend getragen:
+solange der Zaun steht, bricht jeder Leser fail-closed ab, und der naechste Lauf
+publiziert nach. Die Einzaeunung ist dabei bewusst konservativ — ein Abbruch
+**vor** dem Commit hinterlaesst einen Zaun ueber einem konsistenten Zustand.
+Lieber ein Lauf zu viel als eine Evidenz zu viel.
+
+**Unbekannter Abschluss-Ausgang.** Endet der Abschluss mit unbekanntem Ausgang
+(`commit_outcome_unknown`, Bounded-Window), wird **kein** Receipt publiziert und
+**nichts** zurueckgerollt: die vorhandenen Receipts bleiben unveraendert der
+letzte bewiesene Stand, das durable Recovery-Journal bleibt erhalten, und der
+Ausgang ist **vor der naechsten Korpus-Mutation** aufzuloesen. Weder eine
+Erfolgs- noch eine Rollback-Behauptung ist zulaessig — beides waere eine Aussage
+ueber einen Zustand, den niemand beobachtet hat.
+
+**Lesen ist an den Ausgang gebunden.** Ein Leser darf die lokalen Receipts nur
+dann als aktuellen Nachweis werten, wenn **weder** ein Publikationsfenster offen
+ist **noch** fuer das Projekt ein unbekannter Abschluss-Ausgang aussteht; sonst
+bricht das Verify fail-closed ab. Nach Aufloesung des Ausgangs — in beide
+Richtungen — und nach geschlossenem Fenster sind die Dateien wieder gueltige
+Evidenz fuer den Stand, den sie beschreiben. Eine Norm, die nur beim Schreiben
+durchgesetzt wird, ist keine.
+
+FK-50 (CP 10a) fuehrt dieses Schema nicht erneut, sondern verweist hierher.
 
 **Change-Detection:** Content-Hash auf Datei-Ebene (SHA-256 über
 gesamtes Dokument) entscheidet ob Re-Chunking nötig ist. Chunk-Hash

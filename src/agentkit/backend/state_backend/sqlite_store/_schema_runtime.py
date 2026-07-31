@@ -597,6 +597,9 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
             skill_name       TEXT NOT NULL,
             bundle_id        TEXT NOT NULL,
             bundle_version   TEXT NOT NULL,
+            content_digest   TEXT NOT NULL
+                CHECK(length(content_digest) = 64
+                    AND content_digest NOT GLOB '*[^0-9a-f]*'),
             target_path      TEXT NOT NULL,
             binding_mode     TEXT NOT NULL CHECK (binding_mode IN ('SYMLINK', 'JUNCTION')),
             status           TEXT NOT NULL CHECK (status IN (

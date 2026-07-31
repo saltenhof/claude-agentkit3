@@ -95,53 +95,88 @@ def _resolve_host_port(project_root: str | None) -> tuple[str, int]:
     """Resolve Weaviate ``(host, port)`` from the consumed ``vectordb`` config.
 
     The ``vectordb`` config stanza is owned exclusively by AG3-070; this shim
-    only CONSUMES it. When no project config is resolvable (e.g. a bare
-    readiness probe outside a project), the documented localhost defaults apply.
+    only CONSUMES it. Host and port are derived from ``weaviate_http_endpoint``
+    through the single public splitter (``vectordb.endpoints``, PO decision D-2).
 
-    **AG3-175 (PO decision D-2) changed only the FIELD SOURCE**: ``vectordb.host``
-    / ``vectordb.port`` are removed, so host and port are derived from
-    ``weaviate_http_endpoint`` through the single public splitter
-    (``vectordb.endpoints``). The FALLBACK POLICY is deliberately unchanged.
-
-    **Seam for AG3-176:** that story's Scope 1 owns EXCLUDING the
-    localhost/default fallback for the project-bound install path while KEEPING
-    documented defaults for the project-less diagnostic CLI path -- it names this
-    function explicitly. All four fallback branches below are therefore left
-    exactly as they were; AG3-175 must not pre-empt that decision.
+    **AG3-176 resolved the fallback seam AG3-175 left open**: the default only
+    applies to the explicitly project-LESS diagnostic probe. With a project
+    root, a missing endpoint is a fail-closed error — there is no defaulting
+    branch left on the project-bound path. Productive project paths do not use
+    this function at all; they use :func:`resolve_adapter_endpoints`, which
+    additionally requires the gRPC endpoint and both TLS flags.
 
     Args:
-        project_root: Optional project root carrying
-            ``.agentkit/config/project.yaml``.
+        project_root: Project root carrying ``.agentkit/config/project.yaml``,
+            or ``None`` for the project-less diagnostic probe.
 
     Returns:
         The resolved ``(host, port)`` pair.
+
+    Raises:
+        VectorDbUnavailableError: When a project root is given but its config
+            declares no HTTP endpoint.
     """
     if project_root is None:
         return DEFAULT_HOST, DEFAULT_PORT
     from pathlib import Path
 
     from agentkit.backend.config.loader import load_project_config
-    from agentkit.backend.exceptions import AgentKitError
 
-    try:
-        config = load_project_config(Path(project_root))
-    except (AgentKitError, OSError):
-        # No resolvable project config (missing / invalid project.yaml) => fall
-        # back to the documented localhost defaults. The readiness probe itself
-        # still fails closed if Weaviate is genuinely unreachable.
-        return DEFAULT_HOST, DEFAULT_PORT
+    config = load_project_config(Path(project_root))
     vectordb = config.pipeline.vectordb
-    if vectordb is None or not vectordb.weaviate_http_endpoint:
-        return DEFAULT_HOST, DEFAULT_PORT
-    try:
-        host, port, _secure = split_http_endpoint(vectordb.weaviate_http_endpoint)
-    except VectorDbUnavailableError:
-        # A malformed endpoint keeps the documented default for THIS path only;
-        # the config model already rejects malformed endpoints at load time, so
-        # this branch is defence in depth for a hand-edited file. Tightening it is
-        # AG3-176's call, not this story's (see the seam note above).
-        return DEFAULT_HOST, DEFAULT_PORT
+    if vectordb is None or vectordb.weaviate_http_endpoint is None:
+        raise VectorDbUnavailableError("Project configuration has no explicit Weaviate HTTP endpoint")
+    host, port, _secure = split_http_endpoint(vectordb.weaviate_http_endpoint)
     return host, port
+
+
+def resolve_adapter_endpoints(project_root: str) -> dict[str, object]:
+    """Resolve the COMPLETE ``WeaviateStoryAdapter.connect`` keyword set.
+
+    Both endpoints — including both TLS flags — come from configuration through
+    the single public splitters. The adapter can *derive* a gRPC host from the
+    HTTP host, but that derivation is a convenience for single-host deployments;
+    relying on it here would silently ignore a configured split deployment and
+    re-introduce exactly the synthesised endpoint PO decision D-2 removed.
+    Dropping ``http_secure`` would do the same to a configured HTTPS endpoint.
+
+    The parameter is deliberately NOT optional: this is the project-bound path,
+    and it is the caller boundary that keeps the diagnostic localhost defaults
+    of :func:`_resolve_host_port` out of productive project paths.
+
+    Args:
+        project_root: Project root carrying ``.agentkit/config/project.yaml``.
+
+    Returns:
+        The keyword arguments for ``WeaviateStoryAdapter.connect``.
+
+    Raises:
+        VectorDbUnavailableError: When the project config declares no HTTP or no
+            gRPC endpoint.
+    """
+    from pathlib import Path
+
+    from agentkit.backend.config.loader import load_project_config
+    from agentkit.backend.vectordb.endpoints import split_grpc_endpoint
+
+    vectordb = load_project_config(Path(project_root)).pipeline.vectordb
+    if vectordb is None or not vectordb.weaviate_http_endpoint:
+        raise VectorDbUnavailableError("Project configuration has no explicit Weaviate HTTP endpoint")
+    if not vectordb.weaviate_grpc_endpoint:
+        raise VectorDbUnavailableError(
+            "Project configuration has no explicit Weaviate gRPC endpoint; both "
+            "endpoints are mandatory configuration (PO decision D-2)."
+        )
+    host, port, http_secure = split_http_endpoint(vectordb.weaviate_http_endpoint)
+    grpc_host, grpc_port, grpc_secure = split_grpc_endpoint(vectordb.weaviate_grpc_endpoint)
+    return {
+        "host": host,
+        "port": port,
+        "http_secure": http_secure,
+        "grpc_host": grpc_host,
+        "grpc_port": grpc_port,
+        "grpc_secure": grpc_secure,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -173,19 +208,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=None, help="Override Weaviate port.")
     args = parser.parse_args(argv)
 
-    host, port = _resolve_host_port(args.project_root)
-    if args.host is not None:
-        host = args.host
-    if args.port is not None:
-        port = args.port
+    # Project-bound: both endpoints come from configuration and a missing gRPC
+    # endpoint fails closed here rather than being synthesised by the adapter.
+    # Project-less: the documented diagnostic defaults apply.
+    connect_kwargs: dict[str, object]
+    if args.project_root is None:
+        connect_kwargs = {"host": DEFAULT_HOST, "port": DEFAULT_PORT}
+    else:
+        try:
+            connect_kwargs = resolve_adapter_endpoints(args.project_root)
+        except VectorDbUnavailableError as exc:
+            # Fail-closed is right; an uncaught traceback at a CLI boundary is not.
+            print(f"Weaviate endpoints are not resolvable: {exc}", file=sys.stderr)
+            return 1
+    host = str(args.host if args.host is not None else connect_kwargs["host"])
+    port = int(args.port if args.port is not None else connect_kwargs["port"])  # type: ignore[arg-type]
 
-    ready = wait_for_weaviate(host=host, port=port, timeout_seconds=float(args.timeout))
+    def probe_factory(probe_host: str, probe_port: int) -> WeaviateStoryAdapter:
+        return WeaviateStoryAdapter.connect(**{**connect_kwargs, "host": probe_host, "port": probe_port})  # type: ignore[arg-type]
+
+    ready = wait_for_weaviate(
+        host=host,
+        port=port,
+        timeout_seconds=float(args.timeout),
+        adapter_factory=probe_factory,
+    )
     if ready:
         print(f"Weaviate ready at {host}:{port}")
         return 0
     print(
-        f"Weaviate NOT reachable at {host}:{port} within {args.timeout}s "
-        "(fail-closed; the VectorDB is mandatory, FK-13 §13.2).",
+        f"Weaviate NOT reachable at {host}:{port} within {args.timeout}s (fail-closed; the VectorDB is mandatory, FK-13 §13.2).",
         file=sys.stderr,
     )
     return 1

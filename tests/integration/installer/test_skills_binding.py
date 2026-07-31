@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.exceptions import InstallationError
 from agentkit.backend.installer.runner import (
@@ -65,9 +66,7 @@ def _bundle_store_with_all_skills(root: Path) -> SkillBundleStore:
     for skill_name in MANDATORY_SKILLS:
         bundle_root = root / "skill-bundles" / f"{skill_name}-core" / "4.0.0"
         bundle_root.mkdir(parents=True, exist_ok=True)
-        (bundle_root / "SKILL.md").write_text(
-            f"# {skill_name}\n", encoding="utf-8"
-        )
+        (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
                 bundle_id=f"{skill_name}-core",
@@ -105,6 +104,7 @@ def _make_config(
         # No live Jenkins here => conscious opt-out so the CI preflight SKIPS
         # (AG3-056 FIX-5).
         ci_available=False,
+        **ready_vectordb_install_kwargs(),
     )
 
 
@@ -152,9 +152,7 @@ def test_install_binds_all_mandatory_skills_as_links(tmp_path: Path) -> None:
         assert is_directory_link(claude_link), f"{skill_name}: .claude link missing"
         assert is_directory_link(codex_link), f"{skill_name}: .codex link missing"
         # The link resolves to the systemwide bundle root (single source).
-        expected = (
-            tmp_path / "skill-bundles" / f"{skill_name}-core" / "4.0.0"
-        ).resolve()
+        expected = (tmp_path / "skill-bundles" / f"{skill_name}-core" / "4.0.0").resolve()
         assert claude_link.resolve() == expected
         assert codex_link.resolve() == expected
 
@@ -259,9 +257,7 @@ def test_bind_failure_after_first_skill_rolls_back_all(tmp_path: Path) -> None:
     # Corrupt the SECOND mandatory skill's manifest so bind_skill fails AFTER
     # the first skill is fully bound.
     second = MANDATORY_SKILLS[1]
-    bad_manifest = (
-        tmp_path / "skill-bundles" / f"{second}-core" / "4.0.0" / "manifest.json"
-    )
+    bad_manifest = tmp_path / "skill-bundles" / f"{second}-core" / "4.0.0" / "manifest.json"
     bad_manifest.write_text("[]", encoding="utf-8")  # JSON array, not an object
 
     repo = StateBackendSkillBindingRepository(root)
@@ -301,7 +297,5 @@ def test_partial_skill_injection_rejected(tmp_path: Path) -> None:
         binding_repo=InMemorySkillBindingRepository(),
     )
     with pytest.raises(InstallationError) as exc_info:
-        install_agentkit(
-            _make_config(root, skills=skills, skill_bundle_ids=_BUNDLE_IDS)
-        )
+        install_agentkit(_make_config(root, skills=skills, skill_bundle_ids=_BUNDLE_IDS))
     assert exc_info.value.detail.get("cause") == "InvalidConfig"

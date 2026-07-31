@@ -643,7 +643,7 @@ für die Artefakt-Aktualität (Kap. 13.9.9, Tabelle
 | Trigger | Aktion | Härte |
 |---------|--------|-------|
 | Commit enthielt Änderungen unter `concepts_dir` | `concept build` (INDEX.yaml + concept_graph.json) | Non-blocking (Post-Commit kann nicht abbrechen) |
-| `--sync` Flag oder Konfiguration | `concept sync` (VectorDB, Pflicht) | Bei VectorDB-Ausfall: Fehler protokolliert |
+| Erfolgreicher `concept build` nach einer Konzeptänderung | `concept sync` ohne `--full` (VectorDB, inkrementell und Pflicht) | Bei VectorDB-Ausfall: Fehler protokolliert |
 | Keine Konzeptänderungen im Commit | Überspringt Concept-Build | — |
 
 **Abgrenzung zu §30.5.3 (Pre-Commit):**
@@ -652,9 +652,9 @@ für die Artefakt-Aktualität (Kap. 13.9.9, Tabelle
 |--------|---------------------|----------------------|
 | Zweck | Validierung (Quality-Gate) | Artefakt-Erzeugung (Build) |
 | Blockierend? | Ja (kann Commit verhindern) | Nein (Commit ist bereits durch) |
-| Aufruf | `concept validate --staged` | `concept build [--sync]` |
+| Aufruf | `concept validate --staged` | `concept build`, danach `concept sync` ohne `--full` |
 | Bei Fehler | Commit blockiert | Warning auf stderr, kein Abbruch |
-| VectorDB | Nicht involviert | Pflicht (`--sync`), Fehler bei Ausfall |
+| VectorDB | Nicht involviert | Pflicht (`concept sync` ohne `--full`), Fehler bei Ausfall |
 
 **Erkennung der Konzeptänderungen:** Der Post-Commit-Hook nutzt
 `git diff --name-only HEAD~1 HEAD` um zu prüfen ob Dateien unter
@@ -667,7 +667,7 @@ Dokumente). `concept sync` folgt als Pflichtschritt (~2-5s bei
 inkrementellem Sync).
 
 **Installer-Integration:** Der Post-Commit-Hook wird über
-Checkpoint CP 9d registriert, analog
+Checkpoint CP 10b registriert, analog
 zum Pre-Commit-Hook. `core.hooksPath` zeigt auf
 `tools/hooks/` — der Post-Commit-Hook wird dort abgelegt.
 

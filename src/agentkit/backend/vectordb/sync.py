@@ -42,13 +42,18 @@ transactional atomicity is claimed anywhere.
 from __future__ import annotations
 
 import functools
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Final, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
-from agentkit.backend.vectordb.ingest.classify import source_types_for_producer
+from agentkit.backend.vectordb.ingest.classify import (
+    producer_for,
+    source_types_for_producer,
+)
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
     GenerationClass,
@@ -63,16 +68,16 @@ from agentkit.concepts.hashing import sync_receipt_digest
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-#: Return type of an operation run under a held claim (see ``_with_release``).
-_T = TypeVar("_T")
-
-
 class SyncError(RuntimeError):
     """Base error for corpus sync (fail-closed)."""
 
 
 class PartialWriteError(SyncError):
     """A transport write/delete was incomplete (R12: never advance freshness)."""
+
+
+class CommitOutcomeUnknownError(SyncError):
+    """A completion write may have committed and must be recovered before mutation."""
 
 
 class ConcurrentSyncRejectedError(SyncError):
@@ -220,8 +225,28 @@ class SyncReceipt:
         """Return the sealed receipt: atomic sequence + digest over ALL fields."""
         if sequence < 1:
             raise SyncError(f"receipt sequence must be >= 1, got {sequence} (N16).")
-        sealed = replace(self, sequence=sequence)
-        return replace(sealed, digest=sealed.expected_digest())
+        sealed = SyncReceipt(
+            project_id=self.project_id,
+            source_file=self.source_file,
+            source_type=self.source_type,
+            corpus_revision=self.corpus_revision,
+            digest="",
+            state=self.state,
+            completed_at=self.completed_at,
+            sequence=sequence,
+            generation=self.generation,
+        )
+        return SyncReceipt(
+            project_id=sealed.project_id,
+            source_file=sealed.source_file,
+            source_type=sealed.source_type,
+            corpus_revision=sealed.corpus_revision,
+            digest=sealed.expected_digest(),
+            state=sealed.state,
+            completed_at=sealed.completed_at,
+            sequence=sealed.sequence,
+            generation=sealed.generation,
+        )
 
     def expected_digest(self) -> str:
         """Return the digest this receipt's own fields must bind to (N16/N39)."""
@@ -270,6 +295,42 @@ class SyncReceipt:
                 f"(expected {expected!r}); fail-closed (N08/N16: identity AND "
                 "ordering fields are part of the binding)."
             )
+
+
+@dataclass(frozen=True)
+class ProducerCompletion:
+    """Producer-wide successful completion, including a zero-source corpus."""
+
+    project_id: str
+    producer: str
+    source_types: tuple[str, ...]
+    corpus_revision: str
+    sequence: int = 0
+
+    def verify(self) -> None:
+        """Validate the producer identity, owned source types, revision and order."""
+        if not self.project_id or not self.producer or not self.corpus_revision:
+            raise SyncError("producer completion has a blank mandatory field")
+        owned = source_types_for_producer(self.producer)
+        if not owned or self.source_types != owned:
+            raise SyncError(
+                f"producer completion {self.producer!r} does not bind its exact "
+                f"source types: {self.source_types!r} != {owned!r}"
+            )
+        if self.sequence < 1:
+            raise SyncError("producer completion sequence must be positive")
+
+    def stamped(self, *, sequence: int) -> ProducerCompletion:
+        """Bind this producer completion to the run's atomic position."""
+        stamped = ProducerCompletion(
+            project_id=self.project_id,
+            producer=self.producer,
+            source_types=self.source_types,
+            corpus_revision=self.corpus_revision,
+            sequence=sequence,
+        )
+        stamped.verify()
+        return stamped
 
 
 def utc_now() -> str:
@@ -386,6 +447,32 @@ class CorpusStorePort(Protocol):
         """Persist a receipt and return it SEALED (atomic sequence + digest, N16)."""
         ...
 
+    def set_receipts(
+        self,
+        *,
+        run_id: str,
+        receipts: Sequence[SyncReceipt],
+        producer_completions: Sequence[ProducerCompletion],
+    ) -> Sequence[SyncReceipt]:
+        """Atomically publish every completion of one run.
+
+        Until this call succeeds, none of ``receipts`` is authoritative. The
+        implementation must establish the complete set through one atomic
+        visibility boundary; a partial write must leave the previously visible
+        completion set unchanged.
+        """
+        ...
+
+    def list_producer_completions(
+        self, *, project_id: str
+    ) -> Sequence[ProducerCompletion]:
+        """Return every verified producer-wide completion."""
+        ...
+
+    def resolve_pending_commits(self, *, project_id: str) -> None:
+        """Resolve durable unknown completion outcomes before another mutation."""
+        ...
+
     def try_claim_source(
         self, *, project_id: str, source_file: str, owner_id: str
     ) -> SourceClaim | None:
@@ -427,6 +514,137 @@ ADMIN_RECLAIM_REASON: Final[str] = "operator asserted the previous writer is dea
 
 
 @dataclass
+class PreparedSyncRun:
+    """Mutated chunks plus completions that are not authoritative yet.
+
+    A prepared run is the run-wide publish boundary required by CP10a and the
+    post-commit incremental-sync ring. Source windows may already have written their
+    generation, but retrieval freshness continues to be derived from the old
+    completions until :meth:`commit` atomically publishes the complete receipt
+    set.
+    """
+
+    store: CorpusStorePort
+    project_id: str
+    results: list[SyncResult]
+    receipts: list[SyncReceipt]
+    producer_completions: list[ProducerCompletion] = field(default_factory=list)
+    run_id: str = ""
+    _finished: bool = False
+
+    def merge(self, other: PreparedSyncRun) -> None:
+        """Join another producer into this still-unpublished run."""
+        if self._finished or other._finished:
+            raise SyncError("cannot merge a committed or aborted sync run")
+        if other.store is not self.store or other.project_id != self.project_id:
+            raise SyncError("cannot merge sync runs from different stores/projects")
+        self.results.extend(other.results)
+        self.receipts.extend(other.receipts)
+        self.producer_completions.extend(other.producer_completions)
+        other._finished = True
+
+    def commit(self) -> list[SyncResult]:
+        """Publish every source completion through one atomic store boundary."""
+        if self._finished:
+            raise SyncError("sync run is already committed or aborted")
+        self.run_id = completion_run_id(
+            self.project_id,
+            self.receipts,
+            self.producer_completions,
+        )
+        sealed = tuple(
+            self.store.set_receipts(
+                run_id=self.run_id,
+                receipts=tuple(self.receipts),
+                producer_completions=tuple(self.producer_completions),
+            )
+        )
+        if len(sealed) != len(self.receipts):
+            raise PartialWriteError(
+                f"completion batch returned {len(sealed)} of {len(self.receipts)} "
+                "receipts; freshness remains unchanged"
+            )
+        by_identity = {
+            (receipt.source_file, receipt.generation): receipt for receipt in sealed
+        }
+        committed: list[SyncResult] = []
+        for result in self.results:
+            candidate = next(
+                (
+                    receipt
+                    for receipt in self.receipts
+                    if receipt.source_file == result.source_file
+                ),
+                None,
+            )
+            if candidate is None:
+                committed.append(result)
+                continue
+            published = by_identity.get((candidate.source_file, candidate.generation))
+            if published is None:
+                raise PartialWriteError(
+                    f"completion batch omitted {candidate.source_file!r}; "
+                    "freshness remains unchanged"
+                )
+            published.verify()
+            committed.append(replace(result, receipt_digest=published.digest))
+        self._finished = True
+        return committed
+
+    def abort(self) -> None:
+        """Fence a prepared run without publishing any completion."""
+        if self._finished:
+            return
+        self._finished = True
+
+
+def _producer_for_source_type(source_type: str) -> str:
+    producer = producer_for(source_type)
+    if producer is None:
+        raise SyncError(f"source type {source_type!r} has no registered producer")
+    return producer
+
+
+def completion_run_id(
+    project_id: str,
+    receipts: Sequence[SyncReceipt],
+    producer_completions: Sequence[ProducerCompletion],
+) -> str:
+    """Derive the stable run key from the exact unsealed semantic payload."""
+    material = {
+        "producer_completions": [
+            {
+                "corpus_revision": completion.corpus_revision,
+                "producer": completion.producer,
+                "project_id": completion.project_id,
+                "source_types": list(completion.source_types),
+            }
+            for completion in producer_completions
+        ],
+        "project_id": project_id,
+        "receipts": [
+            {
+                "completed_at": receipt.completed_at,
+                "corpus_revision": receipt.corpus_revision,
+                "generation": receipt.generation,
+                "project_id": receipt.project_id,
+                "source_file": receipt.source_file,
+                "source_type": receipt.source_type,
+                "state": receipt.state.value,
+            }
+            for receipt in receipts
+        ],
+    }
+    encoded = json.dumps(
+        material,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+@dataclass
 class SyncService:
     """Implements the bounded-window corpus sync against a :class:`CorpusStorePort`.
 
@@ -465,6 +683,7 @@ class SyncService:
         a mutation, so neither an invalid object set NOR an unpublishable
         completion may leave one behind.
         """
+        self.store.resolve_pending_commits(project_id=project_id)
         if not objects:
             raise SyncError(
                 f"source {source_file!r} carries no objects; an empty generation is "
@@ -481,7 +700,7 @@ class SyncService:
             objects, project_id=project_id, source_file=source_file, source_type=source_type
         )
         claim = self._claim(project_id=project_id, source_file=source_file)
-        return self._with_release(
+        result, receipt = self._with_release(
             claim,
             functools.partial(
                 self._sync_impl,
@@ -491,10 +710,27 @@ class SyncService:
                 corpus_revision=corpus_revision,
             ),
         )
+        prepared = PreparedSyncRun(
+            store=self.store,
+            project_id=project_id,
+            results=[result],
+            receipts=[receipt],
+            producer_completions=[
+                ProducerCompletion(
+                    project_id=project_id,
+                    producer=_producer_for_source_type(source_type),
+                    source_types=source_types_for_producer(
+                        _producer_for_source_type(source_type)
+                    ),
+                    corpus_revision=corpus_revision,
+                )
+            ],
+        )
+        return prepared.commit()[0]
 
-    def _with_release(
-        self, claim: SourceClaim, operation: Callable[[], _T]
-    ) -> _T:
+    def _with_release[ResultT](
+        self, claim: SourceClaim, operation: Callable[[], ResultT]
+    ) -> ResultT:
         """Run ``operation`` under ``claim`` and CONFIRM its release afterwards (N45).
 
         The release is not best-effort: a source that stays held blocks every later
@@ -567,6 +803,23 @@ class SyncService:
         (N17), INCLUDING the completion inputs every source would publish (N34) --
         the vanished-source delete below is a mutation too.
         """
+        return self.prepare_reconcile_sources(
+            project_id=project_id,
+            producer=producer,
+            objects_by_source=objects_by_source,
+            corpus_revision=corpus_revision,
+        ).commit()
+
+    def prepare_reconcile_sources(
+        self,
+        *,
+        project_id: str,
+        producer: str,
+        objects_by_source: Mapping[str, Sequence[StoryContextObject]],
+        corpus_revision: str,
+    ) -> PreparedSyncRun:
+        """Prepare an incremental multi-source run without publishing freshness."""
+        self.store.resolve_pending_commits(project_id=project_id)
         _validate_matrix(project_id, producer, objects_by_source, corpus_revision)
         results = self._delete_vanished_sources(
             project_id=project_id,
@@ -574,18 +827,32 @@ class SyncService:
             objects_by_source=objects_by_source,
             corpus_revision=corpus_revision,
         )
+        receipts: list[SyncReceipt] = []
         for source_file, objs in objects_by_source.items():
             source_type = str(objs[0].properties["source_type"]) if objs else ""
-            results.append(
-                self.sync_source(
+            result, receipt = self._prepare_source(
                     project_id=project_id,
                     source_file=source_file,
                     source_type=source_type,
                     objects=objs,
                     corpus_revision=corpus_revision,
-                )
             )
-        return results
+            results.append(result)
+            receipts.append(receipt)
+        return PreparedSyncRun(
+            store=self.store,
+            project_id=project_id,
+            results=results,
+            receipts=receipts,
+            producer_completions=[
+                ProducerCompletion(
+                    project_id=project_id,
+                    producer=producer,
+                    source_types=source_types_for_producer(producer),
+                    corpus_revision=corpus_revision,
+                )
+            ],
+        )
 
     def full_reindex(
         self,
@@ -607,6 +874,23 @@ class SyncService:
         (N17), INCLUDING the completion inputs every source would publish (N34) --
         the vanished-source delete below is a mutation too.
         """
+        return self.prepare_full_reindex(
+            project_id=project_id,
+            producer=producer,
+            objects_by_source=objects_by_source,
+            corpus_revision=corpus_revision,
+        ).commit()
+
+    def prepare_full_reindex(
+        self,
+        *,
+        project_id: str,
+        producer: str,
+        objects_by_source: Mapping[str, Sequence[StoryContextObject]],
+        corpus_revision: str,
+    ) -> PreparedSyncRun:
+        """Prepare a full multi-source run without publishing freshness."""
+        self.store.resolve_pending_commits(project_id=project_id)
         _validate_matrix(project_id, producer, objects_by_source, corpus_revision)
         results = self._delete_vanished_sources(
             project_id=project_id,
@@ -614,19 +898,72 @@ class SyncService:
             objects_by_source=objects_by_source,
             corpus_revision=corpus_revision,
         )
-        # Sync each source through the window.
+        receipts: list[SyncReceipt] = []
         for source_file, objs in objects_by_source.items():
             source_type = objs[0].properties["source_type"] if objs else ""
-            results.append(
-                self.sync_source(
+            result, receipt = self._prepare_source(
                     project_id=project_id,
                     source_file=source_file,
                     source_type=str(source_type),
                     objects=objs,
                     corpus_revision=corpus_revision,
-                )
             )
-        return results
+            results.append(result)
+            receipts.append(receipt)
+        return PreparedSyncRun(
+            store=self.store,
+            project_id=project_id,
+            results=results,
+            receipts=receipts,
+            producer_completions=[
+                ProducerCompletion(
+                    project_id=project_id,
+                    producer=producer,
+                    source_types=source_types_for_producer(producer),
+                    corpus_revision=corpus_revision,
+                )
+            ],
+        )
+
+    def _prepare_source(
+        self,
+        *,
+        project_id: str,
+        source_file: str,
+        source_type: str,
+        objects: Sequence[StoryContextObject],
+        corpus_revision: str,
+    ) -> tuple[SyncResult, SyncReceipt]:
+        """Run one bounded source window but retain its completion."""
+        if not objects:
+            raise SyncError(
+                f"source {source_file!r} carries no objects; an empty generation is "
+                "not a sync target (remove a source through the vanished-source "
+                "path). Fail-closed (N29)."
+            )
+        _validate_completion_inputs(
+            project_id=project_id,
+            source_file=source_file,
+            source_type=source_type,
+            corpus_revision=corpus_revision,
+        )
+        _validate_objects_against_target(
+            objects,
+            project_id=project_id,
+            source_file=source_file,
+            source_type=source_type,
+        )
+        claim = self._claim(project_id=project_id, source_file=source_file)
+        return self._with_release(
+            claim,
+            functools.partial(
+                self._sync_impl,
+                claim=claim,
+                source_type=source_type,
+                objects=objects,
+                corpus_revision=corpus_revision,
+            ),
+        )
 
     def _delete_vanished_sources(
         self,
@@ -883,7 +1220,7 @@ class SyncService:
         source_type: str,
         objects: Sequence[StoryContextObject],
         corpus_revision: str,
-    ) -> SyncResult:
+    ) -> tuple[SyncResult, SyncReceipt]:
         # Objects were validated BEFORE the claim was written (N17); the claim is
         # itself a mutation, so nothing may be written before validation passes.
         project_id = claim.project_id
@@ -961,29 +1298,25 @@ class SyncService:
         # ordered by GENERATION (N39), so a superseded holder can at most append a
         # non-authoritative record -- it can never overwrite one or pull freshness back.
         self.store.assert_claim_held(claim=claim)
-        # (4) Publish the completion LAST, after every required destructive step has
-        # been confirmed (AC6 receipt-last order). The store establishes the completion
-        # order and the identity in ONE immutable conditional create, and verifies the
-        # sealed receipt BEFORE persisting it (N16/N28/N29).
-        sealed = self.store.set_receipt(
-            receipt=SyncReceipt.for_completion(
-                project_id,
-                source_file,
-                source_type,
-                corpus_revision,
-                generation=claim.generation,
-            )
+        candidate = SyncReceipt.for_completion(
+            project_id,
+            source_file,
+            source_type,
+            corpus_revision,
+            generation=claim.generation,
         )
-        sealed.verify()
-        return SyncResult(
-            project_id=project_id,
-            source_file=source_file,
-            source_type=source_type,
-            written=written,
-            deleted=deleted,
-            corpus_revision=corpus_revision,
-            receipt_digest=sealed.digest,
-            backfilled=backfilled,
+        return (
+            SyncResult(
+                project_id=project_id,
+                source_file=source_file,
+                source_type=source_type,
+                written=written,
+                deleted=deleted,
+                corpus_revision=corpus_revision,
+                receipt_digest="",
+                backfilled=backfilled,
+            ),
+            candidate,
         )
 
 
@@ -1186,6 +1519,9 @@ __all__ = [
     "utc_now",
     "CorpusStorePort",
     "PartialWriteError",
+    "CommitOutcomeUnknownError",
+    "completion_run_id",
+    "ProducerCompletion",
     "ReceiptState",
     "SyncError",
     "SyncReceipt",

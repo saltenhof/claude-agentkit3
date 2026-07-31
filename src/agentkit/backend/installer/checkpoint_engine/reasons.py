@@ -17,8 +17,6 @@ from typing import Final
 REASON_INAPPLICABLE: Final = "not_applicable"
 #: CP 3/CP 4 reserved no-op nodes (number stability, FK-50 §50.3).
 REASON_RESERVED: Final = "reserved"
-#: CP 10/10a/10b skipped because neither vectordb nor (for CP 10) ARE is on.
-REASON_VECTORDB_DISABLED: Final = "vectordb_disabled"
 #: CP 10c skipped because ``features.are: false``.
 REASON_ARE_DISABLED: Final = "are_disabled"
 #: CP 10c agentic mode: at least one ARE scope mapping is unresolved. The
@@ -42,6 +40,10 @@ REASON_MCP_PROTOCOL_ERROR: Final = "mcp_protocol_error"
 REASON_MCP_TOOLS_LIST_EMPTY: Final = "mcp_tools_list_empty"
 #: CP 10: process-tree control plane failed (job/group create, assign, terminate).
 REASON_MCP_PROCESS_CONTROL_ERROR: Final = "mcp_process_control_error"
+#: The deprecated migration flag explicitly disables mandatory VectorDB
+#: infrastructure. This is a distinct supported-project rejection, not a
+#: malformed or missing consumed project configuration.
+REASON_VECTORDB_REQUIRED: Final = "vectordb_required"
 #: CP 10: the CONSUMED project configuration is absent or invalid — e.g.
 #: ``features.vectordb`` is on but ``pipeline.vectordb`` carries no Weaviate
 #: endpoints. The token is PO-ratified vocabulary (decision D4 names
@@ -88,5 +90,5 @@ __all__ = [
     "REASON_PLANNED_NO_MUTATION",
     "REASON_REGISTRATION_INCOMPLETE",
     "REASON_RESERVED",
-    "REASON_VECTORDB_DISABLED",
+    "REASON_VECTORDB_REQUIRED",
 ]

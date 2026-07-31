@@ -38,6 +38,11 @@ bleibt bis dahin als deprecateter Uebergang erhalten; die ARE-Optionalitaet
 (`features.are`) ist davon unberuehrt. FK-21 referenziert den Optionalitaetsast
 nicht und bleibt unveraendert.
 
+**Implementierungsnachzug AG3-176 (2026-07-28):** Die vorbehaltene
+Code-Entfernung ist gelandet: `branch_vectordb_enabled` und
+`SKIPPED`/`vectordb_disabled` sind entfernt; `false` scheitert vor jeder
+Installer-Wirkung. Die ARE-Optionalitaet bleibt unveraendert.
+
 ## 2. Praezisierung 2 — Quelle→Tool-Zuordnung und Checkpoint-Nummern (Ableitung)
 
 FK-13 §13.3.2 ordnete alle Quellen pauschal `story_sync` zu; die spaetere,
@@ -106,6 +111,7 @@ an dieser Stelle entfaellt. Verankert in FK-13 §13.9.9.
 | 1 | Feature-Flag → Pflicht | FK-13 §13.1 | geaendert | `features.vectordb` als deprecateter Migrations-Schluessel; `false` = harter Konfigurationsfehler |
 | 1 | Feature-Flag → Pflicht | FK-03 §3.1 | geaendert | Deprecation-Vermerk am Schluessel `features.vectordb` |
 | 1 | Feature-Flag → Pflicht | FK-50 §50.3 CP 10 | geaendert | `branch_vectordb_enabled`/`vectordb: false` als deprecated markiert (Norm; Code-Entfernung spaeter); SKIPPED-Pfad als Uebergang erhalten |
+| 1 | Feature-Flag → Pflicht | FK-50 §50.3 CP 10 / AG3-176 | implementiert | Optionalitaetszweig und SKIPPED-Uebergang entfernt; harte Config-Grenze vor Installer-Wirkung |
 | 1 | Feature-Flag → Pflicht | FK-21 §21.4.3 | nicht-betroffen | referenziert Optionalitaetsast nicht |
 | 2 | Quelle→Tool | FK-13 §13.3.2 | geaendert | Konzept/Architektur → `concept_sync`; Story/Research → `story_sync`; Verweis auf §13.9.5 |
 | 2 | Checkpoint-Nummern | FK-13 §13.4.3, §13.7.1, §13.9.9 | geaendert | CP 9/9a → CP 10/10a (FK-50 ist Autoritaet) |

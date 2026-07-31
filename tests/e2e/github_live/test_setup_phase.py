@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_active_run_ownership, seed_approved_story
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.bootstrap.composition_root import build_setup_phase_handler
@@ -34,9 +35,7 @@ if TYPE_CHECKING:
 def _init_repo(root: Path) -> None:
     """Init a real git repo (Preflight Check 7 reads it, AG3-034 Finding B)."""
     subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
-    subprocess.run(
-        ["git", "-C", str(root), "config", "user.email", "t@example.com"], check=True
-    )
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "t@example.com"], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "T"], check=True)
 
 
@@ -60,6 +59,7 @@ class TestSetupPhaseE2E:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             )
         )
 
@@ -139,6 +139,7 @@ class TestSetupPhaseE2E:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             )
         )
 

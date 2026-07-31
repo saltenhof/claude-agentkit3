@@ -1,0 +1,21 @@
+story_id: AG3-178
+story_title_short: "periodic-full-reindex-index-hygiene"
+title: "Periodischer Full-Reindex / Index-Hygiene fuer den Konzept-Korpus: inkrementeller Post-Commit-Sync bleibt der Normalpfad, aber ab und zu ein garantierter kompletter Neuaufbau (drop+rebuild) gegen Index-Degeneration/Drift; Trigger primaer ueber Aenderungs-Prozentsatz der Konzeptbasis (optional Zeit-Obergrenze)."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-30"
+size: TBD  # Groesse erst nach dem Design-Schnitt bestimmbar.
+# Herkunft: PO-Idee 2026-07-30 im Rahmen der AG3-176-Konzept-Konsistenzarbeit.
+# AG3-176 stellt den Post-Commit-Sync korrekt auf INKREMENTELL (Defektbehebung);
+# der Erstindex (CP10a) bleibt full_reindex=true. Diese Story ergaenzt die
+# fehlende INDEX-HYGIENE: ein gelegentlicher garantierter Full-Rebuild, damit der
+# HNSW-/Weaviate-Index bei dauerndem inkrementellem Upsert/Delete nicht ueber die
+# Zeit durch Tombstones/Fragmentierung degeneriert.
+#
+# ATTN: NOCH KEINE Implementierungsstory. Der Loesungs-/Konzeptentwurf (Trigger-
+# Schwellwerte, wo der Aenderungszaehler lebt, wer den Full ausloest, Scope)
+# wird VORAUSLAUFEND MIT DEM PO entschieden und normativ verankert, DANN wird
+# geschnitten. Status bleibt blocked bis zu dieser Design-Entscheidung.
+depends_on: ["AG3-174", "AG3-176"]
+unblocks: []

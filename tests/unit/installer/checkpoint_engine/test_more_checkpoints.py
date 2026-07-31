@@ -26,7 +26,6 @@ from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     DRY_RUN_PLAN_MARKER,
-    REASON_VECTORDB_DISABLED,
 )
 from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.repo_probe import GhCliRepoExistenceProbe
@@ -40,7 +39,7 @@ def _ctx(
     repo: InMemoryRegistrationRepo,
     *,
     mode: ExecutionMode = ExecutionMode.REGISTER,
-    features_vectordb: bool = False,
+    features_vectordb: bool = True,
 ) -> object:
     config = make_config(
         tmp_path,
@@ -53,41 +52,29 @@ def _ctx(
     return ctx
 
 
-def test_cp10a_skipped_without_vectordb(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10a_runs_when_feature_flag_is_omitted(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     result = cp10a_concept_context_properties(_ctx(tmp_path, registration_repo))  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.SKIPPED
-    assert result.reason == REASON_VECTORDB_DISABLED
+    assert result.status is CheckpointStatus.CREATED
 
 
-def test_cp10a_created_with_vectordb(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10a_created_with_vectordb(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     ctx = _ctx(tmp_path, registration_repo, features_vectordb=True)
     result = cp10a_concept_context_properties(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.CREATED
 
 
-def test_cp10b_skipped_without_vectordb(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10b_runs_when_feature_flag_is_omitted(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     result = cp10b_concept_validation_hook(_ctx(tmp_path, registration_repo))  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.SKIPPED
-    assert result.reason == REASON_VECTORDB_DISABLED
+    assert result.status is CheckpointStatus.CREATED
 
 
-def test_cp10b_created_with_vectordb(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10b_created_with_vectordb(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     ctx = _ctx(tmp_path, registration_repo, features_vectordb=True)
     result = cp10b_concept_validation_hook(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.CREATED
 
 
-def test_cp10_dry_run_plan_contract_with_vectordb(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10_dry_run_plan_contract_with_vectordb(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """Dry-run is pure plan derivation: no process start, no write (FK-50 §50.2).
 
     AG3-175: CP 10 now derives the registration from the CP-5-published project
@@ -102,9 +89,7 @@ def test_cp10_dry_run_plan_contract_with_vectordb(
         REASON_PLANNED_NO_MUTATION,
     )
 
-    ctx = _ctx(
-        tmp_path, registration_repo, mode=ExecutionMode.DRY_RUN, features_vectordb=True
-    )
+    ctx = _ctx(tmp_path, registration_repo, mode=ExecutionMode.DRY_RUN, features_vectordb=True)
     cp05_pipeline_config(ctx)  # type: ignore[arg-type]
     result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.CREATED
@@ -113,23 +98,17 @@ def test_cp10_dry_run_plan_contract_with_vectordb(
     assert not (tmp_path / ".mcp.json").exists()
 
 
-def test_cp10d_skipped_when_sonar_off(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10d_skipped_when_sonar_off(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     ctx = _ctx(tmp_path, registration_repo, mode=ExecutionMode.VERIFY)
     result = cp10d_sonarqube(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.SKIPPED
     assert result.reason == "not_applicable"
 
 
-def test_cp11_creates_claude_md_skeleton(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp11_creates_claude_md_skeleton(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     root = tmp_path / "proj"
     root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo)
     ctx = build_checkpoint_context(config, ExecutionMode.REGISTER)
     result = cp11_git_hooks_and_claude(ctx)
     # git may not be a repo here; CP 11 either CREATES the CLAUDE.md (status
@@ -139,23 +118,17 @@ def test_cp11_creates_claude_md_skeleton(
         assert (root / "CLAUDE.md").is_file()
 
 
-def test_cp11_dry_run_does_not_write(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp11_dry_run_does_not_write(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     root = tmp_path / "proj"
     root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo)
     ctx = build_checkpoint_context(config, ExecutionMode.DRY_RUN)
     result = cp11_git_hooks_and_claude(ctx)
     assert DRY_RUN_PLAN_MARKER in (result.detail or "")
     assert not (root / "CLAUDE.md").exists()
 
 
-def test_cp12_verify_passes_after_profile_and_config(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp12_verify_passes_after_profile_and_config(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp06_profile_resolution,
     )
@@ -166,9 +139,7 @@ def test_cp12_verify_passes_after_profile_and_config(
     assert result.status is CheckpointStatus.PASS
 
 
-def test_cp12_verify_fails_when_profile_missing(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp12_verify_fails_when_profile_missing(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     # No CP 6 run -> resolved_profile is None -> verification FAILED.
     ctx = _ctx(tmp_path, registration_repo, mode=ExecutionMode.VERIFY)
     result = cp12_verify_registration(ctx)  # type: ignore[arg-type]
@@ -221,10 +192,11 @@ def test_gh_probe_success_and_failure_subprocess(monkeypatch: object) -> None:
     assert "not found" in res.detail
 
 
-def test_cp11_sets_hooks_path_in_real_git_repo(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+def test_cp11_leaves_hook_activation_to_atomic_cp10b_owner(
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
 ) -> None:
-    """CP 11 sets core.hooksPath in a real git repo (register mode)."""
+    """CP 11 cannot expose a partial hook ring before CP 10b."""
     import subprocess
 
     root = tmp_path / "gitproj"
@@ -236,9 +208,7 @@ def test_cp11_sets_hooks_path_in_real_git_repo(
         import pytest
 
         pytest.skip("git not available")
-    config = make_config(
-        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo)
     ctx = build_checkpoint_context(config, ExecutionMode.REGISTER)
     result = cp11_git_hooks_and_claude(ctx)
     assert result.status is CheckpointStatus.CREATED
@@ -248,8 +218,9 @@ def test_cp11_sets_hooks_path_in_real_git_repo(
         text=True,
         check=False,
     )
-    assert hooks_path.stdout.strip() == "tools/hooks/"
+    assert hooks_path.returncode != 0
+    assert hooks_path.stdout.strip() == ""
     assert (root / "CLAUDE.md").is_file()
-    # Idempotent re-run: hooksPath already set, CLAUDE.md present -> PASS.
+    # Idempotent re-run: the human-owned file remains present -> PASS.
     ctx2 = build_checkpoint_context(config, ExecutionMode.REGISTER)
     assert cp11_git_hooks_and_claude(ctx2).status is CheckpointStatus.PASS

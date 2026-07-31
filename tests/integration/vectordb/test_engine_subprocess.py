@@ -209,7 +209,10 @@ defers_to:
     scope: vectordb
     reason: base
   - target: FK-01
-supersedes: [FK-00]
+supersedes:
+  - target: FK-00
+    scope: old-helper
+    reason: helper replacement
 ---
 
 # Helper
@@ -243,7 +246,7 @@ def test_r06_ingester_projects_the_scope_qualified_authority_metadata(tmp_path: 
         {"reason": "", "scope": "", "target": "FK-01"},
     ]
     assert json.loads(chunk.metadata["supersedes_full"]) == [
-        {"reason": "", "scope": "", "target": "FK-00"}
+        {"reason": "helper replacement", "scope": "old-helper", "target": "FK-00"}
     ]
     # The governance consumer reads owned + scope-qualified delegated scopes; an
     # UNQUALIFIED deferral (FK-01, no scope) authorizes nothing.

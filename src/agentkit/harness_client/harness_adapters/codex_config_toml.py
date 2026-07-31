@@ -57,7 +57,7 @@ from __future__ import annotations
 import tomllib
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
@@ -82,9 +82,7 @@ AK3_OWNED_HOOK_KEYS: frozenset[str] = frozenset({"pre_tool_use"})
 #: Fields AK3 owns inside one of ITS OWN ``[mcp_servers.<name>]`` tables.
 #: Any further field in such a table is an unknown harness-specific field and is
 #: preserved value-equal (FK-76 §76.5.4 / AG3-175 AC 7).
-AK3_OWNED_SERVER_FIELDS: frozenset[str] = frozenset(
-    {"command", "args", "cwd", "env", "required"}
-)
+AK3_OWNED_SERVER_FIELDS: frozenset[str] = frozenset({"command", "args", "cwd", "env", "required"})
 
 #: Deterministic field order of a rendered AK3 server table.
 _SERVER_FIELD_ORDER: tuple[str, ...] = ("command", "args", "cwd", "env", "required")
@@ -204,8 +202,7 @@ def _validate_shape(parsed: Mapping[str, object]) -> None:
         if entry is not None and not isinstance(entry, dict):
             raise CodexConfigError(
                 CodexConfigRejection.HOOK_ENTRY_NOT_TABLE,
-                f"'{_HOOKS}.{_PRE_TOOL_USE}' must be a TOML table; got "
-                f"{type(entry).__name__}.",
+                f"'{_HOOKS}.{_PRE_TOOL_USE}' must be a TOML table; got {type(entry).__name__}.",
             )
     servers = parsed.get(_MCP_SERVERS)
     if servers is None:
@@ -219,8 +216,7 @@ def _validate_shape(parsed: Mapping[str, object]) -> None:
         if not isinstance(entry, dict):
             raise CodexConfigError(
                 CodexConfigRejection.SERVER_ENTRY_NOT_TABLE,
-                f"'{_MCP_SERVERS}.{name}' must be a TOML table; got "
-                f"{type(entry).__name__}.",
+                f"'{_MCP_SERVERS}.{name}' must be a TOML table; got {type(entry).__name__}.",
             )
         if name in AK3_MCP_SERVER_NAMES:
             _validate_owned_server_fields(name, entry)
@@ -232,17 +228,14 @@ def _validate_owned_server_fields(name: str, entry: Mapping[str, object]) -> Non
     if command is not None and (not isinstance(command, str) or not command.strip()):
         _reject_field(name, "command", "a non-empty string", command)
     args = entry.get("args")
-    if args is not None and (
-        not isinstance(args, list) or not all(isinstance(a, str) for a in args)
-    ):
+    if args is not None and (not isinstance(args, list) or not all(isinstance(a, str) for a in args)):
         _reject_field(name, "args", "an array of strings", args)
     cwd = entry.get("cwd")
     if cwd is not None and (not isinstance(cwd, str) or not cwd.strip()):
         _reject_field(name, "cwd", "a non-empty string", cwd)
     env = entry.get("env")
     if env is not None and (
-        not isinstance(env, dict)
-        or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
+        not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
     ):
         _reject_field(name, "env", "a table of string-to-string", env)
     required = entry.get("required")
@@ -254,14 +247,11 @@ def _reject_field(name: str, field: str, expectation: str, value: object) -> Non
     """Raise a typed rejection for a wrongly typed AK3-owned server field."""
     raise CodexConfigError(
         CodexConfigRejection.SERVER_FIELD_TYPE_INVALID,
-        f"'{_MCP_SERVERS}.{name}.{field}' must be {expectation}; got "
-        f"{type(value).__name__} ({value!r}).",
+        f"'{_MCP_SERVERS}.{name}.{field}' must be {expectation}; got {type(value).__name__} ({value!r}).",
     )
 
 
-def _reject_foreign_occupation(
-    parsed: Mapping[str, object], servers: Sequence[DesiredMcpServer]
-) -> None:
+def _reject_foreign_occupation(parsed: Mapping[str, object], servers: Sequence[DesiredMcpServer]) -> None:
     """Reject an AK3 server name occupied by a DIFFERENT program.
 
     Identity of a server registration is its ``command`` + ``args`` — the same
@@ -286,9 +276,7 @@ def _reject_foreign_occupation(
         # Treating it as unoccupied and filling it would silently claim a table a
         # user may have created; ``command``/``args`` simply do not match what AK3
         # would write, so it is rejected like any other foreign occupation.
-        if current_command != server.command or list(current_args or []) != list(
-            server.args
-        ):
+        if current_command != server.command or list(current_args or []) != list(server.args):
             raise CodexConfigError(
                 CodexConfigRejection.SERVER_NAME_FOREIGN_OCCUPIED,
                 f"'{_MCP_SERVERS}.{server.name}' is occupied by a different or "
@@ -300,9 +288,7 @@ def _reject_foreign_occupation(
             )
 
 
-def is_recognised_ak3_server_table(
-    name: str, entry: Mapping[str, object], *, project_root: Path
-) -> bool:
+def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, project_root: Path) -> bool:
     """Return whether ``entry`` is the registration AK3 itself would write.
 
     Compares against the EXPECTED shape (:data:`AK3_SERVER_SHAPES` plus the
@@ -356,9 +342,7 @@ def is_recognised_ak3_server_table(
     return all(isinstance(v, str) and v.strip() for v in env.values())
 
 
-def classify_ownership(
-    raw: bytes | None, *, hook_command: str, project_root: Path
-) -> CodexConfigOwnership:
+def classify_ownership(raw: bytes | None, *, hook_command: str, project_root: Path) -> CodexConfigOwnership:
     """Classify an existing Codex configuration by AK3 ownership.
 
     Two independent gates, in this order:
@@ -400,11 +384,7 @@ def classify_ownership(
     foreign_top = set(parsed) - AK3_OWNED_TOP_LEVEL_KEYS
     foreign_hooks = set(hooks_table) - AK3_OWNED_HOOK_KEYS
     foreign_servers = set(servers_table) - AK3_MCP_SERVER_NAMES
-    ak3_named = {
-        name: entry
-        for name, entry in servers_table.items()
-        if name in AK3_MCP_SERVER_NAMES and isinstance(entry, dict)
-    }
+    ak3_named = {name: entry for name, entry in servers_table.items() if name in AK3_MCP_SERVER_NAMES and isinstance(entry, dict)}
     hook_entry = hooks_table.get(_PRE_TOOL_USE)
     hook_is_ak3 = hook_entry == {"command": hook_command}
     has_ak3_content = hook_is_ak3 or bool(ak3_named)
@@ -415,10 +395,7 @@ def classify_ownership(
         return CodexConfigOwnership.MIXED
     # VALUE gate: an AK3-reserved name occupied by anything other than AK3's own
     # registration makes the file foreign content that must be preserved.
-    if any(
-        not is_recognised_ak3_server_table(name, entry, project_root=project_root)
-        for name, entry in ak3_named.items()
-    ):
+    if any(not is_recognised_ak3_server_table(name, entry, project_root=project_root) for name, entry in ak3_named.items()):
         return CodexConfigOwnership.MIXED
     ak3_servers = ak3_named
 
@@ -426,9 +403,7 @@ def classify_ownership(
     # content found. This is what keeps a comment-only user edit PRESERVED — a
     # value-based predicate cannot see a comment, and deleting such a file would
     # weaken the preserved_foreign_files guarantee.
-    canonical = render_canonical_codex_config(
-        hook_command=hook_command, server_tables=ak3_servers
-    )
+    canonical = render_canonical_codex_config(hook_command=hook_command, server_tables=ak3_servers)
     if _normalize_newlines(raw) == _normalize_newlines(canonical.encode("utf-8")):
         return CodexConfigOwnership.AK3_ONLY
     return CodexConfigOwnership.MIXED
@@ -559,15 +534,11 @@ def render_codex_config(
     """
     desired = {server.name: _server_to_table_mapping(server) for server in servers}
     if raw is None:
-        return render_canonical_codex_config(
-            hook_command=hook_command, server_tables=desired
-        )
+        return render_canonical_codex_config(hook_command=hook_command, server_tables=desired)
 
     parsed = load_codex_config(raw)
     _reject_foreign_occupation(parsed, servers)
-    ownership = classify_ownership(
-        raw, hook_command=hook_command, project_root=project_root
-    )
+    ownership = classify_ownership(raw, hook_command=hook_command, project_root=project_root)
     if ownership is CodexConfigOwnership.UNREADABLE:  # pragma: no cover - defensive
         raise CodexConfigError(
             CodexConfigRejection.UNPARSABLE_TOML,
@@ -588,9 +559,7 @@ def render_codex_config(
             merged = dict(found.get(name, {}))
             merged.update(fields)
             union[name] = merged
-        return render_canonical_codex_config(
-            hook_command=hook_command, server_tables=union
-        )
+        return render_canonical_codex_config(hook_command=hook_command, server_tables=union)
 
     return _merge_into_existing(raw, hook_command=hook_command, desired=desired)
 
@@ -608,7 +577,12 @@ def _merge_into_existing(
     preserved byte-for-byte.
     """
     doc = tomlkit.parse(raw.decode("utf-8"))
+    _upsert_hook(doc, hook_command)
+    _upsert_servers(doc, desired)
+    return tomlkit.dumps(doc)
 
+
+def _upsert_hook(doc: Any, hook_command: str) -> None:
     hooks = doc.get(_HOOKS)
     if not isinstance(hooks, dict):
         hooks = tomlkit.table(is_super_table=True)
@@ -621,30 +595,128 @@ def _merge_into_existing(
         entry["command"] = hook_command
         hooks[_PRE_TOOL_USE] = entry
 
-    if desired:
-        servers = doc.get(_MCP_SERVERS)
-        if not isinstance(servers, dict):
-            servers = tomlkit.table(is_super_table=True)
-            doc[_MCP_SERVERS] = servers
-        for name in sorted(desired):
-            fields = desired[name]
-            current = servers.get(name)
-            if isinstance(current, dict):
-                # Upsert owned fields only; unknown fields in OUR table survive.
-                for key in _SERVER_FIELD_ORDER:
-                    if key not in fields:
-                        continue
-                    value = fields[key]
-                    if key == "env" and isinstance(value, dict):
-                        env = tomlkit.inline_table()
-                        env.update({str(k): str(v) for k, v in value.items()})
-                        current[key] = env
-                    else:
-                        current[key] = value
-            else:
-                servers[name] = _build_server_table(fields)
 
-    return tomlkit.dumps(doc)
+def _upsert_servers(
+    doc: Any,
+    desired: Mapping[str, Mapping[str, object]],
+) -> None:
+    if not desired:
+        return
+    servers = doc.get(_MCP_SERVERS)
+    if not isinstance(servers, dict):
+        servers = tomlkit.table(is_super_table=True)
+        doc[_MCP_SERVERS] = servers
+    for name in sorted(desired):
+        fields = desired[name]
+        current = servers.get(name)
+        if not isinstance(current, dict):
+            servers[name] = _build_server_table(fields)
+            continue
+        _upsert_server_fields(current, fields)
+
+
+def _upsert_server_fields(
+    current: dict[str, object],
+    fields: Mapping[str, object],
+) -> None:
+    for key in _SERVER_FIELD_ORDER:
+        if key not in fields:
+            continue
+        value = fields[key]
+        if key == "env" and isinstance(value, dict):
+            env = tomlkit.inline_table()
+            env.update({str(k): str(v) for k, v in value.items()})
+            current[key] = env
+        else:
+            current[key] = value
+
+
+def render_without_ak3(
+    raw: bytes,
+    *,
+    hook_command: str,
+) -> str:
+    """Surgically remove AK3-owned values while preserving all foreign TOML."""
+    raw_text = raw.decode("utf-8")
+    foreign_comment_lines = _foreign_comment_lines(raw_text)
+    parsed = load_codex_config(raw)
+    doc = tomlkit.parse(raw_text)
+    _remove_owned_hook(doc, hook_command)
+    _remove_owned_servers(doc, parsed)
+    return _finish_surgical_render(tomlkit.dumps(doc), foreign_comment_lines)
+
+
+def _remove_owned_hook(doc: Any, hook_command: str) -> None:
+    hooks = doc.get(_HOOKS)
+    if not isinstance(hooks, dict):
+        return
+    entry = hooks.get(_PRE_TOOL_USE)
+    if isinstance(entry, dict) and entry.get("command") == hook_command:
+        del hooks[_PRE_TOOL_USE]
+    if not hooks:
+        del doc[_HOOKS]
+
+
+def _remove_owned_servers(
+    doc: Any,
+    parsed: Mapping[str, object],
+) -> None:
+    servers = doc.get(_MCP_SERVERS)
+    parsed_servers = parsed.get(_MCP_SERVERS)
+    if not isinstance(servers, dict) or not isinstance(parsed_servers, dict):
+        return
+    for name in AK3_MCP_SERVER_NAMES:
+        entry = parsed_servers.get(name)
+        shape = AK3_SERVER_SHAPES.get(name)
+        if not isinstance(entry, dict) or shape is None:
+            continue
+        args = entry.get("args")
+        if entry.get("command") != shape.command or not isinstance(args, list):
+            continue
+        if tuple(args) != shape.args:
+            continue
+        target = servers.get(name)
+        if isinstance(target, dict):
+            _remove_owned_server_fields(servers, name, target)
+    if not servers:
+        del doc[_MCP_SERVERS]
+
+
+def _remove_owned_server_fields(
+    servers: dict[str, object],
+    name: str,
+    target: dict[str, object],
+) -> None:
+    for field in AK3_OWNED_SERVER_FIELDS:
+        if field in target:
+            del target[field]
+    if not target:
+        del servers[name]
+
+
+def _finish_surgical_render(
+    rendered: str,
+    foreign_comment_lines: tuple[str, ...],
+) -> str:
+    """Drop the managed header and retain foreign standalone comments."""
+    managed_header = f"# {AK3_CONFIG_HEADER_COMMENT}"
+    if rendered.startswith(managed_header):
+        rendered = rendered[len(managed_header) :].lstrip("\r\n")
+    missing_comments = tuple(line for line in foreign_comment_lines if line not in rendered.splitlines())
+    if missing_comments:
+        if rendered and not rendered.endswith(("\n", "\r")):
+            rendered += "\n"
+        rendered += "\n".join(missing_comments) + "\n"
+    return rendered
+
+
+def _foreign_comment_lines(raw_text: str) -> tuple[str, ...]:
+    """Return foreign comments that deleting their TOML table must not consume."""
+    return tuple(
+        line
+        for line in raw_text.splitlines()
+        if line.lstrip().startswith("#") and line.strip() != f"# {AK3_CONFIG_HEADER_COMMENT}"
+    )
 
 
 __all__ = [
@@ -660,4 +732,5 @@ __all__ = [
     "load_codex_config",
     "render_canonical_codex_config",
     "render_codex_config",
+    "render_without_ak3",
 ]

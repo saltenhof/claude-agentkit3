@@ -87,6 +87,7 @@ class TestColumnContract:
             "skill_name",
             "bundle_id",
             "bundle_version",
+            "content_digest",
             "target_path",
             "binding_mode",
             "status",
@@ -105,6 +106,7 @@ class TestColumnContract:
             "execute-userstory",
             "core",
             "1.0",
+            "0" * 64,
             "/x",
             "SYMLINK",
             "BOUND",
@@ -112,9 +114,9 @@ class TestColumnContract:
         )
         cols = (
             "binding_id, project_key, skill_name, bundle_id, bundle_version, "
-            "target_path, binding_mode, status, pinned_at"
+            "content_digest, target_path, binding_mode, status, pinned_at"
         )
-        insert = f"INSERT INTO skill_bindings ({cols}) VALUES (?,?,?,?,?,?,?,?,?)"
+        insert = f"INSERT INTO skill_bindings ({cols}) VALUES (?,?,?,?,?,?,?,?,?,?)"
         with _connect(story_dir) as conn:
             conn.execute(insert, row)
             conn.commit()
@@ -128,15 +130,16 @@ class TestColumnContract:
 class TestCheckConstraints:
     _COLS = (
         "binding_id, project_key, skill_name, bundle_id, bundle_version, "
-        "target_path, binding_mode, status, pinned_at"
+        "content_digest, target_path, binding_mode, status, pinned_at"
     )
-    _INSERT = f"INSERT INTO skill_bindings ({_COLS}) VALUES (?,?,?,?,?,?,?,?,?)"
+    _INSERT = f"INSERT INTO skill_bindings ({_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?)"
     _VALID = (
         "b1",
         "proj-a",
         "execute-userstory",
         "core",
         "1.0",
+        "0" * 64,
         "/x",
         "SYMLINK",
         "BOUND",
@@ -156,8 +159,18 @@ class TestCheckConstraints:
     def test_all_six_status_values_accepted(
         self, story_dir: Path, status: str
     ) -> None:
-        row = ("b1", "proj-a", status, "core", "1.0", "/x", "SYMLINK", status,
-               "2026-06-01T12:00:00+00:00")
+        row = (
+            "b1",
+            "proj-a",
+            status,
+            "core",
+            "1.0",
+            "0" * 64,
+            "/x",
+            "SYMLINK",
+            status,
+            "2026-06-01T12:00:00+00:00",
+        )
         with _connect(story_dir) as conn:
             conn.execute(self._INSERT, row)
             conn.commit()
@@ -167,13 +180,13 @@ class TestCheckConstraints:
         assert got == status
 
     def test_rejects_invalid_status(self, story_dir: Path) -> None:
-        bad = (*self._VALID[:7], "NOT_A_STATUS", self._VALID[8])
+        bad = (*self._VALID[:8], "NOT_A_STATUS", self._VALID[9])
         with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(self._INSERT, bad)
             conn.commit()
 
     def test_rejects_non_symlink_mode(self, story_dir: Path) -> None:
-        bad = (*self._VALID[:6], "COPY", *self._VALID[7:])
+        bad = (*self._VALID[:7], "COPY", *self._VALID[8:])
         with _connect(story_dir) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(self._INSERT, bad)
             conn.commit()

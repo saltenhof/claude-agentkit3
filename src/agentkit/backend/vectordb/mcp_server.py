@@ -44,7 +44,7 @@ from agentkit.backend.vectordb.ingest.adapter import (
     story_file_to_objects,
 )
 from agentkit.backend.vectordb.ingest.classify import classify_source_file
-from agentkit.concepts.frontmatter import FrontmatterError, read_text_strict
+from agentkit.concepts.frontmatter import read_text_strict
 from agentkit.concepts.hashing import corpus_revision, document_hash
 from agentkit.concepts.parser import discover_concept_files
 from agentkit.integration_clients.vectordb.errors import VectorDbError
@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from agentkit.backend.vectordb.concept_corpus.resolver import RankedHit
     from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
     from agentkit.backend.vectordb.schema import StoryContextObject
-    from agentkit.backend.vectordb.sync import SyncService
+    from agentkit.backend.vectordb.sync import PreparedSyncRun, SyncResult, SyncService
 
 
 @runtime_checkable
@@ -93,6 +93,23 @@ class StoryCorpus:
 
     objects_by_source: dict[str, list[StoryContextObject]]
     corpus_revision: str
+
+
+@dataclass
+class PreparedInitialSync:
+    """Story/research/concept run whose freshness is not published yet."""
+
+    story_result: dict[str, object]
+    concept_result: dict[str, object]
+    run: PreparedSyncRun
+
+    def commit(self) -> None:
+        """Atomically make every prepared source completion authoritative."""
+        self.run.commit()
+
+    def abort(self) -> None:
+        """Discard the unpublished completion set."""
+        self.run.abort()
 
 
 @dataclass
@@ -153,7 +170,7 @@ class McpToolService:
         full = validate_bool(args, name="full_reindex")
         try:
             corpus = self._discover_story_corpus(project_id)
-        except (FrontmatterError, ValueError) as exc:
+        except ValueError as exc:
             # AC10: an invalid source is a named, zero-write failure -- never a
             # silent partial index of the parsable subset.
             return _sync_error_envelope(project_id, "story_source_invalid", str(exc))
@@ -177,6 +194,8 @@ class McpToolService:
             "synced_sources": len(corpus.objects_by_source),
             "written": sum(r.written for r in results),
             "deleted": sum(r.deleted for r in results),
+            "unchanged": sum(1 for result in results if result.written == 0 and result.deleted == 0),
+            "failed": 0,
             "corpus_revision": corpus.corpus_revision,
         }
 
@@ -258,9 +277,7 @@ class McpToolService:
         for obj in objects:
             by_source.setdefault(str(obj.properties["source_file"]), []).append(obj)
         if concept_path is not None:
-            return self._sync_single_concept(
-                project_id, concept_path, by_source, discovery.corpus_revision
-            )
+            return self._sync_single_concept(project_id, concept_path, by_source, discovery.corpus_revision)
         results = (
             self.sync.full_reindex(
                 project_id=project_id,
@@ -281,8 +298,118 @@ class McpToolService:
             "synced_sources": len(by_source),
             "written": sum(r.written for r in results),
             "deleted": sum(r.deleted for r in results),
+            "unchanged": sum(1 for result in results if result.written == 0 and result.deleted == 0),
+            "failed": 0,
             "corpus_revision": discovery.corpus_revision,
         }
+
+    def prepare_initial_sync(self) -> PreparedInitialSync:
+        """Prepare all three source types under one run-wide publish boundary.
+
+        Discovery and concept validation finish before the first corpus mutation.
+        Story/research and concept source windows then write their generations
+        but retain every completion until the caller commits the prepared run.
+
+        The caller commits FIRST and publishes its local receipt pair only
+        afterwards (FK-13 §13.9.9): a receipt may describe only a state that was
+        actually reached, so it cannot be written while the completion is still
+        pending. The gap that opens between the commit and the published pair is
+        covered by the caller's durable publication fence, not by holding the
+        completion back.
+        """
+        from agentkit.backend.vectordb.sync import PreparedSyncRun
+
+        project_id = resolve_project_id(self.binding, {})
+        try:
+            story_corpus = self._discover_story_corpus(project_id)
+        except ValueError as exc:
+            empty = PreparedSyncRun(
+                store=self.sync.store,
+                project_id=project_id,
+                results=[],
+                receipts=[],
+                producer_completions=[],
+            )
+            return PreparedInitialSync(
+                story_result=_sync_error_envelope(
+                    project_id,
+                    "story_source_invalid",
+                    str(exc),
+                ),
+                concept_result=_sync_error_envelope(
+                    project_id,
+                    "initial_sync_blocked",
+                    "story discovery failed before concept preparation",
+                ),
+                run=empty,
+            )
+        discovery = discover_concept_files(self.concepts_dir)
+        report = validate_corpus(discovery)
+        if report.has_errors:
+            empty = PreparedSyncRun(
+                store=self.sync.store,
+                project_id=project_id,
+                results=[],
+                receipts=[],
+                producer_completions=[],
+            )
+            concept_error = _sync_error_envelope(
+                project_id,
+                "concept_validate_failed",
+                f"{len(report.errors)} blocking finding(s); the corpus is not indexed.",
+                corpus_revision=discovery.corpus_revision,
+            )
+            concept_error["validation_errors"] = len(report.errors)
+            return PreparedInitialSync(
+                story_result=_sync_error_envelope(
+                    project_id,
+                    "initial_sync_blocked",
+                    "concept validation failed before story preparation",
+                ),
+                concept_result=concept_error,
+                run=empty,
+            )
+        concept_objects = concept_chunks_to_objects(project_id, discovery)
+        concept_by_source: dict[str, list[StoryContextObject]] = {}
+        for obj in concept_objects:
+            concept_by_source.setdefault(
+                str(obj.properties["source_file"]),
+                [],
+            ).append(obj)
+        story_run = self.sync.prepare_full_reindex(
+            project_id=project_id,
+            producer="story_sync",
+            objects_by_source=story_corpus.objects_by_source,
+            corpus_revision=story_corpus.corpus_revision,
+        )
+        try:
+            concept_run = self.sync.prepare_full_reindex(
+                project_id=project_id,
+                producer="concept_sync",
+                objects_by_source=concept_by_source,
+                corpus_revision=discovery.corpus_revision,
+            )
+        except BaseException:
+            story_run.abort()
+            raise
+        story_result = _sync_success_envelope(
+            project_id=project_id,
+            revision=story_corpus.corpus_revision,
+            discovered=len(story_corpus.objects_by_source),
+            results=story_run.results,
+        )
+        concept_result = _sync_success_envelope(
+            project_id=project_id,
+            revision=discovery.corpus_revision,
+            discovered=len(concept_by_source),
+            results=concept_run.results,
+        )
+        story_run.merge(concept_run)
+        return PreparedInitialSync(
+            story_result=story_result,
+            concept_result=concept_result,
+            run=story_run,
+        )
 
     # ------------------------------------------------------------------ #
     # helpers
@@ -305,8 +432,7 @@ class McpToolService:
             return _sync_error_envelope(
                 project_id,
                 "concept_path_unknown",
-                f"{concept_path!r} is not a discovered concept source "
-                f"(known: {len(by_source)} source(s)); fail-closed.",
+                f"{concept_path!r} is not a discovered concept source (known: {len(by_source)} source(s)); fail-closed.",
                 corpus_revision=revision,
             )
         objects = by_source[normalised]
@@ -328,7 +454,7 @@ class McpToolService:
     def _discover_story_corpus(self, project_id: str) -> StoryCorpus:
         """Discover story AND research sources via the canonical classifier (R05).
 
-        Walks the project root, classifies each ``.md`` via
+        Walks the configured story corpus root, classifies each ``.md`` via
         :func:`classify_source_file` (POSITIVE canonical-path recognition), and
         ingests every ``story``/``research`` source with its PROJECT-RELATIVE path
         (R04: the relative path is what the content hash and the deterministic
@@ -338,42 +464,69 @@ class McpToolService:
         The story ``corpus_revision`` is computed from the discovered story
         documents themselves (N04) -- it is NOT the concept-corpus digest.
         """
-        root = Path(self.binding.spec.cwd)
-        if not root.is_dir():
+        root = Path(self.binding.spec.cwd).resolve()
+        stories_root = self.stories_dir.resolve()
+        if not root.is_dir() or not stories_root.is_dir():
             return StoryCorpus(objects_by_source={}, corpus_revision=corpus_revision([]))
+        try:
+            stories_root.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"configured stories directory {stories_root} is outside project root {root}") from exc
         by_source: dict[str, list[StoryContextObject]] = {}
         file_hashes: list[str] = []
-        for path in sorted(root.rglob("*.md")):
+        for path in sorted(stories_root.rglob("*.md")):
             try:
                 rel = path.relative_to(root).as_posix()
             except ValueError:  # pragma: no cover -- rglob yields contained paths
                 continue
-            source_type = classify_source_file(rel)
+            classifier_path = rel
+            if stories_root != root:
+                classifier_path = (Path("stories") / path.relative_to(stories_root)).as_posix()
+            source_type = classify_source_file(classifier_path)
             if source_type not in ("story", "research"):
                 continue
             file_hashes.append(document_hash(read_text_strict(path)))
-            objects = story_file_to_objects(
-                project_id, path, source_file=rel, source_type=source_type
-            )
+            objects = story_file_to_objects(project_id, path, source_file=rel, source_type=source_type)
             if objects:
                 by_source[rel] = objects
-        return StoryCorpus(
-            objects_by_source=by_source, corpus_revision=corpus_revision(file_hashes)
-        )
+        return StoryCorpus(objects_by_source=by_source, corpus_revision=corpus_revision(file_hashes))
 
 
-def _sync_error_envelope(
-    project_id: str, code: str, detail: str, *, corpus_revision: str = ""
-) -> dict[str, Any]:
+def _sync_error_envelope(project_id: str, code: str, detail: str, *, corpus_revision: str = "") -> dict[str, Any]:
     """Return a COMPLETE zero-write sync error envelope (no silent partial)."""
     return {
         "project_id": project_id,
         "synced_sources": 0,
         "written": 0,
         "deleted": 0,
+        "unchanged": 0,
+        "failed": 1,
         "corpus_revision": corpus_revision,
         "error": code,
         "detail": detail,
+    }
+
+
+def _sync_success_envelope(
+    *,
+    project_id: str,
+    revision: str,
+    discovered: int,
+    results: Sequence[SyncResult],
+) -> dict[str, object]:
+    """Render strict counters for a prepared or committed producer run."""
+    return {
+        "project_id": project_id,
+        "synced_sources": discovered,
+        "written": sum(result.written for result in results),
+        "deleted": sum(result.deleted for result in results),
+        "unchanged": sum(
+            1
+            for result in results
+            if result.written == 0 and result.deleted == 0
+        ),
+        "failed": 0,
+        "corpus_revision": revision,
     }
 
 
@@ -389,9 +542,7 @@ def _score_order(hit: Mapping[str, object]) -> tuple[float, str, str, str]:
     )
 
 
-def _ranked_envelope(
-    hits: Sequence[Mapping[str, object]], ranked: Sequence[RankedHit]
-) -> list[dict[str, Any]]:
+def _ranked_envelope(hits: Sequence[Mapping[str, object]], ranked: Sequence[RankedHit]) -> list[dict[str, Any]]:
     """Project ranked hits back onto their ORIGINAL hit records (N10).
 
     The ranking carries a per-hit index, so multiple section hits of the SAME
@@ -407,9 +558,7 @@ def _ranked_envelope(
     return out
 
 
-def handle_tool_call(
-    service: McpToolService, name: str, args: Mapping[str, Any]
-) -> dict[str, Any]:
+def handle_tool_call(service: McpToolService, name: str, args: Mapping[str, Any]) -> dict[str, Any]:
     """Dispatch a validated tool call; map transport outage to fail-closed error.
 
     ``args`` is the RAW MCP argument mapping (R13): the strict validators need to

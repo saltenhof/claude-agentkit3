@@ -54,9 +54,7 @@ if TYPE_CHECKING:
 #: target project, and FK-50 documents this value. That the target-project
 #: interpreter must see ``agentkit`` is an installation precondition, not a
 #: rendering decision.
-STORY_KNOWLEDGE_BASE_COMMAND: str = AK3_SERVER_SHAPES[
-    STORY_KNOWLEDGE_BASE_SERVER
-].command
+STORY_KNOWLEDGE_BASE_COMMAND: str = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER].command
 
 #: Argument vector of the story-knowledge-base MCP server.
 #:
@@ -67,9 +65,7 @@ STORY_KNOWLEDGE_BASE_COMMAND: str = AK3_SERVER_SHAPES[
 #: is ``engine.main`` (``engine.py:1258``, wired at ``engine.py:1311-1312`` and
 #: exported in ``engine.__all__``); it reads the env, composes the production
 #: engine and serves over stdio, failing closed with exit 1 otherwise.
-STORY_KNOWLEDGE_BASE_ARGS: tuple[str, ...] = AK3_SERVER_SHAPES[
-    STORY_KNOWLEDGE_BASE_SERVER
-].args
+STORY_KNOWLEDGE_BASE_ARGS: tuple[str, ...] = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER].args
 
 #: Artifact key of the Claude-Code project configuration in a before-image.
 MCP_JSON_ARTIFACT: str = "mcp_json"
@@ -324,19 +320,13 @@ def probe_registration(
         except Exception as exc:  # noqa: BLE001 — CP 10 boundary: named FAILED
             return None, (
                 REASON_MCP_PROTOCOL_ERROR,
-                f"MCP conformance internal fault for server {server.name!r}: "
-                f"{exc}. Registration was not written.",
+                f"MCP conformance internal fault for server {server.name!r}: {exc}. Registration was not written.",
             )
         if not result.ok:
-            reason = (
-                result.reason.value
-                if result.reason is not None
-                else REASON_MCP_PROTOCOL_ERROR
-            )
+            reason = result.reason.value if result.reason is not None else REASON_MCP_PROTOCOL_ERROR
             return None, (
                 reason,
-                f"MCP conformance failed for server {server.name!r}: "
-                f"{result.detail} Registration was not written.",
+                f"MCP conformance failed for server {server.name!r}: {result.detail} Registration was not written.",
             )
         observed.append((server.name, tuple(result.tool_names)))
     return (
@@ -377,10 +367,7 @@ def merge_mcp_json_servers(
     elif isinstance(raw, dict):
         merged = dict(raw)
     else:
-        msg = (
-            "mcpServers must be a JSON object after strict load; "
-            f"got {type(raw).__name__}"
-        )
+        msg = f"mcpServers must be a JSON object after strict load; got {type(raw).__name__}"
         raise TypeError(msg)
     changed = False
     for server in servers:
@@ -401,9 +388,7 @@ def merge_mcp_json_servers(
     return root, changed
 
 
-def _reject_foreign_occupation(
-    existing: Mapping[str, object], server: DesiredMcpServer
-) -> None:
+def _reject_foreign_occupation(existing: Mapping[str, object], server: DesiredMcpServer) -> None:
     """Reject an AK3 server name occupied by a DIFFERENT program (``.mcp.json``).
 
     The Codex writer has always refused to overwrite a foreign registration under
@@ -430,9 +415,7 @@ def _reject_foreign_occupation(
         return
     current_command = current.get("command")
     current_args = current.get("args")
-    if current_command == server.command and list(current_args or []) == list(
-        server.args
-    ):
+    if current_command == server.command and list(current_args or []) == list(server.args):
         return
     raise McpServerRegistrationError(
         f"target .mcp.json server {server.name!r} is occupied by a different or "
@@ -444,9 +427,7 @@ def _reject_foreign_occupation(
     )
 
 
-def assert_cwd_is_project_root(
-    servers: Sequence[DesiredMcpServer], project_root: Path
-) -> None:
+def assert_cwd_is_project_root(servers: Sequence[DesiredMcpServer], project_root: Path) -> None:
     """Assert every desired ``cwd`` IS the project root, before the probe.
 
     ``cwd`` is the containment boundary of the registered process and never a
@@ -471,8 +452,7 @@ def assert_cwd_is_project_root(
             actual = Path(server.cwd).resolve()
         except OSError as exc:  # pragma: no cover - unresolvable path
             raise McpServerRegistrationError(
-                f"server {server.name!r}: cwd {server.cwd!r} cannot be resolved: "
-                f"{exc} (fail-closed)."
+                f"server {server.name!r}: cwd {server.cwd!r} cannot be resolved: {exc} (fail-closed)."
             ) from exc
         if actual != expected:
             raise McpServerRegistrationError(
@@ -506,6 +486,65 @@ def render_mcp_json_text(
     return text, changed
 
 
+def render_mcp_json_without_ak3(raw: bytes) -> str:
+    """Surgically remove AK3 registration fields and preserve foreign JSON."""
+    loaded = _strict_detach_root(raw)
+    servers = loaded.get("mcpServers")
+    if servers is not None and not isinstance(servers, dict):
+        raise McpServerRegistrationError(".mcp.json mcpServers must be an object")
+    if isinstance(servers, dict):
+        _remove_owned_mcp_servers(servers)
+        if not servers:
+            del loaded["mcpServers"]
+    return json.dumps(loaded, indent=2, sort_keys=True, allow_nan=False) + "\n"
+
+
+def _strict_detach_root(raw: bytes) -> dict[str, object]:
+    from agentkit.backend.installer.strict_json import (
+        contains_lone_surrogate,
+        contains_non_finite_float,
+        exceeds_max_json_nesting,
+        reject_duplicate_object_pairs,
+        reject_non_json_constant,
+    )
+
+    try:
+        text = raw.decode("utf-8")
+        loaded = json.loads(
+            text,
+            parse_constant=reject_non_json_constant,
+            object_pairs_hook=reject_duplicate_object_pairs,
+        )
+    except ValueError as exc:
+        raise McpServerRegistrationError(f"Cannot surgically detach .mcp.json: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise McpServerRegistrationError(".mcp.json root must be an object")
+    if exceeds_max_json_nesting(loaded):
+        raise McpServerRegistrationError(".mcp.json exceeds the maximum nesting depth")
+    if contains_non_finite_float(loaded):
+        raise McpServerRegistrationError(".mcp.json contains a non-finite number")
+    if contains_lone_surrogate(loaded):
+        raise McpServerRegistrationError(".mcp.json contains a lone Unicode surrogate")
+    return loaded
+
+
+def _remove_owned_mcp_servers(servers: dict[str, object]) -> None:
+    for name, shape in AK3_SERVER_SHAPES.items():
+        entry = servers.get(name)
+        if not isinstance(entry, dict):
+            continue
+        args = entry.get("args")
+        if entry.get("command") != shape.command or not isinstance(args, list):
+            continue
+        if tuple(args) != shape.args:
+            continue
+        for field in ("type", "command", "args", "cwd", "env"):
+            if field in entry:
+                del entry[field]
+        if not entry:
+            del servers[name]
+
+
 __all__ = [
     "CODEX_CONFIG_ARTIFACT",
     "MCP_JSON_ARTIFACT",
@@ -521,5 +560,6 @@ __all__ = [
     "merge_mcp_json_servers",
     "probe_registration",
     "render_mcp_json_text",
+    "render_mcp_json_without_ak3",
     "server_command_from_desired",
 ]

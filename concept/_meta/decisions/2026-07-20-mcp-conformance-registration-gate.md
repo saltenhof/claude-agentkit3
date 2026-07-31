@@ -73,10 +73,14 @@ Prozessstart. Ein aktiver MCP-Healthcheck in Dry-run/Verify ist
 **nicht** Teil dieser Entscheidung (eigene normative Entscheidung mit
 Security-Impact).
 
-`SKIPPED` bleibt dem *bewusst-abwesenden* Fall vorbehalten
-(`features.vectordb` und `features.are` beide false →
-`reason=vectordb_disabled`). *Konfiguriert, aber nicht lauffaehig* ist
-im Register-Pfad immer `FAILED`.
+Die frühere Ausnahme fuer einen *bewusst-abwesenden* VectorDB-Fall
+(`SKIPPED` bei `features.vectordb=false` und
+`reason=vectordb_disabled`) ist durch Decision
+`2026-07-21-vectordb-edge-sharpening.md` Rand 1 und FK-50 superseded:
+VektorDB ist Pflichtinfrastruktur; `features.vectordb: false` scheitert an der
+strikten Konfigurationsgrenze vor CP 1 mit `reason=vectordb_required`.
+*Konfiguriert, aber nicht lauffaehig* ist im Register-Pfad weiterhin immer
+`FAILED`. Die Optionalitaet von `features.are` bleibt unberuehrt.
 
 FK-50 §50.3 CP 10 traegt die Conformance-Vorbedingung, den
 Ursachenkatalog und die `SKIPPED`-vs.-`FAILED`-Abgrenzung sowie die
@@ -104,7 +108,7 @@ Konzeptkorrektur (Rework nach review-1-codex):
 | Artefakt / Scope | Klassifikation | Begruendung |
 |------------------|----------------|-------------|
 | FK-50 §50.3 CP 10 | **geaendert** | Conformance-Vorbedingung, Ursachenkatalog, SKIPPED/FAILED, Register-only-Gate, Dry-run/Verify-Modusgrenze |
-| FK-50 §50.6 Fehlerfall-Tabelle | **geaendert** | MCP-`mcp_*`-FAILED-Zeilen + bewusst-abwesend SKIPPED |
+| FK-50 §50.6 Fehlerfall-Tabelle | **geaendert** | MCP-`mcp_*`-FAILED-Zeilen; der damalige bewusst-abwesende VectorDB-SKIPPED-Fall ist durch Decision 2026-07-21 Rand 1 superseded |
 | FK-50 §50.2 / ExecutionMode dry-run/verify | **referenziert-jetzt** | Vertrag bewusst **nicht** geaendert: kein Prozessstart in dry-run/verify |
 | FK-03 §3.1 `features.are` / `are.mcp_server` | **nicht-betroffen** | Bindung bleibt; nur ehrliches FAILED bis Server existiert |
 | `formal-spec/installer/invariants.md` (`verify_project_is_read_only`, `dry_run_never_mutates_…`) | **referenziert-jetzt** | Invarianten bestaetigt; Implementierung muss sie einhalten (kein aktiver Healthcheck) |

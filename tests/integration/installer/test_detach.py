@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import tempfile
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -90,9 +91,7 @@ def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
             ]
         },
     }
-    (project_root / ".claude" / "settings.json").write_text(
-        json.dumps(claude_settings, indent=2), encoding="utf-8"
-    )
+    (project_root / ".claude" / "settings.json").write_text(json.dumps(claude_settings, indent=2), encoding="utf-8")
 
     # .codex/hooks.json: AK3 handler + foreign handler in the same matcher group.
     codex_hooks = {
@@ -108,13 +107,9 @@ def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
             ]
         }
     }
-    (project_root / ".codex" / "hooks.json").write_text(
-        json.dumps(codex_hooks, indent=2), encoding="utf-8"
-    )
+    (project_root / ".codex" / "hooks.json").write_text(json.dumps(codex_hooks, indent=2), encoding="utf-8")
     # The real AK3-generated Codex config (byte-equal -> detach removes it).
-    (project_root / ".codex" / "config.toml").write_text(
-        build_codex_config_toml(), encoding="utf-8"
-    )
+    (project_root / ".codex" / "config.toml").write_text(build_codex_config_toml(), encoding="utf-8")
 
     # AK3 bindings + edge launcher.
     (project_root / ".agentkit" / "config").mkdir(parents=True)
@@ -331,9 +326,7 @@ def test_detach_leaves_pure_foreign_claude_settings_byte_identical(
                     "PreToolUse": [
                         {
                             "matcher": "Bash",
-                            "hooks": [
-                                {"type": "command", "command": "/opt/foreign/audit-hook.sh"}
-                            ],
+                            "hooks": [{"type": "command", "command": "/opt/foreign/audit-hook.sh"}],
                         }
                     ]
                 },
@@ -365,9 +358,7 @@ def test_detach_leaves_pure_foreign_codex_hooks_byte_identical(tmp_path: Path) -
                     "PreToolUse": [
                         {
                             "matcher": "Bash",
-                            "hooks": [
-                                {"type": "command", "command": "/opt/foreign/audit.sh"}
-                            ],
+                            "hooks": [{"type": "command", "command": "/opt/foreign/audit.sh"}],
                         }
                     ]
                 }
@@ -481,10 +472,7 @@ def _write_prompt_bundle(prompts_dir: Path, *, relpaths: dict[str, str]) -> None
     manifest = {
         "bundle_id": "prompts-core",
         "bundle_version": "1",
-        "templates": {
-            name: {"relpath": relpath, "sha256": digest}
-            for name, relpath in relpaths.items()
-        },
+        "templates": {name: {"relpath": relpath, "sha256": digest} for name, relpath in relpaths.items()},
     }
     (prompts_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     for relpath in relpaths.values():
@@ -602,9 +590,7 @@ def test_detach_with_malformed_manifest_removes_nothing(tmp_path: Path) -> None:
         pytest.param({"relpath": "bad.md", "sha256": ""}, id="empty-sha256"),
     ],
 )
-def test_detach_entry_level_malformed_manifest_removes_nothing(
-    tmp_path: Path, bad_entry: object
-) -> None:
+def test_detach_entry_level_malformed_manifest_removes_nothing(tmp_path: Path, bad_entry: object) -> None:
     """F2 regression: a manifest with ONE valid + ONE malformed ``templates`` entry
     makes detach remove NOTHING from ``prompts/`` (fail safe, D4).
 
@@ -652,19 +638,17 @@ def test_detach_removes_byte_equal_ak3_codex_config(tmp_path: Path) -> None:
 
 
 def test_detach_preserves_foreign_codex_config(tmp_path: Path) -> None:
-    """D5 regression: a ``.codex/config.toml`` carrying foreign config (not byte-equal
-    to the AK3 config) SURVIVES detach byte-for-byte instead of being deleted."""
+    """Foreign TOML values survive while the owned hook is removed surgically."""
     project_root = tmp_path / "project"
     (project_root / ".codex").mkdir(parents=True)
     config_path = project_root / ".codex" / "config.toml"
     # AK3 config PLUS a foreign user-added section.
     foreign = build_codex_config_toml() + '\n[user.custom]\nkey = "value"\n'
     config_path.write_text(foreign, encoding="utf-8")
-    before = config_path.read_bytes()
-
     result = detach_project(project_root)
 
-    assert config_path.read_bytes() == before  # byte-for-byte preserved
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert parsed == {"user": {"custom": {"key": "value"}}}
     assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
     assert str(Path(".codex/config.toml")) not in result.removed_bindings
 
@@ -728,17 +712,12 @@ def test_detach_preserves_config_with_a_foreign_table_alongside_the_mcp_entry(
     project_root = tmp_path / "project"
     project_root.mkdir()
     server = _expected_ak3_server(project_root)
-    ak3 = render_codex_config(
-        None, hook_command=CODEX_HOOK_COMMAND, project_root=project_root, servers=(server,)
-    )
-    config_path = _write_codex(
-        project_root, (ak3 + '\n[user.custom]\nkey = "value"\n').encode("utf-8")
-    )
-    before = config_path.read_bytes()
-
+    ak3 = render_codex_config(None, hook_command=CODEX_HOOK_COMMAND, project_root=project_root, servers=(server,))
+    config_path = _write_codex(project_root, (ak3 + '\n[user.custom]\nkey = "value"\n').encode("utf-8"))
     result = detach_project(project_root)
 
-    assert config_path.read_bytes() == before
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert parsed == {"user": {"custom": {"key": "value"}}}
     assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
 
 
@@ -759,11 +738,11 @@ def test_detach_preserves_an_ak3_only_config_carrying_a_user_comment(
         project_root,
         build_codex_config_toml().encode("utf-8") + b"\n# my own note, please keep\n",
     )
-    before = config_path.read_bytes()
-
     result = detach_project(project_root)
 
-    assert config_path.read_bytes() == before
+    rendered = config_path.read_text(encoding="utf-8")
+    assert "# my own note, please keep" in rendered
+    assert "hooks.PreToolUse" not in rendered
     assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
 
 

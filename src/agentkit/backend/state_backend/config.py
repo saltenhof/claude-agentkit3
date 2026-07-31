@@ -186,7 +186,11 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # (story_id, kind) active set and adds the append-only per-story epoch audit
 # highwater. Side-by-side versioning prevents a booted scalar-family schema from
 # surviving CREATE TABLE IF NOT EXISTS.
-SCHEMA_VERSION = "3.31.0"
+# AG3-176 R1: 3.31.0 -> 3.32.0 adds the trusted effective-bundle
+# ``content_digest`` to skill_bindings. The digest includes SKILL.md and is
+# captured at pin time; a fresh side-by-side schema prevents legacy rows without
+# integrity evidence from being treated as VERIFIED.
+SCHEMA_VERSION = "3.32.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

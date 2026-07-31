@@ -74,9 +74,7 @@ _GIT_ARGV_TUPLE = re.compile(r"""\(\s*["']git["']\s*,""")
 #: ``subprocess.run("git ...", shell=True)``). A prose ``git ...`` mention in a
 #: ``#`` comment or a ```` ``git ...`` ```` docstring is NOT quote-prefixed and is
 #: correctly excluded.
-_GIT_SHELL_STRING = re.compile(
-    r"""(?:os\.system|subprocess\.\w+)\(\s*f?["']git[\s"']"""
-)
+_GIT_SHELL_STRING = re.compile(r"""(?:os\.system|subprocess\.\w+)\(\s*f?["']git[\s"']""")
 #: GitPython usage, incl. submodule imports (``import git`` / ``import git.x`` /
 #: ``from git[.x] import ...`` / ``git.Repo(...)``). None today; keeps the surface
 #: honest if introduced.
@@ -120,12 +118,13 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     # §10.2.4a forbids, and NOT worktree provisioning/teardown/path ops.
     "governance/guard_system/secret_scan.py": "governance-secret-scan (guard git-history scan)",
     "installer/project_structure.py": "installer-bootstrap (git clone at project registration)",
-    "installer/bootstrap_checkpoints/cp11_to_12.py": "installer-bootstrap (git config core.hooksPath checkpoint)",
+    "installer/git_hook_dispatch.py": "AG3-176 (atomic hook-pair activation and rollback)",
     # AG3-174 FK-13 Ring 2 commit gate: ``concept validate --staged`` reads staged
     # concept files (``git diff --cached`` + ``git show :<path>``) on the dev
     # machine to build the candidate corpus. Dev-local read, NOT a backend
     # worktree op (the firing pre-commit install is AG3-176, out of scope here).
     "vectordb/cli.py": "AG3-174 (FK-13 Ring 2 candidate-corpus staged-file read)",
+    "vectordb/hook_dispatch.py": "AG3-176 (firing pre/post-commit VectorDB dispatch)",
 }
 
 #: The utils.git worktree/tree-hash primitives the AG3-152 closure/merge block
@@ -155,20 +154,12 @@ def test_backend_git_utility_module_is_deleted() -> None:
 
 def test_closure_merge_runtime_has_no_physical_git_adapter() -> None:
     """AG3-152 AC-1: the productive Closure merge path cannot reach local Git."""
-    closure_sources = {
-        _rel(path): path.read_text(encoding="utf-8")
-        for path in (_BACKEND_ROOT / "closure").rglob("*.py")
-    }
-    closure_sources["bootstrap/composition_closure.py"] = (
-        _BACKEND_ROOT / "bootstrap" / "composition_closure.py"
-    ).read_text(encoding="utf-8")
+    closure_sources = {_rel(path): path.read_text(encoding="utf-8") for path in (_BACKEND_ROOT / "closure").rglob("*.py")}
+    closure_sources["bootstrap/composition_closure.py"] = (_BACKEND_ROOT / "bootstrap" / "composition_closure.py").read_text(
+        encoding="utf-8"
+    )
     forbidden = ("subprocess.run", "SubprocessGitBackend")
-    hits = {
-        path: token
-        for path, source in closure_sources.items()
-        for token in forbidden
-        if token in source
-    }
+    hits = {path: token for path, source in closure_sources.items() for token in forbidden if token in source}
     assert hits == {}, f"physical Git remains reachable from Closure: {hits}"
 
 
@@ -177,16 +168,9 @@ def _closure_handler_method_source(method_name: str) -> str:
     path = _BACKEND_ROOT / "closure" / "phase.py"
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source)
-    handler = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "ClosurePhaseHandler"
-    )
+    handler = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "ClosurePhaseHandler")
     method = next(
-        node
-        for node in handler.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == method_name
+        node for node in handler.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == method_name
     )
     return ast.get_source_segment(source, method) or ""
 
@@ -206,53 +190,30 @@ def test_ac1_scans_the_exact_closure_merge_methods_and_excludes_ag3156_evidence(
         "_SubprocessGitChangeEvidenceProvider",
         "change_evidence_port.collect",
     )
-    hits = {
-        method: token
-        for method in merge_methods
-        for token in forbidden
-        if token in _closure_handler_method_source(method)
-    }
+    hits = {method: token for method in merge_methods for token in forbidden if token in _closure_handler_method_source(method)}
     assert hits == {}, f"backend Git/evidence read leaked into Closure merge path: {hits}"
 
-    evidence_precondition = _closure_handler_method_source(
-        "_validate_implementation_terminality"
-    )
+    evidence_precondition = _closure_handler_method_source("_validate_implementation_terminality")
     assert "change_evidence_port.collect" in evidence_precondition
-    assert _GIT_SUBPROCESS_INVENTORY["bootstrap/composition_verify.py"].startswith(
-        "AG3-156"
-    )
-    assert _GIT_SUBPROCESS_INVENTORY[
-        "verify_system/sonarqube_gate/runtime_wiring.py"
-    ].startswith("AG3-156")
+    assert _GIT_SUBPROCESS_INVENTORY["bootstrap/composition_verify.py"].startswith("AG3-156")
+    assert _GIT_SUBPROCESS_INVENTORY["verify_system/sonarqube_gate/runtime_wiring.py"].startswith("AG3-156")
 
 
 def test_state_backend_worktree_repository_is_deleted() -> None:
     """The backend worktree PATH-authority module is gone (FK-10 §10.2.4a)."""
-    assert not (
-        _BACKEND_ROOT / "state_backend" / "store" / "worktree_repository.py"
-    ).exists()
-    hits = [
-        _rel(p)
-        for p in _backend_py_files()
-        if "StateBackendWorktreeRepository" in p.read_text(encoding="utf-8")
-    ]
+    assert not (_BACKEND_ROOT / "state_backend" / "store" / "worktree_repository.py").exists()
+    hits = [_rel(p) for p in _backend_py_files() if "StateBackendWorktreeRepository" in p.read_text(encoding="utf-8")]
     assert hits == [], f"StateBackendWorktreeRepository still referenced in {hits}"
 
 
 def test_backend_setup_worktree_module_is_deleted() -> None:
     """The backend setup ``worktree.py`` (create/marker) is gone (sub-step C)."""
-    assert not (
-        _BACKEND_ROOT / "governance" / "setup_preflight_gate" / "worktree.py"
-    ).exists()
+    assert not (_BACKEND_ROOT / "governance" / "setup_preflight_gate" / "worktree.py").exists()
 
 
 def test_write_story_marker_has_no_backend_definition() -> None:
     """``write_story_marker`` is materialized dev-locally by the edge, not backend."""
-    hits = [
-        _rel(p)
-        for p in _backend_py_files()
-        if "def write_story_marker(" in p.read_text(encoding="utf-8")
-    ]
+    hits = [_rel(p) for p in _backend_py_files() if "def write_story_marker(" in p.read_text(encoding="utf-8")]
     assert hits == [], f"backend still defines write_story_marker in {hits}"
 
 
@@ -275,26 +236,19 @@ def test_utils_git_importers_are_exactly_the_ag3152_consumers() -> None:
     importers = {
         _rel(p)
         for p in _backend_py_files()
-        if p.name != "git.py"
-        and "agentkit.backend.utils.git" in p.read_text(encoding="utf-8")
+        if p.name != "git.py" and "agentkit.backend.utils.git" in p.read_text(encoding="utf-8")
     }
     assert importers == set(_UTILS_GIT_REMAINING_CONSUMERS), (
         "backend utils.git importers drifted from the SOLL-136 inventory: "
         f"actual={sorted(importers)} expected={sorted(_UTILS_GIT_REMAINING_CONSUMERS)}"
     )
     # Every remaining importer is assigned to a neighbour story (no unassigned).
-    assert all(
-        _UTILS_GIT_REMAINING_CONSUMERS[i] == "AG3-152" for i in importers
-    )
+    assert all(_UTILS_GIT_REMAINING_CONSUMERS[i] == "AG3-152" for i in importers)
 
 
 def test_remove_worktree_callers_are_only_the_ag3152_closure_block() -> None:
     """The reset-detach + setup cleanup no longer call ``remove_worktree``."""
-    callers = {
-        _rel(p)
-        for p in _backend_py_files()
-        if "remove_worktree" in p.read_text(encoding="utf-8")
-    }
+    callers = {_rel(p) for p in _backend_py_files() if "remove_worktree" in p.read_text(encoding="utf-8")}
     assert callers == set(_REMOVE_WORKTREE_CALLERS), (
         "backend remove_worktree call-sites drifted from the SOLL-136 inventory: "
         f"actual={sorted(callers)} expected={sorted(_REMOVE_WORKTREE_CALLERS)}"
@@ -363,9 +317,7 @@ def test_every_backend_git_subprocess_site_is_assigned_in_the_inventory() -> Non
 #: accidental regression. A prose ``git worktree add`` in a ``#`` comment or a
 #: ```` ``git worktree add`` ```` docstring is not quote-prefixed and is excluded
 #: (it is not an execution).
-_GIT_WORKTREE_ADD = re.compile(
-    r"""["']worktree["']\s*,\s*["']add["']|["']git\s+worktree\s+add"""
-)
+_GIT_WORKTREE_ADD = re.compile(r"""["']worktree["']\s*,\s*["']add["']|["']git\s+worktree\s+add""")
 
 
 def test_no_backend_site_runs_git_worktree_add() -> None:
@@ -380,11 +332,5 @@ def test_no_backend_site_runs_git_worktree_add() -> None:
     variables is out of scope for a static source scan (undecidable), consistent
     with the inventory scan scope note. Zero offenders today; this keeps it that way.
     """
-    offenders = [
-        _rel(p)
-        for p in _backend_py_files()
-        if _GIT_WORKTREE_ADD.search(p.read_text(encoding="utf-8"))
-    ]
-    assert offenders == [], (
-        f"backend still provisions a worktree via git worktree add in {offenders}"
-    )
+    offenders = [_rel(p) for p in _backend_py_files() if _GIT_WORKTREE_ADD.search(p.read_text(encoding="utf-8"))]
+    assert offenders == [], f"backend still provisions a worktree via git worktree add in {offenders}"

@@ -23,7 +23,7 @@ formal_scope: prose-only
 |-----------|---------|-------------|-----|---------|
 | Config-Version | `"3.0"` | `config_version` | — | 03 |
 | Multi-LLM | `true` (Pflicht) | `features.multi_llm` | FK-04-018 | 03 |
-| VektorDB | `false` | `features.vectordb` | — | 03 |
+| VektorDB | `true` (Pflicht; `false` ist kein regulärer Abschaltwert) | `features.vectordb` | — | 03 |
 | ARE | `false` | `features.are` | FK-09-001 | 03 |
 | Telemetry | `true` | `features.telemetry` | — | 03 |
 | Multi-Repo | `false` | `features.multi_repo` | — | 03 |

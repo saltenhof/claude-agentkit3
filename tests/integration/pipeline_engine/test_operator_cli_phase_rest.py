@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.cli.main import main
 from agentkit.backend.control_plane.dispatch import PhaseDispatcher, PreStartGuard
@@ -109,16 +110,12 @@ class _PauseThenCompleteHandler:
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         del ctx, envelope
-        return HandlerResult(
-            status=PhaseStatus.PAUSED, yield_status="awaiting_design_review"
-        )
+        return HandlerResult(status=PhaseStatus.PAUSED, yield_status="awaiting_design_review")
 
     def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
         del ctx, envelope
 
-    def on_resume(
-        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str
-    ) -> HandlerResult:
+    def on_resume(self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str) -> HandlerResult:
         del ctx, envelope, trigger
         self.resume_calls += 1
         return HandlerResult(status=PhaseStatus.COMPLETED)
@@ -127,24 +124,17 @@ class _PauseThenCompleteHandler:
 class _PauseThenFailHandler(_PauseThenCompleteHandler):
     """Pauses on entry, then FAILS on resume (valid trigger, real on_resume work)."""
 
-    def on_resume(
-        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str
-    ) -> HandlerResult:
+    def on_resume(self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str) -> HandlerResult:
         del ctx, envelope, trigger
         self.resume_calls += 1
         return HandlerResult(status=PhaseStatus.FAILED, errors=("resume work failed",))
 
 
-def _count_events(
-    project_key: str, run_id: str, event_type: EventType
-) -> int:
+def _count_events(project_key: str, run_id: str, event_type: EventType) -> int:
     """Count committed lifecycle events of ``event_type`` for a run (read-only)."""
     events = load_execution_events_for_project_global(project_key, limit=None)
     return sum(
-        1
-        for e in events
-        if getattr(e, "run_id", None) == run_id
-        and str(getattr(e, "event_type", "")) == event_type.value
+        1 for e in events if getattr(e, "run_id", None) == run_id and str(getattr(e, "event_type", "")) == event_type.value
     )
 
 
@@ -159,6 +149,7 @@ def _install_project(project_dir: Path) -> None:
             github_repo="demo",
             sonarqube_available=False,
             ci_available=False,
+            **ready_vectordb_install_kwargs(),
         )
     )
     assert result.success
@@ -182,9 +173,7 @@ def _persist_ctx(project_dir: Path, story_id: str, *, route: StoryMode) -> None:
     save_story_context(s_dir, ctx)
 
 
-def _boundary_dispatcher(
-    *, overrides: dict[str, object] | None = None
-) -> PhaseDispatcher:
+def _boundary_dispatcher(*, overrides: dict[str, object] | None = None) -> PhaseDispatcher:
     # Keep the SAME dict by reference (an empty dict is falsy -> ``or {}`` would
     # rebind to a fresh dict and drop the fixture's later mutations).
     overrides = {} if overrides is None else overrides
@@ -224,14 +213,10 @@ def _serve(service: ControlPlaneRuntimeService) -> tuple[HTTPServer, str]:
 
 
 @pytest.fixture()
-def served_service() -> Iterator[
-    tuple[ControlPlaneRuntimeService, str, dict[str, object]]
-]:
+def served_service() -> Iterator[tuple[ControlPlaneRuntimeService, str, dict[str, object]]]:
     """Yield (service, base_url, overrides-holder). Overrides set per test before use."""
     overrides: dict[str, object] = {}
-    service = ControlPlaneRuntimeService(
-        phase_dispatcher=_boundary_dispatcher(overrides=overrides)
-    )
+    service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(overrides=overrides))
     server, base_url = _serve(service)
     try:
         yield service, base_url, overrides
@@ -250,21 +235,27 @@ def _base_argv(
     return [
         verb,
         phase,
-        "--story", story_id,
-        "--run", "run-1",
-        "--session", "sess-1",
-        "--principal", "operator",
-        "--worktree", str(project_dir),
-        "--project", project_dir.name,
+        "--story",
+        story_id,
+        "--run",
+        "run-1",
+        "--session",
+        "sess-1",
+        "--principal",
+        "operator",
+        "--worktree",
+        str(project_dir),
+        "--project",
+        project_dir.name,
         # The handshake reads the bound skill-bundle version from this project root.
-        "--project-root", str(project_dir),
-        "--base-url", base_url,
+        "--project-root",
+        str(project_dir),
+        "--base-url",
+        base_url,
     ]
 
 
-def _req(
-    project_dir: Path, story_id: str, op_suffix: str, **extra: object
-) -> PhaseMutationRequest:
+def _req(project_dir: Path, story_id: str, op_suffix: str, **extra: object) -> PhaseMutationRequest:
     return PhaseMutationRequest(
         project_key=project_dir.name,
         story_id=story_id,
@@ -276,13 +267,9 @@ def _req(
     )
 
 
-def _arrange_paused_exploration(
-    service: ControlPlaneRuntimeService, project_dir: Path, story_id: str
-) -> None:
+def _arrange_paused_exploration(service: ControlPlaneRuntimeService, project_dir: Path, story_id: str) -> None:
     """Drive setup + a paused exploration via the SAME core (real PAUSED state)."""
-    setup = service.start_phase(
-        run_id="run-1", phase="setup", request=_req(project_dir, story_id, "setup")
-    )
+    setup = service.start_phase(run_id="run-1", phase="setup", request=_req(project_dir, story_id, "setup"))
     assert setup.status == "committed"
     paused = service.start_phase(
         run_id="run-1",
@@ -337,10 +324,7 @@ class TestOperatorCliPhaseRest:
         _persist_ctx(project_dir, story_id, route=StoryMode.EXPLORATION)
         _arrange_paused_exploration(service, project_dir, story_id)
 
-        code = main(
-            _base_argv("resume", "exploration", project_dir, story_id, base_url)
-            + ["--trigger", "design_approved"]
-        )
+        code = main(_base_argv("resume", "exploration", project_dir, story_id, base_url) + ["--trigger", "design_approved"])
 
         out = capsys.readouterr().out
         assert code == 0, out
@@ -367,10 +351,7 @@ class TestOperatorCliPhaseRest:
 
         # No prior setup start -> the run was never admitted -> core rejects,
         # surfaced fail-closed as a non-zero CLI exit (no in-process fallback).
-        code = main(
-            _base_argv("resume", "exploration", project_dir, story_id, base_url)
-            + ["--trigger", "design_approved"]
-        )
+        code = main(_base_argv("resume", "exploration", project_dir, story_id, base_url) + ["--trigger", "design_approved"])
 
         out = capsys.readouterr().out
         assert code != 0
@@ -399,9 +380,7 @@ class TestResumeClaimAndSideEffects:
         _persist_ctx(project_dir, story_id, route=StoryMode.EXPLORATION)
         _arrange_paused_exploration(service, project_dir, story_id)
 
-        req = _req(
-            project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"}
-        )
+        req = _req(project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"})
         first = service.resume_phase(run_id="run-1", phase="exploration", request=req)
         replay = service.resume_phase(run_id="run-1", phase="exploration", request=req)
 
@@ -427,9 +406,7 @@ class TestResumeClaimAndSideEffects:
         _persist_ctx(project_dir, story_id, route=StoryMode.EXPLORATION)
         _arrange_paused_exploration(service, project_dir, story_id)
 
-        req = _req(
-            project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"}
-        )
+        req = _req(project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"})
         # Simulate a concurrent in-flight owner: reserve the op_id with a FRESH
         # (non-expired) foreign claim before our resume runs. AG3-138 AC3: every
         # claim placeholder is stamped with a backend instance identity; this
@@ -508,9 +485,7 @@ class TestResumeClaimAndSideEffects:
         _persist_ctx(project_dir, story_id, route=StoryMode.EXPLORATION)
         _arrange_paused_exploration(service, project_dir, story_id)
 
-        req = _req(
-            project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"}
-        )
+        req = _req(project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"})
         result = service.resume_phase(run_id="run-1", phase="exploration", request=req)
 
         assert result.status == "rejected"
@@ -542,22 +517,14 @@ class TestResumeClaimAndSideEffects:
 
         project_key = project_dir.name
         # Snapshot the run's guard regime + activation-event counts BEFORE resume.
-        lock_before = service._repo.load_lock(
-            project_key, story_id, "run-1", "story_execution"
-        )
+        lock_before = service._repo.load_lock(project_key, story_id, "run-1", "story_execution")
         binding_before = service._repo.load_binding("sess-1")
         assert lock_before is not None and lock_before.status == "ACTIVE"
         assert binding_before is not None
-        created_before = _count_events(
-            project_key, "run-1", EventType.SESSION_RUN_BINDING_CREATED
-        )
-        activated_before = _count_events(
-            project_key, "run-1", EventType.STORY_EXECUTION_REGIME_ACTIVATED
-        )
+        created_before = _count_events(project_key, "run-1", EventType.SESSION_RUN_BINDING_CREATED)
+        activated_before = _count_events(project_key, "run-1", EventType.STORY_EXECUTION_REGIME_ACTIVATED)
 
-        req = _req(
-            project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"}
-        )
+        req = _req(project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"})
         result = service.resume_phase(run_id="run-1", phase="exploration", request=req)
 
         # (a) exactly one committed phase_resume op is persisted (op_id record).
@@ -572,23 +539,15 @@ class TestResumeClaimAndSideEffects:
         assert result.edge_bundle.lock.status == "ACTIVE"
 
         # (b) NO new binding / lock reactivation and NO new activation events.
-        lock_after = service._repo.load_lock(
-            project_key, story_id, "run-1", "story_execution"
-        )
+        lock_after = service._repo.load_lock(project_key, story_id, "run-1", "story_execution")
         binding_after = service._repo.load_binding("sess-1")
         assert lock_after is not None
         assert lock_after.activated_at == lock_before.activated_at
         assert lock_after.binding_version == lock_before.binding_version
         assert binding_after is not None
         assert binding_after.binding_version == binding_before.binding_version
-        assert (
-            _count_events(project_key, "run-1", EventType.SESSION_RUN_BINDING_CREATED)
-            == created_before
-        )
-        assert (
-            _count_events(project_key, "run-1", EventType.STORY_EXECUTION_REGIME_ACTIVATED)
-            == activated_before
-        )
+        assert _count_events(project_key, "run-1", EventType.SESSION_RUN_BINDING_CREATED) == created_before
+        assert _count_events(project_key, "run-1", EventType.STORY_EXECUTION_REGIME_ACTIVATED) == activated_before
 
 
 @pytest.mark.integration
@@ -613,9 +572,7 @@ class TestResumeHandshakeServerPath:
         # A transport with NO bound skill-bundle omits ``X-AK3-Skill-Bundle`` -> the
         # handshake middleware refuses the mutation with 426 BEFORE routing.
         transport = HttpsJsonTransport(base_url=base_url, skill_bundle_version=None)
-        req = _req(
-            project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"}
-        )
+        req = _req(project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"})
         with pytest.raises(ControlPlaneApiError) as exc_info:
             transport.send(
                 method="POST",

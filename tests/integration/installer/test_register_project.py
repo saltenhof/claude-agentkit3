@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     REASON_MISSING_COORDINATES,
@@ -110,6 +111,7 @@ def _make_config(
         # No live Jenkins here => conscious opt-out so the CI preflight SKIPS
         # (AG3-056 FIX-5).
         ci_available=False,
+        **ready_vectordb_install_kwargs(),
     )
 
 
@@ -129,9 +131,7 @@ class _OrderingSpyRepo(StateBackendProjectRegistrationRepository):
     def save(self, registration: object) -> None:
         claude_skills = self._project_root / ".claude" / "skills"
         codex_skills = self._project_root / ".codex" / "skills"
-        self.skills_dir_present_at_save = (
-            claude_skills.exists() or codex_skills.exists()
-        )
+        self.skills_dir_present_at_save = claude_skills.exists() or codex_skills.exists()
         super().save(registration)  # type: ignore[arg-type]
 
 
@@ -153,9 +153,7 @@ def test_cp7_registration_precedes_bundle_binding(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.parametrize("bad_owner", [None, "", "   "])
-def test_install_aborts_on_failed_cp2_no_bindings(
-    tmp_path: Path, bad_owner: str | None
-) -> None:
+def test_install_aborts_on_failed_cp2_no_bindings(tmp_path: Path, bad_owner: str | None) -> None:
     """B1 (AG3-088): missing/empty GitHub coordinates abort at CP 2 (fail-closed).
 
     With the checkpoint engine (AG3-088), CP 2 (the GitHub-repo check) is the
@@ -180,16 +178,11 @@ def test_install_aborts_on_failed_cp2_no_bindings(
     # Install aborts: not successful, FAILED CP 2 propagated with its reason.
     assert result.success is False
     assert result.checkpoint_results is not None
-    cp2 = next(
-        r for r in result.checkpoint_results if r.checkpoint == CP_02_REPO_CHECK
-    )
+    cp2 = next(r for r in result.checkpoint_results if r.checkpoint == CP_02_REPO_CHECK)
     assert cp2.status is CheckpointStatus.FAILED
     assert cp2.reason == REASON_MISSING_COORDINATES
     # CP 7 never ran (CP 2 aborted earlier) — no registration was persisted.
-    assert all(
-        r.checkpoint != CP7_STATE_BACKEND_REGISTRATION
-        for r in result.checkpoint_results
-    )
+    assert all(r.checkpoint != CP7_STATE_BACKEND_REGISTRATION for r in result.checkpoint_results)
     # No registration was persisted, and no skill bindings ran (no bind points).
     assert repo.get(root.stem) is None
     assert not (root / ".claude" / "skills").exists()
@@ -220,9 +213,7 @@ def test_install_aborts_on_failed_cp2_no_bindings(
         ("acme\n", "demo"),  # trailing-newline owner (ERROR-1)
     ],
 )
-def test_install_aborts_on_invalid_cp2_coordinates_no_bindings(
-    tmp_path: Path, bad_owner: str, bad_repo: str
-) -> None:
+def test_install_aborts_on_invalid_cp2_coordinates_no_bindings(tmp_path: Path, bad_owner: str, bad_repo: str) -> None:
     """AG3-088: a direct install with MALFORMED GitHub coordinates fails closed.
 
     The SSOT coordinate validation (``validate_github_coordinate``) is enforced at
@@ -244,15 +235,10 @@ def test_install_aborts_on_invalid_cp2_coordinates_no_bindings(
 
     assert result.success is False
     assert result.checkpoint_results is not None
-    cp2 = next(
-        r for r in result.checkpoint_results if r.checkpoint == CP_02_REPO_CHECK
-    )
+    cp2 = next(r for r in result.checkpoint_results if r.checkpoint == CP_02_REPO_CHECK)
     assert cp2.status is CheckpointStatus.FAILED
     assert cp2.reason == REASON_REPO_UNREACHABLE
-    assert all(
-        r.checkpoint != CP7_STATE_BACKEND_REGISTRATION
-        for r in result.checkpoint_results
-    )
+    assert all(r.checkpoint != CP7_STATE_BACKEND_REGISTRATION for r in result.checkpoint_results)
     # No invalid registration persisted, no harness/skill bindings deployed.
     assert repo.get(root.stem) is None
     assert not (root / ".claude" / "skills").exists()
@@ -283,17 +269,13 @@ def test_install_persists_project_registration(tmp_path: Path) -> None:
 
     # AC7: checkpoint_results carries the CP 7 entry (CREATED on first install).
     assert result.checkpoint_results is not None
-    cp7 = [
-        r for r in result.checkpoint_results if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION
-    ]
+    cp7 = [r for r in result.checkpoint_results if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION]
     assert len(cp7) == 1
     assert cp7[0].status is CheckpointStatus.CREATED
 
     # AG3-132: the combined third-system checkpoint is branch-gated. With both
     # Sonar and Jenkins consciously unavailable it does not contact the backend.
-    sonar_cp = [
-        r for r in result.checkpoint_results if r.checkpoint == nid.CP_10D_SONARQUBE
-    ]
+    sonar_cp = [r for r in result.checkpoint_results if r.checkpoint == nid.CP_10D_SONARQUBE]
     assert sonar_cp == []
 
     # AC4-ish: the registration is persisted with the correct fields.
@@ -330,9 +312,7 @@ def test_idempotent_rerun_skips_cp7(tmp_path: Path) -> None:
 
     # Identical config -> idempotent CP 7 SKIP, row unchanged.
     result = install_agentkit(_make_config(root, store=store, registration_repo=repo))
-    cp7 = next(
-        r for r in result.checkpoint_results or () if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION
-    )
+    cp7 = next(r for r in result.checkpoint_results or () if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION)
     assert cp7.status is CheckpointStatus.SKIPPED
     after_second = repo.get(root.stem)
     assert after_second is not None
@@ -341,9 +321,7 @@ def test_idempotent_rerun_skips_cp7(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-def test_relative_project_root_install_persists_absolute(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_relative_project_root_install_persists_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AG3-123 r2 (MAJOR 1): a RELATIVE ``--project-root`` install still registers.
 
     The productive CLI passes ``--project-root .`` verbatim, so the install entry
@@ -392,19 +370,20 @@ def test_changed_config_upgrades_registration(tmp_path: Path) -> None:
     first = repo.get(root.stem)
     assert first is not None
 
-    # Re-run with an extra repository entry -> different project.yaml -> different
-    # config_digest -> UPGRADED.
-    result = install_agentkit(
-        _make_config(
-            root,
-            store=store,
-            registration_repo=repo,
-            extra_repo={"name": "extra", "path": "extra"},
-        )
+    # Existing projects consume the strictly loaded project.yaml as their sole
+    # candidate SSOT. Change that file through its owning boundary; InstallConfig
+    # values must not shadow it on a re-run.
+    config_path = root / ".agentkit" / "config" / "project.yaml"
+    original = config_path.read_text(encoding="utf-8")
+    config_path.write_text(
+        original.replace(
+            f"project_name: {root.stem}",
+            "project_name: upgraded-name",
+        ),
+        encoding="utf-8",
     )
-    cp7 = next(
-        r for r in result.checkpoint_results or () if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION
-    )
+    result = install_agentkit(_make_config(root, store=store, registration_repo=repo))
+    cp7 = next(r for r in result.checkpoint_results or () if r.checkpoint == CP7_STATE_BACKEND_REGISTRATION)
     assert cp7.status is CheckpointStatus.UPDATED
     after = repo.get(root.stem)
     assert after is not None

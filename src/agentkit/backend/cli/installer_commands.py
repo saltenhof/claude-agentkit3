@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-
 def add_installer_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -24,12 +23,12 @@ def add_installer_parsers(
     install_parser.add_argument("--project-key", required=True)
     install_parser.add_argument("--project-name", required=True)
     install_parser.add_argument("--project-root", required=True)
+    _add_vectordb_endpoint_flags(install_parser, required=False)
     install_parser.add_argument(
         "--github-owner",
         required=False,
         help=(
-            "GitHub owner for State-Backend registration (FK-50 CP 7). "
-            "Falls back to the project's origin remote when omitted."
+            "GitHub owner for State-Backend registration (FK-50 CP 7). Falls back to the project's origin remote when omitted."
         ),
     )
     install_parser.add_argument(
@@ -56,10 +55,7 @@ def add_installer_parsers(
     install_parser.add_argument(
         "--multi-repo",
         action="store_true",
-        help=(
-            "Use multi-repository mode. Only in this mode is codebase/ ignored "
-            "by the root repository."
-        ),
+        help=("Use multi-repository mode. Only in this mode is codebase/ ignored by the root repository."),
     )
     install_parser.add_argument(
         "--code-repo",
@@ -103,7 +99,8 @@ def add_installer_parsers(
 
 
 def _resolve_github_coordinates(
-    args: argparse.Namespace, project_root: Path,
+    args: argparse.Namespace,
+    project_root: Path,
 ) -> tuple[str, str] | None:
     """Resolve the MANDATORY github ``(owner, repo)`` for ``agentkit install``.
 
@@ -228,11 +225,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
         repositories=repositories,
         github_owner=github_owner,
         github_repo=github_repo,
-        prompt_bundle_root=(
-            Path(args.prompt_bundle_root)
-            if args.prompt_bundle_root is not None
-            else None
-        ),
+        prompt_bundle_root=(Path(args.prompt_bundle_root) if args.prompt_bundle_root is not None else None),
         # AG3-052 (FK-03 §3): default available:true; --no-sonarqube-available
         # is the conscious opt-out. CP 10d then verifies fail-closed (E5) or
         # SKIPs (opt-out).
@@ -240,6 +233,8 @@ def _cmd_install(args: argparse.Namespace) -> int:
         # AG3-056 (FIX-5): default ci.available:true; --no-ci-available is the
         # conscious opt-out. The CI preflight then verifies fail-closed or SKIPs.
         ci_available=args.ci_available,
+        vectordb_http_endpoint=args.weaviate_http_endpoint,
+        vectordb_grpc_endpoint=args.weaviate_grpc_endpoint,
     )
     try:
         result = install_agentkit(config)
@@ -270,8 +265,7 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     # AG3-122 (FK-10 §10.2.9): 'uninstall' is retired to a deprecated alias that
     # delegates to the single level-3 detach teardown path (no second path).
     print(
-        "agentkit uninstall is deprecated. Use 'agentkit detach' (level-3 "
-        "project-detach). Delegating to the same teardown path.",
+        "agentkit uninstall is deprecated. Use 'agentkit detach' (level-3 project-detach). Delegating to the same teardown path.",
         file=sys.stderr,
     )
     result = uninstall_agentkit(Path(args.project_root))
@@ -301,6 +295,7 @@ def _add_register_verify_parsers(
     register_parser.add_argument("--project-key", required=True)
     register_parser.add_argument("--project-name", required=True)
     register_parser.add_argument("--project-root", required=True)
+    _add_vectordb_endpoint_flags(register_parser, required=False)
     register_parser.add_argument("--github-owner", required=False)
     register_parser.add_argument("--github-repo", required=False)
     register_parser.add_argument(
@@ -337,6 +332,7 @@ def _add_register_verify_parsers(
     verify_parser.add_argument("--project-key", required=True)
     verify_parser.add_argument("--project-name", required=True)
     verify_parser.add_argument("--project-root", required=True)
+    _add_vectordb_endpoint_flags(verify_parser, required=False)
     verify_parser.add_argument("--github-owner", required=False)
     verify_parser.add_argument("--github-repo", required=False)
     _add_sonar_ci_availability_flags(verify_parser)
@@ -363,6 +359,19 @@ def _add_sonar_ci_availability_flags(parser: argparse.ArgumentParser) -> None:
             "code-producing project. Use --no-ci-available only for the "
             "conscious opt-out."
         ),
+    )
+
+
+def _add_vectordb_endpoint_flags(parser: argparse.ArgumentParser, *, required: bool) -> None:
+    parser.add_argument(
+        "--weaviate-http-endpoint",
+        required=required,
+        help="Explicit project Weaviate HTTP endpoint; no default is permitted.",
+    )
+    parser.add_argument(
+        "--weaviate-grpc-endpoint",
+        required=required,
+        help="Explicit project Weaviate gRPC endpoint; no default is permitted.",
     )
 
 
@@ -401,6 +410,8 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
         repo_existence_probe=GhCliRepoExistenceProbe(),
         sonarqube_available=bool(getattr(args, "sonarqube_available", True)),
         ci_available=bool(getattr(args, "ci_available", True)),
+        vectordb_http_endpoint=getattr(args, "weaviate_http_endpoint", None),
+        vectordb_grpc_endpoint=getattr(args, "weaviate_grpc_endpoint", None),
     )
 
 
@@ -423,9 +434,7 @@ def _parse_code_repo_args(raw_values: Sequence[str] | None) -> list[dict[str, st
                 file=sys.stderr,
             )
             return None
-        repositories.append(
-            {"name": name, "path": f"codebase/{name}", "remote_url": remote_url}
-        )
+        repositories.append({"name": name, "path": f"codebase/{name}", "remote_url": remote_url})
     return repositories
 
 
@@ -566,9 +575,16 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
     except ProjectError as exc:
         print(f"upgrade-project failed: {exc}", file=sys.stderr)
         return 1
+    if result.failed:
+        # The engine already stopped before further mutations — but a zero exit
+        # code would tell operators and automation the upgrade succeeded.
+        blocked = ", ".join(result.failed_checkpoints)
+        print(
+            f"upgrade-project failed ({mode.value}) at {args.project_root}: "
+            f"blocked at {blocked}; {result.detail}",
+            file=sys.stderr,
+        )
+        return 1
     label = "planned" if args.dry_run else "upgraded"
-    print(
-        f"Project {label} ({mode.value}) at {args.project_root}: "
-        f"scenario {result.scenario.scenario.value!r}; {result.detail}"
-    )
+    print(f"Project {label} ({mode.value}) at {args.project_root}: scenario {result.scenario.scenario.value!r}; {result.detail}")
     return 0

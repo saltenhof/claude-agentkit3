@@ -138,61 +138,102 @@ def classify_jsonrpc_message(
     has_error = "error" in message
 
     if has_method and not has_id:
-        # Notification
-        if has_result or has_error:
-            return fail(
-                McpConformanceReason.PROTOCOL_ERROR,
-                f"MCP notification must not carry result/error for command: {cmd_label}.",
-            )
-        params_err = _validate_params_if_present(message, cmd_label=cmd_label)
-        if params_err is not None:
-            return params_err
-        return ClassifiedMessage(kind="notification", message=message, msg_id=None)
+        return _classify_notification(
+            message,
+            has_result=has_result,
+            has_error=has_error,
+            cmd_label=cmd_label,
+        )
 
     if has_id and not has_method:
-        # Response: exactly one of result / error
-        if has_result and has_error:
-            return fail(
-                McpConformanceReason.PROTOCOL_ERROR,
-                f"MCP response must not carry both result and error "
-                f"for command: {cmd_label}.",
-            )
-        if not has_result and not has_error:
-            return fail(
-                McpConformanceReason.PROTOCOL_ERROR,
-                f"MCP response missing result/error for command: {cmd_label}.",
-            )
-        mid = message.get("id")
-        if not _is_valid_jsonrpc_id(mid):
-            return fail(
-                McpConformanceReason.PROTOCOL_ERROR,
-                f"MCP response id is not a valid JSON-RPC id for command: {cmd_label}.",
-            )
-        return ClassifiedMessage(kind="response", message=message, msg_id=mid)
+        return _classify_response(
+            message,
+            has_result=has_result,
+            has_error=has_error,
+            cmd_label=cmd_label,
+        )
 
     if has_method and has_id:
-        # Request
-        if has_result or has_error:
-            return fail(
-                McpConformanceReason.PROTOCOL_ERROR,
-                f"MCP request must not carry result/error for command: {cmd_label}.",
-            )
-        mid = message.get("id")
-        if not _is_valid_jsonrpc_id(mid):
-            return fail(
-                McpConformanceReason.PROTOCOL_ERROR,
-                f"MCP request id is not a valid JSON-RPC id for command: {cmd_label}.",
-            )
-        params_err = _validate_params_if_present(message, cmd_label=cmd_label)
-        if params_err is not None:
-            return params_err
-        return ClassifiedMessage(kind="request", message=message, msg_id=mid)
+        return _classify_request(
+            message,
+            has_result=has_result,
+            has_error=has_error,
+            cmd_label=cmd_label,
+        )
 
     return fail(
         McpConformanceReason.PROTOCOL_ERROR,
         f"MCP message is not a valid JSON-RPC request/response/notification "
         f"for command: {cmd_label}.",
     )
+
+
+def _classify_notification(
+    message: dict[str, Any],
+    *,
+    has_result: bool,
+    has_error: bool,
+    cmd_label: str,
+) -> ClassifiedMessage | McpConformanceResult:
+    if has_result or has_error:
+        return fail(
+            McpConformanceReason.PROTOCOL_ERROR,
+            f"MCP notification must not carry result/error for command: {cmd_label}.",
+        )
+    params_error = _validate_params_if_present(message, cmd_label=cmd_label)
+    if params_error is not None:
+        return params_error
+    return ClassifiedMessage(kind="notification", message=message, msg_id=None)
+
+
+def _classify_response(
+    message: dict[str, Any],
+    *,
+    has_result: bool,
+    has_error: bool,
+    cmd_label: str,
+) -> ClassifiedMessage | McpConformanceResult:
+    if has_result == has_error:
+        detail = (
+            "must not carry both result and error"
+            if has_result
+            else "is missing result/error"
+        )
+        return fail(
+            McpConformanceReason.PROTOCOL_ERROR,
+            f"MCP response {detail} for command: {cmd_label}.",
+        )
+    message_id = message["id"]
+    if not _is_valid_jsonrpc_id(message_id):
+        return fail(
+            McpConformanceReason.PROTOCOL_ERROR,
+            f"MCP response id is not a valid JSON-RPC id for command: {cmd_label}.",
+        )
+    return ClassifiedMessage(kind="response", message=message, msg_id=message_id)
+
+
+def _classify_request(
+    message: dict[str, Any],
+    *,
+    has_result: bool,
+    has_error: bool,
+    cmd_label: str,
+) -> ClassifiedMessage | McpConformanceResult:
+    if has_result or has_error:
+        return fail(
+            McpConformanceReason.PROTOCOL_ERROR,
+            f"MCP request must not carry result/error for command: {cmd_label}.",
+        )
+    message_id = message["id"]
+    if not _is_valid_jsonrpc_id(message_id):
+        return fail(
+            McpConformanceReason.PROTOCOL_ERROR,
+            f"MCP request id is not a valid JSON-RPC id for command: {cmd_label}.",
+        )
+    params_error = _validate_params_if_present(message, cmd_label=cmd_label)
+    if params_error is not None:
+        return params_error
+    return ClassifiedMessage(kind="request", message=message, msg_id=message_id)
 
 
 def _validate_params_if_present(

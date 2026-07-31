@@ -229,12 +229,19 @@ def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
     # end to end (no hidden attestation flag).
     principal = Principal.HUMAN_CLI
 
+    from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError  # noqa: PLC0415 - CLI-local
+
     stories_root = Path("stories")
-    service = build_story_split_service(
-        project_key=project_key,
-        stories_root=stories_root,
-        project_root=project_root,
-    )
+    try:
+        service = build_story_split_service(
+            project_key=project_key,
+            stories_root=stories_root,
+            project_root=project_root,
+        )
+    except VectorDbUnavailableError as exc:
+        # Fail-closed is right; an uncaught traceback at a CLI boundary is not.
+        print(f"split-story failed: {exc}", file=sys.stderr)
+        return 1
     if not isinstance(service, StorySplitService):
         print(
             "split-story failed: composition root returned invalid service",
@@ -454,13 +461,34 @@ def _build_weaviate_index(project_root: str | None) -> StoryIndexPort:
     The ``vectordb`` config stanza is owned exclusively by AG3-070; this only
     CONSUMES host/port. Fails closed when Weaviate / weaviate-client is absent.
     """
+    from agentkit.backend.exceptions import ConfigError
     from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
-    from agentkit.backend.vectordb.wait_for_weaviate import _resolve_host_port
+    from agentkit.backend.vectordb.commit_recovery import (
+        project_commit_recovery_journal,
+    )
+    from agentkit.backend.vectordb.wait_for_weaviate import resolve_adapter_endpoints
     from agentkit.integration_clients.vectordb import WeaviateStoryAdapter
+    from agentkit.integration_clients.vectordb.errors import (
+        VectorDbUnavailableError,
+    )
 
-    host, port = _resolve_host_port(project_root)
-    adapter = WeaviateStoryAdapter.connect(host=host, port=port)
-    return WeaviateStoryIndex(adapter)
+    if project_root is None:
+        raise VectorDbUnavailableError(
+            "story indexing requires an explicit project root for durable "
+            "completion recovery"
+        )
+    root = Path(project_root)
+    try:
+        connect_kwargs = resolve_adapter_endpoints(project_root)
+    except ConfigError as exc:
+        raise VectorDbUnavailableError(
+            f"story indexing project configuration is unavailable: {exc}"
+        ) from exc
+    adapter = WeaviateStoryAdapter.connect(**connect_kwargs)  # type: ignore[arg-type]
+    return WeaviateStoryIndex(
+        adapter,
+        recovery_journal=project_commit_recovery_journal(root),
+    )
 
 
 def _build_story_attributes() -> StoryAttributesPort:
@@ -509,13 +537,18 @@ def _cmd_export_story_md(
         print(f"export-story-md failed [ProjectBinding]: {exc}", file=sys.stderr)
         return 1
 
+    story_dir = Path(args.story_dir)
+    project_root = (
+        Path(args.project_root)
+        if args.project_root
+        else story_dir.parent.parent
+    )
     try:
-        index = build_weaviate_index(args.project_root)
+        index = build_weaviate_index(str(project_root))
     except VectorDbError as exc:
         print(f"export-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
         return 1
 
-    story_dir = Path(args.story_dir)
     result = export_story_md(
         args.story_id,
         story_dir,
@@ -523,7 +556,7 @@ def _cmd_export_story_md(
         # N31: the authoritative project root the corpus path is validated against.
         # ``--project-root`` when given, else the parent of the ``stories/`` root
         # the story directory lives in.
-        project_root=Path(args.project_root) if args.project_root else story_dir.parent.parent,
+        project_root=project_root,
         story_attributes=build_story_attributes(),
         index=index,
     )
@@ -559,14 +592,20 @@ def _cmd_repair_story_md(
         print(f"repair-story-md failed [ProjectBinding]: {exc}", file=sys.stderr)
         return 1
 
+    stories_root = Path(args.stories_root)
+    project_root = (
+        Path(args.project_root)
+        if args.project_root
+        else stories_root.parent
+    )
     try:
-        index = build_weaviate_index(args.project_root)
+        index = build_weaviate_index(str(project_root))
     except VectorDbError as exc:
         print(f"repair-story-md failed [VectorDbUnavailable]: {exc}", file=sys.stderr)
         return 1
 
     report = repair_story_md(
-        Path(args.stories_root),
+        stories_root,
         project_id=project_id,
         story_attributes=build_story_attributes(),
         index=index,

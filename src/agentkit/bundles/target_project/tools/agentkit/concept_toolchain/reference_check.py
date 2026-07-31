@@ -40,9 +40,6 @@ BASELINE_FILENAME = "reference-integrity-baseline.yaml"
 
 _BACKTICK_RE = re.compile(r"`([^`\r\n]+)`")
 _LINE_ANCHOR_RE = re.compile(r"^L\d+(?:-L\d+)?$")
-_IGNORE_LINE_RE = re.compile(r"^\s*<!--\s*REF-INTEGRITY:IGNORE-LINE\s+(.+?)\s*-->\s*$")
-_IGNORE_BEGIN_RE = re.compile(r"^\s*<!--\s*REF-INTEGRITY:IGNORE-BEGIN\s+(.+?)\s*-->\s*$")
-_IGNORE_END_RE = re.compile(r"^\s*<!--\s*REF-INTEGRITY:IGNORE-END\s*-->\s*$")
 
 
 @dataclass(frozen=True, order=True)
@@ -74,6 +71,13 @@ class _ScanContext:
         if self.tracked is not None:
             return candidate in self.tracked
         return (project_root / candidate).exists()
+
+
+@dataclass
+class _ProseState:
+    in_region: bool = False
+    region_start: int = 0
+    skip_next: bool = False
 
 
 def run_reference_check(project_root: Path, config: GovernanceConfig) -> CheckResult:
@@ -157,41 +161,80 @@ def _collect_formal_object_ids(documents: Sequence[ConceptDocument], config: Gov
 def _prose_lines(doc: ConceptDocument) -> tuple[list[tuple[int, str]], list[_RefFinding]]:
     lines: list[tuple[int, str]] = []
     findings: list[_RefFinding] = []
-    in_region = False
-    region_start = 0
-    skip_next = False
-
-    def directive_error(number: int, reference: str, message: str) -> None:
-        findings.append(_RefFinding(doc.rel_path, number, "INVALID_IGNORE_DIRECTIVE", reference, message))
-
+    state = _ProseState()
     for number, line in body_lines(doc.text):
-        if _IGNORE_BEGIN_RE.match(line):
-            if in_region:
-                directive_error(number, line.strip(), "ignore regions may not be nested")
-            in_region, region_start = True, number
-            continue
-        if _IGNORE_END_RE.match(line):
-            if not in_region:
-                directive_error(number, line.strip(), "ignore end has no matching begin")
-            in_region = False
-            continue
-        if _IGNORE_LINE_RE.match(line):
-            skip_next = True
-            continue
-        if "REF-INTEGRITY:" in line and not in_region:
-            directive_error(number, line.strip(), "ignore directive is malformed or lacks a reason")
-            continue
-        if in_region:
-            continue
-        if skip_next:
-            skip_next = False
-            continue
-        if line.startswith(("    ", "\t")):
-            continue
-        lines.append((number, line))
-    if in_region:
-        directive_error(region_start, "REF-INTEGRITY:IGNORE-BEGIN", "ignore region has no matching end")
+        included = _process_prose_line(doc.rel_path, number, line, state, findings)
+        if included is not None:
+            lines.append((number, included))
+    if state.in_region:
+        _directive_error(
+            findings,
+            doc.rel_path,
+            state.region_start,
+            "REF-INTEGRITY:IGNORE-BEGIN",
+            "ignore region has no matching end",
+        )
     return lines, findings
+
+
+def _process_prose_line(
+    path: str,
+    number: int,
+    line: str,
+    state: _ProseState,
+    findings: list[_RefFinding],
+) -> str | None:
+    directive = _ignore_directive_kind(line)
+    if directive == "begin":
+        if state.in_region:
+            _directive_error(findings, path, number, line.strip(), "ignore regions may not be nested")
+        state.in_region = True
+        state.region_start = number
+        return None
+    if directive == "end":
+        if not state.in_region:
+            _directive_error(findings, path, number, line.strip(), "ignore end has no matching begin")
+        state.in_region = False
+        return None
+    if directive == "line":
+        state.skip_next = True
+        return None
+    if "REF-INTEGRITY:" in line and not state.in_region:
+        _directive_error(findings, path, number, line.strip(), "ignore directive is malformed or lacks a reason")
+        return None
+    if state.in_region:
+        return None
+    if state.skip_next:
+        state.skip_next = False
+        return None
+    return None if line.startswith(("    ", "\t")) else line
+
+
+def _ignore_directive_kind(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped.startswith("<!--") or not stripped.endswith("-->"):
+        return None
+    content = stripped[4:-3].strip()
+    if content == "REF-INTEGRITY:IGNORE-END":
+        return "end"
+    for marker, kind in (
+        ("REF-INTEGRITY:IGNORE-BEGIN", "begin"),
+        ("REF-INTEGRITY:IGNORE-LINE", "line"),
+    ):
+        if content.startswith(marker):
+            reason = content[len(marker) :].strip()
+            return kind if reason else None
+    return None
+
+
+def _directive_error(
+    findings: list[_RefFinding],
+    path: str,
+    number: int,
+    reference: str,
+    message: str,
+) -> None:
+    findings.append(_RefFinding(path, number, "INVALID_IGNORE_DIRECTIVE", reference, message))
 
 
 def _scan_document(project_root: Path, doc: ConceptDocument, context: _ScanContext) -> list[_RefFinding]:
@@ -246,7 +289,7 @@ def _repo_path_candidate(token: str, context: _ScanContext) -> str | None:
     candidate = re.sub(r":\d+(?:-\d+)?$", "", candidate)
     if not candidate or "/" not in candidate:
         return None
-    if any(char.isspace() for char in candidate) or candidate.startswith(("/", "http://", "https://")):
+    if any(char.isspace() for char in candidate) or candidate.startswith("/") or _is_web_url(candidate):
         return None
     if any(char in candidate for char in "*{}<>`"):
         return None
@@ -261,6 +304,11 @@ def _repo_path_candidate(token: str, context: _ScanContext) -> str | None:
         # dots-only components and turn missing paths into false hits.
         return None
     return candidate.rstrip("/")
+
+
+def _is_web_url(value: str) -> bool:
+    scheme, separator, _remainder = value.partition("://")
+    return bool(separator) and scheme.casefold() in {"http", "https"}
 
 
 def _discover_repo_paths(project_root: Path) -> tuple[frozenset[str] | None, frozenset[str]]:
@@ -296,16 +344,18 @@ def _collect_defers_edges(documents: Sequence[ConceptDocument]) -> dict[str, tup
         raw_edges = doc.frontmatter.get("defers_to")
         if not isinstance(raw_edges, list):
             continue
-        targets: list[str] = []
-        for entry in raw_edges:
-            if isinstance(entry, str) and entry.strip():
-                targets.append(entry.strip())
-            elif isinstance(entry, dict) and isinstance(entry.get("target"), str):
-                target = entry["target"]
-                if isinstance(target, str) and target.strip():
-                    targets.append(target.strip())
+        targets = [target for entry in raw_edges if (target := _deferral_target(entry)) is not None]
         edges[doc.concept_id] = tuple(targets)
     return edges
+
+
+def _deferral_target(entry: object) -> str | None:
+    if isinstance(entry, str):
+        return entry.strip() or None
+    if not isinstance(entry, dict):
+        return None
+    target = entry.get("target")
+    return target.strip() if isinstance(target, str) and target.strip() else None
 
 
 def _document_cycle_findings(

@@ -113,102 +113,187 @@ class ToolContract:
         }
 
 
-_QUERY = ToolParam("query", "string", True, "Natural-language search text.")
-_SEARCH_MODE = ToolParam(
-    "search_mode", "string", False, "hybrid (default), vector or keyword.", enum=SEARCH_MODES
-)
-_PROJECT_ID = ToolParam(
-    "project_id", "string", False, "Bound project id; a divergent value is rejected (D2)."
-)
-_LIMIT = ToolParam(
-    "limit", "integer", False, f"Max results (default {DEFAULT_LIMIT}).",
-    minimum=1, maximum=MAX_LIMIT,
-)
-_FULL_REINDEX = ToolParam(
-    "full_reindex", "boolean", False, "Complete rebuild of the owned source types."
-)
+def _build_tool_contracts() -> tuple[ToolContract, ...]:
+    """Build the five immutable FK-13 contracts without a giant module literal."""
+    query = ToolParam("query", "string", True, "Natural-language search text.")
+    search_mode = ToolParam(
+        "search_mode",
+        "string",
+        False,
+        "hybrid (default), vector or keyword.",
+        enum=SEARCH_MODES,
+    )
+    project_id = ToolParam(
+        "project_id",
+        "string",
+        False,
+        "Bound project id; a divergent value is rejected (D2).",
+    )
+    limit = ToolParam(
+        "limit",
+        "integer",
+        False,
+        f"Max results (default {DEFAULT_LIMIT}).",
+        minimum=1,
+        maximum=MAX_LIMIT,
+    )
+    full_reindex = ToolParam(
+        "full_reindex",
+        "boolean",
+        False,
+        "Complete rebuild of the owned source types.",
+    )
+    return (
+        ToolContract(
+            name="story_search",
+            description="Semantic search over stories and research.",
+            params=(
+                query,
+                search_mode,
+                project_id,
+                ToolParam(
+                    "status", "string", False, "Story status filter (e.g. Done)."
+                ),
+                ToolParam(
+                    "story_type",
+                    "string",
+                    False,
+                    "Story type filter (e.g. concept).",
+                ),
+                limit,
+            ),
+            return_fields=(
+                "story_id",
+                "title",
+                "status",
+                "story_type",
+                "source_type",
+                "module",
+                "epic",
+                "section_heading",
+                "score",
+                "snippet",
+            ),
+        ),
+        ToolContract(
+            name="story_list_sources",
+            description="List indexed source types and producers for the bound project.",
+            params=(project_id,),
+            return_fields=(
+                "project_id",
+                "source_type",
+                "producer",
+                "source_count",
+                "chunk_count",
+                "last_revision",
+                "stale_chunk_count",
+            ),
+        ),
+        ToolContract(
+            name="story_sync",
+            description="Incremental/full index of story and research sources.",
+            params=(project_id, full_reindex),
+            return_fields=(
+                "project_id",
+                "synced_sources",
+                "written",
+                "deleted",
+                "corpus_revision",
+            ),
+        ),
+        ToolContract(
+            name="concept_search",
+            description=(
+                "Semantic search over concept documents "
+                "(default active, authority-ranked)."
+            ),
+            params=(
+                query,
+                search_mode,
+                project_id,
+                ToolParam(
+                    "concept_id",
+                    "string",
+                    False,
+                    "Filter on a specific concept.",
+                ),
+                ToolParam(
+                    "module",
+                    "string",
+                    False,
+                    "Module filter (where a document lives).",
+                ),
+                ToolParam(
+                    "authority_scope",
+                    "string",
+                    False,
+                    "authority_over scope the ranking rules 1/2 evaluate against "
+                    "(§13.9.11); a RANKING input, not a filter, and never derived "
+                    "from module (D7).",
+                ),
+                ToolParam(
+                    "is_appendix",
+                    "boolean",
+                    False,
+                    "Only appendices / only core.",
+                ),
+                ToolParam(
+                    "concept_status",
+                    "array",
+                    False,
+                    'Status SET of the result; default ["active"]. Several statuses '
+                    "may be requested together; ranking rule 4 then orders active "
+                    "before draft/archived (D8).",
+                    item_type="string",
+                    item_enum=CONCEPT_STATUSES,
+                ),
+                limit,
+            ),
+            return_fields=(
+                "concept_id",
+                "title",
+                "module",
+                "section_heading",
+                "section_number",
+                "is_appendix",
+                "parent_concept_id",
+                "defers_to",
+                "authority_over",
+                "normative_rules",
+                "concept_status",
+                "score",
+                "snippet",
+            ),
+        ),
+        ToolContract(
+            name="concept_sync",
+            description=(
+                "Incremental/full index of concept sources "
+                "(validate is a precondition)."
+            ),
+            params=(
+                project_id,
+                full_reindex,
+                ToolParam(
+                    "concept_path",
+                    "string",
+                    False,
+                    "Path of a single concept document.",
+                ),
+            ),
+            return_fields=(
+                "project_id",
+                "synced_sources",
+                "written",
+                "deleted",
+                "corpus_revision",
+            ),
+        ),
+    )
 
-#: The five FK-13 tools (§13.4.1 / §13.9.5) -- the contract source of truth.
-TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = (
-    ToolContract(
-        name="story_search",
-        description="Semantic search over stories and research.",
-        params=(
-            _QUERY,
-            _SEARCH_MODE,
-            _PROJECT_ID,
-            ToolParam("status", "string", False, "Story status filter (e.g. Done)."),
-            ToolParam("story_type", "string", False, "Story type filter (e.g. concept)."),
-            _LIMIT,
-        ),
-        return_fields=(
-            "story_id", "title", "status", "story_type", "source_type", "module",
-            "epic", "section_heading", "score", "snippet",
-        ),
-    ),
-    ToolContract(
-        name="story_list_sources",
-        description="List indexed source types and producers for the bound project.",
-        params=(_PROJECT_ID,),
-        return_fields=(
-            "project_id", "source_type", "producer", "source_count",
-            "chunk_count", "last_revision",
-            # AG3-177: D1 fixed a MINIMAL shape ("Mindestens ..."), so reporting the
-            # figure's exact predicate is a contract-conforming extension. It is
-            # reported HERE because detectability has to sit where an agent or an
-            # operator actually looks.
-            "stale_chunk_count",
-        ),
-    ),
-    ToolContract(
-        name="story_sync",
-        description="Incremental/full index of story and research sources.",
-        params=(_PROJECT_ID, _FULL_REINDEX),
-        return_fields=("project_id", "synced_sources", "written", "deleted", "corpus_revision"),
-    ),
-    ToolContract(
-        name="concept_search",
-        description="Semantic search over concept documents (default active, authority-ranked).",
-        params=(
-            _QUERY,
-            _SEARCH_MODE,
-            _PROJECT_ID,
-            ToolParam("concept_id", "string", False, "Filter on a specific concept."),
-            ToolParam("module", "string", False, "Module filter (where a document lives)."),
-            ToolParam(
-                "authority_scope", "string", False,
-                "authority_over scope the ranking rules 1/2 evaluate against "
-                "(§13.9.11); a RANKING input, not a filter, and never derived "
-                "from module (D7).",
-            ),
-            ToolParam("is_appendix", "boolean", False, "Only appendices / only core."),
-            ToolParam(
-                "concept_status", "array", False,
-                'Status SET of the result; default ["active"]. Several statuses may '
-                "be requested together; ranking rule 4 then orders active before "
-                "draft/archived (D8).",
-                item_type="string",
-                item_enum=CONCEPT_STATUSES,
-            ),
-            _LIMIT,
-        ),
-        return_fields=(
-            "concept_id", "title", "module", "section_heading", "section_number",
-            "is_appendix", "parent_concept_id", "defers_to", "authority_over",
-            "normative_rules", "concept_status", "score", "snippet",
-        ),
-    ),
-    ToolContract(
-        name="concept_sync",
-        description="Incremental/full index of concept sources (validate is a precondition).",
-        params=(
-            _PROJECT_ID,
-            _FULL_REINDEX,
-            ToolParam("concept_path", "string", False, "Path of a single concept document."),
-        ),
-        return_fields=("project_id", "synced_sources", "written", "deleted", "corpus_revision"),
-    ),
-)
+
+#: The five FK-13 tools (§13.4.1 / §13.9.5) -- contract source of truth.
+TOOL_CONTRACTS: Final[tuple[ToolContract, ...]] = _build_tool_contracts()
 
 #: Tool names in canonical order.
 TOOL_NAMES: Final[tuple[str, ...]] = tuple(t.name for t in TOOL_CONTRACTS)

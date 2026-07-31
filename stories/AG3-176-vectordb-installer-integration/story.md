@@ -189,14 +189,64 @@ unterstuetztem Zielprojekt harter Fehler). Diese Story zieht den Code nach.
    referenzieren **dieselbe immutable Version**. FK-43-Lifecycle vollstaendig
    abgenommen (Manifest-Digest, Alt-Projekte gepinnt, Verify prueft beide).
 8. Konzept-Gates gruen (FK-50-Nachzug konsistent mit der verankerten Norm).
+9. **SonarQube Quality Gate komplett gruen — inkl. Aufraeumen der aufgelaufenen
+   Sonar-Schuld** (PO-Mandat 2026-07-28, expliziter Story-Inhalt). Die zuletzt
+   gelandeten VektorDB-Storys (AG3-172/174/175/177) wurden **ohne** Sonar
+   umgesetzt; die dabei aufgelaufene Schuld wird in dieser Story mitbereinigt.
+   Abnahme: das SonarQube Quality Gate fuer `sonar.projectKey=claude-agentkit3`
+   steht auf **PASSED**, mit **0 offenen** Bugs/Vulnerabilities/Code-Smells der
+   Stufen BLOCKER/CRITICAL/MAJOR im neuen wie im aufgeraeumten Bestand und ohne
+   offene Security Hotspots im Scope; die Bereinigung ist echte Ursachenbehebung
+   (FIX THE MODEL), **keine** `NOSONAR`-Unterdrueckung, keine willkuerlichen
+   Rule-Excludes und kein Aufweichen des Quality Gates. Duplication/Coverage-
+   Bedingungen des Gates werden eingehalten (Coverage-Schwelle bleibt >= 85 %).
+   Der Nachweis erfolgt ueber einen `sonar-scanner`-Lauf gegen `seu-sonarqube`
+   mit `sonar.qualitygate.wait=true` (oder die CI-SonarQube-Stage) und die
+   SonarQube-Issues-API.
+
+### AC 10 — Konzept-Nachzug des Beschlusses 2026-07-21 (PO 2026-07-30)
+
+Der ratifizierte Beschluss „VektorDB-Kantenschaerfung" (Rand 1) war im
+Konzeptbestand nie flaechendeckend nachgezogen; mehrere aktive Dokumente
+widersprachen ihm noch. Der PO hat entschieden, das **hier** mitzuerledigen
+statt in eine Folgestory zu schneiden („die Arbeit bleibt dieselbe, plus du
+musst noch die Story schreiben").
+
+Abnahme:
+
+1. Kein aktives Konzeptdokument fuehrt die VektorDB mehr als optional, als
+   Feature-Flag oder als fail-soft („wenn verfuegbar").
+2. Kein Dokument beschreibt einen nicht ausfuehrbaren Aufruf (`concept build
+   --sync`) oder eine falsche Korpuszuordnung (Konzeptquellen unter `story_sync`).
+3. Der CP-10a-Receipt-Vertrag hat genau **einen** Owner (FK-13 §13.9.9) mit
+   Typen, Wertebereichen, Ablageorten und geregeltem `commit_outcome_unknown`;
+   FK-50 verweist nur darauf.
+4. Der Vertrag ist im Code **beim Lesen wie beim Schreiben** erzwungen — eine
+   Norm, die nur beim Schreiben gilt, ist keine.
+5. Die Nachbesserungen setzen **keine** Norm ueber Rand 1 hinaus. Nachgewiesen
+   durch mehrere Codex-Review-Runden, die genau darauf angesetzt sind
+   (`concept-review-round*-codex.md`).
+6. Die Dependency-Vertraege sind beidseitig begrenzt und stimmen mit dem
+   tatsaechlich importierten API-Stand ueberein (`mcp>=1.2.0,<2`: unterhalb
+   1.2.0 fehlt `mcp.server.fastmcp`, ab 2.0 fehlen `mcp.server.fastmcp` **und**
+   `mcp.types` — beide Enden brechen die Pflichtfaehigkeit beim Import).
+
+**Umfangserweiterung gegenueber dem urspruenglichen Schnitt** (bewusst, PO-
+entschieden): `concept/domain-design/00-uebersicht.md`,
+`concept/_meta/bc-cut-decisions.md`, FK-33 und `pyproject.toml` kommen hinzu.
 
 ## Definition of Done
 
 - Alle Akzeptanzkriterien erfuellt; `pytest` gruen, Coverage haelt 85 %;
   `mypy src`, `ruff check src tests` sauber; Konzept-Gates gruen.
+- **SonarQube Quality Gate PASSED** (AC 9): 0 offene BLOCKER/CRITICAL/MAJOR,
+  keine offenen Security Hotspots im Scope; Aufraeumarbeiten integriert; per
+  Ursachenbehebung, nicht per Unterdrueckung.
 - Kein God-File; Produktionscode nur unter `src/agentkit/`.
-- Story-Bericht dokumentiert die Aktivierungs-Reihenfolge und die semantisch/
-  wertegenaue (nicht byte-genaue) Fremdeintrag-Erhaltung im `.mcp.json`-Merge.
+- Story-Bericht dokumentiert die Aktivierungs-Reihenfolge, die semantisch/
+  wertegenaue (nicht byte-genaue) Fremdeintrag-Erhaltung im `.mcp.json`-Merge
+  und die **Sonar-Aufraeum-Bilanz** (Ausgangs-Rot, behobene Issue-Klassen,
+  Endstand PASSED).
 
 ## Konzept-Referenzen
 

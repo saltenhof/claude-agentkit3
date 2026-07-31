@@ -12,6 +12,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import (
+    GRPC_ENDPOINT,
+    HTTP_ENDPOINT,
+    ReadyVectorDbPreflight,
+    passing_mcp_probe,
+)
+from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
 from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
 from agentkit.backend.installer.runner import MANDATORY_SKILLS, InstallConfig
@@ -45,13 +52,9 @@ class InMemoryRegistrationRepo:
         reg = self.rows[project_key]
         self.rows[project_key] = reg.model_copy(update={"last_verified_at": verified_at})
 
-    def update_upgraded(
-        self, project_key: str, upgraded_at: datetime, new_digest: str
-    ) -> None:
+    def update_upgraded(self, project_key: str, upgraded_at: datetime, new_digest: str) -> None:
         reg = self.rows[project_key]
-        self.rows[project_key] = reg.model_copy(
-            update={"last_upgraded_at": upgraded_at, "config_digest": new_digest}
-        )
+        self.rows[project_key] = reg.model_copy(update={"last_upgraded_at": upgraded_at, "config_digest": new_digest})
         self.upgrade_calls += 1
 
     def list_all(self) -> list[ProjectRegistration]:
@@ -79,24 +82,21 @@ def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleSto
 #: Explicit, non-default Weaviate endpoints for the engine unit tests. They are
 #: deliberately NOT localhost defaults: ``runtime_binding._reject_localhost``
 #: rejects those (PO decision D2), and CP 10 must never synthesise an endpoint.
-_TEST_HTTP_ENDPOINT = "http://weaviate.test.invalid:9903"
-_TEST_GRPC_ENDPOINT = "weaviate.test.invalid:50051"
-
-
 def make_config(
     root: Path,
     *,
     bundle_store_root: Path,
     registration_repo: InMemoryRegistrationRepo,
     repo_existence_probe: object | None = None,
-    features_vectordb: bool = False,
+    features_vectordb: bool = True,
     features_are: bool = False,
-    vectordb_http_endpoint: str | None = _TEST_HTTP_ENDPOINT,
-    vectordb_grpc_endpoint: str | None = _TEST_GRPC_ENDPOINT,
+    vectordb_http_endpoint: str | None = HTTP_ENDPOINT,
+    vectordb_grpc_endpoint: str | None = GRPC_ENDPOINT,
     are_module_scope_map: dict[str, str] | None = None,
     repositories: list[dict[str, str]] | None = None,
     github_owner: str | None = "acme",
     github_repo: str | None = "demo",
+    mcp_registration_probe: object = passing_mcp_probe,
 ) -> InstallConfig:
     """Build an :class:`InstallConfig` for the engine unit tests."""
     # CP 11 (FK-50 §50.3) configures core.hooksPath on the target project; real
@@ -121,6 +121,9 @@ def make_config(
         features_are=features_are,
         vectordb_http_endpoint=vectordb_http_endpoint,
         vectordb_grpc_endpoint=vectordb_grpc_endpoint,
+        vectordb_preflight=ReadyVectorDbPreflight(),
+        vectordb_client=RecordingWeaviateClient(),
+        mcp_registration_probe=mcp_registration_probe,  # type: ignore[arg-type]
         are_module_scope_map=are_module_scope_map,
         sonarqube_available=False,
         ci_available=False,

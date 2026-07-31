@@ -14,12 +14,19 @@ with fakes at the :class:`CorpusStorePort` / :class:`RetrievalPort` boundary
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
+from agentkit.backend.vectordb.commit_recovery import (
+    CommitRecoveryState,
+    CompletionCommitJournalEntry,
+    FileCommitRecoveryJournal,
+    project_commit_recovery_journal,
+)
 from agentkit.backend.vectordb.endpoints import split_grpc_endpoint, split_http_endpoint
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
 from agentkit.backend.vectordb.schema import (
@@ -31,10 +38,14 @@ from agentkit.backend.vectordb.schema import (
 )
 from agentkit.backend.vectordb.sync import (
     ClaimSupersededError,
+    CommitOutcomeUnknownError,
     ConcurrentSyncRejectedError,
+    ProducerCompletion,
     SourceClaim,
+    SyncError,
     SyncReceipt,
     SyncService,
+    completion_run_id,
     parse_utc_timestamp,
 )
 from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError, VectorDbWriteError
@@ -57,6 +68,19 @@ RECEIPT_PROPERTIES: tuple[str, ...] = (
     "completed_at",
     "sequence",
     "generation",
+)
+
+#: One immutable record publishes every completion of a multi-source run.
+RUN_RECEIPT_COLLECTION = "__agentkit_sync_runs"
+RUN_RECEIPT_PROPERTIES: tuple[str, ...] = (
+    "project_id",
+    "run_id",
+    "receipts_json",
+    "producer_completions_json",
+    "batch_digest",
+    "completed_at",
+    "sequence_start",
+    "sequence_end",
 )
 
 #: Dedicated collection for store-level atomic source claims (N03/D3/N15).
@@ -85,8 +109,20 @@ _COMPLETION_ATTEMPT_LIMIT: Final[int] = 256
 
 #: Stable namespace for the position-bound completion records (N28).
 _RECEIPT_NAMESPACE = uuid.UUID("8c5e2f3a-1b6d-4e7a-9c8f-2a1b3c4d5e6f")
+_RUN_RECEIPT_NAMESPACE = uuid.UUID("c3b74614-293d-4a72-9155-672f86d41b89")
 #: Stable namespace for per-source, per-generation claim identity (N03/N15/N37).
 _CLAIM_NAMESPACE = uuid.UUID("9d6f3a4b-2c7e-5f8b-ad9c-3b2c4d5e6f7a")
+
+
+@dataclass(frozen=True)
+class _CompletionRunRecord:
+    uuid: str
+    properties: dict[str, str]
+    receipts: tuple[SyncReceipt, ...]
+    producer_completions: tuple[ProducerCompletion, ...]
+    sequence_start: int
+    sequence_end: int
+
 
 def _utc_clock() -> datetime:
     """Return the current UTC instant (the store's default clock)."""
@@ -137,9 +173,7 @@ class CorpusClientPort(Protocol):
 
     def upsert(self, *, collection: str, objects: Sequence[Mapping[str, object]]) -> int: ...
 
-    def insert_object(
-        self, *, collection: str, uuid: str, properties: Mapping[str, object]
-    ) -> bool: ...
+    def insert_object(self, *, collection: str, uuid: str, properties: Mapping[str, object]) -> bool: ...
 
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int: ...
 
@@ -184,12 +218,11 @@ class WeaviateCorpusStore:
     """
 
     client: CorpusClientPort
+    recovery_journal: FileCommitRecoveryJournal
     collection: str = STORY_CONTEXT_COLLECTION
     clock: Callable[[], datetime] = _utc_clock
 
-    def list_objects_for_source(
-        self, *, project_id: str, source_file: str
-    ) -> Sequence[Mapping[str, object]]:
+    def list_objects_for_source(self, *, project_id: str, source_file: str) -> Sequence[Mapping[str, object]]:
         rows = self.client.fetch_by_property(
             collection=self.collection,
             project_id=project_id,
@@ -203,18 +236,21 @@ class WeaviateCorpusStore:
             ),
         )
         return [
-            {"uuid": uid, "source_file": source_file, "source_type": p.get("source_type", ""),
-             "project_id": p.get("project_id", ""), "content_hash": p.get("content_hash", ""),
-             OWNING_GENERATION_PROPERTY: p.get(OWNING_GENERATION_PROPERTY)}
+            {
+                "uuid": uid,
+                "source_file": source_file,
+                "source_type": p.get("source_type", ""),
+                "project_id": p.get("project_id", ""),
+                "content_hash": p.get("content_hash", ""),
+                OWNING_GENERATION_PROPERTY: p.get(OWNING_GENERATION_PROPERTY),
+            }
             for uid, p in rows
             # Redundant after N51 (the project filter is server-side); kept as defence
             # in depth, never as the isolation mechanism.
             if str(p.get("project_id", "")) == project_id
         ]
 
-    def list_objects_for_source_types(
-        self, *, project_id: str, source_types: Sequence[str]
-    ) -> Sequence[Mapping[str, object]]:
+    def list_objects_for_source_types(self, *, project_id: str, source_types: Sequence[str]) -> Sequence[Mapping[str, object]]:
         rows = self.client.fetch_by_property_any(
             collection=self.collection,
             project_id=project_id,
@@ -228,16 +264,18 @@ class WeaviateCorpusStore:
             ),
         )
         return [
-            {"uuid": uid, "source_file": p.get("source_file", ""),
-             "source_type": p.get("source_type", ""), "project_id": p.get("project_id", ""),
-             OWNING_GENERATION_PROPERTY: p.get(OWNING_GENERATION_PROPERTY)}
+            {
+                "uuid": uid,
+                "source_file": p.get("source_file", ""),
+                "source_type": p.get("source_type", ""),
+                "project_id": p.get("project_id", ""),
+                OWNING_GENERATION_PROPERTY: p.get(OWNING_GENERATION_PROPERTY),
+            }
             for uid, p in rows
             if str(p.get("project_id", "")) == project_id
         ]
 
-    def upsert_objects(
-        self, *, objects: Sequence[StoryContextObject], owning_generation: int
-    ) -> int:
+    def upsert_objects(self, *, objects: Sequence[StoryContextObject], owning_generation: int) -> int:
         """Write objects STAMPED with the writing SOURCE GENERATION (D9/N37).
 
         The stamp is applied here and nowhere else, so it is structurally impossible
@@ -303,8 +341,7 @@ class WeaviateCorpusStore:
         """
         if owning_generation < 1:
             raise VectorDbUnavailableError(
-                f"refusing to delete with a non-positive owning generation "
-                f"({owning_generation}); fail-closed (N37)."
+                f"refusing to delete with a non-positive owning generation ({owning_generation}); fail-closed (N37)."
             )
         return self.client.delete_by_ids_if_property_below(
             collection=self.collection,
@@ -315,9 +352,7 @@ class WeaviateCorpusStore:
             source_file=source_file,
         )
 
-    def delete_objects_without_generation(
-        self, *, project_id: str, source_file: str, uuids: Sequence[str]
-    ) -> int:
+    def delete_objects_without_generation(self, *, project_id: str, source_file: str, uuids: Sequence[str]) -> int:
         """Delete objects that carry NO writing generation at all (N43).
 
         The condition is an IS-NULL evaluated by the store, so it can only ever match
@@ -354,69 +389,434 @@ class WeaviateCorpusStore:
         freshness-authoritative and prune the newer owner's valid completion. The
         generation is monotonic per source, so a superseded generation can never win.
         """
-        completions = [
-            receipt
-            for receipt in self.list_receipts(project_id=project_id)
-            if receipt.source_file == source_file
-        ]
+        completions = [receipt for receipt in self.list_receipts(project_id=project_id) if receipt.source_file == source_file]
         if not completions:
             return None
         return max(completions, key=lambda r: (r.generation, r.sequence))
 
     def set_receipt(self, *, receipt: SyncReceipt) -> SyncReceipt:
-        """Establish ONE immutable, fully digest-bound completion record (N28).
-
-        Reserving a number is NOT establishing completion order: with a separate
-        token the reservation and the publication were two writes, so a stalled
-        writer could publish AFTER a later one (freshness went backwards), and an
-        old valid receipt could be replayed over the stable per-source record.
-
-        Here the successful CONDITIONAL CREATE *is* the completion record:
-
-        - its uuid is ``uuid5(project_id | sequence)``, so the store itself grants
-          each position to exactly one writer;
-        - its properties carry the COMPLETE receipt, whose digest binds
-          project/source/source_type/revision/state/completed_at/sequence -- the
-          number and the content are established by the SAME write;
-        - the record is INSERT-ONLY and never updated, so a replayed older receipt
-          finds its position taken and cannot overwrite anything;
-        - the sealed receipt is verified BEFORE it is persisted (N29).
-
-        Superseded completions of the same source are pruned best-effort AFTER the
-        new one is established (housekeeping only -- correctness comes from the
-        immutable winning record).
-        """
-        candidate = self._highest_completion_sequence(receipt.project_id) + 1
-        for _attempt in range(_COMPLETION_ATTEMPT_LIMIT):
-            sealed = receipt.stamped(sequence=candidate)
-            sealed.verify()  # N29: never persist an unverified receipt
-            record_uuid = self._completion_uuid(sealed.project_id, sealed.sequence)
-            if self.client.insert_object(
-                collection=RECEIPT_COLLECTION,
-                uuid=record_uuid,
-                properties={
-                    "project_id": sealed.project_id,
-                    "source_file": sealed.source_file,
-                    "source_type": sealed.source_type,
-                    "corpus_revision": sealed.corpus_revision,
-                    "digest": sealed.digest,
-                    "state": sealed.state.value,
-                    "completed_at": sealed.completed_at,
-                    "sequence": str(sealed.sequence),
-                    "generation": str(sealed.generation),
-                },
-            ):
-                self._prune_superseded_completions(sealed)
-                return sealed
-            candidate += 1
-        raise VectorDbWriteError(
-            f"could not establish a completion for {receipt.source_file!r} after "
-            f"{_COMPLETION_ATTEMPT_LIMIT} attempts; fail-closed (N28)."
+        """Establish one completion through the shared atomic run-order contract."""
+        from agentkit.backend.vectordb.ingest.classify import (
+            producer_for,
+            source_types_for_producer,
         )
+
+        receipt.stamped(sequence=1).verify()
+        producer = producer_for(receipt.source_type)
+        if producer is None:
+            raise VectorDbWriteError(
+                f"source type {receipt.source_type!r} has no completion producer"
+            )
+        producer_completion = ProducerCompletion(
+            project_id=receipt.project_id,
+            producer=producer,
+            source_types=source_types_for_producer(producer),
+            corpus_revision=receipt.corpus_revision,
+        )
+        run_id = completion_run_id(
+            receipt.project_id,
+            (receipt,),
+            (producer_completion,),
+        )
+        sealed = self.set_receipts(
+            run_id=run_id,
+            receipts=(receipt,),
+            producer_completions=(producer_completion,),
+        )
+        return sealed[0]
+
+    def set_receipts(
+        self,
+        *,
+        run_id: str,
+        receipts: Sequence[SyncReceipt],
+        producer_completions: Sequence[ProducerCompletion],
+    ) -> Sequence[SyncReceipt]:
+        """Publish a run idempotently through one position-bound atomic insert."""
+        candidates = tuple(receipts)
+        producer_candidates = tuple(producer_completions)
+        if not producer_candidates:
+            raise VectorDbWriteError(
+                "completion run has no producer-wide completion summary"
+            )
+        project_ids = {receipt.project_id for receipt in candidates}
+        project_ids.update(item.project_id for item in producer_candidates)
+        identities = {(receipt.source_file, receipt.generation) for receipt in candidates}
+        producers = {item.producer for item in producer_candidates}
+        if (
+            len(project_ids) != 1
+            or len(identities) != len(candidates)
+            or len(producers) != len(producer_candidates)
+        ):
+            raise VectorDbWriteError(
+                "completion run must contain one project and unique sources/producers"
+            )
+        project_id = next(iter(project_ids))
+        expected_run_id = completion_run_id(
+            project_id,
+            candidates,
+            producer_candidates,
+        )
+        if run_id != expected_run_id:
+            raise VectorDbWriteError(
+                "completion run_id does not bind the exact semantic payload"
+            )
+        self.resolve_pending_commits(project_id=project_id)
+        existing = self._find_run_by_id(project_id, run_id)
+        if existing is not None:
+            self._assert_semantic_run_match(
+                existing,
+                candidates,
+                producer_candidates,
+            )
+            return existing.receipts
+        return self._publish_completion_run(
+            project_id=project_id,
+            run_id=run_id,
+            receipts=candidates,
+            producer_completions=producer_candidates,
+        )
+
+    def resolve_pending_commits(self, *, project_id: str) -> None:
+        """Resolve every durable unknown outcome before another corpus mutation."""
+        for pending in self.recovery_journal.list_pending(project_id):
+            self._resolve_pending_commit(project_id=project_id, pending=pending)
+
+    def _resolve_pending_commit(
+        self,
+        *,
+        project_id: str,
+        pending: CompletionCommitJournalEntry,
+    ) -> None:
+        attempted = self._read_pending_position(pending)
+        if attempted is not None:
+            if attempted.properties == pending.properties:
+                self._clear_recovery(pending.run_id)
+            else:
+                self._republish_pending(project_id=project_id, pending=pending)
+            return
+        try:
+            inserted = self.client.insert_object(
+                collection=RUN_RECEIPT_COLLECTION,
+                uuid=pending.record_uuid,
+                properties=pending.properties,
+            )
+        except VectorDbWriteError as exc:
+            self._resolve_pending_insert_error(
+                project_id=project_id,
+                pending=pending,
+                error=exc,
+            )
+            return
+        self._resolve_pending_insert_result(
+            project_id=project_id,
+            pending=pending,
+            inserted=inserted,
+        )
+
+    def _resolve_pending_insert_error(
+        self,
+        *,
+        project_id: str,
+        pending: CompletionCommitJournalEntry,
+        error: VectorDbWriteError,
+    ) -> None:
+        verified = self._read_run_after_error(pending, error)
+        if verified.properties == pending.properties:
+            self._clear_recovery(pending.run_id)
+            return
+        self._republish_pending(project_id=project_id, pending=pending)
+
+    def _resolve_pending_insert_result(
+        self,
+        *,
+        project_id: str,
+        pending: CompletionCommitJournalEntry,
+        inserted: bool,
+    ) -> None:
+        if inserted:
+            self._clear_recovery(pending.run_id)
+            return
+        try:
+            position_owner = self._read_run_at_uuid(
+                pending.project_id,
+                pending.record_uuid,
+            )
+        except VectorDbUnavailableError as exc:
+            _finish_not_committed(self.recovery_journal, pending)
+            raise VectorDbUnavailableError(
+                f"pending completion run {pending.run_id!r} lost its conditional "
+                "create and its collision owner is unreadable; the run is "
+                "definitively not committed"
+            ) from exc
+        if position_owner is None:
+            _finish_not_committed(self.recovery_journal, pending)
+            raise VectorDbWriteError(
+                f"pending completion run {pending.run_id!r} was rejected without "
+                "a readable collision owner; it is definitively not committed"
+            )
+        if position_owner.properties == pending.properties:
+            self._clear_recovery(pending.run_id)
+            return
+        self._republish_pending(project_id=project_id, pending=pending)
+
+    def _republish_pending(
+        self,
+        *,
+        project_id: str,
+        pending: CompletionCommitJournalEntry,
+    ) -> None:
+        parsed = _parse_run_record(
+            pending.record_uuid,
+            pending.properties,
+            project_id=project_id,
+        )
+        self._publish_completion_run(
+            project_id=project_id,
+            run_id=pending.run_id,
+            receipts=tuple(_unstamp_receipt(item) for item in parsed.receipts),
+            producer_completions=tuple(
+                _unstamp_producer_completion(item)
+                for item in parsed.producer_completions
+            ),
+        )
+
+    def _publish_completion_run(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        receipts: tuple[SyncReceipt, ...],
+        producer_completions: tuple[ProducerCompletion, ...],
+    ) -> tuple[SyncReceipt, ...]:
+        candidate = self._highest_completion_sequence(project_id) + 1
+        for _attempt in range(_COMPLETION_ATTEMPT_LIMIT):
+            record = self._build_run_record(
+                project_id=project_id,
+                run_id=run_id,
+                receipts=receipts,
+                producer_completions=producer_completions,
+                sequence_start=candidate,
+            )
+            pending = CompletionCommitJournalEntry(
+                state=CommitRecoveryState.OUTCOME_UNKNOWN,
+                project_id=project_id,
+                run_id=run_id,
+                record_uuid=record.uuid,
+                properties=record.properties,
+            )
+            self.recovery_journal.stage_unknown(pending)
+            try:
+                inserted = self.client.insert_object(
+                    collection=RUN_RECEIPT_COLLECTION,
+                    uuid=record.uuid,
+                    properties=record.properties,
+                )
+            except VectorDbWriteError as exc:
+                verified = self._read_run_after_error(pending, exc)
+                if verified.properties == pending.properties:
+                    self._clear_recovery(run_id)
+                    return verified.receipts
+                _finish_not_committed(self.recovery_journal, pending)
+                candidate = verified.sequence_end + 1
+                continue
+            if inserted:
+                self._clear_recovery(run_id)
+                return record.receipts
+            try:
+                collision = self._read_run_at_uuid(project_id, record.uuid)
+            except VectorDbUnavailableError as exc:
+                _finish_not_committed(self.recovery_journal, pending)
+                raise VectorDbUnavailableError(
+                    f"completion position {candidate} rejected this run and its "
+                    "collision owner is unreadable; the run is definitively not "
+                    "committed"
+                ) from exc
+            if collision is None:
+                _finish_not_committed(self.recovery_journal, pending)
+                raise VectorDbWriteError(
+                    f"completion position {candidate} rejected this run without "
+                    "a readable owner; it is definitively not committed"
+                )
+            if collision.properties == record.properties:
+                self._clear_recovery(run_id)
+                return collision.receipts
+            _finish_not_committed(self.recovery_journal, pending)
+            candidate = collision.sequence_end + 1
+        raise VectorDbWriteError(
+            f"could not atomically reserve a completion range after "
+            f"{_COMPLETION_ATTEMPT_LIMIT} attempts"
+        )
+
+    def _build_run_record(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        receipts: tuple[SyncReceipt, ...],
+        producer_completions: tuple[ProducerCompletion, ...],
+        sequence_start: int,
+    ) -> _CompletionRunRecord:
+        sealed = tuple(
+            receipt.stamped(sequence=sequence_start + offset)
+            for offset, receipt in enumerate(receipts)
+        )
+        sequence_end = sequence_start + max(1, len(sealed)) - 1
+        sealed_producers = tuple(
+            completion.stamped(sequence=sequence_end)
+            for completion in producer_completions
+        )
+        completed_at = _iso(self.clock())
+        receipts_json = _render_receipt_batch(sealed)
+        producer_json = _render_producer_completions(sealed_producers)
+        digest = _run_receipt_digest(
+            project_id=project_id,
+            run_id=run_id,
+            receipts_json=receipts_json,
+            producer_completions_json=producer_json,
+            completed_at=completed_at,
+            sequence_start=sequence_start,
+            sequence_end=sequence_end,
+        )
+        properties = {
+            "project_id": project_id,
+            "run_id": run_id,
+            "receipts_json": receipts_json,
+            "producer_completions_json": producer_json,
+            "batch_digest": digest,
+            "completed_at": completed_at,
+            "sequence_start": str(sequence_start),
+            "sequence_end": str(sequence_end),
+        }
+        return _CompletionRunRecord(
+            uuid=self._run_position_uuid(project_id, sequence_start),
+            properties=properties,
+            receipts=sealed,
+            producer_completions=sealed_producers,
+            sequence_start=sequence_start,
+            sequence_end=sequence_end,
+        )
+
+    def _read_run_after_error(
+        self,
+        pending: CompletionCommitJournalEntry,
+        write_error: VectorDbWriteError,
+    ) -> _CompletionRunRecord:
+        try:
+            record = self._read_run_at_uuid(
+                pending.project_id,
+                pending.record_uuid,
+            )
+        except VectorDbUnavailableError as read_error:
+            raise CommitOutcomeUnknownError(
+                f"completion run {pending.run_id!r} write acknowledgement was lost "
+                "and strict read-back failed; recovery journal retained"
+            ) from read_error
+        if record is not None and record.properties == pending.properties:
+            return record
+        if record is not None:
+            return record
+        _finish_not_committed(self.recovery_journal, pending)
+        raise write_error
+
+    def _read_pending_position(
+        self,
+        pending: CompletionCommitJournalEntry,
+    ) -> _CompletionRunRecord | None:
+        """Read a journaled position without losing its unknown-outcome identity."""
+        try:
+            return self._read_run_at_uuid(
+                pending.project_id,
+                pending.record_uuid,
+            )
+        except VectorDbUnavailableError as exc:
+            raise CommitOutcomeUnknownError(
+                f"pending completion run {pending.run_id!r} cannot be resolved "
+                "because its atomic position is unreadable; recovery journal retained"
+            ) from exc
+
+    def _read_run_at_uuid(
+        self,
+        project_id: str,
+        record_uuid: str,
+    ) -> _CompletionRunRecord | None:
+        matches = [
+            _parse_run_record(uid, props, project_id=project_id)
+            for uid, props in self.client.fetch_by_property(
+                collection=RUN_RECEIPT_COLLECTION,
+                project_id=project_id,
+                prop="project_id",
+                value=project_id,
+                return_props=RUN_RECEIPT_PROPERTIES,
+            )
+            if uid == record_uuid
+        ]
+        if len(matches) > 1:
+            raise VectorDbUnavailableError(
+                f"completion position {record_uuid!r} is duplicated"
+            )
+        return matches[0] if matches else None
+
+    def _find_run_by_id(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> _CompletionRunRecord | None:
+        rows = self.client.fetch_by_property(
+            collection=RUN_RECEIPT_COLLECTION,
+            project_id=project_id,
+            prop="run_id",
+            value=run_id,
+            return_props=RUN_RECEIPT_PROPERTIES,
+        )
+        if len(rows) > 1:
+            raise VectorDbUnavailableError(
+                f"completion run_id {run_id!r} is duplicated"
+            )
+        return (
+            _parse_run_record(rows[0][0], rows[0][1], project_id=project_id)
+            if rows
+            else None
+        )
+
+    def _assert_semantic_run_match(
+        self,
+        record: _CompletionRunRecord,
+        receipts: tuple[SyncReceipt, ...],
+        producer_completions: tuple[ProducerCompletion, ...],
+    ) -> None:
+        actual_receipts = tuple(_unstamp_receipt(item) for item in record.receipts)
+        actual_producers = tuple(
+            _unstamp_producer_completion(item)
+            for item in record.producer_completions
+        )
+        if actual_receipts != receipts or actual_producers != producer_completions:
+            raise VectorDbUnavailableError(
+                f"completion run {record.properties['run_id']!r} does not match "
+                "its deterministic semantic payload"
+            )
+
+    def _clear_recovery(self, run_id: str) -> None:
+        try:
+            self.recovery_journal.finish_committed(run_id)
+        except (OSError, VectorDbWriteError) as exc:
+            raise CommitOutcomeUnknownError(
+                f"completion run {run_id!r} committed, but its durable recovery "
+                "entry could not be cleared"
+            ) from exc
 
     @staticmethod
     def _completion_uuid(project_id: str, sequence: int) -> str:
         return str(uuid.uuid5(_RECEIPT_NAMESPACE, f"{project_id}|{sequence}"))
+
+    @staticmethod
+    def _run_position_uuid(project_id: str, sequence_start: int) -> str:
+        return str(
+            uuid.uuid5(
+                _RUN_RECEIPT_NAMESPACE,
+                f"{project_id}|{sequence_start}",
+            )
+        )
 
     def _highest_completion_sequence(self, project_id: str) -> int:
         """Return the highest completion position already established (N28)."""
@@ -430,6 +830,17 @@ class WeaviateCorpusStore:
         highest = 0
         for _uid, props in rows:
             highest = max(highest, _positive_int(props.get("sequence"), field_name="sequence"))
+        for _uid, props in self.client.fetch_by_property(
+            collection=RUN_RECEIPT_COLLECTION,
+            project_id=project_id,
+            prop="project_id",
+            value=project_id,
+            return_props=RUN_RECEIPT_PROPERTIES,
+        ):
+            highest = max(
+                highest,
+                _positive_int(props.get("sequence_end"), field_name="sequence_end"),
+            )
         return highest
 
     def _prune_superseded_completions(self, current: SyncReceipt) -> None:
@@ -445,8 +856,7 @@ class WeaviateCorpusStore:
         stale = [
             self._completion_uuid(current.project_id, receipt.sequence)
             for receipt in self.list_receipts(project_id=current.project_id)
-            if receipt.source_file == current.source_file
-            and receipt.generation < current.generation
+            if receipt.source_file == current.source_file and receipt.generation < current.generation
         ]
         if not stale:
             return
@@ -466,10 +876,7 @@ class WeaviateCorpusStore:
         for uid, props in rows:
             source_file = props.get("source_file")
             if not isinstance(source_file, str) or not source_file:
-                raise VectorDbUnavailableError(
-                    "persisted sync completion carries no usable 'source_file'; "
-                    "fail-closed (N08)."
-                )
+                raise VectorDbUnavailableError("persisted sync completion carries no usable 'source_file'; fail-closed (N08).")
             completion = receipt_from_props(project_id, source_file, props)
             # The record's POSITION is part of its identity: a completion stored
             # under a different position than it binds to has been moved/replayed.
@@ -481,11 +888,67 @@ class WeaviateCorpusStore:
                     "fail-closed (N28: completions are immutable and position-bound)."
                 )
             out.append(completion)
+        run_records = self._list_run_records(project_id)
+        _verify_global_completion_ranges(
+            [(receipt.sequence, receipt.sequence) for receipt in out]
+            + [
+                (record.sequence_start, record.sequence_end)
+                for record in run_records
+            ]
+        )
+        out.extend(
+            receipt
+            for record in run_records
+            for receipt in record.receipts
+        )
         return out
 
-    def try_claim_source(
-        self, *, project_id: str, source_file: str, owner_id: str
-    ) -> SourceClaim | None:
+    def _list_run_receipts(self, project_id: str) -> list[SyncReceipt]:
+        """Read and verify atomically published multi-source run records."""
+        return [
+            receipt
+            for record in self._list_run_records(project_id)
+            for receipt in record.receipts
+        ]
+
+    def list_producer_completions(
+        self,
+        *,
+        project_id: str,
+    ) -> Sequence[ProducerCompletion]:
+        """Return producer-wide completions, including zero-source successes."""
+        records = self._list_run_records(project_id)
+        _verify_global_completion_ranges(
+            [
+                (record.sequence_start, record.sequence_end)
+                for record in records
+            ]
+        )
+        return [
+            completion
+            for record in records
+            for completion in record.producer_completions
+        ]
+
+    def _list_run_records(self, project_id: str) -> list[_CompletionRunRecord]:
+        """Read every immutable run record strictly."""
+        rows = self.client.fetch_by_property(
+            collection=RUN_RECEIPT_COLLECTION,
+            project_id=project_id,
+            prop="project_id",
+            value=project_id,
+            return_props=RUN_RECEIPT_PROPERTIES,
+        )
+        records = [
+            _parse_run_record(uid, props, project_id=project_id)
+            for uid, props in rows
+        ]
+        run_ids = [record.properties["run_id"] for record in records]
+        if len(run_ids) != len(set(run_ids)):
+            raise VectorDbUnavailableError("completion run_id is not globally unique")
+        return records
+
+    def try_claim_source(self, *, project_id: str, source_file: str, owner_id: str) -> SourceClaim | None:
         """Atomically claim a source by CREATING the next source generation (N37).
 
         The claim is STORE-LEVEL and ATOMIC (N03/D3): each generation is a distinct
@@ -515,9 +978,7 @@ class WeaviateCorpusStore:
             generation=highest + 1,
         )
 
-    def reclaim_source(
-        self, *, project_id: str, source_file: str, owner_id: str, reason: str
-    ) -> SourceClaim:
+    def reclaim_source(self, *, project_id: str, source_file: str, owner_id: str, reason: str) -> SourceClaim:
         """ADMINISTRATIVELY take a claim over by creating the NEXT generation (N27).
 
         Only reached from an explicit operator path, which asserts the previous
@@ -619,9 +1080,7 @@ class WeaviateCorpusStore:
         try:
             created = self.client.insert_object(
                 collection=CLAIM_COLLECTION,
-                uuid=self._release_uuid(
-                    claim.project_id, claim.source_file, claim.generation
-                ),
+                uuid=self._release_uuid(claim.project_id, claim.source_file, claim.generation),
                 properties={
                     "project_id": claim.project_id,
                     "source_file": claim.source_file,
@@ -663,9 +1122,7 @@ class WeaviateCorpusStore:
         Returns:
             ``True`` only for a complete, matching release marker.
         """
-        wanted = self._release_uuid(
-            claim.project_id, claim.source_file, claim.generation
-        )
+        wanted = self._release_uuid(claim.project_id, claim.source_file, claim.generation)
         expected = {
             "project_id": claim.project_id,
             "source_file": claim.source_file,
@@ -679,9 +1136,7 @@ class WeaviateCorpusStore:
             return all(props.get(name) == value for name, value in expected.items())
         return False
 
-    def _prune_generations_below(
-        self, project_id: str, source_file: str, generation: int
-    ) -> None:
+    def _prune_generations_below(self, project_id: str, source_file: str, generation: int) -> None:
         """Drop ladder records BELOW the given generation (housekeeping only).
 
         The record of the highest generation is never removed, so the ladder cannot
@@ -704,21 +1159,13 @@ class WeaviateCorpusStore:
 
     @staticmethod
     def _claim_uuid(project_id: str, source_file: str, generation: int) -> str:
-        return str(
-            uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}|{generation}")
-        )
+        return str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}|{generation}"))
 
     @staticmethod
     def _release_uuid(project_id: str, source_file: str, generation: int) -> str:
-        return str(
-            uuid.uuid5(
-                _CLAIM_NAMESPACE, f"{project_id}|{source_file}|{generation}|released"
-            )
-        )
+        return str(uuid.uuid5(_CLAIM_NAMESPACE, f"{project_id}|{source_file}|{generation}|released"))
 
-    def _generation_rows(
-        self, project_id: str, source_file: str
-    ) -> list[tuple[str, Mapping[str, object]]]:
+    def _generation_rows(self, project_id: str, source_file: str) -> list[tuple[str, Mapping[str, object]]]:
         """Return this source's ladder records (claims AND release markers).
 
         Read with the SAME server-side project scope as the corpus (AC4/N51): the
@@ -745,9 +1192,7 @@ class WeaviateCorpusStore:
         """
         highest = 0
         for _uid, props in rows:
-            highest = max(
-                highest, _positive_int(props.get("generation"), field_name="generation")
-            )
+            highest = max(highest, _positive_int(props.get("generation"), field_name="generation"))
         return highest
 
     def _held_claim(
@@ -779,59 +1224,396 @@ class WeaviateCorpusStore:
         return self.clock()
 
 
+def _finish_not_committed(
+    journal: FileCommitRecoveryJournal,
+    pending: CompletionCommitJournalEntry,
+) -> None:
+    """Persist terminal failure or preserve honest outcome-unknown semantics."""
+    try:
+        journal.finish_not_committed(pending)
+    except (OSError, VectorDbWriteError) as exc:
+        raise CommitOutcomeUnknownError(
+            f"completion run {pending.run_id!r} is not committed, but its terminal "
+            "journal state could not be persisted; recovery remains outcome-unknown"
+        ) from exc
+
+
 def _positive_int(raw: object, *, field_name: str) -> int:
     """Read a positive integer strictly (no coercion, no bool-as-int, N08/N16)."""
     if isinstance(raw, bool) or not isinstance(raw, (int, str)):
-        raise VectorDbUnavailableError(
-            f"persisted record has a non-numeric {field_name!r} ({raw!r}); "
-            "fail-closed (N08/N16)."
-        )
+        raise VectorDbUnavailableError(f"persisted record has a non-numeric {field_name!r} ({raw!r}); fail-closed (N08/N16).")
     try:
         value = int(raw)
     except ValueError as exc:
         raise VectorDbUnavailableError(
-            f"persisted record has a non-numeric {field_name!r} ({raw!r}); "
-            "fail-closed (N08/N16)."
+            f"persisted record has a non-numeric {field_name!r} ({raw!r}); fail-closed (N08/N16)."
         ) from exc
     if value < 1:
-        raise VectorDbUnavailableError(
-            f"persisted record has a non-positive {field_name!r} ({value}); "
-            "fail-closed (N08/N16)."
-        )
+        raise VectorDbUnavailableError(f"persisted record has a non-positive {field_name!r} ({value}); fail-closed (N08/N16).")
     return value
 
 
-def _required_strings(
-    props: Mapping[str, object], names: Sequence[str], *, context: str
-) -> dict[str, str]:
+def _render_receipt_batch(receipts: Sequence[SyncReceipt]) -> str:
+    """Render a canonical immutable completion batch."""
+    payload = [
+        {
+            "project_id": receipt.project_id,
+            "source_file": receipt.source_file,
+            "source_type": receipt.source_type,
+            "corpus_revision": receipt.corpus_revision,
+            "digest": receipt.digest,
+            "state": receipt.state.value,
+            "completed_at": receipt.completed_at,
+            "sequence": receipt.sequence,
+            "generation": receipt.generation,
+        }
+        for receipt in receipts
+    ]
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _render_producer_completions(
+    completions: Sequence[ProducerCompletion],
+) -> str:
+    payload = [
+        {
+            "corpus_revision": completion.corpus_revision,
+            "producer": completion.producer,
+            "project_id": completion.project_id,
+            "sequence": completion.sequence,
+            "source_types": list(completion.source_types),
+        }
+        for completion in completions
+    ]
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _run_receipt_digest(
+    *,
+    project_id: str,
+    run_id: str,
+    receipts_json: str,
+    producer_completions_json: str,
+    completed_at: str,
+    sequence_start: int,
+    sequence_end: int,
+) -> str:
+    """Bind the run record to its identity, receipt content and order."""
+    material = json.dumps(
+        {
+            "completed_at": completed_at,
+            "project_id": project_id,
+            "producer_completions_json": producer_completions_json,
+            "receipts_json": receipts_json,
+            "run_id": run_id,
+            "sequence_end": sequence_end,
+            "sequence_start": sequence_start,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _reject_duplicate_json_pairs(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    """Reject duplicate keys in persisted receipt JSON (no last-wins)."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise VectorDbUnavailableError(
+                f"completion batch contains duplicate JSON key {key!r}"
+            )
+        result[key] = value
+    return result
+
+
+def _parse_receipt_batch(
+    *,
+    project_id: str,
+    raw: str,
+) -> list[SyncReceipt]:
+    """Strictly parse every receipt in one immutable run record."""
+    try:
+        payload = json.loads(raw, object_pairs_hook=_reject_duplicate_json_pairs)
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise VectorDbUnavailableError(
+            f"completion batch is not strict JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, list):
+        raise VectorDbUnavailableError(
+            "completion batch must be a JSON list"
+        )
+    out: list[SyncReceipt] = []
+    for index, item in enumerate(payload):
+        if not isinstance(item, dict):
+            raise VectorDbUnavailableError(
+                f"completion batch item {index} is not an object"
+            )
+        if set(item) != set(RECEIPT_PROPERTIES):
+            raise VectorDbUnavailableError(
+                f"completion batch item {index} has an invalid field set"
+            )
+        source_file = item.get("source_file")
+        if not isinstance(source_file, str) or not source_file:
+            raise VectorDbUnavailableError(
+                f"completion batch item {index} has no source_file"
+            )
+        out.append(receipt_from_props(project_id, source_file, item))
+    return out
+
+
+def _parse_producer_completions(
+    *,
+    project_id: str,
+    raw: str,
+) -> list[ProducerCompletion]:
+    try:
+        payload = json.loads(raw, object_pairs_hook=_reject_duplicate_json_pairs)
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise VectorDbUnavailableError(
+            f"producer completion batch is not strict JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, list) or not payload:
+        raise VectorDbUnavailableError(
+            "producer completion batch must be a non-empty JSON list"
+        )
+    completions: list[ProducerCompletion] = []
+    for index, item in enumerate(payload):
+        completions.append(
+            _parse_producer_completion_item(
+                project_id=project_id,
+                item=item,
+                index=index,
+            )
+        )
+    producers = [item.producer for item in completions]
+    if len(producers) != len(set(producers)):
+        raise VectorDbUnavailableError(
+            "producer completion batch contains duplicate producers"
+        )
+    return completions
+
+
+def _parse_producer_completion_item(
+    *,
+    project_id: str,
+    item: object,
+    index: int,
+) -> ProducerCompletion:
+    if not isinstance(item, dict):
+        raise VectorDbUnavailableError(
+            f"producer completion item {index} is not an object"
+        )
+    expected_keys = {
+        "corpus_revision",
+        "producer",
+        "project_id",
+        "sequence",
+        "source_types",
+    }
+    if set(item) != expected_keys:
+        raise VectorDbUnavailableError(
+            f"producer completion item {index} has an invalid field set"
+        )
+    source_types = item["source_types"]
+    if (
+        not isinstance(source_types, list)
+        or not source_types
+        or any(not isinstance(value, str) or not value for value in source_types)
+    ):
+        raise VectorDbUnavailableError(
+            f"producer completion item {index} has invalid source_types"
+        )
+    completion = ProducerCompletion(
+        project_id=_strict_json_string(item["project_id"], field_name="project_id"),
+        producer=_strict_json_string(item["producer"], field_name="producer"),
+        source_types=tuple(source_types),
+        corpus_revision=_strict_json_string(
+            item["corpus_revision"],
+            field_name="corpus_revision",
+        ),
+        sequence=_positive_int(item["sequence"], field_name="sequence"),
+    )
+    if completion.project_id != project_id:
+        raise VectorDbUnavailableError(
+            "producer completion carries a foreign project identity"
+        )
+    try:
+        completion.verify()
+    except SyncError as exc:
+        raise VectorDbUnavailableError(
+            f"producer completion item {index} is invalid: {exc}"
+        ) from exc
+    return completion
+
+
+def _parse_run_record(
+    uid: str,
+    props: Mapping[str, object],
+    *,
+    project_id: str,
+) -> _CompletionRunRecord:
+    values = _required_strings(
+        props,
+        RUN_RECEIPT_PROPERTIES,
+        context=f"completion run {uid!r}",
+    )
+    if values["project_id"] != project_id:
+        raise VectorDbUnavailableError(
+            f"completion run {uid!r} carries a foreign project identity"
+        )
+    sequence_start = _positive_int(
+        values["sequence_start"],
+        field_name="sequence_start",
+    )
+    sequence_end = _positive_int(
+        values["sequence_end"],
+        field_name="sequence_end",
+    )
+    expected_uuid = WeaviateCorpusStore._run_position_uuid(
+        project_id,
+        sequence_start,
+    )
+    if uid != expected_uuid:
+        raise VectorDbUnavailableError(
+            f"completion run {values['run_id']!r} is stored under the wrong "
+            "atomic position identity"
+        )
+    expected_digest = _run_receipt_digest(
+        project_id=project_id,
+        run_id=values["run_id"],
+        receipts_json=values["receipts_json"],
+        producer_completions_json=values["producer_completions_json"],
+        completed_at=values["completed_at"],
+        sequence_start=sequence_start,
+        sequence_end=sequence_end,
+    )
+    if values["batch_digest"] != expected_digest:
+        raise VectorDbUnavailableError(
+            f"completion run {values['run_id']!r} has an invalid digest"
+        )
+    try:
+        parse_utc_timestamp(values["completed_at"])
+    except SyncError as exc:
+        raise VectorDbUnavailableError(
+            f"completion run {values['run_id']!r} has an invalid timestamp"
+        ) from exc
+    receipts = tuple(
+        _parse_receipt_batch(
+            project_id=project_id,
+            raw=values["receipts_json"],
+        )
+    )
+    producers = tuple(
+        _parse_producer_completions(
+            project_id=project_id,
+            raw=values["producer_completions_json"],
+        )
+    )
+    sequences = [receipt.sequence for receipt in receipts]
+    expected_end = sequence_start + max(1, len(receipts)) - 1
+    if (
+        sequence_end != expected_end
+        or sequences != list(range(sequence_start, sequence_start + len(receipts)))
+        or any(item.sequence != sequence_end for item in producers)
+    ):
+        raise VectorDbUnavailableError(
+            f"completion run {values['run_id']!r} has an invalid atomic range"
+        )
+    expected_run_id = completion_run_id(
+        project_id,
+        tuple(_unstamp_receipt(item) for item in receipts),
+        tuple(_unstamp_producer_completion(item) for item in producers),
+    )
+    if values["run_id"] != expected_run_id:
+        raise VectorDbUnavailableError(
+            f"completion run {values['run_id']!r} does not bind its semantic payload"
+        )
+    return _CompletionRunRecord(
+        uuid=uid,
+        properties=values,
+        receipts=receipts,
+        producer_completions=producers,
+        sequence_start=sequence_start,
+        sequence_end=sequence_end,
+    )
+
+
+def _strict_json_string(raw: object, *, field_name: str) -> str:
+    if not isinstance(raw, str) or not raw:
+        raise VectorDbUnavailableError(
+            f"producer completion has invalid {field_name!r}"
+        )
+    return raw
+
+
+def _unstamp_receipt(receipt: SyncReceipt) -> SyncReceipt:
+    return SyncReceipt.for_completion(
+        project_id=receipt.project_id,
+        source_file=receipt.source_file,
+        source_type=receipt.source_type,
+        corpus_revision=receipt.corpus_revision,
+        generation=receipt.generation,
+        completed_at=receipt.completed_at,
+    )
+
+
+def _unstamp_producer_completion(
+    completion: ProducerCompletion,
+) -> ProducerCompletion:
+    return ProducerCompletion(
+        project_id=completion.project_id,
+        producer=completion.producer,
+        source_types=completion.source_types,
+        corpus_revision=completion.corpus_revision,
+    )
+
+
+def _verify_global_completion_ranges(
+    ranges: Sequence[tuple[int, int]],
+) -> None:
+    previous_end = 0
+    for start, end in sorted(ranges):
+        if start <= previous_end:
+            raise VectorDbUnavailableError(
+                f"completion ranges overlap at position {start}"
+            )
+        if end < start:
+            raise VectorDbUnavailableError("completion range ends before it starts")
+        previous_end = end
+
+
+def _required_strings(props: Mapping[str, object], names: Sequence[str], *, context: str) -> dict[str, str]:
     """Read mandatory string fields strictly (no ``str()`` coercion, N08)."""
     values: dict[str, str] = {}
     for field_name in names:
         raw = props.get(field_name)
         if not isinstance(raw, str) or not raw:
             raise VectorDbUnavailableError(
-                f"persisted {context} has a missing/non-string {field_name!r} "
-                f"({raw!r}); fail-closed (N08)."
+                f"persisted {context} has a missing/non-string {field_name!r} ({raw!r}); fail-closed (N08)."
             )
         values[field_name] = raw
     return values
 
 
-def _claim_from_props(
-    project_id: str, source_file: str, props: Mapping[str, object]
-) -> SourceClaim:
+def _claim_from_props(project_id: str, source_file: str, props: Mapping[str, object]) -> SourceClaim:
     """Rebuild a persisted claim strictly (owner/generation/timestamp, N15/N27/N37).
 
     There is NO expiry field: a claim never expires by time (N27). ``claimed_at``
     is diagnostics and must still be a valid UTC instant.
     """
-    values = _required_strings(
-        props, ("owner_id", "state", "claimed_at"), context="source claim"
-    )
+    values = _required_strings(props, ("owner_id", "state", "claimed_at"), context="source claim")
     if values["state"] not in (CLAIM_STATE_HELD, CLAIM_STATE_RELEASED):
         raise VectorDbUnavailableError(
-            f"persisted source claim for {source_file!r} has unknown state "
-            f"{values['state']!r}; fail-closed (N15)."
+            f"persisted source claim for {source_file!r} has unknown state {values['state']!r}; fail-closed (N15)."
         )
     parse_utc_timestamp(values["claimed_at"])
     reclaimed_from = props.get("reclaimed_from")
@@ -845,9 +1627,7 @@ def _claim_from_props(
     )
 
 
-def receipt_from_props(
-    project_id: str, source_file: str, props: Mapping[str, object]
-) -> SyncReceipt:
+def receipt_from_props(project_id: str, source_file: str, props: Mapping[str, object]) -> SyncReceipt:
     """Rebuild a persisted receipt with FULL verification (N08/N16).
 
     Every mandatory field must be present and string-typed (no ``str()``
@@ -894,9 +1674,7 @@ def receipt_from_props(
     try:
         receipt.verify()
     except SyncError as exc:
-        raise VectorDbUnavailableError(
-            f"persisted sync receipt for {source_file!r} is not trustworthy: {exc}"
-        ) from exc
+        raise VectorDbUnavailableError(f"persisted sync receipt for {source_file!r} is not trustworthy: {exc}") from exc
     return receipt
 
 
@@ -938,24 +1716,22 @@ class WeaviateRetrievalPort:
             limit=limit,
             property_spec=search_property_spec(source_type),
         )
-        return [
-            {**props, "score": score, "snippet": str(props.get("content", ""))[:200]}
-            for _uid, props, score in rows
-        ]
+        return [{**props, "score": score, "snippet": str(props.get("content", ""))[:200]} for _uid, props, score in rows]
 
     def list_sources(self, *, project_id: str) -> Sequence[Mapping[str, object]]:
         from agentkit.backend.vectordb.ingest.classify import PRODUCER_BY_SOURCE_TYPE
 
         receipts = self.store.list_receipts(project_id=project_id)
+        producer_completions = self.store.list_producer_completions(
+            project_id=project_id
+        )
         # AG3-177 (c): the authoritative generation per source comes from the SAME
         # completion set this listing already reads, so making the residual
         # detectable costs no additional transport.
         authority = authoritative_generations(receipts)
         out: list[Mapping[str, object]] = []
         for source_type, producer in PRODUCER_BY_SOURCE_TYPE.items():
-            rows = self.store.list_objects_for_source_types(
-                project_id=project_id, source_types=(source_type,)
-            )
+            rows = self.store.list_objects_for_source_types(project_id=project_id, source_types=(source_type,))
             files = {str(r.get("source_file")) for r in rows}
             out.append(
                 {
@@ -967,7 +1743,11 @@ class WeaviateRetrievalPort:
                     # N04/D1: the revision of the LAST SUCCESSFUL COMPLETION for
                     # this source type (persisted completion order, not a
                     # lexicographic maximum over content digests).
-                    "last_revision": _last_completed_revision(receipts, source_type),
+                    "last_revision": _last_completed_revision(
+                        receipts,
+                        producer_completions,
+                        source_type,
+                    ),
                     # AG3-177: the EXACT predicate of :func:`stale_chunk_count` --
                     # rows below their source's authoritative generation, rows with
                     # no generation, rows with an unusable one. > 0 is an actionable
@@ -1006,9 +1786,7 @@ def authoritative_generations(
     return out
 
 
-def stale_chunk_count(
-    rows: Sequence[Mapping[str, object]], authority: Mapping[str, int]
-) -> int:
+def stale_chunk_count(rows: Sequence[Mapping[str, object]], authority: Mapping[str, int]) -> int:
     """Count the rows matching the EXACT predicate below (AG3-177).
 
     This is NOT "every row that is not part of the authoritative generation": a row of a
@@ -1060,7 +1838,9 @@ def stale_chunk_count(
 
 
 def _last_completed_revision(
-    receipts: Sequence[SyncReceipt], source_type: str
+    receipts: Sequence[SyncReceipt],
+    producer_completions: Sequence[ProducerCompletion],
+    source_type: str,
 ) -> str:
     """Return the revision of the LAST successful completion of a source type (N04).
 
@@ -1068,15 +1848,20 @@ def _last_completed_revision(
     ``completed_at`` timestamp and the source file break ties deterministically.
     An unfinished (``in_progress``) receipt is not a completion.
     """
-    completed = [
-        r
-        for r in receipts
-        if r.source_type == source_type and r.state.value == "completed"
+    source_candidates = [
+        (receipt.sequence, receipt.completed_at, receipt.source_file, receipt.corpus_revision)
+        for receipt in receipts
+        if receipt.source_type == source_type and receipt.state.value == "completed"
     ]
+    producer_candidates = [
+        (completion.sequence, "", completion.producer, completion.corpus_revision)
+        for completion in producer_completions
+        if source_type in completion.source_types
+    ]
+    completed = source_candidates + producer_candidates
     if not completed:
         return ""
-    latest = max(completed, key=lambda r: (r.sequence, r.completed_at, r.source_file))
-    return latest.corpus_revision
+    return max(completed)[3]
 
 
 def ensure_corpus_collections(client: CorpusClientPort) -> None:
@@ -1108,6 +1893,11 @@ def ensure_corpus_collections(client: CorpusClientPort) -> None:
     client.ensure_collection(
         collection=RECEIPT_COLLECTION,
         property_specs=_receipt_property_specs(),
+        vectorizer="self_provided",
+    )
+    client.ensure_collection(
+        collection=RUN_RECEIPT_COLLECTION,
+        property_specs=_aux_property_specs(RUN_RECEIPT_PROPERTIES),
         vectorizer="self_provided",
     )
     client.ensure_collection(
@@ -1154,6 +1944,7 @@ def compose_runtime(
     *,
     concepts_dir: Path,
     stories_dir: Path,
+    client: CorpusClientPort | None = None,
     command: str = "python",
     args: tuple[str, ...] = (),
     cwd: str = ".",
@@ -1166,16 +1957,21 @@ def compose_runtime(
     from agentkit.backend.vectordb.mcp_server import McpToolService
 
     binding = RuntimeBinding.from_env(env, command=command, args=args, cwd=cwd)
-    client = connect_real_client(binding)
+    resolved_client = client if client is not None else connect_real_client(binding)
     # Idempotent collection creation. The schema-OWNER (schema.py) declares the
     # property set via ``weaviate_property_specs()`` + the FK-13 §13.2
     # server-side text2vec-transformers vectorizer (N02); the thin adapter's
     # ``ensure_collection`` materialises it. Created via the port (not raw
     # ``.collections``) so it works through the CorpusClientPort boundary.
-    ensure_corpus_collections(client)
-    store = WeaviateCorpusStore(client=client)
+    ensure_corpus_collections(resolved_client)
+    from pathlib import Path
+
+    store = WeaviateCorpusStore(
+        client=resolved_client,
+        recovery_journal=project_commit_recovery_journal(Path(cwd)),
+    )
     sync = SyncService(store=store)
-    retrieval = WeaviateRetrievalPort(client=client, store=store, binding=binding)
+    retrieval = WeaviateRetrievalPort(client=resolved_client, store=store, binding=binding)
     return McpToolService(
         binding=binding,
         retrieval=retrieval,
@@ -1240,8 +2036,7 @@ def main() -> int:
                 {
                     "error": "composition_failed",
                     "detail": (
-                        "AGENTKIT_CONCEPTS_DIR is missing/empty; the concept corpus "
-                        "root has no default (fail-closed, D2/N20)."
+                        "AGENTKIT_CONCEPTS_DIR is missing/empty; the concept corpus root has no default (fail-closed, D2/N20)."
                     ),
                 }
             )
@@ -1280,6 +2075,8 @@ __all__ = [
     "CLAIM_COLLECTION",
     "RECEIPT_COLLECTION",
     "RECEIPT_PROPERTIES",
+    "RUN_RECEIPT_COLLECTION",
+    "RUN_RECEIPT_PROPERTIES",
     "WeaviateCorpusStore",
     "WeaviateRetrievalPort",
     "compose_runtime",

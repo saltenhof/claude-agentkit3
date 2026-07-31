@@ -392,7 +392,7 @@ export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
   qa_feedback: { optional: true, loopGroup: 'remediation' },
 
   /* Closure -- `finding_resolution` nur wenn Findings vorliegen;
-   * `vectordb_sync` nur, wenn die VectorDB im Projekt eingebunden ist. */
+   * `vectordb_sync` laeuft immer -- die VectorDB ist Pflichtinfrastruktur. */
   finding_resolution: { optional: true },
   integrity_gate: {},
   branch_push: {},
@@ -403,7 +403,9 @@ export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
   metrics: {},
   doc_fidelity_l4: {},
   postflight: {},
-  vectordb_sync: { optional: true },
+  // Nicht optional: die VektorDB ist Pflichtinfrastruktur (FK-13 §13.1), und
+  // dieser Closure-Schritt wird immer ausgeloest.
+  vectordb_sync: {},
   guards_off: {},
 };
 

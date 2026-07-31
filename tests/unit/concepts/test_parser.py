@@ -86,6 +86,26 @@ def test_discovery_propagates_authority_and_defers(tmp_path: Path) -> None:
     assert core.layer == "technical"
 
 
+def test_discovery_preserves_qualified_supersession_metadata(tmp_path: Path) -> None:
+    root = _write_corpus(tmp_path)
+    source = root / "technical-design" / "13_retrieval.md"
+    source.write_text(
+        _GOOD.replace(
+            "tags: [vektordb]",
+            "tags: [vektordb]\n"
+            "supersedes:\n"
+            "  - target: FK-00\n"
+            "    scope: retrieval\n"
+            "    reason: replacement",
+        ),
+        encoding="utf-8",
+    )
+    result = discover_concept_files(root)
+    document = next(item for item in result.documents if item.concept_id == "FK-13")
+    assert document.supersedes == ("FK-00",)
+    assert document.supersedes_full == (("FK-00", "retrieval", "replacement"),)
+
+
 def test_discovery_archive_path_marks_archived(tmp_path: Path) -> None:
     root = _write_corpus(tmp_path)
     arch = root / "archiv"

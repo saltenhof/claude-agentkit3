@@ -15,7 +15,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # SkillProfile lives in bundle_store (layer 0); imported here for BC-internal
 # re-export via __init__.py. No circular import because bundle_store does
@@ -83,6 +83,8 @@ class SkillBinding(BaseModel):
         skill_name: Logical skill name (e.g. ``"implement"``).
         bundle_id: Identifier of the bound ``SkillBundle``.
         bundle_version: Pinned version string of the bundle.
+        content_digest: SHA-256 of every file in the effective bound bundle,
+            captured before the VERIFIED pin is persisted.
         target_path: Harness-specific link path within the project.
         binding_mode: The link mechanism actually used — ``SYMLINK`` on POSIX,
             ``JUNCTION`` on Windows (invariant ``project_binding_is_link_only``).
@@ -97,6 +99,7 @@ class SkillBinding(BaseModel):
     skill_name: str
     bundle_id: str
     bundle_version: str
+    content_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     target_path: Path
     binding_mode: SkillBindingMode
     status: SkillLifecycleStatus

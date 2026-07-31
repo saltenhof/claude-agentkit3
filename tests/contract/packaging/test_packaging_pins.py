@@ -5,6 +5,10 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -25,12 +29,37 @@ def test_weaviate_client_is_runtime_dependency_pinned() -> None:
     ), "weaviate-client must be a real runtime dep pinned >=4.9,<5.0 (FK-13 §13.2)"
 
 
-def test_mcp_is_runtime_dependency() -> None:
+def _requirement(name: str) -> Requirement:
     deps = _project_table().get("dependencies")
     assert isinstance(deps, list)
-    assert any(
-        isinstance(d, str) and d.startswith("mcp") for d in deps
-    ), "mcp must be a real runtime dependency"
+    for dependency in deps:
+        if isinstance(dependency, str):
+            requirement = Requirement(dependency)
+            if canonicalize_name(requirement.name) == canonicalize_name(name):
+                return requirement
+    raise AssertionError(f"{name} must be a real runtime dependency")
+
+
+@pytest.mark.parametrize(
+    ("version", "allowed"),
+    [
+        ("1.1.9", False),  # `mcp.server.fastmcp` does not exist yet
+        ("1.2.0", True),  # first release that ships the FastMCP server
+        ("1.27.2", True),
+        ("2.0.0", False),  # ships neither `mcp.server.fastmcp` nor `mcp.types`
+    ],
+)
+def test_mcp_requirement_admits_exactly_the_supported_api_range(version: str, allowed: bool) -> None:
+    """Both edges break the MANDATORY MCP server at import time (FK-01 §P7).
+
+    Asserted against resolved versions rather than the specifier string, so a
+    silently widened range cannot pass this gate.
+    """
+    requirement = _requirement("mcp")
+    assert requirement.extras == set(), "the `cli` extra only adds typer/python-dotenv; AK3 does not use it"
+    assert requirement.specifier.contains(version) is allowed, (
+        f"mcp {version} must be {'accepted' if allowed else 'rejected'} by {requirement.specifier}"
+    )
 
 
 def test_tokenizers_pinned_exactly() -> None:

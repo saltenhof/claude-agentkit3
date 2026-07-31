@@ -31,9 +31,9 @@ CP_08_SKILL_BINDINGS: Final = "cp_08_skill_bindings"
 CP_09_HOOK_REGISTRATION: Final = "cp_09_hook_registration"
 #: CP 10 — MCP-server registration (vectordb knowledge-base and/or ARE MCP).
 CP_10_MCP_REGISTRATION: Final = "cp_10_mcp_registration"
-#: CP 10a — ConceptContext properties + first indexing (vectordb only).
+#: CP 10a — mandatory Story/Concept first indexing and typed receipts.
 CP_10A_CONCEPT_CONTEXT_PROPERTIES: Final = "cp_10a_concept_context_properties"
-#: CP 10b — concept-validation git hook (vectordb only, AFTER CP 11).
+#: CP 10b — mandatory concept-validation git hook (AFTER CP 11).
 CP_10B_CONCEPT_VALIDATION_HOOK: Final = "cp_10b_concept_validation_hook"
 #: CP 10c — ARE-scope validation (ARE only).
 CP_10C_ARE_SCOPE_VALIDATION: Final = "cp_10c_are_scope_validation"
@@ -44,9 +44,6 @@ CP_11_GIT_HOOKS_AND_CLAUDE: Final = "cp_11_git_hooks_and_claude"
 #: CP 12 — read-only verification of all prior checkpoints.
 CP_12_VERIFY_REGISTRATION: Final = "cp_12_verify_registration"
 
-#: Branch node: vectordb feature decision (two-stage — CP 10a before CP 11,
-#: CP 10b after CP 11).
-BRANCH_VECTORDB_ENABLED: Final = "branch_vectordb_enabled"
 #: Branch node: ARE feature decision (routes CP 10c after CP 10).
 BRANCH_ARE_ENABLED: Final = "branch_are_enabled"
 #: Branch node: SonarQube feature decision (routes CP 10d).
@@ -56,7 +53,6 @@ BRANCH_SONARQUBE_ENABLED: Final = "branch_sonarqube_enabled"
 __all__ = [
     "BRANCH_ARE_ENABLED",
     "BRANCH_SONARQUBE_ENABLED",
-    "BRANCH_VECTORDB_ENABLED",
     "CP_01_PACKAGE_CHECK",
     "CP_02_REPO_CHECK",
     "CP_03_RESERVED",

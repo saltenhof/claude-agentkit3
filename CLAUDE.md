@@ -2,7 +2,7 @@
 # Deterministische Orchestrierungsmaschine fuer KI-gestuetzte Story-Abarbeitung
 
 ## Project Context
-Tech: Python 3.11+ (`pytest`, `pytest-cov`, `pytest-asyncio`, `mypy` strict, `ruff`), Pydantic v2, PyYAML, psutil | Optional: `weaviate-client`, `mcp[cli]`
+Tech: Python 3.11+ (`pytest`, `pytest-cov`, `pytest-asyncio`, `mypy` strict, `ruff`), Pydantic v2, PyYAML, psutil, `weaviate-client`, `mcp` (>=1.2,<2) — die beiden letzten sind **Pflicht**-Basis-Dependencies, keine Extras (FK-13 §13.1, Beschluss 2026-07-21 Rand 1)
 
 Repository: `T:/codebase/claude-agentkit3` — Python-Paket mit `src/`-Layout, Tests, Konzeptdokumenten und deploybaren Zielprojekt-Assets.
 

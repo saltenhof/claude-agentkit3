@@ -16,6 +16,7 @@ import time
 from typing import TYPE_CHECKING
 
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_ALREADY_SATISFIED,
 )
@@ -100,10 +101,7 @@ def cp07_backend_registration(context: CheckpointContext) -> CheckpointResult:
         detail = f"Project {config.project_key!r} already registered (digest match)."
     else:
         planned = CheckpointStatus.UPDATED
-        detail = (
-            f"Project {config.project_key!r} digest changed "
-            f"({existing.config_digest[:12]} -> {digest[:12]}); would upgrade."
-        )
+        detail = f"Project {config.project_key!r} digest changed ({existing.config_digest[:12]} -> {digest[:12]}); would upgrade."
     _ = PROJECT_CONFIG_VERSION  # documents the version the register run records
     if is_dry_run(context.mode):
         return planned_result(
@@ -138,17 +136,45 @@ def cp08_skill_bindings(context: CheckpointContext) -> CheckpointResult:
     and NO ``update_binding`` write.
     """
     from agentkit.backend.installer.runner import (
+        DEFAULT_MANDATORY_SKILL_BUNDLE_IDS,
         PROMPT_MANIFEST_FILENAME,
         _ensure_prompt_bundle_store_entry,
         _load_prompt_bundle_manifest,
         _resolve_mandatory_skill_bundles,
         _resolve_prompt_source_dir,
+        _resolve_skills_and_store,
         deploy_post_registration_artifacts,
     )
 
     start = time.monotonic()
     config = context.config
     root = context.project_root
+
+    if context.mode is ExecutionMode.VERIFY:
+        from agentkit.backend.skills.errors import SkillError
+
+        try:
+            skills, _store = _resolve_skills_and_store(config, root)
+            verified = [skills.verify_pinned_binding(root, skill_name) for skill_name in DEFAULT_MANDATORY_SKILL_BUNDLE_IDS]
+        except SkillError as exc:
+            return make_result(
+                nid.CP_08_SKILL_BINDINGS,
+                status=CheckpointStatus.FAILED,
+                detail=f"Persisted immutable skill binding verification failed: {exc}",
+                reason="binding_invalid",
+                start=start,
+            )
+        pins = ", ".join(f"{binding.skill_name}@{binding.bundle_version}" for binding in verified)
+        return make_result(
+            nid.CP_08_SKILL_BINDINGS,
+            status=CheckpointStatus.PASS,
+            detail=(
+                f"Verified persisted immutable pins and identical Claude/Codex "
+                f"targets ({pins}). Restart both harnesses after a rebind."
+            ),
+            reason=REASON_BINDING_CURRENT,
+            start=start,
+        )
 
     # Preflight resolution validates the bundles in EVERY mode (a missing
     # mandatory bundle is fail-closed even in a plan — story would-be CREATED is
@@ -180,13 +206,7 @@ def cp08_skill_bindings(context: CheckpointContext) -> CheckpointResult:
                 detail=detail,
                 start=start,
             )
-        return make_result(
-            nid.CP_08_SKILL_BINDINGS,
-            status=CheckpointStatus.PASS,
-            detail=detail,
-            reason=REASON_BINDING_CURRENT,
-            start=start,
-        )
+        raise AssertionError("only dry_run reaches the read-only plan branch")
 
     # Capture the harness settings baseline BEFORE the static-resource deploy may
     # overwrite the settings files with the bundled template, so CP 9's governance
@@ -223,10 +243,7 @@ def cp08_skill_bindings(context: CheckpointContext) -> CheckpointResult:
     return make_result(
         nid.CP_08_SKILL_BINDINGS,
         status=CheckpointStatus.CREATED,
-        detail=(
-            f"Bound skills {skill_names} and prompt binding "
-            f"{bundle_id}@{bundle_version} (+ harness bindings)."
-        ),
+        detail=(f"Bound skills {skill_names} and prompt binding {bundle_id}@{bundle_version} (+ harness bindings)."),
         start=start,
     )
 
@@ -302,23 +319,14 @@ def cp09_hook_registration(context: CheckpointContext) -> CheckpointResult:
     from pathlib import Path
 
     baseline_raw = context.run_state.hook_settings_baseline
-    baseline: dict[Path, str] = {
-        Path(str(path)): digest for path, digest in baseline_raw.items()
-    }
-    changed = _register_default_governance_hooks(
-        context.config, context.project_root, before=baseline or None
-    )
+    baseline: dict[Path, str] = {Path(str(path)): digest for path, digest in baseline_raw.items()}
+    changed = _register_default_governance_hooks(context.config, context.project_root, before=baseline or None)
     for rel in changed:
         if rel not in context.run_state.created_files:
             context.run_state.created_files.append(rel)
     status = CheckpointStatus.CREATED if changed else CheckpointStatus.PASS
-    detail = (
-        f"Registered project hooks via Governance.register_hooks (materialised "
-        f"{len(changed)} settings file(s))."
-    )
-    return make_result(
-        nid.CP_09_HOOK_REGISTRATION, status=status, detail=detail, start=start
-    )
+    detail = f"Registered project hooks via Governance.register_hooks (materialised {len(changed)} settings file(s))."
+    return make_result(nid.CP_09_HOOK_REGISTRATION, status=status, detail=detail, start=start)
 
 
 __all__ = [

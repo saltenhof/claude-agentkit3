@@ -7,12 +7,14 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pytest
 from tests.unit.installer.checkpoint_engine.conftest import (
     InMemoryRegistrationRepo,
     make_config,
 )
 
 from agentkit.backend.core_types.mcp_server_registration import DesiredMcpServer
+from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.installer import mcp_registration as mcp_registration_mod
 from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
 from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
@@ -32,7 +34,6 @@ from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_MCP_PROTOCOL_ERROR,
     REASON_MCP_TOOLS_LIST_EMPTY,
     REASON_PLANNED_NO_MUTATION,
-    REASON_VECTORDB_DISABLED,
 )
 from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.strict_json import (
@@ -53,7 +54,7 @@ def _ctx(
     registration_repo: InMemoryRegistrationRepo,
     *,
     features_are: bool = False,
-    features_vectordb: bool = False,
+    features_vectordb: bool = True,
     mode: ExecutionMode = ExecutionMode.REGISTER,
 ) -> object:
     config = make_config(
@@ -62,6 +63,7 @@ def _ctx(
         registration_repo=registration_repo,
         features_are=features_are,
         features_vectordb=features_vectordb,
+        mcp_registration_probe=None,
     )
     return build_checkpoint_context(config, mode)
 
@@ -81,9 +83,7 @@ def _desired_from_specs(specs: dict[str, dict[str, Any]]) -> Any:
                 command=str(spec["command"]),
                 args=tuple(str(a) for a in spec.get("args", ())),
                 cwd=str(context.project_root),
-                env=tuple(
-                    (str(k), str(v)) for k, v in dict(spec.get("env", {})).items()
-                ),
+                env=tuple((str(k), str(v)) for k, v in dict(spec.get("env", {})).items()),
             )
             for name, spec in sorted(specs.items())
         )
@@ -99,19 +99,14 @@ def _good_entry() -> dict[str, Any]:
     }
 
 
-def test_cp10_are_false_still_skipped(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
-    ctx = _ctx(tmp_path, registration_repo, features_are=False, features_vectordb=False)
-    result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
-    assert result.status is CheckpointStatus.SKIPPED
-    assert result.reason == REASON_VECTORDB_DISABLED
+def test_cp10_vectordb_false_is_rejected(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
+    with pytest.raises(ProjectError, match="must be true") as caught:
+        _ctx(tmp_path, registration_repo, features_are=False, features_vectordb=False)
+    assert caught.value.detail["reason"] == "vectordb_required"
     assert not (tmp_path / ".mcp.json").exists()
 
 
-def test_cp10_are_missing_command_fails_without_write(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10_are_missing_command_fails_without_write(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
@@ -119,7 +114,8 @@ def test_cp10_are_missing_command_fails_without_write(
         bundle_store_root=tmp_path / "b",
         registration_repo=registration_repo,
         features_are=True,
-        features_vectordb=False,
+        features_vectordb=True,
+        mcp_registration_probe=None,
         are_module_scope_map={"app": "scope-a"},
     )
     ctx = build_checkpoint_context(config, ExecutionMode.REGISTER)
@@ -142,9 +138,7 @@ def test_cp10_failure_preserves_existing_mcp_json_bytes(
 ) -> None:
     """AC2 regression: existing .mcp.json remains byte-identical on FAILED."""
     mcp_path = tmp_path / ".mcp.json"
-    original = (
-        '{\n  "mcpServers": {\n    "foreign": {"type": "stdio", "command": "x"}\n  }\n}\n'
-    )
+    original = '{\n  "mcpServers": {\n    "foreign": {"type": "stdio", "command": "x"}\n  }\n}\n'
     mcp_path.write_text(original, encoding="utf-8")
     monkeypatch.setattr(
         cp10_mod,
@@ -165,9 +159,7 @@ def test_cp10_failure_preserves_existing_mcp_json_bytes(
     assert mcp_path.read_text(encoding="utf-8") == original
 
 
-def test_cp10_are_full_install_fails_honestly(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10_are_full_install_fails_honestly(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(
@@ -178,12 +170,11 @@ def test_cp10_are_full_install_fails_honestly(
         features_vectordb=False,
         are_module_scope_map={"app": "scope-a"},
     )
-    result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
-    assert result.success is False
-    mcp_path = root / ".mcp.json"
-    if mcp_path.is_file():
-        servers = json.loads(mcp_path.read_text(encoding="utf-8")).get("mcpServers", {})
-        assert "are-mcp" not in servers
+    with pytest.raises(ProjectError, match="must be true") as caught:
+        run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
+    assert caught.value.detail["reason"] == "vectordb_required"
+    assert not (root / ".mcp.json").exists()
+    assert not (root / ".agentkit" / "config" / "project.yaml").exists()
 
 
 def test_cp10_negative_process_exited(
@@ -317,9 +308,7 @@ def test_cp10_conformance_applies_to_two_server_definitions(
     monkeypatch.setattr(cp10_mod, "_desired_mcp_servers", _desired_from_specs(specs_ok))
     result_ok = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
     assert result_ok.status is CheckpointStatus.CREATED
-    servers = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))[
-        "mcpServers"
-    ]
+    servers = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert set(servers) == {"alpha-mcp", "gamma-mcp"}
 
 
@@ -410,10 +399,10 @@ def test_cp10_rejects_duplicate_top_level_names_without_mutation(
     mcp_path = tmp_path / ".mcp.json"
     # Two ``mcpServers`` keys: last-wins would drop the first foreign entry.
     original_text = (
-        '{\n'
+        "{\n"
         '  "mcpServers": {"foreign-a": {"type": "stdio", "command": "a"}},\n'
         '  "mcpServers": {"foreign-b": {"type": "stdio", "command": "b"}}\n'
-        '}\n'
+        "}\n"
     )
     original = original_text.encode("utf-8")
     mcp_path.write_bytes(original)
@@ -448,7 +437,7 @@ def test_cp10_rejects_duplicate_nested_names_without_mutation(
     """Nested duplicate object names → FAILED without rewrite."""
     mcp_path = tmp_path / ".mcp.json"
     original_text = (
-        '{\n'
+        "{\n"
         '  "mcpServers": {\n'
         '    "foreign": {\n'
         '      "type": "stdio",\n'
@@ -490,13 +479,7 @@ def test_cp10_rejects_non_json_constants_without_mutation(
 ) -> None:
     """NaN / Infinity in existing file → FAILED; must not re-emit NaN."""
     mcp_path = tmp_path / ".mcp.json"
-    original_text = (
-        '{\n'
-        '  "mcpServers": {\n'
-        '    "foreign": {"type": "stdio", "command": "x", "timeout": NaN}\n'
-        "  }\n"
-        "}\n"
-    )
+    original_text = '{\n  "mcpServers": {\n    "foreign": {"type": "stdio", "command": "x", "timeout": NaN}\n  }\n}\n'
     original = original_text.encode("utf-8")
     mcp_path.write_bytes(original)
     calls: list[str] = []
@@ -536,13 +519,7 @@ def test_cp10_rejects_overflow_non_finite_float_without_mutation(
 ) -> None:
     """Oversized JSON numbers that decode to inf must not pass the loader."""
     mcp_path = tmp_path / ".mcp.json"
-    original_text = (
-        '{\n'
-        '  "mcpServers": {\n'
-        '    "foreign": {"type": "stdio", "command": "x", "timeout": 1e400}\n'
-        "  }\n"
-        "}\n"
-    )
+    original_text = '{\n  "mcpServers": {\n    "foreign": {"type": "stdio", "command": "x", "timeout": 1e400}\n  }\n}\n'
     original = original_text.encode("utf-8")
     mcp_path.write_bytes(original)
     calls: list[str] = []
@@ -905,4 +882,3 @@ def test_cp10c_existing_invalid_mcp_json_fails_in_readonly_modes(
         assert result.status is CheckpointStatus.FAILED, mode
         assert result.reason == REASON_MCP_CONFIGURATION_INVALID, mode
         assert mcp_path.read_bytes() == original
-

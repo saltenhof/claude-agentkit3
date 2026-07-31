@@ -471,12 +471,12 @@ Das `agentkit` Python-Paket (Python 3.14) hat drei Kern-Dependencies:
 | `pydantic` | ≥ 2.7 | Datenmodelle validieren (frozen, strict) |
 | `psutil` | ≥ 5.9 | Prozessmonitoring |
 
-Optionale Dependencies:
+Weitere Pflicht-Dependencies der VektorDB-/MCP-Fähigkeit:
 
-| Dependency | Zweck | Feature-Flag |
-|------------|-------|-------------|
-| `weaviate-client` 4.9-5.0 | VektorDB-Anbindung | `features.vectordb: true` |
-| `mcp[cli]` ≥ 1.2.0 | MCP-Server für Story-Knowledge-Base | `features.vectordb: true` |
+| Dependency | Zweck | Status |
+|------------|-------|--------|
+| `weaviate-client` 4.9-5.0 | VektorDB-Anbindung | Pflicht |
+| `mcp` ≥ 1.2.0, < 2 | MCP-Server für Story-Knowledge-Base. Beidseitig begrenzt: `mcp.server.fastmcp` gibt es erst ab 1.2.0, und 2.0 liefert weder `mcp.server.fastmcp` noch `mcp.types`. Das `cli`-Extra wird nicht gebraucht. | Pflicht |
 
 **Infrastruktur-Dependency:** Die systemweite AgentKit-Installation
 setzt eine zentrale PostgreSQL-Instanz als State- und Analytics-Store
@@ -644,7 +644,7 @@ flowchart TD
 | GitHub | Remote-Git-Hosting | git/gh | Code-Repository-Remote; keine Story-Verwaltung |
 | VektorDB | Weaviate | 1.25+ | gRPC + HTTP REST |
 | Embedding | text2vec-transformers | — | Docker Sidecar |
-| VektorDB-MCP | FastMCP | 1.2+ | stdio-Transport |
+| VektorDB-MCP | FastMCP (`mcp.server.fastmcp`) | ≥ 1.2, < 2 | stdio-Transport |
 | LLM-Hub | Beliebig (externe Infrastruktur) | — | AK3-Adaptervertrag FK-75. Implementierung ist AgentKit-agnostisch. |
 | ARE (optional) | Python-Anwendung + SQL-DB | — | MCP-Tools oder FastAPI-Endpunkte. Kein direkter DB-Zugriff durch AgentKit. |
 | Build/Test | projektspezifisch | — | via `mvn`, `pytest`, `jest` etc. |

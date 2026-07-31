@@ -10,6 +10,7 @@ write — no silent destruction.
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING
 
 from agentkit.backend.governance.hook_registration import (
@@ -17,14 +18,13 @@ from agentkit.backend.governance.hook_registration import (
     HookEventName,
     RegistrationResult,
 )
-from agentkit.backend.installer.upgrade.config_migration import BACKUP_SUFFIX
 from agentkit.backend.installer.upgrade.hook_migration import (
-    GIT_HOOK_DISPATCH_MARKERS,
     determine_hook_definitions,
     has_dispatch_block,
     migrate_git_hook_dispatch,
     migrate_hooks,
     migrate_legacy_claude_hook_settings,
+    verify_git_hook_dispatch,
 )
 
 if TYPE_CHECKING:
@@ -41,13 +41,9 @@ class _RecordingGovernance:
     def __init__(self) -> None:
         self.calls: list[list[HookDefinition]] = []
 
-    def register_hooks(
-        self, hook_definitions: list[HookDefinition]
-    ) -> RegistrationResult:
+    def register_hooks(self, hook_definitions: list[HookDefinition]) -> RegistrationResult:
         self.calls.append(hook_definitions)
-        return RegistrationResult(
-            registered=[d.matcher for d in hook_definitions], skipped=[]
-        )
+        return RegistrationResult(registered=[d.matcher for d in hook_definitions], skipped=[])
 
 
 def _hook(matcher: str) -> HookDefinition:
@@ -55,6 +51,15 @@ def _hook(matcher: str) -> HookDefinition:
         hook_event_name=HookEventName.POST_TOOL_USE,
         matcher=matcher,
         command=f"agentkit-hook-claude post {matcher.lower()}",
+    )
+
+
+def _init_git(project_root: Path) -> None:
+    subprocess.run(
+        ["git", "init"],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
     )
 
 
@@ -72,9 +77,7 @@ def test_migrate_hooks_calls_register_hooks() -> None:
 def test_determine_hook_definitions_reports_obsolete_matchers() -> None:
     """AC4: removed (obsolete) hook definitions are surfaced."""
     desired = [_hook("Bash")]
-    definitions, obsolete = determine_hook_definitions(
-        desired, frozenset({"Bash", "OldMatcher"})
-    )
+    definitions, obsolete = determine_hook_definitions(desired, frozenset({"Bash", "OldMatcher"}))
 
     assert definitions == desired
     assert obsolete == ("OldMatcher",)
@@ -162,36 +165,45 @@ def test_migrate_legacy_claude_hook_settings_preserves_three_level_shape(
 
 
 def test_git_hook_dispatch_migration_no_hook(tmp_path: Path) -> None:
-    """No pre-commit present -> nothing to migrate."""
+    """AC4: absent hooks are materialized so both dispatch rings really fire."""
+    _init_git(tmp_path)
     outcome = migrate_git_hook_dispatch(tmp_path)
 
-    assert outcome.migrated is False
+    assert outcome.migrated is True
     assert outcome.backup_path is None
+    verify_git_hook_dispatch(tmp_path)
 
 
-def test_git_hook_dispatch_migration_recognised_hook_appends_block(
+def test_git_hook_dispatch_migration_replaces_recognised_secret_owner(
     tmp_path: Path,
 ) -> None:
-    """AC4: a recognised AgentKit pre-commit gets the dispatch block appended."""
+    """AC4: the legacy secret owner is removed instead of duplicated."""
+    _init_git(tmp_path)
     hook = tmp_path / "tools" / "hooks" / "pre-commit"
     hook.parent.mkdir(parents=True)
     hook.write_text(
-        "#!/bin/sh\n# agentkit secret-detection (global)\n", encoding="utf-8"
+        "#!/bin/sh\n"
+        "# agentkit secret-detection (global)\n"
+        "python -m agentkit.backend.governance.guard_system.secret_scan --staged\n",
+        encoding="utf-8",
     )
 
     outcome = migrate_git_hook_dispatch(tmp_path)
 
     assert outcome.migrated is True
-    assert outcome.backup_path is None  # recognised -> no `.bak`
+    assert outcome.backup_path is None
     content = hook.read_text(encoding="utf-8")
     assert has_dispatch_block(content)
-    assert "agentkit secret-detection" in content  # secret-detection preserved
+    assert "agentkit secret-detection" not in content
+    assert "guard_system.secret_scan" not in content
+    assert not hook.with_name("pre-commit.bak").exists()
 
 
 def test_git_hook_dispatch_migration_unrecognised_hook_writes_bak(
     tmp_path: Path,
 ) -> None:
-    """AC5: an UNRECOGNISED pre-commit customization is preserved as ``.bak``."""
+    """AC5: an unrecognised pre-hook remains active through the chain owner."""
+    _init_git(tmp_path)
     hook = tmp_path / "tools" / "hooks" / "pre-commit"
     hook.parent.mkdir(parents=True)
     old_content = "#!/bin/sh\n# hand-rolled custom hook\necho mine\n"
@@ -201,7 +213,7 @@ def test_git_hook_dispatch_migration_unrecognised_hook_writes_bak(
 
     assert outcome.migrated is True
     assert outcome.backup_path is not None
-    backup = hook.with_name("pre-commit" + BACKUP_SUFFIX)
+    backup = hook.with_name("pre-commit.bak")
     # AC5: the old (unrecognised) hook content is preserved byte-for-byte.
     assert backup.read_text(encoding="utf-8") == old_content
     # The migrated hook now carries the dispatch block.
@@ -209,15 +221,13 @@ def test_git_hook_dispatch_migration_unrecognised_hook_writes_bak(
 
 
 def test_git_hook_dispatch_migration_idempotent(tmp_path: Path) -> None:
-    """A hook already carrying the dispatch block is a no-op (idempotent)."""
-    hook = tmp_path / "tools" / "hooks" / "pre-commit"
-    hook.parent.mkdir(parents=True)
-    hook.write_text(
-        f"#!/bin/sh\n{GIT_HOOK_DISPATCH_MARKERS[0]}\nx\n{GIT_HOOK_DISPATCH_MARKERS[1]}\n",
-        encoding="utf-8",
-    )
+    """A fully materialized pre/post pair is a no-op on the second call."""
+    _init_git(tmp_path)
+    first = migrate_git_hook_dispatch(tmp_path)
+    assert first.migrated is True
 
     outcome = migrate_git_hook_dispatch(tmp_path)
 
     assert outcome.migrated is False
     assert outcome.backup_path is None
+    verify_git_hook_dispatch(tmp_path)

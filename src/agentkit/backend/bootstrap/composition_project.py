@@ -160,8 +160,12 @@ def build_story_split_service(
         StorySplitSagaGuard,
         StorySplitService,
     )
-    from agentkit.backend.vectordb.wait_for_weaviate import _resolve_host_port
+    from agentkit.backend.vectordb.commit_recovery import (
+        project_commit_recovery_journal,
+    )
+    from agentkit.backend.vectordb.wait_for_weaviate import resolve_adapter_endpoints
     from agentkit.integration_clients.vectordb import WeaviateStoryAdapter
+    from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
 
     governance = Governance(
         hook_repo=StateBackendHookRegistrationRepository(),
@@ -172,10 +176,20 @@ def build_story_split_service(
     # N26/D2: the indexed ``project_id`` is the AUTHORITATIVE binding
     # (``project_prefix`` per FK-13 §13.4.3), NOT the project key. Resolved ONCE
     # here and injected into both export paths.
+    if project_root is None:
+        # Productive story split is always project-bound. Without a root the
+        # endpoint resolution would fall back to the diagnostic localhost
+        # defaults — a synthesised endpoint in a productive path (D-2).
+        raise VectorDbUnavailableError(
+            "story split requires an explicit project root; the configured "
+            "Weaviate endpoints are mandatory and are never defaulted here (D-2)."
+        )
     project_id = resolve_split_export_project_id(project_root)
-    corpus_root = Path(project_root) if project_root else stories_root.parent
-    host, port = _resolve_host_port(project_root)
-    index = WeaviateStoryIndex(WeaviateStoryAdapter.connect(host=host, port=port))
+    corpus_root = Path(project_root)
+    index = WeaviateStoryIndex(
+        WeaviateStoryAdapter.connect(**resolve_adapter_endpoints(project_root)),  # type: ignore[arg-type]
+        recovery_journal=project_commit_recovery_journal(corpus_root),
+    )
     if source_state_loader is None:
         source_state_loader = _default_split_source_state_loader
 

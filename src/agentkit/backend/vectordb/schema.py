@@ -37,6 +37,7 @@ TOKENIZATION_WORD: Final[str] = "WORD"
 
 #: Whole-value tokenisation for identifiers/enums (exact filtering only).
 TOKENIZATION_FIELD: Final[str] = "FIELD"
+TEXT_ARRAY_TYPE: Final[str] = "TEXT[]"
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,7 @@ class PropertySpec:
     @property
     def is_text(self) -> bool:
         """Whether the property is a text type (tokenisable + searchable)."""
-        return self.data_type in ("TEXT", "TEXT[]")
+        return self.data_type in ("TEXT", TEXT_ARRAY_TYPE)
 
 
 #: Property carrying the SOURCE GENERATION that wrote an object version (D9/N37).
@@ -180,8 +181,8 @@ STORY_CONTEXT_PROPERTIES: Final[tuple[PropertySpec, ...]] = (
     _identifier("concept_id"),
     _identifier("is_appendix", "BOOL"),
     _identifier("parent_concept_id"),
-    _identifier("defers_to", "TEXT[]"),
-    _identifier("authority_over", "TEXT[]"),
+    _identifier("defers_to", TEXT_ARRAY_TYPE),
+    _identifier("authority_over", TEXT_ARRAY_TYPE),
     _identifier("section_number"),
     _rules("normative_rules"),
     _identifier("concept_status"),
@@ -210,26 +211,9 @@ REQUIRED_OBJECT_FIELDS: Final[tuple[str, ...]] = (
 #: Only fields the owning producer actually writes are listed -- FK-13 §13.9.3
 #: keeps the concept properties unset for ``story``/``research`` objects, so
 #: requiring them there would be wrong. ``True`` = additionally non-empty.
-REQUIRED_SEARCH_PROPERTIES: Final[dict[str, tuple[tuple[str, bool], ...]]] = {
-    "story": (
-        ("content", True),
-        ("story_id", False),
-        ("title", True),
-        ("status", False),
-        ("story_type", False),
-        # N19: module + epic are ADVERTISED by the story_search contract
-        # (FK-13 §13.4.1 return table), so the profile must request and validate
-        # them -- otherwise the envelope silently misses contract fields.
-        ("module", False),
-        ("epic", False),
-        ("source_type", True),
-        ("source_file", True),
-        ("section_heading", False),
-        ("section_number", False),
-        ("content_hash", True),
-        ("project_id", True),
-    ),
-    "research": (
+def _required_search_properties() -> dict[str, tuple[tuple[str, bool], ...]]:
+    """Build the per-source hit profiles as one cohesive schema operation."""
+    story = (
         ("content", True),
         ("story_id", False),
         ("title", True),
@@ -243,8 +227,8 @@ REQUIRED_SEARCH_PROPERTIES: Final[dict[str, tuple[tuple[str, bool], ...]]] = {
         ("section_number", False),
         ("content_hash", True),
         ("project_id", True),
-    ),
-    "concept": (
+    )
+    concept = (
         ("content", True),
         ("title", True),
         ("module", False),
@@ -261,8 +245,13 @@ REQUIRED_SEARCH_PROPERTIES: Final[dict[str, tuple[tuple[str, bool], ...]]] = {
         ("authority_over", False),
         ("normative_rules", False),
         ("concept_status", True),
-    ),
-}
+    )
+    return {"story": story, "research": story, "concept": concept}
+
+
+REQUIRED_SEARCH_PROPERTIES: Final[dict[str, tuple[tuple[str, bool], ...]]] = (
+    _required_search_properties()
+)
 
 
 @dataclass(frozen=True)

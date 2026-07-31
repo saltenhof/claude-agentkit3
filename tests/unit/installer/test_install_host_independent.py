@@ -21,6 +21,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import (
+    GRPC_ENDPOINT,
+    HTTP_ENDPOINT,
+    ReadyVectorDbPreflight,
+    passing_mcp_probe,
+)
+from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
 from agentkit.backend.control_plane.third_party_models import (
     ThirdPartyValidationRequest,
@@ -66,13 +73,9 @@ class _InMemoryRegistrationRepo:
         reg = self.rows[project_key]
         self.rows[project_key] = reg.model_copy(update={"last_verified_at": verified_at})
 
-    def update_upgraded(
-        self, project_key: str, upgraded_at: datetime, new_digest: str
-    ) -> None:
+    def update_upgraded(self, project_key: str, upgraded_at: datetime, new_digest: str) -> None:
         reg = self.rows[project_key]
-        self.rows[project_key] = reg.model_copy(
-            update={"last_upgraded_at": upgraded_at, "config_digest": new_digest}
-        )
+        self.rows[project_key] = reg.model_copy(update={"last_upgraded_at": upgraded_at, "config_digest": new_digest})
 
     def list_all(self) -> list[ProjectRegistration]:
         return [self.rows[k] for k in sorted(self.rows)]
@@ -116,9 +119,7 @@ class _ProjectEdgeBoundary:
         self.failure = failure
         self.requests: list[ThirdPartyValidationRequest] = []
 
-    def validate_third_party(
-        self, *, project_key: str, request: ThirdPartyValidationRequest
-    ) -> ThirdPartyValidationResponse:
+    def validate_third_party(self, *, project_key: str, request: ThirdPartyValidationRequest) -> ThirdPartyValidationResponse:
         assert project_key == "host-indep"
         self.requests.append(request)
         if self.failure is not None:
@@ -155,6 +156,11 @@ def _config(
         skills=skills,  # type: ignore[arg-type]
         skill_bundle_store=store,  # type: ignore[arg-type]
         skill_bundle_ids=_BUNDLE_IDS,
+        vectordb_http_endpoint=HTTP_ENDPOINT,
+        vectordb_grpc_endpoint=GRPC_ENDPOINT,
+        vectordb_preflight=ReadyVectorDbPreflight(),
+        vectordb_client=RecordingWeaviateClient(),
+        mcp_registration_probe=passing_mcp_probe,
         # AG3-052 Design-Decision: scaffold default is available:true (FK-03
         # §3); no live Sonar here => conscious opt-out so CP 10d is SKIPPED.
         sonarqube_available=False,

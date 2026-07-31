@@ -11,6 +11,7 @@ trigger real behaviour.
 
 from __future__ import annotations
 
+import json
 import threading
 from textwrap import dedent
 from typing import TYPE_CHECKING
@@ -28,7 +29,9 @@ from tests.unit.vectordb.corpus_doubles import (
 from agentkit.backend.vectordb.contracts import ToolArgumentError
 from agentkit.backend.vectordb.engine import (
     RECEIPT_COLLECTION,
+    RUN_RECEIPT_COLLECTION,
     WeaviateRetrievalPort,
+    _run_receipt_digest,
     receipt_from_props,
 )
 from agentkit.backend.vectordb.mcp_server import McpToolService, handle_tool_call
@@ -391,8 +394,27 @@ def test_n04_last_revision_is_the_last_completion_not_the_lexicographic_max(
 
 
 def _tamper_receipt(client: RecordingWeaviateClient, **overrides: object) -> None:
-    uid, doc = next(iter(client.receipts.items()))
-    client.receipts[uid] = {**doc, **overrides}
+    uid, original = next(iter(client.receipt_runs.items()))
+    doc = dict(original)
+    receipts = json.loads(str(doc["receipts_json"]))
+    assert isinstance(receipts, list) and len(receipts) == 1
+    receipts[0] = {**receipts[0], **overrides}
+    doc["receipts_json"] = json.dumps(
+        receipts,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    doc["batch_digest"] = _run_receipt_digest(
+        project_id=str(doc["project_id"]),
+        run_id=str(doc["run_id"]),
+        receipts_json=str(doc["receipts_json"]),
+        producer_completions_json=str(doc["producer_completions_json"]),
+        completed_at=str(doc["completed_at"]),
+        sequence_start=int(str(doc["sequence_start"])),
+        sequence_end=int(str(doc["sequence_end"])),
+    )
+    client.receipt_runs[uid] = doc
 
 
 def test_n08_tampered_receipt_digest_is_fail_closed(tmp_path: Path) -> None:
@@ -463,17 +485,24 @@ def test_n08_receipt_from_props_rejects_a_foreign_identity() -> None:
         receipt_from_props("acme", "concept/a.md", props)
 
 
-def test_n08_receipt_collection_write_uses_one_stable_record(tmp_path: Path) -> None:
+def test_n08_completion_runs_are_immutable_and_latest_generation_wins(
+    tmp_path: Path,
+) -> None:
     service, client = _service(tmp_path)
     for revision in ("rev-1", "rev-2", "rev-3"):
         service.sync.sync_source(
             project_id="acme", source_file="concept/a.md", source_type="concept",
             objects=[chunk_object("acme", "concept/a.md", "a1")], corpus_revision=revision,
         )
-    assert len(client.receipts) == 1
-    doc = next(iter(client.receipts.values()))
-    assert doc["corpus_revision"] == "rev-3"
-    assert doc["sequence"] == "3"
+    assert len(client.receipt_runs) == 3
+    receipts = service.sync.store.list_receipts(project_id="acme")
+    assert [receipt.sequence for receipt in receipts] == [1, 2, 3]
+    latest = service.sync.store.get_receipt(
+        project_id="acme",
+        source_file="concept/a.md",
+    )
+    assert latest is not None
+    assert latest.corpus_revision == "rev-3"
 
 
 # --------------------------------------------------------------------------- #
@@ -520,7 +549,7 @@ def test_n03_two_racing_writers_of_one_source_exactly_one_wins() -> None:
     )
     # Only the winner's single generation is in the store.
     assert len(client.objects) == 1
-    assert len(client.receipts) == 1
+    assert len(client.receipt_runs) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -615,7 +644,7 @@ def test_n05_story_without_frontmatter_blocks_the_whole_sync(tmp_path: Path) -> 
     assert result["error"] == "story_source_invalid"
     assert result["written"] == 0
     assert client.objects == {}, "not even the parsable subset may be indexed (AC10)"
-    assert client.receipts == {}
+    assert client.receipt_runs == {}
 
 
 def test_n05_story_metadata_is_not_coerced(tmp_path: Path) -> None:
@@ -1167,29 +1196,33 @@ def test_n28_an_established_completion_position_is_never_overwritten(
         project_id="acme", source_file="concept/a.md", source_type="concept",
         objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev-1",
     )
-    saved_doc = dict(next(iter(client.receipts.values())))  # the rev-1 completion
+    saved_uuid, first_doc = next(iter(client.receipt_runs.items()))
+    saved_doc = dict(first_doc)
     service.sync.sync_source(
         project_id="acme", source_file="concept/a.md", source_type="concept",
         objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev-2",
     )
-    latest_uuid, latest_doc = next(iter(client.receipts.items()))
-    assert latest_doc["corpus_revision"] == "rev-2"
+    latest_uuid, latest_doc = max(
+        client.receipt_runs.items(),
+        key=lambda item: int(str(item[1]["sequence_start"])),
+    )
+    assert latest_uuid != saved_uuid
 
     # Replay the saved rev-1 completion OVER the current position: the conditional
     # create must lose and the record must stay byte-identical.
     assert (
         client.insert_object(
-            collection=RECEIPT_COLLECTION, uuid=latest_uuid, properties=saved_doc
+            collection=RUN_RECEIPT_COLLECTION,
+            uuid=latest_uuid,
+            properties=saved_doc,
         )
         is False
     )
-    assert client.receipts[latest_uuid] == latest_doc
+    assert client.receipt_runs[latest_uuid] == latest_doc
     still_latest = store.get_receipt(project_id="acme", source_file="concept/a.md")
     assert still_latest is not None
     assert still_latest.corpus_revision == "rev-2", "freshness must not be rewritten"
-    # Superseded positions are pruned, so the log stays bounded; the winning
-    # completion is the only one that decides freshness.
-    assert len(client.receipts) == 1
+    assert len(client.receipt_runs) == 2
 
 
 def test_n28_a_moved_completion_record_is_fail_closed(tmp_path: Path) -> None:
@@ -1199,10 +1232,10 @@ def test_n28_a_moved_completion_record_is_fail_closed(tmp_path: Path) -> None:
         project_id="acme", source_file="concept/a.md", source_type="concept",
         objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev-1",
     )
-    uid, doc = next(iter(client.receipts.items()))
-    del client.receipts[uid]
-    client.receipts["11111111-2222-4333-8444-555555555555"] = doc  # moved record
-    with pytest.raises(VectorDbUnavailableError, match="immutable and position-bound"):
+    uid, doc = next(iter(client.receipt_runs.items()))
+    del client.receipt_runs[uid]
+    client.receipt_runs["11111111-2222-4333-8444-555555555555"] = doc
+    with pytest.raises(VectorDbUnavailableError, match="atomic position identity"):
         service.sync.store.list_receipts(project_id="acme")
 
 

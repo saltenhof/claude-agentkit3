@@ -62,7 +62,6 @@ WARNING_CODES: tuple[str, ...] = (
 _ID_CONVENTION_RE = re.compile(r"^[A-Z]{2,}(-[A-Za-z0-9]+)*$")
 #: Extract the leading numeric component of a concept_id (FK-13 -> 13).
 _ID_NUMBER_RE = re.compile(r"-(\d+)")
-_H1_RE = re.compile(r"^#\s+(?P<title>.+?)\s*$", re.MULTILINE)
 _BODY_ID_RE = re.compile(r"\b(TK|AF|FK|DK|META)-[A-Za-z0-9\-]+")
 
 
@@ -193,7 +192,7 @@ def _validate_corpus_impl(
     # Duplicate / authority checks.
     _check_duplicate_concept_id(discovery, errors)
     _check_authority_conflicts(discovery, errors)
-    _check_authority_scope_disappearance(graph, discovery, errors)
+    _check_authority_scope_disappearance(graph, errors)
 
     # Cycle checks.
     if detect_cycle(graph, "defers_to", same_scope=True):
@@ -216,7 +215,7 @@ def _validate_corpus_impl(
     _warn_h1_title_mismatch(discovery, warnings)
     _warn_body_unknown_refs(graph, discovery, warnings)
     _warn_defers_target_not_mentioned(discovery, warnings)
-    _warn_scope_without_active_owner(graph, discovery, warnings)
+    _warn_scope_without_active_owner(graph, warnings)
     _warn_orphan_concepts(graph, discovery, warnings)
 
     if strict:
@@ -422,9 +421,7 @@ def _check_authority_conflicts(discovery: DiscoveryResult, errors: list[Finding]
             )
 
 
-def _check_authority_scope_disappearance(
-    graph: ConceptGraph, discovery: DiscoveryResult, errors: list[Finding]
-) -> None:
+def _check_authority_scope_disappearance(graph: ConceptGraph, errors: list[Finding]) -> None:
     # E-AUTH-002: an authority_over scope that was previously owned disappears.
     # In a single-pass validation we flag a scope referenced via defers_to that
     # has no active owner and no successor.
@@ -465,16 +462,24 @@ def _warn_bidir_defers(
 
 def _warn_h1_title_mismatch(discovery: DiscoveryResult, warnings: list[Finding]) -> None:
     for doc in discovery.documents:
-        match = _H1_RE.search(doc.body)
-        if match and match.group("title").strip() != doc.title.strip():
+        heading = _first_h1_title(doc.body)
+        if heading is not None and heading != doc.title.strip():
             warnings.append(
                 Finding(
                     code="W-CONTENT-001",
-                    message=f"H1 {match.group('title')!r} differs from frontmatter title {doc.title!r}",
+                    message=f"H1 {heading!r} differs from frontmatter title {doc.title!r}",
                     concept_id=doc.concept_id,
                     path=doc.rel_path,
                 )
             )
+
+
+def _first_h1_title(body: str) -> str | None:
+    for line in body.splitlines():
+        if line.startswith("#") and len(line) > 1 and line[1].isspace():
+            title = line[2:].strip()
+            return title or None
+    return None
 
 
 def _warn_body_unknown_refs(
@@ -517,9 +522,7 @@ def _warn_defers_target_not_mentioned(
                 )
 
 
-def _warn_scope_without_active_owner(
-    graph: ConceptGraph, discovery: DiscoveryResult, warnings: list[Finding]
-) -> None:
+def _warn_scope_without_active_owner(graph: ConceptGraph, warnings: list[Finding]) -> None:
     """W-SCOPE-001: a scope declared only by non-active concepts (no active owner).
 
     A scope that had an authority owner but is now carried only by archived/draft

@@ -49,7 +49,8 @@ class TestCLIMain:
         assert "." in captured.out
 
     def test_no_args_shows_help(
-        self, capsys: pytest.CaptureFixture[str],
+        self,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """No arguments prints help and returns 0."""
         exit_code = main([])
@@ -73,15 +74,17 @@ class TestCLIMain:
 
         monkeypatch.setattr("agentkit.backend.cli.main._cmd_exit_story", fake_exit_story)
 
-        exit_code = main([
-            "exit-story",
-            "--story",
-            "AG3-073",
-            "--reason",
-            "solution_viability_requires_human_design",
-            "--note",
-            "handoff",
-        ])
+        exit_code = main(
+            [
+                "exit-story",
+                "--story",
+                "AG3-073",
+                "--reason",
+                "solution_viability_requires_human_design",
+                "--note",
+                "handoff",
+            ]
+        )
 
         assert exit_code == 0
         assert captured["story"] == "AG3-073"
@@ -106,15 +109,17 @@ class TestCLIMain:
 
         monkeypatch.setattr("agentkit.backend.cli.main._cmd_split_story", fake_split_story)
 
-        exit_code = main([
-            "split-story",
-            "--story",
-            "AG3-042",
-            "--plan",
-            "plan.json",
-            "--reason",
-            "scope explosion",
-        ])
+        exit_code = main(
+            [
+                "split-story",
+                "--story",
+                "AG3-042",
+                "--plan",
+                "plan.json",
+                "--reason",
+                "scope explosion",
+            ]
+        )
 
         assert exit_code == 0
         assert captured["story"] == "AG3-042"
@@ -141,16 +146,18 @@ class TestCLIMain:
 
         monkeypatch.setattr("agentkit.backend.cli.main._cmd_reset_story", fake_reset_story)
 
-        exit_code = main([
-            "reset-story",
-            "--story",
-            "AG3-071",
-            "--reason",
-            "irreparable merge conflict",
-            "--escalation-ref",
-            "ESC-9",
-            "--dry-run",
-        ])
+        exit_code = main(
+            [
+                "reset-story",
+                "--story",
+                "AG3-071",
+                "--reason",
+                "irreparable merge conflict",
+                "--escalation-ref",
+                "ESC-9",
+                "--dry-run",
+            ]
+        )
 
         assert exit_code == 0
         assert captured["story"] == "AG3-071"
@@ -201,14 +208,16 @@ class TestCLIMain:
             lambda **_kw: _DryRunService(),
         )
 
-        exit_code = main([
-            "reset-story",
-            "--story",
-            "AG3-071",
-            "--reason",
-            "irreparable",
-            "--dry-run",
-        ])
+        exit_code = main(
+            [
+                "reset-story",
+                "--story",
+                "AG3-071",
+                "--reason",
+                "irreparable",
+                "--dry-run",
+            ]
+        )
 
         assert exit_code == 0
         out = _json.loads(capsys.readouterr().out.strip())
@@ -317,6 +326,65 @@ class TestCLIMain:
         assert source is not None
         assert source.status.value == "Cancelled"
 
+    def test_split_story_maps_an_unresolvable_vectordb_to_exit_one(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A fail-closed composition error must not surface as a traceback.
+
+        ``build_story_split_service`` refuses to default the Weaviate endpoints
+        (PO decision D-2). Refusing is right; leaving the exception uncaught at
+        the CLI boundary is not — the documented contract is a controlled exit
+        code with a message on stderr.
+        """
+        import json as _json
+
+        from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
+
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
+        monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
+
+        def _refuse(**_kwargs: object) -> object:
+            raise VectorDbUnavailableError("story split requires an explicit project root")
+
+        monkeypatch.setattr(
+            "agentkit.backend.bootstrap.composition_root.build_story_split_service",
+            _refuse,
+        )
+
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(
+            _json.dumps(
+                {
+                    "project_key": "ak3",
+                    "source_story_id": "AK3-001",
+                    "reason": "scope_explosion",
+                    "successors": [
+                        {"story_id": "AK3-107", "title": "Slice A", "scope_slice": "A"},
+                        {"story_id": "AK3-108", "title": "Slice B", "scope_slice": "B"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code = main(
+            [
+                "split-story",
+                "--story",
+                "AK3-001",
+                "--plan",
+                str(plan_path),
+                "--reason",
+                "scope explosion",
+            ]
+        )
+
+        assert exit_code == 1
+        assert "explicit project root" in capsys.readouterr().err
+
     def test_split_story_rejects_invalid_plan_before_mutation(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -338,9 +406,7 @@ class TestCLIMain:
         bad_plan = tmp_path / "plan.json"
         bad_plan.write_text("not json {", encoding="utf-8")
 
-        exit_code = main(
-            ["split-story", "--story", "AG3-042", "--plan", str(bad_plan), "--reason", "r"]
-        )
+        exit_code = main(["split-story", "--story", "AG3-042", "--plan", str(bad_plan), "--reason", "r"])
 
         assert exit_code == 1
         assert "InvalidPlan" in capsys.readouterr().err
@@ -358,12 +424,14 @@ class TestCLIMain:
 
         monkeypatch.setattr("agentkit.backend.cli.main._cmd_watch_worker", fake_watch_worker)
 
-        exit_code = main([
-            "watch-worker",
-            "AG3-080",
-            "--project-root",
-            "T:/codebase/claude-agentkit3",
-        ])
+        exit_code = main(
+            [
+                "watch-worker",
+                "AG3-080",
+                "--project-root",
+                "T:/codebase/claude-agentkit3",
+            ]
+        )
 
         assert exit_code == 0
         assert captured == {
@@ -405,24 +473,42 @@ class TestCLIMain:
         )
 
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        from tests.fixtures.vectordb_installer import (
+            GRPC_ENDPOINT,
+            HTTP_ENDPOINT,
+            wire_ready_vectordb,
+        )
+
+        wire_ready_vectordb(monkeypatch)
         # CP 11 configures core.hooksPath on the target; real targets are git
         # repos, so provision one (else CP 11 aborts on a clean CI agent).
         ensure_git_repo(tmp_path)
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-            # AG3-039: github coordinates are MANDATORY for CP 7 registration.
-            "--github-owner", "acme",
-            "--github-repo", "test-cli-project",
-            # AG3-052: conscious Sonar opt-out (no live Sonar in this test);
-            # FK-03 §3 default would be available:true => CP 10d fail-closed.
-            "--no-sonarqube-available",
-            # AG3-056 (FIX-5): conscious CI opt-out (no live Jenkins in this
-            # test); default would be available:true => CI preflight fail-closed.
-            "--no-ci-available",
-        ])
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+                "--weaviate-http-endpoint",
+                HTTP_ENDPOINT,
+                "--weaviate-grpc-endpoint",
+                GRPC_ENDPOINT,
+                # AG3-039: github coordinates are MANDATORY for CP 7 registration.
+                "--github-owner",
+                "acme",
+                "--github-repo",
+                "test-cli-project",
+                # AG3-052: conscious Sonar opt-out (no live Sonar in this test);
+                # FK-03 §3 default would be available:true => CP 10d fail-closed.
+                "--no-sonarqube-available",
+                # AG3-056 (FIX-5): conscious CI opt-out (no live Jenkins in this
+                # test); default would be available:true => CI preflight fail-closed.
+                "--no-ci-available",
+            ]
+        )
 
         assert exit_code == 0
         assert (tmp_path / ".agentkit").is_dir()
@@ -448,7 +534,8 @@ class TestCLIMain:
         assert "installed" in captured.out.lower()
 
     def test_install_command_nonexistent_root(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """``install`` into non-existent directory raises ProjectError."""
         import pytest as pt
@@ -456,14 +543,21 @@ class TestCLIMain:
         from agentkit.backend.exceptions import ProjectError
 
         with pt.raises(ProjectError):
-            main([
-                "install",
-                "--project-key", "test",
-                "--project-name", "test",
-                "--project-root", str(tmp_path / "nonexistent"),
-                "--github-owner", "acme",
-                "--github-repo", "test",
-            ])
+            main(
+                [
+                    "install",
+                    "--project-key",
+                    "test",
+                    "--project-name",
+                    "test",
+                    "--project-root",
+                    str(tmp_path / "nonexistent"),
+                    "--github-owner",
+                    "acme",
+                    "--github-repo",
+                    "test",
+                ]
+            )
 
     def test_install_command_returns_failure_code(
         self,
@@ -485,14 +579,21 @@ class TestCLIMain:
             fake_install_agentkit,
         )
 
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-            "--github-owner", "acme",
-            "--github-repo", "test-cli-project",
-        ])
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "acme",
+                "--github-repo",
+                "test-cli-project",
+            ]
+        )
 
         assert exit_code == 1
         captured = capsys.readouterr()
@@ -508,20 +609,36 @@ class TestCLIMain:
         fails closed (exit 1, BundleNotFound) — it does NOT silently produce an
         install without the four mandatory skills (AG3-048 ERROR 1, AC#5/AC#7).
         """
+        from tests.fixtures.vectordb_installer import (
+            GRPC_ENDPOINT,
+            HTTP_ENDPOINT,
+            wire_ready_vectordb,
+        )
+
         from agentkit.backend.skills.bundle_store import SKILL_BUNDLE_STORE_ENV
 
         # Point the default systemwide store at an empty dir (no bundles).
-        monkeypatch.setenv(
-            SKILL_BUNDLE_STORE_ENV, str(tmp_path / "empty-system-store")
+        wire_ready_vectordb(monkeypatch)
+        monkeypatch.setenv(SKILL_BUNDLE_STORE_ENV, str(tmp_path / "empty-system-store"))
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+                "--weaviate-http-endpoint",
+                HTTP_ENDPOINT,
+                "--weaviate-grpc-endpoint",
+                GRPC_ENDPOINT,
+                "--github-owner",
+                "acme",
+                "--github-repo",
+                "test-cli-project",
+            ]
         )
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-            "--github-owner", "acme",
-            "--github-repo", "test-cli-project",
-        ])
 
         assert exit_code == 1
         captured = capsys.readouterr()
@@ -548,12 +665,17 @@ class TestCLIMain:
             "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
             lambda _root: None,
         )
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-        ])
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+            ]
+        )
 
         assert exit_code == 1
         captured = capsys.readouterr()
@@ -578,14 +700,21 @@ class TestCLIMain:
             "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
             lambda _root: None,
         )
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-            "--github-owner", "   ",
-            "--github-repo", "   ",
-        ])
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "   ",
+                "--github-repo",
+                "   ",
+            ]
+        )
 
         assert exit_code == 1
         captured = capsys.readouterr()
@@ -603,14 +732,21 @@ class TestCLIMain:
         path-traversal token) is rejected fail-closed BEFORE any scaffold write
         — the invalid coordinate is never persisted into project_registry.
         """
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-            "--github-owner", "..",
-            "--github-repo", "ok-repo",
-        ])
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "..",
+                "--github-repo",
+                "ok-repo",
+            ]
+        )
 
         assert exit_code == 1
         captured = capsys.readouterr()
@@ -645,12 +781,17 @@ class TestCLIMain:
             lambda _root: ("derived-org", "derived-repo"),
         )
 
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-        ])
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+            ]
+        )
 
         assert exit_code == 0
         assert captured_cfg == {
@@ -680,14 +821,21 @@ class TestCLIMain:
             lambda _root: ("derived-org", "derived-repo"),
         )
 
-        exit_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-            "--github-owner", "flag-org",
-            "--github-repo", "flag-repo",
-        ])
+        exit_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "flag-org",
+                "--github-repo",
+                "flag-repo",
+            ]
+        )
 
         assert exit_code == 0
         assert captured_cfg == {
@@ -711,9 +859,7 @@ class TestCLIMain:
         assert "version:" in captured.out
         assert "git:" in captured.out
 
-    def test_register_project_engine_config_keeps_sonar_ci_available_by_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_register_project_engine_config_keeps_sonar_ci_available_by_default(self, tmp_path: Path) -> None:
         from agentkit.backend.cli.main import _build_engine_config
 
         cfg = _build_engine_config(
@@ -735,9 +881,7 @@ class TestCLIMain:
         assert cfg.sonarqube_available is True
         assert cfg.ci_available is True
 
-    def test_register_project_engine_config_requires_explicit_sonar_ci_opt_out(
-        self, tmp_path: Path
-    ) -> None:
+    def test_register_project_engine_config_requires_explicit_sonar_ci_opt_out(self, tmp_path: Path) -> None:
         from agentkit.backend.cli.main import _build_engine_config
 
         cfg = _build_engine_config(
@@ -771,19 +915,37 @@ class TestCLIMain:
     ) -> None:
         """``uninstall`` removes AgentKit harness settings."""
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        from tests.fixtures.vectordb_installer import (
+            GRPC_ENDPOINT,
+            HTTP_ENDPOINT,
+            wire_ready_vectordb,
+        )
+
+        wire_ready_vectordb(monkeypatch)
         # CP 11 configures core.hooksPath on the target; real targets are git
         # repos, so provision one (else CP 11 aborts on a clean CI agent).
         ensure_git_repo(tmp_path)
-        install_code = main([
-            "install",
-            "--project-key", "test-cli-project",
-            "--project-name", "test-cli-project",
-            "--project-root", str(tmp_path),
-            "--github-owner", "acme",  # AG3-039: mandatory CP 7 coordinates
-            "--github-repo", "test-cli-project",
-            "--no-sonarqube-available",  # AG3-052: conscious opt-out, no live Sonar
-            "--no-ci-available",  # AG3-056: conscious opt-out, no live Jenkins
-        ])
+        install_code = main(
+            [
+                "install",
+                "--project-key",
+                "test-cli-project",
+                "--project-name",
+                "test-cli-project",
+                "--project-root",
+                str(tmp_path),
+                "--weaviate-http-endpoint",
+                HTTP_ENDPOINT,
+                "--weaviate-grpc-endpoint",
+                GRPC_ENDPOINT,
+                "--github-owner",
+                "acme",  # AG3-039: mandatory CP 7 coordinates
+                "--github-repo",
+                "test-cli-project",
+                "--no-sonarqube-available",  # AG3-052: conscious opt-out, no live Sonar
+                "--no-ci-available",  # AG3-056: conscious opt-out, no live Jenkins
+            ]
+        )
 
         exit_code = main(["uninstall", "--project-root", str(tmp_path)])
 
@@ -795,20 +957,27 @@ class TestCLIMain:
         assert "uninstalled" in captured.out.lower()
 
     def test_run_story_command(
-        self, capsys: pytest.CaptureFixture[str],
+        self,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """``run-story`` identifies the story via ``story_id`` (AG3-120, AC8).
 
         AK3 owns the story via ``story_id``; GitHub is only the code backend, so
         ``--issue-nr`` is no longer a parameter and the story is addressed by id.
         """
-        exit_code = main([
-            "run-story",
-            "--story", "TEST-001",
-            "--owner", "testorg",
-            "--repo", "testrepo",
-            "--project-root", "/tmp/test",
-        ])
+        exit_code = main(
+            [
+                "run-story",
+                "--story",
+                "TEST-001",
+                "--owner",
+                "testorg",
+                "--repo",
+                "testrepo",
+                "--project-root",
+                "/tmp/test",
+            ]
+        )
 
         assert exit_code == 0
         captured = capsys.readouterr()
@@ -819,14 +988,21 @@ class TestCLIMain:
     def test_run_story_rejects_issue_nr_option(self) -> None:
         """AG3-120 AC8: ``--issue-nr`` is removed from the ``run-story`` adapter."""
         with pytest.raises(SystemExit):
-            main([
-                "run-story",
-                "--story", "TEST-001",
-                "--issue-nr", "42",
-                "--owner", "testorg",
-                "--repo", "testrepo",
-                "--project-root", "/tmp/test",
-            ])
+            main(
+                [
+                    "run-story",
+                    "--story",
+                    "TEST-001",
+                    "--issue-nr",
+                    "42",
+                    "--owner",
+                    "testorg",
+                    "--repo",
+                    "testrepo",
+                    "--project-root",
+                    "/tmp/test",
+                ]
+            )
 
     def test_serve_control_plane_command(
         self,
@@ -852,17 +1028,19 @@ class TestCLIMain:
             fake_serve_control_plane,
         )
 
-        exit_code = main([
-            "serve-control-plane",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            "9910",
-            "--certfile",
-            "tls/control-plane.pem",
-            "--keyfile",
-            "tls/control-plane.key",
-        ])
+        exit_code = main(
+            [
+                "serve-control-plane",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9910",
+                "--certfile",
+                "tls/control-plane.pem",
+                "--keyfile",
+                "tls/control-plane.key",
+            ]
+        )
 
         assert exit_code == 0
         assert captured == {
@@ -893,25 +1071,27 @@ class TestCLIMain:
             return SimpleNamespace(
                 scenario=SimpleNamespace(scenario=SimpleNamespace(value="unchanged")),
                 detail="ok",
+                failed=False,
+                failed_checkpoints=(),
             )
 
-        monkeypatch.setattr(
-            "agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
-        )
+        monkeypatch.setattr("agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade)
 
-        exit_code = main([
-            "upgrade-project",
-            "--project-key",
-            "demo",
-            "--project-root",
-            str(tmp_path),
-            "--github-owner",
-            "acme",
-            "--github-repo",
-            "demo",
-            "--target-config-version",
-            "4.0",
-        ])
+        exit_code = main(
+            [
+                "upgrade-project",
+                "--project-key",
+                "demo",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "acme",
+                "--github-repo",
+                "demo",
+                "--target-config-version",
+                "4.0",
+            ]
+        )
 
         assert exit_code == 0
         assert captured["mode"] is ExecutionMode.REGISTER
@@ -933,29 +1113,75 @@ class TestCLIMain:
             return SimpleNamespace(
                 scenario=SimpleNamespace(scenario=SimpleNamespace(value="unchanged")),
                 detail="planned",
+                failed=False,
+                failed_checkpoints=(),
             )
 
-        monkeypatch.setattr(
-            "agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
-        )
+        monkeypatch.setattr("agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade)
 
-        exit_code = main([
-            "upgrade-project",
-            "--project-key",
-            "demo",
-            "--project-root",
-            str(tmp_path),
-            "--github-owner",
-            "acme",
-            "--github-repo",
-            "demo",
-            "--target-config-version",
-            "4.0",
-            "--dry-run",
-        ])
+        exit_code = main(
+            [
+                "upgrade-project",
+                "--project-key",
+                "demo",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "acme",
+                "--github-repo",
+                "demo",
+                "--target-config-version",
+                "4.0",
+                "--dry-run",
+            ]
+        )
 
         assert exit_code == 0
         assert captured["mode"] is ExecutionMode.DRY_RUN
+
+    def test_upgrade_project_reports_a_failed_checkpoint_as_non_zero(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A blocked checkpoint must reach the exit code, not just the engine.
+
+        The engine already stops before further mutations — but reporting exit 0
+        with "upgraded" would tell operators and automation that an upgrade
+        happened which was in fact refused.
+        """
+
+        def fake_upgrade(project_root: Path, **kwargs: object) -> object:
+            return SimpleNamespace(
+                scenario=SimpleNamespace(scenario=SimpleNamespace(value="unchanged")),
+                detail="Norm-violating skill pin(s): create-userstory-core@4.0.0 < 4.1.0.",
+                failed=True,
+                failed_checkpoints=("up_02_guard_binding",),
+            )
+
+        monkeypatch.setattr("agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade)
+
+        exit_code = main(
+            [
+                "upgrade-project",
+                "--project-key",
+                "demo",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "acme",
+                "--github-repo",
+                "demo",
+                "--target-config-version",
+                "3.0",
+            ]
+        )
+
+        assert exit_code == 1
+        stderr = capsys.readouterr().err
+        assert "up_02_guard_binding" in stderr
+        assert "upgraded" not in stderr
 
     def test_upgrade_project_reports_preservation_block(
         self,
@@ -969,27 +1195,25 @@ class TestCLIMain:
         )
 
         def fake_upgrade(project_root: Path, **kwargs: object) -> object:
-            raise CustomizationPreservationError(
-                "blocked by F-51-023", detail={"invariant": "F-51-023"}
-            )
+            raise CustomizationPreservationError("blocked by F-51-023", detail={"invariant": "F-51-023"})
 
-        monkeypatch.setattr(
-            "agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
+        monkeypatch.setattr("agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade)
+
+        exit_code = main(
+            [
+                "upgrade-project",
+                "--project-key",
+                "demo",
+                "--project-root",
+                str(tmp_path),
+                "--github-owner",
+                "acme",
+                "--github-repo",
+                "demo",
+                "--target-config-version",
+                "3.0",
+            ]
         )
-
-        exit_code = main([
-            "upgrade-project",
-            "--project-key",
-            "demo",
-            "--project-root",
-            str(tmp_path),
-            "--github-owner",
-            "acme",
-            "--github-repo",
-            "demo",
-            "--target-config-version",
-            "3.0",
-        ])
 
         assert exit_code == 1
         assert "F-51-023" in capsys.readouterr().err

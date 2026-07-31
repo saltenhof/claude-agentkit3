@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 from tests.integration.governance.test_prompt_integrity_dispatch import (
     _agent_event,
     _publish_story_binding,
@@ -97,14 +98,10 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, No
 def _variant_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Point the SEPARATE variant store at a tmp dir (never the bundle-store root nor
     # the repo). This proves the variant lives OUTSIDE the project.
-    monkeypatch.setenv(
-        "AGENTKIT_MATERIALIZED_SKILL_VARIANT_STORE_ROOT", str(tmp_path / "variant-store")
-    )
+    monkeypatch.setenv("AGENTKIT_MATERIALIZED_SKILL_VARIANT_STORE_ROOT", str(tmp_path / "variant-store"))
 
 
-def _bundle_store(
-    root: Path, *, placeholder_skill: str | None = "execute-userstory"
-) -> SkillBundleStore:
+def _bundle_store(root: Path, *, placeholder_skill: str | None = "execute-userstory") -> SkillBundleStore:
     """Register one real on-disk bundle per mandatory skill.
 
     ``placeholder_skill`` (when set) receives ``_PLACEHOLDER_SKILL`` content so it is
@@ -148,6 +145,7 @@ def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
         runtime_profile=RuntimeProfile.CORE,
         sonarqube_available=False,
         ci_available=False,
+        **ready_vectordb_install_kwargs(),
     )
 
 
@@ -166,9 +164,7 @@ def _install(root: Path, *, store: SkillBundleStore | None = None) -> SkillBundl
 
 def _materialized_header(content: str) -> str:
     """Return the story_execution header line from a materialized SKILL.md."""
-    line = next(
-        ln for ln in content.splitlines() if ln.startswith("AGENTKIT-SUBAGENT-V1")
-    )
+    line = next(ln for ln in content.splitlines() if ln.startswith("AGENTKIT-SUBAGENT-V1"))
     return line
 
 
@@ -219,9 +215,7 @@ def test_e2e_placeholder_free_skill_stays_raw_link(tmp_path: Path) -> None:
     assert is_directory_link(bindpoint)
     target = read_directory_link_target(bindpoint)
     assert "variant-store" not in str(target)
-    expected_bundle = (
-        root.parent / "skill-bundles" / f"{raw_skill}-core" / "4.0.0"
-    ).resolve()
+    expected_bundle = (root.parent / "skill-bundles" / f"{raw_skill}-core" / "4.0.0").resolve()
     assert target.resolve() == expected_bundle
 
 
@@ -235,9 +229,7 @@ def test_e2e_guard_allows_authorized_blocks_forged(tmp_path: Path) -> None:
     assert isinstance(token, str)
 
     # Read the header THROUGH the real bind point (production read path).
-    content = (
-        root / ".claude" / "skills" / "execute-userstory" / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    content = (root / ".claude" / "skills" / "execute-userstory" / "SKILL.md").read_text(encoding="utf-8")
     header = _materialized_header(content)
     assert f"skill_proof={token}" in header
 
@@ -268,10 +260,7 @@ def test_e2e_guard_blocks_missing_manifest(tmp_path: Path) -> None:
     _publish_story_binding(root, str(root))
     assert not installed_manifest_path(root).exists()
 
-    header = (
-        "AGENTKIT-SUBAGENT-V1 mode=story_execution role=story-qa "
-        f"story_id={_STORY} skill_proof=any-token"
-    )
+    header = f"AGENTKIT-SUBAGENT-V1 mode=story_execution role=story-qa story_id={_STORY} skill_proof=any-token"
     verdict = _run_prompt_integrity_guard(
         _agent_event(root, description=header, prompt="qa round 1"),
         project_root=root,
@@ -363,6 +352,7 @@ def _real_bundle_install_config(root: Path, *, store: SkillBundleStore) -> Insta
         runtime_profile=RuntimeProfile.CORE,
         sonarqube_available=False,
         ci_available=False,
+        **ready_vectordb_install_kwargs(),
     )
 
 
@@ -414,9 +404,7 @@ def test_e2e_real_bundle_scalar_placeholders_resolved_at_both_bindpoints(
         # directives like ``{{#IF_CLARIFICATION_ANSWERS}}`` (those start with ``#``
         # which is not a ``\w`` character), so the check is correctly scoped.
         remaining_scalar = _SCALAR_PLACEHOLDER_RE.findall(content)
-        assert not remaining_scalar, (
-            f"{harness_dir}: unresolved scalar placeholders found: {remaining_scalar}"
-        )
+        assert not remaining_scalar, f"{harness_dir}: unresolved scalar placeholders found: {remaining_scalar}"
 
         # The five substituted FK-03 + manifest-fed tokens.
         assert "{{AGENT_SPAWN_SKILL_PROOF}}" not in content
@@ -440,13 +428,9 @@ def test_e2e_real_bundle_scalar_placeholders_resolved_at_both_bindpoints(
         # token appears in the content (proven above), and that every line that
         # contains a story_execution spawn header now embeds the real token (not the
         # placeholder literal).
-        story_exec_lines = [
-            ln for ln in content.splitlines()
-            if "AGENTKIT-SUBAGENT-V1" in ln and "mode=story_execution" in ln
-        ]
+        story_exec_lines = [ln for ln in content.splitlines() if "AGENTKIT-SUBAGENT-V1" in ln and "mode=story_execution" in ln]
         assert story_exec_lines, f"{harness_dir}: no story_execution spawn reference found"
-        assert all(f"skill_proof={token}" in ln or "skill_proof={{" not in ln
-                   for ln in story_exec_lines), (
+        assert all(f"skill_proof={token}" in ln or "skill_proof={{" not in ln for ln in story_exec_lines), (
             f"{harness_dir}: at least one story_execution line still has a literal placeholder"
         )
 
@@ -459,10 +443,7 @@ def test_e2e_real_bundle_scalar_placeholders_resolved_at_both_bindpoints(
     # Use role=story-qa so Stage 3 (template_integrity) is skipped — this
     # E2E isolates Stage 2 skill_proof validation, identical to the existing
     # test_e2e_guard_allows_authorized_blocks_forged approach.
-    authorized_header = (
-        f"AGENTKIT-SUBAGENT-V1 mode=story_execution role=story-qa "
-        f"story_id={_STORY} skill_proof={token}"
-    )
+    authorized_header = f"AGENTKIT-SUBAGENT-V1 mode=story_execution role=story-qa story_id={_STORY} skill_proof={token}"
 
     allow = _run_prompt_integrity_guard(
         _agent_event(root, description=authorized_header, prompt="worker round 1"),

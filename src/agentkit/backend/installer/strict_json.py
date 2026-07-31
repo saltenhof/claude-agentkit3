@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 #: Hard ceiling on JSON nesting accepted at installer wire/config boundaries.
 #: Chosen well below CPython's default recursion limit so post-decode walks,
@@ -76,18 +79,11 @@ def exceeds_max_json_nesting(
         node, depth = stack.pop()
         if depth > max_depth:
             return True
-        if isinstance(node, dict):
-            child_depth = depth + 1
-            if child_depth > max_depth and node:
-                return True
-            for child in node.values():
-                stack.append((child, child_depth))
-        elif isinstance(node, list):
-            child_depth = depth + 1
-            if child_depth > max_depth and node:
-                return True
-            for child in node:
-                stack.append((child, child_depth))
+        children = tuple(_container_children(node))
+        child_depth = depth + 1
+        if child_depth > max_depth and children:
+            return True
+        stack.extend((child, child_depth) for child in children)
     return False
 
 
@@ -105,10 +101,7 @@ def contains_non_finite_float(value: object) -> bool:
             if not math.isfinite(node):
                 return True
             continue
-        if isinstance(node, dict):
-            stack.extend(node.values())
-        elif isinstance(node, list):
-            stack.extend(node)
+        stack.extend(_container_children(node))
     return False
 
 
@@ -124,19 +117,27 @@ def contains_lone_surrogate(value: object) -> bool:
     while stack:
         node = stack.pop()
         if type(node) is str:
-            if any(0xD800 <= ord(ch) <= 0xDFFF for ch in node):
+            if _has_lone_surrogate(node):
                 return True
             continue
-        if isinstance(node, dict):
-            for key, child in node.items():
-                if type(key) is str and any(
-                    0xD800 <= ord(ch) <= 0xDFFF for ch in key
-                ):
-                    return True
-                stack.append(child)
-        elif isinstance(node, list):
-            stack.extend(node)
+        if isinstance(node, dict) and any(
+            type(key) is str and _has_lone_surrogate(key) for key in node
+        ):
+            return True
+        stack.extend(_container_children(node))
     return False
+
+
+def _container_children(value: object) -> Iterable[object]:
+    if isinstance(value, dict):
+        return value.values()
+    if isinstance(value, list):
+        return value
+    return ()
+
+
+def _has_lone_surrogate(value: str) -> bool:
+    return any(0xD800 <= ord(char) <= 0xDFFF for char in value)
 
 
 __all__ = [

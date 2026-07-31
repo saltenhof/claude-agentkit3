@@ -412,7 +412,7 @@ Scope-Zuordnung: Repositories und Story-Module werden bei der
 Installation auf ARE-Scopes abgebildet. Bei der Story-Erstellung leiten
 die betroffenen Repos automatisch die passenden Scopes ab.
 
-### Story Knowledge Base (VectorDB) — optional
+### Story Knowledge Base (VectorDB) — Pflicht
 
 Semantische Suche über abgeschlossene Stories. Findet Duplikate vor
 der Story-Erstellung und verwandte Vorarbeiten für den Worker-Kontext.
@@ -452,7 +452,9 @@ abbildend; sie sind nie die operative Wahrheitsquelle.
 Zentrale Konfiguration über `project.yaml` (Pfad: `.agentkit/config/project.yaml`):
 
 - GitHub-Anbindung (Owner, Repo)
-- Feature-Flags (VectorDB, ARE, Multi-LLM-Hub, Telemetrie)
+- Feature-Flags (ARE, Multi-LLM-Hub, Telemetrie) — die VectorDB gehört
+  **nicht** dazu: sie ist Pflichtinfrastruktur, und `features.vectordb` ist nur
+  noch ein deprecateter Migrationsschlüssel ohne Abschaltpfad
 - QA-Policy (Schwellwerte, Stage-Definitionen)
 - Build/Test-Kommandos pro Repository
 - ARE-Verbindung (Base-URL, Projekt-Slug)

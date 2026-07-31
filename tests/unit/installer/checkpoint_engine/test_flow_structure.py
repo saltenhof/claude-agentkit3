@@ -8,11 +8,11 @@ enforced structurally (CP 10 before CP 10a/CP 10c; CP 10b after CP 11).
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
-from agentkit.backend.installer.checkpoint_engine.flow import (
-    BRANCH_VECTORDB_ENABLED_STAGE2,
-    build_installer_flow,
-)
+from agentkit.backend.installer.checkpoint_engine.flow import build_installer_flow
 from agentkit.backend.process.language.model import FlowLevel, NodeKind
 
 _EXPECTED_STEP_IDS = (
@@ -35,6 +35,33 @@ _EXPECTED_STEP_IDS = (
 )
 
 
+def test_registry_imports_each_cp10_handler_from_its_single_owner() -> None:
+    registry = (
+        Path(__file__).resolve().parents[4]
+        / "src"
+        / "agentkit"
+        / "backend"
+        / "installer"
+        / "bootstrap_checkpoints"
+        / "registry.py"
+    )
+    tree = ast.parse(registry.read_text(encoding="utf-8"))
+    modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module is not None
+        and "bootstrap_checkpoints.cp10" in node.module
+    }
+    assert modules == {
+        "agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration",
+        "agentkit.backend.installer.bootstrap_checkpoints.cp10a_initial_sync_checkpoint",
+        "agentkit.backend.installer.bootstrap_checkpoints.cp10b_hook_dispatch_checkpoint",
+        "agentkit.backend.installer.bootstrap_checkpoints.cp10c_are_scope",
+        "agentkit.backend.installer.bootstrap_checkpoints.cp10d_sonarqube",
+    }
+
+
 def test_installer_flow_is_component_level_owned_by_installer() -> None:
     """AC1: the installer is a level=COMPONENT, owner="Installer" FlowDefinition."""
     flow = build_installer_flow()
@@ -55,14 +82,12 @@ def test_all_normative_node_ids_present_as_nodes() -> None:
         assert node.kind is NodeKind.STEP
 
 
-def test_branch_nodes_present_per_feature() -> None:
-    """AC2/AC3: vectordb/are/sonarqube branch nodes exist (vectordb two-stage)."""
+def test_branch_nodes_present_only_for_optional_non_vectordb_features() -> None:
+    """VectorDB is mandatory; only ARE/Sonar retain applicability branches."""
     flow = build_installer_flow()
     for branch_id in (
-        nid.BRANCH_VECTORDB_ENABLED,
         nid.BRANCH_ARE_ENABLED,
         nid.BRANCH_SONARQUBE_ENABLED,
-        BRANCH_VECTORDB_ENABLED_STAGE2,  # second vectordb stage (CP 10b gate)
     ):
         node = flow.get_node(branch_id)
         assert node is not None, f"missing branch node {branch_id}"
@@ -80,34 +105,25 @@ def test_cp10_precedes_cp10a_and_cp10c() -> None:
     cp10 = _node_index(names, nid.CP_10_MCP_REGISTRATION)
     assert cp10 < _node_index(names, nid.CP_10A_CONCEPT_CONTEXT_PROPERTIES)
     assert cp10 < _node_index(names, nid.CP_10C_ARE_SCOPE_VALIDATION)
-    # And the branch edges flow CP10 -> vectordb-branch -> cp10a and the are
-    # branch sits after CP10 on the spine (so the ARE-MCP is registered first).
-    vectordb_branch_targets = {
-        e.target for e in flow.get_edges_from(nid.CP_10_MCP_REGISTRATION)
-    }
-    assert nid.BRANCH_VECTORDB_ENABLED in vectordb_branch_targets
+    cp10_targets = {e.target for e in flow.get_edges_from(nid.CP_10_MCP_REGISTRATION)}
+    assert cp10_targets == {nid.CP_10A_CONCEPT_CONTEXT_PROPERTIES}
 
 
 def test_cp10b_follows_cp11() -> None:
     """AC9b: cp_10b_concept_validation_hook is ordered AFTER cp_11."""
     flow = build_installer_flow()
     names = flow.node_names
-    assert _node_index(names, nid.CP_11_GIT_HOOKS_AND_CLAUDE) < _node_index(
-        names, nid.CP_10B_CONCEPT_VALIDATION_HOOK
-    )
-    # The stage-2 vectordb branch (CP 10b gate) is the successor of CP 11.
+    assert _node_index(names, nid.CP_11_GIT_HOOKS_AND_CLAUDE) < _node_index(names, nid.CP_10B_CONCEPT_VALIDATION_HOOK)
     cp11_targets = {e.target for e in flow.get_edges_from(nid.CP_11_GIT_HOOKS_AND_CLAUDE)}
-    assert BRANCH_VECTORDB_ENABLED_STAGE2 in cp11_targets
+    assert cp11_targets == {nid.CP_10B_CONCEPT_VALIDATION_HOOK}
 
 
 def test_each_branch_has_guarded_and_skip_edge() -> None:
     """Each branch node has exactly two ordered outgoing edges (guarded+skip)."""
     flow = build_installer_flow()
     for branch_id in (
-        nid.BRANCH_VECTORDB_ENABLED,
         nid.BRANCH_ARE_ENABLED,
         nid.BRANCH_SONARQUBE_ENABLED,
-        BRANCH_VECTORDB_ENABLED_STAGE2,
     ):
         edges = flow.get_edges_from(branch_id)
         assert len(edges) == 2
@@ -115,10 +131,9 @@ def test_each_branch_has_guarded_and_skip_edge() -> None:
         assert edges[0].priority > edges[1].priority
 
 
-def test_vectordb_branch_stage1_guards_cp10a_stage2_guards_cp10b() -> None:
-    """AC2: vectordb branch is two-stage — stage1 -> cp_10a, stage2 -> cp_10b."""
+def test_vectordb_checkpoints_are_unconditional_spine_steps() -> None:
+    """AC6: CP10a and CP10b are no longer guarded by an opt-out branch."""
     flow = build_installer_flow()
-    stage1 = flow.get_edges_from(nid.BRANCH_VECTORDB_ENABLED)
-    assert stage1[0].target == nid.CP_10A_CONCEPT_CONTEXT_PROPERTIES
-    stage2 = flow.get_edges_from(BRANCH_VECTORDB_ENABLED_STAGE2)
-    assert stage2[0].target == nid.CP_10B_CONCEPT_VALIDATION_HOOK
+    assert flow.get_node("branch_vectordb_enabled") is None
+    assert flow.get_edges_from(nid.CP_10_MCP_REGISTRATION)[0].target == (nid.CP_10A_CONCEPT_CONTEXT_PROPERTIES)
+    assert flow.get_edges_from(nid.CP_11_GIT_HOOKS_AND_CLAUDE)[0].target == (nid.CP_10B_CONCEPT_VALIDATION_HOOK)

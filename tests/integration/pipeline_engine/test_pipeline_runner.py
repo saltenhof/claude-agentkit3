@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.e2e._helpers import seed_active_run_ownership
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.bootstrap.composition_root import build_exploration_phase_handler
 from agentkit.backend.config.loader import load_project_config
@@ -114,6 +115,7 @@ def _install_project(project_dir: Path) -> None:
             # AG3-056 (FIX-5): no live Jenkins in CI => conscious opt-out so the
             # CI preflight SKIPS.
             ci_available=False,
+            **ready_vectordb_install_kwargs(),
         )
     )
     assert install_result.success
@@ -151,9 +153,7 @@ def _exploration_registry_for_workflow(
     to the engine's own fresh ``uuid4()`` fallback).
     """
     registry = _registry_for_workflow(workflow_def)
-    registry.register(
-        "exploration", build_exploration_phase_handler(story_dir_path)
-    )
+    registry.register("exploration", build_exploration_phase_handler(story_dir_path))
     return registry
 
 
@@ -469,9 +469,7 @@ class TestSmokeExplorationMode:
         assert len(load_attempts(s_dir, "exploration")) >= 1
         # No pseudo-draft is fabricated: no change_frame.json is written by
         # the handler (the worker AG3-055 would write it; it is absent here).
-        change_frame = (
-            project_dir / "_temp" / "qa" / "EXPL-002" / "change_frame.json"
-        )
+        change_frame = project_dir / "_temp" / "qa" / "EXPL-002" / "change_frame.json"
         assert not change_frame.exists()
 
 
@@ -851,7 +849,8 @@ class TestSmokePipelineRobustness:
         registry = PhaseHandlerRegistry()
         registry.register("setup", NoOpHandler())
         registry.register(
-            "implementation", _YieldingHandler("awaiting_design_review"),
+            "implementation",
+            _YieldingHandler("awaiting_design_review"),
         )
         registry.register("closure", NoOpHandler())
 
@@ -923,9 +922,7 @@ class TestSmokePipelineRobustness:
         # Each completed phase should have a canonical snapshot record.
         for phase_name in result.phases_executed:
             snapshot = read_phase_snapshot_record(s_dir, phase_name)
-            assert snapshot is not None, (
-                f"No canonical snapshot for completed phase '{phase_name}'"
-            )
+            assert snapshot is not None, f"No canonical snapshot for completed phase '{phase_name}'"
             assert snapshot.phase == phase_name
             assert snapshot.status == PhaseStatus.COMPLETED
 

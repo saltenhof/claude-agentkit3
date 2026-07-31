@@ -65,6 +65,8 @@ except ImportError:  # pragma: no cover - direct script execution path
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+_RUN_DIRECTORY_HELP = "Incubation run directory."
+
 
 class _UsageErrorParser(argparse.ArgumentParser):
     """Argument parser that exits with the FK-78 usage exit code (3)."""
@@ -91,12 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
     decision.add_argument("--base", required=True, help="Git base revision to diff against.")
     decision.add_argument("--trailer", action="append", default=[], help="Concept-Decision slug for uncommitted work.")
     incubator = subparsers.add_parser("incubator", help="Incubation-run layout, schema and lifecycle validation.")
-    incubator.add_argument("run_dir", help="Incubation run directory.")
+    incubator.add_argument("run_dir", help=_RUN_DIRECTORY_HELP)
     promotion = subparsers.add_parser("promotion", help="Promotion-closure rules 1-7.")
-    promotion.add_argument("run_dir", help="Incubation run directory.")
+    promotion.add_argument("run_dir", help=_RUN_DIRECTORY_HELP)
     subparsers.add_parser("projection", help="Corpus-wide projection-manifest validation.")
     semantic = subparsers.add_parser("semantic-status", help="Semantic-gate request/receipt accounting.")
-    semantic.add_argument("run_dir", help="Incubation run directory.")
+    semantic.add_argument("run_dir", help=_RUN_DIRECTORY_HELP)
     run_all = subparsers.add_parser("all", help="All corpus-wide checks (decision-gate only when --base is given).")
     run_all.add_argument("--base", help="Git base revision; enables the decision-gate check.")
     run_all.add_argument("--trailer", action="append", default=[], help="Concept-Decision slug for uncommitted work.")

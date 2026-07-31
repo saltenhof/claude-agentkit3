@@ -17,6 +17,7 @@ from agentkit.backend.installer.mcp_conformance.process import (
     resolve_command,
 )
 from agentkit.backend.installer.mcp_conformance.protocol import (
+    ClassifiedMessage,
     classify_jsonrpc_message,
     fail,
     handle_response_for_request,
@@ -91,89 +92,154 @@ def check_mcp_conformance(
     stdout_pump: StdoutLinePump | None = None
     stderr_pump: StderrDrainPump | None = None
     outcome: McpConformanceResult | None = None
-    # Post-launch controlled deadlines; set only after successful start so a
-    # slow Popen cannot burn handshake/teardown reserve.
     full_deadline: float | None = None
     try:
-        try:
-            supervisor.start(
-                argv, env=child_env, cwd=cwd, deadline=launch_deadline
-            )
-        except ProcessControlError as exc:
-            outcome = fail(
-                McpConformanceReason.PROCESS_CONTROL_ERROR,
-                f"MCP process control failed for {cmd_label}: {exc.detail}",
-            )
-        except OSError as exc:
-            outcome = fail(
-                McpConformanceReason.COMMAND_NOT_FOUND,
-                f"Failed to start MCP command {argv[0]!r}: {exc}.",
-            )
-        else:
-            # FK-50: re-arm controlled budget after Popen returns.
-            full_deadline, handshake_deadline = split_probe_deadlines(
-                timeout_seconds
-            )
-            proc = supervisor.proc
-            assert proc is not None
-            assert proc.stdout is not None
-            assert proc.stderr is not None
-
-            stdout_pump = StdoutLinePump(proc.stdout)
-            stderr_pump = StderrDrainPump(proc.stderr)
-            stdout_pump.start()
-            stderr_pump.start()
-
-            try:
-                outcome = _handshake(
-                    supervisor,
-                    stdout_pump=stdout_pump,
-                    stderr_pump=stderr_pump,
-                    deadline=handshake_deadline,
-                    cmd_label=cmd_label,
-                )
-            except TransportError as exc:
-                outcome = fail(exc.reason, exc.detail)
-            except ProcessControlError as exc:
-                outcome = fail(
-                    McpConformanceReason.PROCESS_CONTROL_ERROR,
-                    f"MCP process control failed for {cmd_label}: {exc.detail}",
-                )
-            except Exception as exc:  # noqa: BLE001 — boundary
-                outcome = fail(
-                    McpConformanceReason.PROTOCOL_ERROR,
-                    f"Internal MCP conformance fault for {cmd_label}: {exc}.",
-                )
+        outcome, stdout_pump, stderr_pump, full_deadline = _start_probe(
+            supervisor,
+            argv=argv,
+            child_env=child_env,
+            cwd=cwd,
+            launch_deadline=launch_deadline,
+            timeout_seconds=timeout_seconds,
+            cmd_label=cmd_label,
+        )
     finally:
         teardown_deadline = (
             full_deadline if full_deadline is not None else launch_deadline
         )
-        try:
-            supervisor.shutdown(
-                deadline=teardown_deadline,
-                graceful=bool(outcome is not None and outcome.ok),
-            )
-        except ProcessControlError as exc:
-            # FK-50: non-terminable control plane is always the public reason,
-            # even when a prior handshake error already exists.
-            outcome = fail(
-                McpConformanceReason.PROCESS_CONTROL_ERROR,
-                f"MCP process control failed during teardown for {cmd_label}: "
-                f"{exc.detail}",
-            )
-        join_left = remaining_budget(teardown_deadline)
-        if stdout_pump is not None and join_left > 0:
-            half = join_left / 2
-            stdout_pump.join(timeout=half)
-            join_left = remaining_budget(teardown_deadline)
-        if stderr_pump is not None and join_left > 0:
-            stderr_pump.join(timeout=join_left)
+        outcome = _shutdown_probe(
+            supervisor,
+            outcome=outcome,
+            stdout_pump=stdout_pump,
+            stderr_pump=stderr_pump,
+            deadline=teardown_deadline,
+            cmd_label=cmd_label,
+        )
 
     if outcome is None:
         return fail(
             McpConformanceReason.PROTOCOL_ERROR,
             f"MCP conformance produced no outcome for {cmd_label}.",
         )
+    return outcome
+
+
+def _start_probe(
+    supervisor: ProcessSupervisor,
+    *,
+    argv: list[str],
+    child_env: dict[str, str],
+    cwd: str | None,
+    launch_deadline: float,
+    timeout_seconds: float,
+    cmd_label: str,
+) -> tuple[
+    McpConformanceResult,
+    StdoutLinePump | None,
+    StderrDrainPump | None,
+    float | None,
+]:
+    try:
+        supervisor.start(argv, env=child_env, cwd=cwd, deadline=launch_deadline)
+    except ProcessControlError as exc:
+        return (
+            fail(
+                McpConformanceReason.PROCESS_CONTROL_ERROR,
+                f"MCP process control failed for {cmd_label}: {exc.detail}",
+            ),
+            None,
+            None,
+            None,
+        )
+    except OSError as exc:
+        return (
+            fail(
+                McpConformanceReason.COMMAND_NOT_FOUND,
+                f"Failed to start MCP command {argv[0]!r}: {exc}.",
+            ),
+            None,
+            None,
+            None,
+        )
+    full_deadline, handshake_deadline = split_probe_deadlines(timeout_seconds)
+    stdout_pump, stderr_pump = _start_pumps(supervisor)
+    outcome = _perform_handshake(
+        supervisor,
+        stdout_pump=stdout_pump,
+        stderr_pump=stderr_pump,
+        deadline=handshake_deadline,
+        cmd_label=cmd_label,
+    )
+    return outcome, stdout_pump, stderr_pump, full_deadline
+
+
+def _start_pumps(supervisor: ProcessSupervisor) -> tuple[StdoutLinePump, StderrDrainPump]:
+    proc = supervisor.proc
+    assert proc is not None
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+    stdout_pump = StdoutLinePump(proc.stdout)
+    stderr_pump = StderrDrainPump(proc.stderr)
+    stdout_pump.start()
+    stderr_pump.start()
+    return stdout_pump, stderr_pump
+
+
+def _perform_handshake(
+    supervisor: ProcessSupervisor,
+    *,
+    stdout_pump: StdoutLinePump,
+    stderr_pump: StderrDrainPump,
+    deadline: float,
+    cmd_label: str,
+) -> McpConformanceResult:
+    try:
+        return _handshake(
+            supervisor,
+            stdout_pump=stdout_pump,
+            stderr_pump=stderr_pump,
+            deadline=deadline,
+            cmd_label=cmd_label,
+        )
+    except TransportError as exc:
+        return fail(exc.reason, exc.detail)
+    except ProcessControlError as exc:
+        return fail(
+            McpConformanceReason.PROCESS_CONTROL_ERROR,
+            f"MCP process control failed for {cmd_label}: {exc.detail}",
+        )
+    except Exception as exc:  # noqa: BLE001 — process boundary becomes a typed result
+        return fail(
+            McpConformanceReason.PROTOCOL_ERROR,
+            f"Internal MCP conformance fault for {cmd_label}: {exc}.",
+        )
+
+
+def _shutdown_probe(
+    supervisor: ProcessSupervisor,
+    *,
+    outcome: McpConformanceResult | None,
+    stdout_pump: StdoutLinePump | None,
+    stderr_pump: StderrDrainPump | None,
+    deadline: float,
+    cmd_label: str,
+) -> McpConformanceResult | None:
+    try:
+        supervisor.shutdown(
+            deadline=deadline,
+            graceful=bool(outcome is not None and outcome.ok),
+        )
+    except ProcessControlError as exc:
+        outcome = fail(
+            McpConformanceReason.PROCESS_CONTROL_ERROR,
+            f"MCP process control failed during teardown for {cmd_label}: {exc.detail}",
+        )
+    join_left = remaining_budget(deadline)
+    if stdout_pump is not None and join_left > 0:
+        stdout_pump.join(timeout=join_left / 2)
+        join_left = remaining_budget(deadline)
+    if stderr_pump is not None and join_left > 0:
+        stderr_pump.join(timeout=join_left)
     return outcome
 
 
@@ -324,7 +390,7 @@ def _write_message(proc: Popen[bytes], message: dict[str, Any]) -> None:
         payload = (json.dumps(message, separators=(",", ":")) + "\n").encode("utf-8")
         proc.stdin.write(payload)
         proc.stdin.flush()
-    except (BrokenPipeError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         raise TransportError(
             McpConformanceReason.PROCESS_EXITED,
             f"MCP process pipe broken during write: {exc}.",
@@ -344,46 +410,24 @@ def _read_response(
     assert proc is not None
 
     while True:
-        remaining = remaining_budget(deadline)
-        if remaining <= 0:
-            return fail(
-                McpConformanceReason.TIMEOUT,
-                f"MCP handshake timed out waiting for response id={request_id} "
-                f"from command: {cmd_label}.",
-            )
-
-        supervisor.refresh_tree()
-
-        if proc.poll() is not None:
-            supervisor.refresh_tree()
-            return _exited(
-                proc, stderr_pump, cmd_label=cmd_label, when="during handshake"
-            )
-
-        try:
-            line = stdout_pump.readline(timeout=min(remaining, 0.5))
-        except TransportError as exc:
-            return fail(exc.reason, exc.detail)
-
-        if line == "":
+        candidate = _next_response_candidate(
+            supervisor,
+            proc=proc,
+            stdout_pump=stdout_pump,
+            stderr_pump=stderr_pump,
+            request_id=request_id,
+            deadline=deadline,
+            cmd_label=cmd_label,
+        )
+        if isinstance(candidate, McpConformanceResult):
+            return candidate
+        if candidate is None:
             continue
-        if line is None:
-            supervisor.refresh_tree()
-            return _exited(proc, stderr_pump, cmd_label=cmd_label, when="stdout EOF")
-        if not line.strip():
-            continue
-
-        parsed = parse_json_object(line, cmd_label=cmd_label)
-        if isinstance(parsed, McpConformanceResult):
-            return parsed
-
-        classified = classify_jsonrpc_message(parsed, cmd_label=cmd_label)
+        classified = _classify_response_line(candidate, cmd_label=cmd_label)
         if isinstance(classified, McpConformanceResult):
             return classified
-
-        if classified.kind == "notification":
+        if classified is None:
             continue
-
         if classified.kind == "request":
             return fail(
                 McpConformanceReason.PROTOCOL_ERROR,
@@ -401,6 +445,50 @@ def _read_response(
         return handle_response_for_request(
             classified.message, request_id=request_id, cmd_label=cmd_label
         )
+
+
+def _next_response_candidate(
+    supervisor: ProcessSupervisor,
+    *,
+    proc: Popen[bytes],
+    stdout_pump: StdoutLinePump,
+    stderr_pump: StderrDrainPump,
+    request_id: int,
+    deadline: float,
+    cmd_label: str,
+) -> str | None | McpConformanceResult:
+    remaining = remaining_budget(deadline)
+    if remaining <= 0:
+        return fail(
+            McpConformanceReason.TIMEOUT,
+            f"MCP handshake timed out waiting for response id={request_id} from command: {cmd_label}.",
+        )
+    supervisor.refresh_tree()
+    if proc.poll() is not None:
+        supervisor.refresh_tree()
+        return _exited(proc, stderr_pump, cmd_label=cmd_label, when="during handshake")
+    try:
+        line = stdout_pump.readline(timeout=min(remaining, 0.5))
+    except TransportError as exc:
+        return fail(exc.reason, exc.detail)
+    if line is None:
+        supervisor.refresh_tree()
+        return _exited(proc, stderr_pump, cmd_label=cmd_label, when="stdout EOF")
+    return line if line.strip() else None
+
+
+def _classify_response_line(
+    line: str,
+    *,
+    cmd_label: str,
+) -> ClassifiedMessage | McpConformanceResult | None:
+    parsed = parse_json_object(line, cmd_label=cmd_label)
+    if isinstance(parsed, McpConformanceResult):
+        return parsed
+    classified = classify_jsonrpc_message(parsed, cmd_label=cmd_label)
+    if isinstance(classified, McpConformanceResult):
+        return classified
+    return None if classified.kind == "notification" else classified
 
 
 def _exited(

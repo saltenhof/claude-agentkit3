@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
 import pytest
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.bootstrap.composition_root import build_setup_phase_handler
@@ -82,9 +83,7 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, No
 def _init_repo(root: Path) -> None:
     """Init a real git repo (Preflight Check 7 reads it, AG3-034 Finding B)."""
     subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
-    subprocess.run(
-        ["git", "-C", str(root), "config", "user.email", "t@example.com"], check=True
-    )
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "t@example.com"], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "T"], check=True)
 
 
@@ -131,6 +130,7 @@ def _install(project_root: Path) -> None:
             github_repo="demo",
             sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+            **ready_vectordb_install_kwargs(),
         )
     )
 
@@ -170,9 +170,7 @@ def test_setup_phase_builds_context_from_story_service_no_issue(
         execution_route=StoryMode.EXECUTION,
         project_root=tmp_path,
     )
-    state = make_phase_state(
-        story_id="TEST-001", phase="setup", status=PhaseStatus.IN_PROGRESS
-    )
+    state = make_phase_state(story_id="TEST-001", phase="setup", status=PhaseStatus.IN_PROGRESS)
 
     result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
@@ -221,9 +219,7 @@ def test_setup_phase_fails_closed_on_unresolvable_story_identity(
         execution_route=StoryMode.EXECUTION,
         project_root=tmp_path,
     )
-    state = make_phase_state(
-        story_id="FAIL-404", phase="setup", status=PhaseStatus.IN_PROGRESS
-    )
+    state = make_phase_state(story_id="FAIL-404", phase="setup", status=PhaseStatus.IN_PROGRESS)
 
     result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
@@ -235,15 +231,11 @@ def test_setup_phase_fails_closed_on_unresolvable_story_identity(
     # the failing check, and its message must name the unknown story_id as not
     # found in the StoryService (story_exists.py builds exactly that detail).
     story_exists_id = PreflightCheckId.STORY_EXISTS.value
-    identity_errors = [
-        e for e in result.errors if e.startswith(f"{story_exists_id}:")
-    ]
-    assert identity_errors, (
-        f"expected a {story_exists_id!r} failure, got errors: {result.errors}"
+    identity_errors = [e for e in result.errors if e.startswith(f"{story_exists_id}:")]
+    assert identity_errors, f"expected a {story_exists_id!r} failure, got errors: {result.errors}"
+    assert any("not found in StoryService" in e and "FAIL-404" in e for e in identity_errors), (
+        f"expected a story-not-found-in-StoryService message, got: {identity_errors}"
     )
-    assert any(
-        "not found in StoryService" in e and "FAIL-404" in e for e in identity_errors
-    ), f"expected a story-not-found-in-StoryService message, got: {identity_errors}"
 
     # Fail-closed: no enriched StoryContext was persisted for the unknown story.
     assert read_story_context_record(story_dir(tmp_path, "FAIL-404")) is None

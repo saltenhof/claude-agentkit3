@@ -8,7 +8,6 @@ tokens of the bound embedding-model tokenizer (FK-13 §13.2).
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
@@ -19,9 +18,6 @@ if TYPE_CHECKING:
 
 #: Default max tokens per chunk (FK-13 §13.3.3 "~1000 Tokens").
 DEFAULT_MAX_TOKENS: Final[int] = 1000
-
-_HEADING_RE = re.compile(r"^(#{2,3})\s+(?P<heading>.+?)\s*$", re.MULTILINE)
-
 
 @dataclass(frozen=True)
 class Section:
@@ -40,6 +36,13 @@ class Section:
     body: str
 
 
+@dataclass(frozen=True)
+class _HeadingBoundary:
+    start: int
+    level: int
+    heading: str
+
+
 def split_into_sections(body: str) -> list[Section]:
     """Split a document body into heading-delimited sections.
 
@@ -49,20 +52,29 @@ def split_into_sections(body: str) -> list[Section]:
     body = body.strip("\n")
     if not body:
         return []
-    matches = list(_HEADING_RE.finditer(body))
+    matches = _find_heading_boundaries(body)
     sections: list[Section] = []
     if not matches:
         stripped = body.strip()
         if stripped:
             sections.append(Section("(document)", 0, "0", stripped))
         return sections
-    intro = body[: matches[0].start()].strip()
+    return _sections_from_matches(body, matches, sections)
+
+
+def _sections_from_matches(
+    body: str,
+    matches: list[_HeadingBoundary],
+    sections: list[Section],
+) -> list[Section]:
+    """Append intro and heading-delimited sections for known heading matches."""
+    intro = body[: matches[0].start].strip()
     if intro:
         sections.append(Section("(intro)", 0, "0", intro))
     counters: list[int] = []  # per-level running counters; index 0 -> level 2
     for i, match in enumerate(matches):
-        level = len(match.group(1))
-        heading = match.group("heading").strip()
+        level = match.level
+        heading = match.heading
         idx = level - 2
         # Reset deeper counters when a shallower heading appears.
         if idx < len(counters):
@@ -73,11 +85,27 @@ def split_into_sections(body: str) -> list[Section]:
             while len(counters) <= idx:
                 counters.append(1)
         section_number = _join_number(counters)
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
-        section_body = body[match.start():end].strip()
+        end = matches[i + 1].start if i + 1 < len(matches) else len(body)
+        section_body = body[match.start:end].strip()
         if section_body:
             sections.append(Section(heading, level, section_number, section_body))
     return sections
+
+
+def _find_heading_boundaries(body: str) -> list[_HeadingBoundary]:
+    boundaries: list[_HeadingBoundary] = []
+    offset = 0
+    for raw_line in body.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        level = len(line) - len(line.lstrip("#"))
+        if level in (2, 3) and len(line) > level and line[level].isspace():
+            heading = line[level:].strip()
+            if heading:
+                boundaries.append(
+                    _HeadingBoundary(start=offset, level=level, heading=heading)
+                )
+        offset += len(raw_line)
+    return boundaries
 
 
 def _join_number(counters: list[int]) -> str:
@@ -104,21 +132,41 @@ def overflow_split(text: str, max_tokens: int) -> list[str]:
     size = 0
     for para in paragraphs:
         para_tokens = chunk_token_count(para)
-        if buf and size + para_tokens > max_tokens:
-            parts.append("\n\n".join(buf))
-            buf = [para] if para_tokens <= max_tokens else _split_long_para(para, max_tokens)
-            size = chunk_token_count(buf[0]) if len(buf) == 1 else max_tokens
-        elif para_tokens > max_tokens:
-            parts.append("\n\n".join(buf)) if buf else None
-            buf = []
-            parts.extend(_split_long_para(para, max_tokens))
-            size = 0
-        else:
-            buf.append(para)
-            size += para_tokens
+        buf, size = _append_paragraph(
+            para,
+            para_tokens=para_tokens,
+            max_tokens=max_tokens,
+            parts=parts,
+            buf=buf,
+            size=size,
+        )
     if buf:
         parts.append("\n\n".join(buf))
     return [p for p in parts if p.strip()]
+
+
+def _append_paragraph(
+    para: str,
+    *,
+    para_tokens: int,
+    max_tokens: int,
+    parts: list[str],
+    buf: list[str],
+    size: int,
+) -> tuple[list[str], int]:
+    """Update overflow buffers for one paragraph without changing split semantics."""
+    if buf and size + para_tokens > max_tokens:
+        parts.append("\n\n".join(buf))
+        next_buf = [para] if para_tokens <= max_tokens else _split_long_para(para, max_tokens)
+        next_size = chunk_token_count(next_buf[0]) if len(next_buf) == 1 else max_tokens
+        return next_buf, next_size
+    if para_tokens > max_tokens:
+        if buf:
+            parts.append("\n\n".join(buf))
+        parts.extend(_split_long_para(para, max_tokens))
+        return [], 0
+    buf.append(para)
+    return buf, size + para_tokens
 
 
 def _split_long_para(para: str, max_tokens: int) -> list[str]:

@@ -18,7 +18,7 @@ a concept document's frontmatter block.
 
 from __future__ import annotations
 
-import re
+import math
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -55,15 +55,24 @@ class _DefersToEntry(BaseModel):
     target: str
     scope: str = ""
     reason: str = ""
+    override_note: str = ""
+
+
+class _SupersedesEntry(BaseModel):
+    """A qualified partial-supersession entry."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    target: str
+    scope: str = ""
+    reason: str = ""
 
 
 #: Optional frontmatter fields whose EXPLICIT YAML null means "empty".
 #: FK-13 §13.9.6's own example writes ``parent_concept_id:`` and
 #: ``superseded_by:`` with no value, so an explicit null for an optional field is
 #: the documented way to say "absent" -- not a wrong type (N20).
-_NULLABLE_OPTIONALS: frozenset[str] = frozenset(
-    {"parent_concept_id", "superseded_by", "module", "section_number"}
-)
+_NULLABLE_OPTIONALS: frozenset[str] = frozenset({"parent_concept_id", "superseded_by", "module", "section_number"})
 
 
 class ConceptFrontmatter(BaseModel):
@@ -89,11 +98,11 @@ class ConceptFrontmatter(BaseModel):
     doc_kind: str
     module: str = ""
     parent_concept_id: str = ""
-    supersedes: list[str] = Field(default_factory=list)
+    supersedes: list[_SupersedesEntry | str] = Field(default_factory=list)
     superseded_by: str = ""
     tags: list[str] = Field(default_factory=list)
     authority_over: list[_AuthorityScopeEntry] = Field(default_factory=list)
-    defers_to: list[_DefersToEntry] = Field(default_factory=list)
+    defers_to: list[_DefersToEntry | str] = Field(default_factory=list)
     section_number: str = ""
 
     @classmethod
@@ -101,43 +110,9 @@ class ConceptFrontmatter(BaseModel):
         """Validate a parsed mapping strictly; map enum/type errors to codes."""
         # An EXPLICIT YAML null for an optional field means "empty" (FK-13 §13.9.6
         # writes exactly that in its own example); every other type stays strict.
-        data = {
-            key: ("" if value is None and key in _NULLABLE_OPTIONALS else value)
-            for key, value in data.items()
-        }
-        # Enum + type pre-checks: a non-string or disallowed value is a named
-        # schema error (no coercion, AC10).
-        for field_name, allowed in (("status", {"active", "draft", "archived"}), ("doc_kind", {"core", "appendix"})):
-            value = data.get(field_name)
-            if value is None:
-                continue
-            if not isinstance(value, str):
-                raise FrontmatterError(
-                    f"{field_name} must be a string in {'|'.join(sorted(allowed))}, "
-                    f"got {type(value).__name__} (no coercion, AC10)",
-                    code="E-SCHEMA-003",
-                )
-            if value not in allowed:
-                raise FrontmatterError(
-                    f"{field_name} {value!r} is not in {'|'.join(sorted(allowed))}",
-                    code="E-SCHEMA-003",
-                )
-        # List-type fields must be lists of strings (no coercion).
-        for list_field in ("tags", "supersedes"):
-            value = data.get(list_field)
-            if value is None:
-                continue
-            if not isinstance(value, list):
-                raise FrontmatterError(
-                    f"{list_field} must be a list, got {type(value).__name__} (AC10)",
-                    code="E-SCHEMA-002",
-                )
-            for item in value:
-                if not isinstance(item, str):
-                    raise FrontmatterError(
-                        f"{list_field} entry must be a string, got {type(item).__name__} (AC10)",
-                        code="E-SCHEMA-002",
-                    )
+        data = {key: ("" if value is None and key in _NULLABLE_OPTIONALS else value) for key, value in data.items()}
+        _validate_enum_fields(data)
+        _validate_string_list_fields(data)
         try:
             return cls.model_validate(data)
         except ValidationError as exc:
@@ -155,7 +130,27 @@ class ConceptFrontmatter(BaseModel):
 
     @property
     def defers_to_targets(self) -> tuple[str, ...]:
-        return tuple(e.target for e in self.defers_to)
+        return tuple(e if isinstance(e, str) else e.target for e in self.defers_to)
+
+    @property
+    def defers_to_full(self) -> tuple[tuple[str, str, str], ...]:
+        """Project both canonical deferral spellings without coercion."""
+        return tuple(
+            (entry, "", "") if isinstance(entry, str) else (entry.target, entry.scope, entry.reason) for entry in self.defers_to
+        )
+
+    @property
+    def supersedes_targets(self) -> tuple[str, ...]:
+        """Project target ids from both canonical supersession spellings."""
+        return tuple(entry if isinstance(entry, str) else entry.target for entry in self.supersedes)
+
+    @property
+    def supersedes_full(self) -> tuple[tuple[str, str, str], ...]:
+        """Project both canonical supersession spellings without coercion."""
+        return tuple(
+            (entry, "", "") if isinstance(entry, str) else (entry.target, entry.scope, entry.reason)
+            for entry in self.supersedes
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -167,20 +162,18 @@ class _StrictSafeLoader(yaml.SafeLoader):
     """SafeLoader that REJECTS duplicate mapping keys (no YAML-last-wins)."""
 
 
-def _no_duplicates_constructor(
-    loader: yaml.Loader, node: yaml.MappingNode, deep: bool = False
-) -> dict[str, Any]:
+def _no_duplicates_constructor(loader: yaml.Loader, node: yaml.MappingNode, deep: bool = False) -> dict[str, Any]:
     """Reject duplicate keys in a mapping node at any nesting level."""
     mapping: dict[str, Any] = {}
     for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)  # type: ignore[no-untyped-call]
+        key = loader.construct_object(key_node, deep=deep)
         if key in mapping:
             raise FrontmatterError(
                 f"duplicate YAML key {key!r} in frontmatter (no last-wins, AC10)",
                 code="E-SCHEMA-001",
             )
         _check_depth(value_node, depth=1)
-        mapping[key] = loader.construct_object(value_node, deep=deep)  # type: ignore[no-untyped-call]
+        mapping[key] = loader.construct_object(value_node, deep=deep)
     return mapping
 
 
@@ -198,14 +191,54 @@ def _check_depth(node: yaml.Node, depth: int) -> None:
             _check_depth(v, depth + 1)
 
 
-_StrictSafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates_constructor
-)
+_StrictSafeLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates_constructor)
+
+
+def _validate_enum_fields(data: dict[str, Any]) -> None:
+    """Reject non-string and unknown enum values before Pydantic sees them."""
+    for field_name, allowed in (
+        ("status", {"active", "draft", "archived"}),
+        ("doc_kind", {"core", "detail", "appendix"}),
+    ):
+        value = data.get(field_name)
+        if value is None:
+            continue
+        allowed_text = "|".join(sorted(allowed))
+        if not isinstance(value, str):
+            raise FrontmatterError(
+                f"{field_name} must be a string in {allowed_text}, "
+                f"got {type(value).__name__} (no coercion, AC10)",
+                code="E-SCHEMA-003",
+            )
+        if value not in allowed:
+            raise FrontmatterError(
+                f"{field_name} {value!r} is not in {allowed_text}",
+                code="E-SCHEMA-003",
+            )
+
+
+def _validate_string_list_fields(data: dict[str, Any]) -> None:
+    """Reject non-list and non-string entries without coercion."""
+    for list_field in ("tags",):
+        value = data.get(list_field)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            raise FrontmatterError(
+                f"{list_field} must be a list, got {type(value).__name__} (AC10)",
+                code="E-SCHEMA-002",
+            )
+        invalid = next((item for item in value if not isinstance(item, str)), None)
+        if invalid is not None:
+            raise FrontmatterError(
+                f"{list_field} entry must be a string, got {type(invalid).__name__} (AC10)",
+                code="E-SCHEMA-002",
+            )
 
 
 def _reject_non_finite(value: Any) -> Any:
     """Reject float('inf')/float('nan') (YAML ``.inf``/``.nan`` literals)."""
-    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+    if isinstance(value, float) and not math.isfinite(value):
         raise FrontmatterError(
             "frontmatter contains a non-finite number (.inf/.nan), AC10",
             code="E-SCHEMA-001",
@@ -249,7 +282,7 @@ def split_frontmatter(raw: str) -> tuple[str, str]:
             "frontmatter block is empty",
             code="E-SCHEMA-001",
         )
-    body = "".join(lines[close_index + 1:])
+    body = "".join(lines[close_index + 1 :])
     return frontmatter_text, body.lstrip("\n")
 
 
@@ -262,9 +295,7 @@ def parse_frontmatter_block(text: str) -> dict[str, Any]:
     try:
         data = yaml.load(text, Loader=_StrictSafeLoader)
     except yaml.YAMLError as exc:
-        raise FrontmatterError(
-            f"frontmatter is not valid YAML: {exc}", code="E-SCHEMA-001"
-        ) from exc
+        raise FrontmatterError(f"frontmatter is not valid YAML: {exc}", code="E-SCHEMA-001") from exc
     if data is None:
         raise FrontmatterError("frontmatter block parsed to nothing", code="E-SCHEMA-001")
     if not isinstance(data, dict):
@@ -305,9 +336,7 @@ def read_text_strict(path: object) -> str:
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise FrontmatterError(
-            f"file {p} is not valid UTF-8 (AC10): {exc}", code="E-SCHEMA-001"
-        ) from exc
+        raise FrontmatterError(f"file {p} is not valid UTF-8 (AC10): {exc}", code="E-SCHEMA-001") from exc
 
 
 def parse_document_frontmatter(raw_text: str) -> ConceptFrontmatter | None:
@@ -329,9 +358,13 @@ def iter_section_number(body: str) -> Iterator[tuple[str, int]]:
     Level: 2 for ``##``, 3 for ``###``. Used by the chunker to derive
     ``section_number``.
     """
-    for match in re.finditer(r"^(#{2,3})\s+(.+?)\s*$", body, re.MULTILINE):
-        hashes, heading = match.group(1), match.group(2)
-        yield heading, len(hashes)
+    for line in body.splitlines():
+        level = len(line) - len(line.lstrip("#"))
+        if level not in (2, 3) or len(line) == level or not line[level].isspace():
+            continue
+        heading = line[level:].strip()
+        if heading:
+            yield heading, level
 
 
 __all__ = [

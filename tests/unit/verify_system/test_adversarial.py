@@ -6,6 +6,8 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
+
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 from agentkit.backend.installer import InstallConfig, install_agentkit
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
@@ -14,15 +16,15 @@ from agentkit.backend.state_backend.store.verify_story_context_repository import
     StateBackendVerifyStoryContextAdapter,
 )
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
+from agentkit.backend.verify_system.protocols import QALayer
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
-from agentkit.backend.story_context_manager.models import StoryContext
-from agentkit.backend.story_context_manager.types import StoryMode, StoryType
-from agentkit.backend.verify_system.protocols import QALayer
 
 
 def _wired_audit_deps(store_dir: Path) -> dict[str, object]:
@@ -77,6 +79,7 @@ class TestAdversarialChallenger:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
@@ -119,15 +122,10 @@ class TestAdversarialChallenger:
         assert audit["status"] == "materialized"
         assert audit["run_id"] == "run-review-001"
         assert audit["render_mode"] == "rendered"
-        assert audit["artifact_path"] == (
-            ".agentkit/prompts/run-review-001/"
-            "verify-adversarial-attempt-001/prompt.md"
-        )
+        assert audit["artifact_path"] == (".agentkit/prompts/run-review-001/verify-adversarial-attempt-001/prompt.md")
         assert "manifest_path" not in audit
         assert isinstance(audit["audit_record_key"], str)
-        assert (
-            project_root / str(audit["artifact_path"])
-        ).is_file()
+        assert (project_root / str(audit["artifact_path"])).is_file()
         assert not (
             project_root
             / ".agentkit"
@@ -155,9 +153,7 @@ class TestAdversarialChallenger:
         # The sandbox epoch defaults to attempt=1 when no run scope resolves.
         sandbox = story_dir / "_temp" / "adversarial" / "TEST-001" / "1"
         sandbox.mkdir(parents=True)
-        (sandbox / "test_edge.py").write_text(
-            "def test_edge():\n    assert True\n", encoding="utf-8"
-        )
+        (sandbox / "test_edge.py").write_text("def test_edge():\n    assert True\n", encoding="utf-8")
         (sandbox / "result.json").write_text(
             json.dumps(
                 {
@@ -209,9 +205,7 @@ class TestAdversarialChallenger:
         # The runtime owns the canonical adversarial.json write.
         assert result.metadata["artifact_materialized"] is True
 
-    def test_evaluate_resolves_sandbox_epoch_from_run_scope(
-        self, tmp_path: Path
-    ) -> None:
+    def test_evaluate_resolves_sandbox_epoch_from_run_scope(self, tmp_path: Path) -> None:
         """AC2: the challenger resolves the sandbox epoch via the run-scope port."""
         from agentkit.backend.telemetry.emitters import MemoryEmitter
         from agentkit.backend.verify_system.protocols import RunScope
@@ -222,9 +216,7 @@ class TestAdversarialChallenger:
         sandbox = story_dir / "_temp" / "adversarial" / "TEST-001" / "3"
         sandbox.mkdir(parents=True)
         (sandbox / "result.json").write_text(
-            json.dumps(
-                {"story_id": "TEST-001", "status": "PASS", "tests_executed": 1, "tests": []}
-            ),
+            json.dumps({"story_id": "TEST-001", "status": "PASS", "tests_executed": 1, "tests": []}),
             encoding="utf-8",
         )
 

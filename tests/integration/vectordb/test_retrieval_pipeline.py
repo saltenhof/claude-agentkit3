@@ -22,9 +22,11 @@ from agentkit.backend.vectordb.ingest.adapter import concept_chunks_to_objects
 from agentkit.backend.vectordb.schema import OWNING_GENERATION_PROPERTY
 from agentkit.backend.vectordb.sync import (
     ClaimSupersededError,
+    ProducerCompletion,
     SourceClaim,
     SyncReceipt,
     SyncService,
+    completion_run_id,
     utc_now,
 )
 from agentkit.concepts.parser import discover_concept_files
@@ -47,6 +49,7 @@ class IndexingFakeStore:
 
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, SyncReceipt] = field(default_factory=dict)
+    producer_completions: list[ProducerCompletion] = field(default_factory=list)
     _claims: dict[tuple[str, str], SourceClaim] = field(default_factory=dict)
     #: Highest generation EVER allocated per source -- survives a release (N37).
     _generations: dict[tuple[str, str], int] = field(default_factory=dict)
@@ -185,6 +188,50 @@ class IndexingFakeStore:
         sealed = receipt.stamped(sequence=self._sequence)
         self.receipts[f"{sealed.project_id}|{sealed.source_file}"] = sealed
         return sealed
+
+    def set_receipts(
+        self,
+        *,
+        run_id: str,
+        receipts: Sequence[SyncReceipt],
+        producer_completions: Sequence[ProducerCompletion],
+    ) -> Sequence[SyncReceipt]:
+        project_ids = {receipt.project_id for receipt in receipts}
+        project_ids.update(item.project_id for item in producer_completions)
+        if len(project_ids) != 1:
+            raise AssertionError("one completion run must bind exactly one project")
+        project_id = next(iter(project_ids))
+        if run_id != completion_run_id(project_id, receipts, producer_completions):
+            raise AssertionError("completion run id does not bind its payload")
+        sealed = [
+            receipt.stamped(sequence=self._sequence + offset)
+            for offset, receipt in enumerate(receipts, start=1)
+        ]
+        end_sequence = self._sequence + max(1, len(sealed))
+        self.receipts.update(
+            {
+                f"{receipt.project_id}|{receipt.source_file}": receipt
+                for receipt in sealed
+            }
+        )
+        self.producer_completions.extend(
+            completion.stamped(sequence=end_sequence)
+            for completion in producer_completions
+        )
+        self._sequence = end_sequence
+        return sealed
+
+    def list_producer_completions(
+        self, *, project_id: str
+    ) -> Sequence[ProducerCompletion]:
+        return [
+            completion
+            for completion in self.producer_completions
+            if completion.project_id == project_id
+        ]
+
+    def resolve_pending_commits(self, *, project_id: str) -> None:
+        del project_id
 
     # -- retrieval (simulated Weaviate search over indexed objects) --
     def query(self, *, project_id: str, source_type: str, limit: int = 10) -> list[Mapping[str, object]]:

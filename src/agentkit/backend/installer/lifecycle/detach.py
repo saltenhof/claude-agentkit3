@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import cast
 
 from agentkit.backend.installer.codex_settings import CODEX_HOOK_COMMAND
+from agentkit.backend.installer.mcp_registration import render_mcp_json_without_ak3
 from agentkit.backend.installer.paths import (
     AGENTKIT_DIR,
     AGENTKIT_TOOLS_DIR,
@@ -39,8 +40,8 @@ from agentkit.backend.installer.paths import (
 )
 from agentkit.backend.skills import is_directory_link, remove_directory_link
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
-    CodexConfigOwnership,
-    classify_ownership,
+    CodexConfigError,
+    render_without_ak3,
 )
 
 #: AK3 Claude hooks are emitted through this wrapper command (settings_writer).
@@ -253,9 +254,7 @@ def _strip_codex_hooks(hooks_path: Path) -> tuple[list[str], list[str]]:
     return removed, preserved
 
 
-def _strip_hook_matcher_groups(
-    groups: list[object], removed: list[str], preserved: list[str]
-) -> list[object]:
+def _strip_hook_matcher_groups(groups: list[object], removed: list[str], preserved: list[str]) -> list[object]:
     """Filter AK3 handlers out of an event's matcher groups (helper).
 
     A malformed group (not an object, ``hooks`` not a list, or a non-object
@@ -305,9 +304,7 @@ def _is_well_formed_hook_handlers(handlers: object) -> bool:
     return isinstance(handlers, list) and all(isinstance(h, dict) for h in handlers)
 
 
-def _record_ak3_command(
-    command: object, removed: list[str], preserved: list[str]
-) -> bool:
+def _record_ak3_command(command: object, removed: list[str], preserved: list[str]) -> bool:
     """Classify a hook command; record it and return whether it is AK3-owned."""
     if _is_ak3_hook_command(command):
         removed.append(str(command))
@@ -327,6 +324,7 @@ def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list
     code").
     """
     removed: list[str] = []
+    removed.extend(_remove_ak3_mcp_json(project_root, preserved_files))
     removed.extend(_remove_ak3_codex_config(project_root, preserved_files))
     removed.extend(_safe_remove_tree(project_root / AGENTKIT_TOOLS_DIR, project_root))
     removed.extend(_remove_empty_dir(project_root / "tools", project_root))
@@ -339,6 +337,28 @@ def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list
     removed.extend(_remove_empty_dir(project_root / CODEX_DIR, project_root))
     removed.extend(_remove_empty_dir(project_root / STORIES_DIR, project_root))
     return removed
+
+
+def _remove_ak3_mcp_json(project_root: Path, preserved_files: list[str]) -> list[str]:
+    """Remove only AK3 MCP values and retain foreign JSON value-equal."""
+    from agentkit.backend.core_types.mcp_server_registration import (
+        McpServerRegistrationError,
+    )
+    from agentkit.backend.utils.io import atomic_write_text
+
+    path = project_root / ".mcp.json"
+    if not path.is_file():
+        return []
+    try:
+        rendered = render_mcp_json_without_ak3(path.read_bytes())
+    except (OSError, McpServerRegistrationError):
+        preserved_files.append(str(path.relative_to(project_root)))
+        return []
+    if rendered.strip() == "{}":
+        return _remove_file(path, project_root)
+    atomic_write_text(path, rendered)
+    preserved_files.append(str(path.relative_to(project_root)))
+    return []
 
 
 def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> list[str]:
@@ -376,14 +396,21 @@ def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> 
         raw: bytes | None = config_path.read_bytes()
     except OSError:
         raw = None
-    ownership = classify_ownership(
-        raw, hook_command=CODEX_HOOK_COMMAND, project_root=project_root
-    )
-    if ownership is not CodexConfigOwnership.AK3_ONLY:
-        # Foreign / mixed / unreadable: preserve it, never delete foreign config.
+    if raw is None:
         preserved_files.append(str(config_path.relative_to(project_root)))
         return []
-    return _remove_file(config_path, project_root)
+    try:
+        rendered = render_without_ak3(raw, hook_command=CODEX_HOOK_COMMAND)
+    except CodexConfigError:
+        preserved_files.append(str(config_path.relative_to(project_root)))
+        return []
+    if not rendered.strip():
+        return _remove_file(config_path, project_root)
+    from agentkit.backend.utils.io import atomic_write_text
+
+    atomic_write_text(config_path, rendered)
+    preserved_files.append(str(config_path.relative_to(project_root)))
+    return []
 
 
 def _remove_ak3_prompt_bindings(project_root: Path, preserved_files: list[str]) -> list[str]:

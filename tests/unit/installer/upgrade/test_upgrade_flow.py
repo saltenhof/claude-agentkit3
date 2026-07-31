@@ -31,9 +31,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_run_upgrade_register_migrates_config_with_bak(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_run_upgrade_register_migrates_config_with_bak(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """register mode migrates 3->4 and writes a ``.bak`` (§51.4, scenario 3b path)."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
@@ -63,9 +61,7 @@ def test_run_upgrade_register_migrates_config_with_bak(
     assert on_disk["pipeline"]["config_version"] == "4.0"
 
 
-def test_run_upgrade_scenario_3b_config_edited(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_run_upgrade_scenario_3b_config_edited(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """AC3b: a registered digest != on-disk hash -> CONFIG_EDITED scenario."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
@@ -88,9 +84,7 @@ def test_run_upgrade_scenario_3b_config_edited(
     assert result.scenario.scenario is UpgradeScenario.CONFIG_EDITED
 
 
-def test_run_upgrade_scenario_3a_unchanged_skip(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_run_upgrade_scenario_3a_unchanged_skip(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """AC3a: equal digest + unchanged bundle -> UNCHANGED, no mutation."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
@@ -113,12 +107,12 @@ def test_run_upgrade_scenario_3a_unchanged_skip(
 
     assert result.scenario.scenario is UpgradeScenario.UNCHANGED
     assert result.config_migrated is False
-    assert result.mutated is False
+    # AG3-176: mandatory pre/post VectorDB dispatch is a convergence repair
+    # even when the config/bundle scenario itself is unchanged.
+    assert result.mutated is True
 
 
-def test_run_upgrade_scenario_3c_explicit_binding_switch(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_run_upgrade_scenario_3c_explicit_binding_switch(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """AC3c: a new variant is adopted only on an explicit binding switch."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
@@ -154,9 +148,7 @@ def test_run_upgrade_scenario_3c_explicit_binding_switch(
     assert not_pulled.scenario.scenario is not UpgradeScenario.NEW_VARIANT
 
 
-def test_run_upgrade_dry_run_does_not_mutate(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_run_upgrade_dry_run_does_not_mutate(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """dry_run plans the migration but writes NOTHING (FK-50 §50.2)."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
@@ -231,6 +223,7 @@ class _SkillsWithBinding:
             skill_name=skill_name,
             bundle_id="execute-userstory-custom",
             bundle_version="9.9.9",
+            content_digest="0" * 64,
             target_path=project_root / ".claude" / "skills" / skill_name,
             binding_mode=SkillBindingMode.SYMLINK,
             status=SkillLifecycleStatus.BOUND,

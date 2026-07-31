@@ -2,9 +2,83 @@ story_id: AG3-176
 story_title_short: "vectordb-installer-integration"
 title: "VektorDB-Installer-Integration (harnessuebergreifend): Endpunkt-Preflight fail-closed (kein Default-Fallback), strikte Config-Grenze, CP10a-Receipts, CP10b feuernde Pre-Commit-/Post-Commit-Installation, laufende Sync-Producer, schnittkonsistente Pflichtaktivierung (features.vectordb deprecaten), Skill-Auslieferung ohne stillen Fallback"
 type: implementation
-status: blocked
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-07-21"
+# Entblockt 2026-07-28: AG3-174 UND AG3-175 sind gelandet/completed.
+# Umsetzungsmodus (PO 2026-07-28): CODEX setzt um; danach Codex-Review-Agent;
+# bei Findings Codex-Remediation-Worker. Das Spiel laeuft GENAU 4 Runden.
+# ZUSATZ-INHALT (PO 2026-07-28): SonarQube komplett gruen ist expliziter
+# Story-Inhalt (neue AC 9). Die zuletzt gelandeten VektorDB-Storys
+# (AG3-172/174/175/177) wurden ohne Sonar umgesetzt; die aufgelaufene Schuld
+# wird hier mitbereinigt (Ursachenbehebung, keine Unterdrueckung).
+# Orchestrator verifiziert Sonar-Gate + volle Suite selbst (Groks/Agents
+# "gruen" wird nicht blind uebernommen).
+#
+# CODE-REVIEW BESTANDEN (2026-07-29), 4-Runden-Codex-Spiel wie mandatiert
+# (review-round1..4-codex.md). Umsetzer UND Reviewer = Codex (getrennte Agents).
+# Findings-Abbau 7 -> 3 -> 2 -> 1 -> 0; alle an der Wurzel geschlossen (keine
+# Unterdrueckung, kein Symptomfix). Orchestrator hat nach JEDER Runde volle Suite
+# + Sonar SELBST verifiziert. Finaler Eigenlauf: pytest 10898 passed / 0 failed
+# (ohne live-e2e), Coverage ~91%; mypy/ruff/Konzept-Static-Gates/Architecture-
+# Conformance gruen.
+# AC1-AC7 erfuellt. AC9 (Sonar) erfuellt: der 3 Wochen ungescannte VektorDB-
+# Bestand (AG3-172/174/175/177) wurde frisch gescannt und per URSACHENBEHEBUNG
+# komplett gruen gebracht -- Quality Gate PASSED, 0 offene Issues/Hotspots,
+# vom Orchestrator per Admin-API selbst bestaetigt (letzte Analyse 2026-07-28).
+#
+# KONZEPT-REVIEW (PO-Auflage 2026-07-30: "Wenn du die Konzeptinhalte mit Codex
+# Review abgesichert hast, dann habe ich da keinen Einspruch"). Getrennte
+# read-only Codex-Agents je Runde, 11 Runden.
+# ERGEBNIS: Runde 11 BESTANDEN, "landefaehig: ja", keine Vor-Merge-Auflagen.
+# Runde 11 fand ausserdem KEINE weitere Stelle mit veralteter Reihenfolge-/
+# Fence-Semantik mehr -- erstmals seit Runde 3 ist diese Klasse leer.
+# Belege: concept-review-round1-codex.md, concept-review-round2-3-codex.md,
+# concept-review-round4-11-codex.md (mit vollstaendiger Befundliste).
+# Der Orchestrator hat nach JEDER Runde volle Suite + ruff + mypy + alle sechs
+# Konzept-Gates selbst gefahren; Endstand 10932 passed / 0 failed.
+# Zwei Blocker waren echte Produktionsdefekte, keine Textfragen:
+#  - der MCP-Pin war BEIDSEITIG falsch: `mcp>=1.0` (unter 1.2.0 fehlt
+#    `mcp.server.fastmcp`) und danach `>=1.2.0` ohne Obergrenze (2.0.0 ist
+#    LATEST und liefert weder `mcp.server.fastmcp` noch `mcp.types`). Am Wheel
+#    selbst verifiziert, nicht per Zitat. Jetzt `mcp>=1.2.0,<2`.
+#  - der CP-10a-Receipt-Vertrag war normiert, aber im Code nicht erzwungen
+#    (keine Wertebereiche, keine Korpusbindung, kein Producer-Bezug beim Lesen).
+# Zusaetzlich: eigene Negativtests waren regressionsblind (Strict-Mode-Tupel);
+# behoben, jeder Negativfall assertiert jetzt die Fehler-Lokation.
+# NEUE AC 10 (PO 2026-07-30): der nie flaechendeckend nachgezogene Beschluss
+# 2026-07-21 wird HIER mitgezogen statt in eine Folgestory geschnitten
+# ("die Arbeit bleibt dieselbe, plus du musst noch die Story schreiben").
+# Umfangserweiterung dadurch: concept/domain-design/00-uebersicht.md,
+# concept/_meta/bc-cut-decisions.md, FK-33, pyproject.toml.
+#
+# NEBENBEFUND, an der Wurzel behoben (aus AC9-Sonar-Bereinigung entstanden):
+# runmodel.py hatte 62 Konstanten hinter ein dynamisches Modul-`__getattr__`
+# gelegt -> jeder Zugriff wurde `Any`, ein Tippfehler im Konstantennamen erst
+# zur Laufzeit ein Fehler. Ersetzt durch das Eigentuemermodul mit normalen
+# Modul-Konstanten; alle 28 Konsumentenstellen sprechen es direkt an, kein
+# Re-Export, kein Shim.
+#
+# SEPARAT ERFASST, NICHT hier behoben: AG3-179 (Liveness-Defekt der
+# RUN.mutex-Koordinationsklinke). Als BESTANDSDEFEKT AUF MAIN belegt --
+# HEAD 10/96 rot, dieser Branch 2/48 unter gleicher Last -- also nicht von
+# AG3-176 eingeschleppt und fachlich fremder Kontext (FK-78 Concept-Council).
+#
+# OFFEN bis Closure (extern, NICHT Code):
+#  - AC8 W2/W3 (LLM-gestuetzte Konzept-Live-Gates): LLM-Hub braucht chatgpt +
+#    gemini re-auth fuer den 5-Backend-Sweep (grok/qwen/kimi healthy).
+#  - Jenkins: BLOCKIERT. Der Dienst laeuft (localhost:9900/login -> HTTP 200,
+#    anonyme API -> 403), aber BEIDE hinterlegten Credential-Varianten
+#    (JENKINS_API_TOKEN, JENKINS_PASSWORD aus T:\seu\agentkit3-secrets.cmd)
+#    liefern HTTP 401. Vom Orchestrator selbst reproduziert. Die frueher
+#    notierte Aussage "admin/password funktioniert" gilt NICHT mehr. An den PO
+#    gespiegelt; ohne gueltige Credentials kein Build und keine Gruen-Meldung.
+#  - Sonar: der letzte Scan liegt VOR den 11 Konzept-Review-Runden; AC9 auf
+#    diesem Stand abzuhaken waere eine Behauptung ohne Beleg. Ein frischer Scan
+#    auf dem finalen Stand steht aus (PO-Go, da Publikation auf gemeinsamen
+#    Server).
+#  - Commit/Merge: PO-Go ausstehend; Working Tree bewusst uncommitted.
+# NICHT auf done setzen bis Closure-Gates + Landung.
 size: L  # von M angehoben (Review Schnitt-/Groessenurteil): nach vollstaendiger
          # Ring-/Hook-Integration (CP10b/Pre-Commit, Post-Commit build->sync,
          # CP10a-Receipts, strikte Config-/Preflight-Grenzen) faktisch L.

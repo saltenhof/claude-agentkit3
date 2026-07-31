@@ -15,7 +15,11 @@ pre_merge_runner test suite); AG3-053 consumes them via the composition root.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
+
+import yaml
+from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
 from agentkit.backend.bootstrap.composition_implementation_evidence import (
     CiBuildTestFastRunner,
@@ -34,6 +38,8 @@ from agentkit.backend.verify_system.pre_merge_runner.contract import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
     from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
@@ -152,9 +158,7 @@ def test_sanity_gate_clean_worktree_and_rebase_ok_but_no_runner_escalates(
 
 def test_sanity_gate_dirty_worktree_escalates_before_rebase(tmp_path: Path) -> None:
     """A dirty worktree fails closed before any rebase attempt."""
-    git = _ScriptedGitBackend(
-        results={"status": GitCommandResult(returncode=0, stdout=" M file.py\n")}
-    )
+    git = _ScriptedGitBackend(results={"status": GitCommandResult(returncode=0, stdout=" M file.py\n")})
     port = ProductiveSanityGatePort(git_backend=git)
 
     outcome = port.evaluate(tmp_path, StoryType.BUGFIX)
@@ -184,9 +188,7 @@ def test_sanity_gate_rebase_conflict_aborts_and_escalates(tmp_path: Path) -> Non
 def test_sanity_gate_all_green_with_runner_passes(tmp_path: Path) -> None:
     """Clean worktree + rebase OK + injected runner green -> PASS."""
     git = _ScriptedGitBackend()
-    port = ProductiveSanityGatePort(
-        git_backend=git, test_runner=lambda _d: (True, None)
-    )
+    port = ProductiveSanityGatePort(git_backend=git, test_runner=lambda _d: (True, None))
 
     outcome = port.evaluate(tmp_path, StoryType.IMPLEMENTATION)
 
@@ -197,9 +199,7 @@ def test_sanity_gate_all_green_with_runner_passes(tmp_path: Path) -> None:
 def test_sanity_gate_runner_red_escalates(tmp_path: Path) -> None:
     """An injected runner reporting red tests escalates with its reason."""
     git = _ScriptedGitBackend()
-    port = ProductiveSanityGatePort(
-        git_backend=git, test_runner=lambda _d: (False, "3 tests failed")
-    )
+    port = ProductiveSanityGatePort(git_backend=git, test_runner=lambda _d: (False, "3 tests failed"))
 
     outcome = port.evaluate(tmp_path, StoryType.IMPLEMENTATION)
 
@@ -254,15 +254,63 @@ def test_doc_fidelity_feedback_setup_failure_is_nonblocking_warning(
     assert "feedback_fidelity" in warning
 
 
-def test_vectordb_sync_is_nonblocking_warning(tmp_path: Path) -> None:
-    """VectorDB sync always runs and surfaces a Warning when unavailable."""
-    port = ProductiveVectorDbSyncPort()
+def test_vectordb_sync_is_reliably_submitted_to_existing_engine(tmp_path: Path) -> None:
+    """Closure returns immediately while retaining and observing the real task."""
+    config_dir = tmp_path / ".agentkit" / "config"
+    config_dir.mkdir(parents=True)
+    config_dir.joinpath("project.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "project_key": "ag3",
+                "project_name": "AG3",
+                "project_prefix": "AG3",
+                "repositories": [{"name": "main", "path": "."}],
+                "story_types": ["concept"],
+                "concepts_dir": "concept",
+                "wiki_stories_dir": "stories",
+                "pipeline": {
+                    "config_version": "3.0",
+                    "features": {"multi_llm": False},
+                    "vectordb": {
+                        "weaviate_http_endpoint": "http://weaviate.test.invalid:9903",
+                        "weaviate_grpc_endpoint": "weaviate.test.invalid:50051",
+                    },
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "stories").mkdir()
+    (tmp_path / "concept").mkdir()
+    port = ProductiveVectorDbSyncPort(client=RecordingWeaviateClient())
 
-    triggered, warning = port.trigger_sync(None, tmp_path)  # type: ignore[arg-type]
+    triggered, warning = port.trigger_sync(
+        SimpleNamespace(project_root=tmp_path),  # type: ignore[arg-type]
+        tmp_path / "stories" / "AG3-1",
+    )
 
-    assert not triggered
-    assert warning is not None
-    assert "VectorDB" in warning
+    assert triggered
+    assert warning is None
+    assert port.wait_for_pending(timeout=5)
+
+
+def test_vectordb_sync_background_failure_is_observable(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A submitted failure is retained through observation and logged."""
+    port = ProductiveVectorDbSyncPort(client=RecordingWeaviateClient())
+
+    triggered, warning = port.trigger_sync(
+        SimpleNamespace(project_root=tmp_path),  # type: ignore[arg-type]
+        tmp_path / "stories" / "AG3-1",
+    )
+
+    assert triggered
+    assert warning is None
+    assert port.wait_for_pending(timeout=5)
+    assert "closure story_sync failed" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -297,9 +345,7 @@ def test_mode_lock_release_no_marker_is_noop(tmp_path: Path, monkeypatch: object
 
     monkeypatch.setattr(  # type: ignore[attr-defined]
         "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
-        lambda story_dir: RuntimeStateScope(
-            project_key="proj", story_id="AG3-131", story_dir=story_dir, run_id="run-1"
-        ),
+        lambda story_dir: RuntimeStateScope(project_key="proj", story_id="AG3-131", story_dir=story_dir, run_id="run-1"),
     )
     released, warning = port.release(tmp_path, "proj", "AG3-131")
 
@@ -308,9 +354,7 @@ def test_mode_lock_release_no_marker_is_noop(tmp_path: Path, monkeypatch: object
     assert repo.released == []
 
 
-def test_mode_lock_release_uses_acquired_mode_from_marker(
-    tmp_path: Path, monkeypatch: object
-) -> None:
+def test_mode_lock_release_uses_acquired_mode_from_marker(tmp_path: Path, monkeypatch: object) -> None:
     """The release uses the mode recorded in the durable acquire marker."""
     from agentkit.backend.closure.runtime_ports import ProductiveModeLockReleasePort
     from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
@@ -325,13 +369,9 @@ def test_mode_lock_release_uses_acquired_mode_from_marker(
 
     monkeypatch.setattr(  # type: ignore[attr-defined]
         "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
-        lambda story_dir: RuntimeStateScope(
-            project_key="proj", story_id="AG3-131", story_dir=story_dir, run_id="run-1"
-        ),
+        lambda story_dir: RuntimeStateScope(project_key="proj", story_id="AG3-131", story_dir=story_dir, run_id="run-1"),
     )
-    repo = _RecordingModeLockRepo(
-        holder=ModeLockHolderRecord("proj", "AG3-131", "run-1", "fast", "now")
-    )
+    repo = _RecordingModeLockRepo(holder=ModeLockHolderRecord("proj", "AG3-131", "run-1", "fast", "now"))
     port = ProductiveModeLockReleasePort(mode_lock_repo=repo)  # type: ignore[arg-type]
 
     released, warning = port.release(tmp_path, "proj", "AG3-131")

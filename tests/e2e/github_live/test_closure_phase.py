@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_active_run_ownership, seed_approved_story
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.bootstrap.composition_root import (
@@ -144,6 +145,7 @@ class TestClosurePhaseE2E:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             )
         )
 
@@ -159,9 +161,7 @@ class TestClosurePhaseE2E:
             ["git", "-C", str(tmp_path), "config", "user.email", "t@e.com"],
             check=True,
         )
-        subprocess.run(
-            ["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True
-        )
+        subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True)
         setup_handler = build_setup_phase_handler(setup_config)
 
         # Seed the APPROVED Story the Setup preflight gate requires.
@@ -238,9 +238,7 @@ class TestClosurePhaseE2E:
 
         # 4. Closure: closes the story via the AK3 Story-Service (no GitHub).
         closure_config = ClosureConfig(story_dir=s_dir)
-        closure_handler = build_closure_phase_handler(
-            closure_config, store_dir=s_dir, project_key="e2e-closure-test"
-        )
+        closure_handler = build_closure_phase_handler(closure_config, store_dir=s_dir, project_key="e2e-closure-test")
 
         closure_ctx = StoryContext(
             project_key="e2e-closure-test",

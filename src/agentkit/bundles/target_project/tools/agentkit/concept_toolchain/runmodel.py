@@ -52,128 +52,76 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+#: Re-exported so the run-model vocabulary stays addressable as ``runmodel.NAME``
+#: while its definitions live in one cohesive owner module.
+from .runmodel_constants import (
+    ACTION_ID_RE,
+    ARRAY_REQUIRED,
+    ARTIFACT_KINDS,
+    ASSERTION_STATUSES,
+    ATOM_DISPOSITIONS,
+    ATOM_ID_LABEL,
+    ATOM_ID_RE,
+    ATOM_TYPES,
+    BASE_REVISION_KINDS,
+    CHANGE_KINDS,
+    CLAIM_ID_LABEL,
+    CLAIM_ID_RE,
+    COVERED_DISPOSITIONS,
+    DATA_CLASSES,
+    DECISION_STATUSES,
+    EQUIVALENCE_STATUSES,
+    FINDING_ID_LABEL,
+    FINDING_ID_RE,
+    FINDING_SEVERITIES,
+    FINDING_STATUSES,
+    GIT_OBJECT_ID_LABEL,
+    LEASE_OWNER_LOCATOR,
+    LIFECYCLES,
+    LOCK_BACKENDS,
+    NORMATIVE_STATUSES,
+    PACKAGE_ID_LABEL,
+    PACKAGE_ID_RE,
+    PARTICIPANT_ID_LABEL,
+    PARTICIPANT_ID_RE,
+    PARTICIPANT_STATUSES,
+    PRINCIPAL_ID_LABEL,
+    PRINCIPAL_ID_RE,
+    PROJECTION_KINDS,
+    PROMOTION_DISPOSITIONS,
+    RECEIPT_ID_LABEL,
+    RECEIPT_ID_RE,
+    RECEIPT_TARGET_LOCATOR,
+    RECEIPT_VERDICTS,
+    REGISTER_DIGEST_KEYS,
+    REVIEW_STATUSES,
+    ROUND_OUTCOMES,
+    ROUND_SEAL_LOCATOR,
+    RUN_ID_LABEL,
+    RUN_ID_RE,
+    RUN_PROFILES,
+    RUN_STATES,
+    SCOPE_NORMALIZE_RE,
+    SEMANTIC_GATE_STATUSES,
+    SEMANTIC_GATES,
+    SEMANTIC_RECEIPT_STATUSES,
+    SHA256_RE,
+    SOURCE_ID_LABEL,
+    SOURCE_ID_RE,
+    SOURCE_PHASES,
+    SOURCE_ROLES,
+    SPAWN_MODES,
+    SYNTHESIS_DISPOSITIONS,
+    TIMESTAMP_RE,
+    UNIT_ID_RE,
+    VCS_DISPOSITIONS,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$")
-RUN_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{8}$")
-PARTICIPANT_ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-PRINCIPAL_ID_RE = re.compile(r"^[a-z0-9]+([._-][a-z0-9]+)*$")
-UNIT_ID_RE = re.compile(r"^SU-[0-9a-f]{8}-\d{4,}$")
-CLAIM_ID_RE = re.compile(r"^CLM-[0-9a-f]{8}-\d{4,}$")
-ATOM_ID_RE = re.compile(r"^ATM-[0-9a-f]{8}-\d{4,}$")
-RECEIPT_ID_RE = re.compile(r"^RCP-[0-9a-f]{8}-\d{4,}$")
-PACKAGE_ID_RE = re.compile(r"^PKG-[0-9a-f]{8}-\d{2,}$")
-FINDING_ID_RE = re.compile(r"^FND-[0-9a-f]{8}-\d{4,}$")
-SOURCE_ID_RE = re.compile(r"^SRC-[0-9a-f]{8}-\d{4,}$")
-ACTION_ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-
-RUN_STATES = (
-    "FRAMING",
-    "STAFFING",
-    "PROPOSING",
-    "CONVERGING",
-    "SYNTHESIZING",
-    "DECIDING",
-    "PROMOTING",
-    "PROMOTION_FAILED",
-    "BLOCKED",
-    "RECHECK",
-    "CLOSED",
-    "ABORTED",
-)
-#: Rank of the linear main path; BLOCKED/RECHECK/PROMOTION_FAILED map via context.
-LINEAR_STATE_RANK = {
-    "FRAMING": 0,
-    "STAFFING": 1,
-    "PROPOSING": 2,
-    "CONVERGING": 3,
-    "SYNTHESIZING": 4,
-    "DECIDING": 5,
-    "PROMOTING": 6,
-    "CLOSED": 7,
-}
-RUN_PROFILES = ("LIGHT_INCUBATION", "FULL_ATOM")
-DATA_CLASSES = ("open", "internal", "sensitive")
-SPAWN_MODES = ("harness-bridge", "llm-hub", "subagent", "cli-resume")
-PARTICIPANT_STATUSES = ("active", "failed", "replaced", "withdrawn")
-ROUND_OUTCOMES = ("received", "timeout", "failed", "excluded")
-BASE_REVISION_KINDS = ("git", "digest")
-REGISTER_DIGEST_KEYS = (
-    "corpus_baseline",
-    "source_intake_input_head",
-    "source_intake_final_head",
-    "source_register_input",
-    "source_units_input",
-    "claims_inventory_input",
-    "derived_claims",
-    "disposition_ledger",
-    "source_register_final",
-    "source_units_final",
-    "atom_register",
-)
-SOURCE_PHASES = ("input", "derived")
-SOURCE_ROLES = ("BRIEFING", "PROPOSAL", "SYNTHESIS", "DISSENT_MAP", "PO_DECISION", "NORMATIVE_BASELINE", "EVIDENCE")
-REVIEW_STATUSES = ("PASS", "PASS_WITH_GAPS", "FAIL", "N_A")
-CHANGE_KINDS = ("unchanged", "modified", "added", "removed")
-ARTIFACT_KINDS = (
-    "briefing",
-    "proposal",
-    "synthesis",
-    "dissent_map",
-    "inventory",
-    "ledger",
-    "atom_register",
-    "manifest",
-    "receipt",
-    "round_state",
-    "coverage",
-    "finding",
-    "journal",
-    "other",
-)
-VCS_DISPOSITIONS = ("versioned", "local")
-FINDING_SEVERITIES = ("P0", "P1", "P2")
-FINDING_STATUSES = ("open", "resolved", "accepted_by_po")
-SYNTHESIS_DISPOSITIONS = ("ADOPTED", "MERGED", "SUPERSEDED_BY_CLAIM", "REJECTED_WITH_REASON", "OPEN_QUESTION")
-ATOM_TYPES = (
-    "REQUIREMENT",
-    "DOMAIN_FACT",
-    "DECISION",
-    "RATIONALE",
-    "EVIDENCE",
-    "PARAMETER_CANDIDATE",
-    "REJECTION",
-    "OPEN_QUESTION",
-)
-NORMATIVE_STATUSES = ("proposal", "accepted", "evidence", "rejected", "open")
-ATOM_DISPOSITIONS = (
-    "COVERED_EXACT",
-    "COVERED_SPLIT",
-    "REJECTED",
-    "OPEN_MISSING",
-    "DEFERRED_BACKLOG",
-    "EVIDENCE_ONLY",
-    "OUT_OF_AUDIT",
-    "SUPERSEDED",
-)
-COVERED_DISPOSITIONS = ("COVERED_EXACT", "COVERED_SPLIT")
-PROMOTION_DISPOSITIONS = ("promoted", "rejected", "deferred")
-SEMANTIC_GATES = ("authority-prose", "scope-consistency")
-SEMANTIC_GATE_KEYS = {"w2": "authority-prose", "w3": "scope-consistency"}
-SEMANTIC_GATE_STATUSES = ("passed", "blocked", "not_run")
-SEMANTIC_RECEIPT_STATUSES = ("passed", "failed")
-RECEIPT_VERDICTS = ("equivalent", "disagrees")
-LOCK_BACKENDS = ("filesystem", "git-remote")
-LIFECYCLES = ("current", "draft", "deprecated", "superseded")
-ASSERTION_STATUSES = ("draft", "active", "blocked_projection", "deprecated", "superseded")
-EQUIVALENCE_STATUSES = ("unreviewed", "equivalent", "disagrees", "stale", "blocked_missing_target")
-PROJECTION_KINDS = ("formal", "prose", "registry", "support", "test-oracle")
-DECISION_STATUSES = ("proposed", "accepted", "rejected", "superseded")
-
-_SCOPE_NORMALIZE_RE = re.compile(r"[._-]+")
+_SCOPE_NORMALIZE_RE = SCOPE_NORMALIZE_RE
 
 
 @dataclass(frozen=True)
@@ -312,7 +260,7 @@ def _str_list(
         return ()
     value = obj[key]
     if not isinstance(value, list):
-        ctx.error(f"{where}.{key}", "must be an array")
+        ctx.error(f"{where}.{key}", ARRAY_REQUIRED)
         return ()
     items: list[str] = []
     for index, item in enumerate(value):
@@ -331,7 +279,7 @@ def _obj_items(ctx: _Ctx, obj: Mapping[str, object], where: str, key: str) -> li
         return []
     value = obj[key]
     if not isinstance(value, list):
-        ctx.error(f"{where}.{key}", "must be an array")
+        ctx.error(f"{where}.{key}", ARRAY_REQUIRED)
         return []
     items: list[tuple[str, dict[str, object]]] = []
     for index, item in enumerate(value):
@@ -483,9 +431,7 @@ def _tsv_data_lines(path: Path, expected_header: str) -> tuple[list[str] | None,
     return lines[1:], None
 
 
-def _subset_pins(
-    run_dir: Path, expected: dict[str, str | None], issues: list[Issue]
-) -> None:
+def _subset_pins(run_dir: Path, expected: dict[str, str | None], issues: list[Issue]) -> None:
     register_rel = "baseline/source-register.tsv"
     register_path = run_dir / "baseline" / "source-register.tsv"
     if not register_path.is_file():
@@ -667,26 +613,30 @@ class RunState:
         return self.run_id[-8:]
 
 
-RUN_KEYS = (
-    "schema_version",
-    "run_id",
-    "title",
-    "profile",
-    "state",
-    "state_revision",
-    "lease_fencing_token",
-    "current_round",
-    "base_revision",
-    "data_class",
-    "actor",
-    "participants",
-    "register_digests",
-    "blocked",
-    "recheck",
-    "last_completed_action",
-    "next_action",
-    "updated_at",
-)
+def _run_keys() -> tuple[str, ...]:
+    return (
+        "schema_version",
+        "run_id",
+        "title",
+        "profile",
+        "state",
+        "state_revision",
+        "lease_fencing_token",
+        "current_round",
+        "base_revision",
+        "data_class",
+        "actor",
+        "participants",
+        "register_digests",
+        "blocked",
+        "recheck",
+        "last_completed_action",
+        "next_action",
+        "updated_at",
+    )
+
+
+RUN_KEYS = _run_keys()
 
 
 def _parse_base_revision(ctx: _Ctx, obj: Mapping[str, object], where: str) -> BaseRevision:
@@ -695,7 +645,9 @@ def _parse_base_revision(ctx: _Ctx, obj: Mapping[str, object], where: str) -> Ba
         return BaseRevision(kind="", value="")
     sub_where = f"{where}.base_revision"
     _keys(ctx, sub, sub_where, ("kind", "value"))
-    return BaseRevision(kind=_enum(ctx, sub, sub_where, "kind", BASE_REVISION_KINDS), value=_str(ctx, sub, sub_where, "value"))
+    return BaseRevision(
+        kind=_enum(ctx, sub, sub_where, "kind", BASE_REVISION_KINDS), value=_str(ctx, sub, sub_where, "value")
+    )
 
 
 def _parse_actor(ctx: _Ctx, obj: Mapping[str, object], where: str) -> RunActor:
@@ -708,7 +660,9 @@ def _parse_actor(ctx: _Ctx, obj: Mapping[str, object], where: str) -> RunActor:
         role=_str(ctx, sub, sub_where, "role"),
         harness=_str(ctx, sub, sub_where, "harness"),
         model=_str(ctx, sub, sub_where, "model"),
-        principal_id=_matched(ctx, sub, sub_where, "principal_id", PRINCIPAL_ID_RE, "principal id"),
+        principal_id=_matched(
+            ctx, sub, sub_where, "principal_id", PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL
+        ),
         session_ref=_str(ctx, sub, sub_where, "session_ref"),
     )
 
@@ -721,8 +675,12 @@ def _parse_data_release(ctx: _Ctx, obj: Mapping[str, object], where: str) -> Dat
     _keys(ctx, sub, sub_where, ("max_data_class", "source_ids", "package_ids", "approved_by_user"))
     return DataRelease(
         max_data_class=_enum(ctx, sub, sub_where, "max_data_class", DATA_CLASSES),
-        source_ids=_str_list(ctx, sub, sub_where, "source_ids", SOURCE_ID_RE, "source id"),
-        package_ids=_str_list(ctx, sub, sub_where, "package_ids", PACKAGE_ID_RE, "package id"),
+        source_ids=_str_list(
+            ctx, sub, sub_where, "source_ids", SOURCE_ID_RE, SOURCE_ID_LABEL
+        ),
+        package_ids=_str_list(
+            ctx, sub, sub_where, "package_ids", PACKAGE_ID_RE, PACKAGE_ID_LABEL
+        ),
         approved_by_user=_bool(ctx, sub, sub_where, "approved_by_user"),
     )
 
@@ -734,11 +692,25 @@ def _parse_participants(ctx: _Ctx, obj: Mapping[str, object], where: str) -> tup
         _keys(ctx, item, item_where, expected)
         participants.append(
             Participant(
-                participant_id=_matched(ctx, item, item_where, "participant_id", PARTICIPANT_ID_RE, "participant id"),
+                participant_id=_matched(
+                    ctx,
+                    item,
+                    item_where,
+                    "participant_id",
+                    PARTICIPANT_ID_RE,
+                    PARTICIPANT_ID_LABEL,
+                ),
                 model=_str(ctx, item, item_where, "model"),
                 backend=_str(ctx, item, item_where, "backend"),
                 spawn_mode=_enum(ctx, item, item_where, "spawn_mode", SPAWN_MODES),
-                principal_id=_matched(ctx, item, item_where, "principal_id", PRINCIPAL_ID_RE, "principal id"),
+                principal_id=_matched(
+                    ctx,
+                    item,
+                    item_where,
+                    "principal_id",
+                    PRINCIPAL_ID_RE,
+                    PRINCIPAL_ID_LABEL,
+                ),
                 session_ref=_opt_str(ctx, item, item_where, "session_ref"),
                 data_release=_parse_data_release(ctx, item, item_where),
                 status=_enum(ctx, item, item_where, "status", PARTICIPANT_STATUSES),
@@ -789,7 +761,7 @@ def load_run_state(path: Path) -> tuple[RunState | None, list[Issue]]:
     _keys(ctx, raw, "run", RUN_KEYS)
     run = RunState(
         schema_version=_semver(ctx, raw, "run"),
-        run_id=_matched(ctx, raw, "run", "run_id", RUN_ID_RE, "run id"),
+        run_id=_matched(ctx, raw, "run", "run_id", RUN_ID_RE, RUN_ID_LABEL),
         title=_str(ctx, raw, "run", "title"),
         profile=_enum(ctx, raw, "run", "profile", RUN_PROFILES),
         state=_enum(ctx, raw, "run", "state", RUN_STATES),
@@ -803,7 +775,9 @@ def load_run_state(path: Path) -> tuple[RunState | None, list[Issue]]:
         register_digests=_parse_register_digests(ctx, raw, "run"),
         blocked=_parse_blocked(ctx, raw, "run"),
         recheck=_parse_recheck(ctx, raw, "run"),
-        last_completed_action=_matched(ctx, raw, "run", "last_completed_action", ACTION_ID_RE, "stable action id"),
+        last_completed_action=_matched(
+            ctx, raw, "run", "last_completed_action", ACTION_ID_RE, "stable action id"
+        ),
         next_action=_matched(ctx, raw, "run", "next_action", ACTION_ID_RE, "stable action id"),
         updated_at=_time(ctx, raw, "run", "updated_at"),
     )
@@ -847,15 +821,22 @@ def load_lease(path: Path) -> tuple[Lease | None, list[Issue]]:
     owner_obj = _sub_obj(ctx, raw, "lease", "owner")
     owner = LeaseOwner(principal_id="", harness="", session_ref="")
     if owner_obj is not None:
-        _keys(ctx, owner_obj, "lease.owner", ("principal_id", "harness", "session_ref"))
+        _keys(ctx, owner_obj, LEASE_OWNER_LOCATOR, ("principal_id", "harness", "session_ref"))
         owner = LeaseOwner(
-            principal_id=_matched(ctx, owner_obj, "lease.owner", "principal_id", PRINCIPAL_ID_RE, "principal id"),
-            harness=_str(ctx, owner_obj, "lease.owner", "harness"),
-            session_ref=_str(ctx, owner_obj, "lease.owner", "session_ref"),
+            principal_id=_matched(
+                ctx,
+                owner_obj,
+                LEASE_OWNER_LOCATOR,
+                "principal_id",
+                PRINCIPAL_ID_RE,
+                PRINCIPAL_ID_LABEL,
+            ),
+            harness=_str(ctx, owner_obj, LEASE_OWNER_LOCATOR, "harness"),
+            session_ref=_str(ctx, owner_obj, LEASE_OWNER_LOCATOR, "session_ref"),
         )
     lease = Lease(
         schema_version=_semver(ctx, raw, "lease"),
-        run_id=_matched(ctx, raw, "lease", "run_id", RUN_ID_RE, "run id"),
+        run_id=_matched(ctx, raw, "lease", "run_id", RUN_ID_RE, RUN_ID_LABEL),
         owner=owner,
         fencing_token=_int(ctx, raw, "lease", "fencing_token", minimum=1),
         acquired_at=_time(ctx, raw, "lease", "acquired_at"),
@@ -928,7 +909,9 @@ def _parse_round_participant(ctx: _Ctx, item_where: str, item: Mapping[str, obje
         dispatch = RoundDispatch(
             sent_at=_time(ctx, dispatch_obj, dispatch_where, "sent_at"),
             prompt_digest=_sha(ctx, dispatch_obj, dispatch_where, "prompt_digest"),
-            input_digests=_str_list(ctx, dispatch_obj, dispatch_where, "input_digests", SHA256_RE, "sha256 digest"),
+            input_digests=_str_list(
+                ctx, dispatch_obj, dispatch_where, "input_digests", SHA256_RE, "sha256 digest"
+            ),
         )
     receipt_obj = _nullable_obj(ctx, item, item_where, "receipt")
     receipt: RoundReceipt | None = None
@@ -946,7 +929,9 @@ def _parse_round_participant(ctx: _Ctx, item_where: str, item: Mapping[str, obje
     if outcome == "received" and receipt is None:
         ctx.error(f"{item_where}.receipt", "required for outcome 'received'")
     return RoundParticipant(
-        participant_id=_matched(ctx, item, item_where, "participant_id", PARTICIPANT_ID_RE, "participant id"),
+        participant_id=_matched(
+            ctx, item, item_where, "participant_id", PARTICIPANT_ID_RE, PARTICIPANT_ID_LABEL
+        ),
         dispatch=dispatch,
         receipt=receipt,
         outcome=outcome,
@@ -958,12 +943,12 @@ def _parse_round_seal(ctx: _Ctx, raw: Mapping[str, object], sealed: bool) -> Rou
     seal_obj = _nullable_obj(ctx, raw, "round", "seal")
     if seal_obj is None:
         if sealed:
-            ctx.error("round.seal", "required when sealed is true")
+            ctx.error(ROUND_SEAL_LOCATOR, "required when sealed is true")
         return None
     if not sealed:
-        ctx.error("round.seal", "must be null when sealed is false")
-    _keys(ctx, seal_obj, "round.seal", ("sealed_at", "sealed_proposal_digests"))
-    digests_obj = _sub_obj(ctx, seal_obj, "round.seal", "sealed_proposal_digests")
+        ctx.error(ROUND_SEAL_LOCATOR, "must be null when sealed is false")
+    _keys(ctx, seal_obj, ROUND_SEAL_LOCATOR, ("sealed_at", "sealed_proposal_digests"))
+    digests_obj = _sub_obj(ctx, seal_obj, ROUND_SEAL_LOCATOR, "sealed_proposal_digests")
     digests: dict[str, str] = {}
     if digests_obj is not None:
         for participant_id, digest in digests_obj.items():
@@ -974,7 +959,10 @@ def _parse_round_seal(ctx: _Ctx, raw: Mapping[str, object], sealed: bool) -> Rou
                 ctx.error(where, "must be a sha256 lowercase-hex digest")
                 continue
             digests[participant_id] = digest
-    return RoundSeal(sealed_at=_time(ctx, seal_obj, "round.seal", "sealed_at"), sealed_proposal_digests=digests)
+    return RoundSeal(
+        sealed_at=_time(ctx, seal_obj, ROUND_SEAL_LOCATOR, "sealed_at"),
+        sealed_proposal_digests=digests,
+    )
 
 
 def load_round_state(path: Path) -> tuple[RoundState | None, list[Issue]]:
@@ -987,7 +975,7 @@ def load_round_state(path: Path) -> tuple[RoundState | None, list[Issue]]:
     sealed = _bool(ctx, raw, "round", "sealed")
     round_state = RoundState(
         schema_version=_semver(ctx, raw, "round"),
-        run_id=_matched(ctx, raw, "round", "run_id", RUN_ID_RE, "run id"),
+        run_id=_matched(ctx, raw, "round", "run_id", RUN_ID_RE, RUN_ID_LABEL),
         round=_int(ctx, raw, "round", "round", minimum=1),
         participants=tuple(
             _parse_round_participant(ctx, where, item) for where, item in _obj_items(ctx, raw, "round", "participants")
@@ -1036,20 +1024,29 @@ def load_coverage_plan(path: Path) -> tuple[CoveragePlan | None, list[Issue]]:
         _keys(ctx, item, item_where, ("package_id", "description", "paths", "assigned_participants", "redundancy"))
         packages.append(
             CoveragePackage(
-                package_id=_matched(ctx, item, item_where, "package_id", PACKAGE_ID_RE, "package id"),
+                package_id=_matched(
+                    ctx, item, item_where, "package_id", PACKAGE_ID_RE, PACKAGE_ID_LABEL
+                ),
                 description=_str(ctx, item, item_where, "description"),
                 paths=_str_list(ctx, item, item_where, "paths"),
                 assigned_participants=_str_list(
-                    ctx, item, item_where, "assigned_participants", PARTICIPANT_ID_RE, "participant id"
+                    ctx,
+                    item,
+                    item_where,
+                    "assigned_participants",
+                    PARTICIPANT_ID_RE,
+                    PARTICIPANT_ID_LABEL,
                 ),
                 redundancy=_int(ctx, item, item_where, "redundancy", minimum=1),
             )
         )
     plan = CoveragePlan(
         schema_version=_semver(ctx, raw, "plan"),
-        run_id=_matched(ctx, raw, "plan", "run_id", RUN_ID_RE, "run id"),
+        run_id=_matched(ctx, raw, "plan", "run_id", RUN_ID_RE, RUN_ID_LABEL),
         packages=tuple(packages),
-        integration_package_id=_matched(ctx, raw, "plan", "integration_package_id", PACKAGE_ID_RE, "package id"),
+        integration_package_id=_matched(
+            ctx, raw, "plan", "integration_package_id", PACKAGE_ID_RE, PACKAGE_ID_LABEL
+        ),
     )
     if ctx.issues:
         return None, ctx.issues
@@ -1147,22 +1144,26 @@ class PromotionManifest:
     semantic_gates: tuple[SemanticGateEntry, ...]
 
 
-MANIFEST_KEYS = (
-    "schema_version",
-    "run_id",
-    "base_revision",
-    "scopes",
-    "required_decision_ids",
-    "required_concept_ids",
-    "required_formal_ids",
-    "required_registry_edges",
-    "required_support_paths",
-    "required_test_oracles",
-    "targets",
-    "receipts_dir",
-    "scope_locks",
-    "semantic_gates",
-)
+def _manifest_keys() -> tuple[str, ...]:
+    return (
+        "schema_version",
+        "run_id",
+        "base_revision",
+        "scopes",
+        "required_decision_ids",
+        "required_concept_ids",
+        "required_formal_ids",
+        "required_registry_edges",
+        "required_support_paths",
+        "required_test_oracles",
+        "targets",
+        "receipts_dir",
+        "scope_locks",
+        "semantic_gates",
+    )
+
+
+MANIFEST_KEYS = _manifest_keys()
 
 
 def _parse_scopes(ctx: _Ctx, raw: Mapping[str, object]) -> tuple[PromotionScope, ...]:
@@ -1175,7 +1176,9 @@ def _parse_scopes(ctx: _Ctx, raw: Mapping[str, object]) -> tuple[PromotionScope,
             blockers.append(
                 ScopeBlocker(
                     reason=_str(ctx, blocker, blocker_where, "reason"),
-                    atom_ids=_str_list(ctx, blocker, blocker_where, "atom_ids", ATOM_ID_RE, "atom id"),
+                    atom_ids=_str_list(
+                        ctx, blocker, blocker_where, "atom_ids", ATOM_ID_RE, ATOM_ID_LABEL
+                    ),
                     owner=_str(ctx, blocker, blocker_where, "owner"),
                     visible_anchor=_str(ctx, blocker, blocker_where, "visible_anchor"),
                 )
@@ -1183,7 +1186,9 @@ def _parse_scopes(ctx: _Ctx, raw: Mapping[str, object]) -> tuple[PromotionScope,
         scopes.append(
             PromotionScope(
                 scope_id=_str(ctx, item, item_where, "scope_id"),
-                promotion_disposition=_enum(ctx, item, item_where, "promotion_disposition", PROMOTION_DISPOSITIONS),
+                promotion_disposition=_enum(
+                    ctx, item, item_where, "promotion_disposition", PROMOTION_DISPOSITIONS
+                ),
                 blockers=tuple(blockers),
             )
         )
@@ -1195,7 +1200,7 @@ def _parse_registry_edges(ctx: _Ctx, raw: Mapping[str, object]) -> tuple[Registr
         return ()
     value = raw["required_registry_edges"]
     if not isinstance(value, list):
-        ctx.error("manifest.required_registry_edges", "must be an array")
+        ctx.error("manifest.required_registry_edges", ARRAY_REQUIRED)
         return ()
     edges: list[RegistryEdge | str] = []
     for index, item in enumerate(value):
@@ -1251,7 +1256,9 @@ def _parse_manifest_collections(
         locks.append(
             ScopeLockEntry(
                 scope_id=_str(ctx, item, item_where, "scope_id"),
-                locked_by_run=_matched(ctx, item, item_where, "locked_by_run", RUN_ID_RE, "run id"),
+                locked_by_run=_matched(
+                    ctx, item, item_where, "locked_by_run", RUN_ID_RE, RUN_ID_LABEL
+                ),
                 fencing_token=_int(ctx, item, item_where, "fencing_token", minimum=1),
                 backend=_enum(ctx, item, item_where, "backend", LOCK_BACKENDS),
             )
@@ -1284,7 +1291,7 @@ def load_promotion_manifest(path: Path) -> tuple[PromotionManifest | None, list[
     edges, oracles, targets, locks = _parse_manifest_collections(ctx, raw)
     manifest = PromotionManifest(
         schema_version=_semver(ctx, raw, "manifest"),
-        run_id=_matched(ctx, raw, "manifest", "run_id", RUN_ID_RE, "run id"),
+        run_id=_matched(ctx, raw, "manifest", "run_id", RUN_ID_RE, RUN_ID_LABEL),
         base_revision=_parse_base_revision(ctx, raw, "manifest"),
         scopes=_parse_scopes(ctx, raw),
         required_decision_ids=_str_list(ctx, raw, "manifest", "required_decision_ids"),
@@ -1335,22 +1342,26 @@ class ProjectionReceipt:
     reviewed_at: str
 
 
-RECEIPT_KEYS = (
-    "schema_version",
-    "receipt_id",
-    "atom_id",
-    "target",
-    "target_mode",
-    "selector",
-    "source_digest",
-    "target_section_digest",
-    "writer_principal_id",
-    "writer_session_ref",
-    "reviewer_principal_id",
-    "reviewer_session_ref",
-    "verdict",
-    "reviewed_at",
-)
+def _receipt_keys() -> tuple[str, ...]:
+    return (
+        "schema_version",
+        "receipt_id",
+        "atom_id",
+        "target",
+        "target_mode",
+        "selector",
+        "source_digest",
+        "target_section_digest",
+        "writer_principal_id",
+        "writer_session_ref",
+        "reviewer_principal_id",
+        "reviewer_session_ref",
+        "verdict",
+        "reviewed_at",
+    )
+
+
+RECEIPT_KEYS = _receipt_keys()
 
 
 def load_projection_receipt(path: Path) -> tuple[ProjectionReceipt | None, list[Issue]]:
@@ -1363,10 +1374,10 @@ def load_projection_receipt(path: Path) -> tuple[ProjectionReceipt | None, list[
     target_obj = _sub_obj(ctx, raw, "receipt", "target")
     target = ReceiptTarget(path="", anchor="")
     if target_obj is not None:
-        _keys(ctx, target_obj, "receipt.target", ("path", "anchor"))
+        _keys(ctx, target_obj, RECEIPT_TARGET_LOCATOR, ("path", "anchor"))
         target = ReceiptTarget(
-            path=_str(ctx, target_obj, "receipt.target", "path"),
-            anchor=_str(ctx, target_obj, "receipt.target", "anchor", allow_empty=True),
+            path=_str(ctx, target_obj, RECEIPT_TARGET_LOCATOR, "path"),
+            anchor=_str(ctx, target_obj, RECEIPT_TARGET_LOCATOR, "anchor", allow_empty=True),
         )
     mode = _enum(ctx, raw, "receipt", "target_mode", TARGET_MODES)
     selector = _opt_str(ctx, raw, "receipt", "selector")
@@ -1380,16 +1391,27 @@ def load_projection_receipt(path: Path) -> tuple[ProjectionReceipt | None, list[
         ctx.error("receipt.target.anchor", f"must be empty for target_mode {mode!r}")
     receipt = ProjectionReceipt(
         schema_version=_semver(ctx, raw, "receipt"),
-        receipt_id=_matched(ctx, raw, "receipt", "receipt_id", RECEIPT_ID_RE, "receipt id"),
-        atom_id=_matched(ctx, raw, "receipt", "atom_id", ATOM_ID_RE, "atom id"),
+        receipt_id=_matched(
+            ctx, raw, "receipt", "receipt_id", RECEIPT_ID_RE, RECEIPT_ID_LABEL
+        ),
+        atom_id=_matched(ctx, raw, "receipt", "atom_id", ATOM_ID_RE, ATOM_ID_LABEL),
         target=target,
         target_mode=mode,
         selector=selector,
         source_digest=_sha(ctx, raw, "receipt", "source_digest"),
         target_section_digest=_sha(ctx, raw, "receipt", "target_section_digest"),
-        writer_principal_id=_matched(ctx, raw, "receipt", "writer_principal_id", PRINCIPAL_ID_RE, "principal id"),
+        writer_principal_id=_matched(
+            ctx, raw, "receipt", "writer_principal_id", PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL
+        ),
         writer_session_ref=_str(ctx, raw, "receipt", "writer_session_ref"),
-        reviewer_principal_id=_matched(ctx, raw, "receipt", "reviewer_principal_id", PRINCIPAL_ID_RE, "principal id"),
+        reviewer_principal_id=_matched(
+            ctx,
+            raw,
+            "receipt",
+            "reviewer_principal_id",
+            PRINCIPAL_ID_RE,
+            PRINCIPAL_ID_LABEL,
+        ),
         reviewer_session_ref=_str(ctx, raw, "receipt", "reviewer_session_ref"),
         verdict=_enum(ctx, raw, "receipt", "verdict", RECEIPT_VERDICTS),
         reviewed_at=_time(ctx, raw, "receipt", "reviewed_at"),
@@ -1415,18 +1437,22 @@ class DeclassificationReceipt:
     approved_at: str
 
 
-DECLASSIFICATION_KEYS = (
-    "schema_version",
-    "receipt_id",
-    "source_path",
-    "source_digest",
-    "output_path",
-    "output_digest",
-    "rules_applied",
-    "target_class",
-    "approved_by_principal",
-    "approved_at",
-)
+def _declassification_keys() -> tuple[str, ...]:
+    return (
+        "schema_version",
+        "receipt_id",
+        "source_path",
+        "source_digest",
+        "output_path",
+        "output_digest",
+        "rules_applied",
+        "target_class",
+        "approved_by_principal",
+        "approved_at",
+    )
+
+
+DECLASSIFICATION_KEYS = _declassification_keys()
 
 
 def load_declassification_receipt(path: Path) -> tuple[DeclassificationReceipt | None, list[Issue]]:
@@ -1438,14 +1464,23 @@ def load_declassification_receipt(path: Path) -> tuple[DeclassificationReceipt |
     _keys(ctx, raw, "receipt", DECLASSIFICATION_KEYS)
     receipt = DeclassificationReceipt(
         schema_version=_semver(ctx, raw, "receipt"),
-        receipt_id=_matched(ctx, raw, "receipt", "receipt_id", RECEIPT_ID_RE, "receipt id"),
+        receipt_id=_matched(
+            ctx, raw, "receipt", "receipt_id", RECEIPT_ID_RE, RECEIPT_ID_LABEL
+        ),
         source_path=_str(ctx, raw, "receipt", "source_path"),
         source_digest=_sha(ctx, raw, "receipt", "source_digest"),
         output_path=_str(ctx, raw, "receipt", "output_path"),
         output_digest=_sha(ctx, raw, "receipt", "output_digest"),
         rules_applied=_str_list(ctx, raw, "receipt", "rules_applied"),
         target_class=_enum(ctx, raw, "receipt", "target_class", ("open", "internal")),
-        approved_by_principal=_matched(ctx, raw, "receipt", "approved_by_principal", PRINCIPAL_ID_RE, "principal id"),
+        approved_by_principal=_matched(
+            ctx,
+            raw,
+            "receipt",
+            "approved_by_principal",
+            PRINCIPAL_ID_RE,
+            PRINCIPAL_ID_LABEL,
+        ),
         approved_at=_time(ctx, raw, "receipt", "approved_at"),
     )
     if ctx.issues:
@@ -1482,7 +1517,9 @@ def load_intent_state(path: Path) -> tuple[IntentState | None, list[Issue]]:
     ctx = _Ctx()
     _keys(ctx, raw, "intent", INTENT_KEYS)
     state = IntentState(
-        holder_principal=_matched(ctx, raw, "intent", "holder_principal", PRINCIPAL_ID_RE, "principal id"),
+        holder_principal=_matched(
+            ctx, raw, "intent", "holder_principal", PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL
+        ),
         holder_session=_str(ctx, raw, "intent", "holder_session"),
         intent_nonce=_str(ctx, raw, "intent", "intent_nonce"),
         acquired_at=_time(ctx, raw, "intent", "acquired_at"),
@@ -1528,7 +1565,9 @@ def load_mutex_state(path: Path) -> tuple[MutexState | None, list[Issue]]:
     ctx = _Ctx()
     _keys(ctx, raw, "mutex", MUTEX_KEYS)
     state = MutexState(
-        owner_principal=_matched(ctx, raw, "mutex", "owner_principal", PRINCIPAL_ID_RE, "principal id"),
+        owner_principal=_matched(
+            ctx, raw, "mutex", "owner_principal", PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL
+        ),
         owner_session=_str(ctx, raw, "mutex", "owner_session"),
         nonce=_str(ctx, raw, "mutex", "nonce"),
         acquired_at=_time(ctx, raw, "mutex", "acquired_at"),
@@ -1570,7 +1609,7 @@ def load_scope_lock(path: Path) -> tuple[ScopeLock | None, list[Issue]]:
     lock = ScopeLock(
         schema_version=_semver(ctx, raw, "lock"),
         scope_id=_str(ctx, raw, "lock", "scope_id"),
-        locked_by_run=_matched(ctx, raw, "lock", "locked_by_run", RUN_ID_RE, "run id"),
+        locked_by_run=_matched(ctx, raw, "lock", "locked_by_run", RUN_ID_RE, RUN_ID_LABEL),
         fencing_token=_int(ctx, raw, "lock", "fencing_token", minimum=1),
         backend=_enum(ctx, raw, "lock", "backend", LOCK_BACKENDS),
         acquired_at=_time(ctx, raw, "lock", "acquired_at"),
@@ -1583,21 +1622,26 @@ def load_scope_lock(path: Path) -> tuple[ScopeLock | None, list[Issue]]:
 
 LOCK_EVIDENCE_KEYS = ("schema_version", "backend", "remote", "refs")
 
-LOCK_EVIDENCE_REF_KEYS = (
-    "scope_id",
-    "ref",
-    "expected_ref",
-    "old_oid",
-    "new_oid",
-    "observed_oid",
-    "lock_blob_digest",
-    "fencing_token",
-    "ttl_seconds",
-    "acquired_at",
-    "attested_by_principal",
-    "attested_by_session",
-    "verified_at",
-)
+
+def _lock_evidence_ref_keys() -> tuple[str, ...]:
+    return (
+        "scope_id",
+        "ref",
+        "expected_ref",
+        "old_oid",
+        "new_oid",
+        "observed_oid",
+        "lock_blob_digest",
+        "fencing_token",
+        "ttl_seconds",
+        "acquired_at",
+        "attested_by_principal",
+        "attested_by_session",
+        "verified_at",
+    )
+
+
+LOCK_EVIDENCE_REF_KEYS = _lock_evidence_ref_keys()
 
 _GIT_OID_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 
@@ -1657,15 +1701,20 @@ def load_lock_evidence(path: Path) -> tuple[LockEvidence | None, list[Issue]]:
                 scope_id=_str(ctx, item, item_where, "scope_id"),
                 ref=ref_name,
                 expected_ref=expected_ref,
-                old_oid=_matched(ctx, item, item_where, "old_oid", _GIT_OID_RE, "git object id"),
-                new_oid=_matched(ctx, item, item_where, "new_oid", _GIT_OID_RE, "git object id"),
-                observed_oid=_matched(ctx, item, item_where, "observed_oid", _GIT_OID_RE, "git object id"),
+                old_oid=_matched(ctx, item, item_where, "old_oid", _GIT_OID_RE, GIT_OBJECT_ID_LABEL),
+                new_oid=_matched(ctx, item, item_where, "new_oid", _GIT_OID_RE, GIT_OBJECT_ID_LABEL),
+                observed_oid=_matched(ctx, item, item_where, "observed_oid", _GIT_OID_RE, GIT_OBJECT_ID_LABEL),
                 lock_blob_digest=_sha(ctx, item, item_where, "lock_blob_digest"),
                 fencing_token=_int(ctx, item, item_where, "fencing_token", minimum=1),
                 ttl_seconds=_int(ctx, item, item_where, "ttl_seconds", minimum=1),
                 acquired_at=_time(ctx, item, item_where, "acquired_at"),
                 attested_by_principal=_matched(
-                    ctx, item, item_where, "attested_by_principal", PRINCIPAL_ID_RE, "principal id"
+                    ctx,
+                    item,
+                    item_where,
+                    "attested_by_principal",
+                    PRINCIPAL_ID_RE,
+                    PRINCIPAL_ID_LABEL,
                 ),
                 attested_by_session=_str(ctx, item, item_where, "attested_by_session"),
                 verified_at=_time(ctx, item, item_where, "verified_at"),
@@ -2018,7 +2067,9 @@ def load_semantic_receipt(path: Path) -> tuple[SemanticReceipt | None, list[Issu
         gate=_enum(ctx, raw, "receipt", "gate", SEMANTIC_GATES),
         request_digest=_sha(ctx, raw, "receipt", "request_digest"),
         model=_str(ctx, raw, "receipt", "model"),
-        principal_id=_matched(ctx, raw, "receipt", "principal_id", PRINCIPAL_ID_RE, "principal id"),
+        principal_id=_matched(
+            ctx, raw, "receipt", "principal_id", PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL
+        ),
         session_ref=_str(ctx, raw, "receipt", "session_ref"),
         status=_enum(ctx, raw, "receipt", "status", SEMANTIC_RECEIPT_STATUSES),
         findings=tuple(findings),
@@ -2086,7 +2137,9 @@ def _check_empty_reason(value: str) -> str | None:
         return None
     if value.startswith("DUPLICATE_OF:"):
         suffix = value.removeprefix("DUPLICATE_OF:")
-        return None if UNIT_ID_RE.fullmatch(suffix) else f"DUPLICATE_OF must reference a unit id, got {suffix!r}"
+        return (
+            None if UNIT_ID_RE.fullmatch(suffix) else f"DUPLICATE_OF must reference a unit id, got {suffix!r}"
+        )
     if value.startswith("OUT_OF_SCOPE:"):
         return None if value.removeprefix("OUT_OF_SCOPE:") else "OUT_OF_SCOPE requires a reason"
     return f"must be NO_MATERIAL_CONTENT, DUPLICATE_OF:<unit_id> or OUT_OF_SCOPE:<reason>, got {value!r}"
@@ -2210,7 +2263,9 @@ def _check_row_order(row: TsvRow, id_column: str, previous_id: str | None, numbe
 
 
 _CHECK_SHA = _check_pattern(SHA256_RE, "sha256 lowercase-hex digest")
-_CHECK_SHA_OR_GENESIS = _check_pattern(SHA256_RE, "sha256 lowercase-hex digest (or the all-zero genesis digest)")
+_CHECK_SHA_OR_GENESIS = _check_pattern(
+    SHA256_RE, "sha256 lowercase-hex digest (or the all-zero genesis digest)"
+)
 
 
 def load_corpus_baseline(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]:
@@ -2269,9 +2324,7 @@ def intake_chain_problems(rows: Sequence[TsvRow]) -> list[Issue]:
             )
         computed = intake_entry_digest(row)
         if row["entry_digest"] != computed:
-            issues.append(
-                Issue(locator=f"line {number}:entry_digest", message="entry_digest does not match the row content")
-            )
+            issues.append(Issue(locator=f"line {number}:entry_digest", message="entry_digest does not match the row content"))
         expected_prev = row["entry_digest"]
     return issues
 
@@ -2321,15 +2374,27 @@ def load_source_intake(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]:
 def load_source_register(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]:
     """Load ``baseline/source-register.tsv``."""
     columns = (
-        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, "source id")),
+        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, SOURCE_ID_LABEL)),
         TsvColumn("source_phase", check=_check_enum_value(SOURCE_PHASES)),
         TsvColumn("role", check=_check_enum_value(SOURCE_ROLES)),
         TsvColumn("path", check=_check_rel_path),
         TsvColumn("sha256", check=_CHECK_SHA),
         TsvColumn("round", allow_empty=True, check=_check_int_value),
-        TsvColumn("participant_id", allow_empty=True, check=_check_pattern(PARTICIPANT_ID_RE, "participant id")),
-        TsvColumn("author_principal_id", allow_empty=True, check=_check_pattern(PRINCIPAL_ID_RE, "principal id")),
-        TsvColumn("genealogy_parents", allow_empty=True, check=check_semicolon_list(SOURCE_ID_RE, "source id")),
+        TsvColumn(
+            "participant_id",
+            allow_empty=True,
+            check=_check_pattern(PARTICIPANT_ID_RE, PARTICIPANT_ID_LABEL),
+        ),
+        TsvColumn(
+            "author_principal_id",
+            allow_empty=True,
+            check=_check_pattern(PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL),
+        ),
+        TsvColumn(
+            "genealogy_parents",
+            allow_empty=True,
+            check=check_semicolon_list(SOURCE_ID_RE, SOURCE_ID_LABEL),
+        ),
     )
     return _load_tsv(path, columns)
 
@@ -2356,10 +2421,14 @@ def load_source_units(path: Path, *, require_disposition: bool = True) -> tuple[
 
     columns = (
         TsvColumn("unit_id", check=_check_pattern(UNIT_ID_RE, "unit id")),
-        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, "source id")),
+        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, SOURCE_ID_LABEL)),
         TsvColumn("unit_locator", check=_check_target_refs),
         TsvColumn("unit_digest", check=_CHECK_SHA),
-        TsvColumn("claim_refs", allow_empty=True, check=check_semicolon_list(CLAIM_ID_RE, "claim id")),
+        TsvColumn(
+            "claim_refs",
+            allow_empty=True,
+            check=check_semicolon_list(CLAIM_ID_RE, CLAIM_ID_LABEL),
+        ),
         TsvColumn("empty_reason", allow_empty=True, check=_check_empty_reason),
     )
     return _load_tsv(path, columns, rule)
@@ -2382,12 +2451,19 @@ def _coverage_rule(row: TsvRow) -> list[tuple[str, str]]:
 def load_source_coverage(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]:
     """Load ``baseline/source-coverage.tsv``."""
     columns = (
-        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, "source id")),
+        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, SOURCE_ID_LABEL)),
         TsvColumn("sha256", check=_CHECK_SHA),
         TsvColumn("review_status", check=_check_enum_value(REVIEW_STATUSES)),
         TsvColumn("review_artifact"),
-        TsvColumn("reviewer_principal_id", check=_check_pattern(PRINCIPAL_ID_RE, "principal id")),
-        TsvColumn("finding_refs", allow_empty=True, check=check_semicolon_list(FINDING_ID_RE, "finding id")),
+        TsvColumn(
+            "reviewer_principal_id",
+            check=_check_pattern(PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL),
+        ),
+        TsvColumn(
+            "finding_refs",
+            allow_empty=True,
+            check=check_semicolon_list(FINDING_ID_RE, FINDING_ID_LABEL),
+        ),
     )
     return _load_tsv(path, columns, _coverage_rule)
 
@@ -2415,8 +2491,15 @@ def load_normative_coverage(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]
         TsvColumn("change_kind", check=_check_enum_value(CHANGE_KINDS)),
         TsvColumn("review_status", check=_check_enum_value(REVIEW_STATUSES)),
         TsvColumn("review_artifact"),
-        TsvColumn("reviewer_principal_id", check=_check_pattern(PRINCIPAL_ID_RE, "principal id")),
-        TsvColumn("finding_refs", allow_empty=True, check=check_semicolon_list(FINDING_ID_RE, "finding id")),
+        TsvColumn(
+            "reviewer_principal_id",
+            check=_check_pattern(PRINCIPAL_ID_RE, PRINCIPAL_ID_LABEL),
+        ),
+        TsvColumn(
+            "finding_refs",
+            allow_empty=True,
+            check=check_semicolon_list(FINDING_ID_RE, FINDING_ID_LABEL),
+        ),
     )
     return _load_tsv(path, columns, rule)
 
@@ -2451,11 +2534,19 @@ def load_findings_register(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]
         return []
 
     columns = (
-        TsvColumn("finding_id", check=_check_pattern(FINDING_ID_RE, "finding id")),
+        TsvColumn("finding_id", check=_check_pattern(FINDING_ID_RE, FINDING_ID_LABEL)),
         TsvColumn("severity", check=_check_enum_value(FINDING_SEVERITIES)),
         TsvColumn("status", check=_check_enum_value(FINDING_STATUSES)),
-        TsvColumn("claim_refs", allow_empty=True, check=check_semicolon_list(CLAIM_ID_RE, "claim id")),
-        TsvColumn("atom_refs", allow_empty=True, check=check_semicolon_list(ATOM_ID_RE, "atom id")),
+        TsvColumn(
+            "claim_refs",
+            allow_empty=True,
+            check=check_semicolon_list(CLAIM_ID_RE, CLAIM_ID_LABEL),
+        ),
+        TsvColumn(
+            "atom_refs",
+            allow_empty=True,
+            check=check_semicolon_list(ATOM_ID_RE, ATOM_ID_LABEL),
+        ),
         TsvColumn("path", check=_check_rel_path),
         TsvColumn("locator"),
         TsvColumn("statement"),
@@ -2467,13 +2558,17 @@ def load_findings_register(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]
 def load_claims_inventory(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]:
     """Load ``synthesis/claims-inventory.tsv``."""
     columns = (
-        TsvColumn("claim_id", check=_check_pattern(CLAIM_ID_RE, "claim id")),
-        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, "source id")),
+        TsvColumn("claim_id", check=_check_pattern(CLAIM_ID_RE, CLAIM_ID_LABEL)),
+        TsvColumn("source_id", check=_check_pattern(SOURCE_ID_RE, SOURCE_ID_LABEL)),
         TsvColumn("unit_refs", check=check_semicolon_list(UNIT_ID_RE, "unit id")),
         TsvColumn("source_locator", check=_check_target_refs),
         TsvColumn("statement"),
         TsvColumn("qualifiers", allow_empty=True),
-        TsvColumn("genealogy_parents", allow_empty=True, check=check_semicolon_list(CLAIM_ID_RE, "claim id")),
+        TsvColumn(
+            "genealogy_parents",
+            allow_empty=True,
+            check=check_semicolon_list(CLAIM_ID_RE, CLAIM_ID_LABEL),
+        ),
     )
     return _load_tsv(path, columns)
 
@@ -2493,12 +2588,20 @@ def load_disposition_ledger(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]
         return problems
 
     columns = (
-        TsvColumn("claim_id", check=_check_pattern(CLAIM_ID_RE, "claim id")),
+        TsvColumn("claim_id", check=_check_pattern(CLAIM_ID_RE, CLAIM_ID_LABEL)),
         TsvColumn("synthesis_disposition", check=_check_enum_value(SYNTHESIS_DISPOSITIONS)),
         TsvColumn("disposition_reason", allow_empty=True),
         TsvColumn("residual_edge", allow_empty=True, check=_check_residual_edge),
-        TsvColumn("atom_refs", allow_empty=True, check=check_semicolon_list(ATOM_ID_RE, "atom id")),
-        TsvColumn("finding_refs", allow_empty=True, check=check_semicolon_list(FINDING_ID_RE, "finding id")),
+        TsvColumn(
+            "atom_refs",
+            allow_empty=True,
+            check=check_semicolon_list(ATOM_ID_RE, ATOM_ID_LABEL),
+        ),
+        TsvColumn(
+            "finding_refs",
+            allow_empty=True,
+            check=check_semicolon_list(FINDING_ID_RE, FINDING_ID_LABEL),
+        ),
     )
     return _load_tsv(path, columns, rule)
 
@@ -2521,7 +2624,7 @@ def load_atom_register(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]:
         return problems
 
     columns = (
-        TsvColumn("atom_id", check=_check_pattern(ATOM_ID_RE, "atom id")),
+        TsvColumn("atom_id", check=_check_pattern(ATOM_ID_RE, ATOM_ID_LABEL)),
         TsvColumn("statement"),
         TsvColumn("atom_type", check=_check_enum_value(ATOM_TYPES)),
         TsvColumn("qualifiers", allow_empty=True),
@@ -2530,7 +2633,11 @@ def load_atom_register(path: Path) -> tuple[tuple[TsvRow, ...], list[Issue]]:
         TsvColumn("target_refs", allow_empty=True, check=_check_target_refs),
         TsvColumn("disposition", check=_check_enum_value(ATOM_DISPOSITIONS)),
         TsvColumn("deferral", allow_empty=True, check=_check_deferral),
-        TsvColumn("claim_refs", check=check_semicolon_list(CLAIM_ID_RE, "claim id")),
-        TsvColumn("receipt_refs", allow_empty=True, check=check_semicolon_list(RECEIPT_ID_RE, "receipt id")),
+        TsvColumn("claim_refs", check=check_semicolon_list(CLAIM_ID_RE, CLAIM_ID_LABEL)),
+        TsvColumn(
+            "receipt_refs",
+            allow_empty=True,
+            check=check_semicolon_list(RECEIPT_ID_RE, RECEIPT_ID_LABEL),
+        ),
     )
     return _load_tsv(path, columns, rule)

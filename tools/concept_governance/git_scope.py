@@ -14,19 +14,32 @@ class GitScopeError(ValueError):
 
 
 def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> frozenset[str]:
-    """Return changed Markdown paths relative to the configured concept root."""
+    """Return committed and working-tree Markdown changes for pre-merge review."""
     try:
         concept_relative = concept_root.resolve().relative_to(repo_root.resolve()).as_posix()
     except ValueError as exc:
         raise GitScopeError("concept root must be inside repo root") from exc
-    command = [
-        "git", "-C", str(repo_root), "diff", "--name-status", "-z", "--find-renames",
-        "--diff-filter=ACDMR", f"{base}...HEAD", "--", concept_relative,
-    ]
-    completed = subprocess.run(command, check=False, capture_output=True, text=True)
-    if completed.returncode != 0:
-        raise GitScopeError(completed.stderr.strip() or f"git diff exited {completed.returncode}")
-    return _parse_changed_paths(completed.stdout, concept_relative.rstrip("/") + "/")
+    prefix = concept_relative.rstrip("/") + "/"
+    changed: set[str] = set()
+    for range_args in ((f"{base}...HEAD",), ("HEAD",)):
+        command = [
+            "git",
+            "-C",
+            str(repo_root),
+            "diff",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--diff-filter=ACDMR",
+            *range_args,
+            "--",
+            concept_relative,
+        ]
+        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        if completed.returncode != 0:
+            raise GitScopeError(completed.stderr.strip() or f"git diff exited {completed.returncode}")
+        changed.update(_parse_changed_paths(completed.stdout, prefix))
+    return frozenset(changed)
 
 
 def _parse_changed_paths(raw: str, prefix: str) -> frozenset[str]:

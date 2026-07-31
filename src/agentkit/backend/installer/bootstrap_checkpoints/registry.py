@@ -23,11 +23,19 @@ from agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09 import (
     cp08_skill_bindings,
     cp09_hook_registration,
 )
-from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
+from agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration import (
     cp10_mcp_registration,
+)
+from agentkit.backend.installer.bootstrap_checkpoints.cp10a_initial_sync_checkpoint import (
     cp10a_concept_context_properties,
+)
+from agentkit.backend.installer.bootstrap_checkpoints.cp10b_hook_dispatch_checkpoint import (
     cp10b_concept_validation_hook,
+)
+from agentkit.backend.installer.bootstrap_checkpoints.cp10c_are_scope import (
     cp10c_are_scope_validation,
+)
+from agentkit.backend.installer.bootstrap_checkpoints.cp10d_sonarqube import (
     cp10d_sonarqube,
 )
 from agentkit.backend.installer.bootstrap_checkpoints.cp11_to_12 import (
@@ -35,7 +43,6 @@ from agentkit.backend.installer.bootstrap_checkpoints.cp11_to_12 import (
     cp12_verify_registration,
 )
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
-from agentkit.backend.installer.checkpoint_engine.flow import BRANCH_VECTORDB_ENABLED_STAGE2
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -66,11 +73,6 @@ def build_handler_registry() -> dict[str, CheckpointHandler[CheckpointContext]]:
     }
 
 
-def _vectordb_enabled(context: CheckpointContext) -> bool:
-    """Branch predicate: ``features.vectordb`` (both vectordb branch stages)."""
-    return context.vectordb_enabled
-
-
 def _are_enabled(context: CheckpointContext) -> bool:
     """Branch predicate: ``features.are``."""
     return context.are_enabled
@@ -81,18 +83,13 @@ def _sonarqube_enabled(context: CheckpointContext) -> bool:
     return context.sonarqube_enabled
 
 
-def build_branch_predicate_registry() -> dict[
-    str, Callable[[CheckpointContext], bool]
-]:
+def build_branch_predicate_registry() -> dict[str, Callable[[CheckpointContext], bool]]:
     """Return the branch node-id -> predicate registry.
 
-    The two-stage vectordb branch binds the SAME ``_vectordb_enabled`` predicate
-    at both flow positions (stage 1 before CP 11, stage 2 after CP 11), so the
-    two-stage decision routes consistently (story §2.1.1 / AC2).
+    VectorDB has no branch predicate: it is a mandatory part of the linear
+    checkpoint spine. Only genuinely optional capabilities remain here.
     """
     return {
-        nid.BRANCH_VECTORDB_ENABLED: _vectordb_enabled,
-        BRANCH_VECTORDB_ENABLED_STAGE2: _vectordb_enabled,
         nid.BRANCH_ARE_ENABLED: _are_enabled,
         nid.BRANCH_SONARQUBE_ENABLED: _sonarqube_enabled,
     }

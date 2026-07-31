@@ -68,15 +68,11 @@ def _result_for(results: object, checkpoint: str) -> object:
     return next(r for r in results if r.checkpoint == checkpoint)  # type: ignore[attr-defined]
 
 
-def test_register_runs_full_flow_and_persists(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_register_runs_full_flow_and_persists(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """Register mode runs the flow and persists the registration (CREATED)."""
     root = tmp_path / "proj"
     root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "bundles", registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=tmp_path / "bundles", registration_repo=registration_repo)
 
     result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
 
@@ -112,9 +108,7 @@ def test_dry_run_mutates_nothing_and_reports_plan_contract(
 
     root = tmp_path / "proj"
     root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "bundles", registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=tmp_path / "bundles", registration_repo=registration_repo)
 
     before = _all_surfaces_snapshot(root)
     result = run_checkpoint_install(config, mode=ExecutionMode.DRY_RUN)
@@ -169,9 +163,7 @@ def test_verify_is_read_only(
 
     root = tmp_path / "proj"
     root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "bundles", registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=tmp_path / "bundles", registration_repo=registration_repo)
 
     before = _all_surfaces_snapshot(root)
     result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)
@@ -186,21 +178,15 @@ def test_verify_is_read_only(
     assert cp12.status is CheckpointStatus.PASS
 
 
-def test_idempotent_rerun_skips_then_upgrades(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
-    """AC12: idempotent re-run yields SKIPPED; a changed config yields UPDATED."""
+def test_existing_project_config_remains_the_rerun_ssot(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
+    """AG3-176 AC2: rerun inputs cannot replace the validated on-disk config."""
     root = tmp_path / "proj"
     root.mkdir()
     bundles = tmp_path / "bundles"
-    config = make_config(
-        root, bundle_store_root=bundles, registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=bundles, registration_repo=registration_repo)
 
     first = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
-    assert _result_for(
-        first.checkpoint_results, CP7_STATE_BACKEND_REGISTRATION
-    ).status is CheckpointStatus.CREATED
+    assert _result_for(first.checkpoint_results, CP7_STATE_BACKEND_REGISTRATION).status is CheckpointStatus.CREATED
 
     # Identical config -> idempotent SKIP, no re-create.
     second = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
@@ -208,7 +194,7 @@ def test_idempotent_rerun_skips_then_upgrades(
     assert cp7_second.status is CheckpointStatus.SKIPPED
     assert registration_repo.save_calls == 1  # not re-saved
 
-    # Changed config (extra repo) -> UPDATED.
+    # A divergent InstallConfig is not a second project-config authority.
     changed = make_config(
         root,
         bundle_store_root=bundles,
@@ -217,5 +203,5 @@ def test_idempotent_rerun_skips_then_upgrades(
     )
     third = run_checkpoint_install(changed, mode=ExecutionMode.REGISTER)
     cp7_third = _result_for(third.checkpoint_results, CP7_STATE_BACKEND_REGISTRATION)
-    assert cp7_third.status is CheckpointStatus.UPDATED
-    assert registration_repo.upgrade_calls == 1
+    assert cp7_third.status is CheckpointStatus.SKIPPED
+    assert registration_repo.upgrade_calls == 0

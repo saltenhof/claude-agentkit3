@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, cast, get_args
 
 from agentkit.backend.exceptions import ConflictAdjudicationUnavailableError
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
-from agentkit.backend.vectordb.endpoints import split_http_endpoint
+from agentkit.backend.vectordb.endpoints import split_grpc_endpoint, split_http_endpoint
 from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClientError
 from agentkit.integration_clients.multi_llm_hub.entities import HubBackendName
 from agentkit.integration_clients.vectordb import (
@@ -277,8 +277,22 @@ def build_story_creation_reconciler(
     # Weaviate is. host/port come from the single public splitter, never from a
     # second parser -- a duplicated split is exactly the drift this consolidation
     # removed.
-    host, port, _secure = split_http_endpoint(vectordb.weaviate_http_endpoint)
-    adapter = WeaviateStoryAdapter.connect(host=host, port=port)
+    if not vectordb.weaviate_grpc_endpoint:
+        raise VectorDbUnavailableError(
+            "vectordb.weaviate_grpc_endpoint is not configured; both endpoints are "
+            "mandatory configuration (PO decision D-2: no synthesised endpoint). "
+            "Story creation fails closed."
+        )
+    host, port, secure = split_http_endpoint(vectordb.weaviate_http_endpoint)
+    grpc_host, grpc_port, grpc_secure = split_grpc_endpoint(vectordb.weaviate_grpc_endpoint)
+    adapter = WeaviateStoryAdapter.connect(
+        host=host,
+        port=port,
+        http_secure=secure,
+        grpc_host=grpc_host,
+        grpc_port=grpc_port,
+        grpc_secure=grpc_secure,
+    )
     if not adapter.is_ready():
         # A reachable-but-not-ready node is still a fail-closed blocker
         # (FK-21 §21.11.4): never proceed to create with an unready VectorDB.

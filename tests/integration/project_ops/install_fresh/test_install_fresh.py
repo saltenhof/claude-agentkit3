@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.config import load_project_config
 from agentkit.backend.exceptions import ProjectError
@@ -70,12 +71,10 @@ class TestInstallFresh:
         assert (root / ".agentkit" / "hooks").is_dir()
         assert (root / ".claude" / "settings.json").is_file()
         assert (root / ".codex" / "config.toml").is_file()
-        assert not (root / "stories").exists()
+        assert (root / "stories").is_dir()
         assert (root / "tools" / "agentkit" / "projectedge.py").is_file()
 
-    def test_default_project_structure_single_repo_tracks_codebase(
-        self, tmp_path: object
-    ) -> None:
+    def test_default_project_structure_single_repo_tracks_codebase(self, tmp_path: object) -> None:
         """Default scaffold in single-repo mode does not ignore ``codebase/``."""
         root = _as_path(tmp_path)
         config = _make_install_config(
@@ -101,9 +100,7 @@ class TestInstallFresh:
         assert project_config.repositories[0].path == Path("codebase")
         assert project_config.pipeline.features.multi_repo is False
 
-    def test_default_project_structure_multi_repo_ignores_codebase(
-        self, tmp_path: object
-    ) -> None:
+    def test_default_project_structure_multi_repo_ignores_codebase(self, tmp_path: object) -> None:
         """Default scaffold in multi-repo mode ignores root ``codebase/``."""
         root = _as_path(tmp_path)
         config = _make_install_config(
@@ -129,9 +126,7 @@ class TestInstallFresh:
         assert project_config.repositories[1].path == Path("codebase/backend")
         assert project_config.pipeline.features.multi_repo is True
 
-    def test_default_project_structure_multi_repo_requires_explicit_repos(
-        self, tmp_path: object
-    ) -> None:
+    def test_default_project_structure_multi_repo_requires_explicit_repos(self, tmp_path: object) -> None:
         """Multi-repo mode does not invent a synthetic ``codebase/app`` repo."""
         root = _as_path(tmp_path)
         config = _make_install_config(
@@ -204,9 +199,7 @@ class TestInstallFresh:
         assert len(project_config.repositories) == 1
         assert project_config.repositories[0].name == "backend"
 
-    def test_default_project_structure_existing_multi_repo_dirs_are_skipped(
-        self, tmp_path: object
-    ) -> None:
+    def test_default_project_structure_existing_multi_repo_dirs_are_skipped(self, tmp_path: object) -> None:
         """Re-runs keep already materialized repo directories untouched."""
         root = _as_path(tmp_path)
         root_repo = root / "codebase" / "frontend"
@@ -296,10 +289,7 @@ class TestInstallFresh:
                     "templates": {
                         "worker-implementation": {
                             "relpath": "internal/prompts/worker-implementation.md",
-                            "sha256": (
-                                "c547072c5eb412c5efc3da135fd02bd9"
-                                "e3a0fcd3fef2df856653fbcb21f7ffdd"
-                            ),
+                            "sha256": ("c547072c5eb412c5efc3da135fd02bd9e3a0fcd3fef2df856653fbcb21f7ffdd"),
                         },
                     },
                 },
@@ -307,8 +297,7 @@ class TestInstallFresh:
             encoding="utf-8",
         )
         (bundle_root / "worker-implementation.md").write_text(
-            "# External Prompt {story_id}\n"
-            "[SENTINEL:worker-implementation-v1:{story_id}]\n",
+            "# External Prompt {story_id}\n[SENTINEL:worker-implementation-v1:{story_id}]\n",
             encoding="utf-8",
         )
 
@@ -333,10 +322,7 @@ class TestInstallFresh:
             canonical_root / "internal" / "prompts" / "worker-implementation.md",
         )
 
-
-    def test_install_delegates_binding_to_prompt_runtime(
-        self, tmp_path: object, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_install_delegates_binding_to_prompt_runtime(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
         """FK-50 §50.5 / AG3-015 AK9: install routes the binding update through
         ``PromptRuntime.update_binding`` (Owner-BC principle)."""
         from agentkit.backend.prompt_runtime import runtime as runtime_module
@@ -348,16 +334,12 @@ class TestInstallFresh:
             calls.append((bundle_id, version))
             original(self, bundle_id, version)  # type: ignore[arg-type]
 
-        monkeypatch.setattr(
-            runtime_module.PromptRuntime, "update_binding", _spy, raising=True
-        )
+        monkeypatch.setattr(runtime_module.PromptRuntime, "update_binding", _spy, raising=True)
 
         root = _as_path(tmp_path)
         install_agentkit(_make_install_config(root, project_name="test-project"))
 
-        assert calls == [
-            ("internal-bootstrap-prompts", _INTERNAL_PROMPT_BUNDLE_VERSION)
-        ]
+        assert calls == [("internal-bootstrap-prompts", _INTERNAL_PROMPT_BUNDLE_VERSION)]
         lock_path = root / ".agentkit" / "config" / "prompt-bundle.lock.json"
         assert lock_path.is_file()
 
@@ -418,6 +400,7 @@ def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     kwargs.setdefault("ci_available", False)
     return InstallConfig(
         project_root=project_root,
+        **ready_vectordb_install_kwargs(),
         **kwargs,
     )
 

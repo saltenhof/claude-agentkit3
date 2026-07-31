@@ -8,6 +8,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.vectordb_installer import (
+    GRPC_ENDPOINT,
+    HTTP_ENDPOINT,
+    ReadyVectorDbPreflight,
+    passing_mcp_probe,
+)
+from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
 from agentkit.backend.installer import InstallConfig, install_agentkit, uninstall_agentkit
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
@@ -43,13 +50,9 @@ class _InMemoryRegistrationRepo:
         reg = self.rows[project_key]
         self.rows[project_key] = reg.model_copy(update={"last_verified_at": verified_at})
 
-    def update_upgraded(
-        self, project_key: str, upgraded_at: datetime, new_digest: str
-    ) -> None:
+    def update_upgraded(self, project_key: str, upgraded_at: datetime, new_digest: str) -> None:
         reg = self.rows[project_key]
-        self.rows[project_key] = reg.model_copy(
-            update={"last_upgraded_at": upgraded_at, "config_digest": new_digest}
-        )
+        self.rows[project_key] = reg.model_copy(update={"last_upgraded_at": upgraded_at, "config_digest": new_digest})
 
     def list_all(self) -> list[ProjectRegistration]:
         return [self.rows[k] for k in sorted(self.rows)]
@@ -76,9 +79,7 @@ _LINKS_AVAILABLE = _directory_links_supported()
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
 
-def _claude_commands_for_matcher(
-    settings: dict[str, object], event_key: str, matcher: str
-) -> set[str]:
+def _claude_commands_for_matcher(settings: dict[str, object], event_key: str, matcher: str) -> set[str]:
     return {
         handler["command"]
         for group in settings["hooks"][event_key]  # type: ignore[index]
@@ -98,37 +99,22 @@ def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
     assert (tmp_path / ".claude" / "settings.json").is_file()
     assert (tmp_path / ".codex" / "config.toml").is_file()
     assert (tmp_path / ".codex" / "hooks.json").is_file()
-    claude_settings = json.loads(
-        (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
-    )
-    codex_hooks = json.loads(
-        (tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8")
-    )
-    assert _claude_commands_for_matcher(
-        claude_settings, "PostToolUse", "Bash"
-    ) == {
+    claude_settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    codex_hooks = json.loads((tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    assert _claude_commands_for_matcher(claude_settings, "PostToolUse", "Bash") == {
         "agentkit-hook-claude post health_monitor",
         "agentkit-hook-claude post commit_hook",
     }
-    assert _claude_commands_for_matcher(
-        claude_settings, "PostToolUseFailure", "Bash"
-    ) == {
+    assert _claude_commands_for_matcher(claude_settings, "PostToolUseFailure", "Bash") == {
         "agentkit-hook-claude post health_monitor",
         "agentkit-hook-claude post commit_hook",
     }
-    codex_post_bash = next(
-        entry for entry in codex_hooks["hooks"]["PostToolUse"] if entry["matcher"] == "Bash"
-    )
-    assert {
-        hook["command"]
-        for hook in codex_post_bash["hooks"]
-    } == {
+    codex_post_bash = next(entry for entry in codex_hooks["hooks"]["PostToolUse"] if entry["matcher"] == "Bash")
+    assert {hook["command"] for hook in codex_post_bash["hooks"]} == {
         "agentkit-hook-codex post health_monitor",
         "agentkit-hook-codex post commit_hook",
     }
-    assert "agentkit-hook-codex" in (
-        tmp_path / ".codex" / "config.toml"
-    ).read_text(encoding="utf-8")
+    assert "agentkit-hook-codex" in (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(
@@ -143,8 +129,10 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
     after = _file_snapshot(tmp_path)
 
     assert first.created_files
-    assert second.created_files == ()
-    assert after == before
+    # Mandatory CP10a still executes, but unchanged corpus revisions preserve
+    # the existing typed freshness receipts byte-for-byte.
+    assert not second.created_files
+    assert before == after
 
 
 @pytest.mark.skipif(
@@ -178,9 +166,7 @@ def test_uninstall_removes_skill_links_and_central_bundle_survives(
     install_agentkit(_make_config(tmp_path))
 
     # Links exist after install (one per mandatory skill, per harness).
-    claude_links = [
-        p for p in (tmp_path / ".claude" / "skills").iterdir() if is_directory_link(p)
-    ]
+    claude_links = [p for p in (tmp_path / ".claude" / "skills").iterdir() if is_directory_link(p)]
     assert len(claude_links) == len(MANDATORY_SKILLS)
 
     uninstall_agentkit(tmp_path)
@@ -191,9 +177,7 @@ def test_uninstall_removes_skill_links_and_central_bundle_survives(
     # The CENTRAL bundles survive — os.rmdir detached the links without deleting
     # their targets (no rmtree through a junction).
     for skill_name in MANDATORY_SKILLS:
-        assert (
-            bundle_store_root / f"{skill_name}-core" / "4.0.0" / "SKILL.md"
-        ).is_file()
+        assert (bundle_store_root / f"{skill_name}-core" / "4.0.0" / "SKILL.md").is_file()
 
 
 def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleStore]:
@@ -221,9 +205,7 @@ def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleSto
 def _make_config(project_root: Path) -> InstallConfig:
     # CP 11 configures core.hooksPath; real targets are git repos (see helper).
     ensure_git_repo(project_root)
-    skills, store = _provisioned_skills(
-        project_root.parent / f".skill-bundles-{project_root.name}"
-    )
+    skills, store = _provisioned_skills(project_root.parent / f".skill-bundles-{project_root.name}")
     return InstallConfig(
         project_key="ag3",
         project_name="AG3",
@@ -234,6 +216,11 @@ def _make_config(project_root: Path) -> InstallConfig:
         skills=skills,
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
+        vectordb_http_endpoint=HTTP_ENDPOINT,
+        vectordb_grpc_endpoint=GRPC_ENDPOINT,
+        vectordb_preflight=ReadyVectorDbPreflight(),
+        vectordb_client=RecordingWeaviateClient(),
+        mcp_registration_probe=passing_mcp_probe,
         # AG3-052 Design-Decision: scaffold default is available:true (FK-03
         # §3); no live Sonar here => conscious opt-out so CP 10d is SKIPPED.
         sonarqube_available=False,

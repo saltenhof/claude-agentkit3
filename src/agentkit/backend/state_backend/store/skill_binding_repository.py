@@ -167,16 +167,18 @@ class StateBackendSkillBindingRepository:
                 """
                 INSERT INTO skill_bindings (
                     binding_id, project_key, skill_name, bundle_id,
-                    bundle_version, target_path, binding_mode, status, pinned_at
+                    bundle_version, content_digest, target_path, binding_mode,
+                    status, pinned_at
                 ) VALUES (
                     :binding_id, :project_key, :skill_name, :bundle_id,
-                    :bundle_version, :target_path, :binding_mode, :status,
-                    :pinned_at
+                    :bundle_version, :content_digest, :target_path,
+                    :binding_mode, :status, :pinned_at
                 )
                 ON CONFLICT (project_key, skill_name) DO UPDATE SET
                     binding_id=excluded.binding_id,
                     bundle_id=excluded.bundle_id,
                     bundle_version=excluded.bundle_version,
+                    content_digest=excluded.content_digest,
                     target_path=excluded.target_path,
                     binding_mode=excluded.binding_mode,
                     status=excluded.status,
@@ -191,16 +193,18 @@ class StateBackendSkillBindingRepository:
                 """
                 INSERT INTO skill_bindings (
                     binding_id, project_key, skill_name, bundle_id,
-                    bundle_version, target_path, binding_mode, status, pinned_at
+                    bundle_version, content_digest, target_path, binding_mode,
+                    status, pinned_at
                 ) VALUES (
                     %(binding_id)s, %(project_key)s, %(skill_name)s,
-                    %(bundle_id)s, %(bundle_version)s, %(target_path)s,
-                    %(binding_mode)s, %(status)s, %(pinned_at)s
+                    %(bundle_id)s, %(bundle_version)s, %(content_digest)s,
+                    %(target_path)s, %(binding_mode)s, %(status)s, %(pinned_at)s
                 )
                 ON CONFLICT (project_key, skill_name) DO UPDATE SET
                     binding_id=excluded.binding_id,
                     bundle_id=excluded.bundle_id,
                     bundle_version=excluded.bundle_version,
+                    content_digest=excluded.content_digest,
                     target_path=excluded.target_path,
                     binding_mode=excluded.binding_mode,
                     status=excluded.status,

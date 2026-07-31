@@ -7,7 +7,7 @@ AFTER the merge and the story-done/metrics steps (FK-29 §29.1.4 steps 6-9; BC 7
 6. Doc-fidelity feedback (level 4 feedback fidelity, FK-38 §38.3.1) -- runs
    AFTER the merge and BEFORE postflight.
 7. Postflight gates (the five deterministic checks, FK-29 §29.3).
-8. VectorDB sync (FK-13 §13.7.1, fire-and-forget).
+8. VectorDB sync (FK-13 §13.7.1, retained/observed non-blocking submission).
 9. Guard deactivation (``Governance.deactivate_locks``, FK-29 §29.5).
 
 Each step is a MANDATORY step (it always runs -- there is no empty
@@ -72,11 +72,11 @@ class DocFidelityFeedbackPort(Protocol):
 
 
 class VectorDbSyncPort(Protocol):
-    """VectorDB sync seam (FK-13 §13.7.1, fire-and-forget).
+    """VectorDB sync seam (FK-13 §13.7.1, reliable non-blocking submission).
 
-    The productive implementation triggers an async ``story_sync`` so the freshly
-    closed story is searchable for following stories. Non-blocking: an
-    unreachable VectorDB is a human Warning, not a block.
+    The productive implementation retains and observes the async ``story_sync``
+    Future so the freshly closed story becomes searchable and a later failure is
+    logged. Closure itself remains non-blocking.
     """
 
     def trigger_sync(self, ctx: StoryContext, story_dir: Path) -> tuple[bool, str | None]:
@@ -159,7 +159,7 @@ def run_post_merge_finalization(
         f"postflight {c.check} FAILED: {c.detail}" for c in checks if not c.passed
     )
 
-    # Step 8: VectorDB sync (fire-and-forget; FK-13 §13.7.1).
+    # Step 8: reliably submit and observe VectorDB sync without blocking Closure.
     _triggered, sync_warning = vectordb_sync_port.trigger_sync(ctx, story_dir)
     if sync_warning is not None:
         warnings.append(f"VectorDB sync: {sync_warning}")

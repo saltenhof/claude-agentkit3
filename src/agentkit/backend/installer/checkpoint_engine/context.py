@@ -17,7 +17,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.backend.config.models import ProjectConfig
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+    from agentkit.backend.installer.config_boundary import ConfigBeforeImage
     from agentkit.backend.installer.registration import RuntimeProfile
     from agentkit.backend.installer.runner import InstallConfig
 
@@ -59,6 +61,8 @@ class CheckpointRunState:
 
     created_files: list[str] = field(default_factory=list)
     project_yaml: dict[str, object] | None = None
+    project_config: ProjectConfig | None = None
+    config_before_image: ConfigBeforeImage | None = None
     resolved_profile: RuntimeProfile | None = None
     skills: object | None = None
     resolved_skill_bundles: list[tuple[str, object]] = field(default_factory=list)
@@ -88,7 +92,8 @@ class CheckpointContext:
             feature toggles).
         mode: The typed :class:`ExecutionMode` (register / dry_run / verify).
         project_root: Absolute target-project root.
-        vectordb_enabled: Resolved ``features.vectordb`` flag.
+        vectordb_enabled: Compatibility field that is always true after the
+            mandatory VectorDB candidate-config boundary.
         are_enabled: Resolved ``features.are`` flag.
         sonarqube_enabled: Resolved ``sonarqube.available`` flag (CP 10d
             applicability axis).

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from . import runmodel
 from .docmodel import file_digest_sha256
 from .findings import CheckResult, error
+from .runmodel_constants import SEMANTIC_GATES
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -35,7 +36,7 @@ class _GateState:
     blocking_scope_ids: set[str] = field(default_factory=set)
 
 
-def run_semantic_status(project_root: Path, config: GovernanceConfig, run_dir: Path) -> CheckResult:
+def run_semantic_status(project_root: Path, _config: GovernanceConfig, run_dir: Path) -> CheckResult:
     """Run the semantic-status check for one run directory."""
     result = CheckResult(check_id=CHECK_ID)
     try:
@@ -61,7 +62,7 @@ class _SemanticStatus:
         self.result = result
         self.packs: dict[str, tuple[runmodel.SemanticRequestPack, str]] = {}
         self.receipts: dict[str, runmodel.SemanticReceipt] = {}
-        self.states: dict[str, _GateState] = {gate: _GateState() for gate in runmodel.SEMANTIC_GATES}
+        self.states: dict[str, _GateState] = {gate: _GateState() for gate in SEMANTIC_GATES}
 
     def _error(self, rel_path: str, locator: str, message: str) -> None:
         self.result.findings.append(error(CHECK_ID, rel_path, locator, message))
@@ -162,7 +163,7 @@ class _SemanticStatus:
         if manifest is None:
             return
         manifest_scopes = {scope.scope_id for scope in manifest.scopes}
-        pack_scopes: dict[str, set[str]] = {gate: set() for gate in runmodel.SEMANTIC_GATES}
+        pack_scopes: dict[str, set[str]] = {gate: set() for gate in SEMANTIC_GATES}
         for pack, _ in self.packs.values():
             pack_scopes[pack.gate].add(pack.scope_id)
         for entry in manifest.semantic_gates:
@@ -172,11 +173,40 @@ class _SemanticStatus:
             blocking = set(state.blocking_scope_ids)
             if state.packs:
                 blocking |= manifest_scopes - pack_scopes[entry.gate]
-            computed_status = "not_run" if state.packs == 0 else ("blocked" if blocking else "passed")
-            where = f"manifest.semantic_gates.{entry.gate}"
-            if entry.status != computed_status:
-                self._error(rel, where, f"recorded status {entry.status!r} does not match computed {computed_status!r}")
-            if set(entry.blocking_scope_ids) != blocking:
-                recorded = ", ".join(sorted(entry.blocking_scope_ids)) or "-"
-                computed = ", ".join(sorted(blocking)) or "-"
-                self._error(rel, where, f"recorded blocking_scope_ids [{recorded}] do not match computed [{computed}]")
+            computed_status = _computed_gate_status(state.packs, blocking)
+            self._check_manifest_gate_entry(
+                rel,
+                entry,
+                computed_status=computed_status,
+                blocking=blocking,
+            )
+
+    def _check_manifest_gate_entry(
+        self,
+        rel: str,
+        entry: runmodel.SemanticGateEntry,
+        *,
+        computed_status: str,
+        blocking: set[str],
+    ) -> None:
+        where = f"manifest.semantic_gates.{entry.gate}"
+        if entry.status != computed_status:
+            self._error(
+                rel,
+                where,
+                f"recorded status {entry.status!r} does not match computed {computed_status!r}",
+            )
+        if set(entry.blocking_scope_ids) != blocking:
+            recorded = ", ".join(sorted(entry.blocking_scope_ids)) or "-"
+            computed = ", ".join(sorted(blocking)) or "-"
+            self._error(
+                rel,
+                where,
+                f"recorded blocking_scope_ids [{recorded}] do not match computed [{computed}]",
+            )
+
+
+def _computed_gate_status(pack_count: int, blocking: set[str]) -> str:
+    if pack_count == 0:
+        return "not_run"
+    return "blocked" if blocking else "passed"

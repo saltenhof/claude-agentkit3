@@ -20,13 +20,17 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Final
 
+from agentkit.backend.vectordb.commit_recovery import FileCommitRecoveryJournal
 from agentkit.backend.vectordb.engine import (
     CLAIM_COLLECTION,
     CLAIM_STATE_HELD,
     CLAIM_STATE_RELEASED,
     RECEIPT_COLLECTION,
+    RUN_RECEIPT_COLLECTION,
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
@@ -35,8 +39,12 @@ from agentkit.backend.vectordb.schema import (
     StoryContextObject,
     deterministic_uuid,
 )
-from agentkit.integration_clients.vectordb.errors import VectorDbWriteError
+from agentkit.integration_clients.vectordb.errors import (
+    VectorDbUnavailableError,
+    VectorDbWriteError,
+)
 from agentkit.integration_clients.vectordb.weaviate_adapter import (
+    _RealWeaviateClient,
     _validated_hit_properties,
 )
 
@@ -58,12 +66,16 @@ class RecordingWeaviateClient:
         suppress_source_fetch: Return an EMPTY should-set read (persisted-gap probe).
         insert_barrier: Optional barrier hit inside ``insert_object`` so two
             writers contend for the claim at the same instant (N03 race).
+        run_insert_barrier: Optional barrier used only for completion-run range
+            reservation, so two independent stores read the same old high-water
+            mark before contending for the same position (R2-001).
         fetch_barrier: Optional barrier hit on a CLAIM-collection read; a
             read-then-write claim implementation would let both writers pass it.
     """
 
     objects: dict[str, dict[str, object]] = field(default_factory=dict)
     receipts: dict[str, dict[str, object]] = field(default_factory=dict)
+    receipt_runs: dict[str, dict[str, object]] = field(default_factory=dict)
     claims: dict[str, dict[str, object]] = field(default_factory=dict)
     search_calls: list[dict[str, object]] = field(default_factory=list)
     ensure_calls: list[dict[str, object]] = field(default_factory=list)
@@ -79,12 +91,18 @@ class RecordingWeaviateClient:
     fail_release: bool = False
     #: Probe: the store neither creates the release marker nor holds it (N45).
     deny_release_insert: bool = False
+    fail_upsert_call: int | None = None
+    fail_run_receipt_insert: bool = False
+    lose_run_receipt_ack_after_insert: bool = False
+    fail_run_receipt_readback_after_lost_ack: bool = False
+    fail_run_receipt_reads: bool = False
     search_results: list[tuple[str, dict[str, object], float]] = field(default_factory=list)
     upsert_written_override: int | None = None
     delete_confirmed_override: int | None = None
     crash_after_write: bool = False
     suppress_source_fetch: bool = False
     insert_barrier: threading.Barrier | None = None
+    run_insert_barrier: threading.Barrier | None = None
     fetch_barrier: threading.Barrier | None = None
     #: Called with the collection name AFTER an upsert -- the seam a concurrent
     #: writer would act through (used to stage a mid-window claim takeover, N15).
@@ -97,6 +115,20 @@ class RecordingWeaviateClient:
     after_insert: Callable[[str, str], None] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _local: threading.local = field(default_factory=threading.local)
+    _upsert_count: int = 0
+    _recovery_directory: TemporaryDirectory[str] = field(
+        default_factory=lambda: TemporaryDirectory(
+            prefix="agentkit-vectordb-recovery-"
+        ),
+        repr=False,
+    )
+
+    @property
+    def recovery_journal(self) -> FileCommitRecoveryJournal:
+        """Return the real file journal shared by stores over this fake server."""
+        return FileCommitRecoveryJournal(
+            Path(self._recovery_directory.name) / "pending-commits"
+        )
 
     # -- reads ------------------------------------------------------------- #
     def fetch_by_property(
@@ -113,6 +145,8 @@ class RecordingWeaviateClient:
         The project clause is applied HERE, like the server does, so a test cannot pass
         by relying on an app-side post-filter that production no longer needs.
         """
+        if collection == RUN_RECEIPT_COLLECTION and self.fail_run_receipt_reads:
+            raise VectorDbUnavailableError("simulated run-receipt read outage")
         # Synchronise the FIRST claim read of each thread: both a read-then-write
         # claim (which would then race) and the conditional-create claim pass here,
         # so the race is real for either implementation. Later reads (e.g. the
@@ -174,6 +208,8 @@ class RecordingWeaviateClient:
     def _store_for(self, collection: str) -> dict[str, dict[str, object]]:
         if collection == RECEIPT_COLLECTION:
             return self.receipts
+        if collection == RUN_RECEIPT_COLLECTION:
+            return self.receipt_runs
         if collection == CLAIM_COLLECTION:
             return self.claims
         return self.objects
@@ -230,6 +266,7 @@ class RecordingWeaviateClient:
     # -- mutations --------------------------------------------------------- #
     def upsert(self, *, collection: str, objects: Sequence[Mapping[str, object]]) -> int:
         self.upsert_calls.append(collection)
+        self._upsert_count += 1
         store = self._store_for(collection)
         written = 0
         with self._lock:
@@ -239,6 +276,10 @@ class RecordingWeaviateClient:
                     continue
                 store[uid] = dict(obj)
                 written += 1
+        if self.fail_upsert_call == self._upsert_count:
+            raise VectorDbWriteError(
+                f"simulated upsert failure at call {self._upsert_count}"
+            )
         if self.after_upsert is not None:
             self.after_upsert(collection)
         if collection == STORY_CONTEXT_COLLECTION and self.crash_after_write:
@@ -253,6 +294,8 @@ class RecordingWeaviateClient:
     def insert_object(
         self, *, collection: str, uuid: str, properties: Mapping[str, object]
     ) -> bool:
+        if collection == RUN_RECEIPT_COLLECTION and self.fail_run_receipt_insert:
+            raise VectorDbWriteError("simulated atomic run receipt insert failure")
         # The barrier is used TWICE per THREAD when set: once so both writers arrive
         # at the conditional create together, once so neither proceeds (and the
         # winner cannot release its claim) before both have decided. Only the FIRST
@@ -269,10 +312,19 @@ class RecordingWeaviateClient:
         use_barrier = self.insert_barrier is not None and not getattr(
             self._local, "barrier_used", False
         )
+        use_run_barrier = (
+            collection == RUN_RECEIPT_COLLECTION
+            and self.run_insert_barrier is not None
+            and not getattr(self._local, "run_barrier_used", False)
+        )
         if use_barrier:
             self._local.barrier_used = True
             assert self.insert_barrier is not None
             self.insert_barrier.wait()
+        if use_run_barrier:
+            self._local.run_barrier_used = True
+            assert self.run_insert_barrier is not None
+            self.run_insert_barrier.wait()
         store = self._store_for(collection)
         with self._lock:
             won = uuid not in store
@@ -283,8 +335,22 @@ class RecordingWeaviateClient:
         if use_barrier:
             assert self.insert_barrier is not None
             self.insert_barrier.wait()
+        if use_run_barrier:
+            assert self.run_insert_barrier is not None
+            self.run_insert_barrier.wait()
         if won and self.after_insert is not None:
             self.after_insert(collection, uuid)
+        if (
+            won
+            and collection == RUN_RECEIPT_COLLECTION
+            and self.lose_run_receipt_ack_after_insert
+        ):
+            self.lose_run_receipt_ack_after_insert = False
+            if self.fail_run_receipt_readback_after_lost_ack:
+                self.fail_run_receipt_reads = True
+            raise VectorDbWriteError(
+                "simulated acknowledgement loss after committed run insert"
+            )
         return won
 
     def delete_by_ids(self, *, collection: str, uuids: Sequence[str]) -> int:
@@ -433,6 +499,92 @@ class RecordingWeaviateClient:
         )
 
 
+class _QueryFailure:
+    def fetch_objects(self, **_kwargs: object) -> object:
+        from weaviate.exceptions import WeaviateQueryError
+
+        raise WeaviateQueryError(
+            "simulated concrete query transport failure",
+            "gRPC",
+        )
+
+
+class _QueryFailureCollection:
+    query = _QueryFailure()
+
+
+class _QueryFailureCollections:
+    def get(self, _name: str) -> _QueryFailureCollection:
+        return _QueryFailureCollection()
+
+
+class _QueryFailureConnection:
+    collections = _QueryFailureCollections()
+
+
+@dataclass
+class RealQueryBoundaryWeaviateClient(RecordingWeaviateClient):
+    """Stateful store double whose failed run reads cross the real adapter seam."""
+
+    reject_next_run_insert: bool = False
+    fail_real_run_reads: bool = False
+    fail_real_read_after_run_write_error: bool = False
+    run_insert_attempts: int = 0
+
+    def fetch_by_property(
+        self,
+        *,
+        collection: str,
+        project_id: str,
+        prop: str,
+        value: str,
+        return_props: Sequence[str],
+    ) -> Sequence[tuple[str, dict[str, object]]]:
+        if collection == RUN_RECEIPT_COLLECTION and self.fail_real_run_reads:
+            real_reader = _RealWeaviateClient(_QueryFailureConnection())
+            return real_reader.fetch_by_property(
+                collection=collection,
+                project_id=project_id,
+                prop=prop,
+                value=value,
+                return_props=return_props,
+            )
+        return super().fetch_by_property(
+            collection=collection,
+            project_id=project_id,
+            prop=prop,
+            value=value,
+            return_props=return_props,
+        )
+
+    def insert_object(
+        self,
+        *,
+        collection: str,
+        uuid: str,
+        properties: Mapping[str, object],
+    ) -> bool:
+        if collection == RUN_RECEIPT_COLLECTION:
+            self.run_insert_attempts += 1
+            if self.reject_next_run_insert:
+                self.reject_next_run_insert = False
+                self.fail_real_run_reads = True
+                return False
+        try:
+            return super().insert_object(
+                collection=collection,
+                uuid=uuid,
+                properties=properties,
+            )
+        except VectorDbWriteError:
+            if (
+                collection == RUN_RECEIPT_COLLECTION
+                and self.fail_real_read_after_run_write_error
+            ):
+                self.fail_real_run_reads = True
+            raise
+
+
 #: Source generation a SEEDED object carries, i.e. what a previous, finished
 #: generation wrote. Production stamps every write (N37/N38), so seeded fixtures must
 #: too -- an unstamped object is a separate, explicitly tested fail-closed case.
@@ -536,9 +688,17 @@ def corpus_store(
     never expires (N27): the timestamp is diagnostic, there is no lease, and only
     an explicit administrative reclaim releases a held claim.
     """
-    store = WeaviateCorpusStore(client=client or RecordingWeaviateClient())
+    resolved_client = client or RecordingWeaviateClient()
+    store = WeaviateCorpusStore(
+        client=resolved_client,
+        recovery_journal=resolved_client.recovery_journal,
+    )
     if clock is not None:
-        store = WeaviateCorpusStore(client=store.client, clock=clock)
+        store = WeaviateCorpusStore(
+            client=store.client,
+            recovery_journal=resolved_client.recovery_journal,
+            clock=clock,
+        )
     return store
 
 
@@ -644,6 +804,7 @@ def story_hit(
 
 
 __all__ = [
+    "RealQueryBoundaryWeaviateClient",
     "RecordingWeaviateClient",
     "chunk_object",
     "concept_hit",

@@ -19,6 +19,7 @@ Two properties are load-bearing (N23):
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
@@ -26,7 +27,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from agentkit.backend.vectordb.concept_corpus.graph import ConceptGraph
+    from agentkit.backend.vectordb.concept_corpus.graph import ConceptGraph, GraphNode
 
 #: Query detail hints that activate the appendix interface boost (rule 3).
 _INTERFACE_DETAILS: frozenset[str] = frozenset(
@@ -171,10 +172,8 @@ def rank_hits(
 
     ranked: list[RankedHit] = []
     for hit_index, hit in enumerate(hits):
-        concept_id = str(hit.get("concept_id", ""))
+        concept_id, base = _strict_hit(hit)
         node = graph.node(concept_id)
-        raw_score = hit.get("score", 0.0)
-        base = float(raw_score) if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool) else 0.0
         if node is None:
             ranked.append(
                 RankedHit(
@@ -187,48 +186,102 @@ def rank_hits(
                 )
             )
             continue
-        reasons: list[str] = []
-        # Rules 1 + 2 decide the precedence tier for the QUERIED SCOPE.
-        owns_scope = bool(
-            ctx.query_authority_scope
-            and ctx.query_authority_scope in node.authority_scopes
-        )
-        if owns_scope:
-            tier = TIER_DIRECT_AUTHORITY
-            reasons.append("authority_over-direct")
-        elif _is_scoped_authority_target(graph, concept_id, ctx.query_authority_scope):
-            tier = TIER_SCOPED_TARGET
-            reasons.append("scoped-authority-target")
-        else:
-            tier = TIER_ORDINARY
-        # Rule 4: status demotion, applied as whole tiers.
-        penalty = _status_tier_penalty(node.status)
-        if penalty:
-            tier += penalty
-            reasons.append(f"status-penalty({node.status})")
-        authority = _normalised(base)
-        # Rule 3: appendix interface/test boost, only for a matching detail hint.
-        if (
-            node.is_appendix
-            and bool(ctx.query_detail)
-            and ctx.query_detail.lower() in _INTERFACE_DETAILS
-        ):
-            authority += APPENDIX_DETAIL_BOOST
-            reasons.append("appendix-interface")
-        # Rule 5: module match, only without a stronger cross-module authority.
-        if (
-            ctx.query_module
-            and node.module == ctx.query_module
-            and not owns_scope
-            and not cross_module_authority
-        ):
-            authority += MODULE_MATCH_BOOST
-            reasons.append("module-match")
-        ranked.append(
-            RankedHit(concept_id, base, authority, tuple(reasons), tier=tier, hit_index=hit_index)
-        )
+        ranked.append(_rank_known_node(graph, node, base, ctx, cross_module_authority, hit_index))
     ranked.sort(key=lambda r: (r.tier, -r.authority_score, -r.score, r.concept_id, r.hit_index))
     return ranked
+
+
+def _strict_hit(hit: Mapping[str, object]) -> tuple[str, float]:
+    """Validate the external retrieval hit without defaults or coercive repair."""
+    try:
+        concept_id = hit["concept_id"]
+        raw_score = hit["score"]
+    except KeyError as exc:
+        raise ValueError(f"retrieval hit is missing mandatory field {exc.args[0]!r}") from exc
+    if not isinstance(concept_id, str) or not concept_id:
+        raise ValueError("retrieval hit concept_id must be a non-empty string")
+    if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
+        raise ValueError("retrieval hit score must be numeric")
+    score = float(raw_score)
+    if not math.isfinite(score):
+        raise ValueError("retrieval hit score must be finite")
+    return concept_id, score
+
+
+def _rank_known_node(
+    graph: ConceptGraph,
+    node: GraphNode,
+    base: float,
+    ctx: RankContext,
+    cross_module_authority: bool,
+    hit_index: int,
+) -> RankedHit:
+    tier, reasons, owns_scope = _precedence(graph, node, ctx)
+    authority = _authority_score(
+        node,
+        base,
+        ctx,
+        owns_scope=owns_scope,
+        cross_module_authority=cross_module_authority,
+        reasons=reasons,
+    )
+    return RankedHit(
+        node.concept_id,
+        base,
+        authority,
+        tuple(reasons),
+        tier=tier,
+        hit_index=hit_index,
+    )
+
+
+def _precedence(
+    graph: ConceptGraph,
+    node: GraphNode,
+    ctx: RankContext,
+) -> tuple[int, list[str], bool]:
+    reasons: list[str] = []
+    owns_scope = bool(
+        ctx.query_authority_scope
+        and ctx.query_authority_scope in node.authority_scopes
+    )
+    if owns_scope:
+        tier = TIER_DIRECT_AUTHORITY
+        reasons.append("authority_over-direct")
+    elif _is_scoped_authority_target(graph, node.concept_id, ctx.query_authority_scope):
+        tier = TIER_SCOPED_TARGET
+        reasons.append("scoped-authority-target")
+    else:
+        tier = TIER_ORDINARY
+    penalty = _status_tier_penalty(node.status)
+    if penalty:
+        tier += penalty
+        reasons.append(f"status-penalty({node.status})")
+    return tier, reasons, owns_scope
+
+
+def _authority_score(
+    node: GraphNode,
+    base: float,
+    ctx: RankContext,
+    *,
+    owns_scope: bool,
+    cross_module_authority: bool,
+    reasons: list[str],
+) -> float:
+    authority = _normalised(base)
+    if node.is_appendix and ctx.query_detail.lower() in _INTERFACE_DETAILS:
+        authority += APPENDIX_DETAIL_BOOST
+        reasons.append("appendix-interface")
+    if (
+        ctx.query_module
+        and node.module == ctx.query_module
+        and not owns_scope
+        and not cross_module_authority
+    ):
+        authority += MODULE_MATCH_BOOST
+        reasons.append("module-match")
+    return authority
 
 
 def derive_query_detail(query: str) -> str:

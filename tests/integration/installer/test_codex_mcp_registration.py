@@ -92,13 +92,18 @@ def _conforming_desired(ctx: Any) -> tuple[DesiredMcpServer, ...]:
 
 
 def _context(
-    root: Path, registration_repo: StateBackendProjectRegistrationRepository
+    root: Path,
+    registration_repo: StateBackendProjectRegistrationRepository,
+    *,
+    real_probe: bool = False,
 ) -> Any:
+    probe_kwargs = {"mcp_registration_probe": None} if real_probe else {}
     config = make_config(
         root,
         bundle_store_root=root.parent / "bundles",
         registration_repo=registration_repo,
         features_vectordb=True,
+        **probe_kwargs,
     )
     ctx = build_checkpoint_context(config, ExecutionMode.REGISTER)
     cp05_pipeline_config(ctx)
@@ -335,7 +340,7 @@ def test_full_cp8_to_cp10_region_uses_the_real_derivation(
     monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _record)
     root = tmp_path / "proj"
     root.mkdir()
-    ctx = _context(root, registration_repo)
+    ctx = _context(root, registration_repo, real_probe=True)
     _cp8_region(root)
 
     result = cp10_mcp_registration(ctx)
@@ -343,7 +348,7 @@ def test_full_cp8_to_cp10_region_uses_the_real_derivation(
     # The CP 8 region really ran: the hook entry is materialised.
     assert "agentkit-hook-codex" in (root / _CODEX_REL).read_text(encoding="utf-8")
     # The real derivation reached the probe with the production spec.
-    assert len(observed) == 1
+    assert len(observed) == 1, result
     probed = observed[0]
     assert probed.command == "python"
     assert tuple(probed.args) == ("-m", "agentkit.backend.vectordb.engine")

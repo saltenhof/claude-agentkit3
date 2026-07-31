@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_active_run_ownership, seed_approved_story
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.bootstrap.composition_root import (
     build_closure_phase_handler,
@@ -124,9 +125,7 @@ def _init_project_repo(project_dir: Path) -> None:
         ["git", "-C", str(project_dir), "config", "user.email", "t@example.com"],
         check=True,
     )
-    subprocess.run(
-        ["git", "-C", str(project_dir), "config", "user.name", "T"], check=True
-    )
+    subprocess.run(["git", "-C", str(project_dir), "config", "user.name", "T"], check=True)
 
 
 @pytest.mark.e2e
@@ -159,6 +158,7 @@ class TestRealPipelineE2E:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             )
         )
 
@@ -222,9 +222,7 @@ class TestRealPipelineE2E:
         result = run_pipeline(initial_ctx, s_dir, registry, workflow)
 
         # 5. Verify real outcomes
-        assert result.final_status == "completed", (
-            f"Pipeline failed: {result.errors}"
-        )
+        assert result.final_status == "completed", f"Pipeline failed: {result.errors}"
         assert "setup" in result.phases_executed
         assert "closure" in result.phases_executed
 
@@ -254,6 +252,7 @@ class TestRealPipelineE2E:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             )
         )
 
@@ -312,9 +311,7 @@ class TestRealPipelineE2E:
 
         result = run_pipeline(initial_ctx, s_dir, registry, workflow)
 
-        assert result.final_status == "completed", (
-            f"Pipeline failed: {result.errors}"
-        )
+        assert result.final_status == "completed", f"Pipeline failed: {result.errors}"
         assert result.phases_executed == (
             "setup",
             "implementation",

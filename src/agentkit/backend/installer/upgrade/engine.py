@@ -36,6 +36,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from packaging.version import InvalidVersion, Version
+
 from agentkit.backend.installer.registration import CheckpointResult, CheckpointStatus
 from agentkit.backend.installer.upgrade.cleanup import run_cleanup
 from agentkit.backend.installer.upgrade.config_migration import migrate_config_file
@@ -224,6 +226,44 @@ def up_01_detect_footprint(context: UpgradeRunContext) -> CheckpointResult:
     )
 
 
+def _norm_violating_pins(req: UpgradeRequest) -> list[str]:
+    """Report mandatory skills pinned below their minimum conform version.
+
+    Read-only. A skill without a persisted binding, or a pin that is not a
+    comparable version, is NOT reported here: this check answers exactly one
+    question, and the binding's own verification owns the rest.
+    """
+    from agentkit.backend.installer.runner import (  # noqa: PLC0415 - runtime import keeps the spine import-light
+        DEFAULT_MANDATORY_SKILL_BUNDLE_IDS,
+        MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS,
+    )
+
+    if req.skills is None:
+        return []  # no skills surface in this run: nothing to inspect, not a finding
+    violating: list[str] = []
+    for skill_name in DEFAULT_MANDATORY_SKILL_BUNDLE_IDS:
+        binding = req.skills.resolve_binding(req.project_root, skill_name)
+        if binding is None:
+            continue
+        # Keyed on the ACTUALLY bound bundle, not on the expected default id:
+        # a project may legitimately run a different bundle, and that one has
+        # its own floor (or none at all).
+        floor = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(binding.bundle_id)
+        if floor is None:
+            continue
+        try:
+            outdated = Version(binding.bundle_version) < Version(floor)
+        except InvalidVersion:
+            # Fail-closed: this bundle HAS a floor, and a pin that cannot be
+            # compared against it cannot be shown to satisfy it. Skipping here
+            # would wave through exactly the case the floor exists for.
+            violating.append(f"{binding.bundle_id}@{binding.bundle_version} (not comparable to {floor})")
+            continue
+        if outdated:
+            violating.append(f"{binding.bundle_id}@{binding.bundle_version} < {floor}")
+    return violating
+
+
 def up_02_guard_binding(context: UpgradeRunContext) -> CheckpointResult:
     """Block an explicit binding switch over a detected customization (F-51-023).
 
@@ -239,6 +279,19 @@ def up_02_guard_binding(context: UpgradeRunContext) -> CheckpointResult:
     """
     start = time.monotonic()
     req = context.request
+    # Runs in EVERY mode and independently of the F-51-023 guard below: an
+    # upgrade must not finish while the project still carries a pin whose bundle
+    # executes a path the norm abolished. Otherwise the upgrade reports success
+    # for a project that keeps doing the forbidden thing until someone happens
+    # to run a verify.
+    violating = _norm_violating_pins(req)
+    if violating:
+        return _result(
+            UP_02_GUARD_BINDING,
+            status=CheckpointStatus.FAILED,
+            detail="Norm-violating skill pin(s): " + "; ".join(violating) + ". Rebind before upgrading.",
+            start=start,
+        )
     if not (context.mode.mutations_allowed and req.explicit_binding_switch):
         return _result(
             UP_02_GUARD_BINDING,

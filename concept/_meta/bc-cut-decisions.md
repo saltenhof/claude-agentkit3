@@ -1018,7 +1018,7 @@ Enthaelt direkt (~4 Klassen): `Installer`, `BootstrapStatus`,
 
 | Sub | Bluttyp | Exposure | Verantwortung |
 |---|---|---|---|
-| `CheckpointEngine` | A | internal | DSL-Flow (FlowDefinition mit level=component, owner=Installer, FK-50 §50.3.1) + Run-Lifecycle + Result-Aggregation. Branch-Knoten fuer feature.are/feature.vectordb. Dry-Run-Modus. |
+| `CheckpointEngine` | A | internal | DSL-Flow (FlowDefinition mit level=component, owner=Installer, FK-50 §50.3.1) + Run-Lifecycle + Result-Aggregation. Branch-Knoten fuer feature.are und die SonarQube-Anbindung; fuer die VektorDB gibt es seit AG3-176 keinen Branch-Knoten mehr (Pflichtinfrastruktur, FK-13 §13.1). Dry-Run-Modus. |
 | `BootstrapCheckpoints` | A, mix_allowed:[R,T] | internal | CP 1-7 — Voraussetzungen pruefen + Setup + State-Backend-Registrierung. Package-Check, Repo-Check, Pipeline-Config-Erzeugung, Profile-Ermittlung, ProjectRegistration-Upsert. |
 | `IntegrationCheckpoints` | A, mix_allowed:[T] | internal | CP 8-12 + 10a/b/c — Skill-Bindings (ruft agent-skills + prompt-runtime), Hook-Registration (ruft governance), MCP-Server (ruft Vector-DB-Adapter), ConceptContext-Setup, Concept-Validation-Hook, ARE-Scope-Validierung, Git-Hooks + CLAUDE.md-Skelett, Verifikation. |
 | `Upgrade` | A | internal | FK-51 — Upgrade-Szenarien (NoChange, BundleVersionChanged, UserCustomized, NewVariant), Config-Migration zwischen config_versions, .bak-Backup, Customization-Footprint-Erkennung. Nutzt CheckpointEngine fuer Re-Run. |

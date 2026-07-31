@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 import yaml
 
 from agentkit.backend.vectordb.wait_for_weaviate import (
@@ -15,6 +16,7 @@ from agentkit.backend.vectordb.wait_for_weaviate import (
     DEFAULT_PORT,
     _resolve_host_port,
     main,
+    resolve_adapter_endpoints,
     wait_for_weaviate,
 )
 from agentkit.integration_clients.vectordb import VectorDbUnavailableError
@@ -22,7 +24,6 @@ from agentkit.integration_clients.vectordb import VectorDbUnavailableError
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
 
 
 class _ReadyAdapter:
@@ -147,19 +148,15 @@ def test_resolve_host_port_consumes_vectordb_config(tmp_path: Path) -> None:
     assert _resolve_host_port(str(tmp_path)) == ("weaviate.internal", 9999)
 
 
-def test_resolve_host_port_falls_back_when_config_missing(tmp_path: Path) -> None:
-    assert _resolve_host_port(str(tmp_path)) == (DEFAULT_HOST, DEFAULT_PORT)
+def test_resolve_host_port_fails_when_project_config_missing(tmp_path: Path) -> None:
+    from agentkit.backend.exceptions import ConfigError
+
+    with pytest.raises(ConfigError):
+        _resolve_host_port(str(tmp_path))
 
 
-def test_resolve_host_port_falls_back_when_endpoint_absent(tmp_path: Path) -> None:
-    """AG3-176 SEAM: the fallback policy is deliberately UNCHANGED by AG3-175.
-
-    AG3-176 Scope 1 owns excluding the localhost/default fallback for the
-    project-bound install path while keeping documented defaults for the
-    project-less diagnostic CLI path, and it names this function. AG3-175 changed
-    only where the value is read from, so a vectordb stanza without an endpoint
-    still yields the documented defaults here.
-    """
+def test_resolve_host_port_fails_when_project_endpoint_absent(tmp_path: Path) -> None:
+    """A project-bound probe never falls back to diagnostic localhost defaults."""
     config_dir = tmp_path / ".agentkit" / "config"
     config_dir.mkdir(parents=True)
     data = {
@@ -175,4 +172,73 @@ def test_resolve_host_port_falls_back_when_endpoint_absent(tmp_path: Path) -> No
     }
     (config_dir / "project.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
 
-    assert _resolve_host_port(str(tmp_path)) == (DEFAULT_HOST, DEFAULT_PORT)
+    with pytest.raises(VectorDbUnavailableError):
+        _resolve_host_port(str(tmp_path))
+
+
+def _write_project_config(tmp_path: Path, vectordb: dict[str, object]) -> None:
+    """Write a minimal project config carrying the given vectordb stanza."""
+    config_dir = tmp_path / ".agentkit" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "project_key": "ak3",
+        "project_name": "AK3",
+        "repositories": [{"name": "backend", "path": "/tmp/backend"}],
+        "story_types": ["concept"],
+        "pipeline": {
+            "config_version": "3.0",
+            "features": {"multi_llm": False, "vectordb": True},
+            "vectordb": vectordb,
+        },
+    }
+    (config_dir / "project.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
+
+
+def test_resolve_adapter_endpoints_carries_https_and_both_tls_flags(tmp_path: Path) -> None:
+    """A configured HTTPS/grpcs deployment must survive the resolution intact.
+
+    Dropping ``http_secure`` would silently downgrade a configured TLS endpoint
+    to plaintext — the same class of quiet repair as a synthesised endpoint.
+    """
+    _write_project_config(
+        tmp_path,
+        {
+            "weaviate_http_endpoint": "https://weaviate.acme.local:8443",
+            "weaviate_grpc_endpoint": "grpcs://grpc.acme.local:50052",
+        },
+    )
+    assert resolve_adapter_endpoints(str(tmp_path)) == {
+        "host": "weaviate.acme.local",
+        "port": 8443,
+        "http_secure": True,
+        "grpc_host": "grpc.acme.local",
+        "grpc_port": 50052,
+        "grpc_secure": True,
+    }
+
+
+def test_resolve_adapter_endpoints_keeps_a_split_deployment_split(tmp_path: Path) -> None:
+    """The gRPC host must come from config, never be derived from the HTTP host."""
+    _write_project_config(
+        tmp_path,
+        {
+            "weaviate_http_endpoint": "http://http.acme.local:8080",
+            "weaviate_grpc_endpoint": "grpc.acme.local:50051",
+        },
+    )
+    resolved = resolve_adapter_endpoints(str(tmp_path))
+    assert resolved["grpc_host"] == "grpc.acme.local" != resolved["host"]
+
+
+def test_main_with_project_root_exits_one_when_grpc_endpoint_is_missing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Both endpoints are mandatory on the project-bound path (PO decision D-2).
+
+    This is the path the productive ``create-userstory-core`` 4.1.0 bundle uses,
+    so a missing gRPC endpoint must fail closed here — and as a controlled exit
+    code, not an uncaught traceback at a CLI boundary.
+    """
+    _write_project_config(tmp_path, {"weaviate_http_endpoint": "http://weaviate.acme.local:8080"})
+    assert main(["--timeout", "1", "--project-root", str(tmp_path)]) == 1
+    assert "gRPC endpoint" in capsys.readouterr().err

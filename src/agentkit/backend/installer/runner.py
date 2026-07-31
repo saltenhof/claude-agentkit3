@@ -11,8 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import yaml
-
 from agentkit.backend.config.defaults import (
     DEFAULT_MAX_FEEDBACK_ROUNDS,
     DEFAULT_MAX_REMEDIATION_ROUNDS,
@@ -61,6 +59,8 @@ from agentkit.backend.installer.project_structure import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     # AG3-048 Codex-r5 FINDING 3 (BC boundary): the installer is a DIFFERENT BC
     # (BC 12) and must consume the agent-skills BC (BC 11) only through its
     # PUBLIC surface ``agentkit.backend.skills`` — never the internal
@@ -69,13 +69,18 @@ if TYPE_CHECKING:
     from agentkit.backend.config.models import ProjectConfig
     from agentkit.backend.control_plane.third_party_models import ThirdPartyValidationRequest
     from agentkit.backend.installer.integration_checkpoints.sonar_preflight import SonarPreflightResult
+    from agentkit.backend.installer.mcp_registration import (
+        ProbedRegistration,
+        RenderedRegistration,
+    )
     from agentkit.backend.installer.registration import CheckpointResult, RuntimeProfile
     from agentkit.backend.installer.repo_probe import RepoExistenceProbe
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
+    from agentkit.backend.installer.vectordb_preflight import VectorDbPreflightPort
     from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.skills import SkillBundleStore, SkillProfile, Skills
+    from agentkit.backend.vectordb.engine import CorpusClientPort
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
-
 
 
 PROMPT_MANIFEST_FILENAME = "manifest.json"
@@ -103,14 +108,25 @@ MANDATORY_SKILLS: tuple[str, ...] = (
 # four — when the systemwide store has not been provisioned with these bundles
 # the installer FAILS CLOSED (``InstallationError(cause=BundleNotFound)``),
 # it never silently skips (AG3-048 AC#5/AC#7, FK-50 §50.5).
-DEFAULT_MANDATORY_SKILL_BUNDLE_IDS: dict[str, str] = {
-    name: f"{name}-core" for name in MANDATORY_SKILLS
+DEFAULT_MANDATORY_SKILL_BUNDLE_IDS: dict[str, str] = {name: f"{name}-core" for name in MANDATORY_SKILLS}
+
+# Lowest bundle version a persisted pin may still carry and remain conform.
+# A pin is normally honoured for the lifetime of a project — an existing project
+# stays valid on the version it explicitly chose (see
+# ``SkillTop.verify_pinned_binding``). That rule ends where an older bundle
+# still EXECUTES a path the norm abolished: ``create-userstory-core`` 4.0.0
+# carries the ``IF_STORY_VECTORDB`` / "Fallback — no VectorDB" branch, which
+# decision 2026-07-21 Rand 1 removed (FK-13 §13.1: mandatory infrastructure).
+# Leaving such a pin conform would let a supported project pass VERIFY while
+# running the abolished optionality path, so the floor is enforced instead.
+# Only add an entry here when an older bundle is genuinely norm-violating, never
+# to nudge projects onto a newer version.
+MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS: dict[str, str] = {
+    "create-userstory-core": "4.1.0",
 }
 MISSING_TEMPLATES_MESSAGE = "Prompt bundle manifest is missing templates"
 MALFORMED_TEMPLATE_ENTRY_MESSAGE = "Prompt bundle manifest template entry is malformed"
-MISSING_TEMPLATE_RELPATH_MESSAGE = (
-    "Prompt bundle manifest template entry is missing relpath"
-)
+MISSING_TEMPLATE_RELPATH_MESSAGE = "Prompt bundle manifest template entry is missing relpath"
 
 
 def _resources_internal_prompt_dir() -> Path:
@@ -211,24 +227,33 @@ class InstallConfig:
     runtime_profile: RuntimeProfile | None = None
     # AG3-088 (FK-50 §50.3 CP 10 / FK-03 §3.1): the installer CONSUMES the
     # feature decision (it does not define the config model, story §2.2). These
-    # two flags drive the vectordb/ARE branch nodes of the checkpoint flow and
-    # the ``features.vectordb``/``features.are`` stanza written to project.yaml.
-    # CP 10 registers the story-knowledge-base MCP server at ``features_vectordb``
-    # and the ARE-MCP server at ``features_are`` (FK-03 §3.1 binds are.mcp_server
-    # to features.are only); both off -> CP 10 SKIPPED (vectordb_disabled).
-    features_vectordb: bool = False
+    # VectorDB is mandatory. The compatibility input is accepted only as the
+    # literal ``True`` and is rejected before any effect otherwise. ARE remains
+    # an independent optional capability.
+    features_vectordb: bool = True
     features_are: bool = False
     # AG3-175 (FK-13 §13.4.3 / FK-76 §76.5.4): the FULL Weaviate endpoints that
     # CP 10 registers into the MCP server's ``env``. They must travel through
     # InstallConfig -> CP 5 -> project.yaml, because ``_build_project_yaml``
     # rebuilds the whole mapping from this config and CP 5 writes it back
-    # whenever it differs: a hand-maintained ``pipeline.vectordb`` stanza would be
-    # DELETED by the next install run. Both are ``None`` by default; with
-    # ``features_vectordb`` on and either missing, CP 10 FAILs closed with
-    # ``configuration_invalid`` rather than synthesising an endpoint (PO
-    # decision D2 -- no localhost/default fallback).
+    # The pair is consumed only while constructing a fresh candidate. Existing
+    # projects use their strictly loaded project.yaml as the sole endpoint SSOT.
+    # Either missing endpoint fails before installer effects.
     vectordb_http_endpoint: str | None = None
     vectordb_grpc_endpoint: str | None = None
+    # External-boundary seam for the mandatory Weaviate installer preflight.
+    # Production uses the real HTTP/gRPC probe; tests may fake only this port.
+    vectordb_preflight: VectorDbPreflightPort | None = None
+    # Test seam at the sole allowed fake boundary: the external Weaviate client.
+    # Production leaves this unset and composes the real client.
+    vectordb_client: CorpusClientPort | None = None
+    mcp_registration_probe: (
+        Callable[
+            [RenderedRegistration],
+            tuple[ProbedRegistration | None, tuple[str, str] | None],
+        ]
+        | None
+    ) = None
     # AG3-088 (FK-50 §50.3 CP 10c): optional ARE config consumed when
     # ``features_are`` is True — the ``are`` stanza (incl. ``mcp_server`` and the
     # ``module_scope_map``) written into project.yaml. The installer is the
@@ -366,14 +391,12 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         # Operators who are not yet ready for multi-LLM routing must consciously
         # set multi_llm: false and remove the llm_roles stanza — a deliberate opt-
         # out, not an automatic install default.
-        # AG3-088 (FK-03 §3.1): the installer CONSUMES the feature decision and
-        # writes the resulting ``features.vectordb``/``features.are`` flags so the
-        # checkpoint flow's vectordb/ARE branch nodes route consistently with the
-        # persisted config. Defaults to False (core profile, no vectordb).
+        # VectorDB is mandatory and absence of its deprecated migration key means
+        # active, so the scaffold does not emit that key. ARE remains an explicit
+        # independent feature decision.
         "features": {
             "multi_repo": multi_repo,
             "multi_llm": True,
-            "vectordb": config.features_vectordb,
             "are": config.features_are,
         },
         "llm_roles": {
@@ -400,15 +423,12 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
     # FAILs closed — the intended prompt to provision Sonar or opt out
     # consciously. Non-code-producing scaffolds may omit it, but the default
     # story types are code-producing, so it is always written here.
-    # AG3-175: the vectordb stanza is written ONLY when the feature is on AND both
-    # endpoints are declared. A partial stanza is never written -- CP 10 then
+    # AG3-175: the vectordb stanza is written ONLY when both endpoints are
+    # declared (the capability itself is mandatory, FK-13 13.1 -- there is no
+    # 'feature is on' branch left). A partial stanza is never written -- CP 10 then
     # FAILs closed with a named reason instead of registering a server that would
     # refuse its own runtime binding (PO decision D2, no synthesised endpoint).
-    if (
-        config.features_vectordb
-        and config.vectordb_http_endpoint
-        and config.vectordb_grpc_endpoint
-    ):
+    if config.vectordb_http_endpoint and config.vectordb_grpc_endpoint:
         pipeline["vectordb"] = {
             "weaviate_http_endpoint": config.vectordb_http_endpoint,
             "weaviate_grpc_endpoint": config.vectordb_grpc_endpoint,
@@ -463,11 +483,7 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
 
 
 def _resolve_prompt_source_dir(config: InstallConfig) -> Path:
-    prompt_source_dir = (
-        config.prompt_bundle_root
-        if config.prompt_bundle_root is not None
-        else _resources_internal_prompt_dir()
-    )
+    prompt_source_dir = config.prompt_bundle_root if config.prompt_bundle_root is not None else _resources_internal_prompt_dir()
     if not prompt_source_dir.is_dir():
         raise ProjectError(
             f"Prompt bundle root does not exist: {prompt_source_dir}",
@@ -476,8 +492,7 @@ def _resolve_prompt_source_dir(config: InstallConfig) -> Path:
     manifest_path = prompt_source_dir / PROMPT_MANIFEST_FILENAME
     if not manifest_path.is_file():
         raise ProjectError(
-            "Prompt bundle root is missing "
-            f"{PROMPT_MANIFEST_FILENAME}: {prompt_source_dir}",
+            f"Prompt bundle root is missing {PROMPT_MANIFEST_FILENAME}: {prompt_source_dir}",
             detail={"prompt_bundle_root": str(prompt_source_dir)},
         )
     return prompt_source_dir
@@ -685,9 +700,7 @@ def _write_installed_manifest(
     return str(manifest_path.relative_to(target_root))
 
 
-def _write_control_plane_config(
-    target_root: Path, config: InstallConfig
-) -> str | None:
+def _write_control_plane_config(target_root: Path, config: InstallConfig) -> str | None:
     config_path = control_plane_config_path(target_root)
     content = (
         json.dumps(
@@ -729,11 +742,21 @@ def _write_text_if_changed(path: Path, content: str) -> bool:
 
 
 def _write_yaml_if_changed(path: Path, data: dict[str, object]) -> bool:
+    from agentkit.backend.config.loader import parse_project_config
+    from agentkit.backend.config.models import ProjectConfig
+
+    candidate = ProjectConfig.model_validate(data)
     if path.is_file():
-        existing = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if existing == data:
+        existing = parse_project_config(
+            path.read_text(encoding="utf-8"),
+            source=str(path),
+        )
+        if existing == candidate:
             return False
-    atomic_write_yaml(path, data)
+    atomic_write_yaml(
+        path,
+        candidate.model_dump(mode="json", exclude_none=True),
+    )
     return True
 
 
@@ -826,9 +849,7 @@ def _rollback_bindings(
             entry: dict[str, object] = {
                 "skill_name": skill_name,
                 "error": str(exc),
-                "residual_links": [
-                    str(r) for r in exc.detail.get("residual_links") or []
-                ],
+                "residual_links": [str(r) for r in exc.detail.get("residual_links") or []],
                 "persisted_row_remains": bool(exc.detail.get("persisted_row_remains")),
             }
             orphaned.append(entry)
@@ -837,9 +858,7 @@ def _rollback_bindings(
     return orphaned
 
 
-def _resolve_mandatory_skill_bundles(
-    config: InstallConfig, root: Path
-) -> tuple[Skills, list[tuple[str, Path]]]:
+def _resolve_mandatory_skill_bundles(config: InstallConfig, root: Path) -> tuple[Skills, list[tuple[str, Path]]]:
     """Resolve (PREFLIGHT) all FK-43 §43.3.1 mandatory skill bundles.
 
     This is a pure resolution step that writes NOTHING to the project. It is
@@ -871,19 +890,14 @@ def _resolve_mandatory_skill_bundles(
 
     skills, bundle_store = _resolve_skills_and_store(config, root)
     _resolve_skill_profile(config)  # CP6/CP7 profile resolution (fail early on bad profile)
-    bundle_ids = (
-        config.skill_bundle_ids
-        if config.skill_bundle_ids is not None
-        else DEFAULT_MANDATORY_SKILL_BUNDLE_IDS
-    )
+    bundle_ids = config.skill_bundle_ids if config.skill_bundle_ids is not None else DEFAULT_MANDATORY_SKILL_BUNDLE_IDS
 
     resolved: list[tuple[str, Path]] = []
     for skill_name in MANDATORY_SKILLS:
         bundle_id = bundle_ids.get(skill_name)
         if not bundle_id:
             raise InstallationError(
-                f"No bundle_id configured for mandatory skill '{skill_name}' "
-                "(FK-43 §43.3.1); cannot bind.",
+                f"No bundle_id configured for mandatory skill '{skill_name}' (FK-43 §43.3.1); cannot bind.",
                 detail={"cause": "BundleNotFound", "skill_name": skill_name},
             )
         try:
@@ -1030,9 +1044,7 @@ def _bind_resolved_skills(
                 # missing manifest token makes ``substitute_spawn_header`` raise.
                 if project_config is None:
                     project_config = load_project_config(root)
-                variant_dir = _materialized_variant_dir_for(
-                    config, project_config, root, skill_name, bundle_root
-                )
+                variant_dir = _materialized_variant_dir_for(config, project_config, root, skill_name, bundle_root)
                 skills.bind_skill_materialized(
                     skill_name,
                     bundle_root,
@@ -1057,9 +1069,7 @@ def _bind_resolved_skills(
             failing_residual: dict[str, object] = {
                 "skill_name": skill_name,
                 "error": str(exc),
-                "residual_links": [
-                    str(r) for r in exc.detail.get("residual_links") or []
-                ],
+                "residual_links": [str(r) for r in exc.detail.get("residual_links") or []],
                 "persisted_row_remains": bool(exc.detail.get("persisted_row_remains")),
             }
             orphaned = [*orphaned, failing_residual]
@@ -1161,17 +1171,13 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
     """
     resources_dir = _resources_target_project_dir()
     prompt_source_dir = _resolve_prompt_source_dir(config)
-    canonical_prompt_bundle_root, manifest, manifest_text = (
-        _ensure_prompt_bundle_store_entry(prompt_source_dir)
-    )
+    canonical_prompt_bundle_root, manifest, manifest_text = _ensure_prompt_bundle_store_entry(prompt_source_dir)
     skills, resolved_skill_bundles = _resolve_mandatory_skill_bundles(config, root)
 
     created: list[str] = []
     active_binding_paths = _default_governance_hook_settings_paths(root)
     static_created = _deploy_static_resource_files(resources_dir, root)
-    created.extend(
-        rel for rel in static_created if root / rel not in active_binding_paths
-    )
+    created.extend(rel for rel in static_created if root / rel not in active_binding_paths)
 
     gitignore_rel = _ensure_link_bindpoint_gitignore(root)
     if gitignore_rel is not None and gitignore_rel not in created:
@@ -1196,9 +1202,7 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
     # the real ``agent_spawn_skill_proof`` token on disk. Reordered ahead of
     # ``_bind_resolved_skills`` (previously the bind ran first). Fail-closed: a
     # missing token makes ``substitute_spawn_header`` raise -> install aborts.
-    installed_manifest = _write_installed_manifest(
-        root, manifest=manifest, resolved_skill_bundles=resolved_skill_bundles
-    )
+    installed_manifest = _write_installed_manifest(root, manifest=manifest, resolved_skill_bundles=resolved_skill_bundles)
     if installed_manifest is not None:
         created.append(installed_manifest)
 
@@ -1252,9 +1256,7 @@ def _canonical_config_digest(yaml_data: dict[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _resolve_registration_repo(
-    config: InstallConfig, root: Path
-) -> ProjectRegistrationRepository:
+def _resolve_registration_repo(config: InstallConfig, root: Path) -> ProjectRegistrationRepository:
     """Return the injected registration repo, or the default productive adapter."""
     if config.registration_repo is not None:
         return config.registration_repo
@@ -1286,11 +1288,7 @@ def _derive_story_id_prefix(project_key: str) -> str:
     """
 
     parts = re.findall(r"[A-Za-z0-9]+", project_key)
-    candidate = (
-        "".join(part[0] for part in parts)
-        if len(parts) > 1
-        else "".join(ch for ch in project_key if ch.isalnum())
-    )
+    candidate = "".join(part[0] for part in parts) if len(parts) > 1 else "".join(ch for ch in project_key if ch.isalnum())
     candidate = candidate.upper()
     if not candidate or not candidate[0].isalpha():
         candidate = f"P{candidate}"
@@ -1394,11 +1392,7 @@ def _register_default_governance_hooks(
             detail={"errors": [str(error) for error in result.errors]},
         )
     after = _file_digests(watched_paths)
-    return [
-        str(path.relative_to(root))
-        for path in watched_paths
-        if before_digests.get(path) != after.get(path)
-    ]
+    return [str(path.relative_to(root)) for path in watched_paths if before_digests.get(path) != after.get(path)]
 
 
 def _default_governance_hook_settings_paths(root: Path) -> tuple[Path, ...]:
@@ -1413,11 +1407,7 @@ def _default_governance_hook_settings_paths(root: Path) -> tuple[Path, ...]:
 def _file_digests(paths: tuple[Path, ...]) -> dict[Path, str]:
     """Return content digests for existing files in ``paths``."""
 
-    return {
-        path: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in paths
-        if path.is_file()
-    }
+    return {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths if path.is_file()}
 
 
 def _elapsed_ms(start: float) -> int:
@@ -1442,10 +1432,7 @@ def _cp7_updated_detail(
             f"({existing_config_digest[:12]} -> {digest[:12]}); "
             f"project-management row {project_action}."
         )
-    return (
-        f"Project {project_key!r} registration already matched "
-        f"but project-management row was {project_action}."
-    )
+    return f"Project {project_key!r} registration already matched but project-management row was {project_action}."
 
 
 def _run_cp7_state_backend_registration(
@@ -1589,10 +1576,7 @@ def _run_cp7_state_backend_registration(
 
     if registry_action == "created":
         status = CheckpointStatus.CREATED
-        detail = (
-            f"Registered project {config.project_key!r} (digest {digest[:12]}); "
-            f"project-management row {project_action}."
-        )
+        detail = f"Registered project {config.project_key!r} (digest {digest[:12]}); project-management row {project_action}."
     elif registry_action == "unchanged" and project_action == "unchanged":
         status = CheckpointStatus.SKIPPED
         reason = REASON_CONFIG_DIGEST_UNCHANGED
@@ -1638,9 +1622,7 @@ def _run_cp10d_sonarqube(
     pipeline = yaml_data.get("pipeline")
     sonar_stanza = pipeline.get("sonarqube") if isinstance(pipeline, dict) else None
     if isinstance(sonar_stanza, dict) and bool(sonar_stanza.get("available", True)):
-        local_failure = check_default_profile(
-            SonarQubeConfig.model_validate(sonar_stanza), root
-        )
+        local_failure = check_default_profile(SonarQubeConfig.model_validate(sonar_stanza), root)
         if local_failure is not None:
             raise _third_party_installation_error(local_failure.reason, local_failure.details)
 
@@ -1653,8 +1635,7 @@ def _run_cp10d_sonarqube(
         )
     except ControlPlaneApiError as exc:
         raise InstallationError(
-            f"Third-party validation backend rejected the request with "
-            f"HTTP {exc.http_status}: {exc}",
+            f"Third-party validation backend rejected the request with HTTP {exc.http_status}: {exc}",
             detail={
                 "cause": "ThirdPartyValidationBackendHttpError",
                 "error_code": exc.error_code,
@@ -1716,9 +1697,7 @@ def _third_party_validation_request(
             base_url=_optional_str(sonar.get("base_url")),
             token_env=_optional_str(sonar.get("token_env")),
             min_version=str(sonar.get("min_version", "26.4")),
-            branch_plugin_min_version=str(
-                branch.get("min_version", "1.23.0") if isinstance(branch, dict) else "1.23.0"
-            ),
+            branch_plugin_min_version=str(branch.get("min_version", "1.23.0") if isinstance(branch, dict) else "1.23.0"),
             scanner_version=_optional_str(sonar.get("scanner_version")),
         ),
         "ci": CiValidationConfig(
@@ -1754,9 +1733,7 @@ def _build_project_edge_client(root: Path) -> ProjectEdgeClient:
     return build_project_edge_client(root)
 
 
-def _third_party_installation_error(
-    error_code: str | None, details: tuple[str, ...]
-) -> InstallationError:
+def _third_party_installation_error(error_code: str | None, details: tuple[str, ...]) -> InstallationError:
     return InstallationError(
         "Backend third-party validation FAILED: " + "; ".join(details),
         detail={

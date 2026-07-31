@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 
 import psutil  # type: ignore[import-untyped]
 
@@ -36,7 +36,7 @@ from agentkit.backend.installer.mcp_conformance.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 _TERMINATE_GRACE_SECONDS: Final = 2.0
 _GRACEFUL_EXIT_SECONDS: Final = 1.0
@@ -205,34 +205,7 @@ class ProcessSupervisor:
         if self._job is None:
             self._reset_control_state()
             raise ProcessControlError("Windows Job Object creation returned no handle.")
-
-        try:
-            self.proc = subprocess.Popen(  # noqa: S603
-                list(argv),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,
-                env=env,
-                cwd=cwd,
-                bufsize=0,
-                creationflags=_CREATE_SUSPENDED,
-            )
-        except OSError as popen_err:
-            # Best-effort close; CloseHandle failure is ProcessControlError so a
-            # leaked job handle is never silent (AC 6 / review-5 P1-3).
-            try:
-                self._close_job_handle()
-            except ProcessControlError as close_err:
-                self._reset_control_state()
-                raise ProcessControlError(
-                    merge_control_details(
-                        f"Job close failed after Popen error: {close_err.detail}",
-                        f"Popen error: {popen_err}",
-                    )
-                ) from popen_err
-            self._reset_control_state()
-            raise popen_err
+        self.proc = self._spawn_suspended_windows(argv, env=env, cwd=cwd)
 
         # FK-50 / review-6 P1-2: re-arm cleanup budget after Popen returns so a
         # slow OS launch cannot exhaust kill/wait for assign/resume failures.
@@ -244,30 +217,71 @@ class ProcessSupervisor:
             resume = self._resume_hook or _resume_suspended_process
             resume(self.proc.pid)
         except ProcessControlError as primary:
-            with contextlib.suppress(OSError):
-                self.proc.kill()
-            wait = remaining_budget(cleanup_deadline)
-            if wait > 0:
-                with contextlib.suppress(subprocess.TimeoutExpired, OSError):
-                    self.proc.wait(timeout=wait)
-            self._close_pipes()
-            close_error: ProcessControlError | None = None
-            try:
-                self._close_job_handle()
-            except ProcessControlError as ce:
-                close_error = ce
-            self.proc = None
-            self._reset_control_state()
-            # Public detail must carry primary AND cleanup faults (review-6 P1-1).
-            if close_error is not None:
-                raise ProcessControlError(
-                    merge_control_details(primary.detail, close_error.detail)
-                ) from close_error
-            raise primary
+            self._cleanup_failed_windows_start(primary, deadline=cleanup_deadline)
 
         self.root_identity = identity_of(self.proc.pid)
         if self.root_identity is not None:
             self._tracked.add(self.root_identity)
+
+    def _spawn_suspended_windows(
+        self,
+        argv: Sequence[str],
+        *,
+        env: dict[str, str],
+        cwd: str | None,
+    ) -> subprocess.Popen[bytes]:
+        try:
+            return subprocess.Popen(  # noqa: S603
+                list(argv),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                env=env,
+                cwd=cwd,
+                bufsize=0,
+                creationflags=_CREATE_SUSPENDED,
+            )
+        except OSError as popen_err:
+            try:
+                self._close_job_handle()
+            except ProcessControlError as close_err:
+                self._reset_control_state()
+                raise ProcessControlError(
+                    merge_control_details(
+                        f"Job close failed after Popen error: {close_err.detail}",
+                        f"Popen error: {popen_err}",
+                    )
+                ) from popen_err
+            self._reset_control_state()
+            raise
+
+    def _cleanup_failed_windows_start(
+        self,
+        primary: ProcessControlError,
+        *,
+        deadline: float,
+    ) -> NoReturn:
+        assert self.proc is not None
+        with contextlib.suppress(OSError):
+            self.proc.kill()
+        wait = remaining_budget(deadline)
+        if wait > 0:
+            with contextlib.suppress(subprocess.TimeoutExpired, OSError):
+                self.proc.wait(timeout=wait)
+        self._close_pipes()
+        close_error: ProcessControlError | None = None
+        try:
+            self._close_job_handle()
+        except ProcessControlError as exc:
+            close_error = exc
+        self.proc = None
+        self._reset_control_state()
+        if close_error is not None:
+            raise ProcessControlError(
+                merge_control_details(primary.detail, close_error.detail)
+            ) from close_error
+        raise primary
 
     def refresh_tree(self) -> None:
         """Record live descendants of the root (identity capture for secondary kill)."""
@@ -299,62 +313,70 @@ class ProcessSupervisor:
         try:
             if self.proc is not None:
                 self.refresh_tree()
-
-                if graceful and self.proc.poll() is None and self.proc.stdin is not None:
-                    with contextlib.suppress(OSError, ValueError):
-                        self.proc.stdin.close()
-                    grace = min(_GRACEFUL_EXIT_SECONDS, remaining_budget(deadline))
-                    if grace > 0:
-                        with contextlib.suppress(subprocess.TimeoutExpired):
-                            self.proc.wait(timeout=grace)
-                        self.refresh_tree()
-
-                # Platform-primary kill — record control-plane failure, continue
-                # cleanup, re-raise after secondary kill + handle close.
-                try:
-                    if sys.platform == "win32":
-                        if self._job is not None:
-                            terminate = self._terminate_hook or _terminate_windows_job
-                            terminate(self._job, deadline=deadline)
-                    elif self._pgid is not None:
-                        _kill_posix_group(self._pgid, deadline=deadline)
-                except ProcessControlError as exc:
-                    control_error = exc
-
-                # Secondary: revalidated identity kill.
+                self._try_graceful_exit(deadline=deadline, graceful=graceful)
+                control_error = self._platform_terminate(deadline=deadline)
                 _kill_tracked(self._tracked, deadline=deadline)
-
-                wait_budget = min(_TERMINATE_GRACE_SECONDS, remaining_budget(deadline))
-                if wait_budget > 0:
-                    with contextlib.suppress(subprocess.TimeoutExpired):
-                        self.proc.wait(timeout=wait_budget)
-                if self.proc.poll() is None:
-                    with contextlib.suppress(OSError):
-                        self.proc.kill()
-                    tail = remaining_budget(deadline)
-                    if tail > 0:
-                        with contextlib.suppress(subprocess.TimeoutExpired):
-                            self.proc.wait(timeout=tail)
-
+                self._wait_then_kill(deadline=deadline)
                 self._close_pipes()
         finally:
-            try:
-                self._close_job_handle()
-            except ProcessControlError as close_exc:
-                if control_error is None:
-                    control_error = close_exc
-                else:
-                    # Both terminate/group and job-close faults must appear in
-                    # the public detail (review-7 P1-1).
-                    control_error = ProcessControlError(
-                        merge_control_details(
-                            control_error.detail, close_exc.detail
-                        )
-                    )
+            control_error = self._close_control_handle(control_error)
             self._pgid = None
 
         if control_error is not None:
             raise control_error
+
+    def _try_graceful_exit(self, *, deadline: float, graceful: bool) -> None:
+        assert self.proc is not None
+        if not graceful or self.proc.poll() is not None or self.proc.stdin is None:
+            return
+        with contextlib.suppress(OSError, ValueError):
+            self.proc.stdin.close()
+        grace = min(_GRACEFUL_EXIT_SECONDS, remaining_budget(deadline))
+        if grace <= 0:
+            return
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            self.proc.wait(timeout=grace)
+        self.refresh_tree()
+
+    def _platform_terminate(self, *, deadline: float) -> ProcessControlError | None:
+        try:
+            if sys.platform == "win32" and self._job is not None:
+                terminate = self._terminate_hook or _terminate_windows_job
+                terminate(self._job, deadline=deadline)
+            elif sys.platform != "win32" and self._pgid is not None:
+                _kill_posix_group(self._pgid, deadline=deadline)
+        except ProcessControlError as exc:
+            return exc
+        return None
+
+    def _wait_then_kill(self, *, deadline: float) -> None:
+        assert self.proc is not None
+        wait_budget = min(_TERMINATE_GRACE_SECONDS, remaining_budget(deadline))
+        if wait_budget > 0:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                self.proc.wait(timeout=wait_budget)
+        if self.proc.poll() is not None:
+            return
+        with contextlib.suppress(OSError):
+            self.proc.kill()
+        tail = remaining_budget(deadline)
+        if tail > 0:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                self.proc.wait(timeout=tail)
+
+    def _close_control_handle(
+        self,
+        control_error: ProcessControlError | None,
+    ) -> ProcessControlError | None:
+        try:
+            self._close_job_handle()
+        except ProcessControlError as close_exc:
+            if control_error is None:
+                return close_exc
+            return ProcessControlError(
+                merge_control_details(control_error.detail, close_exc.detail)
+            )
+        return control_error
 
     def _close_pipes(self) -> None:
         if self.proc is None:
@@ -398,7 +420,7 @@ def _open_if_identity_matches(identity: ProcessIdentity) -> psutil.Process | Non
 
 def _kill_tracked(tracked: set[ProcessIdentity], *, deadline: float) -> None:
     """Kill tracked identities with create_time revalidated on the same object."""
-    for identity in list(tracked):
+    for identity in tracked:
         process = _open_if_identity_matches(identity)
         if process is None:
             continue
@@ -407,7 +429,7 @@ def _kill_tracked(tracked: set[ProcessIdentity], *, deadline: float) -> None:
 
     wait = remaining_budget(deadline)
     if wait <= 0:
-        for identity in list(tracked):
+        for identity in tracked:
             process = _open_if_identity_matches(identity)
             if process is not None:
                 with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
@@ -416,7 +438,7 @@ def _kill_tracked(tracked: set[ProcessIdentity], *, deadline: float) -> None:
 
     live = [
         p
-        for identity in list(tracked)
+        for identity in tracked
         if (p := _open_if_identity_matches(identity)) is not None
     ]
     if not live:
@@ -444,21 +466,28 @@ def _kill_posix_group(pgid: int, *, deadline: float) -> None:
     wait = remaining_budget(deadline)
     if wait > 0:
         time.sleep(min(0.05, wait))
-    still = False
-    if getpgid is not None:
-        with contextlib.suppress(psutil.Error):
-            for proc in psutil.process_iter(["pid"]):
-                try:
-                    if proc.pid != 0 and getpgid(proc.pid) == pgid:
-                        still = True
-                        break
-                except (ProcessLookupError, PermissionError, OSError, psutil.Error):
-                    continue
+    still = _posix_group_is_live(pgid, getpgid)
     if still:
         if sigkill is None:
             raise ProcessControlError("POSIX SIGKILL unavailable; process group still live.")
         with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
             killpg(pgid, sigkill)
+
+
+def _posix_group_is_live(
+    pgid: int,
+    getpgid: Callable[[int], int] | None,
+) -> bool:
+    if getpgid is None:
+        return False
+    with contextlib.suppress(psutil.Error):
+        for proc in psutil.process_iter(["pid"]):
+            try:
+                if proc.pid != 0 and getpgid(proc.pid) == pgid:
+                    return True
+            except (OSError, psutil.Error):
+                continue
+    return False
 
 
 # --- Windows Job Object (typed ctypes) -------------------------------------- #
@@ -613,36 +642,16 @@ def _resume_suspended_process(pid: int) -> None:
         raise ProcessControlError(f"CreateToolhelp32Snapshot failed (winerr={err}).")
 
     resumed = 0
-    close_errors: list[str] = []
     resume_errors: list[str] = []
+    close_errors: list[str] = []
     try:
-        entry = _ThreadEntry32()
-        entry.dwSize = ctypes.sizeof(_ThreadEntry32)
-        more = k32.Thread32First(snap, ctypes.byref(entry))
-        while more:
-            if entry.th32OwnerProcessID == pid:
-                thr = k32.OpenThread(_THREAD_SUSPEND_RESUME, False, entry.th32ThreadID)
-                if thr:
-                    # Resume until suspend count is 0 (CREATE_SUSPENDED uses 1).
-                    while True:
-                        prev = k32.ResumeThread(thr)
-                        if prev == 0xFFFFFFFF:
-                            err = ctypes.get_last_error()
-                            resume_errors.append(
-                                f"ResumeThread failed for tid={entry.th32ThreadID} "
-                                f"(winerr={err})"
-                            )
-                            break
-                        if prev <= 1:
-                            resumed += 1
-                            break
-                    try:
-                        _close_win32_handle(
-                            k32, int(thr), label=f"thread:{entry.th32ThreadID}"
-                        )
-                    except ProcessControlError as ce:
-                        close_errors.append(ce.detail)
-            more = k32.Thread32Next(snap, ctypes.byref(entry))
+        resumed, resume_errors, close_errors = _resume_snapshot_threads(
+            k32,
+            snap,
+            pid=pid,
+            entry_type=_ThreadEntry32,
+            ctypes_module=ctypes,
+        )
     finally:
         try:
             _close_win32_handle(k32, int(snap), label="thread-snapshot")
@@ -658,6 +667,59 @@ def _resume_suspended_process(pid: int) -> None:
         raise ProcessControlError(
             merge_control_details(*resume_errors, *close_errors)
         )
+
+
+def _resume_snapshot_threads(
+    k32: Any,
+    snapshot: int,
+    *,
+    pid: int,
+    entry_type: type[Any],
+    ctypes_module: Any,
+) -> tuple[int, list[str], list[str]]:
+    resumed = 0
+    resume_errors: list[str] = []
+    close_errors: list[str] = []
+    entry = entry_type()
+    entry.dwSize = ctypes_module.sizeof(entry_type)
+    more = k32.Thread32First(snapshot, ctypes_module.byref(entry))
+    while more:
+        if entry.th32OwnerProcessID == pid:
+            count, errors, close_error = _resume_thread_handle(k32, entry, ctypes_module)
+            resumed += count
+            resume_errors.extend(errors)
+            if close_error is not None:
+                close_errors.append(close_error)
+        more = k32.Thread32Next(snapshot, ctypes_module.byref(entry))
+    return resumed, resume_errors, close_errors
+
+
+def _resume_thread_handle(
+    k32: Any,
+    entry: Any,
+    ctypes_module: Any,
+) -> tuple[int, list[str], str | None]:
+    thread = k32.OpenThread(_THREAD_SUSPEND_RESUME, False, entry.th32ThreadID)
+    if not thread:
+        return 0, [], None
+    resumed = 0
+    errors: list[str] = []
+    while True:
+        previous = k32.ResumeThread(thread)
+        if previous == 0xFFFFFFFF:
+            error_code = ctypes_module.get_last_error()
+            errors.append(
+                f"ResumeThread failed for tid={entry.th32ThreadID} (winerr={error_code})"
+            )
+            break
+        if previous <= 1:
+            resumed = 1
+            break
+    try:
+        _close_win32_handle(k32, int(thread), label=f"thread:{entry.th32ThreadID}")
+    except ProcessControlError as exc:
+        return resumed, errors, exc.detail
+    return resumed, errors, None
 
 
 def _terminate_windows_job(job: int, *, deadline: float) -> None:

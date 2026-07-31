@@ -230,6 +230,7 @@ def test_classify_story_corpus_files(tmp_path: Path) -> None:
         concepts_dir=tmp_path / "concept",
         stories_dir=tmp_path / "stories",
         weaviate_http_endpoint="http://weaviate.acme.local:8080",
+        weaviate_grpc_endpoint="weaviate.acme.local:50051",
     )
     classified = classify_story_corpus_files(binding)
     assert any("story.md" in p for p in classified)

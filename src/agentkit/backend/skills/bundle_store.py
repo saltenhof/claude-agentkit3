@@ -34,6 +34,42 @@ LogicalSkillId = NewType("LogicalSkillId", str)
 SKILL_BUNDLE_STORE_ENV: str = "AGENTKIT_SKILL_BUNDLE_STORE_ROOT"
 
 
+def bundle_content_digest(bundle_root: Path) -> str:
+    """Digest every regular bundle file, including ``SKILL.md``."""
+    if bundle_root.is_symlink() or not bundle_root.is_dir():
+        raise SkillBundleCorruptError(
+            f"Bundle root is not a canonical directory: {bundle_root}",
+            detail={"bundle_root": str(bundle_root)},
+        )
+    digest = hashlib.sha256()
+    files: list[Path] = []
+    for path in bundle_root.rglob("*"):
+        if path.is_symlink():
+            raise SkillBundleCorruptError(
+                f"Bundle contains a symlink: {path}",
+                detail={"bundle_root": str(bundle_root), "path": str(path)},
+            )
+        if path.is_file():
+            files.append(path)
+        elif not path.is_dir():
+            raise SkillBundleCorruptError(
+                f"Bundle contains a non-file entry: {path}",
+                detail={"bundle_root": str(bundle_root), "path": str(path)},
+            )
+    ordered = sorted(
+        files,
+        key=lambda item: item.relative_to(bundle_root).as_posix(),
+    )
+    for path in ordered:
+        relative = path.relative_to(bundle_root).as_posix().encode("utf-8")
+        content = path.read_bytes()
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
 # Sort-key tier ranks (higher = selected first as "highest version").
 # A conformant ``MAJOR.MINOR.PATCH`` release ALWAYS outranks a prerelease of the
 # same (or any) core, which in turn ALWAYS outranks a non-conformant directory
@@ -370,6 +406,77 @@ class SkillBundleStore:
         """Return all known bundle ids (registered + discovered), sorted."""
         self._ensure_discovered()
         return sorted(self._bundles)
+
+    def get_bundle_version(
+        self,
+        bundle_id: str,
+        bundle_version: str,
+    ) -> SkillBundle:
+        """Resolve exactly ``store_root/bundle_id/bundle_version``."""
+        if (
+            not bundle_id
+            or not bundle_version
+            or Path(bundle_id).name != bundle_id
+            or Path(bundle_version).name != bundle_version
+        ):
+            raise SkillBundleNotFoundError(
+                "Bundle id/version must each be one non-empty path segment",
+                detail={
+                    "bundle_id": bundle_id,
+                    "bundle_version": bundle_version,
+                },
+            )
+        expected = self._store_root / bundle_id / bundle_version
+        try:
+            store_root = self._store_root.resolve(strict=True)
+            resolved = expected.resolve(strict=True)
+        except OSError as exc:
+            raise SkillBundleNotFoundError(
+                f"Pinned skill bundle {bundle_id!r}@{bundle_version!r} is absent",
+                detail={
+                    "bundle_id": bundle_id,
+                    "bundle_version": bundle_version,
+                    "store_root": str(self._store_root),
+                },
+            ) from exc
+        if expected.is_symlink() or not expected.is_dir():
+            raise SkillBundleCorruptError(
+                f"Pinned skill bundle path is not a canonical directory: {expected}",
+                detail={"bundle_root": str(expected)},
+            )
+        try:
+            resolved.relative_to(store_root)
+        except ValueError as exc:
+            raise SkillBundleCorruptError(
+                f"Pinned skill bundle escapes the canonical store: {expected}",
+                detail={
+                    "bundle_root": str(expected),
+                    "resolved": str(resolved),
+                    "store_root": str(store_root),
+                },
+            ) from exc
+        manifest_path = expected / BUNDLE_MANIFEST_FILENAME
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise SkillBundleCorruptError(
+                f"Pinned skill bundle manifest is unreadable: {manifest_path}",
+                detail={"manifest_path": str(manifest_path), "error": str(exc)},
+            ) from exc
+        bundle = self._bundle_from_manifest(manifest, expected)
+        if (
+            bundle is None
+            or bundle.bundle_id != bundle_id
+            or bundle.bundle_version != bundle_version
+        ):
+            raise SkillBundleCorruptError(
+                f"Pinned skill bundle identity is invalid: {manifest_path}",
+                detail={
+                    "bundle_id": bundle_id,
+                    "bundle_version": bundle_version,
+                },
+            )
+        return bundle
 
     # ------------------------------------------------------------------
     # Filesystem discovery (persistent resolution from store_root)

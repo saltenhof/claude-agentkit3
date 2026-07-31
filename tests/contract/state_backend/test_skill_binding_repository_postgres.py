@@ -43,6 +43,7 @@ def _make_binding(
         skill_name=skill_name,
         bundle_id="core",
         bundle_version="4.0.0",
+        content_digest="0" * 64,
         target_path=Path("/repo/.claude/skills") / skill_name,
         binding_mode=SkillBindingMode.SYMLINK,
         status=status,

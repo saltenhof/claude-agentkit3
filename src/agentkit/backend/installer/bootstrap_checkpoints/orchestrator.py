@@ -13,6 +13,9 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from agentkit.backend.config.models import ProjectConfig
 from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.installer.bootstrap_checkpoints.registry import (
     build_branch_predicate_registry,
@@ -26,9 +29,20 @@ from agentkit.backend.installer.checkpoint_engine.context import (
 from agentkit.backend.installer.checkpoint_engine.engine import CheckpointEngine
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.checkpoint_engine.flow import build_installer_flow
+from agentkit.backend.installer.checkpoint_engine.reasons import (
+    REASON_CONFIGURATION_INVALID,
+    REASON_VECTORDB_REQUIRED,
+)
+from agentkit.backend.installer.config_boundary import (
+    ConfigBeforeImage,
+    capture_config_before_image,
+)
 from agentkit.backend.installer.registration import CheckpointStatus
+from agentkit.backend.installer.vectordb_preflight import HttpVectorDbPreflight
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.backend.installer.registration import CheckpointResult
     from agentkit.backend.installer.runner import InstallConfig, InstallResult
 
@@ -36,16 +50,13 @@ if TYPE_CHECKING:
 def _resolve_features(config: InstallConfig) -> tuple[bool, bool, bool]:
     """Resolve ``(vectordb, are, sonarqube)`` flags consumed by the branches.
 
-    Consumes (never defines) the feature decision carried on the install config:
-    ``features_vectordb`` / ``features_are`` (FK-03 §3.1 ``features.*``) and
-    ``sonarqube_available`` (CP 10d applicability axis). ``features.are`` also
-    implies the ``are`` runtime profile when the operator did not pin one.
+    VectorDB has no feature decision: the strict candidate boundary already
+    proved that it is mandatory. ``features_are`` and ``sonarqube_available``
+    remain independent applicability axes.
     """
-    third_party_enabled = bool(
-        config.sonarqube_available or config.ci_available or config.features_are
-    )
+    third_party_enabled = bool(config.sonarqube_available or config.ci_available or config.features_are)
     return (
-        bool(config.features_vectordb),
+        True,
         bool(config.features_are),
         third_party_enabled,
     )
@@ -55,10 +66,43 @@ def build_checkpoint_context(
     config: InstallConfig,
     mode: ExecutionMode,
     *,
+    project_config: ProjectConfig | None = None,
+    project_yaml: dict[str, object] | None = None,
+    config_before_image: ConfigBeforeImage | None = None,
     scope_interaction_mode: str = ScopeInteractionMode.AGENTIC,
 ) -> CheckpointContext:
     """Build the immutable per-run :class:`CheckpointContext`."""
+    if config.features_vectordb is not True:
+        reason = (
+            REASON_VECTORDB_REQUIRED
+            if config.features_vectordb is False
+            else REASON_CONFIGURATION_INVALID
+        )
+        raise ProjectError(
+            "features.vectordb must be true; VectorDB is mandatory",
+            detail={"reason": reason},
+        )
+    if config_before_image is None:
+        config_before_image, existing_config = capture_config_before_image(
+            config.project_root,
+        )
+    else:
+        existing_config = None
+    if project_config is None or project_yaml is None:
+        from agentkit.backend.installer.runner import _build_project_yaml
+
+        if existing_config is None:
+            project_yaml = _build_project_yaml(config)
+            project_config = ProjectConfig.model_validate(project_yaml)
+        else:
+            project_config = existing_config
+            project_yaml = existing_config.model_dump(mode="json", exclude_none=True)
     vectordb, are, sonarqube = _resolve_features(config)
+    run_state = CheckpointRunState(
+        project_config=project_config,
+        project_yaml=project_yaml,
+        config_before_image=config_before_image,
+    )
     return CheckpointContext(
         config=config,
         mode=mode,
@@ -67,8 +111,51 @@ def build_checkpoint_context(
         are_enabled=are,
         sonarqube_enabled=sonarqube,
         scope_interaction_mode=scope_interaction_mode,
-        run_state=CheckpointRunState(),
+        run_state=run_state,
     )
+
+
+def _candidate_config(
+    config: InstallConfig,
+    root: Path,
+) -> tuple[ProjectConfig, dict[str, object], ConfigBeforeImage]:
+    """Resolve and validate the sole config candidate before installer effects."""
+    from agentkit.backend.installer.runner import _build_project_yaml
+
+    if config.features_vectordb is not True:
+        reason = (
+            REASON_VECTORDB_REQUIRED
+            if config.features_vectordb is False
+            else REASON_CONFIGURATION_INVALID
+        )
+        raise ProjectError(
+            "features.vectordb must be true; VectorDB is mandatory",
+            detail={"reason": reason},
+        )
+    before, existing_config = capture_config_before_image(root)
+    if existing_config is not None:
+        candidate = existing_config
+        raw = candidate.model_dump(mode="json", exclude_none=True)
+    else:
+        raw = _build_project_yaml(config)
+        try:
+            candidate = ProjectConfig.model_validate(raw)
+        except ValidationError as exc:
+            raise ProjectError(
+                f"Candidate project configuration is invalid: {exc}",
+                detail={
+                    "reason": REASON_CONFIGURATION_INVALID,
+                    "error": str(exc),
+                },
+            ) from exc
+        raw = candidate.model_dump(mode="json", exclude_none=True)
+    vectordb = candidate.pipeline.vectordb
+    if vectordb is None or vectordb.weaviate_http_endpoint is None or vectordb.weaviate_grpc_endpoint is None:
+        raise ProjectError(
+            "Mandatory VectorDB endpoints are missing from the validated candidate configuration",
+            detail={"reason": REASON_CONFIGURATION_INVALID},
+        )
+    return candidate, raw, before
 
 
 def build_checkpoint_engine() -> CheckpointEngine[CheckpointContext]:
@@ -125,6 +212,16 @@ def run_checkpoint_install(
     if root != config.project_root:
         config = replace(config, project_root=root)
 
+    # AC1/AC2: resolve one strict candidate and prove the mandatory external
+    # dependency BEFORE bundle resolution, context construction or any checkpoint
+    # effect. All downstream endpoint consumers use this typed candidate.
+    project_config, project_yaml, config_before_image = _candidate_config(
+        config,
+        root,
+    )
+    preflight = config.vectordb_preflight or HttpVectorDbPreflight()
+    preflight.check(project_config)
+
     # PREFLIGHT (FK-50 §50.5, Codex-r7 FINDING — behaviour preserved): resolve
     # the mandatory skill bundles BEFORE the engine writes anything in register
     # mode. The common install failure is a missing bundle; failing here (no
@@ -138,15 +235,18 @@ def run_checkpoint_install(
         _resolve_mandatory_skill_bundles(config, root)
 
     context = build_checkpoint_context(
-        config, mode, scope_interaction_mode=scope_interaction_mode
+        config,
+        mode,
+        project_config=project_config,
+        project_yaml=project_yaml,
+        config_before_image=config_before_image,
+        scope_interaction_mode=scope_interaction_mode,
     )
     engine = build_checkpoint_engine()
     results: tuple[CheckpointResult, ...] = engine.run(context)
 
     failed = [r for r in results if r.status is CheckpointStatus.FAILED]
-    errors = tuple(
-        (r.detail or r.reason or f"{r.checkpoint} failed.") for r in failed
-    )
+    errors = tuple((r.detail or r.reason or f"{r.checkpoint} failed.") for r in failed)
     return InstallResult(
         success=not failed,
         project_root=root,

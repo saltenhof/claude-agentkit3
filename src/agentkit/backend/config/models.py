@@ -52,22 +52,15 @@ def _validate_project_relative_dir(value: str, field_name: str) -> str:
     """Validate a project-relative directory setting from ``project.yaml``."""
     stripped = value.strip()
     if not stripped:
-        raise ValueError(
-            f"{field_name} must be a non-empty project-relative path "
-            "(FK-03 §3.1, fail-closed)"
-        )
+        raise ValueError(f"{field_name} must be a non-empty project-relative path (FK-03 §3.1, fail-closed)")
     candidate = PurePosixPath(stripped.replace("\\", "/"))
     windows = PureWindowsPath(stripped)
     if candidate.is_absolute() or windows.is_absolute() or windows.drive:
         raise ValueError(
-            f"{field_name} must be project-relative, not absolute or "
-            f"drive-anchored: {value!r} (FK-03 §3.1, fail-closed)"
+            f"{field_name} must be project-relative, not absolute or drive-anchored: {value!r} (FK-03 §3.1, fail-closed)"
         )
     if ".." in candidate.parts:
-        raise ValueError(
-            f"{field_name} must not contain a '..' traversal segment: "
-            f"{value!r} (FK-03 §3.1, fail-closed)"
-        )
+        raise ValueError(f"{field_name} must not contain a '..' traversal segment: {value!r} (FK-03 §3.1, fail-closed)")
     return stripped
 
 
@@ -94,23 +87,30 @@ class Features(BaseModel):
             Requires ``db=True`` (fail-closed cross-field rule).
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     are: bool = False
     multi_repo: bool = False
-    vectordb: bool = False
+    vectordb: bool = True
     multi_llm: bool = True
     telemetry: bool = True
     db: bool = False
     e2e_assertions: bool = False
+
+    @field_validator("vectordb")
+    @classmethod
+    def _require_vectordb(cls, value: bool) -> bool:
+        """VectorDB is mandatory; an explicit opt-out is invalid."""
+        if not value:
+            raise ValueError("features.vectordb=false is unsupported: VectorDB is mandatory (FK-13 §13.1/§13.8, fail-closed)")
+        return value
 
     @model_validator(mode="after")
     def _validate_e2e_assertions_requires_db(self) -> Features:
         """FK-03 §3.2.1: ``e2e_assertions`` requires ``db`` (fail-closed)."""
         if self.e2e_assertions and not self.db:
             raise ValueError(
-                "features.e2e_assertions=True requires features.db=True "
-                "(FK-03 §3.2.1, fail-closed cross-field rule)"
+                "features.e2e_assertions=True requires features.db=True (FK-03 §3.2.1, fail-closed cross-field rule)"
             )
         return self
 
@@ -129,7 +129,7 @@ class AreConfig(BaseModel):
             installer checkpoint CP 10c.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     mcp_server: str
     rest_base_url: str | None = None
@@ -155,7 +155,7 @@ class SonarQubeBranchPluginConfig(BaseModel):
         min_version: Minimum Community Branch Plugin version (SemVer).
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     min_version: str = "1.23.0"
 
@@ -267,10 +267,7 @@ class SonarQubeConfig(BaseModel):
     def _check_accept_frequency_fc_threshold(cls, value: float) -> float:
         """FK-03 §3.1: ``accept_frequency_fc_threshold`` must be in [0.0, 1.0]."""
         if value < 0.0 or value > 1.0:
-            msg = (
-                "sonarqube.accept_frequency_fc_threshold must be in [0.0, 1.0]; "
-                f"got {value!r} (FK-03 §3.1, FK-27 §27.6b)"
-            )
+            msg = f"sonarqube.accept_frequency_fc_threshold must be in [0.0, 1.0]; got {value!r} (FK-03 §3.1, FK-27 §27.6b)"
             raise ValueError(msg)
         return value
 
@@ -578,7 +575,7 @@ class VectorDbConfig(BaseModel):
     operator hits, instead of surfacing much later as a confusing connect failure.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     similarity_threshold: float = 0.7
     max_llm_candidates: int = 5
@@ -603,19 +600,16 @@ class VectorDbConfig(BaseModel):
         endpoint = value.strip()
         if not endpoint:
             raise ValueError(
-                "vectordb.weaviate_http_endpoint must not be empty when declared "
-                "(FK-03 §3.1, fail-closed: no default endpoint)"
+                "vectordb.weaviate_http_endpoint must not be empty when declared (FK-03 §3.1, fail-closed: no default endpoint)"
             )
         parsed = urlparse(endpoint)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise ValueError(
-                "vectordb.weaviate_http_endpoint must be http(s)://host:port; "
-                f"got {value!r} (FK-03 §3.1, fail-closed)"
+                f"vectordb.weaviate_http_endpoint must be http(s)://host:port; got {value!r} (FK-03 §3.1, fail-closed)"
             )
         if parsed.port is None:
             raise ValueError(
-                "vectordb.weaviate_http_endpoint must carry an explicit port; "
-                f"got {value!r} (FK-03 §3.1, fail-closed)"
+                f"vectordb.weaviate_http_endpoint must carry an explicit port; got {value!r} (FK-03 §3.1, fail-closed)"
             )
         if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
             raise ValueError(
@@ -651,8 +645,7 @@ class VectorDbConfig(BaseModel):
         endpoint = value.strip()
         if not endpoint:
             raise ValueError(
-                "vectordb.weaviate_grpc_endpoint must not be empty when declared "
-                "(FK-03 §3.1, fail-closed: no default endpoint)"
+                "vectordb.weaviate_grpc_endpoint must not be empty when declared (FK-03 §3.1, fail-closed: no default endpoint)"
             )
         authority = endpoint
         for prefix in _GRPC_ENDPOINT_SCHEMES:
@@ -667,15 +660,9 @@ class VectorDbConfig(BaseModel):
             )
         host, separator, port = authority.rpartition(":")
         if not separator or not host:
-            raise ValueError(
-                "vectordb.weaviate_grpc_endpoint must be host:port; "
-                f"got {value!r} (FK-03 §3.1, fail-closed)"
-            )
+            raise ValueError(f"vectordb.weaviate_grpc_endpoint must be host:port; got {value!r} (FK-03 §3.1, fail-closed)")
         if not port.isdigit() or not 1 <= int(port) <= 65535:
-            raise ValueError(
-                "vectordb.weaviate_grpc_endpoint needs a port in 1..65535; "
-                f"got {value!r} (FK-03 §3.1, fail-closed)"
-            )
+            raise ValueError(f"vectordb.weaviate_grpc_endpoint needs a port in 1..65535; got {value!r} (FK-03 §3.1, fail-closed)")
         # A host is either a bracketed IPv6 literal or contains no ':' / delimiter
         # characters at all. This also rejects a scheme-like prefix without '//'
         # (e.g. ``weaviate:h:1``), which ``_split_grpc`` would treat as the host.
@@ -742,10 +729,7 @@ class PermissionsConfig(BaseModel):
     def _check_positive(cls, value: int) -> int:
         """FK-93 §93.5a: the permission-request TTL must be a positive integer."""
         if value <= 0:
-            raise ValueError(
-                "permissions.request_ttl_s must be a positive integer; "
-                f"got {value} (FK-93 §93.5a)"
-            )
+            raise ValueError(f"permissions.request_ttl_s must be a positive integer; got {value} (FK-93 §93.5a)")
         return value
 
 
@@ -782,10 +766,7 @@ class ConformanceConfig(BaseModel):
         if self.file_upload_threshold <= 0:
             raise ValueError("conformance.file_upload_threshold must be > 0")
         if self.hard_limit <= self.file_upload_threshold:
-            raise ValueError(
-                "conformance.hard_limit must be greater than "
-                "conformance.file_upload_threshold"
-            )
+            raise ValueError("conformance.hard_limit must be greater than conformance.file_upload_threshold")
         return self
 
 
@@ -1053,15 +1034,10 @@ class ProjectConfig(BaseModel):
             return self
         registry_mod = import_module("agentkit.backend.verify_system.stage_registry")
         registry = registry_mod.StageRegistry()
-        unknown = [
-            stage_id
-            for stage_id in self.policy.stage_overrides
-            if registry.stage_for_id(stage_id) is None
-        ]
+        unknown = [stage_id for stage_id in self.policy.stage_overrides if registry.stage_for_id(stage_id) is None]
         if unknown:
             msg = (
-                "policy.stage_overrides contains unknown stage ID(s): "
-                f"{', '.join(sorted(unknown))} (FK-33 §33.2.4, fail-closed)"
+                f"policy.stage_overrides contains unknown stage ID(s): {', '.join(sorted(unknown))} (FK-33 §33.2.4, fail-closed)"
             )
             raise ValueError(msg)
         return self
@@ -1070,10 +1046,7 @@ class ProjectConfig(BaseModel):
     def _validate_are_section_when_enabled(self) -> ProjectConfig:
         """FK-03 §3.2.1: ``features.are=True`` requires an ``are`` section."""
         if self.pipeline.features.are and self.are is None:
-            msg = (
-                "pipeline.features.are=True requires an 'are' configuration "
-                "section (FK-03 §3.2.1)"
-            )
+            msg = "pipeline.features.are=True requires an 'are' configuration section (FK-03 §3.2.1)"
             raise ValueError(msg)
         return self
 
@@ -1103,9 +1076,7 @@ class ProjectConfig(BaseModel):
         Non-code-producing (concept/research-only) projects may omit the
         stanza or switch the gate off entirely.
         """
-        codeproducing = bool(
-            {"implementation", "bugfix"}.intersection(self.story_types)
-        )
+        codeproducing = bool({"implementation", "bugfix"}.intersection(self.story_types))
         sonar = self.pipeline.sonarqube
         if codeproducing and sonar is None:
             msg = (
@@ -1154,9 +1125,7 @@ class ProjectConfig(BaseModel):
         Non-code-producing (concept/research-only) projects may omit the
         stanza or switch the runner off entirely.
         """
-        codeproducing = bool(
-            {"implementation", "bugfix"}.intersection(self.story_types)
-        )
+        codeproducing = bool({"implementation", "bugfix"}.intersection(self.story_types))
         ci = self.pipeline.ci
         if codeproducing and ci is None:
             msg = (
@@ -1184,9 +1153,7 @@ class ProjectConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_sonarqube_requires_ci(self) -> ProjectConfig:
         """FK-33/FK-29: APPLICABLE Sonar on code stories requires Jenkins CI."""
-        codeproducing = bool(
-            {"implementation", "bugfix"}.intersection(self.story_types)
-        )
+        codeproducing = bool({"implementation", "bugfix"}.intersection(self.story_types))
         sonar = self.pipeline.sonarqube
         ci = self.pipeline.ci
         if (

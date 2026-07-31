@@ -83,6 +83,7 @@ def _ctx(
         bundle_store_root=tmp_path / "b",
         registration_repo=registration_repo,
         features_vectordb=True,
+        mcp_registration_probe=None,
     )
     ctx = build_checkpoint_context(config, mode)
     cp05_pipeline_config(ctx)
@@ -131,9 +132,7 @@ def test_idempotent_rerun_still_probes_and_fails_when_the_server_broke(
     monkeypatch.setattr(mcp_registration_mod, "check_mcp_conformance", _broken_probe)
     result = cp10_mcp_registration(ctx)
 
-    assert result.status is CheckpointStatus.FAILED, (
-        "an unchanged registration was reported PASS without re-probing"
-    )
+    assert result.status is CheckpointStatus.FAILED, "an unchanged registration was reported PASS without re-probing"
     assert result.reason == "mcp_process_exited"
     assert _snapshot(root) == before  # still no mutation
 
@@ -194,8 +193,7 @@ def test_foreign_occupation_of_an_ak3_name_in_mcp_json_is_rejected(
     ctx = _ctx(tmp_path, registration_repo)
     root = Path(ctx.project_root)
     (root / _MCP_JSON).write_text(
-        '{"mcpServers": {"story-knowledge-base": '
-        '{"command": "someone-elses-tool", "args": ["--serve"]}}}\n',
+        '{"mcpServers": {"story-knowledge-base": {"command": "someone-elses-tool", "args": ["--serve"]}}}\n',
         encoding="utf-8",
     )
     before = _snapshot(root)
@@ -234,9 +232,7 @@ def test_our_own_mcp_json_entry_is_upserted_not_rejected(
     result = cp10_mcp_registration(ctx)
 
     assert result.status is CheckpointStatus.UPDATED
-    entry = json.loads((root / _MCP_JSON).read_text(encoding="utf-8"))["mcpServers"][
-        STORY_KNOWLEDGE_BASE_SERVER
-    ]
+    entry = json.loads((root / _MCP_JSON).read_text(encoding="utf-8"))["mcpServers"][STORY_KNOWLEDGE_BASE_SERVER]
     assert entry["cwd"] == str(root)
 
 
@@ -358,9 +354,7 @@ def test_real_derivation_is_what_the_probe_receives(
 # --------------------------------------------------------------------------- #
 
 
-def _stale_first_read(
-    monkeypatch: MonkeyPatch, filename: str, stale: bytes
-) -> dict[str, int]:
+def _stale_first_read(monkeypatch: MonkeyPatch, filename: str, stale: bytes) -> dict[str, int]:
     """Make the FIRST read of ``filename`` return stale bytes, later reads the disk.
 
     This is the only deterministic way to simulate a concurrent foreign writer: it
@@ -418,9 +412,7 @@ def test_concurrent_foreign_mcp_json_change_is_never_silently_lost(
     else:
         # Or the write happened from a consistent snapshot and kept the foreign entry.
         assert b"foreign-B" in on_disk
-    assert b"foreign-B" in on_disk, (
-        "the concurrent foreign .mcp.json entry was silently lost"
-    )
+    assert b"foreign-B" in on_disk, "the concurrent foreign .mcp.json entry was silently lost"
 
 
 def test_concurrent_foreign_codex_change_is_never_silently_lost(
@@ -448,9 +440,7 @@ def test_concurrent_foreign_codex_change_is_never_silently_lost(
     on_disk = codex.read_bytes()
     if result.status is CheckpointStatus.FAILED:
         assert on_disk == current_b
-    assert b"[user.b]" in on_disk, (
-        "the concurrent foreign Codex table was silently lost"
-    )
+    assert b"[user.b]" in on_disk, "the concurrent foreign Codex table was silently lost"
 
 
 def test_phase_two_reads_each_file_exactly_once(
@@ -466,9 +456,7 @@ def test_phase_two_reads_each_file_exactly_once(
     root = Path(ctx.project_root)
     (root / _MCP_JSON).write_text('{"mcpServers": {}}\n', encoding="utf-8")
     (root / _CODEX_REL).parent.mkdir(parents=True, exist_ok=True)
-    (root / _CODEX_REL).write_bytes(
-        b'[hooks.pre_tool_use]\ncommand = "agentkit-hook-codex"\n'
-    )
+    (root / _CODEX_REL).write_bytes(b'[hooks.pre_tool_use]\ncommand = "agentkit-hook-codex"\n')
 
     real = Path.read_bytes
     counts: dict[str, int] = {_MCP_JSON: 0, "config.toml": 0}
@@ -572,9 +560,7 @@ def test_successful_rollback_does_not_claim_failure(
 # byte-range share lock via ``msvcrt``), not a patched raise.
 # --------------------------------------------------------------------------- #
 
-_WINDOWS_ONLY = pytest.mark.skipif(
-    sys.platform != "win32", reason="share-lock read failure is Windows-specific"
-)
+_WINDOWS_ONLY = pytest.mark.skipif(sys.platform != "win32", reason="share-lock read failure is Windows-specific")
 
 
 @contextlib.contextmanager

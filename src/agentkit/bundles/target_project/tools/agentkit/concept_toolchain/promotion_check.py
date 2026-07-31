@@ -45,6 +45,7 @@ from . import runmodel
 from .docmodel import anchor_slugs, file_digest_sha256, scan_documents
 from .findings import CheckResult, error
 from .receipts import TargetSpec, compute_target_digest, resolve_selector, verify_receipt_against_atom
+from .runmodel_constants import COVERED_DISPOSITIONS, REGISTER_DIGEST_KEYS, SEMANTIC_GATES
 from .smy import SmyError, parse_smy
 from .units import AnchoredHeading, anchored_outline, lf_normalize
 
@@ -57,6 +58,11 @@ if TYPE_CHECKING:
     from .runmodel import Issue, TsvRow
 
 CHECK_ID = "promotion"
+RUN_FILE = "RUN.json"
+PROMOTION_MANIFEST_FILE = "promotion-manifest.json"
+ATOM_REGISTER_FILE = "atom-register.tsv"
+CORPUS_BASELINE_FILE = "corpus-baseline.tsv"
+SCOPE_LOCKS_LOCATOR = "manifest.scope_locks"
 
 #: Tolerated clock skew between the attesting host and this checker.
 #: Attestations are produced on another machine, so a small forward drift
@@ -200,10 +206,10 @@ class _PromotionCheck:
         missing = [
             self._rel_path(*parts)
             for parts in (
-                ("RUN.json",),
-                ("promotion", "promotion-manifest.json"),
-                ("promotion", "atom-register.tsv"),
-                ("baseline", "corpus-baseline.tsv"),
+                (RUN_FILE,),
+                ("promotion", PROMOTION_MANIFEST_FILE),
+                ("promotion", ATOM_REGISTER_FILE),
+                ("baseline", CORPUS_BASELINE_FILE),
             )
             if not self.run_dir.joinpath(*parts).is_file()
         ]
@@ -231,23 +237,29 @@ class _PromotionCheck:
         return self.result
 
     def _load_inputs(self) -> bool:
-        run, run_issues = runmodel.load_run_state(self.run_dir / "RUN.json")
-        self._report(self._rel_path("RUN.json"), run_issues)
+        run, run_issues = runmodel.load_run_state(self.run_dir / RUN_FILE)
+        self._report(self._rel_path(RUN_FILE), run_issues)
         self.run = run
-        manifest, manifest_issues = runmodel.load_promotion_manifest(self.run_dir / "promotion" / "promotion-manifest.json")
-        self._report(self._rel_path("promotion", "promotion-manifest.json"), manifest_issues)
+        manifest, manifest_issues = runmodel.load_promotion_manifest(
+            self.run_dir / "promotion" / PROMOTION_MANIFEST_FILE
+        )
+        self._report(self._rel_path("promotion", PROMOTION_MANIFEST_FILE), manifest_issues)
         self.manifest = manifest
-        atom_rows, atom_issues = runmodel.load_atom_register(self.run_dir / "promotion" / "atom-register.tsv")
-        self._report(self._rel_path("promotion", "atom-register.tsv"), atom_issues)
+        atom_rows, atom_issues = runmodel.load_atom_register(
+            self.run_dir / "promotion" / ATOM_REGISTER_FILE
+        )
+        self._report(self._rel_path("promotion", ATOM_REGISTER_FILE), atom_issues)
         self.atom_rows = atom_rows
-        baseline_rows, baseline_issues = runmodel.load_corpus_baseline(self.run_dir / "baseline" / "corpus-baseline.tsv")
-        self._report(self._rel_path("baseline", "corpus-baseline.tsv"), baseline_issues)
+        baseline_rows, baseline_issues = runmodel.load_corpus_baseline(
+            self.run_dir / "baseline" / CORPUS_BASELINE_FILE
+        )
+        self._report(self._rel_path("baseline", CORPUS_BASELINE_FILE), baseline_issues)
         self.baseline_index = {row["path"]: row["sha256"] for row in baseline_rows}
         if manifest is None or run is None:
             return False
         if manifest.run_id != run.run_id:
             self._error(
-                self._rel_path("promotion", "promotion-manifest.json"),
+                self._rel_path("promotion", PROMOTION_MANIFEST_FILE),
                 "manifest.run_id",
                 "run_id does not match RUN.json",
             )
@@ -269,7 +281,7 @@ class _PromotionCheck:
 
     def _check_atom_closure(self) -> None:
         self.executed.append("atom-closure")
-        rel = self._rel_path("promotion", "atom-register.tsv")
+        rel = self._rel_path("promotion", ATOM_REGISTER_FILE)
         scope_grammar = self.config.id_grammars["scope"]
         for number, row in enumerate(self.atom_rows, start=2):
             if scope_grammar.fullmatch(row["expected_authority"]) is None:
@@ -278,7 +290,7 @@ class _PromotionCheck:
                     f"line {number}:expected_authority",
                     f"scope id violates the configured grammar: {row['expected_authority']!r}",
                 )
-            if row["disposition"] in runmodel.COVERED_DISPOSITIONS:
+            if row["disposition"] in COVERED_DISPOSITIONS:
                 self._check_covered_atom(rel, number, row)
 
     def _check_covered_atom(self, rel: str, number: int, row: TsvRow) -> None:
@@ -350,7 +362,7 @@ class _PromotionCheck:
     def _check_targets(self) -> None:
         self.executed.append("targets")
         assert self.manifest is not None
-        rel = self._rel_path("promotion", "promotion-manifest.json")
+        rel = self._rel_path("promotion", PROMOTION_MANIFEST_FILE)
         for target in self.manifest.targets:
             current = self.project_root / target.path
             if not current.is_file():
@@ -442,7 +454,7 @@ class _PromotionCheck:
     def _check_required_refs(self) -> None:
         self.executed.append("required-refs")
         assert self.manifest is not None
-        rel = self._rel_path("promotion", "promotion-manifest.json")
+        rel = self._rel_path("promotion", PROMOTION_MANIFEST_FILE)
         documents = scan_documents(self.project_root, self.config.concept_roots)
         concept_ids = {document.concept_id for document in documents if document.concept_id}
         formal_ids = {
@@ -498,27 +510,48 @@ class _PromotionCheck:
         known_scopes = self._corpus_scopes(documents)
         for index, edge in enumerate(self.manifest.required_registry_edges):
             where = f"manifest.required_registry_edges[{index}]"
-            if isinstance(edge, str):
-                problem = self._resolve_anchor_ref(edge)
-                if problem is not None:
-                    self._error(rel, where, problem)
-                continue
-            if edge.kind not in runmodel.REGISTRY_EDGE_KINDS:
-                self._error(rel, where, f"kind {edge.kind!r} is not one of {', '.join(runmodel.REGISTRY_EDGE_KINDS)}")
-                continue
-            unresolved = [
-                side
-                for side, node in (("from", edge.from_ref), ("to", edge.to_ref))
-                if not self._registry_node_resolves(node, concept_ids, formal_ids, known_scopes)
-            ]
-            for side in unresolved:
-                node = edge.from_ref if side == "from" else edge.to_ref
-                self._error(rel, where, f"{side} node {node!r} does not resolve as doc id, scope id or registry entry")
-            if unresolved:
-                continue
-            problem = self._edge_relation_problem(edge, documents)
+            self._check_registry_edge(
+                rel,
+                where,
+                edge,
+                documents=documents,
+                concept_ids=concept_ids,
+                formal_ids=formal_ids,
+                known_scopes=known_scopes,
+            )
+
+    def _check_registry_edge(
+        self,
+        rel: str,
+        where: str,
+        edge: str | runmodel.RegistryEdge,
+        *,
+        documents: Sequence[ConceptDocument],
+        concept_ids: set[str],
+        formal_ids: set[str],
+        known_scopes: set[str],
+    ) -> None:
+        if isinstance(edge, str):
+            problem = self._resolve_anchor_ref(edge)
             if problem is not None:
                 self._error(rel, where, problem)
+            return
+        if edge.kind not in runmodel.REGISTRY_EDGE_KINDS:
+            self._error(rel, where, f"kind {edge.kind!r} is not one of {', '.join(runmodel.REGISTRY_EDGE_KINDS)}")
+            return
+        unresolved = [
+            side
+            for side, node in (("from", edge.from_ref), ("to", edge.to_ref))
+            if not self._registry_node_resolves(node, concept_ids, formal_ids, known_scopes)
+        ]
+        for side in unresolved:
+            node = edge.from_ref if side == "from" else edge.to_ref
+            self._error(rel, where, f"{side} node {node!r} does not resolve as doc id, scope id or registry entry")
+        if unresolved:
+            return
+        problem = self._edge_relation_problem(edge, documents)
+        if problem is not None:
+            self._error(rel, where, problem)
 
     def _edge_relation_problem(self, edge: runmodel.RegistryEdge, documents: Sequence[ConceptDocument]) -> str | None:
         """Verify the CONCRETE relation, not just endpoint existence.
@@ -619,18 +652,21 @@ class _PromotionCheck:
         if self._event_producers or self._event_objects:
             return
         for document in scan_documents(self.project_root, {"formal": self.config.concept_roots["formal"]}):
-            spec = _formal_zone_mapping(document.text)
-            events = spec.get("events") if isinstance(spec, dict) else None
-            object_id = spec.get("object") if isinstance(spec, dict) else None
-            if not isinstance(events, list) or not isinstance(object_id, str):
+            self._load_document_events(document)
+
+    def _load_document_events(self, document: ConceptDocument) -> None:
+        spec = _formal_zone_mapping(document.text)
+        events = spec.get("events") if isinstance(spec, dict) else None
+        object_id = spec.get("object") if isinstance(spec, dict) else None
+        if not isinstance(events, list) or not isinstance(object_id, str):
+            return
+        for item in events:
+            if not isinstance(item, dict):
                 continue
-            for item in events:
-                if not isinstance(item, dict):
-                    continue
-                event_id, producer = item.get("id"), item.get("producer")
-                if isinstance(event_id, str) and isinstance(producer, str):
-                    self._event_producers[event_id] = producer
-                    self._event_objects[event_id] = object_id
+            event_id, producer = item.get("id"), item.get("producer")
+            if isinstance(event_id, str) and isinstance(producer, str):
+                self._event_producers[event_id] = producer
+                self._event_objects[event_id] = object_id
 
     def _corpus_scopes(self, documents: Sequence[ConceptDocument]) -> set[str]:
         scopes: set[str] = set()
@@ -680,30 +716,30 @@ class _PromotionCheck:
 
     def _check_scope_locks(self) -> None:
         assert self.manifest is not None
-        rel = self._rel_path("promotion", "promotion-manifest.json")
+        rel = self._rel_path("promotion", PROMOTION_MANIFEST_FILE)
         locks_by_scope: dict[str, runmodel.ScopeLockEntry] = {}
         for entry in self.manifest.scope_locks:
             if entry.scope_id in locks_by_scope:
-                self._error(rel, "manifest.scope_locks", f"duplicate scope lock entry for {entry.scope_id!r}")
+                self._error(rel, SCOPE_LOCKS_LOCATOR, f"duplicate scope lock entry for {entry.scope_id!r}")
             locks_by_scope[entry.scope_id] = entry
         for scope in self.manifest.scopes:
             if scope.promotion_disposition == "promoted" and scope.scope_id not in locks_by_scope:
-                self._error(rel, "manifest.scope_locks", f"promoted scope {scope.scope_id!r} has no scope lock entry")
+                self._error(rel, SCOPE_LOCKS_LOCATOR, f"promoted scope {scope.scope_id!r} has no scope lock entry")
         for scope_id, entry in sorted(locks_by_scope.items()):
             if entry.backend != self.config.lock_backend:
                 self._error(
                     rel,
-                    "manifest.scope_locks",
+                    SCOPE_LOCKS_LOCATOR,
                     f"lock backend {entry.backend!r} does not match configured {self.config.lock_backend!r}",
                 )
             if entry.locked_by_run != self.manifest.run_id:
-                self._error(rel, "manifest.scope_locks", f"scope {scope_id!r} is locked by {entry.locked_by_run!r}, not this run")
+                self._error(rel, SCOPE_LOCKS_LOCATOR, f"scope {scope_id!r} is locked by {entry.locked_by_run!r}, not this run")
         if self.config.lock_backend == "git-remote":
             self._check_lock_evidence(locks_by_scope)
             return
         self.executed.append("scope-locks")
         for scope_id, entry in sorted(locks_by_scope.items()):
-            self._check_filesystem_lock(rel, scope_id, entry)
+            self._check_filesystem_lock(scope_id, entry)
 
     def _check_lock_evidence(self, locks_by_scope: dict[str, runmodel.ScopeLockEntry]) -> None:
         """Accept orchestrator-side CAS evidence for git-remote locks (module docstring)."""
@@ -766,7 +802,7 @@ class _PromotionCheck:
         for problem in _attestation_time_problems(ref):
             self._error(rel, where, problem)
 
-    def _check_filesystem_lock(self, rel: str, scope_id: str, entry: runmodel.ScopeLockEntry) -> None:
+    def _check_filesystem_lock(self, scope_id: str, entry: runmodel.ScopeLockEntry) -> None:
         assert self.manifest is not None
         lock_rel = f"{self.config.incubator_root}/locks/{runmodel.scope_lock_filename(scope_id)}"
         lock_path = self.project_root / lock_rel
@@ -801,8 +837,8 @@ class _PromotionCheck:
     def _check_dispositions(self) -> None:
         self.executed.append("dispositions")
         assert self.manifest is not None
-        rel = self._rel_path("promotion", "promotion-manifest.json")
-        for gate_name in runmodel.SEMANTIC_GATES:
+        rel = self._rel_path("promotion", PROMOTION_MANIFEST_FILE)
+        for gate_name in SEMANTIC_GATES:
             count = sum(1 for gate in self.manifest.semantic_gates if gate.gate == gate_name)
             if count != 1:
                 self._error(rel, "manifest.semantic_gates", f"exactly one {gate_name!r} entry is required, found {count}")
@@ -821,7 +857,7 @@ class _PromotionCheck:
             }[scope.promotion_disposition]
             handler(rel, scope, atoms_by_scope.get(scope.scope_id, []), open_findings)
         if any_promoted:
-            self._check_run_register_digests(rel)
+            self._check_run_register_digests()
             self._check_final_coverage()
 
     def _load_optional_register(
@@ -888,15 +924,15 @@ class _PromotionCheck:
         if not path.lower().endswith((".md", ".markdown")) or anchor not in anchor_slugs(target.read_text(encoding="utf-8")):
             self._error(rel, where, f"visible_anchor does not resolve: {visible_anchor}")
 
-    def _check_run_register_digests(self, rel: str) -> None:
+    def _check_run_register_digests(self) -> None:
         """Verify all nine register_digests pins against the canonical re-derivation."""
         if self.run is None:
             return
-        run_rel = self._rel_path("RUN.json")
+        run_rel = self._rel_path(RUN_FILE)
         derived, derive_issues = runmodel.derive_register_digests(self.run_dir)
         for issue in derive_issues:
             self._error(self._rel_path(issue.locator), "file", issue.message)
-        for key in runmodel.REGISTER_DIGEST_KEYS:
+        for key in REGISTER_DIGEST_KEYS:
             digest = self.run.register_digests.get(key)
             if digest is None:
                 self._error(run_rel, f"run.register_digests.{key}", "must be pinned before any scope is promoted")
@@ -941,18 +977,37 @@ class _PromotionCheck:
         for source_id in sorted(set(authors) - covered):
             self._error(rel, "file", f"source {source_id} has no final coverage row")
         for number, row in enumerate(rows, start=2):
-            if register_rows and row["source_id"] not in authors:
-                self._error(rel, f"line {number}:source_id", f"coverage row for unknown source {row['source_id']!r}")
-            author = authors.get(row["source_id"], "")
-            if author and row["reviewer_principal_id"] == author:
-                self._error(rel, f"line {number}:reviewer_principal_id", "reviewer must not be the source author")
-            source_path = source_paths.get(row["source_id"])
-            if source_path is not None:
-                source_file = self.project_root / source_path
-                if not source_file.is_file() or file_digest_sha256(source_file) != row["sha256"]:
-                    self._error(rel, f"line {number}:sha256", f"coverage digest does not match the current source {source_path}")
-            if not row["review_artifact"].startswith("N_A:") and not (self.project_root / row["review_artifact"]).exists():
-                self._error(rel, f"line {number}:review_artifact", f"review artifact does not exist: {row['review_artifact']}")
+            self._check_final_source_row(
+                rel,
+                number,
+                row,
+                register_present=bool(register_rows),
+                authors=authors,
+                source_paths=source_paths,
+            )
+
+    def _check_final_source_row(
+        self,
+        rel: str,
+        number: int,
+        row: TsvRow,
+        *,
+        register_present: bool,
+        authors: dict[str, str],
+        source_paths: dict[str, str],
+    ) -> None:
+        if register_present and row["source_id"] not in authors:
+            self._error(rel, f"line {number}:source_id", f"coverage row for unknown source {row['source_id']!r}")
+        author = authors.get(row["source_id"])
+        if author and row["reviewer_principal_id"] == author:
+            self._error(rel, f"line {number}:reviewer_principal_id", "reviewer must not be the source author")
+        source_path = source_paths.get(row["source_id"])
+        if source_path is not None:
+            source_file = self.project_root / source_path
+            if not source_file.is_file() or file_digest_sha256(source_file) != row["sha256"]:
+                self._error(rel, f"line {number}:sha256", f"coverage digest does not match the current source {source_path}")
+        if not row["review_artifact"].startswith("N_A:") and not (self.project_root / row["review_artifact"]).exists():
+            self._error(rel, f"line {number}:review_artifact", f"review artifact does not exist: {row['review_artifact']}")
 
     def _check_final_normative_coverage(self) -> None:
         rel = self._rel_path("baseline", "normative-coverage.tsv")

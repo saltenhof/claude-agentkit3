@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 
 from .smy import SmyError, parse_smy
@@ -13,10 +14,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-_ATX_HEADING_RE = re.compile(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*#*\s*$")
 _SETEXT_UNDERLINE_RE = re.compile(r"^(=+|-+)\s*$")
 _FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
-_EXPLICIT_ANCHOR_RE = re.compile(r"\{#(?P<anchor>[A-Za-z0-9_.:-]+)\}|<a\s+[^>]*id=[\"'](?P<html>[^\"']+)[\"']", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -141,9 +140,10 @@ def heading_outline(text: str) -> tuple[Heading, ...]:
     lines = body_lines(text)
     previous: tuple[int, str] | None = None
     for number, line in lines:
-        atx = _ATX_HEADING_RE.match(line)
-        if atx:
-            headings.append(Heading(line=number, level=len(atx.group("hashes")), title=atx.group("title").strip()))
+        atx = _parse_atx_heading(line)
+        if atx is not None:
+            level, title = atx
+            headings.append(Heading(line=number, level=level, title=title))
             previous = None
             continue
         underline = _SETEXT_UNDERLINE_RE.match(line)
@@ -159,6 +159,14 @@ def heading_outline(text: str) -> tuple[Heading, ...]:
             continue
         previous = (number, line)
     return tuple(headings)
+
+
+def _parse_atx_heading(line: str) -> tuple[int, str] | None:
+    level = len(line) - len(line.lstrip("#"))
+    if level < 1 or level > 6 or len(line) == level or not line[level].isspace():
+        return None
+    title = line[level:].strip().rstrip("#").rstrip()
+    return (level, title) if title else None
 
 
 def extract_headings(text: str) -> tuple[tuple[int, str], ...]:
@@ -187,11 +195,51 @@ def anchor_slugs(text: str) -> frozenset[str]:
         seen[slug] = count + 1
         slugs.add(slug if count == 0 else f"{slug}-{count}")
     for _, line in body_lines(text):
-        for match in _EXPLICIT_ANCHOR_RE.finditer(line):
-            explicit = match.group("anchor") or match.group("html")
-            if explicit:
-                slugs.add(explicit)
+        slugs.update(_braced_anchor_values(line))
+        slugs.update(_html_anchor_values(line))
     return frozenset(slugs)
+
+
+def _braced_anchor_values(line: str) -> tuple[str, ...]:
+    values: list[str] = []
+    search_from = 0
+    while (start := line.find("{#", search_from)) >= 0:
+        end = line.find("}", start + 2)
+        if end < 0:
+            break
+        value = line[start + 2 : end]
+        if value and all(char.isalnum() or char in "_.:-" for char in value):
+            values.append(value)
+        search_from = end + 1
+    return tuple(values)
+
+
+def _html_anchor_values(line: str) -> tuple[str, ...]:
+    parser = _ExplicitAnchorParser()
+    parser.feed(line)
+    parser.close()
+    return tuple(parser.values)
+
+
+class _ExplicitAnchorParser(HTMLParser):
+    """Collect exact ``id`` attributes from exact ``a`` start tags."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.values: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag.casefold() != "a":
+            return
+        self.values.extend(
+            value
+            for name, value in attrs
+            if name.casefold() == "id" and value
+        )
 
 
 def file_digest_sha256(path: Path) -> str:

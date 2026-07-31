@@ -18,13 +18,18 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from packaging.version import InvalidVersion, Version
+
 from agentkit.backend.skills.binding import (
     HarnessKind,
     SkillBinding,
     SkillBindingMode,
     SkillLifecycleStatus,
 )
-from agentkit.backend.skills.bundle_store import SkillProfile
+from agentkit.backend.skills.bundle_store import (
+    SkillProfile,
+    bundle_content_digest,
+)
 from agentkit.backend.skills.errors import (
     SkillBindingFailedError,
     SkillBindingPartialStateError,
@@ -34,6 +39,7 @@ from agentkit.backend.skills.errors import (
 from agentkit.backend.skills.links import (
     create_directory_link,
     is_directory_link,
+    read_directory_link_target,
     remove_directory_link,
 )
 from agentkit.backend.skills.quality_metric import (
@@ -54,6 +60,7 @@ if TYPE_CHECKING:
 # Harness-specific binding paths  (FK-43 §43.4.1, FK-30 §30.11)
 # ---------------------------------------------------------------------------
 
+
 def _harness_skill_dir(project_root: Path, harness: HarnessKind) -> Path:
     """Return the harness-specific skills directory within *project_root*.
 
@@ -70,6 +77,38 @@ def _harness_skill_dir(project_root: Path, harness: HarnessKind) -> Path:
     # Exhaustive — StrEnum ensures only known values pass.
     msg = f"Unknown harness: {harness}"  # pragma: no cover
     raise ValueError(msg)  # pragma: no cover
+
+
+def _reject_norm_violating_pin(skill_name: str, binding: SkillBinding) -> None:
+    """Reject a persisted pin whose bundle still executes an abolished path.
+
+    A pin is otherwise honoured for the lifetime of a project. The exception is
+    a bundle that would keep running behaviour the norm removed — there,
+    honouring the pin would let a supported project pass VERIFY while doing the
+    forbidden thing (see ``MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS``).
+
+    Raises:
+        SkillBindingFailedError: If the pinned version is below the floor.
+    """
+    from agentkit.backend.installer.runner import (  # noqa: PLC0415 - avoids an installer/skills import cycle
+        MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS,
+    )
+
+    floor = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(binding.bundle_id)
+    if floor is None:
+        return
+    try:
+        pinned_is_old = Version(binding.bundle_version) < Version(floor)
+    except InvalidVersion as exc:
+        raise SkillBindingFailedError(
+            f"Skill {skill_name!r} pin {binding.bundle_version!r} is not a comparable version",
+        ) from exc
+    if pinned_is_old:
+        raise SkillBindingFailedError(
+            f"Skill {skill_name!r} is pinned to {binding.bundle_id}@{binding.bundle_version}, "
+            f"which is below the minimum conform version {floor}: that bundle still carries a "
+            "path the norm abolished. Rebind the skill to pick up the conform bundle.",
+        )
 
 
 def _verify_manifest_digest(
@@ -217,8 +256,7 @@ def _verify_harness_links(
         link_path = _harness_skill_dir(project_root, harness) / skill_name
         if not is_directory_link(link_path):
             raise SkillBindingFailedError(
-                f"Post-bind verification failed: binding link missing for "
-                f"skill '{skill_name}' (harness={harness})",
+                f"Post-bind verification failed: binding link missing for skill '{skill_name}' (harness={harness})",
                 detail={"skill_name": skill_name, "link_path": str(link_path)},
             )
 
@@ -254,6 +292,32 @@ def _binding_id_for(project_key: str, skill_name: str) -> str:
     """Deterministic binding id from (project_key, skill_name)."""
     namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # URL namespace
     return str(uuid.uuid5(namespace, f"{project_key}:{skill_name}"))
+
+
+def _is_materialized_pin_target(
+    target: Path,
+    *,
+    binding: SkillBinding,
+) -> bool:
+    """Accept only the FK-43 digest-keyed materialized-store layout."""
+    from agentkit.backend.installer.paths import (
+        materialized_skill_variant_store_root,
+    )
+
+    try:
+        store_root = materialized_skill_variant_store_root().resolve(strict=True)
+        relative = target.relative_to(store_root)
+    except (OSError, ValueError):
+        return False
+    parts = relative.parts
+    return (
+        len(parts) == 4
+        and parts[0] == binding.project_key
+        and parts[1] == f"{binding.bundle_id}@{binding.bundle_version}"
+        and len(parts[2]) == 64
+        and all(char in "0123456789abcdef" for char in parts[2])
+        and parts[3] == binding.skill_name
+    )
 
 
 @dataclass(frozen=True)
@@ -320,6 +384,7 @@ def _remove_links_honest(link_paths: list[Path]) -> list[Path]:
 # ---------------------------------------------------------------------------
 # Skills top-surface
 # ---------------------------------------------------------------------------
+
 
 class Skills:
     """Top-surface for the agent-skills BC (FK-43, bc-cut-decisions.md §BC 11).
@@ -402,6 +467,7 @@ class Skills:
         bundle_info = _read_bundle_manifest(bundle_root)
         self._validate_profile_support(skill_name, bundle_info, bundle_root)
         _verify_manifest_digest(skill_name, bundle_info, bundle_root)
+        pinned_content_digest = bundle_content_digest(bundle_root)
 
         # Effective keys: source of truth = project_root.stem
         # (consistent with resolve_binding / list_bound_skills; FK-43 §43.1)
@@ -413,9 +479,7 @@ class Skills:
 
         # Multi-harness mandatory from day one (FK-43 §43.4.1 AK4).
         harnesses: tuple[HarnessKind, ...] = (HarnessKind.CLAUDE_CODE, HarnessKind.CODEX)
-        canonical_target = (
-            _harness_skill_dir(project_root, HarnessKind.CLAUDE_CODE) / skill_name
-        )
+        canonical_target = _harness_skill_dir(project_root, HarnessKind.CLAUDE_CODE) / skill_name
 
         # SELF-ATOMIC bind (AG3-048 Codex-r3 ERROR 2 + Codex-r7 FINDING 1): link
         # creation is INSIDE the try so that ANY failure triggers the self-atomic
@@ -431,15 +495,14 @@ class Skills:
         # therefore never sees a half-bound skill nor a row pointing at a removed
         # link. ``binding_mode`` is the actual mode used (SYMLINK/JUNCTION).
         try:
-            binding_mode = _create_harness_links(
-                skill_name, bundle_root, project_root, harnesses
-            )
+            binding_mode = _create_harness_links(skill_name, bundle_root, project_root, harnesses)
             binding = SkillBinding(
                 binding_id=bid,
                 project_key=effective_project_key,
                 skill_name=skill_name,
                 bundle_id=effective_bundle_id,
                 bundle_version=effective_bundle_version,
+                content_digest=pinned_content_digest,
                 target_path=canonical_target,
                 binding_mode=binding_mode,
                 status=SkillLifecycleStatus.BOUND,
@@ -448,6 +511,10 @@ class Skills:
             self._binding_repo.save(binding)
 
             _verify_harness_links(skill_name, project_root, harnesses)
+            if bundle_content_digest(bundle_root) != pinned_content_digest:
+                raise SkillBindingFailedError(
+                    f"Bundle content changed while binding skill {skill_name!r}",
+                )
 
             # Update status to VERIFIED.
             verified_binding = SkillBinding(
@@ -456,6 +523,7 @@ class Skills:
                 skill_name=skill_name,
                 bundle_id=effective_bundle_id,
                 bundle_version=effective_bundle_version,
+                content_digest=pinned_content_digest,
                 target_path=canonical_target,
                 binding_mode=binding_mode,
                 status=SkillLifecycleStatus.VERIFIED,
@@ -477,9 +545,7 @@ class Skills:
                     detail={
                         "skill_name": skill_name,
                         "project_root": str(project_root),
-                        "residual_links": [
-                            str(p) for p in residual.residual_links
-                        ],
+                        "residual_links": [str(p) for p in residual.residual_links],
                         "persisted_row_remains": residual.persisted_row_remains,
                         "original_error": str(exc),
                     },
@@ -514,10 +580,7 @@ class Skills:
             A ``_CleanupResidual`` describing what could NOT be removed. Empty /
             ``is_clean`` when the removal fully succeeded.
         """
-        link_paths = [
-            _harness_skill_dir(project_root, harness) / skill_name
-            for harness in harnesses
-        ]
+        link_paths = [_harness_skill_dir(project_root, harness) / skill_name for harness in harnesses]
         residual_links = _remove_links_honest(link_paths)
 
         persisted_row_remains = False
@@ -618,8 +681,7 @@ class Skills:
             if variants.get(profile.value) == skill_name:
                 return
         raise SkillProfileNotSupportedError(
-            f"Bundle at {bundle_root} declares variants {sorted(variants)} "
-            f"but none maps to skill '{skill_name}' (FK-43 §43.4.1)",
+            f"Bundle at {bundle_root} declares variants {sorted(variants)} but none maps to skill '{skill_name}' (FK-43 §43.4.1)",
             detail={
                 "skill_name": skill_name,
                 "bundle_root": str(bundle_root),
@@ -677,9 +739,7 @@ class Skills:
                 detail={
                     "skill_name": skill_name,
                     "project_root": str(project_root),
-                    "residual_links": [
-                        str(p) for p in residual.residual_links
-                    ],
+                    "residual_links": [str(p) for p in residual.residual_links],
                     "persisted_row_remains": residual.persisted_row_remains,
                 },
             )
@@ -720,6 +780,66 @@ class Skills:
         """
         project_key = project_root.stem
         return self._binding_repo.list_for_project(project_key)
+
+    def verify_pinned_binding(
+        self,
+        project_root: Path,
+        skill_name: str,
+    ) -> SkillBinding:
+        """Verify both harness links against the persisted immutable pin.
+
+        This deliberately does not ask the bundle store for its highest version:
+        an existing project remains valid on the version it explicitly pinned.
+        """
+        binding = self.resolve_binding(project_root, skill_name)
+        if binding is None or binding.status is not SkillLifecycleStatus.VERIFIED:
+            raise SkillBindingFailedError(f"Skill {skill_name!r} has no VERIFIED persisted binding")
+        _reject_norm_violating_pin(skill_name, binding)
+        link_paths = [
+            _harness_skill_dir(project_root, harness) / skill_name for harness in (HarnessKind.CLAUDE_CODE, HarnessKind.CODEX)
+        ]
+        if any(not is_directory_link(path) for path in link_paths):
+            raise SkillBindingFailedError(f"Skill {skill_name!r} is not linked in both mandatory harnesses")
+        targets = [
+            read_directory_link_target(path).resolve(strict=True)
+            for path in link_paths
+        ]
+        if targets[0] != targets[1]:
+            raise SkillBindingFailedError(f"Skill {skill_name!r} harness links target different bundle versions")
+        try:
+            pinned_bundle = self._bundle_store.get_bundle_version(
+                binding.bundle_id,
+                binding.bundle_version,
+            )
+        except Exception as exc:
+            raise SkillBindingFailedError(
+                f"Skill {skill_name!r} persisted pin is not canonically resolvable",
+            ) from exc
+        canonical_root = pinned_bundle.bundle_root.resolve(strict=True)
+        _verify_manifest_digest(
+            skill_name,
+            _read_bundle_manifest(canonical_root),
+            canonical_root,
+        )
+        target = targets[0]
+        if target != canonical_root and not _is_materialized_pin_target(
+            target,
+            binding=binding,
+        ):
+            raise SkillBindingFailedError(
+                f"Skill {skill_name!r} link target is outside its canonical pin",
+            )
+        try:
+            actual_digest = bundle_content_digest(target)
+        except Exception as exc:
+            raise SkillBindingFailedError(
+                f"Skill {skill_name!r} effective content is unreadable",
+            ) from exc
+        if actual_digest != binding.content_digest:
+            raise SkillBindingFailedError(
+                f"Skill {skill_name!r} content diverges from its persisted pin",
+            )
+        return binding
 
     # ------------------------------------------------------------------
     # collect_quality_metrics

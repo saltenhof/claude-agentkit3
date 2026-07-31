@@ -91,6 +91,7 @@ class _BoundSkillsSurface:
             skill_name=skill_name,
             bundle_id="execute-userstory-custom",
             bundle_version="9.9.9",
+            content_digest="0" * 64,
             target_path=project_root / ".claude" / "skills" / skill_name,
             binding_mode=SkillBindingMode.SYMLINK,
             status=SkillLifecycleStatus.BOUND,

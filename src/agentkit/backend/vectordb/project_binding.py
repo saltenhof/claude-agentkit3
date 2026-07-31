@@ -41,7 +41,11 @@ class ProjectBinding:
             concepts_dir ist massgeblich").
         stories_dir: Story corpus root (``stories/*/story.md`` etc.).
         weaviate_http_endpoint: Weaviate HTTP endpoint URL (config value, no default).
-        weaviate_grpc_endpoint: Weaviate gRPC endpoint (host:port), optional.
+        weaviate_grpc_endpoint: Weaviate gRPC endpoint (host:port). Mandatory,
+            exactly like the HTTP endpoint: FK-03 §93 lists it as "kein Default
+            (Pflicht bei MCP-Registrierung)", and a binding that may silently
+            carry an empty gRPC endpoint is the same inherited leniency the
+            HTTP endpoint already rejects.
     """
 
     project_id: str
@@ -49,7 +53,7 @@ class ProjectBinding:
     concepts_dir: Path
     stories_dir: Path
     weaviate_http_endpoint: str
-    weaviate_grpc_endpoint: str = ""
+    weaviate_grpc_endpoint: str
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
@@ -70,6 +74,11 @@ class ProjectBinding:
             raise ProjectBindingError(
                 f"weaviate_http_endpoint {ep!r} is a forbidden localhost default; "
                 "the endpoint must come from explicit configuration."
+            )
+        if not isinstance(self.weaviate_grpc_endpoint, str) or not self.weaviate_grpc_endpoint.strip():
+            raise ProjectBindingError(
+                "weaviate_grpc_endpoint is missing/empty; both endpoints are "
+                "configuration values (FK-03 §93: no default, fail-closed)."
             )
 
     def resolve_within_root(self, candidate: Path) -> Path:

@@ -22,7 +22,15 @@ dependencies = [
     # conformance payload validation (AG3-164) AND the FK-13 §13.4 story
     # knowledge base MCP server (AG3-174). Hard dependency: no optional import /
     # soft fallback at the registration gate or the tool surface.
-    "mcp>=1.0",
+    # Bounded on BOTH sides against the v1 surface this code actually uses:
+    # ``mcp.server.fastmcp`` (the FastMCP server the tool surface subclasses)
+    # only exists from 1.2.0 onwards, and 2.0.0 ships neither
+    # ``mcp/server/fastmcp`` nor ``mcp/types`` — it moved the server to
+    # ``mcp.server.mcpserver``. Either edge breaks the MANDATORY MCP server at
+    # import time, so an unbounded range is a fail-open install. The ``cli``
+    # extra is deliberately NOT required — it only adds typer/python-dotenv for
+    # the standalone ``mcp`` command, which AK3 does not use.
+    "mcp>=1.2.0,<2",
     # Weaviate story-knowledge-base runtime (FK-13 §13.2). Now a MANDATORY
     # infrastructure dependency (DR 2026-07-21 Rand 1: feature flag is a
     # deprecated migration key). Runtime pin per FK-13 §13.2 instead of the
@@ -103,10 +111,11 @@ packages = ["agentkit"]
 mypy_path = ["src", "tools"]
 plugins = ["pydantic.mypy"]
 
-# Weaviate is an OPTIONAL, untyped dependency (FK-13 §13.2). The integration
-# adapter guards its import; mypy must not fail when the package (or its stubs)
-# is absent. This is the documented optional-dependency seam, not a blanket
-# silence — only the ``weaviate.*`` namespace is exempted.
+# Weaviate is a MANDATORY but UNTYPED dependency (FK-13 §13.1/§13.2). It ships
+# no stubs, and the integration adapter guards its import so a broken install
+# fails closed with a typed error; mypy must therefore not fail on the missing
+# stubs. This is a typing seam, NOT an optionality statement — only the
+# ``weaviate.*`` namespace is exempted.
 [[tool.mypy.overrides]]
 module = ["weaviate.*"]
 ignore_missing_imports = true

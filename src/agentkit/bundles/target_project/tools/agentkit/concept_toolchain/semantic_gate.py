@@ -70,6 +70,7 @@ try:
     from . import runmodel
     from .docmodel import file_digest_sha256
     from .findings import EXIT_USAGE, CheckResult, error, exit_code, to_envelope
+    from .runmodel_constants import SEMANTIC_GATE_KEYS
     from .units import derive_units, lf_normalize
 except ImportError:  # pragma: no cover - direct script execution path
     import importlib
@@ -86,6 +87,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
 _UNITS_HEADER = "unit_id\tsource_id\tunit_locator\tunit_digest\tclaim_refs\tempty_reason"
+RUN_MUTEX_FILE = "RUN.mutex"
+RUN_FILE = "RUN.json"
 
 #: Crash-orphaned mutation mutexes older than this are taken over.
 MUTEX_TTL_SECONDS = 600
@@ -120,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_writer_arguments(units)
     prepare = subparsers.add_parser("prepare", help="Write semantic request packs.")
     _add_writer_arguments(prepare)
-    prepare.add_argument("--gate", required=True, choices=sorted(runmodel.SEMANTIC_GATE_KEYS), help="Gate key (w2 or w3).")
+    prepare.add_argument("--gate", required=True, choices=sorted(SEMANTIC_GATE_KEYS), help="Gate key (w2 or w3).")
     prepare.add_argument("--scope", action="append", default=[], help="Scope id (default: all promotion-manifest scopes).")
     importer = subparsers.add_parser("import", help="Validate and register a semantic receipt.")
     _add_writer_arguments(importer)
@@ -150,8 +153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if run is not None and result.complete and not result.findings:
             guard = _MutexGuard(run_dir, nonce or "", principal, session)
             try:
-                with guard.exclusive_write():
-                    pass
+                guard.revalidate()
             except MutexLostError as exc:
                 result.complete = False
                 result.incomplete_reason = str(exc)
@@ -227,14 +229,19 @@ class _MutexGuard:
             return False
         return True
 
+    def revalidate(self) -> None:
+        """Confirm ownership and refresh the heartbeat before dispatch."""
+        with self.exclusive_write():
+            return
+
     def release(self) -> None:
         """Compare-before-delete the mutex under the coordination intent."""
         try:
             with _coordination_intent(self.run_dir, self.principal, self.session):
-                state, _ = runmodel.load_mutex_state(self.run_dir / "RUN.mutex")
+                state, _ = runmodel.load_mutex_state(self.run_dir / RUN_MUTEX_FILE)
                 if state is not None and state.nonce == self.nonce:
                     with contextlib.suppress(OSError):
-                        (self.run_dir / "RUN.mutex").unlink()
+                        (self.run_dir / RUN_MUTEX_FILE).unlink()
         except MutexLostError:
             return  # someone else coordinates the mutex now; never force a release
 
@@ -385,7 +392,7 @@ def _acquire_mutex(run_dir: Path, principal: str, session: str, fencing_token: i
     inside the SAME intent that guards heartbeat, write and release, so a
     takeover can never interleave with another writer's critical section.
     """
-    mutex = run_dir / "RUN.mutex"
+    mutex = run_dir / RUN_MUTEX_FILE
     nonce = uuid.uuid4().hex
     try:
         with _coordination_intent(run_dir, principal, session):
@@ -409,7 +416,7 @@ def _take_over_mutex(
         return None, (
             f"RUN.mutex is held by {observed.owner_principal!r} (heartbeat {observed.heartbeat_at}); refusing to mutate"
         )
-    run, _ = runmodel.load_run_state(run_dir / "RUN.json")
+    run, _ = runmodel.load_run_state(run_dir / RUN_FILE)
     if run is None or run.lease_fencing_token != fencing_token:
         return None, "expired RUN.mutex takeover requires a caller fencing token equal to RUN.lease_fencing_token"
     current, _ = runmodel.load_mutex_state(mutex)
@@ -421,7 +428,7 @@ def _take_over_mutex(
 
 def _mutex_still_ours(run_dir: Path, nonce: str, principal: str, session: str) -> str | None:
     """Revalidate mutex ownership; returns a problem description on loss."""
-    state, _ = runmodel.load_mutex_state(run_dir / "RUN.mutex")
+    state, _ = runmodel.load_mutex_state(run_dir / RUN_MUTEX_FILE)
     if state is None:
         return "RUN.mutex vanished or became unreadable during the operation; aborting"
     if state.nonce != nonce:
@@ -442,12 +449,12 @@ def _refresh_heartbeat(run_dir: Path, nonce: str, principal: str, session: str) 
     Raises:
         MutexLostError: If the mutex is gone or owned by someone else.
     """
-    state, _ = runmodel.load_mutex_state(run_dir / "RUN.mutex")
+    state, _ = runmodel.load_mutex_state(run_dir / RUN_MUTEX_FILE)
     if state is None:
         raise MutexLostError("RUN.mutex vanished before the heartbeat refresh; aborting")
     if state.nonce != nonce or (state.owner_principal, state.owner_session) != (principal, session):
         raise MutexLostError(f"RUN.mutex was taken over by {state.owner_principal!r} during the operation; aborting")
-    _atomic_write_bytes(run_dir / "RUN.mutex", _mutex_payload(principal, session, nonce, state.acquired_at))
+    _atomic_write_bytes(run_dir / RUN_MUTEX_FILE, _mutex_payload(principal, session, nonce, state.acquired_at))
 
 
 def _verify_writer(
@@ -462,14 +469,14 @@ def _verify_writer(
     lease, lease_issues = runmodel.load_lease(lease_path)
     for issue in lease_issues:
         result.findings.append(error(result.check_id, "LEASE.json", issue.locator, issue.message))
-    run_path = run_dir / "RUN.json"
+    run_path = run_dir / RUN_FILE
     if not run_path.is_file():
         result.complete = False
         result.incomplete_reason = "RUN.json not found; mutations require the authoritative run state"
         return None
     run, run_issues = runmodel.load_run_state(run_path)
     for issue in run_issues:
-        result.findings.append(error(result.check_id, "RUN.json", issue.locator, issue.message))
+        result.findings.append(error(result.check_id, RUN_FILE, issue.locator, issue.message))
     if lease is None or run is None:
         return None
     problems = _writer_problems(lease, run, principal, session, fencing_token)
@@ -693,7 +700,7 @@ def _write_pack(
     chunks: list[dict[str, str]],
     guard: _MutexGuard,
 ) -> None:
-    gate = runmodel.SEMANTIC_GATE_KEYS[gate_key]
+    gate = SEMANTIC_GATE_KEYS[gate_key]
     payload: dict[str, object] = {
         "schema_version": "1.0.0",
         "gate": gate,
@@ -723,8 +730,8 @@ def _write_pack(
     name = f"{gate_key}-{runmodel.normalize_scope_id(scope_id)}-{request_digest[:16]}.json"
     destination = run_dir / "semantic" / "requests" / name
     content = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    _atomic_write_bytes(destination, content)
-    result.reports.append(f"[prepare] wrote pack for scope {scope_id} (request_digest {request_digest})")
+    if guard.write_bytes(result, destination, content):
+        result.reports.append(f"[prepare] wrote pack for scope {scope_id} (request_digest {request_digest})")
 
 
 # --------------------------------------------------------------------------

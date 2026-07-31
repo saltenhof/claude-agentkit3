@@ -60,7 +60,7 @@ Beispiele:
 ```python
 class FeaturesConfig(BaseModel, frozen=True):
     multi_repo: bool = False
-    vectordb: bool = False
+    vectordb: bool = True
     multi_llm: bool = True       # FK-Pflicht
     telemetry: bool = True
     db: bool = False
@@ -234,8 +234,9 @@ Repository-Unterordner eigenstaendig versioniert werden.
 (FK-13 §13.1). Der Schluessel bleibt nur noch als **Migrations-Konfigschluessel**
 erhalten; in einem unterstuetzten Zielprojekt ist `features.vectordb: false` ein
 harter Konfigurationsfehler, kein Abschaltpfad. Die Code-seitige Entfernung des
-Optionalitaetszweigs (Installer, FK-50 CP 10/10a) ist einer spaeteren Story
-vorbehalten.
+Optionalitaetszweigs (Installer, FK-50 CP 10/10a) ist mit AG3-176 umgesetzt;
+der Konfigurationsfehler wird vor CP 1 mit dem Grund `vectordb_required`
+abgewiesen.
 
 Bundle-/install-spezifische Pfade (z. B. der Skill-Bundle-Root mit den
 Prompt-Templates) sind **kein** `project.yaml`-Feld: sie sind Bindungs-/
@@ -449,6 +450,19 @@ agentkit install --gh-owner acme-corp --gh-repo trading-platform --dry-run
 Pydantic:
 
 ```python
+class FeaturesConfig(BaseModel, frozen=True):
+    vectordb: bool = True
+
+    @field_validator("vectordb")
+    @classmethod
+    def require_vectordb(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError(
+                "features.vectordb=false is unsupported: "
+                "VectorDB is mandatory"
+            )
+        return value
+
 class PipelineConfig(BaseModel, frozen=True):
     config_version: str
     github: GitHubConfig

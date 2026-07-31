@@ -27,10 +27,17 @@ def parse_response(raw_response: str) -> AuthorityProseResponse:
             errors.append(str(exc.errors(include_url=False)))
     normalized = text.replace("\\_", "_")
     if normalized != text:
-        try:
-            return AuthorityProseResponse.model_validate_json(normalized)
-        except ValidationError as exc:
-            errors.append(f"normalized JSON: {exc.errors(include_url=False)}")
+        for candidate in (
+            normalized,
+            _fenced_json(normalized),
+            _embedded_json(normalized),
+        ):
+            if candidate is None:
+                continue
+            try:
+                return AuthorityProseResponse.model_validate_json(candidate)
+            except ValidationError as exc:
+                errors.append(f"normalized JSON: {exc.errors(include_url=False)}")
     try:
         return _regex_response(normalized)
     except (ResponseParseError, ValidationError, json.JSONDecodeError) as exc:
@@ -71,8 +78,7 @@ def _regex_response(text: str) -> AuthorityProseResponse:
         re.I,
     )
     assertions = tuple(
-        NormativeAssertion(assertion=match.group(1), scopes=tuple(json.loads(match.group(2))))
-        for match in pattern.finditer(text)
+        NormativeAssertion(assertion=match.group(1), scopes=tuple(json.loads(match.group(2)))) for match in pattern.finditer(text)
     )
     if not assertions:
         raise ResponseParseError("normative response contains no parseable assertions")

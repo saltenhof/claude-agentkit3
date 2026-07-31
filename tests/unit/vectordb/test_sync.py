@@ -27,6 +27,7 @@ from tests.unit.vectordb.corpus_doubles import (
 from agentkit.backend.vectordb.engine import (
     CLAIM_COLLECTION,
     RECEIPT_COLLECTION,
+    RUN_RECEIPT_COLLECTION,
     WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
@@ -121,7 +122,7 @@ def test_idempotent_resync_writes_one_record() -> None:
     # One receipt RECORD per source, with an ADVANCING completion order (N04/N16):
     # the digest binds the ordering fields, so the second completion necessarily
     # carries a different -- and still self-verifying -- digest.
-    assert len(client.receipts) == 1
+    assert len(client.receipt_runs) == 2
     assert r1.receipt_digest != r2.receipt_digest
     latest = store.get_receipt(project_id="acme", source_file="concept/a.md")
     assert latest is not None
@@ -165,7 +166,9 @@ def test_full_reindex_partial_vanished_delete_is_rejected() -> None:
             project_id="acme", producer="concept_sync",
             objects_by_source={}, corpus_revision="rev-1",
         )
-    assert client.receipts == {}, "an unconfirmed delete must not report a completion"
+    assert client.receipt_runs == {}, (
+        "an unconfirmed delete must not report a completion"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -250,7 +253,7 @@ def test_n13_foreign_project_object_is_rejected_before_any_write() -> None:
             objects=[foreign], corpus_revision="rev",
         )
     assert client.objects == {}, "no object may be written before validation"
-    assert client.receipts == {}
+    assert client.receipt_runs == {}
 
 
 def test_n13_foreign_source_file_object_is_rejected_before_any_write() -> None:
@@ -375,7 +378,7 @@ def test_n29_empty_matrix_entry_mutates_nothing_at_all() -> None:
         )
     assert stale.uuid in client.objects, "the vanished delete must not have run"
     assert client.claims == ladder, "no claim beyond the seeded history"
-    assert client.receipts == {}
+    assert client.receipt_runs == {}
 
 
 def test_n29_a_malformed_receipt_is_never_persisted() -> None:
@@ -387,7 +390,9 @@ def test_n29_a_malformed_receipt_is_never_persisted() -> None:
     )
     with pytest.raises(SyncError, match="source_type"):
         store.set_receipt(receipt=malformed)
-    assert client.receipts == {}, "an unverified receipt must never reach the store"
+    assert client.receipt_runs == {}, (
+        "an unverified receipt must never reach the store"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -411,7 +416,7 @@ def _assert_zero_mutation(
         "no claim may be written for an unpublishable run"
     )
     assert client.upsert_calls == [], "nothing may be written"
-    assert client.receipts == {}, "no completion may be reserved"
+    assert client.receipt_runs == {}, "no completion may be reserved"
     assert seeded.uuid in client.objects, "the persisted generation must survive"
 
 
@@ -641,7 +646,7 @@ def test_n37_end_to_end_a_writer_that_reads_a_newer_generation_cannot_delete_it(
     b_only = deterministic_uuid("acme", "concept/a.md", "b-only")
     assert b_only in client.objects
     assert client.objects[b_only][OWNING_GENERATION_PROPERTY] == 3
-    assert client.receipts == {}, "and A publishes no completion"
+    assert client.receipt_runs == {}, "and A publishes no completion"
 
 
 def test_n37_the_ladder_is_persistent_across_normal_releases() -> None:
@@ -709,7 +714,7 @@ def test_n37_superseded_holder_cannot_delete_the_new_generation_mid_window() -> 
             objects=[chunk_object("acme", "concept/a.md", "new")], corpus_revision="rev",
         )
     assert old.uuid in client.objects, "the newer generation's version must survive"
-    assert client.receipts == {}, "and no completion may be published"
+    assert client.receipt_runs == {}, "and no completion may be published"
 
 
 def test_n37_the_legitimate_delete_still_removes_every_old_chunk() -> None:
@@ -855,7 +860,7 @@ def test_n41_a_stale_write_landing_before_the_final_delete_is_removed() -> None:
     )
     assert stale.uuid not in client.objects, "the final delete must remove it"
     assert result.deleted == 1
-    assert client.receipts, "and the completion was published AFTER the delete"
+    assert client.receipt_runs, "and the completion was published AFTER the delete"
 
 
 def test_n41_the_sweep_cannot_delete_the_newer_owners_rows() -> None:
@@ -1099,7 +1104,7 @@ def test_n43_a_partial_backfill_is_fail_closed() -> None:
             objects=[chunk_object("acme", "concept/a.md", "current")],
             corpus_revision="rev",
         )
-    assert client.receipts == {}, "and no completion is published"
+    assert client.receipt_runs == {}, "and no completion is published"
 
 
 def test_n37_every_write_carries_the_writing_generation() -> None:
@@ -1171,7 +1176,9 @@ def test_n39_a_newer_completion_supersedes_and_prunes_the_older_one() -> None:
     winner = store.get_receipt(project_id="acme", source_file="concept/a.md")
     assert winner is not None and winner.corpus_revision == "rev-b"
     revisions = {r.corpus_revision for r in store.list_receipts(project_id="acme")}
-    assert revisions == {"rev-b"}, "the superseded generation is pruned"
+    assert revisions == {"rev-a", "rev-b"}, (
+        "immutable run records retain history; authority still follows generation"
+    )
 
 
 def test_n39_a_completion_without_a_generation_is_rejected() -> None:
@@ -1340,7 +1347,7 @@ def test_n17_no_claim_is_written_before_objects_are_validated() -> None:
         )
     assert client.claims == ladder, "no claim may be written for an invalid object set"
     assert client.objects == {}
-    assert client.receipts == {}
+    assert client.receipt_runs == {}
 
 
 def test_n17_invalid_later_source_prevents_the_vanished_delete() -> None:
@@ -1363,7 +1370,7 @@ def test_n17_invalid_later_source_prevents_the_vanished_delete() -> None:
         )
     assert stale.uuid in client.objects, "the vanished source must NOT be deleted yet"
     assert client.claims == ladder, "no claim beyond the seeded history"
-    assert client.receipts == {}
+    assert client.receipt_runs == {}
 
 
 def test_n17_full_reindex_validates_before_deleting() -> None:
@@ -1510,7 +1517,7 @@ def test_n27_stale_writer_cannot_write_after_an_administrative_takeover() -> Non
         objects=[chunk_object("acme", "concept/a.md", "from-b")], corpus_revision="rev-b",
     )
     written_by_b = dict(client.objects)
-    receipts_after_b = dict(client.receipts)
+    receipts_after_b = dict(client.receipt_runs)
     # A resumes with its stale claim: it must abort BEFORE writing anything.
     with pytest.raises(ClaimSupersededError, match="superseded"):
         writer_a._sync_impl(  # noqa: SLF001 -- the resumed in-flight window
@@ -1520,7 +1527,9 @@ def test_n27_stale_writer_cannot_write_after_an_administrative_takeover() -> Non
             corpus_revision="rev-a",
         )
     assert client.objects == written_by_b, "no stale chunk may be written"
-    assert client.receipts == receipts_after_b, "no stale completion may be published"
+    assert client.receipt_runs == receipts_after_b, (
+        "no stale completion may be published"
+    )
 
 
 def test_n15_superseded_writer_cannot_publish_a_receipt() -> None:
@@ -1558,7 +1567,9 @@ def test_n15_superseded_writer_cannot_publish_a_receipt() -> None:
             project_id="acme", source_file="concept/a.md", source_type="concept",
             objects=[chunk_object("acme", "concept/a.md", "new")], corpus_revision="rev",
         )
-    assert client.receipts == {}, "a superseded writer must not publish a receipt"
+    assert client.receipt_runs == {}, (
+        "a superseded writer must not publish a receipt"
+    )
     # Whether the OLD generation survives is no longer the guarantee: D9 protects
     # what the NEW OWNER wrote (proven by the two d9 takeover tests below), and the
     # bounded switch window is documented rather than claimed away.
@@ -1699,9 +1710,11 @@ def test_n45_a_release_failure_after_a_successful_sync_is_surfaced() -> None:
             project_id="acme", source_file="concept/a.md", source_type="concept",
             objects=[chunk_object("acme", "concept/a.md", "c1")], corpus_revision="rev",
         )
-    # The window itself completed -- that is exactly why silence was dangerous.
+    # The source generation was written, but the run-wide completion boundary is
+    # after the confirmed release. A failed release therefore publishes no freshness.
     assert client.objects, "the generation was written"
-    assert client.receipts, "and the completion was published"
+    assert not client.receipt_runs
+    assert not client.receipt_runs
 
 
 def test_n45_a_release_failure_does_not_replace_the_primary_sync_fault() -> None:
@@ -1794,7 +1807,7 @@ def test_n47_a_failed_write_leaves_the_legacy_rows_intact() -> None:
             corpus_revision="rev",
         )
     assert legacy.uuid in client.objects, "the old rows must survive a failed write"
-    assert client.receipts == {}, "and no completion may be published"
+    assert client.receipt_runs == {}, "and no completion may be published"
 
 
 def test_n47_a_partial_write_leaves_the_old_generation_intact() -> None:
@@ -1811,7 +1824,7 @@ def test_n47_a_partial_write_leaves_the_old_generation_intact() -> None:
             corpus_revision="rev",
         )
     assert old.uuid in client.objects
-    assert client.receipts == {}
+    assert client.receipt_runs == {}
 
 
 def test_n46_the_receipt_is_published_after_every_required_delete() -> None:
@@ -1825,7 +1838,7 @@ def test_n46_the_receipt_is_published_after_every_required_delete() -> None:
             order.append("delete")
 
     def _note_receipt(collection: str, _uuid: str) -> None:
-        if collection == RECEIPT_COLLECTION:
+        if collection == RUN_RECEIPT_COLLECTION:
             order.append("receipt")
 
     client.before_delete = _note_delete
@@ -1853,7 +1866,7 @@ def test_n46_a_failing_final_delete_publishes_no_completion() -> None:
             objects=[chunk_object("acme", "concept/a.md", "new")],
             corpus_revision="rev",
         )
-    assert client.receipts == {}, "no completion after a failed required delete"
+    assert client.receipt_runs == {}, "no completion after a failed required delete"
 
 
 def test_n47_an_unusable_generation_stops_the_run_before_any_write() -> None:
@@ -1871,7 +1884,7 @@ def test_n47_an_unusable_generation_stops_the_run_before_any_write() -> None:
         )
     assert client.upsert_calls == [], "nothing was written"
     assert broken.uuid in client.objects
-    assert client.receipts == {}
+    assert client.receipt_runs == {}
 
 
 # --------------------------------------------------------------------------- #
@@ -2055,4 +2068,3 @@ def test_every_storycontext_delete_is_conditional_and_scoped() -> None:
         for call in scoped:
             passed = {kw.arg for kw in call.keywords if kw.arg is not None}
             assert {"project_id", "source_file"} <= passed, (name, sorted(passed))
-

@@ -92,9 +92,7 @@ def test_engine_does_not_run_third_party_checkpoint_when_all_systems_opt_out(
 
     root = tmp_path / "proj"
     root.mkdir()
-    config = make_config(
-        root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo
-    )
+    config = make_config(root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo)
     for mode in (ExecutionMode.DRY_RUN, ExecutionMode.VERIFY):
         result = run_checkpoint_install(config, mode=mode)
         checkpoints = {r.checkpoint for r in (result.checkpoint_results or ())}
@@ -151,13 +149,15 @@ def test_cp08_does_not_touch_prompt_store_in_read_only(
         after = _store_snapshot()
         assert before == after, mode
         assert not store_root.exists(), f"{mode} created the prompt-bundle store"
-        # The plan/read-only result still reports the bundle binding intent.
-        assert result.detail is not None and "PromptRuntime.update_binding" in result.detail
         if mode is ExecutionMode.DRY_RUN:
+            assert result.detail is not None and "PromptRuntime.update_binding" in result.detail
             assert result.status is CheckpointStatus.CREATED
             assert result.reason == REASON_PLANNED_NO_MUTATION
         else:
-            assert result.status is CheckpointStatus.PASS
+            # VERIFY checks the persisted immutable pin; a pristine project has
+            # none and therefore fails closed without creating one.
+            assert result.status is CheckpointStatus.FAILED
+            assert result.reason == "binding_invalid"
 
 
 def test_cp08_register_materialises_prompt_store(
@@ -200,9 +200,7 @@ def _are_ctx_complete(
         are_module_scope_map={"scope-x": "app"},
         repositories=[{"name": "app", "path": ".", "are_scope": "scope-x"}],
     )
-    ctx = build_checkpoint_context(
-        config, mode, scope_interaction_mode=ScopeInteractionMode.AGENTIC
-    )
+    ctx = build_checkpoint_context(config, mode, scope_interaction_mode=ScopeInteractionMode.AGENTIC)
     import sys
     from pathlib import Path
 
@@ -250,9 +248,7 @@ def _are_ctx_complete(
     return ctx
 
 
-def test_cp10c_resolved_this_run_is_updated(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10c_resolved_this_run_is_updated(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """AC8: a mapping resolved DURING this run -> UPDATED (register mode)."""
     ctx = _are_ctx_complete(tmp_path, registration_repo)
     # Simulate the orchestrating agent's resolve_pending_scope_mapping() having
@@ -263,9 +259,7 @@ def test_cp10c_resolved_this_run_is_updated(
     assert result.detail is not None and "Resolved this run" in result.detail
 
 
-def test_cp10c_already_complete_is_idempotent_skip(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10c_already_complete_is_idempotent_skip(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """AC8: an already-complete mapping (nothing resolved this run) -> SKIPPED."""
     ctx = _are_ctx_complete(tmp_path, registration_repo)
     # No resolved_scope_mappings -> nothing was written this run.
@@ -274,9 +268,7 @@ def test_cp10c_already_complete_is_idempotent_skip(
     assert result.reason == REASON_ALREADY_SATISFIED
 
 
-def test_cp10c_resolved_this_run_is_plan_updated_in_dry_run(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10c_resolved_this_run_is_plan_updated_in_dry_run(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """AC8: resolved-this-run in dry_run -> plan-UPDATED (no mutation token)."""
     ctx = _are_ctx_complete(tmp_path, registration_repo, mode=ExecutionMode.DRY_RUN)
     ctx.run_state.resolved_scope_mappings = {"scope-x": "app"}  # type: ignore[attr-defined]
@@ -285,9 +277,7 @@ def test_cp10c_resolved_this_run_is_plan_updated_in_dry_run(
     assert result.reason == REASON_PLANNED_NO_MUTATION
 
 
-def test_cp10c_resolved_this_run_is_pass_in_verify(
-    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
-) -> None:
+def test_cp10c_resolved_this_run_is_pass_in_verify(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """AC8: resolved-this-run in verify -> PASS (read-only)."""
     ctx = _are_ctx_complete(tmp_path, registration_repo, mode=ExecutionMode.VERIFY)
     ctx.run_state.resolved_scope_mappings = {"scope-x": "app"}  # type: ignore[attr-defined]

@@ -45,7 +45,9 @@ cd claude-agentkit3
 | **GitHub CLI `gh`** | optional | PR-/Issue-Operationen, einige Tests `requires_gh` |
 | PowerShell 7+ **oder** bash | — | Dev-Umgebung (Windows: PowerShell; Skripte auch bash-kompatibel) |
 
-Optionale Python-Extras (nur wenn genutzt): `weaviate-client`, `mcp[cli]`.
+`weaviate-client` und `mcp` sind **Pflicht-Basis-Dependencies**, keine Extras
+(FK-13 §13.1, Beschluss 2026-07-21 Rand 1). Sie kommen mit
+`pip install -e ".[dev]"` mit; ein `agentkit[weaviate]`-Extra existiert nicht mehr.
 
 ---
 
@@ -256,7 +258,7 @@ beziehen bzw. beim Aufsetzen neu vergeben.
 |---|---|---|---|
 | **PostgreSQL** | **Kanonisches** State-Backend (DK-05/FK-18) | lokal | `AGENTKIT_STATE_BACKEND=postgres`, `AGENTKIT_STATE_DATABASE_URL=postgresql://…` |
 | **SQLite** | Test-paralleles Backend, **nur** enge Unit-Tests | Datei | Fail-closed gated: `AGENTKIT_ALLOW_SQLITE=1` |
-| **Weaviate** (VektorDB) | Story-Knowledge-Base (FK-13), nur `features.vectordb` | lokal | Optional je Projektprofil (`core` vs. `are`) |
+| **Weaviate** (VektorDB) | Story-Knowledge-Base (FK-13) | lokal | **Pflichtinfrastruktur** — `features.vectordb: false` ist ein harter Konfigurationsfehler, kein Abschaltpfad |
 | **Jenkins** | CI / Pipeline-Build | `http://127.0.0.1:9900` | Job `claude-agentkit3`; Trigger via Crumb-Cookie (siehe unten) |
 | **SonarQube** | Quality-Gate (muss **gruen** sein, nicht „accepted") | `http://localhost:9901` | Projektschluessel `claude-agentkit3` |
 | **Multi-LLM-Hub** | LLM-Pools fuer Reviews/Bewertungen | MCP `127.0.0.1:9600` | Browser-Pools 9100/9200/9300/9400 |

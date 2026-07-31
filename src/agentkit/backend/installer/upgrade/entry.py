@@ -87,6 +87,18 @@ def run_checkpoint_upgrade(
             project_key=project_key,
             project_root=project_root,
         )
+    # The skills surface is needed in EVERY mode, not only for mutating steps:
+    # ``up_02`` inspects the persisted pins for norm-violating bundle versions,
+    # and a guard that cannot see the bindings would silently pass.
+    from agentkit.backend.skills import SkillBundleStore, Skills
+    from agentkit.backend.state_backend.store.skill_binding_repository import (
+        StateBackendSkillBindingRepository,
+    )
+
+    skills = Skills(
+        bundle_store=SkillBundleStore(),
+        binding_repo=StateBackendSkillBindingRepository(project_root),
+    )
     return run_upgrade(
         project_root,
         project_key=project_key,
@@ -96,6 +108,7 @@ def run_checkpoint_upgrade(
         explicit_binding_switch=explicit_binding_switch,
         mode=mode,
         governance=governance,
+        skills=skills,
         cleanup_plan=cleanup_plan,
     )
 

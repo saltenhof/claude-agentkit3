@@ -28,6 +28,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 # Reuse the productive guard-dispatch harness helpers (real edge binding + real event)
 from tests.integration.governance.test_prompt_integrity_dispatch import (
@@ -132,6 +133,7 @@ def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
         runtime_profile=RuntimeProfile.CORE,
         sonarqube_available=False,
         ci_available=False,
+        **ready_vectordb_install_kwargs(),
     )
 
 
@@ -149,10 +151,7 @@ def _project_config(root: Path) -> ProjectConfig:
 def _qa_header(token: str) -> str:
     # role=story-qa keeps the spawn EXEMPT from Stage 3 (dynamic prompts) so the test
     # isolates Stage 2 skill_proof validation — the AG3-110 scope (FK-31 §31.7.2).
-    return (
-        "AGENTKIT-SUBAGENT-V1 mode=story_execution role=story-qa "
-        f"story_id={_STORY} skill_proof={token}"
-    )
+    return f"AGENTKIT-SUBAGENT-V1 mode=story_execution role=story-qa story_id={_STORY} skill_proof={token}"
 
 
 def _git_init(root: Path) -> None:
@@ -206,9 +205,7 @@ def test_e2e_install_header_guard_allows_and_blocks(tmp_path: Path) -> None:
 
     # (b) the real read-time substitutor resolves the header token (not the literal).
     raw_header = _qa_header("{{AGENT_SPAWN_SKILL_PROOF}}")
-    resolved_header = PlaceholderSubstitutor().substitute_spawn_header(
-        raw_header, _project_config(root), root
-    )
+    resolved_header = PlaceholderSubstitutor().substitute_spawn_header(raw_header, _project_config(root), root)
     assert f"skill_proof={token}" in resolved_header
     assert "{{AGENT_SPAWN_SKILL_PROOF}}" not in resolved_header
 

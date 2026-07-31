@@ -7,6 +7,7 @@ without a live state backend (unit-level isolation).
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -55,6 +56,13 @@ def write_project_yaml(project_root: Path, data: dict[str, object]) -> Path:
     """Write ``.agentkit/config/project.yaml`` under ``project_root`` and return it."""
     from agentkit.backend.installer.paths import project_config_path
 
+    if not (project_root / ".git").is_dir():
+        subprocess.run(
+            ["git", "init"],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+        )
     path = project_config_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(

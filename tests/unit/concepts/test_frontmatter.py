@@ -46,6 +46,20 @@ def test_good_frontmatter_parses() -> None:
     assert body.startswith("body")
 
 
+def test_deferral_override_note_is_strictly_typed() -> None:
+    fm = _GOOD.replace("    reason: base", "    reason: base\n    override_note: freeze moved")
+    model = ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
+    entry = model.defers_to[0]
+    assert not isinstance(entry, str)
+    assert entry.override_note == "freeze moved"
+
+
+def test_deferral_override_note_rejects_non_string() -> None:
+    fm = _GOOD.replace("    reason: base", "    reason: base\n    override_note: 23")
+    with pytest.raises(FrontmatterError):
+        ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
+
+
 def test_missing_frontmatter_returns_empty() -> None:
     fm, body = split_frontmatter("no frontmatter here")
     assert fm == ""
@@ -175,4 +189,35 @@ def test_explicit_null_in_a_mandatory_field_still_fails_closed() -> None:
 def test_non_string_in_tags_fails_closed() -> None:
     fm = _GOOD.replace("tags: [vektordb]", "tags: [vektordb, 42]")
     with pytest.raises(FrontmatterError, match="must be a string"):
+        ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
+
+
+def test_supersedes_accepts_simple_and_scope_qualified_canonical_forms() -> None:
+    fm = (
+        _GOOD
+        + "supersedes:\n"
+        + "  - FK-00\n"
+        + "  - target: FK-01\n"
+        + "    scope: freeze-position\n"
+        + "    reason: freeze moved\n"
+    )
+    model = ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))
+    assert model.supersedes_targets == ("FK-00", "FK-01")
+    assert model.supersedes_full == (
+        ("FK-00", "", ""),
+        ("FK-01", "freeze-position", "freeze moved"),
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    (
+        "scope: missing-target",
+        "target: 23",
+        "target: FK-01\n    unknown: forbidden",
+    ),
+)
+def test_malformed_scope_qualified_supersedes_fails_closed(entry: str) -> None:
+    fm = _GOOD + f"supersedes:\n  - {entry}\n"
+    with pytest.raises(FrontmatterError):
         ConceptFrontmatter.from_mapping(parse_frontmatter_block(fm))

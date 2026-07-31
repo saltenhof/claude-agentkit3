@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
+from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
+
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 from agentkit.backend.installer import InstallConfig, install_agentkit
 from agentkit.backend.installer.paths import (
@@ -153,6 +155,7 @@ class TestPromptAuditPinStabilityAfterRebind:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
@@ -222,9 +225,7 @@ class TestPromptAuditPinStabilityAfterRebind:
         assert audit["run_id"] == "run-rebind-001"
         # The materialized prompt carries the PINNED bytes, not the rebound v999
         # marker (C2: binding_changes_affect_only_future_runs).
-        prompt_text = (
-            project_root / str(audit["artifact_path"])
-        ).read_text(encoding="utf-8")
+        prompt_text = (project_root / str(audit["artifact_path"])).read_text(encoding="utf-8")
         assert "rebound v999" not in prompt_text
 
     def test_missing_pin_is_skipped_fail_closed(
@@ -270,9 +271,7 @@ class TestPromptAuditPinStabilityAfterRebind:
 class TestQaReviewReviewer:
     """QaReviewReviewer integration tests (AG3-026 Pass-2)."""
 
-    def test_evaluate_returns_layer_result_with_qa_review_layer(
-        self, tmp_path: Path
-    ) -> None:
+    def test_evaluate_returns_layer_result_with_qa_review_layer(self, tmp_path: Path) -> None:
         """evaluate() always returns LayerResult with layer='qa_review'."""
         reviewer = QaReviewReviewer()
         result = reviewer.evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
@@ -340,6 +339,7 @@ class TestSemanticReviewer:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
@@ -384,16 +384,11 @@ class TestSemanticReviewer:
         assert audit["render_mode"] == "rendered"
         # FK-44 §44.4.1 canonical run-scoped instance path (prompt.md), not a
         # loose layer-named file; audit persisted via ArtifactManager.
-        assert audit["artifact_path"] == (
-            ".agentkit/prompts/run-review-001/"
-            "verify-semantic_review-attempt-001/prompt.md"
-        )
+        assert audit["artifact_path"] == (".agentkit/prompts/run-review-001/verify-semantic_review-attempt-001/prompt.md")
         assert "manifest_path" not in audit
         assert isinstance(audit["audit_record_key"], str)
         assert len(str(audit["output_sha256"])) == 64
-        assert (
-            project_root / str(audit["artifact_path"])
-        ).is_file()
+        assert (project_root / str(audit["artifact_path"])).is_file()
         # No loose rendered-manifest.json is written as audit truth anymore.
         assert not (
             project_root
@@ -424,6 +419,7 @@ class TestSemanticReviewer:
                 github_repo="demo",
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+                **ready_vectordb_install_kwargs(),
             ),
         )
         story_dir = project_root / "stories" / "OTHER-999"

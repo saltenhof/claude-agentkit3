@@ -974,7 +974,7 @@ eigene leichtgewichtige Checks:
 | `concept.structure` | Konzeptdokument hat erwartete Abschnitte | FK-05-047 |
 | `concept.completeness` | Alle Pflichtabschnitte nicht leer | FK-05-047 |
 | `concept.sparring` | Telemetrie weist Pflicht-Feedback-Loop nach (2 LLMs, Einarbeitung geprüft) | FK-05-047 (erweitert) |
-| `concept.vectordb` | VektorDB-Abgleich wurde durchgeführt (wenn verfügbar) | FK-05-042 |
+| `concept.vectordb` | VektorDB-Abgleich wurde durchgeführt; ein Ausfall ist ein Fehler, kein Uebersprung (FK-13 §13.1: Pflichtinfrastruktur) | FK-05-042 |
 
 ### 33.9.2 Research-Story-Checks
 

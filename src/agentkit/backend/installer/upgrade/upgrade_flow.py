@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.installer.checkpoint_engine.engine import CheckpointEngine
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.upgrade.engine import (
     UpgradeRequest,
     UpgradeRunContext,
@@ -80,6 +81,15 @@ class UpgradeResult:
     git_hook_outcome: GitHookMigrationOutcome | None = None
     cleanup_outcome: CleanupOutcome | None = None
     detail: str = ""
+    #: Checkpoints that ended FAILED. A blocked step must reach the caller: the
+    #: engine stops before further mutations, but a result that stayed silent
+    #: about it would let the CLI report a success that never happened.
+    failed_checkpoints: tuple[str, ...] = ()
+
+    @property
+    def failed(self) -> bool:
+        """Return whether any checkpoint of this run ended FAILED."""
+        return bool(self.failed_checkpoints)
 
     @property
     def mutated(self) -> bool:
@@ -176,7 +186,9 @@ def run_upgrade(
     assert state.footprint is not None  # up_01 always runs first
     assert state.decision is not None
     detail = "; ".join(r.detail for r in results if r.detail)
+    failed_checkpoints = tuple(r.checkpoint for r in results if r.status is CheckpointStatus.FAILED)
     return UpgradeResult(
+        failed_checkpoints=failed_checkpoints,
         mode=mode,
         scenario=state.decision,
         footprint=state.footprint,

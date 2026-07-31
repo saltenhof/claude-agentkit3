@@ -30,7 +30,7 @@ from .docmodel import body_lines
 from .findings import CheckResult, error
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from .config import GovernanceConfig
@@ -43,14 +43,8 @@ NORMATIVE_MODAL_RE = re.compile(
     r"shall|must)\b",
     re.IGNORECASE,
 )
-_DECISION_TRAILER_RE = re.compile(r"^Concept-Decision:[ \t]*(.*?)[ \t]*\r?$", re.MULTILINE)
-_FORMAT_ONLY_TRAILER_RE = re.compile(r"^Concept-Format-Only:[ \t]*(.*?)[ \t]*\r?$", re.MULTILINE)
 _MARKDOWN_TARGET_RE = re.compile(r"(?<=\]\()[^)]+(?=\))")
 _BARE_URL_RE = re.compile(r"https?://[^\s)>]+")
-_ANCHOR_RE = re.compile(
-    r"\{#[A-Za-z0-9_.:-]+\}|<a\s+[^>]*id=[\"'][^\"']+[\"'][^>]*>\s*</a>|<!--\s*PROSE-FORMAL:\s*[^>]+-->",
-    re.IGNORECASE,
-)
 
 
 class _GitError(Exception):
@@ -140,7 +134,7 @@ def _evaluate_trailers(
     result: CheckResult,
 ) -> bool:
     grammar = config.id_grammars["decision_record"]
-    values = [match.group(1) for message in messages for match in _DECISION_TRAILER_RE.finditer(message)]
+    values = list(_trailer_values(messages, "Concept-Decision:"))
     values.extend(cli_trailers)
     satisfied = False
     for value in values:
@@ -159,7 +153,11 @@ def _evaluate_trailers(
 
 
 def _format_only_reasons(messages: Sequence[str]) -> tuple[str, ...]:
-    return tuple(match.group(1) for message in messages for match in _FORMAT_ONLY_TRAILER_RE.finditer(message))
+    return tuple(_trailer_values(messages, "Concept-Format-Only:"))
+
+
+def _trailer_values(messages: Sequence[str], prefix: str) -> tuple[str, ...]:
+    return tuple(line[len(prefix) :].strip() for message in messages for line in message.splitlines() if line.startswith(prefix))
 
 
 def _report_empty_reasons(reasons: Sequence[str], concept_changes: Sequence[str], result: CheckResult) -> None:
@@ -239,12 +237,56 @@ def _link_only_line_ids(change: _FileChange) -> frozenset[tuple[str, int]]:
 def _normalized_candidates(lines: tuple[_ChangedLine, ...]) -> list[tuple[str, int]]:
     candidates: list[tuple[str, int]] = []
     for index, line in enumerate(lines):
-        normalized = _ANCHOR_RE.sub("", line.text)
+        normalized = _remove_anchor_markup(line.text)
         normalized = _MARKDOWN_TARGET_RE.sub("<TARGET>", normalized)
         normalized = _BARE_URL_RE.sub("<URL>", normalized)
         if normalized != line.text:
             candidates.append((normalized, index))
     return candidates
+
+
+def _remove_anchor_markup(text: str) -> str:
+    """Remove supported anchor markup using bounded delimiter searches."""
+    text = _remove_matching_spans(
+        text,
+        "{#",
+        "}",
+        lambda span: bool(span[2:-1]) and all(char.isalnum() or char in "_.:-" for char in span[2:-1]),
+    )
+    text = _remove_matching_spans(
+        text,
+        "<a",
+        "</a>",
+        lambda span: "id=" in span[: span.find(">")].lower(),
+    )
+    text = _remove_matching_spans(
+        text,
+        "<!--",
+        "-->",
+        lambda span: span[4:-3].strip().upper().startswith("PROSE-FORMAL:"),
+    )
+    return text
+
+
+def _remove_matching_spans(
+    text: str,
+    opener: str,
+    closer: str,
+    accept: Callable[[str], bool],
+) -> str:
+    search_from = 0
+    while (start := text.find(opener, search_from)) >= 0:
+        end = text.find(closer, start + len(opener))
+        if end < 0:
+            break
+        end += len(closer)
+        span = text[start:end]
+        if accept(span):
+            text = text[:start] + text[end:]
+            search_from = start
+        else:
+            search_from = end
+    return text
 
 
 def _changed_paths(project_root: Path, base: str) -> tuple[str, ...]:

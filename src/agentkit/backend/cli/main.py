@@ -92,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
     _evidence_commands.add_evidence_parsers(subparsers)
     _setup_failure_corpus_subparsers(subparsers)
     _operator_recovery_commands._setup_operator_recovery_subparsers(subparsers)
+    concept_parser = subparsers.add_parser("concept", help="Validate, build, and sync the configured concept corpus.")
+    concept_parser.add_argument("concept_args", nargs=argparse.REMAINDER)
 
     from agentkit.backend.cli.lifecycle import add_lifecycle_parsers
 
@@ -152,6 +154,7 @@ def _dispatch_command(args: argparse.Namespace, cli_args: list[str]) -> tuple[bo
         "weekly-review": lambda: _operator_recovery_commands._cmd_weekly_review(args),
         "override-integrity": lambda: _operator_recovery_commands._cmd_override_integrity(args),
         "export-telemetry": lambda: _operator_recovery_commands._cmd_export_telemetry(args),
+        "concept": lambda: _cmd_concept(args),
     }
     handler = handlers.get(str(args.command))
     if handler is not None:
@@ -159,6 +162,12 @@ def _dispatch_command(args: argparse.Namespace, cli_args: list[str]) -> tuple[bo
     if args.command == "evidence" and args.evidence_command == "assemble":
         return True, _evidence_commands._cmd_evidence_assemble(args)
     return False, 0
+
+
+def _cmd_concept(args: argparse.Namespace) -> int:
+    from agentkit.backend.vectordb.cli import main as concept_main
+
+    return concept_main(list(args.concept_args))
 
 
 def _build_control_plane_client(base_url: str, project_root: str) -> ProjectEdgeClient:

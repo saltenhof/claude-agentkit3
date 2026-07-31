@@ -38,6 +38,7 @@ from .docmodel import anchor_slugs, file_digest_sha256, load_document, scan_docu
 from .findings import CheckResult, error
 from .promotion_check import run_promotion_check
 from .receipts import compute_target_digest, verify_receipt_against_atom
+from .runmodel_constants import DECISION_STATUSES
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -181,11 +182,11 @@ class _ProjectionCheck:
             self._error(lifecycle_where, f"decision record digest does not match {source.path}")
         document = load_document(self.project_root, "meta", record_path)
         decision_status = document.frontmatter.get("decision_status") if document.frontmatter is not None else None
-        if not isinstance(decision_status, str) or decision_status not in runmodel.DECISION_STATUSES:
+        if not isinstance(decision_status, str) or decision_status not in DECISION_STATUSES:
             self._error(
                 lifecycle_where,
                 f"decision record frontmatter must carry a machine-readable decision_status "
-                f"({', '.join(runmodel.DECISION_STATUSES)}): {source.path}",
+                f"({', '.join(DECISION_STATUSES)}): {source.path}",
             )
             return
         if decision_status != source.status:
@@ -363,27 +364,41 @@ class _ProjectionCheck:
         run_id = entry.last_run_id
         assert run_id is not None
         if run_id not in self._run_manifests:
-            run_dir_rel = f"{self.config.incubator_root}/runs/{run_id}"
-            if entry.last_promotion_manifest is not None:
-                manifest_rel = entry.last_promotion_manifest.path
-            else:
-                manifest_rel = f"{run_dir_rel}/promotion/promotion-manifest.json"
-            manifest_path = self.project_root / manifest_rel
-            manifest: runmodel.PromotionManifest | None = None
-            if not manifest_path.is_file():
-                self._error(where, f"promotion manifest of run {run_id} not found: {manifest_rel}")
-            else:
-                pointer = entry.last_promotion_manifest
-                if pointer is not None and file_digest_sha256(manifest_path) != pointer.digest:
-                    self._error(where, f"last_promotion_manifest digest does not match {manifest_rel}")
-                manifest, issues = runmodel.load_promotion_manifest(manifest_path)
-                for issue in issues:
-                    self.result.findings.append(error(CHECK_ID, manifest_rel, issue.locator, issue.message))
-                if manifest is not None and manifest.run_id != run_id:
-                    self._error(where, f"promotion manifest {manifest_rel} belongs to run {manifest.run_id!r}, not {run_id!r}")
-                    manifest = None
-            self._run_manifests[run_id] = manifest
+            self._run_manifests[run_id] = self._load_promotion_manifest(
+                where,
+                run_id,
+                entry,
+            )
         return self._run_manifests[run_id]
+
+    def _load_promotion_manifest(
+        self,
+        where: str,
+        run_id: str,
+        entry: ProjectionEntry,
+    ) -> runmodel.PromotionManifest | None:
+        run_dir_rel = f"{self.config.incubator_root}/runs/{run_id}"
+        pointer = entry.last_promotion_manifest
+        manifest_rel = (
+            pointer.path
+            if pointer is not None
+            else f"{run_dir_rel}/promotion/promotion-manifest.json"
+        )
+        manifest_path = self.project_root / manifest_rel
+        if not manifest_path.is_file():
+            self._error(where, f"promotion manifest of run {run_id} not found: {manifest_rel}")
+            return None
+        if pointer is not None and file_digest_sha256(manifest_path) != pointer.digest:
+            self._error(where, f"last_promotion_manifest digest does not match {manifest_rel}")
+        manifest, issues = runmodel.load_promotion_manifest(manifest_path)
+        for issue in issues:
+            self.result.findings.append(
+                error(CHECK_ID, manifest_rel, issue.locator, issue.message)
+            )
+        if manifest is not None and manifest.run_id != run_id:
+            self._error(where, f"promotion manifest {manifest_rel} belongs to run {manifest.run_id!r}, not {run_id!r}")
+            return None
+        return manifest
 
     def _run_atom_register(self, run_dir_rel: str) -> dict[str, runmodel.TsvRow]:
         if run_dir_rel not in self._run_atoms:

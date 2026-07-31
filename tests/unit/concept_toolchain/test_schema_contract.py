@@ -12,6 +12,25 @@ from typing import TYPE_CHECKING
 
 import pytest
 from concept_toolchain import runmodel
+from concept_toolchain.runmodel_constants import (
+    ASSERTION_STATUSES,
+    DATA_CLASSES,
+    DECISION_STATUSES,
+    EQUIVALENCE_STATUSES,
+    LIFECYCLES,
+    LOCK_BACKENDS,
+    PARTICIPANT_STATUSES,
+    PROJECTION_KINDS,
+    PROMOTION_DISPOSITIONS,
+    RECEIPT_VERDICTS,
+    ROUND_OUTCOMES,
+    RUN_PROFILES,
+    RUN_STATES,
+    SEMANTIC_GATE_STATUSES,
+    SEMANTIC_GATES,
+    SEMANTIC_RECEIPT_STATUSES,
+    SPAWN_MODES,
+)
 from tests.unit.concept_toolchain.conftest import TOOLS_DIR
 
 if TYPE_CHECKING:
@@ -24,26 +43,26 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     "run.schema.json": (
         runmodel.RUN_KEYS,
         {
-            "properties.state.enum": runmodel.RUN_STATES,
-            "properties.profile.enum": runmodel.RUN_PROFILES,
-            "properties.data_class.enum": runmodel.DATA_CLASSES,
-            "properties.participants.items.properties.spawn_mode.enum": runmodel.SPAWN_MODES,
-            "properties.participants.items.properties.status.enum": runmodel.PARTICIPANT_STATUSES,
+            "properties.state.enum": RUN_STATES,
+            "properties.profile.enum": RUN_PROFILES,
+            "properties.data_class.enum": DATA_CLASSES,
+            "properties.participants.items.properties.spawn_mode.enum": SPAWN_MODES,
+            "properties.participants.items.properties.status.enum": PARTICIPANT_STATUSES,
         },
     ),
     "lease.schema.json": (runmodel.LEASE_KEYS, {}),
     "round.schema.json": (
         runmodel.ROUND_KEYS,
-        {"properties.participants.items.properties.outcome.enum": runmodel.ROUND_OUTCOMES},
+        {"properties.participants.items.properties.outcome.enum": ROUND_OUTCOMES},
     ),
     "coverage-plan.schema.json": (runmodel.COVERAGE_PLAN_KEYS, {}),
     "promotion-manifest.schema.json": (
         runmodel.MANIFEST_KEYS,
         {
-            "properties.scopes.items.properties.promotion_disposition.enum": runmodel.PROMOTION_DISPOSITIONS,
-            "properties.scope_locks.items.properties.backend.enum": runmodel.LOCK_BACKENDS,
-            "properties.semantic_gates.items.properties.gate.enum": runmodel.SEMANTIC_GATES,
-            "properties.semantic_gates.items.properties.status.enum": runmodel.SEMANTIC_GATE_STATUSES,
+            "properties.scopes.items.properties.promotion_disposition.enum": PROMOTION_DISPOSITIONS,
+            "properties.scope_locks.items.properties.backend.enum": LOCK_BACKENDS,
+            "properties.semantic_gates.items.properties.gate.enum": SEMANTIC_GATES,
+            "properties.semantic_gates.items.properties.status.enum": SEMANTIC_GATE_STATUSES,
             "properties.required_registry_edges.items.oneOf.1.properties.kind.enum": runmodel.REGISTRY_EDGE_KINDS,
         },
     ),
@@ -54,7 +73,7 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     "mutex.schema.json": (runmodel.MUTEX_KEYS, {}),
     "projection-receipt.schema.json": (
         runmodel.RECEIPT_KEYS,
-        {"properties.verdict.enum": runmodel.RECEIPT_VERDICTS},
+        {"properties.verdict.enum": RECEIPT_VERDICTS},
     ),
     "declassification-receipt.schema.json": (
         runmodel.DECLASSIFICATION_KEYS,
@@ -62,32 +81,32 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     ),
     "scope-lock.schema.json": (
         runmodel.SCOPE_LOCK_KEYS,
-        {"properties.backend.enum": runmodel.LOCK_BACKENDS},
+        {"properties.backend.enum": LOCK_BACKENDS},
     ),
     "projection-manifest.schema.json": (
         runmodel.PROJECTION_MANIFEST_KEYS,
         {
-            "properties.entries.items.properties.lifecycle.enum": runmodel.LIFECYCLES,
-            "properties.entries.items.properties.assertion_status.enum": runmodel.ASSERTION_STATUSES,
-            "properties.entries.items.properties.lifecycle_source.properties.status.enum": runmodel.DECISION_STATUSES,
-            "properties.entries.items.properties.required_projections.items.properties.kind.enum": runmodel.PROJECTION_KINDS,
+            "properties.entries.items.properties.lifecycle.enum": LIFECYCLES,
+            "properties.entries.items.properties.assertion_status.enum": ASSERTION_STATUSES,
+            "properties.entries.items.properties.lifecycle_source.properties.status.enum": DECISION_STATUSES,
+            "properties.entries.items.properties.required_projections.items.properties.kind.enum": PROJECTION_KINDS,
             "properties.entries.items.properties.required_projections.items.properties.target_mode.enum": (
                 runmodel.TARGET_MODES
             ),
             "properties.entries.items.properties.required_projections.items.properties.equivalence_status.enum": (
-                runmodel.EQUIVALENCE_STATUSES
+                EQUIVALENCE_STATUSES
             ),
         },
     ),
     "request-pack.schema.json": (
         runmodel.REQUEST_PACK_KEYS,
-        {"properties.gate.enum": runmodel.SEMANTIC_GATES},
+        {"properties.gate.enum": SEMANTIC_GATES},
     ),
     "semantic-receipt.schema.json": (
         runmodel.SEMANTIC_RECEIPT_KEYS,
         {
-            "properties.gate.enum": runmodel.SEMANTIC_GATES,
-            "properties.status.enum": runmodel.SEMANTIC_RECEIPT_STATUSES,
+            "properties.gate.enum": SEMANTIC_GATES,
+            "properties.status.enum": SEMANTIC_RECEIPT_STATUSES,
         },
     ),
 }

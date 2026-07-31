@@ -1,7 +1,6 @@
 """stdio MCP server built on the official MCP Python SDK (AG3-164 interop).
 
-Requires the optional ``mcp`` package (available in the project venv / dev
-environment). Used only by integration tests to prove the production probe
+Requires the ``mcp`` package, a mandatory base dependency (>=1.2,<2). Used only by integration tests to prove the production probe
 interoperates with an independent implementation.
 """
 

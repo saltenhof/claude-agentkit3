@@ -1399,3 +1399,23 @@ def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(tmp_pat
             gate.enforce(story_dir, current)
     finally:
         reset_backend_cache_for_tests()
+
+
+def test_story_split_service_requires_an_explicit_project_root() -> None:
+    """Productive story split is project-bound; it must never default endpoints.
+
+    Without a project root the endpoint resolution would fall back to the
+    documented DIAGNOSTIC localhost defaults — a synthesised endpoint inside a
+    productive path, which PO decision D-2 removed. Fail-closed instead.
+    """
+    from pathlib import Path
+
+    from agentkit.backend.bootstrap.composition_project import build_story_split_service
+    from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
+
+    with pytest.raises(VectorDbUnavailableError, match="explicit project root"):
+        build_story_split_service(
+            project_key="ak3",
+            stories_root=Path("stories"),
+            project_root=None,
+        )
