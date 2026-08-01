@@ -113,6 +113,29 @@ Zwei bestehende Intent-Tests bekamen eine verkuerzte Wartefrist per
 `monkeypatch`, damit sie nicht je 5 s leerlaufen. Verkuerzt wird das Budget,
 nicht das Verhalten: beide pruefen weiterhin den fail-closed Ausgang.
 
+## Vierter Befund — aus dem eigenen Umbau
+
+Build #1205 lief erstmals seit #1203 bis zum Ende durch; die Unit-Stage war
+gruen. Rot wurde das Quality Gate mit **genau einem** neuen Befund:
+`python:S3776`, Cognitive Complexity 19 > 15 in `_claim_intent` — entstanden
+durch meinen eigenen Umbau, weil die Warteschleife Probe-Kadenz, Frist und Poll
+gleichzeitig in verschachtelten Zweigen trug.
+
+Behoben durch Zerlegung (`_wait_out_the_latch`, `_sleep_until_spent`), nicht
+durch Unterdrueckung: kein NOSONAR, kein Rule-Exclude, keine Gate-Aufweichung.
+Verhalten und Reihenfolge unveraendert; eine gerade uebernommene Klinke
+ueberspringt weiterhin den Schlaf. Danach Lastnachweis erneut 0/150.
+
+## Abschluss
+
+Build **#1206** (Revision `2f9cdb15`) gruen. Quality Gate an der Quelle
+nachgeprueft statt am Build-Status: `status OK`, neue Violations 0, neue
+CRITICAL 0, Coverage neuer Code 89,8 % (Schwelle 80), Duplikate 0,29 %,
+Security Hotspots 100 % reviewed — und **0 offene Issues insgesamt** auf `main`.
+
+Damit ist auch die Pipeline wieder frei: seit #1203 hatte dieser Defekt die
+Unit-Stage und mit ihr SonarQube und das Quality Gate blockiert.
+
 ## Belege
 
 - Lastnachweis (AC 2): siehe `status.yaml`; Aufbau = 8 CPU-Brenner + isolierter

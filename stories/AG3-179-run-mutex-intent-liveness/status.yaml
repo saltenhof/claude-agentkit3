@@ -2,8 +2,8 @@ story_id: AG3-179
 story_title_short: "run-mutex-intent-liveness"
 title: "RUN.mutex-Koordinations-Klinke: Liveness-Defekt beheben — der rechtmaessige Mutex-Eigentuemer wird vom unterlegenen Mitbewerber abgeschossen, weil `_claim_intent` bei einer lebenden fremden Klinke sofort aufgibt statt beschraenkt zu warten; unter Nebenlaeufigkeit kommt dadurch KEIN Schreiber durch."
 type: implementation
-status: in_progress
-phase: implementation
+status: done
+phase: closure
 created: "2026-07-30"
 size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagnose.
 # Herkunft: gefunden 2026-07-30 vom Orchestrator beim AG3-176-Abschlusslauf.
@@ -64,6 +64,11 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #        `_sleep_until_spent`), NICHT durch NOSONAR/Excludes. Handrechnung nach
 #        der Sonar-Regel: 11. Lastnachweis nach dem Umbau erneut 0/150.
 #        Neue-Code-Coverage lag bei 89,8 % (Schwelle 80), Duplikate 0,3 %.
+#  #1206 (2f9cdb15): GRUEN, 1056 s. Quality Gate an der Quelle nachgeprueft
+#        (Sonar-API, nicht nur Build-Status): status OK, neue Violations 0,
+#        neue CRITICAL 0, Coverage neuer Code 89,8 %, Duplikate 0,29 %,
+#        Hotspots 100 % reviewed -- und 0 offene Issues INSGESAMT auf main,
+#        analysierte Revision = 2f9cdb15.
 #  Nicht-blockierend, aber offen (nightly W2/W3, gehoert zu AC8 von AG3-176):
 #   - W2 EVALUATION_PARSE_FAILURE: der grok-Backend-Response enthielt eine
 #     Praeambel ("Worked for 29s") vor dem JSON und markdown-escapte
