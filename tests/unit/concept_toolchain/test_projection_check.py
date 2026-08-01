@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel
+from concept_toolchain import runmodel_digests
 from concept_toolchain.config import load_governance_config
 from concept_toolchain.projection_check import run_projection_check
 from concept_toolchain.receipts import compute_target_digest
@@ -307,7 +307,7 @@ def test_self_projection_uses_canonical_entry_digest(fixture: RunFixture) -> Non
             "equivalence_status": "unreviewed",
         }
     )
-    projections[0]["target_digest"] = runmodel.canonical_projection_entry_digest(entry, MANIFEST_REL)
+    projections[0]["target_digest"] = runmodel_digests.canonical_projection_entry_digest(entry, MANIFEST_REL)
     write_manifest(fixture.project_root, [entry], fixture)
     result = run_check(fixture.project_root)
     assert result.findings == [], finding_messages(result)

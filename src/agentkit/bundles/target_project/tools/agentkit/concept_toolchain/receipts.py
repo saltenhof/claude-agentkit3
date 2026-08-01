@@ -41,7 +41,8 @@ from .units import section_index, text_digest
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from .runmodel import ProjectionReceipt, TsvRow
+    from .runmodel_promotion import ProjectionReceipt
+    from .runmodel_tsv import TsvRow
 
 TARGET_MODES = ("markdown-section", "whole-file", "structured-selector", "directory-tree")
 

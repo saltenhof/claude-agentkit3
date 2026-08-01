@@ -32,7 +32,7 @@ import subprocess
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from . import runmodel
+from . import runmodel_digests, runmodel_pins, runmodel_promotion, runmodel_registers, runmodel_run, runmodel_tsv
 from .docmodel import file_digest_sha256
 from .findings import CheckResult, error
 from .runmodel_constants import RunModelConstants as Vocab
@@ -43,7 +43,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from .config import GovernanceConfig
-    from .runmodel import Issue, TsvRow
+    from .runmodel_tsv import TsvRow
+    from .runmodel_validation import Issue
 
 CHECK_ID = "incubator"
 RUN_FILE = "RUN.json"
@@ -98,7 +99,7 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def effective_state_rank(run: runmodel.RunState) -> int | None:
+def effective_state_rank(run: runmodel_run.RunState) -> int | None:
     """Map the run state onto the linear main-path rank for digest gating."""
     state = run.state
     if state == "BLOCKED" and run.blocked is not None:
@@ -146,7 +147,7 @@ class _IncubatorCheckCore(ABC):
             self.rel = run_dir.resolve().relative_to(project_root.resolve()).as_posix()
         except ValueError:
             self.rel = run_dir.as_posix()
-        self.run: runmodel.RunState | None = None
+        self.run: runmodel_run.RunState | None = None
         self.source_rows: tuple[TsvRow, ...] | None = None
         self.unit_rows: tuple[TsvRow, ...] | None = None
         self.claim_rows: tuple[TsvRow, ...] | None = None
@@ -178,7 +179,7 @@ class _IncubatorCheckCore(ABC):
     def _check_artifact_register(self) -> None: ...
 
     @abstractmethod
-    def _check_coverage_plan(self, run: runmodel.RunState) -> None: ...
+    def _check_coverage_plan(self, run: runmodel_run.RunState) -> None: ...
 
     @abstractmethod
     def _check_coverage_registers(self) -> None: ...
@@ -216,7 +217,7 @@ class _IncubatorCheckCore(ABC):
             self.result.complete = False
             self.result.incomplete_reason = f"RUN.json not found in {self.rel}"
             return self.result
-        run, issues = runmodel.load_run_state(run_json)
+        run, issues = runmodel_run.load_run_state(run_json)
         self._report(self._rel_path(RUN_FILE), issues)
         self.run = run
         self._load_all_registers()
@@ -248,13 +249,13 @@ class _IncubatorCheckCore(ABC):
         return self.result
 
     def _load_all_registers(self) -> None:
-        self.baseline_rows = self._load_register(("baseline", CORPUS_BASELINE_FILE), runmodel.load_corpus_baseline)
-        self.source_rows = self._load_register(("baseline", SOURCE_REGISTER_FILE), runmodel.load_source_register)
-        self.unit_rows = self._load_register(("baseline", "source-units.tsv"), runmodel.load_source_units)
-        self.claim_rows = self._load_register(("synthesis", "claims-inventory.tsv"), runmodel.load_claims_inventory)
-        self.ledger_rows = self._load_register(("synthesis", DISPOSITION_LEDGER_FILE), runmodel.load_disposition_ledger)
-        self.atom_rows = self._load_register(("promotion", "atom-register.tsv"), runmodel.load_atom_register)
-        self.finding_rows = self._load_register((FINDINGS_FILE,), runmodel.load_findings_register)
+        self.baseline_rows = self._load_register(("baseline", CORPUS_BASELINE_FILE), runmodel_registers.load_corpus_baseline)
+        self.source_rows = self._load_register(("baseline", SOURCE_REGISTER_FILE), runmodel_registers.load_source_register)
+        self.unit_rows = self._load_register(("baseline", "source-units.tsv"), runmodel_registers.load_source_units)
+        self.claim_rows = self._load_register(("synthesis", "claims-inventory.tsv"), runmodel_registers.load_claims_inventory)
+        self.ledger_rows = self._load_register(("synthesis", DISPOSITION_LEDGER_FILE), runmodel_registers.load_disposition_ledger)
+        self.atom_rows = self._load_register(("promotion", "atom-register.tsv"), runmodel_registers.load_atom_register)
+        self.finding_rows = self._load_register((FINDINGS_FILE,), runmodel_registers.load_findings_register)
 
     # -- layout and lease ---------------------------------------------------
 
@@ -270,14 +271,14 @@ class _IncubatorCheckCore(ABC):
             if active:
                 self._error(lease_rel, "file", "active run without LEASE.json (no live writer lease)")
             return
-        lease, issues = runmodel.load_lease(lease_path)
+        lease, issues = runmodel_run.load_lease(lease_path)
         self._report(lease_rel, issues)
         if lease is None:
             return
         if active:
             if lease.released:
                 self._error(lease_rel, "lease.released", "active run with a released writer lease")
-            elif runmodel.timestamp_expired(lease.acquired_at, lease.ttl_seconds):
+            elif runmodel_digests.timestamp_expired(lease.acquired_at, lease.ttl_seconds):
                 self._error(lease_rel, "lease.ttl_seconds", "active run with an expired writer lease (TTL elapsed)")
         if self.run is None:
             return
@@ -296,7 +297,7 @@ class _IncubatorCheckCore(ABC):
 
     # -- lifecycle ----------------------------------------------------------
 
-    def _check_lifecycle(self, run: runmodel.RunState) -> None:
+    def _check_lifecycle(self, run: runmodel_run.RunState) -> None:
         run_rel = self._rel_path(RUN_FILE)
         if run.state == "BLOCKED" and run.blocked is None:
             self._error(run_rel, "run.blocked", "must be non-null in state BLOCKED")
@@ -308,9 +309,9 @@ class _IncubatorCheckCore(ABC):
             self._error(run_rel, "run.recheck", f"must be null outside state RECHECK (state {run.state})")
         self._check_digest_gates(run, run_rel)
 
-    def _check_digest_gates(self, run: runmodel.RunState, run_rel: str) -> None:
+    def _check_digest_gates(self, run: runmodel_run.RunState, run_rel: str) -> None:
         rank = effective_state_rank(run)
-        derived, derive_issues = runmodel.derive_register_digests(self.run_dir)
+        derived, derive_issues = runmodel_pins.derive_register_digests(self.run_dir)
         for issue in derive_issues:
             self._error(self._rel_path(issue.locator), "file", issue.message)
         for key, minimum_rank in _DIGEST_GATES:
@@ -382,7 +383,7 @@ class _IncubatorCheckCore(ABC):
         if not round_json.is_file():
             self._error(rel, "file", "ROUND.json is missing")
             return
-        state, issues = runmodel.load_round_state(round_json)
+        state, issues = runmodel_run.load_round_state(round_json)
         self._report(rel, issues)
         if state is None:
             return
@@ -406,7 +407,7 @@ class _IncubatorCheckCore(ABC):
                 )
         self._check_round_seal(state, number, round_dir, rel)
 
-    def _check_round_seal(self, state: runmodel.RoundState, number: int, round_dir: Path, rel: str) -> None:
+    def _check_round_seal(self, state: runmodel_run.RoundState, number: int, round_dir: Path, rel: str) -> None:
         if not state.sealed or state.seal is None:
             if self.run is not None and number < self.run.current_round:
                 self._error(rel, "round.sealed", "past rounds must be sealed before later rounds are dispatched")
@@ -449,7 +450,7 @@ class _IncubatorCheckCore(ABC):
                 self._error(rel, f"line {number}:sha256", f"source file digest drifted from the register: {row['path']}")
             else:
                 self.verified_sources[row["source_id"]] = row["path"]
-            for parent in runmodel.split_refs(row["genealogy_parents"]):
+            for parent in runmodel_tsv.split_refs(row["genealogy_parents"]):
                 if parent not in source_ids:
                     self._error(rel, f"line {number}:genealogy_parents", f"unknown genealogy parent {parent!r}")
             if participant_ids is not None and row["participant_id"] and row["participant_id"] not in participant_ids:
@@ -468,9 +469,9 @@ class _IncubatorCheckCore(ABC):
         if not intake_path.is_file():
             self._error(intake_rel, "file", "append-only source intake manifest is missing (source universe unprovable)")
             return
-        intake_rows, issues = runmodel.load_source_intake(intake_path)
+        intake_rows, issues = runmodel_registers.load_source_intake(intake_path)
         self._report(intake_rel, issues)
-        self._report(intake_rel, runmodel.intake_chain_problems(intake_rows))
+        self._report(intake_rel, runmodel_registers.intake_chain_problems(intake_rows))
         self._check_intake_head(intake_rel, intake_rows)
         register_rel = self._rel_path("baseline", SOURCE_REGISTER_FILE)
         intake_keys = {(row["path"], row["sha256"]): row for row in intake_rows}
@@ -514,7 +515,7 @@ class _IncubatorCheckCore(ABC):
                     "must pin the intake chain head before entering PROMOTING",
                 )
             return
-        if final_pin != runmodel.intake_head_digest(intake_rows):
+        if final_pin != runmodel_registers.intake_head_digest(intake_rows):
             self._error(
                 intake_rel,
                 "file",
@@ -533,7 +534,7 @@ class _IncubatorCheckCore(ABC):
                     "must pin the intake chain head at the input freeze",
                 )
             return
-        index = runmodel.intake_prefix_head_index(intake_rows, input_pin)
+        index = runmodel_registers.intake_prefix_head_index(intake_rows, input_pin)
         if index is None:
             self._error(
                 intake_rel,
@@ -614,7 +615,7 @@ class _IncubatorCheckCore(ABC):
                     "input sources must be the briefing, sealed proposals, or PO inputs",
                 )
 
-    def _check_baseline_rederivation(self, run: runmodel.RunState) -> None:
+    def _check_baseline_rederivation(self, run: runmodel_run.RunState) -> None:
         """Re-derive corpus-baseline.tsv completely from the git base revision."""
         if self.baseline_rows is None:
             return
@@ -699,7 +700,7 @@ class _IncubatorCheckCore(ABC):
             )
         if claim_ids is None:
             return
-        for claim in runmodel.split_refs(row["claim_refs"]):
+        for claim in runmodel_tsv.split_refs(row["claim_refs"]):
             if claim not in claim_ids:
                 self._error(rel, f"line {number}:claim_refs", f"unknown claim {claim!r}")
 
@@ -754,12 +755,12 @@ class _IncubatorCheckCore(ABC):
     ) -> None:
         if source_ids is not None and row["source_id"] not in source_ids:
             self._error(rel, f"line {number}:source_id", f"unknown source {row['source_id']!r}")
-        for parent in runmodel.split_refs(row["genealogy_parents"]):
+        for parent in runmodel_tsv.split_refs(row["genealogy_parents"]):
             if parent not in claim_ids:
                 self._error(rel, f"line {number}:genealogy_parents", f"unknown genealogy parent {parent!r}")
         if unit_ids is None:
             return
-        for unit in runmodel.split_refs(row["unit_refs"]):
+        for unit in runmodel_tsv.split_refs(row["unit_refs"]):
             if unit not in unit_ids:
                 self._error(rel, f"line {number}:unit_refs", f"unknown unit {unit!r}")
 
@@ -767,10 +768,14 @@ class _IncubatorCheckCore(ABC):
         if self.claim_rows is None or self.unit_rows is None:
             return
         edges_from_units = {
-            (unit_row["unit_id"], claim) for unit_row in self.unit_rows for claim in runmodel.split_refs(unit_row["claim_refs"])
+            (unit_row["unit_id"], claim)
+            for unit_row in self.unit_rows
+            for claim in runmodel_tsv.split_refs(unit_row["claim_refs"])
         }
         edges_from_claims = {
-            (unit, claim_row["claim_id"]) for claim_row in self.claim_rows for unit in runmodel.split_refs(claim_row["unit_refs"])
+            (unit, claim_row["claim_id"])
+            for claim_row in self.claim_rows
+            for unit in runmodel_tsv.split_refs(claim_row["unit_refs"])
         }
         for unit_id, claim_id in sorted(edges_from_units - edges_from_claims):
             self._error(rel, "file", f"claim {claim_id} does not list referencing unit {unit_id} in unit_refs")
@@ -813,10 +818,10 @@ class _IncubatorCheckCore(ABC):
         finding_ids: set[str],
     ) -> None:
         if atom_ids is not None:
-            for atom in runmodel.split_refs(row["atom_refs"]):
+            for atom in runmodel_tsv.split_refs(row["atom_refs"]):
                 if atom not in atom_ids:
                     self._error(rel, f"line {number}:atom_refs", f"unknown atom {atom!r}")
-        for finding_id in runmodel.split_refs(row["finding_refs"]):
+        for finding_id in runmodel_tsv.split_refs(row["finding_refs"]):
             if finding_id not in finding_ids:
                 self._error(rel, f"line {number}:finding_refs", f"unknown finding {finding_id!r}")
 
@@ -827,8 +832,8 @@ class _IncubatorCheckCore(ABC):
         ledger_rel = self._rel_path("synthesis", DISPOSITION_LEDGER_FILE)
         atom_rel = self._rel_path("promotion", "atom-register.tsv")
         claim_ids = {row["claim_id"] for row in self.claim_rows} if self.claim_rows is not None else None
-        atom_claims = {row["atom_id"]: set(runmodel.split_refs(row["claim_refs"])) for row in self.atom_rows}
-        ledger_atoms = {row["claim_id"]: set(runmodel.split_refs(row["atom_refs"])) for row in self.ledger_rows}
+        atom_claims = {row["atom_id"]: set(runmodel_tsv.split_refs(row["claim_refs"])) for row in self.atom_rows}
+        ledger_atoms = {row["claim_id"]: set(runmodel_tsv.split_refs(row["atom_refs"])) for row in self.ledger_rows}
         self._check_claim_to_atom_edges(ledger_rel, atom_claims)
         self._check_atom_to_claim_edges(atom_rel, claim_ids, ledger_atoms)
 
@@ -839,7 +844,7 @@ class _IncubatorCheckCore(ABC):
     ) -> None:
         assert self.ledger_rows is not None
         for number, row in enumerate(self.ledger_rows, start=2):
-            for atom_id in sorted(runmodel.split_refs(row["atom_refs"])):
+            for atom_id in sorted(runmodel_tsv.split_refs(row["atom_refs"])):
                 claims_of_atom = atom_claims.get(atom_id)
                 if claims_of_atom is not None and row["claim_id"] not in claims_of_atom:
                     self._error(
@@ -856,7 +861,7 @@ class _IncubatorCheckCore(ABC):
     ) -> None:
         assert self.atom_rows is not None
         for number, row in enumerate(self.atom_rows, start=2):
-            for claim_id in sorted(runmodel.split_refs(row["claim_refs"])):
+            for claim_id in sorted(runmodel_tsv.split_refs(row["claim_refs"])):
                 if claim_ids is not None and claim_id not in claim_ids:
                     self._error(atom_rel, f"line {number}:claim_refs", f"unknown claim {claim_id!r}")
                     continue
@@ -898,11 +903,11 @@ class _IncubatorCheckCore(ABC):
         atom_ids: set[str] | None,
     ) -> None:
         if claim_ids is not None:
-            for claim in runmodel.split_refs(row["claim_refs"]):
+            for claim in runmodel_tsv.split_refs(row["claim_refs"]):
                 if claim not in claim_ids:
                     self._error(rel, f"line {number}:claim_refs", f"unknown claim {claim!r}")
         if atom_ids is not None:
-            for atom in runmodel.split_refs(row["atom_refs"]):
+            for atom in runmodel_tsv.split_refs(row["atom_refs"]):
                 if atom not in atom_ids:
                     self._error(rel, f"line {number}:atom_refs", f"unknown atom {atom!r}")
 
@@ -913,8 +918,8 @@ class _IncubatorCheck(_IncubatorCheckCore):
     """Artifact, coverage and promotion checks layered on the run core."""
 
     def _check_artifact_register(self) -> None:
-        main_rows = self._load_register(("artifact-register.tsv",), runmodel.load_artifact_register)
-        local_rows = self._load_register(("artifact-register.local.tsv",), runmodel.load_artifact_register)
+        main_rows = self._load_register(("artifact-register.tsv",), runmodel_registers.load_artifact_register)
+        local_rows = self._load_register(("artifact-register.local.tsv",), runmodel_registers.load_artifact_register)
         rel = self._rel_path("artifact-register.tsv")
         if main_rows is None:
             self._error(rel, "file", "artifact-register.tsv is mandatory from FRAMING onwards (classification gate)")
@@ -970,7 +975,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
             self._error(rel, row["path"], "registered artifact file does not exist")
         elif file_digest_sha256(file_path) != row["sha256"]:
             self._error(rel, row["path"], "registered artifact digest does not match the file")
-        for ref in runmodel.split_refs(row["input_refs"]):
+        for ref in runmodel_tsv.split_refs(row["input_refs"]):
             self._check_input_ref(rel, row, ref, by_path, source_paths)
 
     def _check_input_ref(
@@ -1002,7 +1007,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
     ) -> None:
         colors[path] = 1
         row = by_path.get(path)
-        refs = runmodel.split_refs(row["input_refs"]) if row else ()
+        refs = runmodel_tsv.split_refs(row["input_refs"]) if row else ()
         for ref in refs:
             if not ref.startswith(ARTIFACT_PREFIX):
                 continue
@@ -1047,7 +1052,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
                 self._check_declassified_row(rel, row, by_path, source_paths)
                 continue
             rank = _CLASS_RANK[row["declared_class"]]
-            for ref in runmodel.split_refs(row["input_refs"]):
+            for ref in runmodel_tsv.split_refs(row["input_refs"]):
                 rank = max(rank, self._input_class_rank(ref, by_path, source_paths, effective))
             if _CLASS_RANK[row["effective_class"]] != rank:
                 expected = next(name for name, value in _CLASS_RANK.items() if value == rank)
@@ -1055,7 +1060,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
 
     def _resolve_input_paths(self, row: TsvRow, source_paths: dict[str, str] | None) -> set[str]:
         paths: set[str] = set()
-        for ref in runmodel.split_refs(row["input_refs"]):
+        for ref in runmodel_tsv.split_refs(row["input_refs"]):
             if ref.startswith(ARTIFACT_PREFIX):
                 paths.add(ref.removeprefix(ARTIFACT_PREFIX))
             else:
@@ -1071,7 +1076,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
         if not receipt_path.is_file():
             self._error(rel, row["path"], f"declassification receipt does not exist: {row['declassification_receipt']}")
             return
-        receipt, issues = runmodel.load_declassification_receipt(receipt_path)
+        receipt, issues = runmodel_promotion.load_declassification_receipt(receipt_path)
         self._report(row["declassification_receipt"], issues)
         if receipt is None:
             return
@@ -1105,7 +1110,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
 
     # -- coverage plan and registers ----------------------------------------
 
-    def _check_coverage_plan(self, run: runmodel.RunState) -> None:
+    def _check_coverage_plan(self, run: runmodel_run.RunState) -> None:
         plan_path = self._path("baseline", "coverage-plan.json")
         rel = self._rel_path("baseline", "coverage-plan.json")
         rank = effective_state_rank(run)
@@ -1113,7 +1118,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
             if run.profile == "FULL_ATOM" and rank is not None and rank >= 1:
                 self._error(rel, "file", "FULL_ATOM requires a frozen coverage-plan.json before STAFFING")
             return
-        plan, issues = runmodel.load_coverage_plan(plan_path)
+        plan, issues = runmodel_run.load_coverage_plan(plan_path)
         self._report(rel, issues)
         if plan is None:
             return
@@ -1143,7 +1148,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
                 )
         self._check_coverage_matrix(rel, plan, package_ids)
 
-    def _check_coverage_matrix(self, rel: str, plan: runmodel.CoveragePlan, package_ids: set[str]) -> None:
+    def _check_coverage_matrix(self, rel: str, plan: runmodel_run.CoveragePlan, package_ids: set[str]) -> None:
         if self.baseline_rows is None:
             return
         matchers = [glob_to_regex(pattern) for package in plan.packages for pattern in package.paths]
@@ -1158,11 +1163,11 @@ class _IncubatorCheck(_IncubatorCheckCore):
                 self._error(rel, "plan.packages", f"baseline path is not covered by any package and not EXEMPT: {row['path']}")
 
     def _check_coverage_registers(self) -> None:
-        source_cov = self._load_register(("baseline", "source-coverage.tsv"), runmodel.load_source_coverage)
+        source_cov = self._load_register(("baseline", "source-coverage.tsv"), runmodel_registers.load_source_coverage)
         finding_ids = {row["finding_id"] for row in self.finding_rows} if self.finding_rows is not None else set()
         if source_cov is not None:
             self._check_source_coverage(source_cov, finding_ids)
-        normative_cov = self._load_register(("baseline", "normative-coverage.tsv"), runmodel.load_normative_coverage)
+        normative_cov = self._load_register(("baseline", "normative-coverage.tsv"), runmodel_registers.load_normative_coverage)
         if normative_cov is not None:
             self._check_normative_coverage(normative_cov, finding_ids)
 
@@ -1198,7 +1203,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
         row: TsvRow,
         finding_ids: set[str],
     ) -> None:
-        for finding_id in runmodel.split_refs(row["finding_refs"]):
+        for finding_id in runmodel_tsv.split_refs(row["finding_refs"]):
             if finding_id not in finding_ids:
                 self._error(rel, f"line {number}:finding_refs", f"unknown finding {finding_id!r}")
 
@@ -1207,7 +1212,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
     def _check_promotion_artifacts(self) -> None:
         manifest_path = self._path("promotion", PROMOTION_MANIFEST_FILE)
         if manifest_path.is_file():
-            manifest, issues = runmodel.load_promotion_manifest(manifest_path)
+            manifest, issues = runmodel_promotion.load_promotion_manifest(manifest_path)
             self._report(self._rel_path("promotion", PROMOTION_MANIFEST_FILE), issues)
             if manifest is not None and self.run is not None and manifest.run_id != self.run.run_id:
                 self._error(
@@ -1219,7 +1224,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
         if receipts_dir.is_dir():
             for entry in sorted(receipts_dir.glob("*.json")):
                 rel = self._rel_path("promotion", "receipts", entry.name)
-                receipt, issues = runmodel.load_projection_receipt(entry)
+                receipt, issues = runmodel_promotion.load_projection_receipt(entry)
                 self._report(rel, issues)
                 if receipt is not None and entry.name != f"{receipt.receipt_id}.json":
                     self._error(rel, "receipt.receipt_id", f"filename must be <receipt_id>.json for {receipt.receipt_id}")
@@ -1230,7 +1235,7 @@ class _IncubatorCheck(_IncubatorCheckCore):
             return
         for entry in sorted(declass_dir.glob("*.json")):
             rel = self._rel_path("declassification", entry.name)
-            receipt, issues = runmodel.load_declassification_receipt(entry)
+            receipt, issues = runmodel_promotion.load_declassification_receipt(entry)
             self._report(rel, issues)
             if receipt is not None and entry.name != f"{receipt.receipt_id}.json":
                 self._error(rel, "receipt.receipt_id", f"filename must be <receipt_id>.json for {receipt.receipt_id}")

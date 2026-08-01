@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel
+from concept_toolchain import runmodel_registers
 from concept_toolchain.config import load_governance_config
 from concept_toolchain.incubator_check import run_incubator_check
 from tests.unit.concept_toolchain import runfixtures
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.requires_git
 
-COLUMNS = runmodel.SOURCE_INTAKE_HEADER.split("\t")
+COLUMNS = runmodel_registers.SOURCE_INTAKE_HEADER.split("\t")
 
 
 @pytest.fixture
@@ -61,11 +61,11 @@ def write_intake_lines(fixture: RunFixture, lines: list[str]) -> None:
 def rechain(rows: list[str]) -> list[str]:
     """Recompute a valid hash chain over the given data rows (attacker move)."""
     out: list[str] = []
-    previous = runmodel.INTAKE_GENESIS_DIGEST
+    previous = runmodel_registers.INTAKE_GENESIS_DIGEST
     for line in rows:
         row = dict(zip(COLUMNS, line.split("\t"), strict=True))
         row["prev_digest"] = previous
-        row["entry_digest"] = runmodel.intake_entry_digest(row)
+        row["entry_digest"] = runmodel_registers.intake_entry_digest(row)
         out.append("\t".join(row[column] for column in COLUMNS))
         previous = row["entry_digest"]
     return out

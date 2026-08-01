@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel, semantic_gate
+from concept_toolchain import runmodel_registers, semantic_gate
 from tests.unit.concept_toolchain import runfixtures
 from tests.unit.concept_toolchain.conftest import TOOLS_DIR
 from tests.unit.concept_toolchain.runfixtures import WRITER_ARGS, RunFixture, build_promotion_run
@@ -82,7 +82,7 @@ def test_two_processes_racing_a_takeover_never_mutate_concurrently(fixture: RunF
     assert not (fixture.run_dir / "RUN.mutex").exists()
     assert not (fixture.run_dir / semantic_gate.INTENT_NAME).exists()
     # The mutated register is contract-conform, i.e. no interleaved write happened.
-    rows, issues = runmodel.load_source_units(fixture.units_path, require_disposition=False)
+    rows, issues = runmodel_registers.load_source_units(fixture.units_path, require_disposition=False)
     assert issues == [], issues
     assert len(rows) == 4
 
@@ -138,7 +138,7 @@ def test_stale_intent_is_only_cleared_when_identity_still_matches(fixture: RunFi
     """Compare-before-delete: a reclaimer that observes a changed intent loses."""
     write_expired_mutex(fixture)
     write_intent(fixture, acquired_at="2020-01-01T00:00:00Z")
-    original_load = semantic_gate.runmodel.load_intent_state
+    original_load = semantic_gate.runmodel_locks.load_intent_state
     calls = {"count": 0}
 
     def load_then_swap(path: Path) -> object:
@@ -148,11 +148,11 @@ def test_stale_intent_is_only_cleared_when_identity_still_matches(fixture: RunFi
             write_intent(fixture, nonce="fresh-intent")
         return state
 
-    semantic_gate.runmodel.load_intent_state = load_then_swap  # type: ignore[assignment]  # noqa: SLF001 - race injection
+    semantic_gate.runmodel_locks.load_intent_state = load_then_swap  # type: ignore[assignment]  # noqa: SLF001 - race injection
     try:
         code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
     finally:
-        semantic_gate.runmodel.load_intent_state = original_load  # type: ignore[assignment]  # noqa: SLF001 - restore
+        semantic_gate.runmodel_locks.load_intent_state = original_load  # type: ignore[assignment]  # noqa: SLF001 - restore
     assert code == 2
     surviving = json.loads((fixture.run_dir / semantic_gate.INTENT_NAME).read_text(encoding="utf-8"))
     assert surviving["intent_nonce"] == "fresh-intent", "the newly claimed intent must not be removed"

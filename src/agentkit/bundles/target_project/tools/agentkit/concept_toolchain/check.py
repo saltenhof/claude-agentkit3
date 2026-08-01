@@ -46,7 +46,7 @@ try:
     from .projection_check import run_projection_check
     from .promotion_check import run_promotion_check
     from .reference_check import run_reference_check
-    from .runmodel import load_projection_manifest
+    from .runmodel_projection import load_projection_manifest
     from .semantic_status import run_semantic_status
 except ImportError:  # pragma: no cover - direct script execution path
     # Executed as a plain script (``python tools/agentkit/concept_toolchain/check.py``):

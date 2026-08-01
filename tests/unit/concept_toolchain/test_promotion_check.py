@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel
+from concept_toolchain import runmodel_digests
 from concept_toolchain.config import load_governance_config
 from concept_toolchain.promotion_check import run_promotion_check
 from tests.unit.concept_toolchain import runfixtures
@@ -331,12 +331,12 @@ LOCK_ACQUIRED_AT = runfixtures.now_utc()
 def cas_evidence_ref(fixture: RunFixture, **overrides: object) -> dict[str, object]:
     entry: dict[str, object] = {
         "scope_id": fixture.scope_id,
-        "ref": runmodel.scope_lock_ref(fixture.scope_id),
-        "expected_ref": runmodel.scope_lock_ref(fixture.scope_id),
+        "ref": runmodel_digests.scope_lock_ref(fixture.scope_id),
+        "expected_ref": runmodel_digests.scope_lock_ref(fixture.scope_id),
         "old_oid": "0" * 40,
         "new_oid": "b" * 40,
         "observed_oid": "b" * 40,
-        "lock_blob_digest": runmodel.canonical_lock_blob_digest(
+        "lock_blob_digest": runmodel_digests.canonical_lock_blob_digest(
             fixture.scope_id, fixture.run_id, 7, "git-remote", 3600, LOCK_ACQUIRED_AT
         ),
         "fencing_token": 7,

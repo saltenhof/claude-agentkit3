@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel
+from concept_toolchain import runmodel_locks, runmodel_projection, runmodel_promotion, runmodel_run
 from concept_toolchain.config import load_governance_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from concept_toolchain.runmodel import Issue
+    from concept_toolchain.runmodel_validation import Issue
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATES_DIR = REPO_ROOT / "src" / "agentkit" / "bundles" / "skill_bundles" / "concept-incubation-core" / "4.0.0" / "templates"
@@ -61,13 +61,13 @@ def materialize(name: str, tmp_path: Path) -> Path:
 
 
 LOADERS: dict[str, Callable[[Path], tuple[object, list[Issue]]]] = {
-    "RUN.json": runmodel.load_run_state,
-    "LEASE.json": runmodel.load_lease,
-    "ROUND.json": runmodel.load_round_state,
-    "promotion-manifest.json": runmodel.load_promotion_manifest,
-    "projection-manifest.json": runmodel.load_projection_manifest,
-    "scope-lock.json": runmodel.load_scope_lock,
-    "projection-receipt.json": runmodel.load_projection_receipt,
+    "RUN.json": runmodel_run.load_run_state,
+    "LEASE.json": runmodel_run.load_lease,
+    "ROUND.json": runmodel_run.load_round_state,
+    "promotion-manifest.json": runmodel_promotion.load_promotion_manifest,
+    "projection-manifest.json": runmodel_projection.load_projection_manifest,
+    "scope-lock.json": runmodel_locks.load_scope_lock,
+    "projection-receipt.json": runmodel_promotion.load_projection_receipt,
 }
 
 

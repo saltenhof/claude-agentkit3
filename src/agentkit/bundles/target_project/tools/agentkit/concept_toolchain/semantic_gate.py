@@ -67,7 +67,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 try:
-    from . import runmodel
+    from . import (
+        runmodel_digests,
+        runmodel_locks,
+        runmodel_promotion,
+        runmodel_registers,
+        runmodel_run,
+        runmodel_semantic,
+        runmodel_tsv,
+    )
     from .docmodel import file_digest_sha256
     from .findings import EXIT_USAGE, CheckResult, error, exit_code, to_envelope
     from .runmodel_constants import RunModelConstants as Vocab
@@ -238,7 +246,7 @@ class _MutexGuard:
         """Compare-before-delete the mutex under the coordination intent."""
         try:
             with _coordination_intent(self.run_dir, self.principal, self.session):
-                state, _ = runmodel.load_mutex_state(self.run_dir / RUN_MUTEX_FILE)
+                state, _ = runmodel_locks.load_mutex_state(self.run_dir / RUN_MUTEX_FILE)
                 if state is not None and state.nonce == self.nonce:
                     with contextlib.suppress(OSError):
                         (self.run_dir / RUN_MUTEX_FILE).unlink()
@@ -252,7 +260,7 @@ def _dispatch(
     result: CheckResult,
     project_root: Path,
     run_dir: Path,
-    run: runmodel.RunState,
+    run: runmodel_run.RunState,
     guard: _MutexGuard,
 ) -> None:
     if command == "units":
@@ -330,8 +338,8 @@ def _claim_intent(run_dir: Path, principal: str, session: str) -> str | None:
         try:
             descriptor = os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            observed, _ = runmodel.load_intent_state(intent)
-            if observed is not None and not runmodel.timestamp_expired(observed.acquired_at, observed.ttl_seconds):
+            observed, _ = runmodel_locks.load_intent_state(intent)
+            if observed is not None and not runmodel_digests.timestamp_expired(observed.acquired_at, observed.ttl_seconds):
                 return None
             if not _clear_stale_intent(intent, observed):
                 return None
@@ -342,7 +350,7 @@ def _claim_intent(run_dir: Path, principal: str, session: str) -> str | None:
     return None
 
 
-def _clear_stale_intent(intent: Path, observed: runmodel.IntentState | None) -> bool:
+def _clear_stale_intent(intent: Path, observed: runmodel_locks.IntentState | None) -> bool:
     """Delete an expired/unreadable intent only if it is still the observed one."""
     if observed is None:
         # Unreadable payload: fall back to mtime age so a crashed writer
@@ -355,7 +363,7 @@ def _clear_stale_intent(intent: Path, observed: runmodel.IntentState | None) -> 
         with contextlib.suppress(OSError):
             intent.unlink()
         return True
-    current, _ = runmodel.load_intent_state(intent)
+    current, _ = runmodel_locks.load_intent_state(intent)
     if current is None or current.intent_nonce != observed.intent_nonce:
         return False
     with contextlib.suppress(OSError):
@@ -366,7 +374,7 @@ def _clear_stale_intent(intent: Path, observed: runmodel.IntentState | None) -> 
 def _release_intent(run_dir: Path, intent_nonce: str) -> None:
     """Release the coordination intent by nonce match (compare-before-delete)."""
     intent = run_dir / INTENT_NAME
-    state, _ = runmodel.load_intent_state(intent)
+    state, _ = runmodel_locks.load_intent_state(intent)
     if state is None or state.intent_nonce != intent_nonce:
         return
     with contextlib.suppress(OSError):
@@ -408,18 +416,18 @@ def _take_over_mutex(
     run_dir: Path, mutex: Path, nonce: str, principal: str, session: str, fencing_token: int
 ) -> tuple[str | None, str | None]:
     """Take over an expired mutex; caller MUST hold the coordination intent."""
-    observed, issues = runmodel.load_mutex_state(mutex)
+    observed, issues = runmodel_locks.load_mutex_state(mutex)
     if observed is None:
         details = "; ".join(f"{issue.locator}: {issue.message}" for issue in issues)
         return None, f"RUN.mutex exists but is not a valid mutex payload ({details}); refusing to mutate"
-    if not runmodel.timestamp_expired(observed.heartbeat_at, observed.ttl_seconds):
+    if not runmodel_digests.timestamp_expired(observed.heartbeat_at, observed.ttl_seconds):
         return None, (
             f"RUN.mutex is held by {observed.owner_principal!r} (heartbeat {observed.heartbeat_at}); refusing to mutate"
         )
-    run, _ = runmodel.load_run_state(run_dir / RUN_FILE)
+    run, _ = runmodel_run.load_run_state(run_dir / RUN_FILE)
     if run is None or run.lease_fencing_token != fencing_token:
         return None, "expired RUN.mutex takeover requires a caller fencing token equal to RUN.lease_fencing_token"
-    current, _ = runmodel.load_mutex_state(mutex)
+    current, _ = runmodel_locks.load_mutex_state(mutex)
     if current is None or (current.nonce, current.heartbeat_at) != (observed.nonce, observed.heartbeat_at):
         return None, "RUN.mutex changed during takeover (another writer won the race); refusing to mutate"
     _atomic_write_bytes(mutex, _mutex_payload(principal, session, nonce, _now_utc()))
@@ -428,14 +436,14 @@ def _take_over_mutex(
 
 def _mutex_still_ours(run_dir: Path, nonce: str, principal: str, session: str) -> str | None:
     """Revalidate mutex ownership; returns a problem description on loss."""
-    state, _ = runmodel.load_mutex_state(run_dir / RUN_MUTEX_FILE)
+    state, _ = runmodel_locks.load_mutex_state(run_dir / RUN_MUTEX_FILE)
     if state is None:
         return "RUN.mutex vanished or became unreadable during the operation; aborting"
     if state.nonce != nonce:
         return f"RUN.mutex was taken over by {state.owner_principal!r} during the operation; aborting"
     if (state.owner_principal, state.owner_session) != (principal, session):
         return "RUN.mutex owner identity changed during the operation; aborting"
-    if runmodel.timestamp_expired(state.heartbeat_at, state.ttl_seconds):
+    if runmodel_digests.timestamp_expired(state.heartbeat_at, state.ttl_seconds):
         return "own RUN.mutex heartbeat expired during the operation; aborting"
     return None
 
@@ -449,7 +457,7 @@ def _refresh_heartbeat(run_dir: Path, nonce: str, principal: str, session: str) 
     Raises:
         MutexLostError: If the mutex is gone or owned by someone else.
     """
-    state, _ = runmodel.load_mutex_state(run_dir / RUN_MUTEX_FILE)
+    state, _ = runmodel_locks.load_mutex_state(run_dir / RUN_MUTEX_FILE)
     if state is None:
         raise MutexLostError("RUN.mutex vanished before the heartbeat refresh; aborting")
     if state.nonce != nonce or (state.owner_principal, state.owner_session) != (principal, session):
@@ -459,14 +467,14 @@ def _refresh_heartbeat(run_dir: Path, nonce: str, principal: str, session: str) 
 
 def _verify_writer(
     run_dir: Path, result: CheckResult, principal: str, session: str, fencing_token: int
-) -> runmodel.RunState | None:
+) -> runmodel_run.RunState | None:
     """Reload LEASE and RUN under the mutex and verify the caller's authority."""
     lease_path = run_dir / "LEASE.json"
     if not lease_path.is_file():
         result.complete = False
         result.incomplete_reason = "LEASE.json not found; mutations require a live writer lease"
         return None
-    lease, lease_issues = runmodel.load_lease(lease_path)
+    lease, lease_issues = runmodel_run.load_lease(lease_path)
     for issue in lease_issues:
         result.findings.append(error(result.check_id, "LEASE.json", issue.locator, issue.message))
     run_path = run_dir / RUN_FILE
@@ -474,7 +482,7 @@ def _verify_writer(
         result.complete = False
         result.incomplete_reason = "RUN.json not found; mutations require the authoritative run state"
         return None
-    run, run_issues = runmodel.load_run_state(run_path)
+    run, run_issues = runmodel_run.load_run_state(run_path)
     for issue in run_issues:
         result.findings.append(error(result.check_id, RUN_FILE, issue.locator, issue.message))
     if lease is None or run is None:
@@ -488,14 +496,14 @@ def _verify_writer(
 
 
 def _writer_problems(
-    lease: runmodel.Lease, run: runmodel.RunState, principal: str, session: str, fencing_token: int
+    lease: runmodel_run.Lease, run: runmodel_run.RunState, principal: str, session: str, fencing_token: int
 ) -> list[str]:
     problems: list[str] = []
     if lease.run_id != run.run_id:
         problems.append(f"lease run_id {lease.run_id!r} does not match RUN.json {run.run_id!r}")
     if lease.released:
         problems.append("lease is released; acquire a new lease before mutating")
-    elif runmodel.timestamp_expired(lease.acquired_at, lease.ttl_seconds):
+    elif runmodel_digests.timestamp_expired(lease.acquired_at, lease.ttl_seconds):
         problems.append("lease TTL expired; renew or take over the lease before mutating")
     if lease.owner.principal_id != principal:
         problems.append(f"lease owner principal {lease.owner.principal_id!r} does not match --principal {principal!r}")
@@ -527,20 +535,20 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
 
 
 def _cmd_units(
-    result: CheckResult, project_root: Path, run_dir: Path, run: runmodel.RunState, guard: _MutexGuard
+    result: CheckResult, project_root: Path, run_dir: Path, run: runmodel_run.RunState, guard: _MutexGuard
 ) -> None:
     register_path = run_dir / "baseline" / "source-register.tsv"
     if not register_path.is_file():
         result.complete = False
         result.incomplete_reason = "baseline/source-register.tsv not found"
         return
-    rows, issues = runmodel.load_source_register(register_path)
+    rows, issues = runmodel_registers.load_source_register(register_path)
     for issue in issues:
         result.findings.append(error(result.check_id, "baseline/source-register.tsv", issue.locator, issue.message))
     units_path = run_dir / "baseline" / "source-units.tsv"
-    existing: tuple[runmodel.TsvRow, ...] = ()
+    existing: tuple[runmodel_tsv.TsvRow, ...] = ()
     if units_path.is_file():
-        existing, unit_issues = runmodel.load_source_units(units_path, require_disposition=False)
+        existing, unit_issues = runmodel_registers.load_source_units(units_path, require_disposition=False)
         for issue in unit_issues:
             result.findings.append(error(result.check_id, "baseline/source-units.tsv", issue.locator, issue.message))
     if result.findings:
@@ -563,7 +571,7 @@ def _cmd_units(
 
 
 def _derive_register_units(
-    project_root: Path, rows: tuple[runmodel.TsvRow, ...]
+    project_root: Path, rows: tuple[runmodel_tsv.TsvRow, ...]
 ) -> tuple[dict[tuple[str, str], str], list[str]]:
     derived: dict[tuple[str, str], str] = {}
     problems: list[str] = []
@@ -581,7 +589,7 @@ def _derive_register_units(
 
 
 def _existing_row_problems(
-    existing: tuple[runmodel.TsvRow, ...], derived: dict[tuple[str, str], str], source_ids: set[str]
+    existing: tuple[runmodel_tsv.TsvRow, ...], derived: dict[tuple[str, str], str], source_ids: set[str]
 ) -> list[str]:
     problems: list[str] = []
     for row in existing:
@@ -596,8 +604,8 @@ def _existing_row_problems(
 
 
 def _merge_unit_rows(
-    run_uuid8: str, existing: tuple[runmodel.TsvRow, ...], derived: dict[tuple[str, str], str]
-) -> list[runmodel.TsvRow]:
+    run_uuid8: str, existing: tuple[runmodel_tsv.TsvRow, ...], derived: dict[tuple[str, str], str]
+) -> list[runmodel_tsv.TsvRow]:
     by_key = {(row["source_id"], row["unit_locator"]): row for row in existing}
     counter = max((int(row["unit_id"].rsplit("-", 1)[1]) for row in existing), default=0)
     output = [dict(row) for row in existing]
@@ -632,7 +640,7 @@ def _cmd_prepare(
         result.complete = False
         result.incomplete_reason = "promotion/promotion-manifest.json not found"
         return
-    manifest, issues = runmodel.load_promotion_manifest(manifest_path)
+    manifest, issues = runmodel_promotion.load_promotion_manifest(manifest_path)
     for issue in issues:
         result.findings.append(error(result.check_id, "promotion/promotion-manifest.json", issue.locator, issue.message))
     if manifest is None:
@@ -660,7 +668,7 @@ def _cmd_prepare(
         result.summary = f"{len(target_scopes)} scope pack(s) settled for gate {gate_key}"
 
 
-def _build_chunks(project_root: Path, manifest: runmodel.PromotionManifest) -> tuple[list[dict[str, str]], list[str]]:
+def _build_chunks(project_root: Path, manifest: runmodel_promotion.PromotionManifest) -> tuple[list[dict[str, str]], list[str]]:
     chunks: list[dict[str, str]] = []
     problems: list[str] = []
     for target in sorted(manifest.targets, key=lambda item: item.path):
@@ -679,12 +687,12 @@ def _build_chunks(project_root: Path, manifest: runmodel.PromotionManifest) -> t
     return chunks, problems
 
 
-def _existing_scope_pack(run_dir: Path, gate: str, scope_id: str) -> runmodel.SemanticRequestPack | None:
+def _existing_scope_pack(run_dir: Path, gate: str, scope_id: str) -> runmodel_semantic.SemanticRequestPack | None:
     requests_dir = run_dir / "semantic" / "requests"
     if not requests_dir.is_dir():
         return None
     for entry in sorted(requests_dir.glob("*.json")):
-        pack, _ = runmodel.load_semantic_request_pack(entry)
+        pack, _ = runmodel_semantic.load_semantic_request_pack(entry)
         if pack is not None and pack.gate == gate and pack.scope_id == scope_id:
             return pack
     return None
@@ -693,7 +701,7 @@ def _existing_scope_pack(run_dir: Path, gate: str, scope_id: str) -> runmodel.Se
 def _write_pack(
     result: CheckResult,
     run_dir: Path,
-    manifest: runmodel.PromotionManifest,
+    manifest: runmodel_promotion.PromotionManifest,
     gate_key: str,
     scope_id: str,
     template_digest: str,
@@ -710,7 +718,7 @@ def _write_pack(
         "template_digest": template_digest,
         "chunks": chunks,
     }
-    request_digest = runmodel.canonical_request_digest(payload)
+    request_digest = runmodel_digests.canonical_request_digest(payload)
     payload["request_digest"] = request_digest
     existing = _existing_scope_pack(run_dir, gate, scope_id)
     if existing is not None:
@@ -727,7 +735,7 @@ def _write_pack(
             )
         )
         return
-    name = f"{gate_key}-{runmodel.normalize_scope_id(scope_id)}-{request_digest[:16]}.json"
+    name = f"{gate_key}-{runmodel_digests.normalize_scope_id(scope_id)}-{request_digest[:16]}.json"
     destination = run_dir / "semantic" / "requests" / name
     content = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
     if guard.write_bytes(result, destination, content):
@@ -747,7 +755,7 @@ def _cmd_import(
         result.complete = False
         result.incomplete_reason = f"receipt file does not exist: {receipt_path}"
         return
-    receipt, issues = runmodel.load_semantic_receipt(receipt_path)
+    receipt, issues = runmodel_semantic.load_semantic_receipt(receipt_path)
     for issue in issues:
         result.findings.append(error(result.check_id, receipt_path.name, issue.locator, issue.message))
     if receipt is None:
@@ -804,12 +812,12 @@ def _cmd_import(
     result.summary = "receipt registered"
 
 
-def _find_pack(run_dir: Path, request_digest: str) -> runmodel.SemanticRequestPack | None:
+def _find_pack(run_dir: Path, request_digest: str) -> runmodel_semantic.SemanticRequestPack | None:
     requests_dir = run_dir / "semantic" / "requests"
     if not requests_dir.is_dir():
         return None
     for entry in sorted(requests_dir.glob("*.json")):
-        pack, _ = runmodel.load_semantic_request_pack(entry)
+        pack, _ = runmodel_semantic.load_semantic_request_pack(entry)
         if pack is not None and pack.request_digest == request_digest:
             return pack
     return None

@@ -41,7 +41,16 @@ import subprocess
 import unicodedata
 from typing import TYPE_CHECKING
 
-from . import runmodel
+from . import (
+    runmodel_digests,
+    runmodel_locks,
+    runmodel_pins,
+    runmodel_projection,
+    runmodel_promotion,
+    runmodel_registers,
+    runmodel_run,
+    runmodel_tsv,
+)
 from .docmodel import anchor_slugs, file_digest_sha256, scan_documents
 from .findings import CheckResult, error
 from .receipts import TargetSpec, compute_target_digest, resolve_selector, verify_receipt_against_atom
@@ -55,7 +64,8 @@ if TYPE_CHECKING:
 
     from .config import GovernanceConfig
     from .docmodel import ConceptDocument
-    from .runmodel import Issue, TsvRow
+    from .runmodel_tsv import TsvRow
+    from .runmodel_validation import Issue
 
 CHECK_ID = "promotion"
 RUN_FILE = "RUN.json"
@@ -78,7 +88,7 @@ def run_promotion_check(project_root: Path, config: GovernanceConfig, run_dir: P
 
 
 
-def _attestation_time_problems(ref: runmodel.LockEvidenceRef) -> list[str]:
+def _attestation_time_problems(ref: runmodel_locks.LockEvidenceRef) -> list[str]:
     """Enforce the full time ordering of one CAS attestation.
 
     Required: ``acquired_at <= verified_at <= now + CLOCK_SKEW_SECONDS``
@@ -87,9 +97,9 @@ def _attestation_time_problems(ref: runmodel.LockEvidenceRef) -> list[str]:
     expired" would be fail-open: a timestamp arbitrarily far in the future
     would pass every expiry test.
     """
-    acquired = runmodel.parse_timestamp(ref.acquired_at)
-    verified = runmodel.parse_timestamp(ref.verified_at)
-    now = runmodel.now_utc()
+    acquired = runmodel_locks.parse_timestamp(ref.acquired_at)
+    verified = runmodel_locks.parse_timestamp(ref.verified_at)
+    now = runmodel_locks.now_utc()
     horizon = now + datetime.timedelta(seconds=CLOCK_SKEW_SECONDS)
     expiry = acquired + datetime.timedelta(seconds=ref.ttl_seconds)
     problems: list[str] = []
@@ -179,11 +189,11 @@ class _PromotionCheck:
             self.rel = run_dir.as_posix()
         self.executed: list[str] = []
         self.skipped: list[str] = []
-        self.run: runmodel.RunState | None = None
-        self.manifest: runmodel.PromotionManifest | None = None
+        self.run: runmodel_run.RunState | None = None
+        self.manifest: runmodel_promotion.PromotionManifest | None = None
         self.atom_rows: tuple[TsvRow, ...] = ()
         self.baseline_index: dict[str, str] = {}
-        self.receipts: dict[str, runmodel.ProjectionReceipt] = {}
+        self.receipts: dict[str, runmodel_promotion.ProjectionReceipt] = {}
         self._event_producers: dict[str, str] = {}
         self._event_objects: dict[str, str] = {}
 
@@ -237,20 +247,20 @@ class _PromotionCheck:
         return self.result
 
     def _load_inputs(self) -> bool:
-        run, run_issues = runmodel.load_run_state(self.run_dir / RUN_FILE)
+        run, run_issues = runmodel_run.load_run_state(self.run_dir / RUN_FILE)
         self._report(self._rel_path(RUN_FILE), run_issues)
         self.run = run
-        manifest, manifest_issues = runmodel.load_promotion_manifest(
+        manifest, manifest_issues = runmodel_promotion.load_promotion_manifest(
             self.run_dir / "promotion" / PROMOTION_MANIFEST_FILE
         )
         self._report(self._rel_path("promotion", PROMOTION_MANIFEST_FILE), manifest_issues)
         self.manifest = manifest
-        atom_rows, atom_issues = runmodel.load_atom_register(
+        atom_rows, atom_issues = runmodel_registers.load_atom_register(
             self.run_dir / "promotion" / ATOM_REGISTER_FILE
         )
         self._report(self._rel_path("promotion", ATOM_REGISTER_FILE), atom_issues)
         self.atom_rows = atom_rows
-        baseline_rows, baseline_issues = runmodel.load_corpus_baseline(
+        baseline_rows, baseline_issues = runmodel_registers.load_corpus_baseline(
             self.run_dir / "baseline" / CORPUS_BASELINE_FILE
         )
         self._report(self._rel_path("baseline", CORPUS_BASELINE_FILE), baseline_issues)
@@ -266,13 +276,13 @@ class _PromotionCheck:
         self._load_receipts(manifest)
         return True
 
-    def _load_receipts(self, manifest: runmodel.PromotionManifest) -> None:
+    def _load_receipts(self, manifest: runmodel_promotion.PromotionManifest) -> None:
         receipts_dir = self.run_dir / manifest.receipts_dir
         if not receipts_dir.is_dir():
             return
         for entry in sorted(receipts_dir.glob("*.json")):
             rel = self._rel_path(manifest.receipts_dir, entry.name)
-            receipt, issues = runmodel.load_projection_receipt(entry)
+            receipt, issues = runmodel_promotion.load_projection_receipt(entry)
             self._report(rel, issues)
             if receipt is not None:
                 self.receipts[receipt.receipt_id] = receipt
@@ -294,9 +304,9 @@ class _PromotionCheck:
                 self._check_covered_atom(rel, number, row)
 
     def _check_covered_atom(self, rel: str, number: int, row: TsvRow) -> None:
-        target_refs = set(runmodel.split_refs(row["target_refs"]))
+        target_refs = set(runmodel_tsv.split_refs(row["target_refs"]))
         covered: set[str] = set()
-        for receipt_id in runmodel.split_refs(row["receipt_refs"]):
+        for receipt_id in runmodel_tsv.split_refs(row["receipt_refs"]):
             receipt = self.receipts.get(receipt_id)
             if receipt is None:
                 self._error(rel, f"line {number}:receipt_refs", f"receipt {receipt_id} does not exist or failed validation")
@@ -323,7 +333,7 @@ class _PromotionCheck:
         for target_ref in sorted(target_refs - covered):
             self._error(rel, f"line {number}:target_refs", f"target {target_ref} has no covering equivalent receipt")
 
-    def _check_receipt_digests(self, rel: str, number: int, row: TsvRow, receipt: runmodel.ProjectionReceipt) -> None:
+    def _check_receipt_digests(self, rel: str, number: int, row: TsvRow, receipt: runmodel_promotion.ProjectionReceipt) -> None:
         """Delegate to the shared receipt engine (same rules as the projection check)."""
         for problem in verify_receipt_against_atom(
             self.project_root, receipt, row, target_mode=receipt.target_mode, selector=receipt.selector
@@ -347,9 +357,9 @@ class _PromotionCheck:
     def _check_disagreement_blocker(
         self,
         rel: str,
-        receipt: runmodel.ProjectionReceipt,
+        receipt: runmodel_promotion.ProjectionReceipt,
         atoms_by_id: dict[str, TsvRow],
-        scopes_by_id: dict[str, runmodel.PromotionScope],
+        scopes_by_id: dict[str, runmodel_promotion.PromotionScope],
     ) -> None:
         atom = atoms_by_id.get(receipt.atom_id)
         scope = scopes_by_id.get(atom["expected_authority"]) if atom is not None else None
@@ -412,7 +422,7 @@ class _PromotionCheck:
         for receipt in self.receipts.values():
             refs.setdefault(receipt.target.path, set()).add(receipt.target.anchor)
         for row in self.atom_rows:
-            for target_ref in runmodel.split_refs(row["target_refs"]):
+            for target_ref in runmodel_tsv.split_refs(row["target_refs"]):
                 path, _, anchor = target_ref.partition("#")
                 refs.setdefault(path, set()).add(anchor)
         return refs
@@ -524,7 +534,7 @@ class _PromotionCheck:
         self,
         rel: str,
         where: str,
-        edge: str | runmodel.RegistryEdge,
+        edge: str | runmodel_promotion.RegistryEdge,
         *,
         documents: Sequence[ConceptDocument],
         concept_ids: set[str],
@@ -536,8 +546,8 @@ class _PromotionCheck:
             if problem is not None:
                 self._error(rel, where, problem)
             return
-        if edge.kind not in runmodel.REGISTRY_EDGE_KINDS:
-            self._error(rel, where, f"kind {edge.kind!r} is not one of {', '.join(runmodel.REGISTRY_EDGE_KINDS)}")
+        if edge.kind not in runmodel_projection.REGISTRY_EDGE_KINDS:
+            self._error(rel, where, f"kind {edge.kind!r} is not one of {', '.join(runmodel_projection.REGISTRY_EDGE_KINDS)}")
             return
         unresolved = [
             side
@@ -553,7 +563,7 @@ class _PromotionCheck:
         if problem is not None:
             self._error(rel, where, problem)
 
-    def _edge_relation_problem(self, edge: runmodel.RegistryEdge, documents: Sequence[ConceptDocument]) -> str | None:
+    def _edge_relation_problem(self, edge: runmodel_promotion.RegistryEdge, documents: Sequence[ConceptDocument]) -> str | None:
         """Verify the CONCRETE relation, not just endpoint existence.
 
         ``owns``: the ``from`` document declares ``to`` in ``authority_over``.
@@ -575,7 +585,7 @@ class _PromotionCheck:
         }
         return handlers[edge.kind]()
 
-    def _frontmatter_scope_edge(self, document: ConceptDocument | None, edge: runmodel.RegistryEdge) -> str | None:
+    def _frontmatter_scope_edge(self, document: ConceptDocument | None, edge: runmodel_promotion.RegistryEdge) -> str | None:
         if document is None or document.frontmatter is None:
             return f"'owns' requires {edge.from_ref!r} to be a concept document with frontmatter"
         authority = document.frontmatter.get("authority_over")
@@ -585,7 +595,7 @@ class _PromotionCheck:
             return f"{edge.from_ref} does not declare authority_over scope {edge.to_ref!r}"
         return None
 
-    def _frontmatter_defers_edge(self, document: ConceptDocument | None, edge: runmodel.RegistryEdge) -> str | None:
+    def _frontmatter_defers_edge(self, document: ConceptDocument | None, edge: runmodel_promotion.RegistryEdge) -> str | None:
         if document is None or document.frontmatter is None:
             return f"'defers_to' requires {edge.from_ref!r} to be a concept document with frontmatter"
         defers = document.frontmatter.get("defers_to")
@@ -594,7 +604,7 @@ class _PromotionCheck:
             return f"{edge.from_ref} does not declare a defers_to edge to {edge.to_ref!r}"
         return None
 
-    def _domain_registry_edge(self, edge: runmodel.RegistryEdge, field: str) -> str | None:
+    def _domain_registry_edge(self, edge: runmodel_promotion.RegistryEdge, field: str) -> str | None:
         selector = f"domains[id={edge.from_ref}].{field}"
         registry = f"{self.config.concept_roots['technical']}/_meta/domain-registry.yaml"
         result = compute_target_digest(self.project_root, registry, "structured-selector", selector)
@@ -608,7 +618,7 @@ class _PromotionCheck:
             return f"domain {edge.from_ref!r} does not list {edge.to_ref!r} in {field}"
         return None
 
-    def _producer_edge(self, edge: runmodel.RegistryEdge) -> str | None:
+    def _producer_edge(self, edge: runmodel_promotion.RegistryEdge) -> str | None:
         producer = self._formal_event_producers().get(edge.to_ref)
         if producer is None:
             return f"'producer' requires {edge.to_ref!r} to be a declared formal event"
@@ -616,7 +626,7 @@ class _PromotionCheck:
             return f"formal event {edge.to_ref} declares producer {producer!r}, not {edge.from_ref!r}"
         return None
 
-    def _consumer_edge(self, edge: runmodel.RegistryEdge, consumer: ConceptDocument | None) -> str | None:
+    def _consumer_edge(self, edge: runmodel_promotion.RegistryEdge, consumer: ConceptDocument | None) -> str | None:
         """Normed v1 semantics of a ``consumer`` edge (FK-78 section 78.11).
 
         An edge ``{from: <event_id>, to: <concept_id>, kind: consumer}`` is
@@ -717,7 +727,7 @@ class _PromotionCheck:
     def _check_scope_locks(self) -> None:
         assert self.manifest is not None
         rel = self._rel_path("promotion", PROMOTION_MANIFEST_FILE)
-        locks_by_scope: dict[str, runmodel.ScopeLockEntry] = {}
+        locks_by_scope: dict[str, runmodel_promotion.ScopeLockEntry] = {}
         for entry in self.manifest.scope_locks:
             if entry.scope_id in locks_by_scope:
                 self._error(rel, SCOPE_LOCKS_LOCATOR, f"duplicate scope lock entry for {entry.scope_id!r}")
@@ -741,14 +751,14 @@ class _PromotionCheck:
         for scope_id, entry in sorted(locks_by_scope.items()):
             self._check_filesystem_lock(scope_id, entry)
 
-    def _check_lock_evidence(self, locks_by_scope: dict[str, runmodel.ScopeLockEntry]) -> None:
+    def _check_lock_evidence(self, locks_by_scope: dict[str, runmodel_promotion.ScopeLockEntry]) -> None:
         """Accept orchestrator-side CAS evidence for git-remote locks (module docstring)."""
         evidence_rel = self._rel_path("promotion", "lock-evidence.json")
         evidence_path = self.run_dir / "promotion" / "lock-evidence.json"
         if not evidence_path.is_file():
             self._skip("scope-locks", "git-remote lock verification requires the orchestrator-side CAS evidence")
             return
-        evidence, issues = runmodel.load_lock_evidence(evidence_path)
+        evidence, issues = runmodel_locks.load_lock_evidence(evidence_path)
         self._report(evidence_rel, issues)
         if evidence is None:
             self._skip("scope-locks", "git-remote lock verification requires the orchestrator-side CAS evidence")
@@ -777,7 +787,9 @@ class _PromotionCheck:
             if entry is not None:
                 self._check_evidence_ref(evidence_rel, ref, entry)
 
-    def _check_evidence_ref(self, rel: str, ref: runmodel.LockEvidenceRef, entry: runmodel.ScopeLockEntry) -> None:
+    def _check_evidence_ref(
+        self, rel: str, ref: runmodel_locks.LockEvidenceRef, entry: runmodel_promotion.ScopeLockEntry
+    ) -> None:
         """Bind one CAS attestation to ref name, OID, lock blob, token and freshness.
 
         Two independent time checks: the attested LOCK must still be live
@@ -785,14 +797,14 @@ class _PromotionCheck:
         must be recent (``now - verified_at <= ttl_seconds``).
         """
         where = f"evidence.refs.{ref.scope_id}"
-        expected_ref = runmodel.scope_lock_ref(ref.scope_id)
+        expected_ref = runmodel_digests.scope_lock_ref(ref.scope_id)
         if ref.expected_ref != expected_ref:
             self._error(rel, where, f"expected_ref must be {expected_ref}, got {ref.expected_ref}")
         if ref.ref != ref.expected_ref:
             self._error(rel, where, f"attested ref {ref.ref} does not equal expected_ref {ref.expected_ref}")
         if ref.observed_oid != ref.new_oid:
             self._error(rel, where, f"observed_oid {ref.observed_oid} does not equal the attested new_oid {ref.new_oid}")
-        expected_blob = runmodel.canonical_lock_blob_digest(
+        expected_blob = runmodel_digests.canonical_lock_blob_digest(
             ref.scope_id, entry.locked_by_run, entry.fencing_token, entry.backend, ref.ttl_seconds, ref.acquired_at
         )
         if ref.lock_blob_digest != expected_blob:
@@ -802,14 +814,14 @@ class _PromotionCheck:
         for problem in _attestation_time_problems(ref):
             self._error(rel, where, problem)
 
-    def _check_filesystem_lock(self, scope_id: str, entry: runmodel.ScopeLockEntry) -> None:
+    def _check_filesystem_lock(self, scope_id: str, entry: runmodel_promotion.ScopeLockEntry) -> None:
         assert self.manifest is not None
-        lock_rel = f"{self.config.incubator_root}/locks/{runmodel.scope_lock_filename(scope_id)}"
+        lock_rel = f"{self.config.incubator_root}/locks/{runmodel_digests.scope_lock_filename(scope_id)}"
         lock_path = self.project_root / lock_rel
         if not lock_path.is_file():
             self._error(lock_rel, "file", f"scope lock file for {scope_id!r} does not exist")
             return
-        lock, issues = runmodel.load_scope_lock(lock_path)
+        lock, issues = runmodel_locks.load_scope_lock(lock_path)
         self._report(lock_rel, issues)
         if lock is None:
             return
@@ -829,7 +841,7 @@ class _PromotionCheck:
                 "lock.backend",
                 f"lock backend {lock.backend!r} does not match configured {self.config.lock_backend!r}",
             )
-        if runmodel.timestamp_expired(lock.acquired_at, lock.ttl_seconds):
+        if runmodel_digests.timestamp_expired(lock.acquired_at, lock.ttl_seconds):
             self._error(lock_rel, "lock.ttl_seconds", "scope lock TTL has expired (lock is not live)")
 
     # -- rules 5-6: dispositions --------------------------------------------
@@ -842,7 +854,7 @@ class _PromotionCheck:
             count = sum(1 for gate in self.manifest.semantic_gates if gate.gate == gate_name)
             if count != 1:
                 self._error(rel, "manifest.semantic_gates", f"exactly one {gate_name!r} entry is required, found {count}")
-        finding_rows, finding_issues = self._load_optional_register(("findings.tsv",), runmodel.load_findings_register)
+        finding_rows, finding_issues = self._load_optional_register(("findings.tsv",), runmodel_registers.load_findings_register)
         self._report(self._rel_path("findings.tsv"), finding_issues)
         open_findings = [row["finding_id"] for row in finding_rows if row["status"] == "open"]
         atoms_by_scope: dict[str, list[TsvRow]] = {}
@@ -871,7 +883,7 @@ class _PromotionCheck:
         return loader(path)
 
     def _check_promoted_scope(
-        self, rel: str, scope: runmodel.PromotionScope, atoms: list[TsvRow], open_findings: list[str]
+        self, rel: str, scope: runmodel_promotion.PromotionScope, atoms: list[TsvRow], open_findings: list[str]
     ) -> None:
         where = f"manifest.scopes.{scope.scope_id}"
         if scope.blockers:
@@ -893,7 +905,7 @@ class _PromotionCheck:
             )
 
     def _check_deferred_scope(
-        self, rel: str, scope: runmodel.PromotionScope, atoms: list[TsvRow], open_findings: list[str]
+        self, rel: str, scope: runmodel_promotion.PromotionScope, atoms: list[TsvRow], open_findings: list[str]
     ) -> None:
         where = f"manifest.scopes.{scope.scope_id}"
         if not scope.blockers:
@@ -902,7 +914,7 @@ class _PromotionCheck:
             self._check_visible_anchor(rel, where, blocker.visible_anchor)
 
     def _check_rejected_scope(
-        self, rel: str, scope: runmodel.PromotionScope, atoms: list[TsvRow], open_findings: list[str]
+        self, rel: str, scope: runmodel_promotion.PromotionScope, atoms: list[TsvRow], open_findings: list[str]
     ) -> None:
         rejected_atoms = [row for row in atoms if row["disposition"] == "REJECTED"]
         if not scope.blockers and not rejected_atoms:
@@ -929,7 +941,7 @@ class _PromotionCheck:
         if self.run is None:
             return
         run_rel = self._rel_path(RUN_FILE)
-        derived, derive_issues = runmodel.derive_register_digests(self.run_dir)
+        derived, derive_issues = runmodel_pins.derive_register_digests(self.run_dir)
         for issue in derive_issues:
             self._error(self._rel_path(issue.locator), "file", issue.message)
         for key in Vocab.REGISTER_DIGEST_KEYS:
@@ -964,11 +976,11 @@ class _PromotionCheck:
         if not path.is_file():
             self._error(rel, "file", "final source coverage register is missing for a promoted scope")
             return
-        rows, issues = runmodel.load_source_coverage(path)
+        rows, issues = runmodel_registers.load_source_coverage(path)
         self._report(rel, issues)
         register_rows, register_issues = self._load_optional_register(
             ("baseline", "source-register.tsv"),
-            runmodel.load_source_register,
+            runmodel_registers.load_source_register,
         )
         self._report(self._rel_path("baseline", "source-register.tsv"), register_issues)
         authors = {row["source_id"]: row["author_principal_id"] for row in register_rows}
@@ -1015,7 +1027,7 @@ class _PromotionCheck:
         if not path.is_file():
             self._error(rel, "file", "final normative coverage register is missing for a promoted scope")
             return
-        rows, issues = runmodel.load_normative_coverage(path)
+        rows, issues = runmodel_registers.load_normative_coverage(path)
         self._report(rel, issues)
         current_files = self._current_concept_files()
         universe = set(self.baseline_index) | current_files

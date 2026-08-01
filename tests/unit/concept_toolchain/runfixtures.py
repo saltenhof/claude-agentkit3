@@ -17,7 +17,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from concept_toolchain import runmodel
+from concept_toolchain import runmodel_digests, runmodel_pins, runmodel_registers
 from concept_toolchain.receipts import compute_target_digest
 from concept_toolchain.units import derive_units, section_index, text_digest
 
@@ -125,7 +125,7 @@ class RunFixture:
 
     @property
     def lock_path(self) -> Path:
-        return self.project_root / "concept-incubator" / "locks" / runmodel.scope_lock_filename(self.scope_id)
+        return self.project_root / "concept-incubator" / "locks" / runmodel_digests.scope_lock_filename(self.scope_id)
 
     def read_manifest(self) -> dict[str, object]:
         payload = json.loads(self.manifest_path.read_text(encoding="utf-8"))
@@ -153,7 +153,7 @@ class RunFixture:
         payload = self.read_run()
         digests = payload["register_digests"]
         assert isinstance(digests, dict)
-        derived, issues = runmodel.derive_register_digests(self.run_dir)
+        derived, issues = runmodel_pins.derive_register_digests(self.run_dir)
         assert issues == [], issues
         frozen = None if repin_input_head else digests.get("source_intake_input_head")
         for key, value in derived.items():
@@ -342,7 +342,7 @@ def _source_specs(fixture: RunFixture) -> list[tuple[str, str, str, str, str, st
 def write_intake(fixture: RunFixture, register_rows: list[list[str]]) -> None:
     """Write the append-only, hash-chained intake manifest for the register rows."""
     rows: list[list[str]] = []
-    prev = runmodel.INTAKE_GENESIS_DIGEST
+    prev = runmodel_registers.INTAKE_GENESIS_DIGEST
     for index, row in enumerate(register_rows, start=1):
         fields = {
             "intake_id": f"INT-{fixture.uuid8}-{index}",
@@ -353,10 +353,10 @@ def write_intake(fixture: RunFixture, register_rows: list[list[str]]) -> None:
             "registered_at": NOW,
             "prev_digest": prev,
         }
-        entry = runmodel.intake_entry_digest(fields)
+        entry = runmodel_registers.intake_entry_digest(fields)
         rows.append([*fields.values(), entry])
         prev = entry
-    write_tsv(fixture.run_dir / "baseline" / "source-intake.tsv", runmodel.SOURCE_INTAKE_HEADER, rows)
+    write_tsv(fixture.run_dir / "baseline" / "source-intake.tsv", runmodel_registers.SOURCE_INTAKE_HEADER, rows)
 
 
 def add_mode_atoms(fixture: RunFixture) -> None:
@@ -492,7 +492,7 @@ def append_intake_entry(
 ) -> None:
     """Append one properly chained intake entry and re-pin the head."""
     intake_path = fixture.run_dir / "baseline" / "source-intake.tsv"
-    rows, _ = runmodel.load_source_intake(intake_path)
+    rows, _ = runmodel_registers.load_source_intake(intake_path)
     fields = {
         "intake_id": intake_id,
         "source_phase": source_phase,
@@ -500,9 +500,9 @@ def append_intake_entry(
         "path": path,
         "sha256": sha256,
         "registered_at": NOW,
-        "prev_digest": runmodel.intake_head_digest(rows),
+        "prev_digest": runmodel_registers.intake_head_digest(rows),
     }
-    entry = runmodel.intake_entry_digest(fields)
+    entry = runmodel_registers.intake_entry_digest(fields)
     line = "	".join([*fields.values(), entry])
     intake_path.write_text(intake_path.read_text(encoding="utf-8") + line + "\n", encoding="utf-8", newline="\n")
     fixture.repin_registers()
@@ -747,7 +747,7 @@ def _write_lock(fixture: RunFixture) -> None:
 
 def _write_run_state(fixture: RunFixture) -> None:
     run_dir = fixture.run_dir
-    derived_digests, derive_issues = runmodel.derive_register_digests(run_dir)
+    derived_digests, derive_issues = runmodel_pins.derive_register_digests(run_dir)
     assert derive_issues == [], derive_issues
     fixture.write_run(
         {

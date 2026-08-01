@@ -169,5 +169,7 @@ class RunModelConstants:
         "blocked_missing_target",
     )
     PROJECTION_KINDS = ("formal", "prose", "registry", "support", "test-oracle")
+    #: Zulaessige Zielmodi einer Projektion; Vokabular, kein Artefaktdetail.
+    TARGET_MODES = ("markdown-section", "whole-file", "structured-selector", "directory-tree")
     DECISION_STATUSES = ("proposed", "accepted", "rejected", "superseded")
     SCOPE_NORMALIZE_RE = re.compile(r"[._-]+")

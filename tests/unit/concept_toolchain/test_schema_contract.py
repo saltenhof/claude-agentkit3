@@ -11,7 +11,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel
+from concept_toolchain import runmodel_locks, runmodel_projection, runmodel_promotion, runmodel_run, runmodel_semantic
 from concept_toolchain.runmodel_constants import RunModelConstants as Vocab
 from tests.unit.concept_toolchain.conftest import TOOLS_DIR
 
@@ -23,7 +23,7 @@ SCHEMAS_DIR = TOOLS_DIR / "concept_toolchain" / "schemas"
 #: schema file -> (top-level required keys, {json-pointer: enum tuple}).
 CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     "run.schema.json": (
-        runmodel.RUN_KEYS,
+        runmodel_run.RUN_KEYS,
         {
             "properties.state.enum": Vocab.RUN_STATES,
             "properties.profile.enum": Vocab.RUN_PROFILES,
@@ -32,48 +32,48 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
             "properties.participants.items.properties.status.enum": Vocab.PARTICIPANT_STATUSES,
         },
     ),
-    "lease.schema.json": (runmodel.LEASE_KEYS, {}),
+    "lease.schema.json": (runmodel_run.LEASE_KEYS, {}),
     "round.schema.json": (
-        runmodel.ROUND_KEYS,
+        runmodel_run.ROUND_KEYS,
         {"properties.participants.items.properties.outcome.enum": Vocab.ROUND_OUTCOMES},
     ),
-    "coverage-plan.schema.json": (runmodel.COVERAGE_PLAN_KEYS, {}),
+    "coverage-plan.schema.json": (runmodel_run.COVERAGE_PLAN_KEYS, {}),
     "promotion-manifest.schema.json": (
-        runmodel.MANIFEST_KEYS,
+        runmodel_promotion.MANIFEST_KEYS,
         {
             "properties.scopes.items.properties.promotion_disposition.enum": Vocab.PROMOTION_DISPOSITIONS,
             "properties.scope_locks.items.properties.backend.enum": Vocab.LOCK_BACKENDS,
             "properties.semantic_gates.items.properties.gate.enum": Vocab.SEMANTIC_GATES,
             "properties.semantic_gates.items.properties.status.enum": Vocab.SEMANTIC_GATE_STATUSES,
-            "properties.required_registry_edges.items.oneOf.1.properties.kind.enum": runmodel.REGISTRY_EDGE_KINDS,
+            "properties.required_registry_edges.items.oneOf.1.properties.kind.enum": runmodel_projection.REGISTRY_EDGE_KINDS,
         },
     ),
     "lock-evidence.schema.json": (
-        runmodel.LOCK_EVIDENCE_KEYS,
+        runmodel_locks.LOCK_EVIDENCE_KEYS,
         {"properties.backend.enum": ("git-remote",)},
     ),
-    "mutex.schema.json": (runmodel.MUTEX_KEYS, {}),
+    "mutex.schema.json": (runmodel_locks.MUTEX_KEYS, {}),
     "projection-receipt.schema.json": (
-        runmodel.RECEIPT_KEYS,
+        runmodel_promotion.RECEIPT_KEYS,
         {"properties.verdict.enum": Vocab.RECEIPT_VERDICTS},
     ),
     "declassification-receipt.schema.json": (
-        runmodel.DECLASSIFICATION_KEYS,
+        runmodel_promotion.DECLASSIFICATION_KEYS,
         {"properties.target_class.enum": ("open", "internal")},
     ),
     "scope-lock.schema.json": (
-        runmodel.SCOPE_LOCK_KEYS,
+        runmodel_locks.SCOPE_LOCK_KEYS,
         {"properties.backend.enum": Vocab.LOCK_BACKENDS},
     ),
     "projection-manifest.schema.json": (
-        runmodel.PROJECTION_MANIFEST_KEYS,
+        runmodel_projection.PROJECTION_MANIFEST_KEYS,
         {
             "properties.entries.items.properties.lifecycle.enum": Vocab.LIFECYCLES,
             "properties.entries.items.properties.assertion_status.enum": Vocab.ASSERTION_STATUSES,
             "properties.entries.items.properties.lifecycle_source.properties.status.enum": Vocab.DECISION_STATUSES,
             "properties.entries.items.properties.required_projections.items.properties.kind.enum": Vocab.PROJECTION_KINDS,
             "properties.entries.items.properties.required_projections.items.properties.target_mode.enum": (
-                runmodel.TARGET_MODES
+                Vocab.TARGET_MODES
             ),
             "properties.entries.items.properties.required_projections.items.properties.equivalence_status.enum": (
                 Vocab.EQUIVALENCE_STATUSES
@@ -81,11 +81,11 @@ CASES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
         },
     ),
     "request-pack.schema.json": (
-        runmodel.REQUEST_PACK_KEYS,
+        runmodel_semantic.REQUEST_PACK_KEYS,
         {"properties.gate.enum": Vocab.SEMANTIC_GATES},
     ),
     "semantic-receipt.schema.json": (
-        runmodel.SEMANTIC_RECEIPT_KEYS,
+        runmodel_semantic.SEMANTIC_RECEIPT_KEYS,
         {
             "properties.gate.enum": Vocab.SEMANTIC_GATES,
             "properties.status.enum": Vocab.SEMANTIC_RECEIPT_STATUSES,
@@ -135,7 +135,7 @@ def test_projection_entry_required_keys_match_catalog() -> None:
     schema = load_schema("projection-manifest.json".replace(".json", ".schema.json"))
     entry = resolve_pointer(schema, "properties.entries.items")
     assert isinstance(entry, dict)
-    assert sorted(entry["required"]) == sorted(runmodel.PROJECTION_ENTRY_KEYS)
+    assert sorted(entry["required"]) == sorted(runmodel_projection.PROJECTION_ENTRY_KEYS)
     properties = entry["properties"]
     assert isinstance(properties, dict)
     assert "covered_scope_ids" in properties  # optional field documented but not required

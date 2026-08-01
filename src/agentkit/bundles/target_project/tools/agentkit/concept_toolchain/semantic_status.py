@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from . import runmodel
+from . import runmodel_promotion, runmodel_semantic
 from .docmodel import file_digest_sha256
 from .findings import CheckResult, error
 from .runmodel_constants import RunModelConstants as Vocab
@@ -60,8 +60,8 @@ class _SemanticStatus:
         self.run_dir = run_dir
         self.rel = rel
         self.result = result
-        self.packs: dict[str, tuple[runmodel.SemanticRequestPack, str]] = {}
-        self.receipts: dict[str, runmodel.SemanticReceipt] = {}
+        self.packs: dict[str, tuple[runmodel_semantic.SemanticRequestPack, str]] = {}
+        self.receipts: dict[str, runmodel_semantic.SemanticReceipt] = {}
         self.states: dict[str, _GateState] = {gate: _GateState() for gate in Vocab.SEMANTIC_GATES}
 
     def _error(self, rel_path: str, locator: str, message: str) -> None:
@@ -82,7 +82,7 @@ class _SemanticStatus:
         seen_scopes: set[tuple[str, str]] = set()
         for entry in sorted(requests_dir.glob("*.json")):
             rel = f"{self.rel}/semantic/requests/{entry.name}"
-            pack, issues = runmodel.load_semantic_request_pack(entry)
+            pack, issues = runmodel_semantic.load_semantic_request_pack(entry)
             for issue in issues:
                 self._error(rel, issue.locator, issue.message)
             if pack is None:
@@ -100,7 +100,7 @@ class _SemanticStatus:
             return
         for entry in sorted(receipts_dir.glob("*.json")):
             rel = f"{self.rel}/semantic/receipts/{entry.name}"
-            receipt, issues = runmodel.load_semantic_receipt(entry)
+            receipt, issues = runmodel_semantic.load_semantic_receipt(entry)
             for issue in issues:
                 self._error(rel, issue.locator, issue.message)
             if receipt is None:
@@ -157,7 +157,7 @@ class _SemanticStatus:
         if not manifest_path.is_file():
             return
         rel = f"{self.rel}/promotion/promotion-manifest.json"
-        manifest, issues = runmodel.load_promotion_manifest(manifest_path)
+        manifest, issues = runmodel_promotion.load_promotion_manifest(manifest_path)
         for issue in issues:
             self._error(rel, issue.locator, issue.message)
         if manifest is None:
@@ -184,7 +184,7 @@ class _SemanticStatus:
     def _check_manifest_gate_entry(
         self,
         rel: str,
-        entry: runmodel.SemanticGateEntry,
+        entry: runmodel_promotion.SemanticGateEntry,
         *,
         computed_status: str,
         blocking: set[str],

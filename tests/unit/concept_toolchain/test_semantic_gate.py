@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel, semantic_gate
+from concept_toolchain import runmodel_registers, runmodel_semantic, semantic_gate
 from tests.unit.concept_toolchain import runfixtures
 from tests.unit.concept_toolchain.runfixtures import WRITER_ARGS, RunFixture, build_promotion_run
 
@@ -54,7 +54,7 @@ def test_units_is_deterministic_and_idempotent(fixture: RunFixture) -> None:
     first = fixture.units_path.read_bytes()
     assert gate_cli(fixture, "units") == 0
     assert fixture.units_path.read_bytes() == first
-    rows, issues = runmodel.load_source_units(fixture.units_path, require_disposition=False)
+    rows, issues = runmodel_registers.load_source_units(fixture.units_path, require_disposition=False)
     assert issues == []
     assert len(rows) == 4
 
@@ -88,7 +88,7 @@ def test_units_appends_new_source_units_with_next_counter(fixture: RunFixture) -
     )
     register.write_text(register.read_text(encoding="utf-8") + row + "\n", encoding="utf-8", newline="\n")
     assert gate_cli(fixture, "units") == 0
-    rows, _ = runmodel.load_source_units(fixture.units_path, require_disposition=False)
+    rows, _ = runmodel_registers.load_source_units(fixture.units_path, require_disposition=False)
     new_rows = [unit_row for unit_row in rows if unit_row["source_id"] == source_id]
     assert [unit_row["unit_id"] for unit_row in new_rows] == [f"SU-{fixture.uuid8}-0005"]
     assert new_rows[0]["claim_refs"] == "" and new_rows[0]["empty_reason"] == ""
@@ -214,7 +214,7 @@ def test_prepare_writes_reproducible_request_packs(fixture: RunFixture) -> None:
     assert gate_cli(fixture, "prepare", "--gate", "w2") == 0
     pack_path = find_pack(fixture, "w2")
     first = pack_path.read_bytes()
-    pack, issues = runmodel.load_semantic_request_pack(pack_path)
+    pack, issues = runmodel_semantic.load_semantic_request_pack(pack_path)
     assert issues == []
     assert pack is not None
     assert pack.gate == "authority-prose"

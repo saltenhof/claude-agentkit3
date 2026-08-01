@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from . import runmodel
+from . import runmodel_digests, runmodel_projection, runmodel_promotion, runmodel_registers, runmodel_run, runmodel_tsv
 from .docmodel import anchor_slugs, file_digest_sha256, load_document, scan_documents
 from .findings import CheckResult, error
 from .promotion_check import run_promotion_check
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from .config import GovernanceConfig
-    from .runmodel import ProjectionEntry, RequiredProjection
+    from .runmodel_projection import ProjectionEntry, RequiredProjection
 
 CHECK_ID = "projection"
 
@@ -60,7 +60,7 @@ def run_projection_check(project_root: Path, config: GovernanceConfig) -> CheckR
         result.complete = False
         result.incomplete_reason = f"projection manifest not found: {manifest_rel}"
         return result
-    manifest, issues = runmodel.load_projection_manifest(manifest_path)
+    manifest, issues = runmodel_projection.load_projection_manifest(manifest_path)
     for issue in issues:
         result.findings.append(error(CHECK_ID, manifest_rel, issue.locator, issue.message))
     if manifest is None:
@@ -80,21 +80,21 @@ class _ProjectionCheck:
         self.manifest_rel = manifest_rel
         self.result = result
         self._formal_paths: dict[str, str] | None = None
-        self._run_manifests: dict[str, runmodel.PromotionManifest | None] = {}
-        self._run_atoms: dict[str, dict[str, runmodel.TsvRow]] = {}
+        self._run_manifests: dict[str, runmodel_promotion.PromotionManifest | None] = {}
+        self._run_atoms: dict[str, dict[str, runmodel_tsv.TsvRow]] = {}
         self._atom_pin_ok: dict[str, bool] = {}
         self._closure_ok: dict[str, bool] = {}
 
     def _error(self, locator: str, message: str) -> None:
         self.result.findings.append(error(CHECK_ID, self.manifest_rel, locator, message))
 
-    def check(self, manifest: runmodel.ProjectionManifest) -> None:
+    def check(self, manifest: runmodel_projection.ProjectionManifest) -> None:
         self._check_scope_disjointness(manifest)
         self._check_authority_coverage(manifest)
         for index, entry in enumerate(manifest.entries):
             self._check_entry(f"entries[{index}]", entry)
 
-    def _check_scope_disjointness(self, manifest: runmodel.ProjectionManifest) -> None:
+    def _check_scope_disjointness(self, manifest: runmodel_projection.ProjectionManifest) -> None:
         seen: dict[str, str] = {}
         for index, entry in enumerate(manifest.entries):
             where = f"entries[{index}]"
@@ -107,7 +107,7 @@ class _ProjectionCheck:
                 else:
                     seen[scope_id] = where
 
-    def _check_authority_coverage(self, manifest: runmodel.ProjectionManifest) -> None:
+    def _check_authority_coverage(self, manifest: runmodel_projection.ProjectionManifest) -> None:
         """Claimed scopes must equal the authority_over scopes of the assertion sources."""
         claimed: set[str] = set()
         derived: set[str] = set()
@@ -210,7 +210,7 @@ class _ProjectionCheck:
         receipt_path = self.project_root / projection.receipt_ref
         if not receipt_path.is_file():
             return "unreviewed"
-        receipt, issues = runmodel.load_projection_receipt(receipt_path)
+        receipt, issues = runmodel_promotion.load_projection_receipt(receipt_path)
         for issue in issues:
             self.result.findings.append(error(CHECK_ID, projection.receipt_ref, issue.locator, issue.message))
         if receipt is None:
@@ -226,7 +226,7 @@ class _ProjectionCheck:
         where: str,
         entry: ProjectionEntry,
         projection: RequiredProjection,
-        receipt: runmodel.ProjectionReceipt,
+        receipt: runmodel_promotion.ProjectionReceipt,
         target_path: str | None,
     ) -> bool:
         """Re-verify the promotion closure that would justify this activation.
@@ -278,12 +278,12 @@ class _ProjectionCheck:
         self,
         where: str,
         entry: ProjectionEntry,
-        receipt: runmodel.ProjectionReceipt,
-        atom: runmodel.TsvRow,
+        receipt: runmodel_promotion.ProjectionReceipt,
+        atom: runmodel_tsv.TsvRow,
         target_path: str | None,
     ) -> bool:
         bound = True
-        if receipt.receipt_id not in runmodel.split_refs(atom["receipt_refs"]):
+        if receipt.receipt_id not in runmodel_tsv.split_refs(atom["receipt_refs"]):
             self._error(where, f"atom {receipt.atom_id} does not register receipt {receipt.receipt_id} in receipt_refs")
             bound = False
         if atom["expected_authority"] not in {entry.scope_id, *entry.covered_scope_ids}:
@@ -297,7 +297,7 @@ class _ProjectionCheck:
             bound = False
         return bound
 
-    def _scope_promoted(self, where: str, manifest: runmodel.PromotionManifest, scope_id: str) -> bool:
+    def _scope_promoted(self, where: str, manifest: runmodel_promotion.PromotionManifest, scope_id: str) -> bool:
         for scope in manifest.scopes:
             if scope.scope_id != scope_id:
                 continue
@@ -347,7 +347,7 @@ class _ProjectionCheck:
         elif not register_path.is_file():
             self._error(where, f"promoting run has no atom register: {run_dir_rel}/promotion/atom-register.tsv")
         else:
-            run, issues = runmodel.load_run_state(run_path)
+            run, issues = runmodel_run.load_run_state(run_path)
             for issue in issues:
                 self.result.findings.append(error(CHECK_ID, f"{run_dir_rel}/RUN.json", issue.locator, issue.message))
             pinned = run.register_digests.get("atom_register") if run is not None else None
@@ -360,7 +360,7 @@ class _ProjectionCheck:
         self._atom_pin_ok[run_dir_rel] = ok
         return ok
 
-    def _promotion_manifest(self, where: str, entry: ProjectionEntry) -> runmodel.PromotionManifest | None:
+    def _promotion_manifest(self, where: str, entry: ProjectionEntry) -> runmodel_promotion.PromotionManifest | None:
         run_id = entry.last_run_id
         assert run_id is not None
         if run_id not in self._run_manifests:
@@ -376,7 +376,7 @@ class _ProjectionCheck:
         where: str,
         run_id: str,
         entry: ProjectionEntry,
-    ) -> runmodel.PromotionManifest | None:
+    ) -> runmodel_promotion.PromotionManifest | None:
         run_dir_rel = f"{self.config.incubator_root}/runs/{run_id}"
         pointer = entry.last_promotion_manifest
         manifest_rel = (
@@ -390,7 +390,7 @@ class _ProjectionCheck:
             return None
         if pointer is not None and file_digest_sha256(manifest_path) != pointer.digest:
             self._error(where, f"last_promotion_manifest digest does not match {manifest_rel}")
-        manifest, issues = runmodel.load_promotion_manifest(manifest_path)
+        manifest, issues = runmodel_promotion.load_promotion_manifest(manifest_path)
         for issue in issues:
             self.result.findings.append(
                 error(CHECK_ID, manifest_rel, issue.locator, issue.message)
@@ -400,12 +400,12 @@ class _ProjectionCheck:
             return None
         return manifest
 
-    def _run_atom_register(self, run_dir_rel: str) -> dict[str, runmodel.TsvRow]:
+    def _run_atom_register(self, run_dir_rel: str) -> dict[str, runmodel_tsv.TsvRow]:
         if run_dir_rel not in self._run_atoms:
             register_path = self.project_root / run_dir_rel / "promotion" / "atom-register.tsv"
-            atoms: dict[str, runmodel.TsvRow] = {}
+            atoms: dict[str, runmodel_tsv.TsvRow] = {}
             if register_path.is_file():
-                rows, issues = runmodel.load_atom_register(register_path)
+                rows, issues = runmodel_registers.load_atom_register(register_path)
                 for issue in issues:
                     self.result.findings.append(
                         error(CHECK_ID, f"{run_dir_rel}/promotion/atom-register.tsv", issue.locator, issue.message)
@@ -431,7 +431,7 @@ class _ProjectionCheck:
             target = formal_path
         path = target.partition("#")[0]
         if path == self.manifest_rel and projection.target_mode != "markdown-section":
-            return runmodel.canonical_projection_entry_digest(entry.raw, projection.target), True, path
+            return runmodel_digests.canonical_projection_entry_digest(entry.raw, projection.target), True, path
         result = compute_target_digest(self.project_root, target, projection.target_mode, projection.selector)
         if result.missing:
             return None, False, path
