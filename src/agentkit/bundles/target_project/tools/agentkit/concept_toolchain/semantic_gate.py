@@ -389,27 +389,51 @@ def _claim_intent(run_dir: Path, principal: str, session: str) -> tuple[str | No
         try:
             descriptor = os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            now = time.monotonic()
-            if probe_at is None or now >= probe_at:
-                probe_at = now + INTENT_PROBE_SECONDS
-                if _reclaim_expired_intent(intent):
-                    continue
-            if now >= deadline:
+            keep_trying, probe_at = _wait_out_the_latch(intent, deadline, probe_at)
+            if not keep_trying:
                 return None, _held_intent_problem()
-            time.sleep(INTENT_POLL_SECONDS)
             continue
         except OSError as exc:
             # Not "it exists" but "the platform refused the create right
             # now" — a sharing artefact of a competitor holding the latch
             # open. Losing the claim is correct; crashing is not, because
             # this CLI's exit codes carry no meaning for a traceback.
-            if time.monotonic() >= deadline:
+            if not _sleep_until_spent(deadline):
                 return None, f"cannot create the RUN.mutex coordination intent: {exc}; refusing to mutate"
-            time.sleep(INTENT_POLL_SECONDS)
             continue
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(_intent_payload(principal, session, nonce))
         return nonce, None
+
+
+def _wait_out_the_latch(intent: Path, deadline: float, probe_at: float | None) -> tuple[bool, float | None]:
+    """Take one wait step against a latch that already exists.
+
+    Args:
+        intent: The latch file.
+        deadline: Monotonic instant at which the wait budget is spent.
+        probe_at: Monotonic instant of the next payload read, or ``None``
+            before the first one.
+
+    Returns:
+        Whether another exclusive create is worth attempting, and the next
+        probe instant. A reclaimed latch skips the sleep — the create can
+        be retried immediately.
+    """
+    now = time.monotonic()
+    if probe_at is None or now >= probe_at:
+        probe_at = now + INTENT_PROBE_SECONDS
+        if _reclaim_expired_intent(intent):
+            return True, probe_at
+    return _sleep_until_spent(deadline), probe_at
+
+
+def _sleep_until_spent(deadline: float) -> bool:
+    """Sleep one poll interval; ``False`` once the wait budget is spent."""
+    if time.monotonic() >= deadline:
+        return False
+    time.sleep(INTENT_POLL_SECONDS)
+    return True
 
 
 def _held_intent_problem() -> str:

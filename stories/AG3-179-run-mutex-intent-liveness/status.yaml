@@ -53,5 +53,21 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 # hat die Defekte 2 und 3 gefunden, nicht bestaetigt.
 # Jeder der drei Fixes ist zusaetzlich per Mutation belegt (Fix zurueckgedreht
 # -> zugehoeriger Test rot; wiederhergestellt -> gruen).
+#
+# CI-VERLAUF:
+#  #1203 (vor der Story): rot in der Unit-Stage an genau diesem Test.
+#  #1204 (Split-Stand c94f75ae): gruen -- der flakige Test kam zufaellig durch.
+#  #1205 (Fix e92b5be3): Unit-Stage GRUEN, Pipeline lief bis Sonar durch; rot
+#        wurde das Quality Gate mit GENAU EINEM neuen Befund: python:S3776,
+#        Cognitive Complexity 19 > 15 in `_claim_intent` -- meinem eigenen
+#        Umbau. Behoben durch Zerlegung (`_wait_out_the_latch`,
+#        `_sleep_until_spent`), NICHT durch NOSONAR/Excludes. Handrechnung nach
+#        der Sonar-Regel: 11. Lastnachweis nach dem Umbau erneut 0/150.
+#        Neue-Code-Coverage lag bei 89,8 % (Schwelle 80), Duplikate 0,3 %.
+#  Nicht-blockierend, aber offen (nightly W2/W3, gehoert zu AC8 von AG3-176):
+#   - W2 EVALUATION_PARSE_FAILURE: der grok-Backend-Response enthielt eine
+#     Praeambel ("Worked for 29s") vor dem JSON und markdown-escapte
+#     Unterstriche; der Parser scheiterte nach 2 Versuchen.
+#   - W3 INCOMPLETE_SWEEP: 17 leere Scope-Sets.
 depends_on: []
 unblocks: []
