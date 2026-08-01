@@ -26,7 +26,7 @@ import pytest
 from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient, corpus_store
 
 from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
-from agentkit.backend.vectordb.engine import WeaviateCorpusStore
+from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
 from agentkit.backend.vectordb.ingest.adapter import story_file_to_objects
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
@@ -245,9 +245,7 @@ def test_n38_the_store_is_the_only_stamping_write_path() -> None:
     """Structural: the corpus store is the ONLY place that stamps a generation."""
     import inspect
 
-    from agentkit.backend.vectordb import engine
-
-    source = inspect.getsource(engine.WeaviateCorpusStore.upsert_objects)
+    source = inspect.getsource(WeaviateCorpusStore.upsert_objects)
     assert OWNING_GENERATION_PROPERTY in source
     adapter_source = inspect.getsource(
         __import__(

@@ -42,7 +42,8 @@ from agentkit.backend.installer.vectordb_preflight import (
 from agentkit.backend.vectordb.commit_recovery import (
     project_commit_recovery_journal,
 )
-from agentkit.backend.vectordb.engine import WeaviateCorpusStore, compose_runtime
+from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
+from agentkit.backend.vectordb.engine import compose_runtime
 from agentkit.backend.vectordb.hook_dispatch import _changed_paths
 from agentkit.backend.vectordb.mcp_server import McpToolService
 from agentkit.backend.vectordb.sync import (

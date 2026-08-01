@@ -26,15 +26,18 @@ from tests.unit.vectordb.corpus_doubles import (
     story_hit,
 )
 
-from agentkit.backend.vectordb.contracts import ToolArgumentError
-from agentkit.backend.vectordb.engine import (
+from agentkit.backend.vectordb.completion_ledger import (
     RECEIPT_COLLECTION,
     RUN_RECEIPT_COLLECTION,
-    WeaviateRetrievalPort,
-    _run_receipt_digest,
-    receipt_from_props,
 )
+from agentkit.backend.vectordb.completion_records import (
+    completion_position_uuid,
+    receipt_from_props,
+    run_receipt_digest,
+)
+from agentkit.backend.vectordb.contracts import ToolArgumentError
 from agentkit.backend.vectordb.mcp_server import McpToolService, handle_tool_call
+from agentkit.backend.vectordb.retrieval import WeaviateRetrievalPort
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.schema import (
     FK13_VECTOR_SOURCE_PROPERTIES,
@@ -405,7 +408,7 @@ def _tamper_receipt(client: RecordingWeaviateClient, **overrides: object) -> Non
         separators=(",", ":"),
         sort_keys=True,
     )
-    doc["batch_digest"] = _run_receipt_digest(
+    doc["batch_digest"] = run_receipt_digest(
         project_id=str(doc["project_id"]),
         run_id=str(doc["run_id"]),
         receipts_json=str(doc["receipts_json"]),
@@ -1558,7 +1561,7 @@ def test_ag177_an_unfinished_record_does_not_grant_authority(tmp_path: Path) -> 
     assert client.insert_object(
         # the store's own position rule, so the record is where list_receipts looks
         collection=RECEIPT_COLLECTION,
-        uuid=store._completion_uuid(sealed.project_id, sealed.sequence),
+        uuid=completion_position_uuid(sealed.project_id, sealed.sequence),
         properties={
             "project_id": sealed.project_id,
             "source_file": sealed.source_file,

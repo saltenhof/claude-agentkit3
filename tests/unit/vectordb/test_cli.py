@@ -168,8 +168,8 @@ def test_r07_sync_writes_via_injected_service(tmp_path: Path) -> None:
     from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient, corpus_store
 
     from agentkit.backend.vectordb.cli import build_parser
-    from agentkit.backend.vectordb.engine import WeaviateRetrievalPort
     from agentkit.backend.vectordb.mcp_server import McpToolService
+    from agentkit.backend.vectordb.retrieval import WeaviateRetrievalPort
     from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
     from agentkit.backend.vectordb.sync import SyncService
 
@@ -275,8 +275,8 @@ def test_n27_sync_without_reclaim_is_rejected_on_a_held_claim(tmp_path: Path) ->
     from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient, corpus_store
 
     from agentkit.backend.vectordb.cli import build_parser
-    from agentkit.backend.vectordb.engine import WeaviateRetrievalPort
     from agentkit.backend.vectordb.mcp_server import McpToolService
+    from agentkit.backend.vectordb.retrieval import WeaviateRetrievalPort
     from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
     from agentkit.backend.vectordb.sync import ConcurrentSyncRejectedError, SyncService
 

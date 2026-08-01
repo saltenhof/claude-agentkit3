@@ -527,7 +527,7 @@ class PipelinePolicyConfig(BaseModel):
 
 
 #: gRPC endpoint scheme prefixes the CONSUMER understands
-#: (``vectordb.engine._split_grpc``): ``grpcs://`` selects a TLS channel. Any other
+#: (``vectordb.endpoints.split_grpc_endpoint``): ``grpcs://`` selects a TLS channel. Any other
 #: scheme would be passed through as part of the host, so it is rejected.
 _GRPC_ENDPOINT_SCHEMES: tuple[str, ...] = ("grpcs://", "grpc://")
 
@@ -570,7 +570,7 @@ class VectorDbConfig(BaseModel):
     artefact AK3 produced and no documented operator configuration can contain them.
 
     **The accepted set of both validators is bound to the consumer** --
-    ``vectordb.engine._split_endpoint`` and ``._split_grpc`` (ratified AG3-174
+    ``vectordb.endpoints.split_http_endpoint`` and ``split_grpc_endpoint`` (ratified AG3-174
     code). Anything those two cannot use is rejected here, at the first gate an
     operator hits, instead of surfacing much later as a confusing connect failure.
     """
@@ -587,7 +587,7 @@ class VectorDbConfig(BaseModel):
     def _check_http_endpoint(cls, value: str | None) -> str | None:
         """Require ``http(s)://host:port`` when the endpoint is declared.
 
-        Bound to ``vectordb.engine._split_endpoint``, which keeps only
+        Bound to ``vectordb.endpoints.split_http_endpoint``, which keeps only
         ``hostname``/``port``/``scheme`` and SILENTLY DROPS a path, query,
         fragment or userinfo component. An operator writing
         ``http://weaviate:9903/v1`` would therefore have the path discarded
@@ -630,10 +630,10 @@ class VectorDbConfig(BaseModel):
     def _check_grpc_endpoint(cls, value: str | None) -> str | None:
         """Require ``host:port``, optionally ``grpc://`` / ``grpcs://``.
 
-        The accepted set is bound to ``vectordb.engine._split_grpc``: it strips a
+        The accepted set is bound to ``vectordb.endpoints.split_grpc_endpoint``: it strips a
         ``grpc://`` or ``grpcs://`` prefix (``grpcs`` selects a TLS channel) and
         then splits ``host:port`` off the remainder. Any OTHER scheme must be
-        rejected here, because ``_split_grpc`` would hand the scheme through as
+        rejected here, because ``split_grpc_endpoint`` would hand the scheme through as
         part of the host: ``http://h:1`` used to be accepted and reached the
         Weaviate client as the literal host ``"http://h"``, turning a very
         plausible operator mistake — copying the shape of the HTTP endpoint — into
@@ -665,7 +665,7 @@ class VectorDbConfig(BaseModel):
             raise ValueError(f"vectordb.weaviate_grpc_endpoint needs a port in 1..65535; got {value!r} (FK-03 §3.1, fail-closed)")
         # A host is either a bracketed IPv6 literal or contains no ':' / delimiter
         # characters at all. This also rejects a scheme-like prefix without '//'
-        # (e.g. ``weaviate:h:1``), which ``_split_grpc`` would treat as the host.
+        # (e.g. ``weaviate:h:1``), which ``split_grpc_endpoint`` would treat as the host.
         bracketed = host.startswith("[") and host.endswith("]")
         if not bracketed and any(char in host for char in ":/?#@"):
             raise ValueError(

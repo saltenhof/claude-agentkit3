@@ -1,7 +1,7 @@
 """Doubles at the EXTERNAL Weaviate boundary only (the narrow mock exception).
 
 One shared recording double for the thin-adapter corpus client
-(:class:`~agentkit.backend.vectordb.engine.CorpusClientPort`) so every test drives
+(:class:`~agentkit.backend.vectordb.client_port.CorpusClientPort`) so every test drives
 the REAL production stack above it (``WeaviateCorpusStore``, ``SyncService``,
 ``WeaviateRetrievalPort``, ``McpToolService``).
 
@@ -25,19 +25,23 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Final
 
 from agentkit.backend.vectordb.commit_recovery import FileCommitRecoveryJournal
-from agentkit.backend.vectordb.engine import (
-    CLAIM_COLLECTION,
-    CLAIM_STATE_HELD,
-    CLAIM_STATE_RELEASED,
+from agentkit.backend.vectordb.completion_ledger import (
     RECEIPT_COLLECTION,
     RUN_RECEIPT_COLLECTION,
-    WeaviateCorpusStore,
 )
+from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     deterministic_uuid,
+)
+from agentkit.backend.vectordb.source_generation import (
+    CLAIM_COLLECTION,
+    CLAIM_STATE_HELD,
+    CLAIM_STATE_RELEASED,
+    claim_record_uuid,
+    release_marker_uuid,
 )
 from agentkit.integration_clients.vectordb.errors import (
     VectorDbUnavailableError,
@@ -637,10 +641,10 @@ def seed_generation_history(
         "reclaim_reason": "",
     }
     client.claims[
-        WeaviateCorpusStore._claim_uuid(project_id, source_file, generation)  # noqa: SLF001
+        claim_record_uuid(project_id, source_file, generation)
     ] = {**base, "state": CLAIM_STATE_HELD}
     client.claims[
-        WeaviateCorpusStore._release_uuid(project_id, source_file, generation)  # noqa: SLF001
+        release_marker_uuid(project_id, source_file, generation)
     ] = {**base, "state": CLAIM_STATE_RELEASED}
 
 

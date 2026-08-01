@@ -39,13 +39,14 @@ from weaviate.collections.queries.hybrid.query import _HybridQuery
 from weaviate.collections.queries.near_text.query import _NearTextQuery
 
 from agentkit.backend.vectordb.commit_recovery import FileCommitRecoveryJournal
-from agentkit.backend.vectordb.engine import (
+from agentkit.backend.vectordb.completion_ledger import (
     RECEIPT_COLLECTION,
     RUN_RECEIPT_COLLECTION,
-    WeaviateCorpusStore,
-    WeaviateRetrievalPort,
-    connect_real_client,
 )
+from agentkit.backend.vectordb.completion_records import completion_position_uuid
+from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
+from agentkit.backend.vectordb.engine import connect_real_client
+from agentkit.backend.vectordb.retrieval import WeaviateRetrievalPort
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
@@ -1904,7 +1905,7 @@ def _ag177_receipt_collection(store: WeaviateCorpusStore, *, generation: int) ->
         "generation": str(receipt.generation),
     }
     # The store's own position rule, so the record sits where list_receipts looks.
-    uid = store._completion_uuid(receipt.project_id, receipt.sequence)
+    uid = completion_position_uuid(receipt.project_id, receipt.sequence)
     return _FakeCollection(
         query=_FilterAwarePaging(rows=[(uid, props)]),  # type: ignore[arg-type]
         data=_FakeData(),

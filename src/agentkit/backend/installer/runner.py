@@ -79,7 +79,7 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.vectordb_preflight import VectorDbPreflightPort
     from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.skills import SkillBundleStore, SkillProfile, Skills
-    from agentkit.backend.vectordb.engine import CorpusClientPort
+    from agentkit.backend.vectordb.client_port import CorpusClientPort
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
 
 

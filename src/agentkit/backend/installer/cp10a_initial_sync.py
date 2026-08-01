@@ -19,7 +19,7 @@ from agentkit.backend.vectordb.sync import CommitOutcomeUnknownError, SyncError
 from agentkit.integration_clients.vectordb.errors import VectorDbError
 
 if TYPE_CHECKING:
-    from agentkit.backend.vectordb.engine import CorpusClientPort
+    from agentkit.backend.vectordb.client_port import CorpusClientPort
 
 _RECEIPT_DIR = Path(".agentkit") / "receipts" / "vectordb"
 

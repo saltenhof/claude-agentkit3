@@ -543,8 +543,8 @@ class TestVectorDbConfig:
 
     # ------------------------------------------------------------------ #
     # AG3-175: Weaviate endpoint shape. The accepted set of both fields is
-    # BOUND to the consumer -- ``vectordb.engine._split_endpoint`` and
-    # ``._split_grpc``. Every value accepted here must be usable by them, and
+    # BOUND to the consumer -- ``vectordb.endpoints.split_http_endpoint`` and
+    # ``split_grpc_endpoint``. Every value accepted here must be usable by them, and
     # anything they cannot use must be rejected here, at the first gate an
     # operator hits.
     # ------------------------------------------------------------------ #
@@ -635,11 +635,11 @@ class TestVectorDbConfig:
     def test_every_accepted_grpc_endpoint_is_usable_by_the_consumer(
         self, endpoint: str
     ) -> None:
-        """The binding to ``_split_grpc`` is asserted, not just documented."""
-        from agentkit.backend.vectordb.engine import _split_grpc
+        """The binding to ``split_grpc_endpoint`` is asserted, not just documented."""
+        from agentkit.backend.vectordb.endpoints import split_grpc_endpoint
 
         VectorDbConfig(weaviate_grpc_endpoint=endpoint)
-        host, port, _secure = _split_grpc(endpoint)
+        host, port, _secure = split_grpc_endpoint(endpoint)
         assert host and not host.startswith(("http", "//"))
         assert port == 50051
 
@@ -649,10 +649,10 @@ class TestVectorDbConfig:
     def test_every_accepted_http_endpoint_is_usable_by_the_consumer(
         self, endpoint: str
     ) -> None:
-        from agentkit.backend.vectordb.engine import _split_endpoint
+        from agentkit.backend.vectordb.endpoints import split_http_endpoint
 
         VectorDbConfig(weaviate_http_endpoint=endpoint)
-        host, port, _secure = _split_endpoint(endpoint)
+        host, port, _secure = split_http_endpoint(endpoint)
         assert host and "/" not in host
         assert port == 9903
 

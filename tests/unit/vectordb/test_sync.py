@@ -24,17 +24,20 @@ from tests.unit.vectordb.corpus_doubles import (
     seed_object,
 )
 
-from agentkit.backend.vectordb.engine import (
-    CLAIM_COLLECTION,
+from agentkit.backend.vectordb.completion_ledger import (
     RECEIPT_COLLECTION,
     RUN_RECEIPT_COLLECTION,
-    WeaviateCorpusStore,
 )
 from agentkit.backend.vectordb.schema import (
     OWNING_GENERATION_PROPERTY,
     STORY_CONTEXT_COLLECTION,
     StoryContextObject,
     deterministic_uuid,
+)
+from agentkit.backend.vectordb.source_generation import (
+    CLAIM_COLLECTION,
+    claim_record_uuid,
+    release_marker_uuid,
 )
 from agentkit.backend.vectordb.sync import (
     ClaimReleaseFailedError,
@@ -56,10 +59,12 @@ from agentkit.integration_clients.vectordb.errors import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
+
 
 def claim_uuid_for(project_id: str, source_file: str, generation: int) -> str:
     """The store's deterministic claim uuid for one generation (N15/N37)."""
-    return WeaviateCorpusStore._claim_uuid(project_id, source_file, generation)  # noqa: SLF001
+    return claim_record_uuid(project_id, source_file, generation)
 
 
 def _seed(
@@ -1941,7 +1946,7 @@ def test_n50_a_malformed_duplicate_marker_does_not_count_as_released() -> None:
     # A malformed duplicate occupies the marker uuid: the insert then reports "not
     # created", and accepting it would report a successful release for a HELD source.
     client.claims[
-        WeaviateCorpusStore._release_uuid("acme", "concept/a.md", claim.generation)  # noqa: SLF001
+        release_marker_uuid("acme", "concept/a.md", claim.generation)
     ] = {
         "project_id": "acme",
         "source_file": "concept/a.md",
@@ -1987,7 +1992,7 @@ def test_n50_a_marker_that_does_not_match_the_claim_is_not_a_release(
     }
     record.update(override)
     client.claims[
-        WeaviateCorpusStore._release_uuid("acme", "concept/a.md", claim.generation)  # noqa: SLF001
+        release_marker_uuid("acme", "concept/a.md", claim.generation)
     ] = record
     with pytest.raises(ClaimReleaseFailedError, match="neither created nor holds"):
         store.release_source(claim=claim)
@@ -2023,9 +2028,18 @@ def test_every_storycontext_delete_is_conditional_and_scoped() -> None:
     import inspect
     import textwrap
 
-    from agentkit.backend.vectordb import engine
+    from agentkit.backend.vectordb.completion_ledger import CompletionLedger
+    from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
+    from agentkit.backend.vectordb.source_generation import SourceGenerationLadder
 
-    source = inspect.getsource(engine.WeaviateCorpusStore)
+    source = "\n".join(
+        inspect.getsource(owner)
+        for owner in (
+            WeaviateCorpusStore,
+            CompletionLedger,
+            SourceGenerationLadder,
+        )
+    )
     tree = ast.parse(textwrap.dedent(source))
 
     # Spellings that denote the corpus collection. A future path must not reach the

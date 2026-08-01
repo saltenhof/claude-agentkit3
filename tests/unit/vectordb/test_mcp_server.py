@@ -32,12 +32,12 @@ from agentkit.backend.vectordb.contracts import (
     validate_limit,
     validate_search_mode,
 )
-from agentkit.backend.vectordb.engine import WeaviateRetrievalPort
 from agentkit.backend.vectordb.mcp_server import (
     McpToolService,
     build_mcp_server,
     handle_tool_call,
 )
+from agentkit.backend.vectordb.retrieval import WeaviateRetrievalPort
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.sync import SyncService
 from agentkit.integration_clients.vectordb.weaviate_adapter import SEARCH_MODES

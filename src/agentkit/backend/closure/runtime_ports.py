@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockRepository
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.types import StoryType
-    from agentkit.backend.vectordb.engine import CorpusClientPort
+    from agentkit.backend.vectordb.client_port import CorpusClientPort
     from agentkit.backend.verify_system.conformance_service import FidelityResult
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
 

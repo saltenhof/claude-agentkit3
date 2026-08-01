@@ -30,12 +30,12 @@ from agentkit.backend.vectordb.concept_corpus.resolver import (
     rank_hits,
 )
 from agentkit.backend.vectordb.contracts import allowed_keys_for
-from agentkit.backend.vectordb.engine import (
-    WeaviateRetrievalPort,
-    _split_endpoint,
-    _split_grpc,
+from agentkit.backend.vectordb.endpoints import (
+    split_grpc_endpoint,
+    split_http_endpoint,
 )
 from agentkit.backend.vectordb.mcp_server import McpToolService, handle_tool_call
+from agentkit.backend.vectordb.retrieval import WeaviateRetrievalPort
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.backend.vectordb.schema import deterministic_uuid
 from agentkit.backend.vectordb.sync import SyncReceipt, SyncService
@@ -56,28 +56,32 @@ _ENV = {
 # --------------------------------------------------------------------------- #
 
 
-def test_r02_split_endpoint_fail_closed() -> None:
-    assert _split_endpoint("http://weaviate.acme.local:8080") == (
+def test_r02_split_http_endpoint_fail_closed() -> None:
+    assert split_http_endpoint("http://weaviate.acme.local:8080") == (
         "weaviate.acme.local", 8080, False
     )
-    assert _split_endpoint("https://weaviate.acme.local:443") == (
+    assert split_http_endpoint("https://weaviate.acme.local:443") == (
         "weaviate.acme.local", 443, True
     )
     with pytest.raises(Exception, match="host:port"):
-        _split_endpoint("http://weaviate.acme.local")  # no port
+        split_http_endpoint("http://weaviate.acme.local")  # no port
     with pytest.raises(Exception, match="http"):
-        _split_endpoint("weaviate.acme.local:8080")  # no scheme
+        split_http_endpoint("weaviate.acme.local:8080")  # no scheme
 
 
-def test_r02_split_grpc_fail_closed() -> None:
-    assert _split_grpc("weaviate.acme.local:50051") == ("weaviate.acme.local", 50051, False)
-    assert _split_grpc("grpcs://weaviate.acme.local:50051") == (
+def test_r02_split_grpc_endpoint_fail_closed() -> None:
+    assert split_grpc_endpoint("weaviate.acme.local:50051") == (
+        "weaviate.acme.local",
+        50051,
+        False,
+    )
+    assert split_grpc_endpoint("grpcs://weaviate.acme.local:50051") == (
         "weaviate.acme.local", 50051, True
     )
     with pytest.raises(Exception, match="host:port"):
-        _split_grpc("weaviate.acme.local")
+        split_grpc_endpoint("weaviate.acme.local")
     with pytest.raises(Exception, match="non-integer port"):
-        _split_grpc("weaviate.acme.local:notaport")
+        split_grpc_endpoint("weaviate.acme.local:notaport")
 
 
 def test_r02_corpus_store_delegates_to_client_exact_counts() -> None:

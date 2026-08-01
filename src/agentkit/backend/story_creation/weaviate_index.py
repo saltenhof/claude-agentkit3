@@ -21,11 +21,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.backend.vectordb.engine import (
-    CorpusClientPort,
-    WeaviateCorpusStore,
-    ensure_corpus_collections,
-)
+from agentkit.backend.vectordb.client_port import CorpusClientPort
+from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
+from agentkit.backend.vectordb.provisioning import ensure_corpus_collections
 from agentkit.backend.vectordb.sync import SyncService
 from agentkit.concepts.hashing import corpus_revision
 from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError

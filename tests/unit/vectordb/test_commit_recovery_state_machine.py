@@ -12,19 +12,19 @@ from tests.unit.vectordb.corpus_doubles import (
 )
 
 from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
-from agentkit.backend.vectordb import engine
+from agentkit.backend.vectordb import completion_ledger
 from agentkit.backend.vectordb.commit_recovery import (
     CommitRecoveryState,
     CompletionCommitJournalEntry,
     FileCommitRecoveryJournal,
     project_commit_recovery_journal,
 )
-from agentkit.backend.vectordb.engine import (
-    RUN_RECEIPT_COLLECTION,
-    WeaviateCorpusStore,
-    _render_producer_completions,
-    _run_receipt_digest,
+from agentkit.backend.vectordb.completion_ledger import RUN_RECEIPT_COLLECTION
+from agentkit.backend.vectordb.completion_records import (
+    render_producer_completions,
+    run_receipt_digest,
 )
+from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
 from agentkit.backend.vectordb.sync import (
     CommitOutcomeUnknownError,
     ProducerCompletion,
@@ -57,7 +57,7 @@ def _competing_properties(
     sequence = int(str(properties["sequence_end"]))
     revision = f"competing-revision-{sequence}"
     producer = _producer(revision)
-    producer_json = _render_producer_completions(
+    producer_json = render_producer_completions(
         (producer[0].stamped(sequence=sequence),)
     )
     run_id = completion_run_id("AG3", (), producer)
@@ -68,7 +68,7 @@ def _competing_properties(
         **properties,
         "run_id": run_id,
         "producer_completions_json": producer_json,
-        "batch_digest": _run_receipt_digest(
+        "batch_digest": run_receipt_digest(
             project_id="AG3",
             run_id=run_id,
             receipts_json=str(properties["receipts_json"]),
@@ -122,7 +122,7 @@ def test_exhausted_range_retry_finishes_not_committed_and_never_recovers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A known final collision is terminal and resolve can never publish it."""
-    monkeypatch.setattr(engine, "_COMPLETION_ATTEMPT_LIMIT", 2)
+    monkeypatch.setattr(completion_ledger, "_COMPLETION_ATTEMPT_LIMIT", 2)
     client = _CollisionClient()
     root = tmp_path / "journal"
     journal = FileCommitRecoveryJournal(root)
@@ -236,7 +236,7 @@ def test_terminal_journal_failure_is_visible_as_outcome_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Failure to persist NOT_COMMITTED cannot be presented as rollback-safe."""
-    monkeypatch.setattr(engine, "_COMPLETION_ATTEMPT_LIMIT", 1)
+    monkeypatch.setattr(completion_ledger, "_COMPLETION_ATTEMPT_LIMIT", 1)
     client = _CollisionClient()
     journal = FileCommitRecoveryJournal(tmp_path / "journal")
     store = WeaviateCorpusStore(client=client, recovery_journal=journal)
