@@ -348,18 +348,58 @@ Schreiber wuerde den fremden Mutex mit seiner alten Nonce
 ueberschreiben. Das Intent traegt deshalb eine eigene Nonce und wird
 ausschliesslich per Nonce-Match freigegeben (compare-before-delete);
 ein Aufraeumen ohne Identitaetspruefung ist auf keinem Pfad zulaessig.
+
+**Das Intent ist eine kurz gehaltene Klinke, kein Eigentumsrecht.**
+Eigentum traegt der Mutex mit Nonce, TTL und Fencing-Token; die Klinke
+serialisiert nur die einzelnen kritischen Abschnitte. Wer sie nicht per
+O_CREAT|O_EXCL anlegen kann, **wartet beschraenkt** auf sie (kurze Polls
+bis zu einer Frist im Sekundenbereich) und bricht **erst nach Ablauf
+dieser Frist** fail-closed ab. Sofortiges Aufgeben waere nicht die
+strengere, sondern die kaputte Variante: ein Schreiblauf holt die Klinke
+mehrfach nacheinander (Erwerb, Revalidierung vor dem Dispatch, Ziel-Write,
+Freigabe). Ein unterlegener Mitbewerber, der die freie Klinke zwischen
+zwei dieser Abschnitte greift, wirft damit den rechtmaessigen
+Mutex-Eigentuemer aus seinem eigenen kritischen Abschnitt — unter
+Nebenlaeufigkeit kommt dann **gar kein** Schreiber durch. Ebenso gewartet
+wird auf eine soeben angelegte, noch nicht beschriebene Klinke: der
+exklusive Create und das Schreiben der Payload sind zwei Schritte, und der
+Spalt dazwischen ist ein Halten, keine Leiche. Das Warten aendert nichts
+am Schiedsrichter (O_CREAT|O_EXCL), nichts an compare-before-delete und
+nichts an der Fail-Closed-Semantik: nach Fristablauf wird abgebrochen,
+nicht durchgewunken, und ein lebender fremder **Mutex** bleibt fuer jeden
+Mitbewerber ein harter Abbruch. Ein abgelaufenes Intent wird weiterhin
+sofort uebernommen und nicht ausgewartet.
 Der Heartbeat-Refresh revalidiert Mutex-Nonce und Owner unmittelbar vor
 dem Schreiben; fremde Nonce ist harter Abbruch. Der Ziel-Write ist
 zweiphasig und prueft die Ownership unmittelbar vor dem finalen
 `os.replace` erneut. Das verbleibende Zeitfenster ist dieser eine
 atomare Replace.
 **Takeover eines abgelaufenen Mutex** laeuft unter demselben
-Coordination-Intent: wer es nicht per O_CREAT|O_EXCL anlegen kann,
-verliert; unter dem Intent muss der Mutex noch dieselbe Identitaet
+Coordination-Intent: wer es auch nach Ablauf der Wartefrist nicht per
+O_CREAT|O_EXCL anlegen kann, verliert; unter dem Intent muss der Mutex noch dieselbe Identitaet
 (`nonce` UND `heartbeat_at`) tragen wie zuvor beobachtet, sonst bricht
 auch der Uebernehmer ab; erst dann atomarer Replace mit eigener Nonce
 und Freigabe nur nach Re-Read mit Nonce-Match (compare-before-delete).
 Damit koennen zwei Uebernehmer nicht beide gewinnen.
+
+**Wirkungen an der Klinke duerfen nicht still ausfallen.** Auf
+Plattformen mit verbindlicher Dateisperrung (Windows) blockiert bereits
+ein *lesender* Mitbewerber sowohl das Loeschen als auch das atomare
+Ersetzen mit einer Sharing-Verletzung. Eine Freigabe, die diesen Fehler
+verschluckt, ist nicht die vorsichtige Variante: die Klinke bleibt dann
+bis zum Ablauf ihrer TTL liegen und blockiert jeden weiteren Schreiber,
+obwohl niemand sie haelt. Loeschen und Ersetzen werden deshalb
+beschraenkt wiederholt. Ein Ersetzen, das endgueltig scheitert, ist
+harter Abbruch — der Write ist nicht gelandet. Ein Loeschen, das
+endgueltig scheitert, wird mit Dateipfad als WARNING gemeldet und nie als
+Erfolg ausgegeben. Symmetrisch dazu ist ein vom Betriebssystem
+**verweigerter** Create (nicht „existiert bereits", sondern „darf gerade
+nicht") ein verlorener Anspruch mit regulaerem Fehlausgang, kein
+Programmabsturz: Exit-Codes tragen Bedeutung, ein Traceback nicht. Daraus folgt auch die Poll-Disziplin des Wartenden:
+er probiert den exklusiven Create (der eine bestehende Datei nicht
+oeffnet) und liest die Payload nur selten nach, denn die TTL misst
+Minuten. Ein Wartender, der im Millisekundentakt liest, haelt die Datei
+oft genug offen, um ihrem Halter die eigene Freigabe zu blockieren.
 
 **Benannte Grenze — Aufraeumen verwaister Intents.** Bleibt ein Intent
 nach einem Prozessabsturz liegen, ist seine automatische Bereinigung
@@ -375,6 +415,13 @@ einen nachweislich atomaren Mechanismus: ein OS-Advisory-Lock
 Recovery, bei der ein verwaistes Intent gar nicht automatisch bereinigt
 wird, sondern der Lauf mit klarer Aufforderung blockiert. Bis dahin ist
 dies eine offen deklarierte Grenze, kein unerkannter Rest.
+
+Zur selben Grenze gehoert der Rest der Sharing-Verletzung: laesst ein
+Leser waehrend der gesamten Wiederholungsfrist kein Fenster, ueberlebt
+die Klinke bis zu ihrer TTL. Die Wiederholung macht das sehr
+unwahrscheinlich, nicht unmoeglich; die WARNING benennt den Fall, damit
+er nicht als „Schreiber X haelt die Klinke" fehlgelesen wird. Auch dieser
+Rest verschwindet erst mit einem OS-Advisory-Lock.
 
 `LEASE.json`
 (`{schema_version, run_id, owner{principal_id, harness, session_ref},

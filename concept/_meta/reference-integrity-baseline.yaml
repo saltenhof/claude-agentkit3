@@ -258,7 +258,7 @@ unresolved_references:
     reason: Illustrative deployed prompt-subtree placeholder, not a literal repository path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/78_concept_incubation_process.md
-    line: 831
+    line: 878
     reference: tools/agentkit/concept_toolchain
     reason: Installer target-project location, not a source-repository location.
 document_cycles:

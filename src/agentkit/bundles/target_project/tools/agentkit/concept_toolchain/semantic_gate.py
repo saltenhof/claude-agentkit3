@@ -17,8 +17,12 @@ a legitimate long-running operation is never taken over as crashed.
 
 EVERY mutex change and effect — acquire, takeover, heartbeat refresh,
 payload write and release — runs under ONE shared coordination intent
-``RUN.mutex.intent`` (``O_CREAT|O_EXCL``): whoever cannot create it loses
-and aborts. Because there is exactly one intent (not a separate write and
+``RUN.mutex.intent`` (``O_CREAT|O_EXCL``): whoever cannot create it waits
+for it, bounded by ``INTENT_WAIT_SECONDS``, and aborts once that budget is
+spent. The intent is only ever held across a handful of file operations,
+so waiting it out is the normal case; giving up on first sight would let a
+losing competitor evict the rightful mutex owner from its own critical
+section. Because there is exactly one intent (not a separate write and
 takeover intent), a takeover can never interleave with another writer's
 critical section. The intent carries its own nonce
 (``{holder_principal, holder_session, intent_nonce, acquired_at,
@@ -162,9 +166,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             guard = _MutexGuard(run_dir, nonce or "", principal, session)
             try:
                 guard.revalidate()
-            except MutexLostError as exc:
+            except (MutexLostError, OSError) as exc:
                 result.complete = False
-                result.incomplete_reason = str(exc)
+                result.incomplete_reason = _mutation_problem(exc)
             else:
                 _dispatch(args, command, result, project_root, run_dir, run, guard)
     finally:
@@ -175,6 +179,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 class MutexLostError(Exception):
     """Raised when mutex ownership is lost inside a critical section."""
+
+
+def _mutation_problem(exc: BaseException) -> str:
+    """Describe why a mutation stopped — losing the mutex or the file system.
+
+    Both end the same way: nothing was written and the run reports
+    INCOMPLETE. An OS error must not escape as a traceback, because this
+    CLI's exit codes carry meaning (``1`` is validation findings) and a
+    crash carries none.
+    """
+    if isinstance(exc, MutexLostError):
+        return str(exc)
+    return f"file system error while coordinating the mutex: {exc}; refusing to mutate"
 
 
 class _MutexGuard:
@@ -226,14 +243,14 @@ class _MutexGuard:
                     problem = _mutex_still_ours(self.run_dir, self.nonce, self.principal, self.session)
                     if problem is not None:
                         raise MutexLostError(problem)
-                    os.replace(temp, path)
+                    _replace_owned_file(temp, path)
                 except BaseException:
                     with contextlib.suppress(OSError):
                         temp.unlink()
                     raise
-        except MutexLostError as exc:
+        except (MutexLostError, OSError) as exc:
             result.complete = False
-            result.incomplete_reason = str(exc)
+            result.incomplete_reason = _mutation_problem(exc)
             return False
         return True
 
@@ -248,10 +265,12 @@ class _MutexGuard:
             with _coordination_intent(self.run_dir, self.principal, self.session):
                 state, _ = runmodel_locks.load_mutex_state(self.run_dir / RUN_MUTEX_FILE)
                 if state is not None and state.nonce == self.nonce:
-                    with contextlib.suppress(OSError):
-                        (self.run_dir / RUN_MUTEX_FILE).unlink()
-        except MutexLostError:
-            return  # someone else coordinates the mutex now; never force a release
+                    _remove_owned_file(self.run_dir / RUN_MUTEX_FILE)
+        except (MutexLostError, OSError):
+            # Someone else coordinates the mutex now, or the file system
+            # refused: never force a release, and never let the teardown
+            # of a finished run turn into a crash.
+            return
 
 
 def _dispatch(
@@ -312,6 +331,31 @@ def _mutex_payload(principal: str, session: str, nonce: str, acquired_at: str) -
 
 INTENT_NAME = "RUN.mutex.intent"
 
+#: How long a writer waits for a live foreign coordination intent before it
+#: fails closed. The intent is a short-held latch (a handful of file
+#: operations), not the ownership right — that is the mutex with its nonce,
+#: TTL and fencing token. A writer that gave up on first sight would abort
+#: the rightful mutex owner in its next critical section, so under real
+#: contention no writer got through at all (AG3-179).
+INTENT_WAIT_SECONDS = 5.0
+
+#: Poll interval while waiting for the latch to be released.
+INTENT_POLL_SECONDS = 0.02
+
+#: How often a waiting writer re-reads the latch payload. The exclusive
+#: create is the cheap probe; reading the payload is only needed to judge
+#: the TTL, which is measured in minutes. Reading it on every poll would
+#: keep the file open often enough to block its holder's own delete.
+INTENT_PROBE_SECONDS = 1.0
+
+#: How long a file effect is retried while another process has the file
+#: open. On Windows an open reader blocks both ``unlink`` and ``replace``
+#: with a sharing violation. Abandoning the effect there is not
+#: fail-closed: compare-before-delete has already established ownership,
+#: so a release that quietly does nothing orphans the latch until its TTL
+#: elapses and blocks every writer in the meantime (AG3-179).
+FILE_EFFECT_RETRY_SECONDS = 5.0
+
 
 def _intent_payload(principal: str, session: str, intent_nonce: str) -> bytes:
     payload = {
@@ -324,30 +368,67 @@ def _intent_payload(principal: str, session: str, intent_nonce: str) -> bytes:
     return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
-def _claim_intent(run_dir: Path, principal: str, session: str) -> str | None:
-    """Claim the single coordination intent; returns its nonce or ``None``.
+def _claim_intent(run_dir: Path, principal: str, session: str) -> tuple[str | None, str | None]:
+    """Claim the coordination intent; returns its nonce or why it was lost.
 
-    ``O_CREAT|O_EXCL`` is the arbiter. An existing intent is only cleared
-    when its own TTL elapsed AND it still carries the exact identity that
-    was observed (compare-before-delete); the subsequent exclusive create
-    decides the race between two reclaimers.
+    ``O_CREAT|O_EXCL`` is the arbiter — never a read-then-create. A live
+    foreign latch is waited out for at most ``INTENT_WAIT_SECONDS``,
+    because the latch is held only across a handful of file operations;
+    afterwards the claim fails closed. Its payload is re-read at most
+    every ``INTENT_PROBE_SECONDS``, because a waiter that keeps the file
+    open blocks its holder's own release. An existing intent is cleared
+    only when its own TTL elapsed AND it still carries the exact identity
+    that was observed (compare-before-delete); the subsequent exclusive
+    create decides the race between two reclaimers.
     """
     intent = run_dir / INTENT_NAME
     nonce = uuid.uuid4().hex
-    for _attempt in range(2):
+    deadline = time.monotonic() + INTENT_WAIT_SECONDS
+    probe_at: float | None = None
+    while True:
         try:
             descriptor = os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            observed, _ = runmodel_locks.load_intent_state(intent)
-            if observed is not None and not runmodel_digests.timestamp_expired(observed.acquired_at, observed.ttl_seconds):
-                return None
-            if not _clear_stale_intent(intent, observed):
-                return None
+            now = time.monotonic()
+            if probe_at is None or now >= probe_at:
+                probe_at = now + INTENT_PROBE_SECONDS
+                if _reclaim_expired_intent(intent):
+                    continue
+            if now >= deadline:
+                return None, _held_intent_problem()
+            time.sleep(INTENT_POLL_SECONDS)
+            continue
+        except OSError as exc:
+            # Not "it exists" but "the platform refused the create right
+            # now" — a sharing artefact of a competitor holding the latch
+            # open. Losing the claim is correct; crashing is not, because
+            # this CLI's exit codes carry no meaning for a traceback.
+            if time.monotonic() >= deadline:
+                return None, f"cannot create the RUN.mutex coordination intent: {exc}; refusing to mutate"
+            time.sleep(INTENT_POLL_SECONDS)
             continue
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(_intent_payload(principal, session, nonce))
-        return nonce
-    return None
+        return nonce, None
+
+
+def _held_intent_problem() -> str:
+    """Describe the fail-closed exit after the wait budget is spent."""
+    return f"another writer still holds the RUN.mutex coordination intent after {INTENT_WAIT_SECONDS:g}s; refusing to mutate"
+
+
+def _reclaim_expired_intent(intent: Path) -> bool:
+    """Reclaim a latch whose own TTL elapsed; ``True`` if it is gone now.
+
+    A live latch is left alone — it belongs to a writer that is inside its
+    critical section. An unreadable payload counts as expired only through
+    the mtime fallback of ``_clear_stale_intent``, so the gap between the
+    exclusive create and the payload write is waited out, not stolen.
+    """
+    observed, _ = runmodel_locks.load_intent_state(intent)
+    if observed is not None and not runmodel_digests.timestamp_expired(observed.acquired_at, observed.ttl_seconds):
+        return False
+    return _clear_stale_intent(intent, observed)
 
 
 def _clear_stale_intent(intent: Path, observed: runmodel_locks.IntentState | None) -> bool:
@@ -360,15 +441,35 @@ def _clear_stale_intent(intent: Path, observed: runmodel_locks.IntentState | Non
                 return False
         except OSError:
             return True
-        with contextlib.suppress(OSError):
-            intent.unlink()
-        return True
+        return _remove_owned_file(intent)
     current, _ = runmodel_locks.load_intent_state(intent)
     if current is None or current.intent_nonce != observed.intent_nonce:
         return False
-    with contextlib.suppress(OSError):
-        intent.unlink()
-    return True
+    return _remove_owned_file(intent)
+
+
+def _remove_owned_file(path: Path) -> bool:
+    """Delete a file whose ownership the caller already established.
+
+    Retries the transient Windows sharing violation: a competitor that
+    merely reads the file blocks its deletion, and giving up there is not
+    a stricter behaviour but an orphaned latch that blocks every writer
+    until its TTL elapses. Reports an unremovable file instead of
+    pretending it is gone.
+    """
+    deadline = time.monotonic() + FILE_EFFECT_RETRY_SECONDS
+    while True:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return True  # someone reclaimed it after its TTL; it is gone either way
+        except OSError as exc:
+            if time.monotonic() >= deadline:
+                print(f"[WARNING] could not remove {path}: {exc}; it stays behind until its TTL", file=sys.stderr)
+                return False
+            time.sleep(INTENT_POLL_SECONDS)
+        else:
+            return True
 
 
 def _release_intent(run_dir: Path, intent_nonce: str) -> None:
@@ -377,16 +478,15 @@ def _release_intent(run_dir: Path, intent_nonce: str) -> None:
     state, _ = runmodel_locks.load_intent_state(intent)
     if state is None or state.intent_nonce != intent_nonce:
         return
-    with contextlib.suppress(OSError):
-        intent.unlink()
+    _remove_owned_file(intent)
 
 
 @contextlib.contextmanager
 def _coordination_intent(run_dir: Path, principal: str, session: str) -> Iterator[None]:
     """Hold the single coordination intent for the enclosed mutex effect."""
-    intent_nonce = _claim_intent(run_dir, principal, session)
+    intent_nonce, problem = _claim_intent(run_dir, principal, session)
     if intent_nonce is None:
-        raise MutexLostError("another writer holds the RUN.mutex coordination intent; refusing to mutate")
+        raise MutexLostError(problem or _held_intent_problem())
     try:
         yield
     finally:
@@ -408,8 +508,8 @@ def _acquire_mutex(run_dir: Path, principal: str, session: str, fencing_token: i
                 _atomic_write_bytes(mutex, _mutex_payload(principal, session, nonce, _now_utc()))
                 return nonce, None
             return _take_over_mutex(run_dir, mutex, nonce, principal, session, fencing_token)
-    except MutexLostError as exc:
-        return None, str(exc)
+    except (MutexLostError, OSError) as exc:
+        return None, _mutation_problem(exc)
 
 
 def _take_over_mutex(
@@ -525,8 +625,28 @@ def _stage_temp(path: Path, data: bytes) -> Path:
     return temp
 
 
+def _replace_owned_file(temp: Path, path: Path) -> None:
+    """Commit a staged payload, retrying the transient sharing violation.
+
+    Same reason as ``_remove_owned_file``: on Windows a competitor that
+    reads the destination blocks the swap. Unlike a deletion this one must
+    not be reported and dropped — a write that did not land is a hard
+    error, so the last failure is raised.
+    """
+    deadline = time.monotonic() + FILE_EFFECT_RETRY_SECONDS
+    while True:
+        try:
+            os.replace(temp, path)
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(INTENT_POLL_SECONDS)
+        else:
+            return
+
+
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
-    os.replace(_stage_temp(path, data), path)
+    _replace_owned_file(_stage_temp(path, data), path)
 
 
 # --------------------------------------------------------------------------

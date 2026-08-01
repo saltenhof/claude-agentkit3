@@ -2,10 +2,10 @@ story_id: AG3-179
 story_title_short: "run-mutex-intent-liveness"
 title: "RUN.mutex-Koordinations-Klinke: Liveness-Defekt beheben — der rechtmaessige Mutex-Eigentuemer wird vom unterlegenen Mitbewerber abgeschossen, weil `_claim_intent` bei einer lebenden fremden Klinke sofort aufgibt statt beschraenkt zu warten; unter Nebenlaeufigkeit kommt dadurch KEIN Schreiber durch."
 type: implementation
-status: ready
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-07-30"
-size: S
+size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagnose.
 # Herkunft: gefunden 2026-07-30 vom Orchestrator beim AG3-176-Abschlusslauf.
 # Der Vollauf kippte einmal in test_mutex_race.py um; der daraufhin gefahrene
 # Lastnachweis hat den Defekt reproduzierbar gemacht UND als BESTANDSDEFEKT AUF
@@ -14,5 +14,44 @@ size: S
 #   - AG3-176-Branch, identischer Aufbau, 48 Laeufe:         2 x rot (~4 %)
 # Der Branch ist also nicht schlechter; er hat den Defekt nur sichtbar gemacht.
 # Bewusst NICHT in AG3-176 mitgeschleppt (fremder Bounded Context, eigener Schnitt).
+#
+# 2026-08-01: Der Befund BLOCKIERT SEIT BUILD #1203 DIE GESAMTE CI — die Stage
+# "Unit Tests + Coverage" kippt an genau diesem Test, danach werden alle
+# nachgelagerten Stages inkl. SonarQube und Quality Gate uebersprungen. Damit
+# haengt auch AC9 von AG3-176 an dieser Story.
+#
+# UMSETZUNG (PO-Auftrag 2026-08-01 "setz jetzt mal die 179 um"): Es waren DREI
+# Defekte derselben Familie, nicht einer. Nur der erste stand in der Story:
+#  1) LIVENESS: `_claim_intent` gab bei lebender fremder Klinke sofort auf.
+#     Behoben durch beschraenktes Warten (INTENT_WAIT_SECONDS), danach weiter
+#     fail-closed. Alle Invarianten unangetastet (O_EXCL, compare-before-delete,
+#     TTL, Fencing-Token, Heartbeat); kein Bypass fuer den Eigentuemer.
+#  2) LEAK: `unlink` der Klinke lief unter `contextlib.suppress(OSError)`. Auf
+#     Windows blockiert ein LESENDER Mitbewerber das Loeschen (WinError 32, am
+#     lebenden System gemessen, nicht vermutet) — die Freigabe tat dann nichts
+#     und die Klinke lag bis zur TTL (600 s) herum, waehrend sie niemand hielt.
+#     Mein Warten hat diesen Altbestand erst sichtbar gemacht, weil ein Wartender
+#     die Datei staendig oeffnete. Behoben: geschuldete Wirkungen werden
+#     beschraenkt wiederholt, ein endgueltiges Scheitern wird als WARNING mit
+#     Pfad gemeldet statt verschluckt; Wartende lesen die Payload nur noch im
+#     Sekundentakt (der exklusive Create ist die billige Probe).
+#  3) CRASH: der Create fing nur `FileExistsError`; jeder andere OS-Fehler
+#     beendete das CLI mit Traceback und Exit 1 — ausgerechnet der Code, den
+#     derselbe Vertrag fuer Validierungsfunde reserviert. Behoben: verlorener
+#     Anspruch mit regulaerem Fehlausgang und benannter Ursache.
+# Konzept nachgezogen: FK-78 §78.4 (sagte woertlich "wer es nicht per
+# O_CREAT|O_EXCL anlegen kann, verliert") + Decision Record
+# 2026-08-01-run-mutex-intent-bounded-wait.md.
+#
+# LASTNACHWEIS (AC 2, gefordert: 100 Laeufe unter CPU-Konkurrenz, 0 rot).
+# Aufbau identisch zu dem, mit dem der Defekt als Bestandsdefekt belegt wurde
+# (8 CPU-Brenner + isolierter Wettlauf-Test, ein Testlauf je Prozess):
+#   nach Fix 1 (nur Warten):              4 / 100 rot
+#   nach Fix 2 (Leak):                    1 / 100 rot
+#   nach Fix 3 (Absturz), finaler Stand:  0 / 150 rot
+# Die beiden Zwischenstaende sind hier bewusst festgehalten: der Lastnachweis
+# hat die Defekte 2 und 3 gefunden, nicht bestaetigt.
+# Jeder der drei Fixes ist zusaetzlich per Mutation belegt (Fix zurueckgedreht
+# -> zugehoeriger Test rot; wiederhergestellt -> gruen).
 depends_on: []
 unblocks: []
