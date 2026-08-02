@@ -221,8 +221,28 @@ durch CCAG blockierbar ist).
 | `*_SECRET*`, `*_TOKEN*`, `*_PASSWORD*` | Ja (BLOCKING) |
 | `*.keystore`, `*.jks` | Ja (BLOCKING) |
 
-Zusätzlich scannt der Check Diff-Inhalte auf Patterns wie
+Zusätzlich scannt der Check Diff-Inhalte auf Credential-Präfixe:
 `AKIA` (AWS Access Key), `ghp_` (GitHub PAT), `sk-` (OpenAI Key).
+
+**Ein Präfix allein ist kein Treffer.** Gescannt wird die *Form* des
+ausgestellten Credentials, nicht die blosse Zeichenfolge. Ein Treffer
+verlangt beides:
+
+1. **Token-Anfang.** Unmittelbar vor dem Präfix darf kein Token-Zeichen
+   (`[A-Za-z0-9_-]`) stehen. Fachprosa, die das Präfix im Wortinneren
+   trägt — `risk-adjusted`, `task-`, `desk-` —, ist damit kein Treffer.
+2. **Mindestkörper.** Nach dem Präfix müssen mindestens so viele
+   Token-Zeichen folgen, wie das ausstellende System vergibt: `AKIA` 16,
+   `ghp_` 36, `sk-` 20.
+
+Beide Bedingungen sind Pflicht. Ohne (1) blockiert der Scan deutsche und
+englische Prosa dauerhaft und erzieht damit zu `--no-verify`; ohne (2)
+genügt ein Präfix am Zeilenanfang. Ein Scanner, der Fliesstext ablehnt,
+schützt nichts — er wird umgangen.
+
+Eigentümer der konkreten Werte ist
+`src/agentkit/backend/governance/guard_system/secret_patterns.py`; die
+Längen sind dort je Präfix hinterlegt und begründet.
 
 ### 15.5.3 Governance-Beobachtung: Secret-Zugriff
 

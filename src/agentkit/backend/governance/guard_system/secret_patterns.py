@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass
 from enum import StrEnum
+
+TOKEN_BODY_CHARACTERS = "A-Za-z0-9_-"
 
 
 class SecretPatternKind(StrEnum):
@@ -12,15 +15,40 @@ class SecretPatternKind(StrEnum):
 
     FILE_EXTENSION = "file_extension"
     FILE_NAME = "file_name"
-    CONTENT_PREFIX = "content_prefix"
+    TOKEN_PREFIX = "token_prefix"
 
 
 @dataclass(frozen=True)
 class SecretPattern:
-    """One typed secret-detection pattern."""
+    """One typed secret-detection pattern over changed file paths."""
 
     kind: SecretPatternKind
     value: str
+
+
+@dataclass(frozen=True)
+class SecretTokenPattern:
+    """One secret-token pattern for diff content.
+
+    A hit requires the credential shape, not the mere character sequence:
+    ``value`` must start a token — no token character may precede it — and at
+    least ``min_body_length`` token characters must follow it. Prose that
+    happens to contain the prefix inside a word (``risk-adjusted``) or a short
+    look-alike is therefore not a hit.
+
+    Attributes:
+        value: The literal credential prefix, anchored at a token start.
+        min_body_length: Minimum number of token characters that must follow
+            ``value``, taken from the shape the issuing system actually emits.
+    """
+
+    value: str
+    min_body_length: int
+
+    @property
+    def kind(self) -> SecretPatternKind:
+        """Return the pattern kind, fixed for every secret-token pattern."""
+        return SecretPatternKind.TOKEN_PREFIX
 
 
 @dataclass(frozen=True)
@@ -36,7 +64,7 @@ class SecretContentHit:
     """A diff-content line matched by the canonical secret content patterns."""
 
     path: str
-    pattern: SecretPattern
+    pattern: SecretTokenPattern
     line: str
 
 
@@ -55,10 +83,25 @@ SECRET_FILE_PATTERNS: tuple[SecretPattern, ...] = (
     SecretPattern(SecretPatternKind.FILE_NAME, "*_password*"),
 )
 
-SECRET_CONTENT_PATTERNS: tuple[SecretPattern, ...] = (
-    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "AKIA"),
-    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "ghp_"),
-    SecretPattern(SecretPatternKind.CONTENT_PREFIX, "sk-"),
+SECRET_CONTENT_PATTERNS: tuple[SecretTokenPattern, ...] = (
+    # AWS access key ID: prefix plus 16 characters.
+    SecretTokenPattern("AKIA", min_body_length=16),
+    # GitHub personal access token: prefix plus 36 characters.
+    SecretTokenPattern("ghp_", min_body_length=36),
+    # OpenAI API key: prefix plus at least 20 characters.
+    SecretTokenPattern("sk-", min_body_length=20),
+)
+
+_TOKEN_MATCHERS: tuple[tuple[SecretTokenPattern, re.Pattern[str]], ...] = tuple(
+    (
+        pattern,
+        re.compile(
+            f"(?<![{TOKEN_BODY_CHARACTERS}])"
+            f"{re.escape(pattern.value)}"
+            f"[{TOKEN_BODY_CHARACTERS}]{{{pattern.min_body_length},}}"
+        ),
+    )
+    for pattern in SECRET_CONTENT_PATTERNS
 )
 
 
@@ -99,10 +142,10 @@ def find_secret_content_hits(
     return tuple(hits)
 
 
-def secret_content_pattern_for(line: str) -> SecretPattern | None:
-    """Return the first matching canonical secret content pattern for ``line``."""
-    for pattern in SECRET_CONTENT_PATTERNS:
-        if pattern.value in line:
+def secret_content_pattern_for(line: str) -> SecretTokenPattern | None:
+    """Return the first canonical secret-token pattern whose shape ``line`` carries."""
+    for pattern, matcher in _TOKEN_MATCHERS:
+        if matcher.search(line) is not None:
             return pattern
     return None
 
@@ -110,10 +153,12 @@ def secret_content_pattern_for(line: str) -> SecretPattern | None:
 __all__ = [
     "SECRET_CONTENT_PATTERNS",
     "SECRET_FILE_PATTERNS",
+    "TOKEN_BODY_CHARACTERS",
     "SecretContentHit",
     "SecretFileHit",
     "SecretPattern",
     "SecretPatternKind",
+    "SecretTokenPattern",
     "find_secret_content_hits",
     "find_secret_file_hits",
     "secret_content_pattern_for",

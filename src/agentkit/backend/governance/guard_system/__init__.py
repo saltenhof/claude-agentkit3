@@ -22,6 +22,7 @@ from agentkit.backend.governance.guard_system.secret_patterns import (
     SecretFileHit,
     SecretPattern,
     SecretPatternKind,
+    SecretTokenPattern,
 )
 from agentkit.backend.governance.guard_system.skill_usage_check import (
     DEFAULT_SKILL_USAGE_RULES,
@@ -54,6 +55,7 @@ __all__ = [
     "SecretFileHit",
     "SecretPattern",
     "SecretPatternKind",
+    "SecretTokenPattern",
     "SkillBindingLookup",
     "SpawnHeader",
     "SpawnMode",

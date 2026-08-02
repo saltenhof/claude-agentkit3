@@ -374,7 +374,7 @@ class StructuralCheck:
 | Check-ID | Was | Severity | FK |
 |----------|-----|----------|-----|
 | `security.secrets` | Keine `.env`, `.pem`, `.key` etc. im Diff | BLOCKING | FK-05-140 |
-| `security.secrets_content` | Keine API-Key-Patterns (`AKIA`, `ghp_`, `sk-`) im Diff-Inhalt | BLOCKING | — |
+| `security.secrets_content` | Keine API-Keys in Credential-Form (`AKIA`, `ghp_`, `sk-` je am Token-Anfang plus Mindestkörper, FK-15 §15.5.2) im Diff-Inhalt | BLOCKING | — |
 
 #### Code-Hygiene
 
