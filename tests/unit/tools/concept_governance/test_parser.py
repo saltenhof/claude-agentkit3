@@ -24,6 +24,37 @@ def test_prefaced_escaped_json_is_extracted_then_strictly_revalidated() -> None:
     assert parsed.has_normative_statements is False
 
 
+def test_escaped_table_pipe_json_is_strictly_revalidated() -> None:
+    """AG3-179: a markdown-escaped pipe used to end a whole W2 run.
+
+    Our concept prose is markdown, and markdown escapes the pipes inside
+    tables. A model that quotes such a cell back emits ``\\|``, which JSON
+    rejects as an invalid escape — the same failure class as ``\\_``, one
+    table over. Repairing one character at a time only postpones the next
+    one, so every non-JSON escape is repaired.
+    """
+    parsed = parse_response(
+        '{"has_normative_statements":true,"assertions":'
+        '[{"assertion":"`LIGHT\\_INCUBATION` \\| `FULL\\_ATOM`","scopes":["lock.lifecycle"]}]}'
+    )
+    assert parsed.has_normative_statements is True
+    assert parsed.assertions[0].assertion == "`LIGHT_INCUBATION` | `FULL_ATOM`"
+
+
+def test_a_genuinely_escaped_backslash_survives_the_repair() -> None:
+    """The repair must not eat a backslash the model meant to send.
+
+    ``\\\\|`` is a VALID escape followed by a pipe. Treating its second
+    backslash as stray would silently corrupt the quoted assertion — and a
+    corrupted quote is worse than a rejected one, because it parses.
+    """
+    parsed = parse_response(
+        '{"has_normative_statements":true,"assertions":'
+        '[{"assertion":"path C:\\\\\\\\dir \\| next","scopes":["lock.lifecycle"]}]}'
+    )
+    assert parsed.assertions[0].assertion == "path C:\\\\dir | next"
+
+
 def test_regex_fallback_rejects_contradictory_json_and_verdict() -> None:
     raw = (
         '{"has_normative_statements":false,"assertions":'

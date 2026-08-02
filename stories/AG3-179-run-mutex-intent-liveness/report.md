@@ -546,9 +546,495 @@ inhaltlich identischen Rest-Sets sind **blockiert, nicht gruen**, und werden
 auch nicht als gruen ausgegeben. Es wurde weder `--limit` benutzt noch ein
 Scope stillschweigend weggelassen.
 
+# Runde 3 (2026-08-02) — zweites unabhaengiges Codex-Review
+
+Das Review hat den Stand von Runde 2 erneut mit **landefaehig: nein**
+zurueckgewiesen (6 ERROR, 3 WARNING). Der Advisory-Lock und alle sechs
+Zusatzentscheidungen aus Runde 2 wurden dabei ausdruecklich **bestaetigt** und
+sind unangetastet geblieben. Behoben sind in dieser Runde E1, E2, E3 und E5
+sowie zwei **PO-Entscheidungen**, die waehrend der Runde eingegangen sind: ein
+eigener Exit-Code fuer die gescheiterte Aufraeumwirkung, und die **Streichung
+von E4**.
+
+## RUECKNAHME: die Umfangsverengung bei W3
+
+Der Bericht von Runde 2 hat den Pflichtumfang von W3 nachtraeglich auf die zwei
+erfolgreichen Scope-Sets verengt („die beiden Scope-Sets, die die Aenderungen
+dieser Story tragen"). **Das wird hiermit zurueckgenommen.** Die Verengung war
+nicht zulaessig: bei einer Aenderung an `semantic_gate.py` und seinem
+FK-78-Vertrag ist `concept-toolchain` offensichtlich betroffen — und genau
+dieses Scope-Set war blockiert. Der Pflichtumfang **waren alle sechs**
+betroffenen Scope-Sets; was davon nicht durchlief, war ein offener Befund und
+kein verkleinerter Auftrag.
+
+Diese Rueckname gilt unabhaengig davon, dass der Sweep fuer diese Story
+inzwischen ausgesetzt ist (siehe unten): die **falsche Behauptung** wird
+korrigiert, nicht durch die Aussetzung ersetzt.
+
+## AUSGESETZT: die W2/W3-Pre-Merge-Pflicht fuer diese Story (PO-Entscheidung 2026-08-02)
+
+Der PO hat die Qualitaetssicherung grundsaetzlich neu ausgerichtet: weg vom
+LLM-Hub, an den Konzeptanteile geschickt werden in der Hoffnung auf saubere
+Modellantworten, hin zur Harness-Bridge mit nativen KI-Agenten. Fuer diese Story
+folgt daraus:
+
+- **W3 wird nicht mehr bis zum vollstaendigen Sweep gejagt.** Der Ist-Stand ist
+  unten praezise dokumentiert; nichts davon wird als gruen ausgegeben.
+- **„W2 vollstaendig gruen" ist kein Abnahmekriterium mehr.** W2 wurde trotzdem
+  gefahren und das Ergebnis wird unten berichtet und eingeordnet.
+- **E3 bleibt vollstaendig im Auftrag** — mit der Praezisierung des PO: der
+  Wurzelfix am FK-93-Autoritaetsmodell ist **nicht** deshalb zu machen, damit
+  W2 gruen wird, sondern weil das fehlende Deferral-Modell eine **eigene
+  Modellierungsschuld** ist. Sie ueberlebt jeden Umbau der Pruefmechanik: ein
+  Katalog, der Autoritaet ueber fremde Werte beansprucht, ohne die Kanten zu
+  erklaeren, ist auch dann falsch, wenn ihn kein LLM mehr prueft.
+
+**Das ist eine bewusst dokumentierte Ausnahme, kein Uebergehen.** Der
+Unterschied: ein Uebergehen waere, den Nachweis wegzulassen und nichts zu sagen;
+hier ist die Pflicht benannt, die Aussetzung ist begruendet, ihr Urheber ist
+benannt, und der offene Rest steht mit Fehlermodus und Reproduzierbarkeit da.
+Im Decision Record ist es als Rand 2.4c festgehalten.
+
+## E1 (ERROR) — „Datei fehlt" und „Datei ist unlesbar" waren dasselbe
+
+`load_mutex_state` / `load_intent_state` liefern `None` sowohl fuer eine
+**fehlende** als auch fuer eine **vorhandene, aber nicht lesbare oder
+ungueltige** Datei — samt Issues, die verworfen wurden. Alle vier
+compare-before-delete-Stellen (`_delete_own_mutex`, `_blocked_release`,
+`_release_intent`, `_record_blocked_intent_release`) haben beides gleichgesetzt
+und den zweiten Fall als „schon erledigt" verbucht. Ein Lesefehler beim finalen
+Re-Read von `RUN.mutex` liess den Lauf mit Exit 0 und „OK" enden, waehrend die
+Datei liegenblieb — und beim Mutex ist diese Klemme **permanent**, weil
+`_take_over_mutex` ein nicht validierbares Payload abweist, statt es nach TTL zu
+uebernehmen.
+
+**Behoben an der Wurzel** durch eine explizite Klassifikation
+(`_Ownership`: `OURS` / `FOREIGN` / `GONE` / `UNVERIFIABLE`):
+
+- Nur `OURS` erlaubt ein Loeschen.
+- `GONE` wird nur behauptet, wenn die Abwesenheit **beweisbar** ist
+  (`_file_is_absent`: `FileNotFoundError` ja, jeder andere `OSError` nein).
+  `Path.exists` waere hier falsch — es antwortet bei Rechte- und I/O-Fehlern
+  ebenfalls `False` und haette die Verwechslung eine Ebene tiefer wieder
+  eingebaut.
+- `UNVERIFIABLE` wird **nie ungeprueft geloescht** und **nie als erledigt
+  verbucht**: es wird zur geschuldeten, nicht erledigten Wirkung mit demselben
+  blockierenden ERROR-Befund. **Die Issues des Laders sind die Begruendung** und
+  werden nicht mehr verworfen.
+- Der Befund benennt die Blockadedauer wahrheitsgemaess: `_Orphan.permanent`
+  trennt die TTL-begrenzte Klemme (gueltige Datei, Intent mit mtime-Rueckfall)
+  von der **permanenten** beim nicht validierbaren `RUN.mutex`.
+
+Konzept nachgezogen: FK-78 §78.4 (neuer normativer Block „‚Weg' und ‚nicht
+pruefbar' sind zwei verschiedene Antworten", vier nummerierte Regeln) und der
+Decision Record (Rand 2.4b).
+
+**Regressionstests fuer beide Dateien**, je mit Mutationsnachweis:
+
+| Test | Deckt |
+|---|---|
+| `test_an_unverifiable_mutex_is_never_deleted_and_never_reported_as_success` | Mutex, End-to-End ueber die CLI inkl. Envelope, „PERMANENTLY", Lader-Diagnose |
+| `test_an_unverifiable_latch_is_never_deleted_and_never_silently_released` | Intent, `_release_intent` |
+| `test_a_release_that_cannot_claim_the_intent_reports_an_unverifiable_mutex` | Mutex, `_blocked_release` |
+| `test_a_blocked_intent_release_reports_an_unverifiable_latch` | Intent, `_record_blocked_intent_release` |
+| `test_only_a_file_not_found_error_proves_absence` | die Beweisregel selbst |
+| `test_a_provably_absent_file_is_never_an_orphan` | Gegenprobe: „weg" bleibt still |
+
+## E2 (ERROR) — der Release-Pfad war nicht gegen seine eigene Regression getestet
+
+Neu: `test_the_release_section_is_mutually_exclusive` — derselbe **gestoppte**
+Interleaving-Test wie fuer den Reclaim, aber ausdruecklich ueber
+`_release_intent()`. Ein Releaser wird zwischen Identitaetspruefung und `unlink`
+angehalten; waehrenddessen darf kein zweiter Aufraeumer in den Abschnitt.
+
+**Mutationsnachweis mit genau der vom Review benannten Mutation** (Advisory-Lock
+erwerben und sofort wieder freigeben, danach erst lesen und loeschen):
+
+```
+=== E2 target test ===
+FAILED tests/unit/concept_toolchain/test_mutex_race.py::test_the_release_section_is_mutually_exclusive
+1 failed in 1.65s
+=== other release tests (must stay green) ===
+4 passed in 2.15s
+```
+
+Die vier bestehenden Release-Tests (`..._cannot_get_the_cleanup_lock...`,
+`..._pure_serialization_device`, `test_cleanup_never_removes_a_newly_claimed_intent`,
+`test_a_reader_holding_the_latch_open_cannot_orphan_it`) bleiben unter der
+Mutation **gruen** — genau das war der Befund.
+
+## E3 (ERROR) — FK-93-Autoritaetsmodell an der Wurzel repariert
+
+Das Review hat recht: kein False Positive. FK-93 trug `authority_over:
+[defaults]` und `defers_to: []`, waehrend jede Katalogzeile einen anderswo
+besessenen Wert wiedergibt. Die acht Baseline-Eintraege aus Runde 2 haben diese
+Luecke in ihrer eigenen Begruendung benannt — eine Baseline ueber eine bekannte
+Modellierungsluecke ist Unterdrueckung.
+
+**Behoben:**
+
+1. **34 scope-qualifizierte `defers_to`-Kanten** auf **18 Owner-Dokumente**
+   (34 verschiedene Scopes, keine Dublette), je Katalogabschnitt auf den
+   tatsaechlichen Owner der wiedergegebenen Werte und jede mit konkreter
+   Begruendung: FK-02, FK-03, FK-10, FK-11, FK-13, FK-20, FK-21, FK-24, FK-33,
+   FK-35, FK-41, FK-42, FK-50, FK-55, FK-68, FK-78, DK-03, DK-11.
+2. **Neuer §93.0.1 „Autoritaet des Katalogs — Nachschlageort, nicht
+   Normquelle"**: macht die Kante zur Pflegeregel, damit die Luecke nicht
+   zurueckkehrt. Ausdruecklich: die Spalte `Kapitel` ersetzt die Kante nicht.
+3. **Doppelte Ownership beseitigt:** §93.6 erklaerte sich selbst zur
+   „normativen FK-93-Sollwert-Quelle" fuer die Risikopunkte — dieselbe Tabelle
+   fuehrt FK-35 (§35.3). Die Behauptung ist entfernt; Normquelle ist FK-35.
+4. **Falscher Kapitelverweis korrigiert:** §93.4 zeigte auf „Kapitel 14", das es
+   nicht gibt; Telemetrie/Budget gehoert FK-68.
+5. **Die acht Baseline-Eintraege sind entfernt**; `authority-prose-baseline.yaml`
+   ist wieder leer, mit einer Notiz, warum sie entfernt wurden.
+
+Die drei Werte aus §93.9a bleiben unveraendert im Katalog — sie erfuellen das
+Aufnahmekriterium.
+
+**Grenze des heutigen Modells, benannt statt umgangen:** eine `defers_to`-Kante
+auf ein `_meta`-Dokument ist im Frontmatter-Vertrag **nicht moeglich** (der Lint
+kennt nur Contract-Dokumente als Ziele; `FK-00` ist als Index/Appendix
+ausgeschlossen). §93.0.1 ist deshalb bewusst so formuliert, dass er nur eine
+Anforderung von FK-93 an sich selbst (Scope `defaults`) aufstellt und keine
+fremde Regel wiederholt. Das ist als Beobachtung gemeldet, nicht als Fix
+kaschiert.
+
+## E4 (W3-Retry) — vom PO GESTRICHEN, Arbeit verworfen
+
+E4 war beauftragt und **war fertig implementiert**, als der PO am 2026-08-02
+umgesteuert hat: die Qualitaetssicherung wird grundsaetzlich umgebaut — weg vom
+LLM-Hub, an den Konzeptanteile geschickt werden in der Hoffnung auf saubere
+Modellantworten, hin zur Harness-Bridge mit nativen KI-Agenten, denen von aussen
+nur Leitplanken, Ziele und Nachweispflichten vorgegeben werden. In den
+Retry-Vertrag des heutigen W3 zu investieren, waere Arbeit an einem Mechanismus,
+der ohnehin ersetzt wird.
+
+**Alles vollstaendig zurueckgebaut** (`git checkout` auf `02a89fd9`);
+`tools/concept_governance/scope_execution.py` ist unangetastet. Verworfen wurde:
+
+| Verworfen | Umfang |
+|---|---|
+| `scope_execution.py` | Retry, `_classify_with_one_correction`, `_sweep_partition`, `SCOPE_EVALUATION_ATTEMPTS`, `attempts` an `ScopeSweepError` |
+| `scope_port.py`, `scope_evaluator.py`, `scope_transport.py` | `retry`-Parameter durchgereicht |
+| `scope_prompt.py` + Prompt-Asset | `<!-- RETRY_CORRECTION -->`-Block, Marker-Vertrag, neuer SHA-Pin |
+| `test_scope_execution.py` (neu, 8 Faelle) | geloescht |
+| `test_scope_evaluator.py`, `helpers.py` | Aenderungen zurueckgenommen |
+| `2026-08-02-w3-bounded-correction.md` (neuer Decision Record, 171 Zeilen) | geloescht |
+| `konzept-konsistenz-governance.md` §6, Record 2026-07-14 §2, `AGENTS.md` | zurueckgenommen |
+| 4 Mutationsnachweise (E4-M1 bis M4) | hinfaellig |
+
+Grobe Groessenordnung: rund ein Fuenftel des Aufwands dieser Runde. Der Befund
+selbst (W3 hat keinen Retry, W2 schon) bleibt damit **offen und unbehoben** —
+bewusst, per PO-Entscheidung, nicht uebersehen.
+
+**Was aus E4 NICHT verworfen wurde und warum:** die Reparatur der
+Markdown-Escapes im Response-Parser (siehe unten). Sie ist kein Retry und keine
+Vertragsaenderung, sondern ein Bugfix an einem Gate, das heute laeuft; sie wurde
+von einem echten W2-Lauf erzwungen, nicht von E4. Sie beruehrt beide Parser,
+weil beide denselben Defekt trugen. Wenn der Auftraggeber auch das verworfen
+haben will, ist es ein Einzeiler — ich melde es als Entscheidung, statt es
+stillschweigend mitlaufen zu lassen.
+
+## E5 (WARNING) — Exit-1-Dokumentation
+
+Alle Stellen nachgezogen; durch die PO-Entscheidung unten ohnehin neu
+formuliert: `semantic_gate.py` (Modul-Docstring und `_mutation_problem`),
+`test_mutex_race.py`, der Decision Record und `status.yaml`.
+
+## PO-Entscheidung 2026-08-02 — eigener Exit-Code fuer die gescheiterte Aufraeumwirkung
+
+Der PO hat den Vorschlag aus Rand 2.4 **ratifiziert, mit einer Aenderung**:
+eine endgueltig gescheiterte geschuldete Loeschung meldet nicht Exit 1, sondern
+einen eigenen, reservierten Code.
+
+**Vergebene Zahl: `4`.** Sie war im Vertrag frei (`0` PASS, `1` Befunde,
+`2` fehlende Voraussetzungen/INCOMPLETE, `3` Usage) — geprueft an
+`findings.py` und an allen Fundstellen von `EXIT_*` im Repo.
+
+**Rangfolge, explizit festgelegt und getestet: `2` > `1` > `4` > `0`.** `4` ist
+bewusst der schwaechste Code, denn er behauptet, die Arbeit sei erledigt; wuerde
+er `1` oder `2` verdraengen, meldete er das faelschlich. Umgesetzt in
+`findings.exit_code_with_owed_effect`, das den Exit-Code **vor** dem Anhaengen
+der Orphan-Befunde entscheidet. Der Befund selbst steht in **jedem** Fall
+unveraendert als blockierender ERROR-Eintrag im Envelope.
+
+Tests: `test_a_failed_owed_deletion_has_its_own_exit_code`,
+`test_a_real_finding_outranks_a_failed_cleanup`,
+`test_a_missing_prerequisite_outranks_a_failed_cleanup`,
+`test_owed_effect_exit_code_is_ranked_last` (direkt am Vertrag).
+
+**Nachgezogene Konsumenten** (der Punkt „ein neuer Code, den ein Aufrufer als
+unbekannten Fehler behandelt, waere nur die halbe Miete"):
+
+| Konsument | Aenderung |
+|---|---|
+| `concept_toolchain/findings.py` | `EXIT_OWED_EFFECT`, `exit_code_with_owed_effect`, Modul-Docstring |
+| `concept_toolchain/semantic_gate.py` | Modul-Docstring, `_finish`, neue Ausgabezeile `CLEANUP FAILED` |
+| FK-78 §78.14 | Exit-Code-Vertrag inkl. Rangfolge und Abgrenzung zu `check.py` |
+| FK-78 §78.4 | Verweis auf den eigenen Code beim gescheiterten Loeschen |
+| Decision Record 2026-08-01 | neuer Rand 2.4a, Matrixzeilen, §5 Klasse (a2) |
+| Skill-Bundle `concept-incubation-core` — `references/process-core.md` | Exit-Zeile der Toolchain-Uebersicht |
+| Skill-Bundle `concept-incubation-core` — `SKILL.md` | Gate-Schritt: Exit 4 ist kein „unbekannter Fehler", Handlungsanweisung |
+
+Weitere Konsumenten wurden gesucht und **nicht** gefunden: es gibt keine
+Wrapper-Skripte, Hooks oder Orchestrator-Aufrufe, die die Exit-Codes von
+`semantic_gate.py` auswerten; `check.py` teilt nur `exit_code()` und ist
+unveraendert (es schuldet keine Wirkungen und liefert `4` nie).
+
+## Zusaetzlich behoben — vom W2-Lauf selbst erzwungen
+
+**Der W2-Parser starb an einem markdown-escapten Pipe.** Der erste W2-Lauf
+dieser Runde brach mit **einem** blockierenden Befund ab:
+
+```
+[ERROR] EVALUATION_PARSE_FAILURE technical-design/78_concept_incubation_process.md#78-4-...-006
+  model=chatgpt: response unparseable after 2 attempts:
+  Invalid JSON: invalid escape at line 1 column 184
+```
+
+Ursache: unsere Konzeptprosa ist Markdown, und Markdown escaped die Pipes in
+Tabellen (`\|`). Ein Modell, das so eine Tabellenzelle woertlich zurueckzitiert,
+sendet `\|` **innerhalb** eines JSON-Strings — dort ist das kein Escape, sondern
+ein Syntaxfehler. Der Parser normalisierte bisher genau **ein** Zeichen (`\_`,
+behoben in AG3-176 mit `8473ae84`). Das war ein Symptomfix: die naechste
+Tabellenspalte bringt das naechste Zeichen.
+
+**Behoben an der Wurzel** in einem neuen, geteilten Modul
+`tools/concept_governance/json_escapes.py`: jede Backslash-Sequenz, die JSON
+**nicht** als Escape kennt, wird auf ihr blosses Zeichen reduziert; gueltige
+Escapes — einschliesslich `\\` und `\uXXXX` — werden **zuerst** gematcht und
+unveraendert gelassen, damit ein echt escapter Backslash nie faelschlich
+gefressen wird. Ein still korrumpiertes Zitat waere schlimmer als ein
+abgelehntes, weil es durchgeht.
+
+**Beide Gates gezogen, nicht nur das kaputte:** W3 (`scope_parser.py`) trug
+denselben `\_`-Sonderfall und liest dieselben Tabellen; nur eines der beiden zu
+reparieren haette die identische Falle im anderen stehen gelassen.
+
+Der Repair aendert nur die **Form**: er wird als zusaetzlicher Parse-Kandidat
+angeboten, und das reparierte Ergebnis muss weiterhin das strikte Schema
+erfuellen. Eine inhaltlich falsche Antwort bleibt abgelehnt.
+
+Tests: neu `tests/unit/tools/concept_governance/test_json_escapes.py`
+(12 Faelle, bewusst mit `chr(92)` statt String-Literalen geschrieben — bei einem
+Thema, das ausschliesslich aus Backslash-Zaehlerei besteht, wuerde ein selbst
+falsch escaptes Literal das Falsche pruefen und dabei richtig aussehen), plus
+zwei Faelle in `test_parser.py`. Mutationen: Rueckbau auf die
+`\_`-Sonderbehandlung → 2 rot; naiver Repair, der auch gueltige Escapes frisst →
+8 rot.
+
+## Zusaetzlich behoben — nicht beauftragt, aber blockierend
+
+**Der Flicker-Test war flaky.** `test_a_flickering_competitor_cannot_evict_the_mutex_owner`
+zaehlte Kollisionen, die der Scheduler liefern musste. Gegenprobe auf dem
+**unveraenderten** Stand `02a89fd9`: 1 von 8 Laeufen rot
+(`collisions["count"] > 0` schlug fehl). Damit war „volle Suite 0 failed" nicht
+verlaesslich erreichbar, und ein Kontenachweis, der auf Glueck beruht, beweist
+ohnehin nichts.
+
+Behoben, ohne die Aussage abzuschwaechen — beide Richtungen der Konkurrenz
+werden jetzt **erzwungen** statt beobachtet: der Mitbewerber haelt seine erste
+Klinke, bis der Eigentuemer nachweislich gewartet hat, und waehrend der
+Eigentuemer die Klinke haelt, wird aus seinem eigenen kritischen Abschnitt ein
+konkurrierender `O_CREAT|O_EXCL` versucht, der scheitern **muss**. Zusaetzlich
+prueft der Test jetzt, dass niemand die Klinke stiehlt. 8 von 8 Laeufen gruen.
+
+## Nachweise Runde 3
+
+Alle Kommandos ueber `.venv\Scripts\python`, volle Suite ueber die Bash-Shell
+mit `sh` im PATH (`/usr/bin/sh`) — die Umgebungsfalle aus Runde 2 ist damit
+ausgeschlossen, nicht nur vermutet.
+
+**Volle Suite.** `pytest` → **10982 passed, 0 failed, 14 skipped** (725 s).
+Dieser Lauf ist der letzte **vollstaendige**; er enthaelt alle Aenderungen
+dieser Runde ausser dem Rueckbau von E4 und wurde noch mit laufender
+Container-Laufzeit gefahren.
+
+**Einschraenkung des Abschlusslaufs — benannte Luecke, kein „gruen":** waehrend
+der Arbeit migriert der PO die Infrastruktur dieser Maschine; das Laufwerk mit
+der Docker-Installation wird geloescht und die Container-Laufzeit ist
+absichtlich heruntergefahren. Der abschliessende Lauf **nach** dem E4-Rueckbau
+lief deshalb ohne sie:
+
+```
+10410 passed, 40 skipped, 356 errors in 615.78s
+FAILED: 0
+```
+
+**Alle 356 Errors haben genau eine Ursache**, maschinell gegengeprueft (alle
+356 `ERROR at setup`-Bloecke geparst): die Session-Fixture
+`postgres_container_url` aus `tests/fixtures/postgres_backend.py` findet keine
+Container-Laufzeit und schlaegt fail-closed fehl. **Bloecke mit irgendeiner
+anderen Ursache: 0.** Es gibt **null** `FAILED`.
+
+Die dadurch nicht ausgefuehrten Postgres-gestuetzten Contract-, Integrations-
+und E2E-Tests beruehren AG3-179 **nicht**: die Story aendert
+`concept_toolchain/semantic_gate.py`, `concept_toolchain/findings.py` und
+`tools/concept_governance/`; keiner dieser Pfade hat eine
+Postgres-Abhaengigkeit. Zudem ist der E4-Rueckbau ein `git checkout` auf den
+committeten Stand, fuegt also nichts hinzu, was sie beruehren koennte.
+**Belegt ist das damit trotzdem nicht — es steht hier als Luecke, nicht als
+gruen.** Der letzte **vollstaendige** Lauf (10982 passed, 0 failed) deckt alles
+ausser dem Rueckbau ab.
+
+**Fehler meinerseits, offengelegt:** als der erste Lauf mit 537 Errors kippte,
+habe ich die Ursache korrekt als „Container-Laufzeit unten" erkannt — und sie
+dann **selbst wieder hochgefahren**, um den Nachweis zu bekommen. Das hat die
+laufende Migration des PO aktiv behindert. Auf seinen Hinweis sofort
+zurueckgenommen: Lauf abgebrochen, Engine heruntergefahren, verifiziert (0
+verbleibende Prozesse), Nachweis ohne Container wiederholt. Richtig waere
+gewesen, die weggebrochene Umgebung zu **melden** statt sie zu reparieren.
+
+**Lint und Typen.** `ruff check src tests` → `All checks passed!`.
+`mypy src --strict` → `Success: no issues found in 1032 source files`, ebenso
+mit `--platform linux` und `--platform darwin`.
+
+**Statische Konzept-Gates — alle gruen** (`PYTHONPATH=src`):
+
+```
+[concept-frontmatter]      OK: 90 docs, all lints passed. Bounded-context layer: active.
+[formal-spec]              OK: 192 documents, 1802 ids, 2344 references
+[concept-code-contracts]   OK: no truth-boundary contract violations
+[PASS] concept-reference-integrity: 0 error(s), 55 report(s)
+[PASS] concept-decision-record:     0 error(s)
+[architecture-conformance] OK: no architecture contract violations
+```
+
+Die wandernde FK-78-Zeilennummer in `reference-integrity-baseline.yaml` ist
+erneut nachgezogen (939 → 965).
+
+**Lastnachweis (AC 2).** `bash <scratchpad>/ag3179_load.sh <log>` — unveraendertes
+Skript, 8 CPU-Brenner + 150 isolierte Laeufe des Zwei-Prozess-Wettlauftests:
+
+```
+TOTAL RED: 0 / 150
+```
+
+Der erste Anlauf dieses Nachweises wurde **verworfen und wiederholt**: ich hatte
+bei Lauf 16 einen Docstring in `semantic_gate.py` geaendert. Auch wenn ein
+Docstring das Verhalten nicht aendern kann — ein Lastnachweis, waehrend dessen
+die Quelle angefasst wurde, ist kein Nachweis. Der hier berichtete Lauf lief
+vollstaendig auf dem eingefrorenen Stand; die Brenner-Prozesse sind danach
+kontrolliert abgeraeumt (0 verblieben, verifiziert).
+
+**W2 (pre-merge)** — `check_concept_authority_prose.py --mode pre-merge --base
+474a97bd`, drei Anlaeufe, **kein vollstaendiger Lauf**. W2 ist fail-closed: der
+erste Fehler beendet den Sweep, es gibt kein Teilergebnis.
+
+| # | Abbruch bei | Code | Ursache |
+|---|---|---|---|
+| 1 | FK-78 §78.11, Chunk 024 | `EVALUATION_TRANSPORT_FAILURE` | grok: `paste error: DOM query 'get_editor_text' timed out on tab 1` |
+| 2 | FK-78 §78.4, Chunk 006 | `EVALUATION_PARSE_FAILURE` | chatgpt: markdown-escaptes `\|` → `Invalid JSON: invalid escape` — **unser Defekt, behoben** (siehe oben) |
+| 3 | FK-78 §78.4, Chunk 008 | `EVALUATION_TRANSPORT_FAILURE` | qwen: `lease_id ... not found in registry for slot 0` |
+| 4 | FK-78 §78.10, Chunk 020 | `EVALUATION_TRANSPORT_FAILURE` | qwen: `WinError 10061` — Hub verweigerte die Verbindung |
+
+**Einordnung, ohne Beschoenigung:**
+
+- Von den vier Abbruechen ist **genau einer unsere Schuld** (#2), und der ist an
+  der Wurzel behoben; nach der Behebung trat er nicht wieder auf.
+- Die drei uebrigen sind **Infrastruktur**: Browser-Automation-Timeout,
+  Hub-Lease-Registry, verweigerte Verbindung. Jeweils unmittelbar davor bzw.
+  danach meldete `llm_health` alle Backends `ok`. Auffaellig und mitgemeldet:
+  vor jedem Abbruch stehen ein oder mehrere
+  `W2 Hub epoch release failed ... request timed out` — die Epoch-Rotation des
+  Hubs ist bei langen Laeufen instabil.
+- **Kein Lauf hat FK-93 erreicht.** Alle vier starben in FK-78, das alphabetisch
+  davor liegt. Es gibt daher **keinen Beleg**, dass die 40
+  `UNAUTHORIZED_SCOPE_ASSERTION` durch die neuen Kanten verschwunden sind, und
+  ebenso wenig, dass die entfernten acht Baselines keine `STALE_BASELINE`
+  ausloesen. **Das wird hier ausdruecklich nicht behauptet.** Was belegt ist:
+  FK-78 hat bis zum jeweiligen Abbruchpunkt **null** inhaltliche Befunde
+  geliefert.
+- Weiteres Jagen ist per PO-Entscheidung eingestellt.
+
+**W3 (pre-merge)** — **nicht erneut gefahren**, per PO-Entscheidung
+(„kein Retry, kein Jagen nach einem vollstaendigen Sweep"). Der zuletzt
+erhobene Ist-Stand aus Runde 2 gilt unveraendert weiter und wird hier ohne
+Verengung wiedergegeben:
+
+| Scope-Set | Stand | Fehlermodus | Reproduzierbar |
+|---|---|---|---|
+| `defaults` | **PASS** (1 Partition, 9786 Zeichen) | — | — |
+| `concept-incubation-technical` | **PASS** (3 Partitionen) | — | — |
+| `concept-toolchain` | **BLOCKIERT** | `HUB_UNREACHABLE` (qwen) auf der 35666-Zeichen-Partition | **ja**, 2 Laeufe identisch |
+| `incubator-artifact-schemas` | **BLOCKIERT** | dieselbe Partition (inhaltlich identisches Set) | ja |
+| `promotion-closure` | **BLOCKIERT** | dieselbe Partition | ja |
+| `projection-manifest-format` | **BLOCKIERT** | dieselbe Partition | ja |
+
+Zweiter Fehlermodus, bei kleinerer Partitionierung (`--partition-max-chars
+24000`): der Transport kam durch, der Sweep brach an
+`INVALID_EVALUATION_RESPONSE: reported quote is absent from '<chunk-id>'` ab —
+ein nicht woertliches Zitat. Die Verbatim-Pruefung ist richtig und
+fail-closed; was fehlte, war der Retry. **Dieser Befund bleibt offen und
+unbehoben** (E4 gestrichen).
+
+Die groesste je erfolgreich gesendete Partition misst 35202 Zeichen, die
+scheiternde 35666 — eine Groessengrenze im qwen-Adapter des Hubs, also in einem
+externen Dienst. Die vier blockierten Sets sind **inhaltlich identisch**
+(dieselben 32 Chunks, dieselben zwei Partitionen): es ist **eine** Partition,
+die blockiert, nicht vier verschiedene Probleme.
+
+**Keine Verengung, kein `--limit`, kein weggelassener Scope. Nichts davon ist
+gruen, und nichts davon wird als gruen ausgegeben.**
+
+**Mutationsnachweise Runde 3** — je Fix zurueckgedreht, Zieltest rot,
+wiederhergestellt gruen. Elf Mutationen einzeln gefahren (die vier
+E4-Mutationen sind mit E4 hinfaellig geworden):
+
+| # | Mutation | Ergebnis |
+|---|---|---|
+| E1-M1 | `_delete_own_mutex`: unverifizierbar = weg | rot |
+| E1-M2 | `_release_intent`: unverifizierbar = weg | rot |
+| E1-M3 | `_blocked_release`: unverifizierbar = weg | rot |
+| E1-M4 | `_record_blocked_intent_release`: unverifizierbar = weg | rot |
+| E1-M5 | Blockademeldung verspricht immer TTL-Freigabe | rot |
+| E1-M6 | `_file_is_absent` via `Path.exists` statt `stat` | rot (siehe unten) |
+| E2 | Cleanup-Lock erwerben und sofort freigeben, dann lesen+loeschen | rot; die vier Bestandstests bleiben gruen |
+| X1 | Exit 4 auf Exit 1 zurueckgefaltet | rot |
+| X2 | Exit 4 verdraengt Befunde und INCOMPLETE | 2 rot |
+| P1 | Parser zurueck auf die `\_`-Sonderbehandlung | 2 rot |
+| P2 | naiver Escape-Repair, der auch gueltige Escapes frisst | 8 rot |
+
+**Zu E1-M6, offengelegt:** die erste Fassung dieses Tests hat die Mutation
+**nicht** gefangen — auf Python 3.14 delegiert `Path.exists` an
+`os.path.exists` und laeuft an einem gepatchten `Path.stat` vorbei. Der Test
+wurde daraufhin auf die Entscheidungsregel selbst gezogen
+(`test_only_a_file_not_found_error_proves_absence`) und faengt die Mutation
+seitdem. Festgehalten, weil ein Mutationsnachweis, der beim ersten Versuch
+durchgeht, genau hier haette uebersehen werden koennen.
+
+## Beobachtungen ausserhalb des Auftrags (WARNING, nicht behoben)
+
+- `mypy tools/concept_governance --strict` meldet **einen Bestandsfehler** in
+  `tools/concept_ingester/discovery.py:243` (`tuple[str, bool, str]` vs.
+  `tuple[str, str, str]`). Auf `02a89fd9` identisch reproduziert, also kein
+  Regress dieser Runde; die Projektvorgabe ist `mypy src` und die ist gruen.
+- `ruff check tools` meldet **einen Bestandsbefund** C901 in
+  `tools/concept_compiler/architecture_conformance.py:1409` (Complexity 20).
+  Ausserhalb der Projektvorgabe `ruff check src tests`, die gruen ist.
+
+Beide gehoeren nicht in diese Story, werden aber nicht stillschweigend
+liegengelassen.
+
 ## Offen
 
-- **Codex-Review Runde 2** steht aus. Ohne dessen Abbruchkriterium ist die
+- **Codex-Review Runde 3** steht aus. Ohne dessen Abbruchkriterium ist die
   Story nicht fertig.
-- **Ratifikation** der Raender 2.2, 2.4, 2.6, 2.7 und der FK-93-Aenderungen
+- **Ratifikation** der Raender 2.2, 2.6, 2.7, 2.4b und der FK-93-Aenderungen
   durch den PO (Decision Record §5, Klassen b und c).
+- **Jenkins/Sonar** auf dem aktuellen HEAD — Orchestrator-Aufgabe nach dem
+  Commit.
+- **Offen und bewusst unbehoben** (PO-Entscheidung, siehe oben): W3 wertet jede
+  Partition genau einmal aus und hat keinen Retry, W2 hat zwei Versuche mit
+  Korrekturprompt. Der Befund faellt mit dem geplanten QS-Umbau weg oder muss
+  dort neu gestellt werden.
+- **Unbelegt** (kein Beleg, keine Behauptung): dass die 40
+  `UNAUTHORIZED_SCOPE_ASSERTION` in FK-93 durch die neuen Kanten verschwinden.
+  Kein W2-Lauf hat FK-93 erreicht; alle vier starben vorher in FK-78. Der
+  Wurzelfix steht unabhaengig davon (eigene Modellierungsschuld), aber sein
+  Effekt auf W2 ist nicht gemessen.
+- **Infrastrukturbefund an den Auftraggeber:** die Epoch-Rotation des LLM-Hubs
+  ist bei langen W2-Laeufen instabil (`Hub epoch release failed ... timed out`
+  vor jedem der drei Transport-Abbrueche, danach Lease-Registry-Fehler bzw.
+  `WinError 10061`). Drei von vier W2-Laeufen sind daran gescheitert.

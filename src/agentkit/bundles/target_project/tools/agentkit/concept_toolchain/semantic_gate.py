@@ -51,7 +51,22 @@ leaves a file behind that blocks every further writer until its TTL
 elapses. Such a failure is collected in :class:`_OwedEffects` and emitted
 as a blocking ERROR finding naming the file — deliberately as a finding
 and not as an INCOMPLETE reason, because the release runs in ``main``'s
-``finally`` and the mutation it tears down may well have landed.
+``finally`` and the mutation it tears down may well have landed. On the
+process boundary it carries its own exit code (``4``), so a caller can
+tell "the work is done, the run directory needs a hand" from a wrong
+result or a run that never started, without parsing any message.
+
+"The file is gone" and "the file is there but nobody can validate it"
+are never the same answer. Both make ``load_mutex_state`` /
+``load_intent_state`` return ``None``, so every compare-before-delete
+asks :func:`_check_ownership`, which only calls a file gone when it is
+provably absent. A file that exists but cannot be verified is never
+deleted unverified — that would abandon compare-before-delete — and never
+reported as done either: it becomes the same blocking ERROR finding,
+carrying the loader's own diagnosis as its reason. For ``RUN.mutex`` that
+blockade is PERMANENT and not TTL-bounded, because a payload that does
+not validate is rejected by :func:`_take_over_mutex` instead of being
+taken over.
 
 Under the mutex the CLI reloads ``LEASE.json`` and ``RUN.json`` and
 verifies: the lease belongs to the run, is not released, its TTL is
@@ -66,11 +81,15 @@ The idempotency key is the request digest: identical content is a no-op;
 ``prepare`` never overwrites — an existing pack for the same gate and
 scope with a different request digest is an ERROR.
 
-Exit codes: ``0`` success/no-op, ``1`` blocking findings (validation
-findings or an owed effect that did not happen), ``2`` missing
-prerequisites (mutex busy, missing/expired/released/foreign lease),
-``3`` usage errors. ``--json`` emits the FK-78 envelope instead of
-human-readable output.
+Exit codes: ``0`` success/no-op, ``1`` blocking validation findings,
+``2`` missing prerequisites (mutex busy, missing/expired/released/foreign
+lease), ``3`` usage errors, ``4`` the mutation is settled but an owed
+cleanup effect did not happen. ``4`` has its own code because "work done,
+cleanup failed" is neither of the other two failures, and it has the
+WEAKEST rank: a real validation finding (``1``) or a missing prerequisite
+(``2``) always wins, because ``4`` tells a consumer the work is done.
+``--json`` emits the FK-78 envelope instead of human-readable output; the
+owed effect is a blocking ERROR finding there in every case.
 """
 
 from __future__ import annotations
@@ -78,6 +97,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import enum
 import hashlib
 import json
 import os
@@ -99,7 +119,14 @@ try:
         runmodel_tsv,
     )
     from .docmodel import file_digest_sha256
-    from .findings import EXIT_USAGE, CheckResult, error, exit_code, to_envelope
+    from .findings import (
+        EXIT_OWED_EFFECT,
+        EXIT_USAGE,
+        CheckResult,
+        error,
+        exit_code_with_owed_effect,
+        to_envelope,
+    )
     from .runmodel_constants import RunModelConstants as Vocab
     from .units import derive_units, lf_normalize
 except ImportError:  # pragma: no cover - direct script execution path
@@ -115,6 +142,8 @@ except ImportError:  # pragma: no cover - direct script execution path
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+
+    from .runmodel_validation import Issue
 
 _UNITS_HEADER = "unit_id\tsource_id\tunit_locator\tunit_digest\tclaim_refs\tempty_reason"
 RUN_MUTEX_FILE = "RUN.mutex"
@@ -202,10 +231,21 @@ class MutexLostError(Exception):
 
 @dataclass(frozen=True)
 class _Orphan:
-    """A file whose owed deletion did not happen, plus why it stayed behind."""
+    """A file whose owed deletion did not happen, plus why it stayed behind.
+
+    ``permanent`` distinguishes the two blockades a leftover file causes.
+    A file that is still a VALID payload is taken over once its TTL
+    elapses, so the run directory unwedges itself. A ``RUN.mutex`` that
+    does not validate never is: :func:`_take_over_mutex` rejects an
+    invalid payload before it ever looks at the TTL, so only a human can
+    clear it. Saying "until its TTL elapses" there would be a false
+    promise, and a false promise is how a wedged run directory ends up
+    waited on instead of repaired.
+    """
 
     path: Path
     detail: str
+    permanent: bool = False
 
 
 @dataclass
@@ -214,31 +254,91 @@ class _OwedEffects:
 
     After compare-before-delete has established ownership, the deletion is
     an owed effect and not an attempt. When it finally fails, the file
-    blocks every further writer until its TTL elapses — reporting that on
-    stderr while exiting ``0`` would be exactly the silent success FK-78
-    forbids.
+    blocks every further writer — reporting that on stderr while exiting
+    ``0`` would be exactly the silent success FK-78 forbids.
 
     The release runs in ``main``'s ``finally``, i.e. after the outcome of
     the mutation is already decided. A failure there must therefore not
     overwrite that outcome (the mutation may well have landed) and must
     not escape the teardown as an exception. It is collected here and
-    turned into an additional blocking finding by :func:`_finish`.
+    turned by :func:`_finish` into an additional blocking finding plus the
+    dedicated exit code ``4``, which says "the work is done, the run
+    directory needs a hand" without displacing a worse outcome.
     """
 
     orphans: list[_Orphan] = field(default_factory=list)
 
-    def record(self, path: Path, detail: str) -> None:
+    def record(self, path: Path, detail: str, *, permanent: bool = False) -> None:
         """Note that ``path`` stayed behind, with the reason it did."""
-        self.orphans.append(_Orphan(path=path, detail=detail))
+        self.orphans.append(_Orphan(path=path, detail=detail, permanent=permanent))
+
+
+class _Ownership(enum.Enum):
+    """What a compare-before-delete could establish about a file.
+
+    ``UNVERIFIABLE`` is the case the loaders cannot express: they return
+    ``None`` for a file that is gone AND for one that is there but
+    unreadable, truncated or invalid. Collapsing the two makes an I/O
+    error look like a completed deletion.
+    """
+
+    OURS = "ours"
+    FOREIGN = "foreign"
+    GONE = "gone"
+    UNVERIFIABLE = "unverifiable"
+
+
+def _file_is_absent(path: Path) -> bool:
+    """Whether ``path`` is PROVABLY absent — a failed stat is not proof.
+
+    ``Path.exists`` answers ``False`` for a permission or I/O error too,
+    which is exactly the confusion this function exists to avoid.
+    """
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _check_ownership(path: Path, own_nonce: str, observed_nonce: str | None) -> _Ownership:
+    """Classify a compare-before-delete target for the caller's nonce.
+
+    Args:
+        path: The file the caller owes a deletion for.
+        own_nonce: The nonce the caller wrote when it took the file.
+        observed_nonce: The nonce just loaded from the file, or ``None``
+            when the load produced no valid state at all.
+
+    Returns:
+        Which of the four outcomes holds. Only ``OURS`` permits a delete;
+        ``UNVERIFIABLE`` obliges the caller to record an owed effect.
+    """
+    if observed_nonce is not None:
+        return _Ownership.OURS if observed_nonce == own_nonce else _Ownership.FOREIGN
+    return _Ownership.GONE if _file_is_absent(path) else _Ownership.UNVERIFIABLE
+
+
+def _issue_detail(issues: Sequence[Issue]) -> str:
+    """Render the loader's own diagnosis; it IS the reason, not noise."""
+    return "; ".join(f"{issue.locator}: {issue.message}" for issue in issues) or "no diagnosis reported"
+
+
+def _unverifiable_detail(issues: Sequence[Issue]) -> str:
+    """Explain that the file is there but its identity could not be read."""
+    return f"the file exists but could not be verified as ours ({_issue_detail(issues)})"
 
 
 def _mutation_problem(exc: BaseException) -> str:
     """Describe why a mutation stopped — losing the mutex or the file system.
 
     Both end the same way: nothing was written and the run reports
-    INCOMPLETE. An OS error must not escape as a traceback, because this
-    CLI's exit codes carry meaning (``1`` is validation findings) and a
-    crash carries none.
+    INCOMPLETE. An OS error must not escape as a traceback, because every
+    exit code of this CLI carries a distinct meaning (``1`` validation
+    findings, ``2`` missing prerequisites, ``4`` an owed cleanup effect
+    that did not happen) and a crash carries none.
     """
     if isinstance(exc, MutexLostError):
         return str(exc)
@@ -333,10 +433,21 @@ class _MutexGuard:
             self._blocked_release(f"file system error during the release: {exc}")
 
     def _delete_own_mutex(self) -> None:
-        """Delete the mutex while it still carries our nonce; caller holds the intent."""
+        """Delete the mutex while it still carries our nonce; caller holds the intent.
+
+        A mutex that cannot be validated is NOT deleted — the identity it
+        would have to be compared against is precisely what is missing —
+        and it is not treated as gone either: it stays as a blocking
+        finding, because an unreadable ``RUN.mutex`` wedges the run
+        directory for good (see :class:`_Orphan`).
+        """
         mutex = self.run_dir / RUN_MUTEX_FILE
-        state, _ = runmodel_locks.load_mutex_state(mutex)
-        if state is None or state.nonce != self.nonce:
+        state, issues = runmodel_locks.load_mutex_state(mutex)
+        ownership = _check_ownership(mutex, self.nonce, state.nonce if state is not None else None)
+        if ownership is _Ownership.UNVERIFIABLE:
+            self.owed.record(mutex, _unverifiable_detail(issues), permanent=True)
+            return
+        if ownership is not _Ownership.OURS:
             return
         detail = _remove_owned_file(mutex)
         if detail is not None:
@@ -346,13 +457,17 @@ class _MutexGuard:
         """Record a release that never got to run — but only if it was still owed.
 
         A mutex that no longer carries our nonce was taken over; leaving it
-        alone is the correct outcome, not an orphan.
+        alone is the correct outcome, not an orphan. A mutex that cannot be
+        read gives no such assurance, so it is reported rather than
+        assumed away.
         """
         mutex = self.run_dir / RUN_MUTEX_FILE
-        state, _ = runmodel_locks.load_mutex_state(mutex)
-        if state is None or state.nonce != self.nonce:
-            return
-        self.owed.record(mutex, reason)
+        state, issues = runmodel_locks.load_mutex_state(mutex)
+        ownership = _check_ownership(mutex, self.nonce, state.nonce if state is not None else None)
+        if ownership is _Ownership.UNVERIFIABLE:
+            self.owed.record(mutex, f"{reason}; {_unverifiable_detail(issues)}", permanent=True)
+        elif ownership is _Ownership.OURS:
+            self.owed.record(mutex, reason)
 
 
 def _dispatch(
@@ -372,34 +487,58 @@ def _dispatch(
         _cmd_import(result, project_root, run_dir, str(args.receipt_file), guard)
 
 
+def _blockade_message(orphan: _Orphan) -> str:
+    """Say how long the leftover file blocks the next writer — truthfully."""
+    if orphan.permanent:
+        return (
+            "The file stays behind and blocks every further writer PERMANENTLY, not just for its TTL: "
+            "a RUN.mutex whose payload does not validate is rejected as invalid instead of being taken over"
+        )
+    return f"The file stays behind and blocks every further writer until its TTL ({MUTEX_TTL_SECONDS}s) elapses"
+
+
 def _orphan_message(orphan: _Orphan) -> str:
     """Spell out what an undone owed deletion means for the next writer."""
     return (
         f"owed deletion of {orphan.path} did not happen: {orphan.detail}. "
-        f"The file stays behind and blocks every further writer until its TTL "
-        f"({MUTEX_TTL_SECONDS}s) elapses; remove it manually to unblock the run. "
+        f"{_blockade_message(orphan)}; remove it manually to unblock the run. "
         f"This is a teardown failure — the mutation itself MAY ALREADY HAVE LANDED."
     )
 
 
 def _finish(args: argparse.Namespace, command: str, result: CheckResult, owed: _OwedEffects) -> int:
+    """Emit the outcome and return its exit code.
+
+    The code is decided BEFORE the owed-effect findings are appended, so
+    that a teardown failure cannot be mistaken for a validation finding: it
+    has its own code and the weakest rank (see
+    :func:`~findings.exit_code_with_owed_effect`).
+    """
+    code = exit_code_with_owed_effect([result], owed_effect_failed=bool(owed.orphans))
     for orphan in owed.orphans:
         result.findings.append(error(command, orphan.path.name, "owed-deletion", _orphan_message(orphan)))
     if args.json:
         print(json.dumps(to_envelope(command, [command], [result]), indent=2, sort_keys=True))
     else:
-        for finding in result.findings:
-            print(f"[ERROR] {finding.path}:{finding.locator} - {finding.message}")
-        for report in result.reports:
-            print(report)
-        if not result.complete:
-            print(f"[{command}] INCOMPLETE: {result.incomplete_reason}", file=sys.stderr)
-        elif result.findings:
-            print(f"[{command}] FAILED: {len(result.findings)} error(s)")
-        else:
-            suffix = f": {result.summary}" if result.summary else ""
-            print(f"[{command}] OK{suffix}")
-    return exit_code([result])
+        _print_outcome(command, result, code, len(owed.orphans))
+    return code
+
+
+def _print_outcome(command: str, result: CheckResult, code: int, orphans: int) -> None:
+    """Render the human-readable outcome; the closing line matches the code."""
+    for finding in result.findings:
+        print(f"[ERROR] {finding.path}:{finding.locator} - {finding.message}")
+    for report in result.reports:
+        print(report)
+    if not result.complete:
+        print(f"[{command}] INCOMPLETE: {result.incomplete_reason}", file=sys.stderr)
+    elif code == EXIT_OWED_EFFECT:
+        print(f"[{command}] CLEANUP FAILED: the mutation is settled, but {orphans} owed effect(s) did not happen")
+    elif result.findings:
+        print(f"[{command}] FAILED: {len(result.findings)} error(s)")
+    else:
+        suffix = f": {result.summary}" if result.summary else ""
+        print(f"[{command}] OK{suffix}")
 
 
 # --------------------------------------------------------------------------
@@ -753,14 +892,22 @@ def _release_intent(run_dir: Path, intent_nonce: str, owed: _OwedEffects) -> Non
     could otherwise delete a latch that is no longer its own. Here the
     lock IS waited for, bounded by ``FILE_EFFECT_RETRY_SECONDS``, because
     this deletion is owed — unlike the opportunistic reclaim.
+
+    A latch that exists but does not validate is left alone and reported:
+    deleting it would be a delete without the identity comparison, and
+    passing over it silently would report a release that never happened.
     """
     intent = run_dir / INTENT_NAME
     with _cleanup_lock(run_dir, FILE_EFFECT_RETRY_SECONDS) as locked:
         if not locked:
             _record_blocked_intent_release(intent, intent_nonce, owed)
             return
-        state, _ = runmodel_locks.load_intent_state(intent)
-        if state is None or state.intent_nonce != intent_nonce:
+        state, issues = runmodel_locks.load_intent_state(intent)
+        ownership = _check_ownership(intent, intent_nonce, state.intent_nonce if state is not None else None)
+        if ownership is _Ownership.UNVERIFIABLE:
+            owed.record(intent, _unverifiable_detail(issues))
+            return
+        if ownership is not _Ownership.OURS:
             return
         detail = _remove_owned_file(intent)
         if detail is not None:
@@ -771,14 +918,19 @@ def _record_blocked_intent_release(intent: Path, intent_nonce: str, owed: _OwedE
     """Note a release that never ran — but only while it was still owed.
 
     A latch that no longer carries our nonce was reclaimed by someone
-    else; leaving it alone is the correct outcome, not an orphan. Reading
-    it without the lock is safe here because nothing is deleted on that
-    basis — it only decides whether a finding is warranted.
+    else; leaving it alone is the correct outcome, not an orphan. A latch
+    that cannot be read is neither gone nor provably foreign, so it is
+    reported. Reading it without the lock is safe here because nothing is
+    deleted on that basis — it only decides whether a finding is
+    warranted.
     """
-    state, _ = runmodel_locks.load_intent_state(intent)
-    if state is None or state.intent_nonce != intent_nonce:
-        return
-    owed.record(intent, f"the cleanup lock stayed busy for {FILE_EFFECT_RETRY_SECONDS:g}s")
+    blocked = f"the cleanup lock stayed busy for {FILE_EFFECT_RETRY_SECONDS:g}s"
+    state, issues = runmodel_locks.load_intent_state(intent)
+    ownership = _check_ownership(intent, intent_nonce, state.intent_nonce if state is not None else None)
+    if ownership is _Ownership.UNVERIFIABLE:
+        owed.record(intent, f"{blocked}; {_unverifiable_detail(issues)}")
+    elif ownership is _Ownership.OURS:
+        owed.record(intent, blocked)
 
 
 @contextlib.contextmanager
@@ -820,8 +972,9 @@ def _take_over_mutex(
     """Take over an expired mutex; caller MUST hold the coordination intent."""
     observed, issues = runmodel_locks.load_mutex_state(mutex)
     if observed is None:
-        details = "; ".join(f"{issue.locator}: {issue.message}" for issue in issues)
-        return None, f"RUN.mutex exists but is not a valid mutex payload ({details}); refusing to mutate"
+        # No TTL takeover for an invalid payload: this refusal is the very
+        # reason an unverifiable RUN.mutex wedges the run permanently.
+        return None, f"RUN.mutex exists but is not a valid mutex payload ({_issue_detail(issues)}); refusing to mutate"
     if not runmodel_digests.timestamp_expired(observed.heartbeat_at, observed.ttl_seconds):
         return None, (
             f"RUN.mutex is held by {observed.owner_principal!r} (heartbeat {observed.heartbeat_at}); refusing to mutate"

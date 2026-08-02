@@ -94,8 +94,8 @@ WARNING ohne Owner und ohne Folgeauftrag erfuellt die Severity-Semantik nicht;
 ein Befund, fuer den niemand spaeter Zeit bekommt, ist im Effekt ein ignorierter
 Befund. Normativ gilt daher jetzt: ein endgueltig gescheitertes Loeschen ist ein
 **blockierender ERROR-Befund im Envelope**, niemals Exit 0 und niemals „OK". Der
-Befund benennt die liegengebliebene Datei, dass sie bis zum TTL-Ablauf jeden
-weiteren Schreiber blockiert, und dass die Mutation **moeglicherweise bereits
+Befund benennt die liegengebliebene Datei, wie lange sie jeden weiteren
+Schreiber blockiert, und dass die Mutation **moeglicherweise bereits
 gelandet** ist. Der bereits berechnete Befund des Laufs darf dabei weder
 verlorengehen noch verfaelscht werden — die Freigabe laeuft im Teardown, lange
 nachdem der Ausgang der Mutation feststeht; eine gelandete Mutation wird nicht
@@ -106,11 +106,98 @@ Symmetrisch dazu gilt das auch fuer den Erwerb: ein vom Betriebssystem
 nicht" — ist ein verlorener Anspruch mit regulaerem Fehlausgang. Bisher war nur
 `FileExistsError` behandelt; jeder andere OS-Fehler an der Klinke beendete das
 CLI mit einem Traceback und Exit 1, also ausgerechnet mit dem Code, den derselbe
-Vertrag fuer Validierungsfunde reserviert. Ein Absturz ist keine Aussage.
+Vertrag fuer **blockierende Validierungsbefunde** reserviert. Jeder Exit-Code
+dieses CLIs traegt eine eigene, unterscheidbare Aussage (`1` Befunde, `2`
+fehlende Voraussetzungen, `4` gescheiterte Aufraeumwirkung, Rand 2.4a); ein
+Absturz traegt keine.
 
 Der Rest ist benannt: laesst ein Leser waehrend der ganzen Wiederholungsfrist
 kein Fenster, ueberlebt die Klinke bis zu ihrer TTL. Der ERROR-Befund benennt
 diesen Fall mit Dateipfad.
+
+**Korrektur 2026-08-02 (Codex-Review Runde 2): „weg" und „nicht pruefbar" sind
+nicht dasselbe.** Die Lader `load_mutex_state` / `load_intent_state` liefern
+`None` sowohl fuer eine **fehlende** als auch fuer eine **vorhandene, aber nicht
+lesbare oder ungueltige** Datei. Compare-before-delete hat beide Faelle gleich
+behandelt und den zweiten damit als „schon erledigt" verbucht: ein Lesefehler
+beim finalen Re-Read von `RUN.mutex` liess den Lauf mit Exit 0 und „OK" enden,
+waehrend die Datei liegenblieb. Normativ gilt jetzt:
+
+- Eine Datei, deren Identitaet nicht gelesen werden kann, wird **niemals
+  ungeprueft geloescht** — die Vergleichsgroesse von compare-before-delete
+  fehlt ja gerade.
+- Sie wird ebenso wenig als erledigt verbucht, sondern ist eine **geschuldete,
+  nicht erledigte Wirkung** und damit derselbe blockierende ERROR-Befund. Die
+  Diagnose des Laders (Locator + Meldung) ist die Begruendung des Befunds und
+  wird nicht verworfen.
+- „Weg" darf nur behauptet werden, wenn die Abwesenheit **beweisbar** ist
+  (`FileNotFoundError`); ein fehlgeschlagenes `stat` ist kein Beweis.
+- Die Dauer der Blockade wird wahrheitsgemaess benannt: eine **gueltige**
+  liegengebliebene Datei wird nach TTL uebernommen, eine **ungueltige**
+  `RUN.mutex` dagegen **nie** — sie wird als ungueltiges Payload abgewiesen,
+  bevor die TTL ueberhaupt betrachtet wird. Diese Klemme ist damit **permanent**
+  und nur von Hand aufloesbar; der Befund sagt das so. Beim Intent bleibt die
+  Klemme TTL-begrenzt, weil dort der mtime-Rueckfall greift.
+
+**2.4a Eigener Exit-Code fuer die gescheiterte Aufraeumwirkung**
+(PO-Entscheid 2026-08-02). Der Vorschlag aus Rand 2.4 ist ratifiziert, mit
+einer Aenderung: eine endgueltig gescheiterte geschuldete Loeschung meldet
+**nicht** Exit 1, sondern den **reservierten Exit-Code `4`** — „die Mutation ist
+abgeschlossen, aber eine geschuldete Aufraeumwirkung ist endgueltig gescheitert;
+die liegengebliebene Datei blockiert weitere Schreiber".
+
+Begruendung: „Arbeit erledigt, Aufraeumen gescheitert" ist semantisch etwas
+anderes als „Validierungsbefund" (`1`) und als „Vorbedingung fehlt" (`2`). Ein
+Konsument muss die drei Faelle unterscheiden koennen, **ohne die Meldung zu
+parsen**. Der Preis — ein Vertragsbestandteil mehr, den alle Konsumenten kennen
+muessen — ist bewusst akzeptiert.
+
+Verbindlich dazu:
+
+- `4` gilt **ausschliesslich** fuer diesen Fall. Read-only-Checks (`check.py`)
+  liefern ihn nie.
+- **Rangfolge, staerkstes zuerst: `2` vor `1` vor `4` vor `0`.** Treffen mehrere
+  zu, gewinnt der fachlich schwerwiegendere Befund. `4` ist bewusst der
+  schwaechste, denn er behauptet, die Arbeit sei erledigt — wuerde er `1` oder
+  `2` verdraengen, meldete er das faelschlich.
+- Der Befund im Envelope bleibt in **jedem** dieser Faelle unveraendert ein
+  blockierender ERROR-Eintrag mit Datei, Blockadewirkung (inklusive der
+  Permanenz bei der Mutex-Datei) und dem Hinweis auf die moeglicherweise bereits
+  gelandete Mutation. Nur die Entscheidung ueber den Exit-Code faellt anders
+  aus.
+- Nachgezogene Konsumenten: `findings.py` (Vertrag und Rangfolge),
+  `semantic_gate.py` (Modul-Docstring und Ausgabe), FK-78 §78.4 und §78.14,
+  das Skill-Bundle `concept-incubation-core` (Toolchain-Aufrufe und
+  Gate-Schritt).
+
+**2.4c Die W2/W3-Pre-Merge-Pflicht ist fuer AG3-179 ausgesetzt**
+(PO-Entscheidung 2026-08-02). Der PO richtet die Qualitaetssicherung
+grundsaetzlich neu aus: weg vom LLM-Hub, an den Konzeptanteile geschickt werden
+in der Hoffnung, dass Modelle sauber antworten, hin zur Harness-Bridge mit
+nativen KI-Agenten, die ihre Strategie selbst waehlen und denen von aussen nur
+Leitplanken, Ziele und Nachweispflichten vorgegeben werden. Fuer diese Story
+gilt daher:
+
+- Der vollstaendige W3-Sweep wird **nicht** weiter verfolgt; der Ist-Stand ist
+  im Story-Record mit Scope, Fehlermodus und Reproduzierbarkeit dokumentiert.
+- „W2 vollstaendig gruen" ist **kein Abnahmekriterium** dieser Story mehr. W2
+  wurde gefahren, das Ergebnis ist berichtet und eingeordnet.
+- Ein zuvor beauftragter **bounded Retry fuer W3** wurde gestrichen und
+  vollstaendig zurueckgebaut: in einen Mechanismus zu investieren, der ohnehin
+  ersetzt wird, waere Arbeit gegen den eigenen Plan. Der zugrundeliegende
+  Befund (W3 wertet jede Partition genau einmal aus, W2 korrigiert einmal
+  nach) bleibt damit **offen und unbehoben** — bewusst, nicht uebersehen.
+
+**Diese Aussetzung ist eine dokumentierte Ausnahme, kein Uebergehen.** Der
+Unterschied ist der Text selbst: die Pflicht ist benannt, die Aussetzung ist
+begruendet, ihr Urheber ist benannt, und der offene Rest steht mit
+Fehlermodus da, statt zu verschwinden.
+
+**Was die Aussetzung ausdruecklich NICHT beruehrt:** die FK-93-Aenderungen aus
+Abschnitt 3. Das fehlende Deferral-Modell des Katalogs ist eine **eigene
+Modellierungsschuld** und kein W2-Artefakt; ein Katalog, der Autoritaet ueber
+fremde Werte beansprucht, ohne die Kanten zu erklaeren, ist auch dann falsch,
+wenn ihn kein Werkzeug mehr prueft.
 
 **2.5 Nichts an der Strenge geaendert.** Schiedsrichter bleibt O_CREAT|O_EXCL;
 compare-before-delete bleibt auf jedem Pfad; ein abgelaufenes Intent wird weiter
@@ -194,6 +281,11 @@ allein die Lockdatei `RUN.mutex.intent.lock` im Lauf-Verzeichnis.
 | 3 | Aufnahmekriterium des Wertekatalogs | FK-93 §93.0 | neu | extern wahrnehmbar → Katalog; reines internes Tuning → Code; Abwesenheit ist kein Argument |
 | 3 | Mutex-/Klinken-Werte | FK-93 §93.9a | neu | TTL 600s, Wartefrist, Wiederholungsfrist aufgenommen; Poll und Probe bewusst nicht |
 | 3 | Abgrenzung Story-Locks | FK-93 §93.9 | geaendert | Klarstellung nach W3-Befund `SCOPE_CONTRADICTION`: §93.9 gilt nur fuer Story-Locks (Kapitel 02) und beruehrt die TTL-Uebernahme des Inkubator-Mutex nicht; keine Aenderung der FK-02-Regel selbst |
+| 2.4a | Exit-Code fuer gescheiterte Aufraeumwirkung | FK-78 §78.14 | neu | reservierter Exit-Code `4` „Mutation fertig, geschuldetes Aufraeumen gescheitert"; Rangfolge `2` > `1` > `4` > `0`; nur `semantic_gate.py` |
+| 2.4a | Exit-Code-Konsumenten | Skill-Bundle `concept-incubation-core` (SKILL.md, references/process-core.md) | geaendert | `4` in der Aufrufuebersicht und im Gate-Schritt benannt; ausdruecklich kein „unbekannter Fehler" |
+| 2.4b | „Weg" vs. „nicht pruefbar" | FK-78 §78.4 | neu | nicht verifizierbare Datei wird nie ungeprueft geloescht und nie als erledigt verbucht; Abwesenheit muss beweisbar sein; Permanenz der Mutex-Klemme wird benannt |
+| 2.4c | W2/W3-Pre-Merge-Pflicht | Story-Record AG3-179 | ausgesetzt | PO-Entscheidung: QS wird auf Harness-Bridge mit nativen Agenten umgebaut; Ist-Stand dokumentiert, nichts Gruenes behauptet, W3-Retry gestrichen und zurueckgebaut |
+| 2.4c | FK-93-Kanten | FK-93 Frontmatter | nicht-betroffen | eigene Modellierungsschuld, unabhaengig von der Pruefmechanik |
 | — | Layout des Lauf-Verzeichnisses | FK-78 §78.3 | geaendert | `RUN.mutex.intent` (bisher fehlend) und `RUN.mutex.intent.lock` ergaenzt |
 | — | Mutex-Semantik | FK-78 §78.4 | nicht-betroffen | Nonce, TTL, Heartbeat, Fencing-Token-CAS unveraendert |
 
@@ -207,8 +299,23 @@ gemaess der bisherigen Richtlinien." Damit freigegeben ist die
 eine lebende fremde Klinke statt sofortigem Aufgeben, Invarianten unangetastet,
 kein Bypass fuer den Mutex-Eigentuemer. Das sind die Raender 2.1, 2.3 und 2.5.
 
+**(a2) Vom PO ratifiziert, mit Aenderung — 2026-08-02.** Der PO hat den
+Vorschlag aus Rand 2.4 (gescheiterte geschuldete Loeschung ist ein blockierender
+Befund, nie ein stiller Erfolg) **ratifiziert**, aber die Signalisierung
+geaendert: nicht Exit 1, sondern der reservierte **Exit-Code `4`** mit der in
+**Rand 2.4a** festgelegten Rangfolge. Rand 2.4 ist damit in der Sache
+beschlossen; 2.4a ist die vom PO vorgegebene Fassung seiner Aussenwirkung.
+
+**(a3) Vom PO entschieden — 2026-08-02.** Rand **2.4c**: Aussetzung der
+W2/W3-Pre-Merge-Pflicht fuer diese Story und Streichung des W3-Retrys, weil die
+Qualitaetssicherung auf Harness-Bridge mit nativen KI-Agenten umgebaut wird.
+Zugleich hat der PO ausdruecklich bestaetigt, dass die FK-93-Aenderungen
+(Abschnitt 3) davon **unberuehrt** im Auftrag bleiben, weil sie eine eigene
+Modellierungsschuld beheben und keine Zuarbeit an ein Pruefwerkzeug sind.
+
 **(b) Vom Orchestrator gesetzt, dem PO offengelegt, Ratifikation ausstehend.**
-Die Raender **2.2, 2.4, 2.6 und 2.7** sowie die FK-93-Aenderungen aus
+Die Raender **2.2, 2.6 und 2.7**, die Praezisierung **2.4b** sowie die
+FK-93-Aenderungen aus
 Abschnitt 3 standen **nicht** in der Story. Sie sind erst bei der Umsetzung und
 im anschliessenden Codex-Review zutage getreten und unter der stehenden
 Anweisung „Befunde an der Wurzel beheben" vom Orchestrator entschieden. Sie sind

@@ -7,6 +7,7 @@ import re
 
 from pydantic import ValidationError
 
+from concept_governance.json_escapes import repair_markdown_escapes
 from concept_governance.models import AuthorityProseResponse, NormativeAssertion
 
 
@@ -25,7 +26,7 @@ def parse_response(raw_response: str) -> AuthorityProseResponse:
             return AuthorityProseResponse.model_validate_json(candidate)
         except ValidationError as exc:
             errors.append(str(exc.errors(include_url=False)))
-    normalized = text.replace("\\_", "_")
+    normalized = repair_markdown_escapes(text)
     if normalized != text:
         for candidate in (
             normalized,

@@ -184,6 +184,12 @@ oder an PO eskaliert) — Minderheitspositionen der letzten Runde IMMER.
    `check.py all` (Frontmatter, Referenzen, Formal). Rote Gates →
    Zustand PROMOTION_FAILED, Ursache beheben, erneut pruefen (inkl.
    erneutem Lock-/Baseline-Recheck). Kein Bypass, kein Teil-PASS.
+   **Exit 4 von `semantic_gate.py` ist kein „unbekannter Fehler":** die
+   Mutation ist gelandet, aber eine geschuldete Aufraeumwirkung ist
+   gescheitert. Der Befund nennt die liegengebliebene Datei — sie von
+   Hand entfernen (bei einer nicht validierbaren `RUN.mutex` ist die
+   Blockade permanent), danach das Gate wiederholen. Nicht als PASS
+   behandeln und nicht wie ein Validierungsbefund (Exit 1) triagieren.
 
 ### 8. CLOSED / Stoerungen
 

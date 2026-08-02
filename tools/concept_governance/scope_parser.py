@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
+from concept_governance.json_escapes import repair_markdown_escapes
 from concept_governance.scope_contracts import ScopeConsistencyResponse
 
 
@@ -27,7 +28,13 @@ def parse_scope_response(raw_response: str) -> ScopeConsistencyResponse:
 
 
 def _variants(text: str) -> tuple[str, ...]:
-    normalized = text.replace("\\_", "_")
+    """Return the raw text plus, if it differs, the escape-repaired one.
+
+    W3 reads the same markdown tables as W2, so it hits the same leaked
+    markdown escapes; repairing only one of the two gates would leave the
+    identical trap in the other.
+    """
+    normalized = repair_markdown_escapes(text)
     return (text,) if normalized == text else (text, normalized)
 
 

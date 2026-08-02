@@ -15,10 +15,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
-from concept_toolchain import runmodel_locks, runmodel_registers, semantic_gate
+from concept_toolchain import findings, runmodel_locks, runmodel_registers, semantic_gate
 from tests.unit.concept_toolchain import runfixtures
 from tests.unit.concept_toolchain.conftest import TOOLS_DIR
-from tests.unit.concept_toolchain.runfixtures import WRITER_ARGS, RunFixture, build_promotion_run
+from tests.unit.concept_toolchain.runfixtures import LF, TAB, WRITER_ARGS, RunFixture, build_promotion_run
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -340,7 +340,9 @@ def test_a_refused_create_aborts_cleanly_instead_of_crashing(
 
     Only ``FileExistsError`` used to be handled, so any other OS error on
     the latch left the CLI with an uncaught exception and exit code 1 —
-    which this CLI's contract reserves for validation findings. The real
+    a code this CLI's contract gives a precise meaning (blocking
+    validation findings; a failed owed effect has its own code 4), never a
+    crash. The real
     trigger (a Windows sharing violation) cannot be provoked on demand, so
     the refusal itself is injected; the behaviour under test is the exit,
     not the errno.
@@ -428,42 +430,63 @@ def test_a_flickering_competitor_cannot_evict_the_mutex_owner(
     used to end the owner's run with exit 2 — so under contention nobody
     got through at all.
 
-    Two things make this a proof rather than a coincidence. A start barrier
-    holds the owner back until the competitor is actually holding the
-    latch, so the very first claim contends. And both directions of
-    contention are counted: the owner must have waited for the competitor
-    at least once, and the competitor must have found the latch taken by
-    the owner at least once. Without those counters the test would pass
-    just as happily if the owner had finished all four claims before the
-    competitor ever showed up.
+    Both directions of contention are FORCED, not hoped for — a counter
+    that merely observes whichever way the scheduler happened to go proves
+    nothing on a good day and flakes on a bad one:
+
+    * The competitor holds its first latch until the owner has demonstrably
+      waited for it, so the owner's very first claim contends.
+    * While the owner holds the latch, a competing exclusive create is
+      attempted from inside its own critical section. The arbiter must
+      refuse it. That is the same collision the flickering thread used to
+      hit by luck, only now it cannot be missed.
     """
     fixture.units_path.unlink()
     intent = fixture.run_dir / semantic_gate.INTENT_NAME
     stop = threading.Event()
     competitor_holds_it = threading.Event()
-    collisions = {"count": 0}
+    owner_waited = threading.Event()
+    collisions = {"count": 0, "stolen": 0}
     waits = {"count": 0}
 
     original_wait = semantic_gate._wait_out_the_latch  # noqa: SLF001 - contention counter
+    original_release = semantic_gate._release_intent  # noqa: SLF001 - probe point
 
     def counting_wait(run_dir: Path, deadline: float, probe_at: float | None) -> tuple[bool, float | None]:
         waits["count"] += 1
+        owner_waited.set()
         return original_wait(run_dir, deadline, probe_at)  # type: ignore[no-any-return]  # passthrough
 
+    def probed_release(run_dir: Path, nonce: str, owed: semantic_gate._OwedEffects) -> None:
+        # Runs while the owner STILL holds the latch: an exclusive create by
+        # anyone else must fail here, every single time.
+        try:
+            os.close(os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            collisions["count"] += 1
+        else:
+            collisions["stolen"] += 1
+        original_release(run_dir, nonce, owed)
+
     monkeypatch.setattr(semantic_gate, "_wait_out_the_latch", counting_wait)
+    monkeypatch.setattr(semantic_gate, "_release_intent", probed_release)
 
     def flicker() -> None:
+        first_hold = True
         while not stop.is_set():
             try:
                 descriptor = os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
-                collisions["count"] += 1  # the owner holds it; a competitor never steals
-                time.sleep(0.005)
+                time.sleep(0.005)  # the owner holds it; a competitor never steals
                 continue
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(semantic_gate._intent_payload("other.writer", "sess-other", "flicker"))  # noqa: SLF001 - competitor payload
             competitor_holds_it.set()
-            time.sleep(0.04)
+            if first_hold:
+                first_hold = False
+                owner_waited.wait(timeout=10)  # hold until the owner really had to wait
+            else:
+                time.sleep(0.04)
             with contextlib.suppress(OSError):
                 intent.unlink()  # only ever the latch this thread created exclusively
             time.sleep(0.04)
@@ -475,10 +498,12 @@ def test_a_flickering_competitor_cannot_evict_the_mutex_owner(
         code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
     finally:
         stop.set()
+        owner_waited.set()  # never leave the competitor hanging on a failed run
         competitor.join(timeout=10)
     assert code == 0, "a competitor holding the latch briefly must not abort the mutex owner"
     assert waits["count"] > 0, "the owner never had to wait for the competitor — no contention was exercised"
-    assert collisions["count"] > 0, "the competitor never met the owner's latch — no contention was exercised"
+    assert collisions["stolen"] == 0, "someone claimed the latch while the owner was holding it"
+    assert collisions["count"] > 0, "the owner's own hold was never probed — no contention was exercised"
     rows, issues = runmodel_registers.load_source_units(fixture.units_path, require_disposition=False)
     assert issues == [], issues
     assert len(rows) == 4
@@ -747,7 +772,7 @@ def test_a_failed_owed_deletion_is_a_structured_finding_in_the_envelope(
         ["--project-root", str(fixture.project_root), "--json", "units", fixture.run_rel, *WRITER_ARGS]
     )
     envelope = json.loads(capsys.readouterr().out)
-    assert code == 1, envelope
+    assert code == findings.EXIT_OWED_EFFECT, envelope
     orphan_findings = [
         finding
         for finding in envelope["findings"]
@@ -755,6 +780,70 @@ def test_a_failed_owed_deletion_is_a_structured_finding_in_the_envelope(
     ]
     assert orphan_findings, envelope
     assert envelope["complete"] is True, "the check ran to completion; only its teardown failed"
+
+
+def test_a_failed_owed_deletion_has_its_own_exit_code(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PO decision 2026-08-02: "work done, cleanup failed" is its own code.
+
+    A consumer must be able to tell three different situations apart
+    WITHOUT parsing the message: the content is wrong (1), nothing ran
+    (2), or the work is settled and only the run directory needs a hand
+    (4). Folding the third into 1 made every caller either treat a wedged
+    directory as a content defect or ignore both.
+    """
+    fixture.units_path.unlink()
+    monkeypatch.setattr(semantic_gate, "FILE_EFFECT_RETRY_SECONDS", 0.05)
+    refuse_unlink_of(monkeypatch, "RUN.mutex")
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    captured = capsys.readouterr()
+    assert code == findings.EXIT_OWED_EFFECT == 4, f"{captured.out}{captured.err}"
+    assert code not in {findings.EXIT_PASS, findings.EXIT_FINDINGS, findings.EXIT_INCOMPLETE, findings.EXIT_USAGE}
+    assert "CLEANUP FAILED" in captured.out, captured.out
+    assert "[units] OK" not in captured.out
+    assert fixture.units_path.exists(), "the code says the work is settled, so it must be"
+
+
+def test_a_real_finding_outranks_a_failed_cleanup(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rank 2 of the contract: a wrong result is worse than a wedged directory.
+
+    Exit 4 asserts that the work is done. A run that also produced a
+    blocking validation finding must therefore NOT report 4 — that would
+    tell the caller its content was accepted.
+    """
+    fixture.units_path.unlink()
+    register = fixture.run_dir / "baseline" / "source-register.tsv"
+    lines = register.read_text(encoding="utf-8").splitlines()
+    columns = lines[0].split(TAB)
+    row = lines[1].split(TAB)
+    row[columns.index("sha256")] = "0" * 64  # digest drift: a real validation finding
+    register.write_text(LF.join([lines[0], TAB.join(row), *lines[2:]]) + LF, encoding="utf-8", newline=LF)
+    monkeypatch.setattr(semantic_gate, "FILE_EFFECT_RETRY_SECONDS", 0.05)
+    refuse_unlink_of(monkeypatch, "RUN.mutex")
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    captured = capsys.readouterr()
+    assert code == findings.EXIT_FINDINGS, f"{captured.out}{captured.err}"
+    assert "owed-deletion" in captured.out, "the orphan is still reported, it just does not decide the code"
+    assert not fixture.units_path.exists(), "a run with findings must not have written the register"
+
+
+def test_a_missing_prerequisite_outranks_a_failed_cleanup(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rank 1 of the contract: a run that never ran cannot report work done."""
+    fixture.units_path.unlink()
+    (fixture.run_dir / "LEASE.json").unlink()
+    monkeypatch.setattr(semantic_gate, "FILE_EFFECT_RETRY_SECONDS", 0.05)
+    refuse_unlink_of(monkeypatch, "RUN.mutex")
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    captured = capsys.readouterr()
+    assert code == findings.EXIT_INCOMPLETE, f"{captured.out}{captured.err}"
+    assert "INCOMPLETE" in captured.err
+    assert "owed-deletion" in captured.out, "the orphan is still reported, it just does not decide the code"
+    assert not fixture.units_path.exists()
 
 
 def test_a_release_that_cannot_get_the_cleanup_lock_reports_the_orphan(
@@ -777,6 +866,169 @@ def test_a_release_that_cannot_get_the_cleanup_lock_reports_the_orphan(
     assert time.monotonic() - started < 3.0, "the wait for the cleanup lock must be bounded"
     assert intent.exists(), "the release could not run, so the latch is still there"
     assert [orphan for orphan in owed.orphans if orphan.path.name == semantic_gate.INTENT_NAME], owed.orphans
+
+
+# --------------------------------------------------------------------------
+# "Gone" and "there but unverifiable" are never the same answer
+# --------------------------------------------------------------------------
+
+
+def corrupt_the_mutex_before_the_release(monkeypatch: pytest.MonkeyPatch, mutex: Path) -> None:
+    """Make the release's final re-read of ``RUN.mutex`` find no valid payload.
+
+    The reviewed scenario is a read error or a corrupt file at exactly the
+    instant the release re-reads the mutex to compare nonces — the instant
+    is what makes it dangerous, because the mutation has already landed by
+    then. A broken payload is one of the ways ``load_mutex_state`` answers
+    ``None``; the injection places it at that seam, the real
+    ``_delete_own_mutex`` then runs untouched.
+    """
+    original = semantic_gate._MutexGuard._delete_own_mutex  # noqa: SLF001 - seam, the real method still runs
+
+    def corrupt_then_delete(self: semantic_gate._MutexGuard) -> None:
+        mutex.write_bytes(b"{ this is not a mutex payload\n")
+        original(self)
+
+    monkeypatch.setattr(semantic_gate._MutexGuard, "_delete_own_mutex", corrupt_then_delete)  # noqa: SLF001 - injection
+
+
+def test_an_unverifiable_mutex_is_never_deleted_and_never_reported_as_success(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AG3-179 / FK-78 78.4: a mutex that cannot be read is not a mutex that is gone.
+
+    ``load_mutex_state`` returns ``None`` for a missing file AND for one
+    that is there but unreadable. Treating the second as the first made the
+    release return without deleting anything and without owing anything —
+    exit 0 and ``[units] OK`` over a run directory that is wedged for good,
+    because an invalid payload is rejected by the takeover instead of being
+    taken over after its TTL.
+    """
+    fixture.units_path.unlink()
+    mutex = fixture.run_dir / "RUN.mutex"
+    corrupt_the_mutex_before_the_release(monkeypatch, mutex)
+    code = semantic_gate.main(
+        ["--project-root", str(fixture.project_root), "--json", "units", fixture.run_rel, *WRITER_ARGS]
+    )
+    envelope = json.loads(capsys.readouterr().out)
+    assert code == findings.EXIT_OWED_EFFECT, envelope
+    orphan_findings = [
+        finding
+        for finding in envelope["findings"]
+        if finding["path"] == "RUN.mutex" and finding["locator"] == "owed-deletion"
+    ]
+    assert orphan_findings, envelope
+    message = str(orphan_findings[0]["message"])
+    assert "could not be verified as ours" in message, message
+    assert "file: not readable as JSON" in message, "the loader's own diagnosis is the reason and must survive"
+    assert "PERMANENTLY" in message, "an unreadable RUN.mutex is never taken over after its TTL"
+    assert mutex.exists(), "a file whose identity cannot be read must never be deleted unverified"
+    assert fixture.units_path.exists(), "the mutation landed and must not be reported away"
+
+
+def test_an_unverifiable_latch_is_never_deleted_and_never_silently_released(tmp_path: Path) -> None:
+    """The same confusion on the intent: a latch that does not validate stays.
+
+    Unlike the mutex the latch IS cleared by the mtime fallback once its
+    TTL elapsed, so the blockade it causes is bounded — the finding says
+    so, and does not promise a takeover that will not come.
+    """
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    intent.write_bytes(b'{"holder_principal": "orch.alice"}\n')  # valid JSON, no valid latch identity
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    semantic_gate._release_intent(tmp_path, "our-nonce", owed)  # noqa: SLF001 - unit under test
+    assert intent.exists(), "a latch whose identity cannot be read must not be deleted unverified"
+    orphans = [orphan for orphan in owed.orphans if orphan.path.name == semantic_gate.INTENT_NAME]
+    assert orphans, owed.orphans
+    assert "could not be verified as ours" in orphans[0].detail, orphans[0].detail
+    assert "missing required field" in orphans[0].detail, "the loader's diagnosis is the reason"
+    assert orphans[0].permanent is False, "the mtime fallback releases an unreadable latch after its TTL"
+
+
+def test_a_release_that_cannot_claim_the_intent_reports_an_unverifiable_mutex(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The blocked release must not read "unreadable" as "already gone" either."""
+    monkeypatch.setattr(semantic_gate, "INTENT_WAIT_SECONDS", 0.2)
+    write_latch(tmp_path / semantic_gate.INTENT_NAME)  # a live foreign latch blocks the claim
+    mutex = tmp_path / "RUN.mutex"
+    mutex.write_bytes(b"{ this is not a mutex payload\n")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    semantic_gate._MutexGuard(tmp_path, "our-nonce", "orch.alice", "sess-orch", owed).release()  # noqa: SLF001 - unit under test
+    orphans = [orphan for orphan in owed.orphans if orphan.path.name == "RUN.mutex"]
+    assert orphans, owed.orphans
+    assert "the coordination intent could not be claimed" in orphans[0].detail, orphans[0].detail
+    assert "could not be verified as ours" in orphans[0].detail, orphans[0].detail
+    assert orphans[0].permanent is True, "an invalid RUN.mutex payload is never taken over"
+    assert mutex.exists()
+
+
+def test_a_blocked_intent_release_reports_an_unverifiable_latch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cleanup lock busy AND latch unreadable is two reasons, not zero."""
+    monkeypatch.setattr(semantic_gate, "FILE_EFFECT_RETRY_SECONDS", 0.05)
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    intent.write_bytes(b"{ this is not a latch payload\n")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    descriptor = os.open(tmp_path / semantic_gate.INTENT_LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        assert semantic_gate._try_advisory_lock(descriptor), "a second descriptor must be able to take the lock"  # noqa: SLF001 - unit under test
+        semantic_gate._release_intent(tmp_path, "our-nonce", owed)  # noqa: SLF001 - unit under test
+    finally:
+        semantic_gate._drop_advisory_lock(descriptor)  # noqa: SLF001 - unit under test
+        os.close(descriptor)
+    orphans = [orphan for orphan in owed.orphans if orphan.path.name == semantic_gate.INTENT_NAME]
+    assert orphans, owed.orphans
+    assert "cleanup lock stayed busy" in orphans[0].detail, orphans[0].detail
+    assert "could not be verified as ours" in orphans[0].detail, orphans[0].detail
+    assert intent.exists()
+
+
+def test_only_a_file_not_found_error_proves_absence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Absence must be PROVEN — and ``Path.exists`` proves nothing.
+
+    ``Path.exists`` answers ``False`` for a permission or I/O error exactly
+    as it does for a missing file, which is the very confusion this whole
+    distinction exists to remove, one level further down. Only
+    ``FileNotFoundError`` is proof; on any other ``OSError`` we could not
+    tell, and fail-closed then has to say "not gone" — which turns a
+    compare-before-delete into a reported orphan instead of a silent
+    success. The failing ``stat`` is injected because a directory we may
+    not traverse cannot be produced on demand in a temp dir.
+    """
+    missing = tmp_path / "never-existed"
+    assert semantic_gate._file_is_absent(missing) is True, "a real FileNotFoundError IS proof"  # noqa: SLF001 - the rule under test
+    real_stat = pathlib.Path.stat
+
+    def refuse_stat(self: pathlib.Path, *args: object, **kwargs: object) -> object:
+        if self.name == "never-existed":
+            raise PermissionError(13, "cannot stat the file")
+        return real_stat(self, *args, **kwargs)  # type: ignore[arg-type]  # passthrough
+
+    monkeypatch.setattr(pathlib.Path, "stat", refuse_stat)
+    assert semantic_gate._file_is_absent(missing) is False, (  # noqa: SLF001 - the rule under test
+        "a stat we could not perform must never be read as proof of absence"
+    )
+    assert semantic_gate._check_ownership(missing, "our-nonce", None) is semantic_gate._Ownership.UNVERIFIABLE, (  # noqa: SLF001 - the rule under test
+        "and the caller must therefore owe a finding rather than assume the deletion happened"
+    )
+
+
+def test_a_provably_absent_file_is_never_an_orphan(tmp_path: Path) -> None:
+    """The other half of the distinction: gone IS success, and stays silent.
+
+    Without this the fix could degenerate into "report everything", which
+    would turn every ordinary clean run into a blocking finding.
+    """
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    semantic_gate._release_intent(tmp_path, "our-nonce", owed)  # noqa: SLF001 - unit under test
+    assert owed.orphans == [], "a latch that was never there is not an orphan"
+    semantic_gate._MutexGuard(tmp_path, "our-nonce", "orch.alice", "sess-orch", owed).release()  # noqa: SLF001 - unit under test
+    assert owed.orphans == [], "a mutex that was never there is not an orphan"
+    assert not (tmp_path / semantic_gate.INTENT_NAME).exists(), "the release cleaned up its own latch"
 
 
 # --------------------------------------------------------------------------
@@ -867,6 +1119,57 @@ def test_the_latch_cleanup_section_is_mutually_exclusive(tmp_path: Path) -> None
         semantic_gate._remove_owned_file = real_remove  # type: ignore[assignment]  # noqa: SLF001 - restore
     assert outcome["reclaimed"] is True, "the cleaner that owned the section must finish its reclaim"
     assert not intent.exists()
+
+
+def test_the_release_section_is_mutually_exclusive(tmp_path: Path) -> None:
+    """AG3-179 / FK-78 78.4: the OWED delete path holds the lock too.
+
+    Same window as the reclaim, on the path that matters more: the release
+    reads its own nonce and then unlinks. A holder that stalls between
+    those two steps must not be able to remove a latch that someone else
+    legitimately created in the meantime, so no second cleaner may be
+    inside the section while it sits there.
+
+    This is deliberately a stopped interleaving and not a sequential
+    check. Taking the advisory lock and dropping it again BEFORE the read
+    reopens the read-then-unlink window completely, and every other
+    release test stays green under exactly that mutation: they only prove
+    that a busy lock file aborts, that the lock file gets created, and
+    that a foreign nonce survives a sequential release.
+    """
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    held = write_latch(intent, nonce="held-by-us", acquired_at="2020-01-01T00:00:00Z")
+    inside = threading.Event()
+    resume = threading.Event()
+    real_remove = semantic_gate._remove_owned_file  # noqa: SLF001 - stall injection point
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+
+    def stalling_remove(path: pathlib.Path) -> str | None:
+        inside.set()
+        assert resume.wait(timeout=30), "the stalled releaser was never resumed"
+        return real_remove(path)  # type: ignore[no-any-return]  # passthrough
+
+    def releaser() -> None:
+        semantic_gate._release_intent(tmp_path, "held-by-us", owed)  # noqa: SLF001 - unit under test
+
+    semantic_gate._remove_owned_file = stalling_remove  # type: ignore[assignment]  # noqa: SLF001 - stall injection
+    thread = threading.Thread(target=releaser, name="latch-releaser")
+    thread.start()
+    try:
+        assert inside.wait(timeout=30), "the release never reached its unlink"
+        semantic_gate._remove_owned_file = real_remove  # type: ignore[assignment]  # noqa: SLF001 - only the RELEASE stalls
+        # The latch is expired, so a cleaner WOULD collect it — unless the
+        # release still owns the section. That is the whole assertion.
+        assert semantic_gate._reclaim_expired_intent(tmp_path) is False, (  # noqa: SLF001 - second entrant
+            "a cleaner entered the cleanup section while the release was inside it"
+        )
+        assert intent.read_bytes() == held, "the cleaner must not have touched the latch"
+    finally:
+        resume.set()
+        thread.join(timeout=30)
+        semantic_gate._remove_owned_file = real_remove  # type: ignore[assignment]  # noqa: SLF001 - restore
+    assert not intent.exists(), "the release that owned the section must finish its owed deletion"
+    assert owed.orphans == [], owed.orphans
 
 
 def test_the_cleanup_lock_is_a_pure_serialization_device(fixture: RunFixture) -> None:

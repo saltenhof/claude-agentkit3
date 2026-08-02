@@ -8,7 +8,200 @@ doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: defaults
-defers_to: []
+# Der Katalog besitzt genau eine eigene Norm: das Aufnahmekriterium (§93.0,
+# Scope `defaults`). Jede Katalogzeile darunter gibt einen Wert wieder, dessen
+# normativer Owner ein anderes Dokument ist. Genau dafuer traegt FK-93 je
+# Abschnitt eine scope-qualifizierte `defers_to`-Kante auf den Owner. Ohne diese
+# Kanten behauptet der Katalog Autoritaet, die er nicht hat -- die Spalte
+# `Kapitel` ist ein Lesehinweis fuer Menschen und ersetzt keine
+# maschinenlesbare Autoritaetskante (siehe META-CONCEPT-CONSISTENCY P2).
+defers_to:
+  # §93.0.1 stellt KEINE fremde Regel auf: es sagt, was dieser Katalog von
+  # sich selbst verlangt (Scope `defaults`). Die allgemeine Prosa-Autoritaets-
+  # regel liegt in META-CONCEPT-CONSISTENCY (P2) und die Ownership-Regel in
+  # META-ASSERTION-AUTHORITY; auf `_meta`-Dokumente ist im heutigen
+  # Frontmatter-Vertrag keine `defers_to`-Kante moeglich (der Lint kennt nur
+  # Contract-Dokumente als Ziele), weshalb §93.0.1 bewusst nur ueber FK-93
+  # selbst spricht.
+  # --- 93.1 Pipeline-Konfiguration -------------------------------------
+  - target: FK-03
+    scope: configuration
+    reason: >-
+      §93.1 gibt Pipeline-Konfigurationswerte wieder; Bedeutung, Defaults und
+      Config-Pfade normiert FK-03.
+  - target: FK-03
+    scope: config-schema-validation
+    reason: >-
+      §93.1 nennt Config-Pfade und ihre zulaessigen Werte; die Schema-Validierung
+      dieser Pfade normiert FK-03.
+  - target: FK-03
+    scope: config-versioning
+    reason: >-
+      §93.1 fuehrt `config_version`; die Versionierung des Konfigurationsmodells
+      normiert FK-03.
+  - target: FK-10
+    scope: runtime
+    reason: >-
+      §93.1 gibt Laufzeit-Schalter (Feature-Flags) wieder; ihre Laufzeitwirkung
+      normiert FK-10.
+  - target: FK-10
+    scope: deployment
+    reason: >-
+      §93.1 gibt die Zielprojekt-Scaffold-Option wieder; Deployment-Wirkung und
+      Opt-in-Semantik normiert FK-10.
+  - target: FK-10
+    scope: directory-structure
+    reason: >-
+      §93.1 verweist auf das Default-Zielprojekt-Scaffold; die Verzeichnisstruktur
+      selbst normiert FK-10.
+  - target: FK-50
+    scope: installer
+    reason: >-
+      §93.1 gibt die Installer-Option `default_project_structure` wieder; der
+      Installer-Checkpoint normiert sie in FK-50.
+  # --- 93.2 / 93.8 Policy-Engine und Structural Checks ------------------
+  - target: FK-33
+    scope: policy-engine
+    reason: >-
+      §93.2 gibt den Major-Threshold wieder; die Aggregationsregel der
+      Policy-Engine normiert FK-33.
+  - target: FK-33
+    scope: deterministic-checks
+    reason: >-
+      §93.8 gibt Mindestgroessen deterministischer Checks wieder; die Checks
+      selbst normiert FK-33.
+  - target: FK-33
+    scope: stage-registry
+    reason: >-
+      §93.8 gibt Schwellwerte wieder, die an Stage-Definitionen haengen; die
+      Stage-Registry normiert FK-33.
+  - target: FK-20
+    scope: feedback-loop
+    reason: >-
+      §93.2 gibt die maximale Zahl Feedback-Runden wieder; die Schleife selbst
+      normiert FK-20.
+  - target: FK-20
+    scope: workflow-engine
+    reason: >-
+      §93.2 gibt Werte wieder, die den Workflow-Abbruch steuern; die
+      Zustandsmaschine normiert FK-20.
+  # --- 93.3 VektorDB -----------------------------------------------------
+  - target: FK-13
+    scope: vectordb
+    reason: >-
+      §93.3 gibt Retrieval-Schwellwerte wieder; Bedeutung und Wirkung normiert
+      FK-13.
+  # --- 93.4 Telemetrie und Budget ---------------------------------------
+  - target: FK-68
+    scope: telemetry
+    reason: >-
+      §93.4 gibt Web-Call-Limit und -Warnung wieder; das Telemetrie- und
+      Budgetmodell normiert FK-68.
+  # --- 93.5 / 93.6 Governance-Beobachtung -------------------------------
+  - target: FK-35
+    scope: governance-observation
+    reason: >-
+      §93.5 und §93.6 geben Schwellwerte und Risikopunkte der
+      Governance-Sensorik wieder; beide normiert FK-35.
+  - target: FK-35
+    scope: integrity-gate
+    reason: >-
+      §93.8 gibt Mindestgroessen wieder, gegen die das Integrity-Gate prueft;
+      das Gate normiert FK-35.
+  - target: FK-35
+    scope: escalation
+    reason: >-
+      §93.6 fuehrt Sofort-Stopp-Signale; die Eskalationswirkung normiert FK-35.
+  - target: DK-03
+    scope: governance
+    reason: >-
+      §93.5 und §93.6 dienen der fachlichen Governance-Regel; deren
+      Domaenensicht liegt in DK-03.
+  # --- 93.5a Permission-Runtime -----------------------------------------
+  - target: FK-42
+    scope: ccag-tools
+    reason: >-
+      §93.5a gibt Fristen der Permission-Runtime wieder; die Runtime normiert
+      FK-42.
+  - target: FK-55
+    scope: principal-capability-model
+    reason: >-
+      §93.5a gibt Lease- und Request-Fristen wieder; das Capability-Modell
+      normiert FK-55.
+  - target: FK-55
+    scope: story-scoped-capabilities
+    reason: >-
+      §93.5a begrenzt offene Requests je Run; die Story-Scope-Durchsetzung
+      normiert FK-55.
+  # --- 93.7 LLM-Evaluator ------------------------------------------------
+  - target: FK-11
+    scope: llm-evaluator
+    reason: >-
+      §93.7 gibt Aufruf-, Laengen- und Retry-Grenzen des Evaluators wieder; der
+      Evaluator wird in FK-11 normiert.
+  - target: FK-11
+    scope: llm-provider
+    reason: >-
+      §93.7 gibt Send-Timeout und Acquire-Retries wieder; das Provider- und
+      Pool-Verhalten normiert FK-11.
+  - target: FK-11
+    scope: prompt-execution
+    reason: >-
+      §93.7 gibt die maximale Description-Laenge wieder, die im Prompt
+      durchgesetzt wird; die Prompt-Ausfuehrung normiert FK-11.
+  # --- 93.9 / 93.12 Story-Locks und Story-Groessen -----------------------
+  - target: FK-02
+    scope: domain-model
+    reason: >-
+      §93.9 gibt die Freigabe-Regel fuer Story-Locks wieder und §93.12 die
+      Story-Groessen; beide sind im Domaenenmodell FK-02 normiert.
+  - target: FK-10
+    scope: locking
+    reason: >-
+      §93.9 und §93.9a geben Lock-Dateien und ihre Fristen wieder; der
+      Sperrmechanismus als Laufzeitthema ist in FK-10 normiert.
+  - target: FK-21
+    scope: story-classification
+    reason: >-
+      §93.12 gibt die Groessenklassen wieder; ihre Zuordnung normiert FK-21.
+  # --- 93.9a Concept-Incubator ------------------------------------------
+  - target: FK-78
+    scope: concept-incubation-technical
+    reason: >-
+      §93.9a gibt TTL, Wartefrist und Wiederholungsfrist des Mutations-Mutex
+      wieder; normiert sind sie in FK-78 §78.4.
+  - target: FK-78
+    scope: concept-toolchain
+    reason: >-
+      §93.9a benennt Werte, die die Inkubator-Toolchain durchsetzt; die
+      Toolchain-Vertraege normiert FK-78.
+  # --- 93.10 Review-Haeufigkeit -----------------------------------------
+  - target: FK-24
+    scope: story-types
+    reason: >-
+      §93.10 gibt Review-Minima je Story-Groesse wieder; Story-Typ und
+      Terminalitaet normiert FK-24.
+  - target: DK-11
+    scope: review-quality
+    reason: >-
+      §93.10 dient der fachlichen Review-Qualitaetsregel; deren Domaenensicht
+      liegt in DK-11.
+  # --- 93.11 Failure Corpus ---------------------------------------------
+  - target: FK-41
+    scope: failure-corpus
+    reason: >-
+      §93.11 gibt Aufnahmeschwelle und Zielwerte des Failure-Corpus wieder;
+      normiert sind sie in FK-41.
+  - target: FK-41
+    scope: pattern-promotion
+    reason: >-
+      §93.11 gibt die Promotionsregel (3x / 30 Tage) wieder; sie ist in FK-41
+      normiert.
+  - target: FK-41
+    scope: check-factory
+    reason: >-
+      §93.11 gibt Deaktivierungszeitraum und FP-Schwelle der Check-Factory
+      wieder; normiert sind sie in FK-41.
 supersedes: []
 superseded_by:
 tags: [defaults, thresholds, timeouts, configuration, reference]
@@ -37,6 +230,28 @@ Abwesenheit eines vergleichbaren Werts ist **kein** Argument gegen die
 Aufnahme eines neuen: dass ein verwandter Wert bisher fehlt, heisst nur,
 dass er ebenfalls fehlt. Entschieden wird nach dem Kriterium, nicht nach
 dem Praezedenzfall.
+
+### 93.0.1 Autoritaet des Katalogs — Nachschlageort, nicht Normquelle
+
+Dieser Abschnitt (das Aufnahmekriterium) ist die **einzige** eigene Norm des
+Katalogs; sie ist der Inhalt des Scopes `defaults`, den FK-93 besitzt. **Jede**
+Zeile in den Abschnitten §93.1 bis §93.12 gibt dagegen einen Wert wieder,
+dessen normativer Owner ein **anderes** Dokument ist. Der Katalog aendert an
+diesen Werten nichts; er macht sie an einem Ort nachschlagbar.
+
+FK-93 verlangt daher von sich selbst:
+
+- **Jeder Abschnitt dieses Katalogs traegt eine scope-qualifizierte
+  `defers_to`-Kante auf den Owner der Werte, die er wiedergibt.** Ohne sie
+  beansprucht FK-93 Autoritaet, die es nicht hat.
+- **Die Spalte `Kapitel` ersetzt diese Kante nicht.** Sie ist ein Lesehinweis
+  fuer Menschen; die Kante ist maschinenlesbare Frontmatter.
+- **Ein neuer Abschnitt ohne passende Kante ist unvollstaendig.** Wer eine
+  Katalogzeile ergaenzt, deren Owner hier noch keine Kante hat, ergaenzt
+  beides in einem Zug.
+- **Kein Abschnitt dieses Katalogs erklaert sich selbst zur Normquelle.** Steht
+  ein Wert nirgendwo sonst, ist das eine Luecke beim besitzenden Dokument und
+  wird dort geschlossen, nicht hier umgewidmet.
 
 ## 93.1 Pipeline-Konfiguration
 
@@ -68,8 +283,8 @@ dem Praezedenzfall.
 
 | Parameter | Default | Config-Pfad | FK | Kapitel |
 |-----------|---------|-------------|-----|---------|
-| Web-Call-Limit (nur Research) | 200 | `telemetry.web_call_limit` | FK-08-019 | 14 |
-| Web-Call-Warnung (nur Research) | 180 | `telemetry.web_call_warning` | FK-08-019 | 14 |
+| Web-Call-Limit (nur Research) | 200 | `telemetry.web_call_limit` | FK-08-019 | 68 |
+| Web-Call-Warnung (nur Research) | 180 | `telemetry.web_call_warning` | FK-08-019 | 68 |
 
 ## 93.5 Governance-Beobachtung
 
@@ -91,7 +306,11 @@ dem Praezedenzfall.
 
 ## 93.6 Risikopunkte (Governance-Sensorik)
 
-Die folgende Punktetabelle ist normative FK-93-Sollwert-Quelle.
+Die folgende Punktetabelle gibt die Gewichtungen der Governance-Sensorik
+nachschlagbar wieder. Normquelle ist **FK-35** (Scope `governance-observation`,
+Sofort-Stopp zusaetzlich `escalation`) — die frueher hier stehende Behauptung,
+FK-93 sei die Sollwert-Quelle, war doppelte Ownership gegenueber FK-35, das
+dieselbe Tabelle fuehrt (§93.0.1).
 
 | Signal | Punkte | FK | Kapitel |
 |--------|--------|-----|---------|

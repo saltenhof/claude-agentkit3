@@ -184,6 +184,9 @@ python tools/agentkit/concept_toolchain/semantic_gate.py <cmd> \
   --principal <id> --session <ref> --fencing-token <n>   # PFLICHT je Aufruf
   units <run-dir> | prepare <run-dir> --gate w2|w3 | import <run-dir> <receipt>
 Exit: 0 PASS · 1 Befunde · 2 fehlende Voraussetzungen/INCOMPLETE · 3 Usage
+      4 NUR semantic_gate.py: Mutation fertig, geschuldetes Aufraeumen
+        gescheitert -- die genannte Datei blockiert weitere Schreiber und
+        muss von Hand entfernt werden. Rangfolge: 2 > 1 > 4 > 0.
 ```
 
 Die Schreiber-Identitaet ist Pflicht: `--principal`/`--session` muessen

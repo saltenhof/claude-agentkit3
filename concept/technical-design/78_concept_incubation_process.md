@@ -414,10 +414,11 @@ beschraenkt wiederholt. Ein Ersetzen, das endgueltig scheitert, ist
 harter Abbruch — der Write ist nicht gelandet.
 
 Ein Loeschen, das endgueltig scheitert, beendet den Lauf mit einem
-**blockierenden ERROR-Befund im Envelope** und niemals mit Exit 0 oder
-der Meldung „OK". Der Befund benennt (a) welche Datei liegen blieb,
-(b) dass sie bis zum Ablauf ihrer TTL jeden weiteren Schreiber blockiert
-und manuell entfernt werden muss, und (c) dass die Mutation selbst
+**blockierenden ERROR-Befund im Envelope** und einem **eigenen
+Exit-Code (`4`, siehe §78.14)**, niemals mit Exit 0 oder der Meldung
+„OK". Der Befund benennt (a) welche Datei liegen blieb,
+(b) **wie lange** sie jeden weiteren Schreiber blockiert und dass sie
+manuell entfernt werden muss, und (c) dass die Mutation selbst
 **moeglicherweise bereits gelandet** ist — die Freigabe laeuft im
 Teardown, lange nachdem der Ausgang der Mutation feststeht. Ein
 unstrukturierter Hinweis auf stderr bei Exit 0 erfuellt das nicht: er
@@ -425,6 +426,31 @@ hat keinen Owner und loest keinen Folgeauftrag aus. Der bereits
 berechnete Befund des Laufs darf dabei weder verlorengehen noch
 verfaelscht werden; insbesondere wird eine gelandete Mutation nicht
 nachtraeglich als „nicht passiert" ausgegeben.
+
+**„Weg" und „nicht pruefbar" sind zwei verschiedene Antworten.** Eine
+Datei, die nicht gelesen oder nicht als gueltige Payload validiert werden
+kann, ist **nicht** verschwunden. Compare-before-delete darf beide Faelle
+nicht gleichsetzen — sonst verbucht ein Lesefehler beim finalen Re-Read
+die geschuldete Loeschung als erledigt und der Lauf meldet Exit 0 und
+„OK", waehrend die Datei liegenbleibt. Verbindlich gilt deshalb:
+
+1. Eine vorhandene, aber nicht verifizierbare Datei wird **niemals
+   ungeprueft geloescht** — die Vergleichsgroesse, gegen die
+   compare-before-delete prueft, fehlt genau dann.
+2. Sie wird ebenso wenig als erledigt verbucht: sie ist eine
+   **geschuldete, nicht erledigte Wirkung** und damit derselbe
+   blockierende ERROR-Befund. Die Diagnose des Ladens (Locator und
+   Meldung) ist die Begruendung des Befunds und wird nicht verworfen.
+3. „Weg" darf nur behauptet werden, wenn die Abwesenheit **beweisbar**
+   ist; ein fehlgeschlagenes `stat` ist kein Beweis fuer Abwesenheit.
+4. Die Dauer der Blockade wird wahrheitsgemaess benannt: eine **gueltige**
+   liegengebliebene Datei wird nach ihrer TTL uebernommen. Eine
+   **ungueltige** `RUN.mutex` dagegen **nie** — der Takeover weist ein
+   nicht validierbares Payload ab, bevor er die TTL ueberhaupt
+   betrachtet. Diese Klemme ist **permanent** und nur manuell aufloesbar;
+   der Befund sagt das ausdruecklich statt eine TTL-Freigabe zu
+   versprechen, die nicht kommt. Beim Intent bleibt die Klemme
+   TTL-begrenzt, weil dort der mtime-Rueckfall greift.
 
 Ebenso gilt: **nach dem erfolgreichen exklusiven Create gehoert die
 Klinke dem Ersteller — einschliesslich ihrer Bereinigung.** Exklusiver
@@ -994,6 +1020,24 @@ ueber kanonische Fixtures mit dem Code deckungsgleich gehalten werden.
   Voraussetzungen bzw. deklarierter INCOMPLETE-Teillauf; `3` Usage-/
   Konfigurationsfehler. Exit 2 gilt nie fuer einen vollstaendig
   gelaufenen Einzel-Check.
+- **Exit-Code `4` — nur `semantic_gate.py`:** die Mutation ist
+  abgeschlossen, aber eine **geschuldete Aufraeumwirkung ist endgueltig
+  gescheitert**; die liegengebliebene Datei blockiert weitere Schreiber
+  (§78.4). Der Fall bekommt einen **eigenen** Code, weil „Arbeit
+  erledigt, Aufraeumen gescheitert" semantisch weder ein
+  Validierungsbefund (`1`, das Ergebnis ist falsch) noch eine fehlende
+  Voraussetzung (`2`, es lief nichts) ist: ein Konsument muss die drei
+  Faelle unterscheiden koennen, **ohne die Meldung zu parsen**. Der Preis
+  — ein Vertragsbestandteil mehr, den jeder Konsument kennen muss — ist
+  bewusst akzeptiert.
+  **Rangfolge, staerkstes zuerst:** `2` vor `1` vor `4` vor `0`. Treffen
+  mehrere zu, gewinnt der fachlich schwerwiegendere Befund; `4` ist
+  bewusst der schwaechste, denn er behauptet, die Arbeit sei erledigt —
+  wuerde er `1` oder `2` verdraengen, meldete er das faelschlich. Der
+  Befund selbst steht in **jedem** dieser Faelle als blockierender
+  ERROR-Eintrag im Envelope; nur die Entscheidung ueber den Exit-Code
+  faellt anders aus. Read-only-Checks (`check.py`) liefern `4` nie — sie
+  schulden keine Wirkungen.
 - `--json`-Envelope: `{schema_version, command, check_set[], complete,
   findings[]: {check_id, severity: "ERROR", path, locator, message}}`.
 

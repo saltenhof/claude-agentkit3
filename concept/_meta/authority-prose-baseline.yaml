@@ -1,121 +1,16 @@
 # Exact, justified W2/W3 governance finding keys. Baselined findings remain visible reports.
+#
+# AG3-179 (2026-08-02, Codex-Review Runde 2): Die acht hier zeitweise gefuehrten
+# `UNAUTHORIZED_SCOPE_ASSERTION`-Eintraege aus FK-93 §93.9a sind wieder
+# ENTFERNT. Sie waren kein False Positive, sondern genau der Befund, den W2
+# erzeugen soll: FK-93 trug `authority_over: [defaults]` und `defers_to: []`,
+# waehrend jede Katalogzeile einen anderswo besessenen Wert wiedergibt. Die
+# Baseline-Begruendungen benannten die fehlenden scope-qualifizierten
+# `defers_to`-Kanten selbst als Ursache — eine Baseline ueber eine bekannte,
+# benannte Modellierungsluecke ist Unterdrueckung, kein Befundmanagement.
+#
+# Behoben ist stattdessen die Ursache: FK-93 traegt jetzt je Abschnitt eine
+# scope-qualifizierte `defers_to`-Kante auf den Owner der wiedergegebenen Werte,
+# und §93.0.1 macht diese Kante zur Pflegeregel des Katalogs.
 version: 1
-entries:
-  # ------------------------------------------------------------------------
-  # AG3-179 (2026-08-02), W2 pre-merge gegen die geaenderte Range.
-  #
-  # Der neue Abschnitt FK-93 §93.9a loest dieselbe Befundklasse aus, die W2
-  # auch fuer die unveraenderten Abschnitte §93.6 bis §93.9 meldet: FK-93
-  # traegt `authority_over: [defaults]` und `defers_to: []`, waehrend jede
-  # Katalogzeile einen Wert wiederholt, dessen normativer Owner ein anderes
-  # Dokument ist. Das ist eine Modellierungsluecke des GESAMTEN Katalogs,
-  # nicht dieses Abschnitts: FK-93 fehlen scope-qualifizierte defers_to-Kanten.
-  #
-  # Hier baselined sind ausschliesslich die acht Befunde, die AG3-179 selbst
-  # verursacht hat (Abschnitt §93.9a). Die 32 Befunde auf §93.6 bis §93.9 sind
-  # Bestand, wurden von AG3-179 nur sichtbar gemacht und sind BEWUSST NICHT
-  # baselined: sie zu triagieren waere eine normative Entscheidung ueber ein
-  # cross-cutting Autoritaetsdokument und gehoert nicht in diese Story.
-  #
-  # Gemeinsame Begruendung fuer alle acht Eintraege: §93.9a ist eine
-  # Katalogzeile, kein eigener Normsatz. Der normative Owner steht in der
-  # Spalte `Kapitel` (78.4); FK-78 §78.4 traegt die Regel und wird von dieser
-  # Zeile nur nachschlagbar gemacht. FK-93 §93.0 definiert den Katalog
-  # ausdruecklich als Nachschlageort fuer extern wahrnehmbare Werte.
-  # ------------------------------------------------------------------------
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'TTL von `RUN.mutex` und `RUN.mutex.intent` (Uebernahme nach Absturz) | 600s (10 Min)'
-    scope: concept-incubation-technical
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Katalogzeile ohne eigenen Normsatz. Die TTL wird normativ von FK-78 §78.4
-      getragen (Spalte Kapitel = 78.4); FK-93 macht sie nur nachschlagbar, weil
-      ein Betreiber sie am Verhalten bemerkt (FK-93 §93.0). Die fehlende
-      scope-qualifizierte defers_to-Kante von FK-93 nach concept-incubation-technical
-      ist eine Modellierungsluecke des gesamten Katalogs (gleiche Befundklasse in
-      §93.6 bis §93.9) und wird nicht in AG3-179 entschieden.
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'TTL von `RUN.mutex` und `RUN.mutex.intent` (Uebernahme nach Absturz) | 600s (10 Min)'
-    scope: locking
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Wie der concept-incubation-technical-Eintrag derselben Zeile: reine
-      Wiederholung eines Werts, dessen Norm in FK-78 §78.4 steht. Der vom
-      Evaluator gebildete Scope 'locking' bezeichnet zudem die Story-Locks aus
-      FK-02, nicht den Inkubator-Mutex; eine defers_to-Kante dorthin waere
-      sachlich falsch und wird deshalb nicht gezogen.
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'Wartefrist auf eine lebende fremde Klinke, danach fail-closed | 5s'
-    scope: concept-incubation-technical
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Katalogzeile ohne eigenen Normsatz. Normativ ist in FK-78 §78.4
-      ausschliesslich "beschraenkt warten, dann fail-closed"; die Sekundenzahl
-      steht im Katalog, damit ein Betreiber sie nachschlagen kann (FK-93 §93.0).
-      Gleiche Modellierungsluecke wie oben, gleiche Abgrenzung.
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'Wartefrist auf eine lebende fremde Klinke, danach fail-closed | 5s'
-    scope: locking
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Wie der concept-incubation-technical-Eintrag derselben Zeile. 'locking'
-      adressiert die Story-Locks aus FK-02 und nicht die Koordinations-Klinke des
-      Inkubators; eine defers_to-Kante dorthin waere sachlich falsch.
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'Wiederholungsfrist geschuldeter Datei-Wirkungen (Loeschen, atomares Ersetzen, Advisory-Lock) | 5s'
-    scope: concept-incubation-technical
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Katalogzeile ohne eigenen Normsatz. Normativ ist in FK-78 §78.4, dass
-      geschuldete Wirkungen beschraenkt wiederholt werden und ein endgueltiges
-      Scheitern ein blockierender ERROR-Befund ist; die Frist selbst ist der
-      extern wahrnehmbare Betriebswert (FK-93 §93.0).
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'Wiederholungsfrist geschuldeter Datei-Wirkungen (Loeschen, atomares Ersetzen, Advisory-Lock) | 5s'
-    scope: locking
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Wie der concept-incubation-technical-Eintrag derselben Zeile. 'locking'
-      adressiert die Story-Locks aus FK-02; der Advisory-Lock dieser Zeile
-      gehoert zum Inkubator-Schreibprotokoll in FK-78 §78.4.
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'Bewusst **nicht** im Katalog, weil reines internes Tuning ohne extern beobachtbare Zusage: das Poll-Intervall der Warteschleife (`INTENT_POLL_SECONDS`) und die Probe-Kadenz, mit der ein Wartender die Payload der Klinke nachliest (`INTENT_PROBE_SECONDS`).'
-    scope: concept-incubation-technical
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Der Satz sagt ausdruecklich, dass diese beiden Werte NICHT in den Katalog
-      aufgenommen werden. Er begruendet eine Abgrenzung des Katalogs entlang
-      FK-93 §93.0 und trifft keine Aussage ueber das Verhalten des Inkubators;
-      der Mechanismus bleibt vollstaendig FK-78 §78.4 ueberlassen.
-  - code: UNAUTHORIZED_SCOPE_ASSERTION
-    doc: technical-design/93_standardwerte_schwellwerte_timeouts.md
-    anchor: 93-9a-concept-incubator-mutations-mutex-und-koordinations-klinke-012
-    assertion: 'Bewusst **nicht** im Katalog, weil reines internes Tuning ohne extern beobachtbare Zusage: das Poll-Intervall der Warteschleife (`INTENT_POLL_SECONDS`) und die Probe-Kadenz, mit der ein Wartender die Payload der Klinke nachliest (`INTENT_PROBE_SECONDS`).'
-    scope: configuration
-    prompt_version: authority-prose/v1
-    model: qwen
-    reason: >-
-      Wie der concept-incubation-technical-Eintrag derselben Zeile. Der Satz
-      schliesst zwei Werte aus dem Katalog aus und macht sie damit gerade NICHT
-      zu Konfiguration; er begruendet nur die Grenze des Katalogs (FK-93 §93.0).
+entries: []

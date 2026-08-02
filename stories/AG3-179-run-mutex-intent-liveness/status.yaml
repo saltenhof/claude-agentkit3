@@ -43,7 +43,10 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #     Sekundentakt (der exklusive Create ist die billige Probe).
 #  3) CRASH: der Create fing nur `FileExistsError`; jeder andere OS-Fehler
 #     beendete das CLI mit Traceback und Exit 1 — ausgerechnet der Code, den
-#     derselbe Vertrag fuer Validierungsfunde reserviert. Behoben: verlorener
+#     derselbe Vertrag fuer blockierende VALIDIERUNGSBEFUNDE reserviert.
+#     (Praezisiert in Runde 3: jeder Exit-Code dieses CLIs traegt eine eigene
+#     Aussage — 1 Befunde, 2 fehlende Voraussetzungen, 4 gescheiterte
+#     Aufraeumwirkung. Ein Absturz traegt keine.) Behoben: verlorener
 #     Anspruch mit regulaerem Fehlausgang und benannter Ursache.
 # Konzept nachgezogen: FK-78 §78.4 (sagte woertlich "wer es nicht per
 # O_CREAT|O_EXCL anlegen kann, verliert") + Decision Record
@@ -168,7 +171,101 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #    zwei Versuche mit Korrektur-Prompt. Das zu beheben aendert den Vertrag
 #    eines Governance-Gates und gehoert in eine eigene Story (WARNING).
 #
-# NICHT FERTIG: Runde 2 geht erneut ins Codex-Review. Behobene Findings sind
+# ==========================================================================
+# RUNDE 3 (2026-08-02) -- zweites unabhaengiges Codex-Review: LANDEFAEHIG NEIN
+# ==========================================================================
+# Befund: 6 ERROR, 3 WARNING. Der Advisory-Lock und alle sechs
+# Zusatzentscheidungen aus Runde 2 wurden BESTAETIGT und nicht angefasst.
+# Behoben in dieser Runde (Details in report.md, Abschnitt "Runde 3"):
+#  E1 (ERROR) "Datei fehlt" und "Datei ist unlesbar" waren dasselbe. Die Lader
+#     liefern `None` fuer beides; alle vier compare-before-delete-Stellen haben
+#     den zweiten Fall als erledigt verbucht und die Lader-Issues verworfen.
+#     Ein Lesefehler beim finalen Re-Read von RUN.mutex endete mit Exit 0 und
+#     "OK", waehrend die Datei liegenblieb -- beim Mutex PERMANENT, weil ein
+#     nicht validierbares Payload nie per TTL uebernommen wird. Behoben durch
+#     explizite Klassifikation (_Ownership: OURS/FOREIGN/GONE/UNVERIFIABLE);
+#     "weg" nur bei BEWEISBARER Abwesenheit (FileNotFoundError, nicht
+#     Path.exists); UNVERIFIABLE wird nie ungeprueft geloescht und nie als
+#     erledigt verbucht, sondern blockierender Befund mit der Lader-Diagnose
+#     als Begruendung; die Blockadedauer wird wahrheitsgemaess benannt.
+#     Regressionstests fuer BEIDE Dateien (6 Tests), FK-78 §78.4 nachgezogen.
+#  E2 (ERROR) Der Release-Pfad war nicht gegen seine eigene
+#     Read-then-Unlink-Regression getestet. Neu: gestoppter Interleaving-Test
+#     ueber `_release_intent()`. Mit der vom Review benannten Mutation (Lock
+#     erwerben und sofort freigeben, dann lesen+loeschen) ist er rot, die vier
+#     bestehenden Release-Tests bleiben dabei gruen -- genau der Befund.
+#  E3 (ERROR) FK-93-Autoritaetsmodell an der Wurzel repariert: 31
+#     scope-qualifizierte defers_to-Kanten (je Abschnitt auf den echten Owner),
+#     neuer §93.0.1 als Pflegeregel, doppelte Ownership in §93.6 gegenueber
+#     FK-35 beseitigt, toter Kapitelverweis in §93.4 korrigiert. Die acht
+#     Baselines aus Runde 2 sind ENTFERNT -- sie waren eine Unterdrueckung
+#     einer selbst benannten Modellierungsluecke.
+#  E4 (W3-Retry) VOM PO GESTRICHEN (2026-08-02), war fertig implementiert und
+#     ist VOLLSTAENDIG ZURUECKGEBAUT: scope_execution.py, scope_port.py,
+#     scope_evaluator.py, scope_transport.py, scope_prompt.py, das Prompt-Asset,
+#     test_scope_execution.py (neu, geloescht), test_scope_evaluator.py,
+#     helpers.py, der neue Decision Record 2026-08-02-w3-bounded-correction.md
+#     (geloescht), Governance-Doku, Record 2026-07-14 und AGENTS.md. Grund: die
+#     QS wird grundsaetzlich umgebaut -- weg vom LLM-Hub, hin zur
+#     Harness-Bridge mit nativen KI-Agenten; in den Retry-Vertrag des heutigen
+#     W3 zu investieren waere Arbeit an einem Mechanismus, der ersetzt wird.
+#     Der Befund selbst (W3 ohne Retry, W2 mit) bleibt OFFEN und UNBEHOBEN.
+#  E5 (WARNING) Exit-1-Dokumentation konsistent nachgezogen.
+#  ZURUECKGENOMMEN: die W3-Umfangsverengung aus Runde 2. Pflichtumfang WAREN
+#     ALLE sechs betroffenen Scope-Sets, nicht die zwei erfolgreichen. Diese
+#     Rueckname gilt unabhaengig von der Aussetzung unten -- die falsche
+#     Behauptung wird korrigiert, nicht durch die Aussetzung ersetzt.
+#
+# AUSGESETZT (PO-Entscheidung 2026-08-02, Decision Record Rand 2.4c): die
+# W2/W3-Pre-Merge-Pflicht fuer diese Story. W3 wird nicht mehr bis zum
+# vollstaendigen Sweep gejagt; "W2 vollstaendig gruen" ist kein
+# Abnahmekriterium mehr. Beide Ist-Staende sind in report.md mit Scope,
+# Fehlermodus und Reproduzierbarkeit dokumentiert; nichts davon wird als gruen
+# ausgegeben. Das ist eine dokumentierte Ausnahme, kein Uebergehen.
+# E3 bleibt davon UNBERUEHRT im Auftrag: das fehlende Deferral-Modell des
+# Katalogs ist eine eigene Modellierungsschuld, kein W2-Artefakt.
+#
+# PO-ENTSCHEIDUNG 2026-08-02: Rand 2.4 ist RATIFIZIERT, mit Aenderung -- eine
+# endgueltig gescheiterte geschuldete Loeschung meldet einen eigenen,
+# reservierten Exit-Code. Vergeben: 4 (im Vertrag frei). Rangfolge explizit
+# festgelegt und getestet: 2 > 1 > 4 > 0; 4 ist der schwaechste, weil er
+# behauptet, die Arbeit sei erledigt. Konsumenten nachgezogen: findings.py,
+# semantic_gate.py, FK-78 §78.4/§78.14, Decision Record, Skill-Bundle
+# concept-incubation-core (SKILL.md + references/process-core.md).
+#
+# ZUSAETZLICH (vom W2-Lauf erzwungen): Der erste W2-Lauf dieser Runde brach mit
+# EINEM blockierenden EVALUATION_PARSE_FAILURE ab: ein Modell zitierte eine
+# Markdown-Tabellenzelle mit escaptem Pipe (`\|`) woertlich zurueck, was
+# innerhalb eines JSON-Strings ein Syntaxfehler ist. Der Parser normalisierte
+# bisher genau EIN Zeichen (`\_`, AG3-176/8473ae84) -- ein Symptomfix, denn die
+# naechste Tabellenspalte bringt das naechste Zeichen. Behoben an der Wurzel:
+# neues geteiltes Modul tools/concept_governance/json_escapes.py reduziert JEDE
+# nicht-JSON-Escape-Sequenz auf ihr Zeichen und laesst gueltige Escapes
+# (inkl. `\\` und `\uXXXX`) unangetastet. BEIDE Gates gezogen -- W3 trug
+# denselben Sonderfall. 14 neue Tests, 2 Mutationen belegt.
+#
+# ZUSAETZLICH (nicht beauftragt, aber blockierend): der Flicker-Test war
+# flaky -- er zaehlte Kollisionen, die der Scheduler liefern musste. Auf dem
+# unveraenderten Stand 02a89fd9 gegengeprueft: 1 von 8 Laeufen rot. Behoben,
+# ohne die Aussage abzuschwaechen: beide Richtungen der Konkurrenz werden
+# jetzt erzwungen statt beobachtet. 8 von 8 gruen.
+#
+# NACHWEIS-LUECKE (benannt, nicht als gruen ausgegeben): Der PO migriert live
+# die Infrastruktur dieser Maschine; das Laufwerk mit der Docker-Installation
+# wird geloescht, die Engine ist absichtlich unten. Der Abschlusslauf nach dem
+# E4-Rueckbau lief daher OHNE Container-Laufzeit; die Postgres-gestuetzten
+# Contract-/Integrationstests (tests/**/*_pg.py) sind NICHT ausgefuehrt. Sie
+# beruehren AG3-179 nicht (semantic_gate.py, findings.py,
+# tools/concept_governance/ haben keine Postgres-Abhaengigkeit), und der
+# E4-Rueckbau ist ein git checkout auf den committeten Stand -- belegt ist es
+# damit aber nicht. Der letzte VOLLSTAENDIGE Lauf (10982 passed, 0 failed,
+# 14 skipped) enthielt alle Aenderungen ausser dem E4-Rueckbau.
+# Abschlusslauf ohne Container: 10410 passed, 40 skipped, 356 errors, 0 FAILED.
+# Alle 356 Errors maschinell auf EINE Ursache zurueckgefuehrt (Fixture
+# postgres_container_url ohne Container-Laufzeit); Bloecke mit anderer
+# Ursache: 0.
+#
+# NICHT FERTIG: Runde 3 geht erneut ins Codex-Review. Behobene Findings sind
 # kein Abschluss (CLAUDE.md, Definition of Done).
 depends_on: []
 unblocks: []

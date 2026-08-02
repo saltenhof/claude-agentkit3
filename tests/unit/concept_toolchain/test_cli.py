@@ -7,7 +7,14 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-from concept_toolchain.findings import CheckResult, Finding, exit_code, to_envelope
+from concept_toolchain.findings import (
+    EXIT_OWED_EFFECT,
+    CheckResult,
+    Finding,
+    exit_code,
+    exit_code_with_owed_effect,
+    to_envelope,
+)
 from tests.unit.concept_toolchain.conftest import CHECK_SCRIPT, concept_doc, write_doc, write_governance_config
 
 if TYPE_CHECKING:
@@ -88,6 +95,27 @@ def test_exit_code_precedence() -> None:
     assert exit_code([CheckResult(check_id="a")]) == 0
     assert exit_code([CheckResult(check_id="a", findings=[finding])]) == 1
     assert exit_code([CheckResult(check_id="a", complete=False), CheckResult(check_id="b", findings=[finding])]) == 2
+
+
+def test_owed_effect_exit_code_is_ranked_last() -> None:
+    """PO decision 2026-08-02: ``4`` never displaces a worse outcome.
+
+    ``4`` asserts "the work is done, only the cleanup failed". Letting it
+    win over a validation finding or a missing prerequisite would tell a
+    consumer the work was done when it was not — so the ranking is
+    ``2`` > ``1`` > ``4`` > ``0``, and it is pinned here at the module that
+    owns the exit-code policy, not only through the CLI.
+    """
+    finding = Finding(check_id="x", severity="ERROR", path="p", locator="l", message="m")
+    clean = CheckResult(check_id="a")
+    with_finding = CheckResult(check_id="a", findings=[finding])
+    incomplete = CheckResult(check_id="a", complete=False)
+    assert exit_code_with_owed_effect([clean], owed_effect_failed=False) == 0
+    assert exit_code_with_owed_effect([clean], owed_effect_failed=True) == EXIT_OWED_EFFECT == 4
+    assert exit_code_with_owed_effect([with_finding], owed_effect_failed=True) == 1
+    assert exit_code_with_owed_effect([incomplete], owed_effect_failed=True) == 2
+    # And a read-only check never even reaches the new code.
+    assert exit_code([with_finding]) == 1
 
 
 def test_envelope_serialization_is_deterministic() -> None:
