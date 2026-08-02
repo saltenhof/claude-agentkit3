@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, Final, cast
 
 import httpx
 import pytest
@@ -669,8 +669,18 @@ def _read_property(
     tokenization: Tokenization | None = None,
     searchable: bool = False,
     filterable: bool = True,
+    named_surface: bool = False,
 ) -> _Property:
-    """Build a REAL read-side ``_Property`` (the shape ``config.get()`` returns)."""
+    """Build a REAL read-side ``_Property`` (the shape ``config.get()`` returns).
+
+    ``named_surface`` selects WHERE the per-property vectorizer settings sit: a
+    named-vectors collection fills ``vectorizer_configs`` (one entry per named
+    vector) and leaves ``vectorizer_config`` at ``None``, the legacy surface does
+    the opposite. Both are produced here because production must read both.
+    """
+    per_property = _PropertyVectorizerConfig(
+        skip=skip_vectorization, vectorize_property_name=vectorize_property_name
+    )
     return _Property(
         name=name,
         description=None,
@@ -681,11 +691,9 @@ def _read_property(
         nested_properties=None,
         text_analyzer=None,
         tokenization=tokenization,
-        vectorizer_config=_PropertyVectorizerConfig(
-            skip=skip_vectorization, vectorize_property_name=vectorize_property_name
-        ),
+        vectorizer_config=None if named_surface else per_property,
         vectorizer=None,
-        vectorizer_configs=None,
+        vectorizer_configs={"text2vec-transformers": per_property} if named_surface else None,
     )
 
 
@@ -763,10 +771,16 @@ def test_n12_matching_existing_collection_is_accepted() -> None:
     _ensure(config, "text2vec_transformers")  # no raise
 
 
+#: Sentinel: "caller said nothing about source_properties, use the SSOT set".
+#: Distinct from an explicit ``None``, which means "the collection declares NO
+#: selection at all" -- and that is drift now (see N35 tests below).
+_SSOT_SOURCES: Final = object()
+
+
 def _named_vector_config(
     vectorizer: Vectorizers = Vectorizers.TEXT2VEC_TRANSFORMERS,
     *,
-    source_properties: list[str] | None = None,
+    source_properties: list[str] | None | object = _SSOT_SOURCES,
     **model: object,
 ) -> dict[str, _NamedVectorConfig]:
     """Build the REAL read-back named-vector config of the installed client (N30).
@@ -777,16 +791,27 @@ def _named_vector_config(
     here comes from the installed classes, and ALL THREE of the class's
     behaviour-defining fields (``vectorizer``, ``model``, ``source_properties``) are
     settable so each of them can be drifted independently (N35).
+
+    The defaults are DERIVED from the schema SSOT, never spelled out here: a
+    hand-written ``masked_mean`` in this fixture kept passing after the embedding
+    model moved to bge-m3 and quietly described a collection nobody runs.
     """
-    settings: dict[str, object] = {
-        "poolingStrategy": "masked_mean",
-        "vectorizeClassName": False,
-    }
+    from agentkit.backend.vectordb.schema import (
+        FK13_VECTOR_SOURCE_PROPERTIES,
+        FK13_VECTORIZER_MODEL,
+    )
+
+    settings: dict[str, object] = dict(FK13_VECTORIZER_MODEL)
     settings.update(model)
+    sources = (
+        list(FK13_VECTOR_SOURCE_PROPERTIES)
+        if source_properties is _SSOT_SOURCES
+        else cast("list[str] | None", source_properties)
+    )
     return {
         "default": _NamedVectorConfig(
             vectorizer=_NamedVectorizerConfig(
-                vectorizer=vectorizer, model=settings, source_properties=source_properties
+                vectorizer=vectorizer, model=settings, source_properties=sources
             ),
             vector_index_config=None,
         )
@@ -824,22 +849,27 @@ def test_n12_named_vector_config_is_the_authoritative_surface() -> None:
 
 def test_n30_model_settings_are_read_from_the_real_named_config() -> None:
     """The MODEL is where vectorizeClassName / poolingStrategy actually live."""
+    from agentkit.backend.vectordb.schema import FK13_VECTORIZER_MODEL
+
     config = _ConfigView(
         properties=_schema_properties(),
         vectorizer=None,
         vector_config=_named_vector_config(),
     )
-    assert configured_vectorizer_model(config) == {
-        "poolingStrategy": "masked_mean",
-        "vectorizeClassName": False,
-    }
+    assert configured_vectorizer_model(config) == dict(FK13_VECTORIZER_MODEL)
+    # The pinned model is bge-m3, so the derived strategy is CLS. Asserted
+    # explicitly: the derivation is what the SSOT comparison above rests on.
+    assert configured_vectorizer_model(config)["poolingStrategy"] == "cls"
 
 
 @pytest.mark.parametrize(
     "drift,match",
     [
         ({"vectorizeClassName": True}, "vectorizeClassName"),
-        ({"poolingStrategy": "cls"}, "poolingStrategy"),
+        # ``masked_mean`` is the PREVIOUS model's strategy. It is the value that
+        # was really found on the running instance while the code pinned the old
+        # model, so it is the regression this case guards.
+        ({"poolingStrategy": "masked_mean"}, "poolingStrategy"),
     ],
 )
 def test_n30_drifted_vectorizer_model_fails_closed(
@@ -863,7 +893,7 @@ def test_n30_legacy_vectorizer_surface_is_also_checked() -> None:
         vector_config=None,
         vectorizer_config=_VectorizerConfig(
             vectorizer=Vectorizers.TEXT2VEC_TRANSFORMERS,
-            model={"poolingStrategy": "masked_mean"},
+            model={"poolingStrategy": "cls"},  # SSOT-conform: ONLY the flag drifts
             vectorize_collection_name=True,
         ),
     )
@@ -946,44 +976,37 @@ def test_n35_drifted_source_properties_fail_closed(drifted: list[str]) -> None:
 
 def test_n35_drift_is_caught_even_when_the_model_is_perfect() -> None:
     """Isolate the finding: ONLY source_properties differ, everything else matches."""
+    from agentkit.backend.vectordb.schema import FK13_VECTORIZER_MODEL
+
     config = _ConfigView(
         properties=_schema_properties(),
         vectorizer=None,
         vector_config=_named_vector_config(source_properties=["title"]),
     )
-    assert configured_vectorizer_model(config) == {
-        "poolingStrategy": "masked_mean",
-        "vectorizeClassName": False,
-    }
+    assert configured_vectorizer_model(config) == dict(FK13_VECTORIZER_MODEL)
     with pytest.raises(VectorDbWriteError, match="vectorises only the title"):
         _ensure(config, "text2vec_transformers")
 
 
-def test_n35_absent_selection_is_governed_by_the_per_property_skip_flags() -> None:
-    """``source_properties=None`` is the server-derived set, not drift.
+def test_n35_absent_selection_is_drift() -> None:
+    """``source_properties=None`` is drift: nothing would prove what is embedded.
 
-    The client reports ``None`` when the server derives the embedded set from the
-    per-property ``skip_vectorization`` flags -- and those are verified property by
-    property by the same call, so treating ``None`` as drift would reject a
-    correctly configured collection. Deliberate, and pinned here so the semantics
-    cannot be changed silently.
+    This assertion was INVERTED until 2026-08-02. It rested on the assumption that
+    an absent selection means "the server derives the set from the per-property
+    ``skip_vectorization`` flags, and those are verified anyway". Measured against
+    the running instance with weaviate-client 4.21.2, that is false: the
+    named-vectors API never transmits the per-property flag, so the read-back
+    reports ``skip=False`` for EVERY property. With the selection absent as well,
+    NOTHING would state which properties feed the embedding -- so an absent
+    selection is now the strictest kind of drift, not a tolerated case.
     """
     config = _ConfigView(
         properties=_schema_properties(), vectorizer=None,
         vector_config=_named_vector_config(source_properties=None),
     )
     assert configured_vector_source_properties(config) is None
-    _ensure(config, "text2vec_transformers")  # no raise
-    # ... and the skip flags themselves are still enforced: flipping the body to
-    # "skip" is caught, so nothing about WHAT is embedded goes unchecked.
-    props = _schema_properties()
-    props[0] = _read_property(str(props[0].name), DataType.TEXT, skip_vectorization=True)
-    drifted = _ConfigView(
-        properties=props, vectorizer=None,
-        vector_config=_named_vector_config(source_properties=None),
-    )
-    with pytest.raises(VectorDbWriteError, match="skip_vectorization"):
-        _ensure(drifted, "text2vec_transformers")
+    with pytest.raises(VectorDbWriteError, match="SOURCE PROPERTIES drifted"):
+        _ensure(config, "text2vec_transformers")
 
 
 def test_n35_created_collection_declares_the_ssot_source_properties() -> None:
@@ -1380,17 +1403,79 @@ def test_n18_existing_collection_with_unsearchable_content_fails_closed() -> Non
         _ensure(config, "text2vec_transformers")
 
 
-def test_n12_drifted_per_property_vectorisation_fails_closed() -> None:
-    props = _schema_properties()
-    story_id_index = next(i for i, p in enumerate(props) if p.name == "story_id")
-    props[story_id_index] = _read_property(
-        "story_id",
-        DataType.TEXT,
-        skip_vectorization=False,  # drifted: an identifier in the embedding
-        tokenization=Tokenization.FIELD,
+def test_n12_an_identifier_in_the_embedding_fails_closed() -> None:
+    """An identifier that feeds the embedding must fly, via ``source_properties``.
+
+    The assurance is unchanged -- ``story_id`` in the embedding is drift -- but it
+    is asserted where the named-vectors API actually states it. The per-property
+    ``skip`` flag is NOT the place: measured with weaviate-client 4.21.2, that
+    flag is never transmitted on creation and reads back as ``False`` for every
+    property, so a check on it would fire on correct collections and stay silent
+    on this one.
+    """
+    from agentkit.backend.vectordb.schema import FK13_VECTOR_SOURCE_PROPERTIES
+
+    config = _ConfigView(
+        properties=_schema_properties(),
+        vector_config=_named_vector_config(
+            source_properties=[*FK13_VECTOR_SOURCE_PROPERTIES, "story_id"]
+        ),
     )
+    with pytest.raises(VectorDbWriteError, match="SOURCE PROPERTIES drifted"):
+        _ensure(config, "text2vec_transformers")
+
+
+def test_n12_per_property_skip_flag_is_not_the_verification_surface() -> None:
+    """The uniform ``skip=False`` of a real named-vector read-back is NOT drift.
+
+    This is the counterpart of the test above and pins WHY the flag left the
+    comparison: a correctly created collection reports ``skip=False`` on every
+    property, identifiers included. Comparing it made every freshly created
+    collection drift from its own schema on the next start -- the defect that
+    kept the installer's cp_10 red.
+    """
+    props = [
+        _read_property(
+            str(spec["name"]),
+            _TYPE_MAP[str(spec["data_type"])],
+            skip_vectorization=False,  # what the server really reports back
+            vectorize_property_name=False,
+            tokenization=(
+                _TOKEN_MAP[str(spec["tokenization"])] if spec.get("tokenization") else None
+            ),
+            searchable=bool(spec.get("searchable", False)),
+            filterable=bool(spec.get("filterable", True)),
+            named_surface=True,
+        )
+        for spec in weaviate_property_specs()
+    ]
+    _ensure(_ConfigView(properties=props, vector_config=_named_vector_config()), "text2vec_transformers")
+
+
+def test_n12_per_property_settings_are_read_from_the_named_vector_surface() -> None:
+    """``vectorize_property_name`` drift must be caught on the surface that carries it.
+
+    A named-vectors collection leaves ``vectorizer_config`` at ``None`` and fills
+    ``vectorizer_configs``. Reading only the legacy attribute compared every
+    property against defaults, so this drift passed unnoticed.
+    """
+    props = [
+        _read_property(
+            str(spec["name"]),
+            _TYPE_MAP[str(spec["data_type"])],
+            skip_vectorization=False,
+            vectorize_property_name=str(spec["name"]) == "content",  # drifted
+            tokenization=(
+                _TOKEN_MAP[str(spec["tokenization"])] if spec.get("tokenization") else None
+            ),
+            searchable=bool(spec.get("searchable", False)),
+            filterable=bool(spec.get("filterable", True)),
+            named_surface=True,
+        )
+        for spec in weaviate_property_specs()
+    ]
     config = _ConfigView(properties=props, vector_config=_named_vector_config())
-    with pytest.raises(VectorDbWriteError, match="'skip_vectorization': False"):
+    with pytest.raises(VectorDbWriteError, match="'vectorize_property_name': True"):
         _ensure(config, "text2vec_transformers")
 
 
