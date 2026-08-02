@@ -9,6 +9,23 @@ Orchestrator-Auftrag nach dem ersten unabhaengigen Codex-Review.
 (CLAUDE.md, „Definition of Done: Codex-Review bis zum Abbruchkriterium"). Der
 Stand geht erneut ins Review.
 
+## Zaehlweise der Runden — verbindlich fuer dieses Dokument
+
+Bis Runde 4 gab es **zwei verschiedene Abschnitte mit der Ueberschrift
+„Runde 3"** (Codex-Review Runde 4, WARNING „doppelter Abschnitt"). Damit das
+nicht wiederkehrt, steht die Regel hier:
+
+- **Runde N** ist eine **ARBEITS**runde. Runde 1 ist die urspruengliche
+  Umsetzung; jede weitere Runde N beantwortet **Codex-Review Runde N−1**.
+- **Codex-Review Runde M** ist die M-te unabhaengige Pruefung. Sie wird immer
+  mit diesem vollen Namen genannt, nie mit „Runde M" allein.
+
+Daraus folgt der Verlauf: Runde 1 (Umsetzung) → Review 1 → Runde 2 → Review 2 →
+Runde 3 → Review 3 → Runde 4 → Review 4 → Runde 5 (dieser Stand) → Review 5
+steht aus. Der frueher „Runde 3 (2026-08-03)" ueberschriebene Abschnitt ist
+Runde 4 und traegt jetzt diesen Namen; das Datum `2026-08-03` war zudem falsch
+(alle Commits jenes Abschnitts tragen `2026-08-02`).
+
 # Runde 1 (2026-08-01)
 
 ## Ergebnis in einem Satz
@@ -692,12 +709,12 @@ Modellierungsluecke ist Unterdrueckung.
 Die drei Werte aus §93.9a bleiben unveraendert im Katalog — sie erfuellen das
 Aufnahmekriterium.
 
-> **Stand ueberholt (Runde 3).** Die Zahlen oben beschreiben den Stand nach
-> Runde 2. Runde 3 hat eine Kante ergaenzt (DK-10 als Wert-Owner der
+> **Stand ueberholt (Runde 4).** Die Zahlen oben beschreiben den Stand nach
+> Runde 2. Runde 4 hat eine Kante ergaenzt (DK-10 als Wert-Owner der
 > Review-Minima und Groessenklassen) und §93.0.1 differenziert, weil die
 > Behauptung „jede Zeile hat einen fremden Owner" fuer §93.5a und §93.9a
 > nachweislich falsch war. Aktuell: **35 Kanten auf 19 Owner-Dokumente, 35
-> verschiedene Scopes**. Siehe Runde 3, R4.
+> verschiedene Scopes**. Siehe Runde 4, R4.
 
 **Grenze des heutigen Modells, benannt statt umgangen:** eine `defers_to`-Kante
 auf ein `_meta`-Dokument ist im Frontmatter-Vertrag **nicht moeglich** (der Lint
@@ -893,7 +910,7 @@ zurueckgenommen: Lauf abgebrochen, Engine heruntergefahren, Nachweis ohne
 Container wiederholt. Richtig waere gewesen, die weggebrochene Umgebung zu
 **melden** statt sie zu reparieren.
 
-**Korrektur 2026-08-03 (Codex-Review Runde 3, W2).** Die urspruengliche Fassung
+**Korrektur 2026-08-02 (Codex-Review Runde 3, W2).** Die urspruengliche Fassung
 dieses Absatzes behauptete „verifiziert (0 verbleibende Prozesse)" **ohne
 Kommando und ohne Log** — also genau die Art Behauptung, die dieser Bericht
 sonst zurueckweist. Der Selbstbericht ist entsprechend abgeschwaecht. Was
@@ -1057,7 +1074,7 @@ liegengelassen.
 
 ---
 
-# Runde 3 (2026-08-03)
+# Runde 4 (2026-08-02)
 
 Umsetzer: Worker unter Orchestrator-Auftrag nach dem **dritten** unabhaengigen
 Codex-Review (Urteil: landefaehig nein — 5 ERROR, 2 WARNING).
@@ -1314,7 +1331,7 @@ Orchestrators** (`Win32_Process`, gefiltert auf die Brenner-Kommandozeile):
 Fuer **diese** Runde eigenstaendig nachgemessen, mit Ausschluss der eigenen
 PID: nach dem Lastlauf **0 Brenner-Prozesse, 0 Docker-Prozesse**.
 
-## Nachweise Runde 3
+## Nachweise Runde 4
 
 **Tests.**
 
@@ -1379,7 +1396,7 @@ Passthrough-Rueckgaben injizierter Funktionen).
   weder von `ruff check src tests` noch von `mypy src` erfasst wird. Gemeldet,
   nicht stillschweigend mitgenommen.
 
-## Was nach Runde 3 offen bleibt
+## Was nach Runde 4 offen bleibt
 
 - **Codex-Review Runde 4** steht aus. Ohne dessen Abbruchkriterium ist die Story
   nicht fertig.
@@ -1391,3 +1408,348 @@ Passthrough-Rueckgaben injizierter Funktionen).
   `permissions.*` fehlen im Konfigurationsmodell von FK-03.
 - **Unbelegt** (unveraendert): der Effekt der FK-93-Kanten auf die
   `UNAUTHORIZED_SCOPE_ASSERTION`-Befunde von W2 ist nicht gemessen.
+
+---
+
+# Runde 5 (2026-08-02)
+
+Umsetzer: Worker unter Orchestrator-Auftrag nach dem **vierten** unabhaengigen
+Codex-Review (Urteil: landefaehig nein — 4 ERROR, 2 WARNING).
+
+**Die Story ist weiterhin NICHT fertig.** Behobene Findings sind kein
+Abschluss; der Stand geht erneut ins Review.
+
+## Was Codex-Review Runde 4 gemeldet hat — vollstaendig
+
+| # | Schwere | Gegenstand | Stand |
+|---|---------|-----------|-------|
+| E1 | ERROR | Klinken-Schutz griff nicht auf allen vier Wirkungspfaden | **behoben in Runde 4**, Commit `86f5f139` |
+| E2 | ERROR | dieselbe Luecke auf dem zweiten Wirkungspfad | **behoben in Runde 4**, Commit `86f5f139` |
+| R3 | ERROR | W2 verfaelscht woertliche Zitate bei **gueltigen** JSON-Escapes | **in dieser Runde behoben** |
+| R4 | ERROR | Key-Normalisierung fuehrt widersprechende Felder still zusammen | **in dieser Runde behoben** |
+| R5 | ERROR | FK-93 als eigene Normquelle (Rand 2.10) | **BLOCKIERT — wartet auf PO-Entscheidung** |
+| R6 | WARNING | FK-93-Frontmatter widerspricht der neuen Autoritaetsregel | **BLOCKIERT — wartet auf PO-Entscheidung** |
+| W-Datum | WARNING | neue Abschnitte auf `2026-08-03` datiert | **in dieser Runde bereinigt** |
+| W-Doppel | WARNING | zwei verschiedene Abschnitte „Runde 3" | **in dieser Runde bereinigt** |
+
+## R3 (ERROR) — Worttreue liess sich im Parser nicht beweisen
+
+**Der Befund ist berechtigt, und Runde 4 hat ihn nur zur Haelfte behoben.**
+
+Runde 4 hat die Escape-Reparatur worttreu gemacht: ein nicht anerkannter
+Backslash wird verdoppelt statt entfernt. Damit war die Klasse der
+**ungueltigen** Escapes erledigt — und genau dort endeten auch die Tests.
+
+Der Reviewer hat die andere Haelfte reproduziert: ein woertlich aus einem Chunk
+kopiertes `C:\new` ist **syntaktisch gueltiges JSON**, weil `\n` ein anerkanntes
+Escape ist. Der rohe Kandidat wird deshalb **vor** jeder Reparatur akzeptiert,
+und heraus kommt `C:` + Zeilenumbruch + `ew`. Es gibt keinen Syntaxfehler, an
+dem irgendein Parser das merken koennte. Dieselbe Luecke erreicht man ganz ohne
+Backslash: eine Paraphrase statt eines Zitats.
+
+**Die Wurzel ist nicht der Parser, sondern die fehlende Pruefung.** W2 las die
+Antwort und sah den Chunk nie wieder an. W3 tut seit AG3-159 genau das
+Gegenteil: `scope_policy._validate_locus` verlangt, dass die gemeldete
+Fundstelle im Chunktext vorkommt, und weist sie sonst fail-closed zurueck. W2
+hatte denselben Vertrag im Prompt-Asset stehen — „ein kurzes woertliches Zitat
+aus dem Abschnitt" — und setzte ihn nirgends durch.
+
+**Behoben** in `tools/concept_governance/policy.py`: `_require_verbatim_quote()`
+prueft jede gemeldete Assertion zeichengleich gegen `chunk.content` — kein
+Whitespace-, kein Case-Normalisieren, exakt die Strenge von W3. Ein Verstoss ist
+`EvaluationContractError`; `execution.py` bindet ihn an den Chunk und macht
+daraus den benannten Befund `INVALID_EVALUATION_RESPONSE` — **derselbe Code, den
+W3 fuer dieselbe Sache fuehrt** (`scope_execution.py`).
+
+Das ist **keine Vertragsaenderung**. Der Vertrag stand im Prompt und im Modell;
+neu ist allein, dass er durchgesetzt wird.
+
+**Tests** (`tests/unit/tools/concept_governance/test_policy.py`, 4 neu) — drei
+davon fahren die **ganze produktive Kette** (gepinnter Prompt, dreistufiger
+Parser, Escape-Reparaturen, deterministische Policy) und skripten nur den
+Transport, sind also die Bytes, die ein Modell wirklich geschickt hat:
+
+- `test_a_valid_json_escape_corrupts_a_quote_without_any_syntax_error` — pinnt
+  die Korruption selbst und belegt damit, **warum** keine Parser-Heuristik
+  reicht.
+- `test_a_quote_absent_from_the_chunk_is_rejected_fail_closed` — der
+  reproduzierte Fall, jetzt `INVALID_EVALUATION_RESPONSE`, mit genau **einem**
+  LLM-Aufruf: die Antwort **hat** geparst, der Defekt ist erst danach sichtbar.
+- `test_a_correctly_escaped_verbatim_quote_stays_accepted` — Gegenprobe:
+  gleicher Chunk, gleicher Backslash, korrekt escapt, keine Befunde.
+- `test_a_paraphrased_assertion_is_rejected_like_a_corrupted_one` — dieselbe
+  Regel faengt die Paraphrase ohne jeden Backslash.
+
+## R4 (ERROR) — die Key-Normalisierung durfte nicht zusammenfuehren
+
+`_strip_key_escapes()` schrieb normalisierte Schluessel ohne Kollisionspruefung
+in ein `dict`. Im reproduzierten Fall trug ein Objekt `has_normative_statements`
+mit `true` und dieselbe Bezeichnung markdown-escapt mit `false`; akzeptiert
+wurde `false` — der Alias ueberschrieb die widersprechende Originalaussage,
+still. In W3 ersetzt derselbe Mechanismus eine befuellte `contradictions`-Liste
+durch einen Alias mit leerer Liste: ein Governance-Gate meldet PASS ueber
+Evidenz, die ihm genannt wurde.
+
+**Behoben an der Wurzel** in `json_escapes.py`. `normalize_schema_keys()`
+normalisiert jetzt in einem `object_pairs_hook` und weist zwei Schluessel fuer
+dasselbe Feld als `SchemaKeyCollisionError` zurueck. „Der letzte gewinnt" und
+„der erste gewinnt" sind gleich willkuerlich; die Kollision ist ein **Befund**.
+
+Zwei Dinge fielen dabei zusammen mit auf und sind mitbehoben:
+
+1. **Der buchstaeblich doppelte Schluessel.** Zwei identische Schluessel
+   brauchen gar keinen Alias — `json.loads` kollabiert sie von sich aus
+   last-wins, und die Normalisierung war die einzige Stelle der Kette, die
+   beide noch sieht. Derselbe Hook faengt beide Formen.
+2. **Der zu breite `except ValueError`.** `SchemaKeyCollisionError` ist ein
+   `ValueError`; der alte Handler haette den eigenen Befund verschluckt und den
+   Kandidaten unveraendert weitergereicht. Jetzt wird nur
+   `json.JSONDecodeError` als „ist kein JSON" behandelt.
+
+Die Zurueckweisung laeuft ueber den **vorhandenen** Ablehnungspfad beider Gates:
+in W2 wird sie zu `ResponseParseError` und damit zu `EVALUATION_PARSE_FAILURE`,
+in W3 zu `ScopeResponseParseError` und damit zu `UNPARSEABLE_RESPONSE`. Kein
+Traceback — genau der „ein Absturz traegt keine Aussage"-Defekt, den diese Story
+am Mutex-Pfad behoben hat.
+
+`parse_response()` ist dabei um `_first_valid()` herum neu geschnitten; die
+beiden identischen Kandidaten-Schleifen waren vorher ausgeschrieben. Verhalten,
+Reihenfolge der Kandidaten und Fehlertexte sind unveraendert.
+
+**Tests** (7 neu): drei parametrisierte Kollisionsfaelle in **beiden**
+Reihenfolgen plus den Alias-freien Doppel-Key, die W3-Form (`contradictions`
+gegen einen Alias mit leerer Liste), eine Kollision in einem **verschachtelten**
+Objekt und zwei Gegenproben (ein einzelner escapter Schluessel wird weiterhin
+repariert; Nicht-JSON bleibt unveraendert). Dazu je ein Test pro Gate, dass die
+Kollision als **benannte** Ablehnung ankommt statt als Traceback.
+
+## R4 systematisch weitergezogen — jede Stelle mit derselben Begruendung
+
+Die Begruendung von R4 lautet: *aus einer mehrdeutigen Antwort wird still eine
+eindeutige, und niemand kann sehen, dass etwas verworfen wurde.* Diese
+Begruendung endet nicht bei `json_escapes.py`. Geprueft wurde jede Stelle, an
+der eine **LLM-Antwort** dekodiert wird:
+
+| Stelle | Urteil |
+|---|---|
+| `tools/concept_governance/json_escapes.py` | **behoben** (Alias- und Literal-Kollision) |
+| `tools/concept_governance/parser.py`, `scope_parser.py` | **behoben** (benannte Ablehnung statt Traceback) |
+| `verify_system/llm_evaluator/structured_evaluator.py`, Stage 2 | **mitbehoben** — siehe unten |
+| `verify_system/llm_evaluator/structured_evaluator.py`, Stage 3 | **ausgenommen und als WARNING benannt** — siehe unten |
+| `verify_system/evidence/request_resolver.py::parse_preflight_response` | **ausgenommen**: die Antwort traegt kein Urteil und keine Evidenz, sondern die Bitte um **weiteren Kontext**; der Pfad degradiert ausserdem bewusst weich (leere Liste plus Log-Warnung) statt fail-closed. Diesen Vertrag zu verschaerfen ist eine Entscheidung seines Owners, kein Seiteneffekt dieser Story. |
+| `integration_clients/multi_llm_hub/client.py` | **ausgenommen**: dekodiert den HTTP-Umschlag unseres **eigenen** Hub-Dienstes, nicht die Modellantwort. |
+| alle uebrigen `json.loads` in `verify_system/` (Artefakte, Manifeste, Ledger, Budget-Zaehler) | **ausgenommen**: sie lesen Dateien, die unser eigener Code per `json.dumps` aus typisierten Modellen schreibt — ein doppelter Schluessel kann dort nicht entstehen. |
+| `baseline.py` (`yaml.safe_load`) | **ausgenommen**: PyYAML kollabiert doppelte Mapping-Keys ebenfalls still, aber die Baseline ist eine **repo-eigene, reviewte** Datei und kein Fremdsystem-Output; `BaselineDocument.keys_must_be_unique` faengt die fachlich relevante Dublette bereits. Als Beobachtung benannt, nicht hier geaendert. |
+| `scope_policy.evaluate_scope_policy` (`findings`-`dict`) | **ausgenommen**: dedupliziert **identische** Befunde ueber ihren vollstaendigen Schluessel; gleicher Schluessel heisst gleicher Befund, es geht keine Aussage verloren. |
+
+**Mitbehoben — `structured_evaluator._stage2_extract_json`.** Dort dekodiert
+`json.loads` die Layer-2-Bewertung. Ein Check-Objekt mit `status` zweimal — erst
+`FAIL` mit Begruendung, dann `PASS` — kam als **PASS mit der Begruendung des
+FAIL** an: ein still gekipptes Urteil in einem QA-Gate, exakt die Begruendung
+von R4 an einer schwereren Stelle. Behoben mit demselben Mittel
+(`_reject_duplicate_keys` als `object_pairs_hook`); Stage 2 verwirft den
+Kandidaten, der Rest der dreistufigen Mechanik bleibt unangetastet.
+
+**Ausgenommen und als WARNING benannt — Stage 3.** Der Regex-Rueckfall ist
+**kein Decoder**, sondern eine dokumentierte Bergung aus Freitext: er sucht in
+einem 550-Zeichen-Fenster um eine Check-Id den ersten `status`. Bei einer
+mehrdeutigen Antwort nimmt er damit den **ersten** Wert — im obigen Beispiel
+zufaellig den sicheren (`FAIL`), in umgekehrter Reihenfolge den unsicheren. Das
+ist dieselbe Willkuer, aber sie laesst sich dort nicht mit derselben Regel
+beheben: „zwei Werte fuer ein Feld" ist in Freitext nicht definiert, und das
+Fenster ueberlappt regulaer den naechsten Check. Eine saubere Loesung aendert
+den **Vertrag** des Stage-3-Rueckfalls (FK-11 §11.4.4, FK-34 §34.5.1) und
+gehoert dessen Owner. Hier gemeldet, nicht stillschweigend mitgenommen — und
+bewusst **nicht halb repariert**, weil eine halbe Verschaerfung wie eine ganze
+aussieht.
+
+## R3 systematisch weitergezogen — jede Stelle mit derselben Begruendung
+
+Die Begruendung von R3 lautet: *eine als woertliches Zitat gemeldete Textstelle
+wird nie mit ihrer Quelle verglichen.* Geprueft wurde jede Stelle, an der ein
+LLM Evidenz **aus einem gelieferten Artefakt** zurueckmeldet:
+
+| Stelle | Urteil |
+|---|---|
+| W2 `policy.evaluate_policy` (`NormativeAssertion.assertion`) | **behoben** |
+| W3 `scope_policy._validate_locus` (`QuotedAssertion.assertion`) | **hatte die Pruefung bereits** — sie ist die Vorlage |
+| W2-Regex-Rueckfall `_regex_response` | **abgedeckt**: seine Assertions laufen durch dieselbe Policy |
+| `ContradictionGroup.explanation` (W3) | **ausgenommen**: freie Begruendung, kein behauptetes Zitat |
+| `FormalizationCheck.reason` (P4-Triage) | **ausgenommen**: dito |
+| `AuthorityFinding.assertion` / `BaselineEntry.assertion` | **ausgenommen**: konservieren ein bereits geprueftes Zitat als Schluessel; der Vergleich fand beim Erzeugen statt |
+| `CheckResult.reason` / `.description` (Layer 2) | **ausgenommen**: Urteilsbegruendung in eigenen Worten; FK-34 verlangt dort kein Zitat, es gibt also keinen Vertrag durchzusetzen |
+| FK-78 §78.14 (Ziel-Architektur Request-Pack/Receipt) | **geprueft, nichts zu tun**: die Rueckbindung ueber `chunk_digests[]` ist dort bereits normiert; Befundcodes des heutigen CLI zaehlt der Abschnitt nicht auf |
+
+## R5 / R6 — BLOCKIERT, nicht von mir entschieden
+
+Rand **2.10** des Decision Record („Der Wertekatalog darf Normquelle sein — aber
+nur benannt") und das **FK-93-Frontmatter** (Zeilen 11–16) sind **unveraendert
+geblieben**. Das Review weist die Konstruktion zurueck: der Vor-Story-Stand
+bestimmte ausdruecklich das Gegenteil — ein nirgends sonst stehender Wert ist
+eine Luecke **beim besitzenden Dokument** —, und eine Grundentscheidung zu
+ersetzen ist keine Ausdetaillierung im Sinne des Agentenmandats. Dazu
+widerspricht FK-93s eigenes Frontmatter der neuen Autoritaetsregel.
+
+Das ist eine **Meta-Konzept-Entscheidung des PO**, keine Worker-Entscheidung.
+Sie wird eingeholt; bis dahin bleibt der Stand wie er ist, ausdruecklich **ohne**
+die Behauptung, er sei richtig.
+
+**Folge fuer das formale Datums-WARNING:** das Datum in Rand 2.10
+(`2026-08-03`) bleibt aus demselben Grund stehen. Es ist die **einzige**
+verbliebene Fundstelle des falschen Datums, und sie steht nur deshalb noch dort,
+weil der Rand eingefroren ist. Das ist bewusst und hier benannt, nicht
+uebersehen.
+
+## WARNING „Datum" — bereinigt
+
+Sieben Fundstellen von `2026-08-03` gab es repo-weit (ausserhalb der
+Verzeichnisse der parallel bearbeiteten Storys AG3-180 bis AG3-186). Alle
+geprueft, sechs korrigiert:
+
+```
+concept/_meta/decisions/2026-08-01-...md:245   Rand 2.8      -> 2026-08-02
+concept/_meta/decisions/2026-08-01-...md:267   Rand 2.9      -> 2026-08-02
+concept/_meta/decisions/2026-08-01-...md:291   Rand 2.10     -> UNVERAENDERT (blockiert)
+concept/_meta/decisions/2026-08-01-...md:316   Rand 2.11     -> 2026-08-02
+stories/AG3-179-.../report.md:896              Korrektur     -> 2026-08-02
+stories/AG3-179-.../report.md:1060             Ueberschrift  -> 2026-08-02
+stories/AG3-179-.../status.yaml:275            Ueberschrift  -> 2026-08-02
+```
+
+Wer `2026-08-03` heute noch greppt, findet neben Rand 2.10 nur **Zitate** —
+diesen Abschnitt, die Zaehlweise am Kopf des Berichts und die entsprechenden
+Stellen in `status.yaml`. Keine davon datiert etwas.
+
+## WARNING „doppelter Abschnitt" — bereinigt
+
+Es gab zwei Abschnitte „Runde 3": den mit E1–E5 (zweites Review) und den mit
+R1–R5 (drittes Review). Der zweite war falsch nummeriert; er ist **Runde 4** und
+heisst jetzt so — samt „Nachweise Runde 4" und „Was nach Runde 4 offen bleibt".
+Dasselbe in `status.yaml`.
+
+Damit das nicht wiederkehrt, steht die Zaehlweise jetzt **einmal verbindlich am
+Kopf dieses Berichts** („Zaehlweise der Runden"): Runde N ist eine Arbeitsrunde
+und beantwortet Codex-Review Runde N−1; ein Review wird nie mit „Runde M" allein
+bezeichnet. Ohne diese Regel war die Verwechslung nur eine Frage der Zeit — sie
+ist ja schon zweimal passiert.
+
+## Konzept-Delta Runde 5
+
+Decision Record `2026-08-01-run-mutex-intent-bounded-wait.md`:
+
+- **Rand 2.11a** (neu) — die Worttreue wird geprueft, nicht nur bewahrt.
+- **Rand 2.11b** (neu) — zwei Schluessel fuer ein Feld sind ein Befund.
+- **Rand 2.11** — die Feststellung „W2 prueft keine Worttreue" ist als
+  historisch markiert und verweist auf 2.11a.
+- **Betroffenheitsmatrix** — zwei Zeilen ergaenzt.
+- **§5** — die Mandats-Feststellung deckt jetzt 2.11, 2.11a und 2.11b: alle drei
+  betreffen denselben bestehenden Vertrag, keiner ist ein neuer Normsatz, es
+  gibt also nichts zu ratifizieren.
+
+Kein FK-Dokument geaendert. FK-78 §78.14 beschreibt die Ziel-Architektur der
+Semantik-Gates und fuehrt keine Befundcodes des heutigen CLI — geprueft, nichts
+nachzuziehen.
+
+## Nachweise Runde 5
+
+**Tests.**
+
+```
+tests/unit/                                  8852 passed, 14 skipped (490 s)
+tests/unit/tools/concept_governance/           68 passed  (davon 13 neu)
+tests/unit/verify_system/llm_evaluator/        41 passed  (davon  2 neu)
+tests/contract/                              1228 passed              (67 s)
+tests/integration/  -m "not requires_gh"      932 passed             (381 s)
+```
+
+Docker, Postgres und Weaviate liefen; `tests/contract/` und
+`tests/integration/` sind damit erstmals seit Runde 3 wieder **gefahren** statt
+als Luecke benannt.
+
+**Lastnachweis (AC 2)** — `bash <scratchpad>/ag3179_load.sh <log>`, 8 CPU-Brenner
+plus 150 isolierte Laeufe des Wettlauf-Tests, Quelle waehrend des Laufs nicht
+angefasst:
+
+```
+TOTAL RED: 0 / 150
+```
+
+Brenner danach unabhaengig gezaehlt (`Win32_Process`, Filter auf die
+Brenner-Kommandozeile, **mit Ausschluss der eigenen PID**): **0**.
+
+**Lint und Typen.**
+
+```
+ruff check src tests                    All checks passed!
+ruff check tools/concept_governance     All checks passed!
+ruff check --select C901 (src tests
+  tools/concept_governance)             All checks passed!
+mypy src --strict                       Success: no issues found in 1029 source files
+mypy src --strict --platform linux      Success: no issues found in 1029 source files
+mypy src --strict --platform darwin     Success: no issues found in 1029 source files
+mypy tools/concept_governance           0 Fehler im Modul (1 Bestandsfehler in
+                                        tools/concept_ingester/discovery.py:243)
+```
+
+**Statische Konzept-Gates** (`PYTHONPATH=src`) — alle sechs OK:
+`check_concept_frontmatter` (90 docs), `compile_formal_specs` (192 Dokumente,
+1802 Ids), `check_concept_reference_integrity` (0 errors, 55 reports),
+`check_concept_code_contracts`, `check_architecture_conformance`,
+`check_concept_decision_record`.
+
+Die wandernde Zeile in `reference-integrity-baseline.yaml`
+(`78_concept_incubation_process.md` 1006) ist geprueft und **unveraendert
+gueltig** — diese Runde aendert kein FK-Dokument, die Zeile ist nicht gewandert,
+das Gate meldet kein `STALE_BASELINE`.
+
+Ein Befund kam vom Gate selbst und ist behoben: der neue Verweis auf das
+W2-Prompt-Asset stand als `prompts/authority_prose_v1.md` da und wurde als
+repo-relativer Pfad gelesen (`UNRESOLVED_REPO_PATH`, ERROR). Jetzt vollstaendig
+`tools/concept_governance/prompts/authority_prose_v1.md`.
+
+**Mutationsnachweise Runde 5** — je Fix zurueckgedreht, Zieltests rot,
+wiederhergestellt gruen. Zusaetzlich in **beide** Richtungen: auch eine zu
+strenge Fassung muss auffallen, sonst beweisen die Gegenproben nichts.
+
+| # | Mutation | Erwartet | Gemessen |
+|---|---------|----------|----------|
+| M1 | `_require_verbatim_quote()`-Aufruf entfernt | R3-Tests rot, Gegenproben gruen | 2 rot (der korrupte Lauf meldete **null** Befunde — genau der Defekt), 5 gruen |
+| M2 | Kollisionspruefung entfernt (last-wins zurueck) | alle R4-Tests rot | 7 rot |
+| M3 | `except json.JSONDecodeError` wieder zu `except ValueError` verbreitert | Kollision wird verschluckt, R4-Tests rot | 7 rot |
+| M4 | Worttreue-Pruefung lehnt **alles** ab | Gegenproben rot | 3 rot (darunter beide Bestands-Policy-Tests) |
+| M5 | Kollisionspruefung feuert bei **jedem** Schluessel | Gegenproben rot | 16 rot |
+| M6 | `object_pairs_hook` in `structured_evaluator` Stage 2 entfernt | Urteil kippt still auf PASS | 1 rot |
+| M7 | Duplikat-Pruefung feuert bei **jedem** Schluessel | Gegenproben rot | 11 rot |
+
+**Keine Unterdrueckung:** kein NOSONAR, kein Rule-Exclude, kein neues
+`noqa`/`type: ignore`, keine abgeschwaechte Assertion. Der einzige entfernte
+Marker ist das `noqa: ANN401` an `_strip_key_escapes()` — die Funktion selbst
+ist entfallen, weil `object_pairs_hook` die Rekursion uebernimmt.
+
+## Nicht ausgefuehrt — benannte Luecken, nicht „gruen"
+
+- **`tests/e2e/`** ist nicht gefahren (opt-in, nie Standard-CI).
+- **`-m "not requires_gh"`** war auf `tests/integration/` gesetzt, wie in der
+  CI-Stage. Tests mit echtem GitHub-Zugriff sind damit **nicht** belegt.
+- **Jenkins/Sonar** nicht erreichbar; die Cognitive-Complexity-Grenze ist
+  handgeprueft und ueber `ruff --select C901` gegengeprueft, **nicht** von Sonar
+  bestaetigt.
+- **W2/W3-Pre-Merge-Laeufe** sind fuer diese Story ausgesetzt (PO-Entscheidung,
+  Rand 2.4c) und wurden nicht gefahren. Die Aenderungen dieser Runde **liegen im
+  Code genau dieser Gates**; ihr Verhalten am lebenden Korpus ist damit nicht
+  gemessen. Das ist die groesste benannte Luecke der Runde.
+- **Zwei Bestandsbefunde in `tools/`**, unveraendert und nicht von dieser Runde
+  verursacht: `ruff` C901 in
+  `tools/concept_compiler/architecture_conformance.py:1409` und ein
+  `mypy`-Fehler in `tools/concept_ingester/discovery.py:243`.
+
+## Was nach Runde 5 offen bleibt
+
+- **Codex-Review Runde 5** steht aus. Ohne dessen Abbruchkriterium ist die Story
+  nicht fertig.
+- **BLOCKIERT beim PO:** Rand 2.10 und das FK-93-Frontmatter (R5/R6).
+- **Neu benannt (WARNING):** der Stage-3-Regex-Rueckfall des
+  `StructuredEvaluator` nimmt bei mehrdeutigem Freitext den ersten Statuswert.
+- **Unveraendert offen:** W3 ohne Retry (Rand 2.4c), die fehlenden
+  `permissions.*`-Pfade in FK-03 und der ungemessene Effekt der FK-93-Kanten auf
+  die W2-Befunde.

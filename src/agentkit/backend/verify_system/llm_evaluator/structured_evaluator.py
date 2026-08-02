@@ -37,7 +37,7 @@ import logging
 import re
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -92,6 +92,39 @@ _SCHEMA_RETRY_HINT: Final[str] = (
     '"reason": "<one-liner>", "description": "<optional>"}\n'
     "No prose, no markdown fences around the array, just the raw JSON array."
 )
+
+
+class DuplicateResponseKeyError(ValueError):
+    """Raised when one object of an LLM response carries a key twice."""
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build a JSON object and refuse to collapse a repeated key.
+
+    :func:`json.loads` keeps the LAST value for a repeated key and says
+    nothing. For a verdict-bearing response that is a silent decision:
+    ``{"check_id": "x", "status": "FAIL", "status": "PASS"}`` would arrive
+    as a PASS, and no reader of the review could see that a FAIL had been
+    dropped. Which one "wins" is an artefact of the decoder, not a
+    judgement anyone made, so the response is rejected instead — Stage 2
+    then moves on to the next candidate and, failing that, the parse fails
+    closed (FK-11 §11.4.4).
+
+    Args:
+        pairs: The key/value pairs of one JSON object, in wire order.
+
+    Returns:
+        The object as a mapping.
+
+    Raises:
+        DuplicateResponseKeyError: If a key occurs more than once.
+    """
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateResponseKeyError(f"response object carries the key {key!r} twice")
+        result[key] = value
+    return result
 
 
 class CheckResult(BaseModel):
@@ -568,8 +601,8 @@ class StructuredEvaluator:
         last_error: Exception | None = None
         for candidate in candidates:
             try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError as exc:
+                parsed = json.loads(candidate, object_pairs_hook=_reject_duplicate_keys)
+            except (json.JSONDecodeError, DuplicateResponseKeyError) as exc:
                 last_error = exc
                 continue
             if not isinstance(parsed, list):

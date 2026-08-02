@@ -242,7 +242,7 @@ erfolgreichen Create wird eine nicht beschreibbare Klinke wieder entfernt und
 der Anspruch geht regulaer fail-closed verloren. Scheitert auch dieses Entfernen
 endgueltig, greift Rand 2.4.
 
-**2.8 Auch der frische `RUN.mutex` wird exklusiv erzeugt** (neu 2026-08-03,
+**2.8 Auch der frische `RUN.mutex` wird exklusiv erzeugt** (neu 2026-08-02,
 Codex-Review Runde 3). FK-78 §78.4 sagt seit jeher `O_CREAT|O_EXCL` fuer den
 Mutations-Mutex — im Code stand dort ein `Path.exists()` mit anschliessendem
 atomarem Replace. Dieselbe Existenzpruefung wird wenige hundert Zeilen weiter
@@ -264,7 +264,7 @@ Das ist keine Lockerung, sondern die Einloesung einer Zusage, die FK-78 die
 ganze Zeit gemacht hat.
 
 **2.9 Die Mutex-Freigabe laeuft unter dem Advisory-Lock und weist die Klinke
-erneut aus** (neu 2026-08-03, Codex-Review Runde 3). Rand 2.6 hat
+erneut aus** (neu 2026-08-02, Codex-Review Runde 3). Rand 2.6 hat
 compare-before-delete an der **Klinke** atomar gemacht; am **Mutex** blieb es
 Read-then-Unlink. Der Ablauf: A haelt Klinke I1 und pausiert laenger als deren
 TTL. B sammelt I1 ein, erwirbt I2, uebernimmt den ebenfalls abgelaufenen Mutex
@@ -313,7 +313,7 @@ stehender Wert sei „eine Luecke beim besitzenden Dokument", bleibt fuer die
 Wiedergabe-Klasse richtig und ist fuer die Ausnahme praezisiert: die Ausnahme
 ist zu benennen, nicht stillschweigend zu nutzen.
 
-**2.11 Die Escape-Reparatur bewahrt Worttreue** (neu 2026-08-03, Codex-Review
+**2.11 Die Escape-Reparatur bewahrt Worttreue** (neu 2026-08-02, Codex-Review
 Runde 3; **kein neuer Normsatz, sondern die Wiederherstellung eines
 bestehenden Vertrags**). W2/W3 verlangen im Prompt-Asset „quote assertion text
 exactly" und modellieren die Antwort als `QuotedAssertion`. Die Reparatur der
@@ -321,9 +321,9 @@ markdown-Escapes entfernte jedoch **jeden** nicht anerkannten Backslash: aus
 einer woertlich zitierten Tabellenzelle mit markdown-escapten Unterstrichen
 und einem markdown-escapten Zellentrenner wurde eine Zelle **ohne** diese
 Backslashes, und aus dem Pfad `C:\Program` wurde `C:Program`.
-W2 nahm die veraenderte Assertion an — es prueft keine Worttreue gegen den
-Chunk —, W3 verwarf sie danach zu Recht. Die Toolchain erzeugte die Korruption
-selbst.
+W2 nahm die veraenderte Assertion an — es pruefte damals keine Worttreue gegen
+den Chunk, siehe Rand 2.11a —, W3 verwarf sie danach zu Recht. Die Toolchain
+erzeugte die Korruption selbst.
 
 Ein nicht anerkannter Backslash wird deshalb **verdoppelt** statt entfernt: das
 macht denselben Text parsebar und laesst den dekodierten Wert Zeichen fuer
@@ -331,6 +331,40 @@ Zeichen identisch. Der Backslash im **Schluessel** bleibt eine eigene
 Reparatur — dort ist er nie Inhalt, sondern ein Schema-Bezeichner —, und sie
 entscheidet das am **geparsten** Dokument, wo „Schluessel" eine Tatsache und
 keine Regex-Vermutung ist.
+
+**2.11a Die Worttreue wird gePRUEFT, nicht nur bewahrt** (neu 2026-08-02,
+Codex-Review Runde 4; wie 2.11 **kein neuer Normsatz, sondern die Durchsetzung
+des bestehenden Vertrags**). Rand 2.11 hat die Reparatur worttreu gemacht und
+dabei festgehalten, dass W2 die Worttreue nicht prueft. Genau daran haengt der
+Rest: eine Reparatur kann nur die Verfaelschungen verhindern, die sie **selbst**
+verursacht. Ein woertlich kopiertes `C:\new` ist **gueltiges** JSON — `\n` ist
+ein anerkanntes Escape —, wird deshalb vor jeder Reparatur angenommen und
+dekodiert zu `C:` + Zeilenumbruch + `ew`. Keine Parser-Heuristik kann das sehen;
+nur der Vergleich mit dem Chunk kann es. Dasselbe gilt fuer eine schlichte
+Paraphrase, die gar keinen Backslash braucht.
+
+Normativ gilt: eine als woertliches Zitat gemeldete Assertion, die im bewerteten
+Chunk nicht **zeichengleich** vorkommt, ist eine ungueltige Antwort und wird
+fail-closed als benannter Befund `INVALID_EVALUATION_RESPONSE` zurueckgewiesen.
+Das ist dieselbe Regel und derselbe Code, die W3 seit AG3-159 fuehrt
+(`scope_policy._validate_locus`); der Vertrag „woertliches Zitat" gilt damit auf
+beiden Gates statt auf einem.
+
+**2.11b Zwei Schluessel fuer ein Feld sind ein Befund, keine Wahl** (neu
+2026-08-02, Codex-Review Runde 4; ebenfalls **kein neuer Normsatz**). Die
+Schluessel-Reparatur aus Rand 2.11 normalisiert `has\_normative\_statements` zu
+`has_normative_statements`. Traegt dasselbe Objekt beide Schreibweisen mit
+**verschiedenen** Werten, entstand daraus stillschweigend ein einziges Feld,
+dessen Wert die Reihenfolge entschied. Dieselbe Mechanik konnte in W3 eine
+befuellte `contradictions`-Liste durch einen Alias mit `[]` ersetzen — ein Gate,
+das PASS meldet, obwohl ihm der Widerspruch genannt wurde. Fuer buchstaeblich
+doppelte Schluessel tut `json.loads` von sich aus dasselbe.
+
+„Der letzte gewinnt" und „der erste gewinnt" sind gleich willkuerlich, und beide
+sind still. Normativ gilt: zwei Schluessel, die auf dasselbe Feld fallen, sind
+eine ungueltige Antwort und werden fail-closed zurueckgewiesen. Die
+Zurueckweisung laeuft ueber den bereits vorhandenen Ablehnungspfad beider Gates
+und traegt damit einen benannten Befund, keinen Traceback.
 
 ## 3. Abgrenzung
 
@@ -381,6 +415,8 @@ allein die Lockdatei `RUN.mutex.intent.lock` im Lauf-Verzeichnis.
 | 2.10 | Zeilenklassen des Wertekatalogs | FK-93 §93.0.1, §93.5a, §93.9a, Frontmatter | geaendert | „Wiedergabe" vs. „katalog-eigener Wert"; Kanten benennen, was das Ziel wirklich besitzt; Ausnahme muss ausgewiesen sein |
 | 2.10 | Wert-Owner der Review-/Groessenwerte | FK-93 Frontmatter, §93.12 | geaendert | DK-10 als Wert-Owner ergaenzt (FK-24 traegt die Zahlen nicht); Modulzahl der Groesse M an DK-10 §10.4 angeglichen |
 | 2.11 | Worttreue der Escape-Reparatur | `tools/concept_governance/json_escapes.py`, `parser.py`, `scope_parser.py` | geaendert | Bugfix gegen den bestehenden Vertrag „quote assertion text exactly"; kein neuer Normsatz |
+| 2.11a | Durchsetzung der Worttreue in W2 | `tools/concept_governance/policy.py`, `execution.py` | geaendert | gemeldetes Zitat muss zeichengleich im bewerteten Chunk stehen, sonst `INVALID_EVALUATION_RESPONSE`; identisch zur W3-Regel in `scope_policy.py`; kein neuer Normsatz |
+| 2.11b | Kollidierende Schema-Schluessel | `tools/concept_governance/json_escapes.py`, `parser.py`, `scope_parser.py` | geaendert | zwei Schluessel fuer dasselbe Feld werden fail-closed als benannter Befund zurueckgewiesen statt still zusammengefuehrt; kein neuer Normsatz |
 | — | Layout des Lauf-Verzeichnisses | FK-78 §78.3 | geaendert | `RUN.mutex.intent` (bisher fehlend) und `RUN.mutex.intent.lock` ergaenzt |
 | — | Mutex-Semantik | FK-78 §78.4 | nicht-betroffen | Nonce, TTL, Heartbeat, Fencing-Token-CAS unveraendert |
 
@@ -434,10 +470,15 @@ eroeffnen. Jeder Rand ist einzeln dagegen geprueft:
 | 2.10 | FK-93 §93.0 (Aufnahmekriterium: Werte gehoeren auch dann in den Katalog, wenn sie „fest im Code stehen"); Ownership-Regel in `concept/_meta/assertion-authority.md` | ja — klassifiziert die Zeilen, die §93.0 bereits zulaesst | ja — **beseitigt** einen Widerspruch (§93.0.1 gegen §93.5a/§93.9a), statt einen zu schaffen | ja — FK-93 besitzt den Scope `defaults` | **gedeckt** |
 | Abschnitt 3 (§93.0, §93.9a, §93.9) | FK-93 `authority_over: defaults` und der Titel des Dokuments; fuer §93.9a zusaetzlich FK-78 §78.4 als Regel-Owner | ja — sagt aus, was in den bereits besessenen Scope gehoert | ja — §93.9 stellt klar und aendert die FK-02-Regel nicht | ja | **gedeckt** |
 
-Rand **2.11** ist kein neuer Normsatz und faellt nicht unter das Mandat: er
-stellt den bestehenden Vertrag „quote assertion text exactly"
-(`tools/concept_governance/prompts/scope_consistency_v1.md`,
-`QuotedAssertion`) wieder her, den die Reparatur verletzt hatte.
+Die Raender **2.11, 2.11a und 2.11b** sind keine neuen Normsaetze und fallen
+nicht unter das Mandat. Alle drei betreffen denselben bestehenden Vertrag
+„quote assertion text exactly" bzw. „ein kurzes woertliches Zitat aus dem
+Abschnitt" (`tools/concept_governance/prompts/scope_consistency_v1.md`,
+`tools/concept_governance/prompts/authority_prose_v1.md`, `QuotedAssertion`): 2.11 stellt ihn wieder her,
+nachdem die Reparatur ihn verletzt hatte, 2.11a setzt ihn auf dem Gate durch,
+das ihn bisher nur verlangte, und 2.11b verhindert, dass die Reparatur zwei
+widersprechende Antworten zu einer verschmilzt. Nichts davon erweitert, lockert
+oder ersetzt eine Regel; es gibt dafuer also auch nichts zu ratifizieren.
 
 Damit ist **keine** offene PO-Ratifikation mehr als Vor-Merge-Auflage
 erforderlich. Das ist keine Selbstermaechtigung, sondern die Anwendung der

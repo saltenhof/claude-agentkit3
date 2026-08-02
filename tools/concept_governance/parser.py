@@ -7,7 +7,11 @@ import re
 
 from pydantic import ValidationError
 
-from concept_governance.json_escapes import normalize_schema_keys, repair_markdown_escapes
+from concept_governance.json_escapes import (
+    SchemaKeyCollisionError,
+    normalize_schema_keys,
+    repair_markdown_escapes,
+)
 from concept_governance.models import AuthorityProseResponse, NormativeAssertion
 
 
@@ -19,26 +23,18 @@ def parse_response(raw_response: str) -> AuthorityProseResponse:
     """Run JSON extraction then a strict regex fallback, fail closed."""
     text = raw_response.strip()
     errors: list[str] = []
-    for candidate in (text, _fenced_json(text), _embedded_json(text)):
-        if candidate is None:
-            continue
-        try:
-            return AuthorityProseResponse.model_validate_json(normalize_schema_keys(candidate))
-        except ValidationError as exc:
-            errors.append(str(exc.errors(include_url=False)))
+    parsed = _first_valid((text, _fenced_json(text), _embedded_json(text)), errors)
+    if parsed is not None:
+        return parsed
     normalized = repair_markdown_escapes(text)
     if normalized != text:
-        for candidate in (
-            normalized,
-            _fenced_json(normalized),
-            _embedded_json(normalized),
-        ):
-            if candidate is None:
-                continue
-            try:
-                return AuthorityProseResponse.model_validate_json(normalize_schema_keys(candidate))
-            except ValidationError as exc:
-                errors.append(f"normalized JSON: {exc.errors(include_url=False)}")
+        parsed = _first_valid(
+            (normalized, _fenced_json(normalized), _embedded_json(normalized)),
+            errors,
+            prefix="normalized JSON: ",
+        )
+        if parsed is not None:
+            return parsed
     try:
         # The RAW text, not the repaired one: the fallback matches field
         # NAMES itself (see :func:`_escapable`) and must hand back the
@@ -48,6 +44,30 @@ def parse_response(raw_response: str) -> AuthorityProseResponse:
     except (ResponseParseError, ValidationError, json.JSONDecodeError) as exc:
         errors.append(f"regex fallback: {exc}")
     raise ResponseParseError(f"JSON extraction: {'; '.join(errors)}")
+
+
+def _first_valid(
+    candidates: tuple[str | None, ...],
+    errors: list[str],
+    prefix: str = "",
+) -> AuthorityProseResponse | None:
+    """Return the first candidate that satisfies the schema, else record why.
+
+    A :class:`SchemaKeyCollisionError` is recorded like a schema violation
+    rather than raised: the response is unusable either way, and going
+    through the ordinary rejection path keeps the failure a NAMED
+    ``EVALUATION_PARSE_FAILURE`` finding instead of an unhandled traceback.
+    """
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            return AuthorityProseResponse.model_validate_json(normalize_schema_keys(candidate))
+        except ValidationError as exc:
+            errors.append(f"{prefix}{exc.errors(include_url=False)}")
+        except SchemaKeyCollisionError as exc:
+            errors.append(f"{prefix}{exc}")
+    return None
 
 
 def _fenced_json(text: str) -> str | None:

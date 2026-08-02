@@ -605,3 +605,43 @@ def test_stage2_extract_json_is_linear_on_pathological_input() -> None:
     # The linear path is ~microseconds; the old regex took multiple seconds at
     # a fraction of this size. A 1.0s ceiling is a very generous regression guard.
     assert elapsed < 1.0
+
+
+def test_a_repeated_key_in_one_check_never_flips_the_verdict_silently() -> None:
+    """AG3-179 (R4, applied beyond the reported site): no last-wins verdict.
+
+    ``json.loads`` keeps the LAST value for a repeated key and says nothing.
+    Here the model reports a justified FAIL and then a bare PASS for the same
+    check: the decoder alone used to turn that into a PASS carrying the
+    FAIL's own reason, and no reader of the review could see it. It is the
+    same silent merge the W2/W3 key repair was found to perform on
+    ``has_normative_statements`` and ``contradictions``.
+
+    Stage 2 now rejects the ambiguous object instead of collapsing it. The
+    documented free-text salvage of Stage 3 still runs and recovers the
+    FAIL — the response is not lost, only the decoder's arbitrary choice is.
+    """
+    raw = (
+        '[{"check_id": "systemic_adequacy", "status": "FAIL", '
+        '"reason": "contract broken", "status": "PASS"}]'
+    )
+    client = _ScriptedLlmClient(raw)
+    evaluator = StructuredEvaluator(client, _StubMaterializer())
+
+    result = evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+
+    assert result.verdict is LlmVerdict.FAIL, "last-wins would have reported PASS here"
+    assert [finding.severity for finding in result.findings] == [Severity.BLOCKING]
+
+
+def test_a_response_without_repeated_keys_is_untouched() -> None:
+    """The counter-probe: strictness must not reject an ordinary response."""
+    client = _ScriptedLlmClient(
+        json.dumps([{"check_id": "systemic_adequacy", "status": "PASS", "reason": "ok"}])
+    )
+    evaluator = StructuredEvaluator(client, _StubMaterializer())
+
+    result = evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
+
+    assert result.findings == ()
+    assert len(client.calls) == 1

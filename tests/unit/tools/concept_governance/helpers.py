@@ -14,6 +14,32 @@ if TYPE_CHECKING:
     from concept_ingester.discovery import ConceptChunk
 
 
+class ScriptedLlmClient:
+    """Fixed transport fake at the LLM boundary only.
+
+    Everything above it — prompt rendering, the three-stage parser, the
+    escape repairs and the deterministic policy — stays productive, so a
+    test can hand over the exact bytes a model sent and watch the real
+    chain decide.
+    """
+
+    def __init__(self, responses: list[str | Exception]) -> None:
+        """Initialize with one scripted response per expected call."""
+        self.responses = responses
+        self.calls = 0
+        self.prompts: list[str] = []
+
+    def complete(self, *, role: str, prompt: str) -> str:
+        """Return the next scripted response or raise the scripted error."""
+        del role
+        self.prompts.append(prompt)
+        response = self.responses[self.calls]
+        self.calls += 1
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
 class ScriptedEvaluator:
     """Fixed evaluator fake at the LLM classification boundary only."""
 

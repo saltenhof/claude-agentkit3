@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from concept_governance.json_escapes import normalize_schema_keys, repair_markdown_escapes
+from concept_governance.json_escapes import (
+    SchemaKeyCollisionError,
+    normalize_schema_keys,
+    repair_markdown_escapes,
+)
 from concept_governance.scope_contracts import ScopeConsistencyResponse
 
 
@@ -24,6 +28,10 @@ def parse_scope_response(raw_response: str) -> ScopeConsistencyResponse:
                 return ScopeConsistencyResponse.model_validate_json(normalize_schema_keys(candidate))
             except ValidationError as exc:
                 errors.append(str(exc.errors(include_url=False)))
+            except SchemaKeyCollisionError as exc:
+                # Recorded, not raised: an unusable response stays a named
+                # UNPARSEABLE_RESPONSE finding instead of a traceback.
+                errors.append(str(exc))
     raise ScopeResponseParseError(f"structured response is invalid: {'; '.join(errors)}")
 
 

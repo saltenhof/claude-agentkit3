@@ -74,6 +74,26 @@ def repair_markdown_escapes(text: str) -> str:
     return _ANY_ESCAPE.sub(repair, text)
 
 
+class SchemaKeyCollisionError(ValueError):
+    """Raised when one JSON object carries two keys for the same field.
+
+    Both shapes mean the same thing and are treated the same way: the
+    response makes two statements about one field and no rule picks the
+    true one.
+
+    * The literal duplicate ``{"a": true, "a": false}``, which
+      :func:`json.loads` would collapse last-wins on its own.
+    * The alias duplicate ``{"a_b": true, "a\\_b": false}``, where the two
+      keys only become one after the backslashes are dropped.
+
+    "Last wins" and "first wins" are equally arbitrary here, and both are
+    silent: a ``has_normative_statements`` of ``false`` would erase the
+    ``true`` beside it, and a populated ``contradictions`` list would be
+    replaced by an empty one, with the reader of the finding unable to see
+    that anything was dropped.
+    """
+
+
 def normalize_schema_keys(candidate: str) -> str:
     """Drop backslashes from JSON object KEYS; values are never touched.
 
@@ -89,33 +109,38 @@ def normalize_schema_keys(candidate: str) -> str:
     what counts as a key is decided by the JSON structure and not by a
     regular expression guessing at positions.
 
+    Normalization may make two distinct keys identical, and then it is no
+    longer a repair but a merge of two contradictory statements — that is
+    rejected fail-closed, see :class:`SchemaKeyCollisionError`.
+
     Args:
         candidate: A parse candidate. Text that is not JSON is returned
             unchanged — this is a repair, never a gate.
 
     Returns:
         The candidate, re-serialized only if a key actually changed.
+
+    Raises:
+        SchemaKeyCollisionError: If any object in the document ends up with
+            two keys of the same name.
     """
-    try:
-        document = json.loads(candidate)
-    except ValueError:
-        return candidate
-    repaired, changed = _strip_key_escapes(document)
-    return json.dumps(repaired) if changed else candidate
+    changed = False
 
-
-def _strip_key_escapes(value: Any) -> tuple[Any, bool]:  # noqa: ANN401 - a decoded JSON document is genuinely Any
-    """Rewrite object keys without their backslashes; report whether any changed."""
-    if isinstance(value, dict):
+    def hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        nonlocal changed
         result: dict[str, Any] = {}
-        changed = False
-        for key, item in value.items():
-            clean = str(key).replace(BACKSLASH, "")
-            repaired, item_changed = _strip_key_escapes(item)
-            changed = changed or item_changed or clean != key
-            result[clean] = repaired
-        return result, changed
-    if isinstance(value, list):
-        pairs = [_strip_key_escapes(item) for item in value]
-        return [item for item, _ in pairs], any(flag for _, flag in pairs)
-    return value, False
+        for key, item in pairs:
+            clean = key.replace(BACKSLASH, "")
+            changed = changed or clean != key
+            if clean in result:
+                raise SchemaKeyCollisionError(f"object carries two keys for field {clean!r}")
+            result[clean] = item
+        return result
+
+    try:
+        # Only a DECODE failure means "not JSON"; a collision is a finding
+        # and must not be swallowed by the same handler.
+        document = json.loads(candidate, object_pairs_hook=hook)
+    except json.JSONDecodeError:
+        return candidate
+    return json.dumps(document) if changed else candidate

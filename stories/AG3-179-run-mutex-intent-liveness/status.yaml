@@ -272,9 +272,9 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 # NICHT FERTIG: Runde 3 geht erneut ins Codex-Review. Behobene Findings sind
 # kein Abschluss (CLAUDE.md, Definition of Done).
 #
-# ===================== RUNDE 3 (2026-08-03) =====================
+# ===================== RUNDE 4 (2026-08-02) =====================
 # Drittes unabhaengiges Codex-Review: landefaehig NEIN, 5 ERROR + 2 WARNING.
-# Alle sieben an der Wurzel behoben. Runde 3 geht erneut ins Review.
+# Alle sieben an der Wurzel behoben. Runde 4 geht erneut ins Review.
 #
 #  R1 (ERROR, SCHWERSTER BEFUND DER STORY) Der Mutex-Erwerb arbitrierte nicht
 #     exklusiv: _acquire_mutex nutzte Path.exists() + os.replace statt
@@ -364,7 +364,7 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #     Brenner-Kommandozeile): 0 Brenner, 0 Docker. Fuer Runde 3 eigenstaendig
 #     nachgemessen MIT AUSSCHLUSS DER EIGENEN PID: 0 / 0.
 #
-# NACHWEISE RUNDE 3:
+# NACHWEISE RUNDE 4:
 #   tests/unit/                              8798 passed, 40 skipped (464 s)
 #   tests/unit/concept_toolchain/             399 passed (6 neu)
 #   tests/unit/tools/concept_governance/       55 passed (3 neu, 2 korrigiert)
@@ -379,7 +379,7 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #     wiederhergestellt -> gruen. R1: 4/4 rot. R2: zwei Mutationsstufen.
 #     R3: 10 rot.
 #
-# NACHWEIS-LUECKEN RUNDE 3 (benannt, NICHT als gruen ausgegeben):
+# NACHWEIS-LUECKEN RUNDE 4 (benannt, NICHT als gruen ausgegeben):
 #   - tests/integration, tests/contract, tests/e2e NICHT gefahren. Docker UND
 #     die lokale Postgres-DB sind wegen der laufenden PO-Migration absichtlich
 #     unten und wurden auf ausdrueckliche Anweisung NICHT gestartet. Die
@@ -397,5 +397,133 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #     tools/, das weder `ruff check src tests` noch `mypy src` erfasst.
 #
 # NICHT FERTIG: Runde 4 des Codex-Reviews steht aus.
+#
+# ===================== RUNDE 5 (2026-08-02) =====================
+# Viertes unabhaengiges Codex-Review: landefaehig NEIN, 4 ERROR + 2 WARNING.
+# ZAEHLWEISE (jetzt verbindlich am Kopf von report.md): "Runde N" ist eine
+# ARBEITSrunde und beantwortet "Codex-Review Runde N-1". Der frueher
+# "RUNDE 3 (2026-08-03)" ueberschriebene Block ist RUNDE 4 und heisst jetzt so;
+# das Datum 2026-08-03 war ausserdem falsch (alle Commits: 2026-08-02).
+#
+# VOLLSTAENDIGER BEFUNDSTAND AUS CODEX-REVIEW RUNDE 4 -- sechs Findings:
+#  E1 (ERROR) Klinken-Schutz griff nicht auf allen vier Wirkungspfaden.
+#     BEHOBEN BEREITS IN RUNDE 4, Commit 86f5f139 (gepusht).
+#  E2 (ERROR) Dieselbe Luecke auf dem zweiten Wirkungspfad.
+#     BEHOBEN BEREITS IN RUNDE 4, Commit 86f5f139 (gepusht).
+#  R3 (ERROR) W2 verfaelscht woertliche Zitate bei GUELTIGEN JSON-Escapes.
+#     IN DIESER RUNDE BEHOBEN. Runde 4 hatte nur die UNGUELTIGEN Escapes
+#     erledigt; ein woertlich kopiertes C:\new ist gueltiges JSON (\n ist ein
+#     anerkanntes Escape), wird vor jeder Reparatur akzeptiert und dekodiert zu
+#     "C:" + Zeilenumbruch + "ew". Keine Parser-Heuristik kann das sehen.
+#     Wurzel: W2 verglich das Zitat NIE mit dem Chunk -- W3 tut das seit
+#     AG3-159 (scope_policy._validate_locus). Behoben durch
+#     policy._require_verbatim_quote(): zeichengleicher Vergleich gegen
+#     chunk.content, kein Whitespace-/Case-Normalisieren; Verstoss ->
+#     EvaluationContractError -> benannter Befund INVALID_EVALUATION_RESPONSE,
+#     derselbe Code, den W3 dafuer fuehrt. KEINE Vertragsaenderung: der
+#     Vertrag stand im Prompt-Asset ("ein kurzes woertliches Zitat aus dem
+#     Abschnitt"), er wurde nur nie durchgesetzt. 4 neue Tests, drei davon
+#     ueber die GANZE produktive Kette (nur der Transport ist skriptet).
+#  R4 (ERROR) Key-Normalisierung fuehrte widersprechende Felder still zusammen.
+#     IN DIESER RUNDE BEHOBEN. normalize_schema_keys() normalisiert jetzt im
+#     object_pairs_hook und weist zwei Schluessel fuer dasselbe Feld als
+#     SchemaKeyCollisionError zurueck -- kein "letzter gewinnt", kein "erster
+#     gewinnt". Mitgefunden und mitbehoben: (a) der buchstaeblich doppelte
+#     Schluessel, den json.loads von sich aus last-wins kollabiert; (b) der zu
+#     breite "except ValueError", der den eigenen Befund verschluckt haette.
+#     Die Ablehnung laeuft ueber den vorhandenen Pfad beider Gates
+#     (EVALUATION_PARSE_FAILURE bzw. UNPARSEABLE_RESPONSE) -- kein Traceback.
+#     7 neue Tests, beide Reihenfolgen, verschachteltes Objekt, zwei
+#     Gegenproben, plus je ein Gate-Test auf die benannte Ablehnung.
+#  R5 (ERROR) FK-93 als eigene Normquelle (Record Rand 2.10).
+#     BLOCKIERT -- NICHT VON MIR ENTSCHIEDEN. Rand 2.10 steht UNVERAENDERT.
+#  R6 (WARNING) FK-93-Frontmatter (Zeilen 11-16) widerspricht der neuen
+#     Autoritaetsregel. BLOCKIERT -- Frontmatter steht UNVERAENDERT.
+#     R5/R6 brauchen eine PO-Entscheidung auf Meta-Konzeptebene; sie wird
+#     eingeholt. Bis dahin bleibt der Stand, ausdruecklich OHNE die Behauptung,
+#     er sei richtig. Folge: das falsche Datum 2026-08-03 in Rand 2.10 bleibt
+#     als EINZIGE Fundstelle stehen, weil der Rand eingefroren ist -- bewusst
+#     und benannt, nicht uebersehen.
+#  W-DATUM (WARNING) BEREINIGT: 7 Fundstellen von 2026-08-03 repo-weit
+#     (ausserhalb AG3-180..186), 6 korrigiert, die siebte ist Rand 2.10 (s.o.).
+#  W-DOPPELT (WARNING) BEREINIGT: die zwei Abschnitte "Runde 3" sind aufgeloest
+#     (der zweite ist Runde 4), und die Zaehlweise steht jetzt einmal
+#     verbindlich am Kopf von report.md, damit es nicht ein drittes Mal passiert.
+#
+# SYSTEMATISCHE WEITERFUEHRUNG (die Vorgaenger haben je nur die genannte Stelle
+# behoben; hier ist JEDE Stelle mit derselben Begruendung geprueft):
+#  R3-Begruendung ("gemeldetes Zitat wird nie mit der Quelle verglichen"):
+#    behoben in W2-policy; W3 hatte es bereits; W2-Regex-Rueckfall laeuft durch
+#    dieselbe Policy. AUSGENOMMEN mit Grund: ContradictionGroup.explanation,
+#    FormalizationCheck.reason, CheckResult.reason/description (freie
+#    Begruendungen, kein behauptetes Zitat), Baseline-Assertions (konservieren
+#    ein bereits geprueftes Zitat). FK-78 Paragraf 78.14 geprueft: normiert die
+#    Rueckbindung ueber chunk_digests bereits, nichts nachzuziehen.
+#  R4-Begruendung ("aus einer mehrdeutigen Antwort wird still eine eindeutige"):
+#    MITBEHOBEN ausserhalb des gemeldeten Orts:
+#    verify_system/llm_evaluator/structured_evaluator.py Stage 2 -- ein
+#    Check-Objekt mit "status" zweimal (erst FAIL mit Begruendung, dann PASS)
+#    kam als PASS mit der Begruendung des FAIL an: ein still gekipptes Urteil
+#    in einem QA-Gate. Gleiches Mittel (_reject_duplicate_keys als
+#    object_pairs_hook), 2 neue Tests.
+#    AUSGENOMMEN mit Grund: Stage 3 (Regex-Rueckfall) -- kein Decoder, sondern
+#    dokumentierte Freitext-Bergung; "zwei Werte fuer ein Feld" ist dort nicht
+#    definiert, eine saubere Loesung aendert den Vertrag aus FK-11 11.4.4 /
+#    FK-34 34.5.1 und gehoert dessen Owner. ALS WARNING GEMELDET, bewusst NICHT
+#    halb repariert. Ebenfalls ausgenommen: request_resolver
+#    (Kontext-Anforderung, kein Urteil, bewusst weich degradierend),
+#    multi_llm_hub/client.py (eigener Dienst, nicht die Modellantwort), alle
+#    uebrigen json.loads in verify_system (lesen unser eigenes json.dumps),
+#    baseline.py/yaml.safe_load (repo-eigene reviewte Datei; Dublette bereits
+#    ueber keys_must_be_unique gefangen), scope_policy-findings-dict
+#    (dedupliziert identische Befunde ueber den vollen Schluessel).
+#
+# KONZEPT-DELTA RUNDE 5 (Decision Record 2026-08-01-run-mutex-intent-...):
+#  Rand 2.11a NEU (Worttreue wird geprueft, nicht nur bewahrt),
+#  Rand 2.11b NEU (zwei Schluessel fuer ein Feld sind ein Befund),
+#  Rand 2.11 als historisch markiert und auf 2.11a verweisend,
+#  Betroffenheitsmatrix um zwei Zeilen ergaenzt,
+#  Paragraf 5: die Mandats-Feststellung deckt 2.11, 2.11a und 2.11b -- alle drei
+#  betreffen denselben BESTEHENDEN Vertrag, keiner ist ein neuer Normsatz, es
+#  gibt nichts zu ratifizieren. KEIN FK-Dokument geaendert.
+#
+# NACHWEISE RUNDE 5:
+#   tests/unit/                              8852 passed, 14 skipped (490 s)
+#   tests/unit/tools/concept_governance/       68 passed (13 neu)
+#   tests/unit/verify_system/llm_evaluator/    41 passed (2 neu)
+#   tests/contract/                          1228 passed (67 s)
+#   tests/integration/ -m "not requires_gh"   932 passed (381 s)
+#   Lastnachweis (AC 2), 8 CPU-Brenner:       TOTAL RED: 0 / 150
+#     Brenner danach unabhaengig gezaehlt MIT AUSSCHLUSS DER EIGENEN PID: 0
+#   ruff check src tests                      All checks passed!
+#   ruff check tools/concept_governance       All checks passed!
+#   ruff --select C901 (Komplexitaet)         All checks passed!
+#   mypy src --strict                         0 issues, 1029 source files
+#   mypy --platform linux / darwin            je 0 issues, 1029 source files
+#   Konzept-Gates (PYTHONPATH=src)            alle sechs OK
+#     reference-integrity-baseline.yaml: Zeile 1006 geprueft und unveraendert
+#     gueltig (diese Runde aendert kein FK-Dokument, kein STALE_BASELINE).
+#     Ein Gate-Befund kam vom Gate selbst und ist behoben: der neue Verweis auf
+#     das W2-Prompt-Asset war repo-relativ unaufloesbar (UNRESOLVED_REPO_PATH,
+#     ERROR) und lautet jetzt tools/concept_governance/prompts/... .
+#   Mutationsnachweise: 7 Mutationen, in BEIDE Richtungen (zu lax UND zu
+#     streng), je Fix gefahren -- M1 2 rot, M2 7 rot, M3 7 rot, M4 3 rot,
+#     M5 16 rot, M6 1 rot, M7 11 rot; wiederhergestellt jeweils gruen.
+#
+# NACHWEIS-LUECKEN RUNDE 5 (benannt, NICHT als gruen ausgegeben):
+#   - tests/e2e/ nicht gefahren (opt-in, nie Standard-CI).
+#   - -m "not requires_gh" auf tests/integration/, wie in der CI-Stage: Tests
+#     mit echtem GitHub-Zugriff sind nicht belegt.
+#   - Jenkins/Sonar nicht erreichbar. Die Cognitive-Complexity-Grenze ist
+#     handgeprueft und ueber ruff C901 gegengeprueft, NICHT von Sonar bestaetigt.
+#   - W2/W3-Pre-Merge-Laeufe sind ausgesetzt (Rand 2.4c) und nicht gefahren.
+#     Die Aenderungen dieser Runde liegen im Code GENAU DIESER GATES; ihr
+#     Verhalten am lebenden Korpus ist damit nicht gemessen. Groesste Luecke.
+#   - Zwei Bestandsbefunde in tools/ unveraendert (ruff C901 in
+#     concept_compiler/architecture_conformance.py:1409; mypy in
+#     concept_ingester/discovery.py:243). Beide ausserhalb der Gate-Kommandos.
+#
+# NICHT FERTIG: Codex-Review Runde 5 steht aus. Der Abschluss wird vom Review
+# entschieden, nicht von einer gruenen Suite (CLAUDE.md, Definition of Done).
 depends_on: []
 unblocks: []

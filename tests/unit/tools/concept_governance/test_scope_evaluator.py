@@ -72,3 +72,17 @@ def _partition(tmp_path: Path) -> ScopePartition:
     write_doc(concept, "owner.md", "OWNER", "[{scope: lock.lifecycle}]")
     sets = build_scope_sets(load_chunks(concept), load_scope_vocabulary(concept))
     return partition_scope_sets(sets)[0]
+
+
+def test_two_keys_for_one_field_end_as_a_named_rejection_in_w3_too() -> None:
+    """The same collision, the same named rejection on the W3 side.
+
+    W2 and W3 share ``normalize_schema_keys``; a fix that only one of the
+    two gates handles leaves the identical trap in the other.
+    """
+    backslash = chr(92)
+    alias = '"contra' + backslash * 2 + 'dictions"'
+    raw = '{"contradictions":[{"loci":[]}],' + alias + ":[]}"
+
+    with pytest.raises(ScopeResponseParseError, match="carries two keys for field 'contradictions'"):
+        parse_scope_response(raw)

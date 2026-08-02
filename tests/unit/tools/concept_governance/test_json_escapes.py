@@ -10,7 +10,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from concept_governance.json_escapes import repair_markdown_escapes
+from concept_governance.json_escapes import (
+    SchemaKeyCollisionError,
+    normalize_schema_keys,
+    repair_markdown_escapes,
+)
 
 BACKSLASH = chr(92)
 
@@ -52,9 +56,11 @@ def test_a_quoted_markdown_cell_survives_the_repair_word_for_word() -> None:
 
     W2 asks a model to quote a chunk VERBATIM. The chunk carries markdown
     escapes, so the quotation does too. If the repair drops them, the
-    assertion no longer matches the chunk it quotes — W2 accepts it (it
-    does not compare against the chunk) and W3 then rejects it, correctly,
-    for a corruption the toolchain introduced itself.
+    assertion no longer matches the chunk it quotes — a corruption the
+    toolchain introduced itself, which both gates now reject as a foreign
+    quote (``policy._require_verbatim_quote``,
+    ``scope_policy._validate_locus``). Rejecting our own damage is not a
+    fix; the repair has to preserve the quotation in the first place.
     """
     cell = "`LIGHT" + BACKSLASH + "_INCUBATION` " + BACKSLASH + "| `FULL" + BACKSLASH + "_ATOM`"
     raw = '{"assertion":"' + cell + '"}'
@@ -98,3 +104,80 @@ def test_text_without_escapes_is_returned_unchanged() -> None:
     """The repair is only ever offered as an ADDITIONAL parse candidate."""
     clean = '{"a":"nothing to repair"}'
     assert repair_markdown_escapes(clean) == clean
+
+
+ALIAS_KEY = '"has' + BACKSLASH * 2 + "_normative" + BACKSLASH * 2 + '_statements"'
+PLAIN_KEY = '"has_normative_statements"'
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "why"),
+    [
+        (PLAIN_KEY + ":true", ALIAS_KEY + ":false", "the alias arrives second and would win last-wins"),
+        (ALIAS_KEY + ":false", PLAIN_KEY + ":true", "the alias arrives first and would win first-wins"),
+        (PLAIN_KEY + ":true", PLAIN_KEY + ":false", "no alias at all: json.loads collapses this on its own"),
+    ],
+)
+def test_two_keys_for_one_field_are_rejected_fail_closed(first: str, second: str, why: str) -> None:
+    """Normalization must never MERGE two contradictory statements.
+
+    Both orders are tested on purpose. "Last wins" and "first wins" are
+    equally arbitrary, and the point of the finding is that neither is a
+    decision anyone made: the response says two things about one field, and
+    the reader of a W2 finding cannot see that one of them was dropped.
+
+    The third case needs no backslash at all — :func:`json.loads` collapses
+    a literal duplicate key silently, and the repair is the only place in
+    the chain that still sees both.
+    """
+    candidate = "{" + first + "," + second + ',"assertions":[]}'
+
+    with pytest.raises(SchemaKeyCollisionError, match="carries two keys for field 'has_normative_statements'"):
+        normalize_schema_keys(candidate)
+
+
+def test_a_populated_list_cannot_be_replaced_by_an_aliased_empty_one() -> None:
+    """The same defect in W3, where it erases evidence instead of a flag.
+
+    ``contradictions`` carries the found contradictions. An alias with
+    ``[]`` beside it would turn a reported contradiction into a clean
+    sweep — a governance gate reporting PASS on evidence it was given.
+    """
+    alias = '"contra' + BACKSLASH * 2 + 'dictions"'
+    candidate = '{"contradictions":[{"loci":[]}],' + alias + ":[]}"
+
+    with pytest.raises(SchemaKeyCollisionError, match="carries two keys for field 'contradictions'"):
+        normalize_schema_keys(candidate)
+
+
+def test_a_collision_inside_a_nested_object_is_found_too() -> None:
+    """Every object is checked, not only the top-level one.
+
+    The schema nests: assertions and contradiction loci are objects of
+    their own, and a merged ``assertion`` field there loses the quoted
+    evidence rather than a flag.
+    """
+    alias = '"asser' + BACKSLASH * 2 + '_tion"'
+    candidate = '{"assertions":[{"asser_tion":"a","scopes":[],' + alias + ':"b"}]}'
+
+    with pytest.raises(SchemaKeyCollisionError, match="carries two keys for field 'asser_tion'"):
+        normalize_schema_keys(candidate)
+
+
+def test_an_aliased_key_without_a_twin_is_still_repaired() -> None:
+    """The counter-probe: the collision check must not break the repair.
+
+    A single escaped key is what :func:`normalize_schema_keys` exists for.
+    It normalizes, the values stay untouched, and nothing is rejected.
+    """
+    candidate = "{" + ALIAS_KEY + ':false,"assertions":[]}'
+
+    assert json.loads(normalize_schema_keys(candidate)) == {
+        "has_normative_statements": False,
+        "assertions": [],
+    }
+
+
+def test_text_that_is_not_json_is_still_returned_unchanged() -> None:
+    """A decode failure means "not JSON" and stays a no-op, not a finding."""
+    assert normalize_schema_keys("Worked for 29s") == "Worked for 29s"

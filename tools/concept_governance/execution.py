@@ -10,7 +10,7 @@ from agentkit.integration_clients.multi_llm_hub.errors import MultiLlmHubError
 from concept_governance.chunks import ChunkMetadataError
 from concept_governance.evaluator import EvaluationParseError
 from concept_governance.evaluator_pool import RoutedEvaluationError
-from concept_governance.policy import evaluate_policy
+from concept_governance.policy import EvaluationContractError, evaluate_policy
 from concept_governance.port import BatchAuthorityProseEvaluator
 from concept_governance.prompt import PromptVersionError
 
@@ -59,6 +59,10 @@ def collect_findings(
                         evaluator.checkpoint(chunk.chunk_id)
                 except RoutedEvaluationError as exc:
                     _raise_run_error(chunk, exc.cause, exc.model)
+                except EvaluationContractError as exc:
+                    # Same code W3 uses for the same defect (scope_execution):
+                    # the response parsed, but does not refer to its input.
+                    raise EvaluationRunError("INVALID_EVALUATION_RESPONSE", chunk, exc, evaluator.model) from exc
                 except EvaluationParseError as exc:
                     raise EvaluationRunError("EVALUATION_PARSE_FAILURE", chunk, exc, evaluator.model) from exc
                 except (LlmClientError, MultiLlmHubError, TimeoutError) as exc:

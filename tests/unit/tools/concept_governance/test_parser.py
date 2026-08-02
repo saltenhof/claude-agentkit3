@@ -35,9 +35,10 @@ def test_escaped_table_pipe_json_is_strictly_revalidated() -> None:
 
     The assertion is a VERBATIM quotation of the chunk, so the repair has
     to give back the cell exactly as it stands there, escapes included. An
-    earlier fix dropped the backslashes: W2 accepted the altered quotation
-    (it does not compare against the chunk) and W3 then rejected it,
-    correctly, for a corruption the toolchain had introduced itself.
+    earlier fix dropped the backslashes, and both gates would now reject
+    the altered quotation as absent from its chunk — a self-inflicted
+    rejection, which is why the repair preserves the text instead of
+    relying on the check to catch it.
     """
     cell = "`LIGHT\\_INCUBATION` \\| `FULL\\_ATOM`"
     parsed = parse_response(
@@ -77,3 +78,20 @@ def test_regex_fallback_rejects_contradictory_json_and_verdict() -> None:
 def test_regex_fallback_rejects_duplicate_classification_flags() -> None:
     with pytest.raises(ResponseParseError):
         parse_response("has_normative_statements: false; has_normative_statements: true")
+
+
+def test_two_keys_for_one_field_end_as_a_named_rejection_not_a_traceback() -> None:
+    """A collision must reach the caller as an ordinary parse rejection.
+
+    The response is unusable, and W2 already has a named way to say so:
+    ``ResponseParseError`` becomes ``EVALUATION_PARSE_FAILURE`` with the
+    chunk attached. Letting the collision escape instead would end the CLI
+    in a traceback — the exact "an abort carries no statement" defect this
+    story fixed for the mutex path.
+    """
+    backslash = chr(92)
+    alias = '"has' + backslash * 2 + "_normative" + backslash * 2 + '_statements"'
+    raw = '{"has_normative_statements":true,' + alias + ':false,"assertions":[]}'
+
+    with pytest.raises(ResponseParseError, match="carries two keys for field 'has_normative_statements'"):
+        parse_response(raw)
