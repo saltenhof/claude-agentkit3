@@ -118,21 +118,28 @@ defers_to:
       §93.5 und §93.6 dienen der fachlichen Governance-Regel; deren
       Domaenensicht liegt in DK-03.
   # --- 93.5a Permission-Runtime -----------------------------------------
+  # ACHTUNG: §93.5a ist die Ausnahme nach §93.0.1 -- kein Dokument ausserhalb
+  # FK-93 traegt diese Werte, FK-93 ist fuer die ZAHLEN selbst die Normquelle.
+  # Die folgenden Kanten benennen deshalb, was FK-42/FK-55 tatsaechlich
+  # besitzen (Mechanik und Wirkung), und ausdruecklich nicht die Werte.
   - target: FK-42
     scope: ccag-tools
     reason: >-
-      §93.5a gibt Fristen der Permission-Runtime wieder; die Runtime normiert
-      FK-42.
+      §93.5a haengt an der Permission-Runtime: Request, Pause und Ablauf ohne
+      Entscheidung normiert FK-42. Die Sekundenwerte selbst normiert FK-93
+      (§93.0.1, katalog-eigener Wert).
   - target: FK-55
     scope: principal-capability-model
     reason: >-
-      §93.5a gibt Lease- und Request-Fristen wieder; das Capability-Modell
-      normiert FK-55.
+      §93.5a haengt am Permission-Lease und seiner Befristung als Mechanismus;
+      das Capability-Modell normiert FK-55. Die Fristwerte selbst normiert
+      FK-93 (§93.0.1, katalog-eigener Wert).
   - target: FK-55
     scope: story-scoped-capabilities
     reason: >-
-      §93.5a begrenzt offene Requests je Run; die Story-Scope-Durchsetzung
-      normiert FK-55.
+      §93.5a begrenzt offene Requests je Run; die Story-Scope-Durchsetzung, in
+      der die Grenze wirkt, normiert FK-55. Die Grenze selbst normiert FK-93
+      (§93.0.1, katalog-eigener Wert).
   # --- 93.7 LLM-Evaluator ------------------------------------------------
   - target: FK-11
     scope: llm-evaluator
@@ -165,22 +172,37 @@ defers_to:
     reason: >-
       §93.12 gibt die Groessenklassen wieder; ihre Zuordnung normiert FK-21.
   # --- 93.9a Concept-Incubator ------------------------------------------
+  # Ebenfalls Ausnahme nach §93.0.1: FK-78 §78.4 normiert die REGELN
+  # ("beschraenkt warten, dann fail-closed"; TTL-Uebernahme eines verwaisten
+  # Halters; geschuldete Wirkungen), nennt aber keine Sekundenzahl. Die Zahlen
+  # normiert FK-93 -- so ausdruecklich entschieden im Decision Record
+  # 2026-08-01 Abschnitt 3.
   - target: FK-78
     scope: concept-incubation-technical
     reason: >-
-      §93.9a gibt TTL, Wartefrist und Wiederholungsfrist des Mutations-Mutex
-      wieder; normiert sind sie in FK-78 §78.4.
+      §93.9a haengt an den Mutex- und Klinken-Regeln des Inkubators (TTL-
+      Uebernahme, beschraenktes Warten, geschuldete Wirkungen); diese Regeln
+      normiert FK-78 §78.4. Die Sekundenwerte selbst normiert FK-93
+      (§93.0.1, katalog-eigener Wert).
   - target: FK-78
     scope: concept-toolchain
     reason: >-
       §93.9a benennt Werte, die die Inkubator-Toolchain durchsetzt; die
-      Toolchain-Vertraege normiert FK-78.
+      Toolchain-Vertraege normiert FK-78. Die Werte selbst normiert FK-93
+      (§93.0.1, katalog-eigener Wert).
   # --- 93.10 Review-Haeufigkeit -----------------------------------------
   - target: FK-24
     scope: story-types
     reason: >-
-      §93.10 gibt Review-Minima je Story-Groesse wieder; Story-Typ und
-      Terminalitaet normiert FK-24.
+      §93.10 haengt an Story-Typ und Terminalitaet, die FK-24 normiert. Die
+      Review-Zahlen je Groesse traegt FK-24 nicht -- ihr Wert-Owner ist DK-10
+      (§10.4), siehe die Kante darunter.
+  - target: DK-10
+    scope: story-lifecycle
+    reason: >-
+      §93.10 und §93.12 geben die Review-Minima und die Groessenklassen
+      wieder; werttragend normiert sind beide in DK-10 §10.4
+      (Story-Groessen-Definition mit Dateien, Modulen und Review-Punkten).
   - target: DK-11
     scope: review-quality
     reason: >-
@@ -231,27 +253,54 @@ Aufnahme eines neuen: dass ein verwandter Wert bisher fehlt, heisst nur,
 dass er ebenfalls fehlt. Entschieden wird nach dem Kriterium, nicht nach
 dem Praezedenzfall.
 
-### 93.0.1 Autoritaet des Katalogs — Nachschlageort, nicht Normquelle
+### 93.0.1 Autoritaet des Katalogs — im Regelfall Nachschlageort
 
-Dieser Abschnitt (das Aufnahmekriterium) ist die **einzige** eigene Norm des
-Katalogs; sie ist der Inhalt des Scopes `defaults`, den FK-93 besitzt. **Jede**
-Zeile in den Abschnitten §93.1 bis §93.12 gibt dagegen einen Wert wieder,
-dessen normativer Owner ein **anderes** Dokument ist. Der Katalog aendert an
-diesen Werten nichts; er macht sie an einem Ort nachschlagbar.
+Der Katalog ist im **Regelfall** Nachschlageort und nicht Normquelle. Das
+Aufnahmekriterium (§93.0) und diese Pflegeregel sind seine einzigen
+allgemeinen eigenen Normen; sie sind der Inhalt des Scopes `defaults`, den
+FK-93 besitzt.
+
+Jede Zeile in §93.1 bis §93.12 gehoert genau **einer** von zwei Klassen an,
+und welcher, steht an der Zeile — nicht im Ermessen des Lesers:
+
+- **Wiedergabe (Regelfall).** Der Wert ist in einem anderen Dokument
+  werttragend normiert. FK-93 aendert daran nichts; er macht ihn an einem Ort
+  nachschlagbar. Der Abschnitt traegt eine scope-qualifizierte
+  `defers_to`-Kante auf diesen Owner.
+- **Katalog-eigener Wert (Ausnahme).** Kein Dokument ausserhalb FK-93 traegt
+  den Wert — er steht fest im Code, und §93.0 nimmt genau solche Werte
+  ausdruecklich auf. Dann ist FK-93 die Normquelle **fuer die Zahl**, waehrend
+  das besitzende Dokument die **Regel** normiert, der die Zahl dient. Die
+  Zeile weist das in der Spalte `Normquelle` aus, und die Kante des Abschnitts
+  beschreibt, was das Ziel tatsaechlich besitzt.
 
 FK-93 verlangt daher von sich selbst:
 
 - **Jeder Abschnitt dieses Katalogs traegt eine scope-qualifizierte
-  `defers_to`-Kante auf den Owner der Werte, die er wiedergibt.** Ohne sie
+  `defers_to`-Kante auf den Owner dessen, was er wiedergibt.** Ohne sie
   beansprucht FK-93 Autoritaet, die es nicht hat.
+- **Eine Kante darf nur behaupten, was ihr Ziel wirklich besitzt.** Eine Kante
+  auf einen Owner, der den Wert gar nicht fuehrt, ist schlimmer als eine
+  fehlende: sie bezeugt maschinenlesbar etwas Falsches. Bei einem
+  katalog-eigenen Wert benennt die Begruendung der Kante deshalb die **Regel**
+  beim Ziel und den Wert bei FK-93.
 - **Die Spalte `Kapitel` ersetzt diese Kante nicht.** Sie ist ein Lesehinweis
   fuer Menschen; die Kante ist maschinenlesbare Frontmatter.
 - **Ein neuer Abschnitt ohne passende Kante ist unvollstaendig.** Wer eine
   Katalogzeile ergaenzt, deren Owner hier noch keine Kante hat, ergaenzt
   beides in einem Zug.
-- **Kein Abschnitt dieses Katalogs erklaert sich selbst zur Normquelle.** Steht
-  ein Wert nirgendwo sonst, ist das eine Luecke beim besitzenden Dokument und
-  wird dort geschlossen, nicht hier umgewidmet.
+- **Die Ausnahme wird benannt, nie stillschweigend genutzt.** Wer eine Zeile
+  als katalog-eigen fuehrt, hat vorher geprueft, dass der Wert wirklich
+  nirgendwo sonst steht. Ist er anderswo normiert, ist die Zeile eine
+  Wiedergabe; weicht die Wiedergabe vom Owner ab, wird sie an den Owner
+  angeglichen und nicht umgekehrt.
+- **Ein katalog-eigener Wert ist kein Ersatz fuer eine fehlende Modellierung
+  beim Owner.** Wo neben dem Wert auch die Regel oder der Konfigurationspfad
+  beim besitzenden Dokument fehlt, wird diese Luecke an der Zeile benannt und
+  bleibt dort offen, bis der Owner sie schliesst.
+
+Heute katalog-eigen sind ausschliesslich **§93.5a** und **§93.9a**. Alle
+uebrigen Zeilen sind Wiedergaben.
 
 ## 93.1 Pipeline-Konfiguration
 
@@ -296,13 +345,25 @@ FK-93 verlangt daher von sich selbst:
 
 ## 93.5a Permission-Runtime und Requests
 
-| Parameter | Default (FK-Soll) | Config-Pfad | FK | Kapitel |
-|-----------|-------------------|-------------|-----|---------|
-| Permission-Request-TTL | 1800s (30 Min) | `permissions.request_ttl_s` | — | 42 / 55 |
-| Permission-Pause-TTL | 3600s (60 Min) | `permissions.pause_ttl_s` | — | 42 / 55 |
-| Permission-Lease-TTL | `run_scoped` | `permissions.lease_ttl` | — | 55 |
-| External-Prompt-Grace in Story-Run | 0s | `permissions.story_execution_external_prompt_grace_s` | — | 42 / 55 |
-| Max offene Permission-Requests pro Run | 1 | `permissions.max_open_requests_per_run` | — | 55 |
+**Katalog-eigene Werte (§93.0.1, Ausnahme).** Kein Dokument ausserhalb FK-93
+fuehrt diese fuenf Werte. FK-42 normiert die Permission-Runtime (Request,
+Pause, Ablauf ohne Entscheidung), FK-55 das Permission-Lease als befristete
+Ausnahme und die Story-Scope-Durchsetzung — die **Fristen und Mengen** selbst
+normiert dieser Katalog.
+
+**Offene Modellierungsschuld beim Owner (§93.0.1, letzte Regel):** die
+Konfigurationspfade `permissions.*` stehen **nicht** im Konfigurationsmodell
+von FK-03 und werden auch in FK-42/FK-55 nicht gefuehrt. Solange das so ist,
+sind die Pfade hier ein Vorschlag und kein bestaetigtes Schema. Die Luecke
+gehoert FK-03 zusammen mit FK-42/FK-55 und wird dort geschlossen.
+
+| Parameter | Default (FK-Soll) | Config-Pfad | Normquelle | Kapitel |
+|-----------|-------------------|-------------|------------|---------|
+| Permission-Request-TTL | 1800s (30 Min) | `permissions.request_ttl_s` | FK-93 (katalog-eigen); Regel: FK-42 | 42 / 55 |
+| Permission-Pause-TTL | 3600s (60 Min) | `permissions.pause_ttl_s` | FK-93 (katalog-eigen); Regel: FK-42 | 42 / 55 |
+| Permission-Lease-TTL | `run_scoped` | `permissions.lease_ttl` | FK-93 (katalog-eigen); Regel: FK-55 | 55 |
+| External-Prompt-Grace in Story-Run | 0s | `permissions.story_execution_external_prompt_grace_s` | FK-93 (katalog-eigen); Regel: FK-42 | 42 / 55 |
+| Max offene Permission-Requests pro Run | 1 | `permissions.max_open_requests_per_run` | FK-93 (katalog-eigen); Regel: FK-55 | 55 |
 
 ## 93.6 Risikopunkte (Governance-Sensorik)
 
@@ -362,16 +423,23 @@ ein Schreiber wartet, wie lange ein Lauf-Verzeichnis nach einem Absturz
 blockiert bleibt und ab wann eine nicht ausfuehrbare Wirkung als
 blockierender Befund gemeldet wird.
 
+**Katalog-eigene Werte (§93.0.1, Ausnahme).** FK-78 §78.4 normiert die
+**Regeln** — TTL-basierte Uebernahme eines verwaisten Halters, „beschraenkt
+warten, dann fail-closed", geschuldete Wirkungen werden beschraenkt
+wiederholt — nennt aber bewusst keine Sekundenzahl. Die **Zahlen** normiert
+dieser Katalog (Decision Record 2026-08-01, Abschnitt 3: „die Sekundenzahl
+steht im Katalog, nicht im Normsatz").
+
 Abgrenzung zu §93.9: Mutex und Klinke des Concept-Incubators sind **keine
 Story-Locks**. Fuer sie ist die TTL-basierte Uebernahme eines verwaisten
 Halters ausdruecklich vorgesehen (FK-78 §78.4) — das Verbot automatischer
 TTL-Freigabe aus §93.9 gilt fuer Story-Locks und beruehrt sie nicht.
 
-| Parameter | Default | Quelle | FK | Kapitel |
-|-----------|---------|--------|-----|---------|
-| TTL von `RUN.mutex` und `RUN.mutex.intent` (Uebernahme nach Absturz) | 600s (10 Min) | Fest im Code (`MUTEX_TTL_SECONDS`) | — | 78.4 |
-| Wartefrist auf eine lebende fremde Klinke, danach fail-closed | 5s | Fest im Code (`INTENT_WAIT_SECONDS`) | — | 78.4 |
-| Wiederholungsfrist geschuldeter Datei-Wirkungen (Loeschen, atomares Ersetzen, Advisory-Lock) | 5s | Fest im Code (`FILE_EFFECT_RETRY_SECONDS`) | — | 78.4 |
+| Parameter | Default | Quelle | Normquelle | Kapitel |
+|-----------|---------|--------|------------|---------|
+| TTL von `RUN.mutex` und `RUN.mutex.intent` (Uebernahme nach Absturz) | 600s (10 Min) | Fest im Code (`MUTEX_TTL_SECONDS`) | FK-93 (katalog-eigen); Regel: FK-78 | 78.4 |
+| Wartefrist auf eine lebende fremde Klinke, danach fail-closed | 5s | Fest im Code (`INTENT_WAIT_SECONDS`) | FK-93 (katalog-eigen); Regel: FK-78 | 78.4 |
+| Wiederholungsfrist geschuldeter Datei-Wirkungen (Loeschen, atomares Ersetzen, Advisory-Lock) | 5s | Fest im Code (`FILE_EFFECT_RETRY_SECONDS`) | FK-93 (katalog-eigen); Regel: FK-78 | 78.4 |
 
 Bewusst **nicht** im Katalog, weil reines internes Tuning ohne extern
 beobachtbare Zusage: das Poll-Intervall der Warteschleife
@@ -399,10 +467,14 @@ Payload der Klinke nachliest (`INTENT_PROBE_SECONDS`).
 
 ## 93.12 Story-Größen
 
+Wiedergabe von **DK-10 §10.4** (Story-Groessen-Definition); dort stehen die
+werttragenden Spannen fuer Dateien, Module und Review-Punkte. Die Spalte
+`Review-Minimum` ist die untere Schranke; DK-10 schreibt fuer L und XL „3+".
+
 | Größe | Beschreibung | Review-Minimum |
 |-------|-------------|---------------|
-| XS | Triviale Änderung (1-2 Dateien) | 1 |
-| S | Kleine Änderung (ein Modul) | 1 |
-| M | Mittlere Änderung (mehrere Dateien, ein Modul) | 2 |
-| L | Große Änderung (mehrere Module) | 3 |
-| XL | Sehr große Änderung (architekturwirksam) | 3 |
+| XS | Triviale Änderung (1-2 Dateien, 1 Modul) | 1 |
+| S | Kleine Änderung (3-10 Dateien, ein Modul) | 1 |
+| M | Mittlere Änderung (10-30 Dateien, 1-2 Module) | 2 |
+| L | Große Änderung (30-80 Dateien, 2-4 Module) | 3 |
+| XL | Sehr große Änderung (80+ Dateien, 4+ Module; architekturwirksam) | 3 |

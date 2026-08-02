@@ -334,6 +334,25 @@ atomare Replace-Write (temp + rename) mit `state_revision + 1`. Ein
 Schreiber, der Lease oder Revision nicht bestaetigen kann, bricht ab
 (stale write unmoeglich).
 
+**Schiedsrichter des frischen Mutex ist der exklusive Create, nicht ein
+vorheriger Blick.** `O_CREAT|O_EXCL` gilt fuer `RUN.mutex` genauso wie
+fuer die Klinke: ein Read-then-Create ist ausdruecklich **nicht**
+zulaessig. Eine Existenzpruefung meldet „nicht da" auch bei Rechte- und
+E/A-Fehlern (dieselbe Verwechslung, die weiter unten fuer
+compare-before-delete ausgeschlossen wird), und ein einziges
+fehlschlagendes `stat` genuegte damit, einen **lebenden fremden** Mutex
+mit der eigenen Nonce zu ueberschreiben. Das ist kein Liveness-, sondern
+ein **Safety**-Defekt: zwei Schreiber haetten gleichzeitig, was jeder
+fuer Alleineigentum haelt. Nur der Kern kann entscheiden, dass ein Name
+frei war; `FileExistsError` ist der einzige Beweis, dass er es nicht war,
+und fuehrt in den validierten Takeover-Pfad. Jeder **andere** OS-Fehler
+am Create ist ein verlorener Anspruch mit regulaerem Fehlausgang, nie
+eine Vermutung ueber die Abwesenheit der Datei. Auch der Mutex hat den
+Zwei-Schritt-Spalt zwischen Create und Payload: scheitert der
+Payload-Write, wird der Anspruch zurueckgegeben, denn ein leerer
+`RUN.mutex` ist kein gueltiges Payload und wird deshalb **nie** per TTL
+uebernommen — er wuerde das Lauf-Verzeichnis dauerhaft klemmen.
+
 Ablauf wird gegen `heartbeat_at` gerechnet, das vor jedem Schreibschritt
 aufgefrischt wird; die eigene `nonce` wird vor jedem Dispatch und vor
 jedem Schreibschritt revalidiert — fremde Nonce, gewechselter Owner oder
@@ -353,12 +372,34 @@ ein Aufraeumen ohne Identitaetspruefung ist auf keinem Pfad zulaessig.
 
 **Compare-before-delete laeuft unter einem OS-Advisory-Lock.** Lesen und
 Loeschen sind zwei Schritte; die Identitaetspruefung allein macht die
-Folge nicht atomar. **Jedes** Loeschen der Klinke anhand einer zuvor
-beobachteten Identitaet — die regulaere Freigabe ebenso wie das
-Einsammeln einer abgelaufenen Klinke — laeuft deshalb vollstaendig unter
+Folge nicht atomar. **Jedes** Loeschen anhand einer zuvor beobachteten
+Identitaet — die regulaere Freigabe der Klinke, das Einsammeln einer
+abgelaufenen Klinke **und die geschuldete Loeschung des eigenen
+`RUN.mutex`** — laeuft deshalb vollstaendig unter
 einem Advisory-Lock auf `RUN.mutex.intent.lock` (`fcntl.flock` bzw.
 `msvcrt.locking`): Lesen, Ablaufpruefung, erneute Identitaetspruefung und
-`unlink` sind ein Abschnitt. Die Lockdatei ist ein reines
+`unlink` sind ein Abschnitt.
+
+**Die Mutex-Freigabe weist unter demselben Lock die Klinke erneut aus.**
+Ein Halter, der laenger als die Klinken-TTL stockt, verliert sie an einen
+Einsammler; der uebernimmt dann den ebenso abgelaufenen Mutex und
+schreibt einen neuen — und der fortsetzende Halter loescht mit seinem
+Unlink-nach-Pfad den frischen Mutex eines **lebenden** Eigentuemers.
+Verhindern laesst sich der Verlust nicht: ein eingefrorener Prozess kann
+keinen Heartbeat senden, und keine Frist unterscheidet ihn von einem
+toten — genau deshalb hat die Klinke ueberhaupt eine TTL. Normiert ist
+darum die **Erkennung**: wer loeschen will, weist unter dem Lock zuerst
+nach, dass die Klinke noch seine ist, und loescht erst danach nach
+Nonce-Vergleich. Weil jedes Einsammeln einer Klinke denselben Lock
+braucht und jede Mutex-Uebernahme die Klinke braucht, ordnet der Lock
+beide Ereignisse: solange er gehalten wird, kann niemand die Klinke
+einsammeln, also niemand sie halten, also niemand den Mutex uebernehmen.
+Ist die Klinke schon vorher eingesammelt worden, wird das gesehen und
+**nicht geloescht** — ein fremder Mutex bleibt unberuehrt, ein noch
+eigener bleibt als geschuldete, nicht erledigte Wirkung liegen und wird
+zum blockierenden Befund.
+
+Die Lockdatei ist ein reines
 Serialisierungsmittel: sie traegt keinen Zustand und wird **nie**
 geloescht — eine loeschbare Lockdatei haette genau das
 Read-then-Unlink-Problem, das sie aufloest. Das Betriebssystem gibt den

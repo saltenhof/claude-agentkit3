@@ -242,6 +242,96 @@ erfolgreichen Create wird eine nicht beschreibbare Klinke wieder entfernt und
 der Anspruch geht regulaer fail-closed verloren. Scheitert auch dieses Entfernen
 endgueltig, greift Rand 2.4.
 
+**2.8 Auch der frische `RUN.mutex` wird exklusiv erzeugt** (neu 2026-08-03,
+Codex-Review Runde 3). FK-78 §78.4 sagt seit jeher `O_CREAT|O_EXCL` fuer den
+Mutations-Mutex — im Code stand dort ein `Path.exists()` mit anschliessendem
+atomarem Replace. Dieselbe Existenzpruefung wird wenige hundert Zeilen weiter
+oben ausdruecklich als untauglich beschrieben, weil sie bei Rechte- und
+E/A-Fehlern `False` liefert. Ein einziges fehlschlagendes `stat` auf einem
+**lebenden fremden** Mutex genuegte damit, ihn mit der eigenen Nonce zu
+ueberschreiben: aus „nicht pruefbar" wurde beim Erwerb still „weg".
+
+Das ist ein **Safety**-Defekt, kein Liveness-Defekt — zwei Schreiber koennen
+gleichzeitig Alleineigentum behaupten — und er ist aelter als diese Story.
+Normativ gilt: der Kern entscheidet, ob ein Name frei war. `FileExistsError`
+fuehrt in den validierten Takeover-Pfad; jeder andere OS-Fehler am Create ist
+ein verlorener Anspruch mit regulaerem Fehlausgang. Der Zwei-Schritt-Spalt
+zwischen Create und Payload gilt auch hier (Rand 2.7): scheitert der
+Payload-Write, wird der Anspruch zurueckgegeben — ein leerer `RUN.mutex` ist
+kein gueltiges Payload und wuerde nach Rand 2.4b **permanent** klemmen.
+
+Das ist keine Lockerung, sondern die Einloesung einer Zusage, die FK-78 die
+ganze Zeit gemacht hat.
+
+**2.9 Die Mutex-Freigabe laeuft unter dem Advisory-Lock und weist die Klinke
+erneut aus** (neu 2026-08-03, Codex-Review Runde 3). Rand 2.6 hat
+compare-before-delete an der **Klinke** atomar gemacht; am **Mutex** blieb es
+Read-then-Unlink. Der Ablauf: A haelt Klinke I1 und pausiert laenger als deren
+TTL. B sammelt I1 ein, erwirbt I2, uebernimmt den ebenfalls abgelaufenen Mutex
+und schreibt M2. A setzt fort und loescht nach Pfad — also M2, den Mutex eines
+**lebenden** Eigentuemers, der weiterarbeitet, waehrend seine Sperre weg ist.
+
+Zwei Wege standen offen. Den Verlust der Klinke zu verhindern ist **keiner**:
+ein eingefrorener Prozess kann keinen Heartbeat senden, und keine Frist
+unterscheidet ihn von einem toten — genau deshalb hat die Klinke eine TTL.
+Verhindern hiesse, das Problem durch das Problem zu loesen. Entschieden ist
+daher der zweite Weg, **Erkennung**: der fortsetzende Halter weist seinen
+Anspruch erneut nach, bevor er wirkt.
+
+Das Mittel ist der bereits normierte Lock. Jedes Einsammeln einer Klinke
+braucht ihn, und jede Mutex-Uebernahme braucht die Klinke; wer ihn haelt und
+darunter feststellt, dass die Klinke noch seine ist, weiss damit, dass niemand
+sie halten und niemand den Mutex uebernehmen kann. Verbindlich: „Klinke noch
+unsere" und compare-before-delete des Mutex sind **ein** Abschnitt unter dem
+Lock. Ist die Klinke schon eingesammelt, wird nicht geloescht — ein fremder
+Mutex bleibt unberuehrt und **ohne** Befund (er ist nicht unsere Schuld), ein
+noch eigener wird zur geschuldeten, nicht erledigten Wirkung nach Rand 2.4.
+
+**2.10 Der Wertekatalog darf Normquelle sein — aber nur benannt**
+(neu 2026-08-03, Codex-Review Runde 3). §93.0.1 (Runde 2) behauptete, **jede**
+Zeile in §93.1–§93.12 gebe einen Wert wieder, dessen Owner anderswo liegt.
+Fuer §93.5a und §93.9a ist das nachweislich falsch: deren Werte stehen
+repo-weit ausserhalb FK-93 nirgends. Die dazugehoerige `defers_to`-Kante machte
+damit einen fremden Owner **maschinenlesbar**, der die Behauptung inhaltlich
+nicht besitzt — schlimmer als die fehlende Kante davor, weil vorher nur unklar
+war, was jetzt falsch bezeugt ist.
+
+Normativ gilt jetzt die Unterscheidung zweier Zeilenklassen:
+
+- **Wiedergabe** (Regelfall): der Wert ist anderswo normiert. Die
+  scope-qualifizierte `defers_to`-Kante benennt diesen Owner; der Katalog
+  aendert nichts.
+- **Katalog-eigener Wert** (Ausnahme): kein Dokument ausserhalb FK-93 traegt
+  den Wert. Dann ist FK-93 die Normquelle **fuer die Zahl**, waehrend das
+  besitzende Dokument die **Regel** normiert, der die Zahl dient. Solche
+  Zeilen sind in der Tabelle als solche ausgewiesen, und die Kante des
+  Abschnitts beschreibt, was das Ziel tatsaechlich besitzt — nie den Wert.
+
+Das entspricht §93.0, das Werte ausdruecklich auch dann aufnimmt, wenn sie
+„fest im Code stehen". Der frueher dort stehende Satz, ein nirgends sonst
+stehender Wert sei „eine Luecke beim besitzenden Dokument", bleibt fuer die
+Wiedergabe-Klasse richtig und ist fuer die Ausnahme praezisiert: die Ausnahme
+ist zu benennen, nicht stillschweigend zu nutzen.
+
+**2.11 Die Escape-Reparatur bewahrt Worttreue** (neu 2026-08-03, Codex-Review
+Runde 3; **kein neuer Normsatz, sondern die Wiederherstellung eines
+bestehenden Vertrags**). W2/W3 verlangen im Prompt-Asset „quote assertion text
+exactly" und modellieren die Antwort als `QuotedAssertion`. Die Reparatur der
+markdown-Escapes entfernte jedoch **jeden** nicht anerkannten Backslash: aus
+einer woertlich zitierten Tabellenzelle mit markdown-escapten Unterstrichen
+und einem markdown-escapten Zellentrenner wurde eine Zelle **ohne** diese
+Backslashes, und aus dem Pfad `C:\Program` wurde `C:Program`.
+W2 nahm die veraenderte Assertion an — es prueft keine Worttreue gegen den
+Chunk —, W3 verwarf sie danach zu Recht. Die Toolchain erzeugte die Korruption
+selbst.
+
+Ein nicht anerkannter Backslash wird deshalb **verdoppelt** statt entfernt: das
+macht denselben Text parsebar und laesst den dekodierten Wert Zeichen fuer
+Zeichen identisch. Der Backslash im **Schluessel** bleibt eine eigene
+Reparatur — dort ist er nie Inhalt, sondern ein Schema-Bezeichner —, und sie
+entscheidet das am **geparsten** Dokument, wo „Schluessel" eine Tatsache und
+keine Regex-Vermutung ist.
+
 ## 3. Abgrenzung
 
 **Ueberarbeitet 2026-08-02.** Die urspruengliche Fassung begruendete die
@@ -286,6 +376,11 @@ allein die Lockdatei `RUN.mutex.intent.lock` im Lauf-Verzeichnis.
 | 2.4b | „Weg" vs. „nicht pruefbar" | FK-78 §78.4 | neu | nicht verifizierbare Datei wird nie ungeprueft geloescht und nie als erledigt verbucht; Abwesenheit muss beweisbar sein; Permanenz der Mutex-Klemme wird benannt |
 | 2.4c | W2/W3-Pre-Merge-Pflicht | Story-Record AG3-179 | ausgesetzt | PO-Entscheidung: QS wird auf Harness-Bridge mit nativen Agenten umgebaut; Ist-Stand dokumentiert, nichts Gruenes behauptet, W3-Retry gestrichen und zurueckgebaut |
 | 2.4c | FK-93-Kanten | FK-93 Frontmatter | nicht-betroffen | eigene Modellierungsschuld, unabhaengig von der Pruefmechanik |
+| 2.8 | Exklusiver Create des Mutex | FK-78 §78.4 | geaendert | `O_CREAT|O_EXCL` statt Read-then-Create ausgeschrieben; `FileExistsError` → Takeover, jeder andere OS-Fehler → fail-closed; leeres Mutex-Payload wird zurueckgegeben |
+| 2.9 | Atomizitaet der Mutex-Freigabe | FK-78 §78.4 | geaendert | geschuldete Loeschung des `RUN.mutex` laeuft unter dem Advisory-Lock und weist die Klinke darunter erneut aus; Erkennung statt Verhinderung |
+| 2.10 | Zeilenklassen des Wertekatalogs | FK-93 §93.0.1, §93.5a, §93.9a, Frontmatter | geaendert | „Wiedergabe" vs. „katalog-eigener Wert"; Kanten benennen, was das Ziel wirklich besitzt; Ausnahme muss ausgewiesen sein |
+| 2.10 | Wert-Owner der Review-/Groessenwerte | FK-93 Frontmatter, §93.12 | geaendert | DK-10 als Wert-Owner ergaenzt (FK-24 traegt die Zahlen nicht); Modulzahl der Groesse M an DK-10 §10.4 angeglichen |
+| 2.11 | Worttreue der Escape-Reparatur | `tools/concept_governance/json_escapes.py`, `parser.py`, `scope_parser.py` | geaendert | Bugfix gegen den bestehenden Vertrag „quote assertion text exactly"; kein neuer Normsatz |
 | — | Layout des Lauf-Verzeichnisses | FK-78 §78.3 | geaendert | `RUN.mutex.intent` (bisher fehlend) und `RUN.mutex.intent.lock` ergaenzt |
 | — | Mutex-Semantik | FK-78 §78.4 | nicht-betroffen | Nonce, TTL, Heartbeat, Fencing-Token-CAS unveraendert |
 
@@ -313,20 +408,47 @@ Zugleich hat der PO ausdruecklich bestaetigt, dass die FK-93-Aenderungen
 (Abschnitt 3) davon **unberuehrt** im Auftrag bleiben, weil sie eine eigene
 Modellierungsschuld beheben und keine Zuarbeit an ein Pruefwerkzeug sind.
 
-**(b) Vom Orchestrator gesetzt, dem PO offengelegt, Ratifikation ausstehend.**
-Die Raender **2.2, 2.6 und 2.7**, die Praezisierung **2.4b** sowie die
-FK-93-Aenderungen aus
-Abschnitt 3 standen **nicht** in der Story. Sie sind erst bei der Umsetzung und
-im anschliessenden Codex-Review zutage getreten und unter der stehenden
-Anweisung „Befunde an der Wurzel beheben" vom Orchestrator entschieden. Sie sind
-dem PO im Abschlussbericht dieser Story im Wortlaut vorgelegt worden — **eine
-Vorlage ist keine Ratifikation.** Solange der PO nicht ausdruecklich zustimmt,
-sind diese Raender als gesetzt-und-offengelegt zu lesen, nicht als beschlossen.
-Sie sind gleichwohl umgesetzt, weil die jeweilige Alternative (den Fix bauen und
-die Norm weiter das Gegenteil sagen lassen, bzw. eine verletzte Kerninvariante
-als „Grenze" weiterfuehren) schlechter waere als die Entscheidung selbst.
+**(b) Vom Agentenmandat gedeckt — Ausdetaillierung entlang eines Ankers.**
+Die Raender **2.2, 2.4b, 2.6, 2.7, 2.8, 2.9, 2.10** und die FK-93-Aenderungen
+aus Abschnitt 3 standen **nicht** in der Story. Sie sind bei der Umsetzung und
+in den Codex-Reviews zutage getreten und unter der stehenden Anweisung
+„Befunde an der Wurzel beheben" entschieden.
 
-**(c) Offen.** Die Ratifikation von (b) durch den PO. Zusaetzlich offen und hier
-nur benannt, nicht entschieden: ob die konkreten Sekundenwerte aus FK-93 §93.9a
-kuenftig konfigurierbar werden sollen — heute sind sie fest im Code, was der
-Katalog auch so ausweist.
+Die frueheren Fassungen dieses Abschnitts fuehrten sie als „gesetzt und
+offengelegt, Ratifikation ausstehend" — und liessen sie zugleich in der Norm
+gelten. Das war keine eindeutige normative Wahrheit. Massgeblich ist das
+**Agentenmandat** (`AGENTS.md`, PO-Ratifikation 2026-08-02): ein Agent darf
+neue normative Inhalte schaffen, wenn sie (1) die **Ausdetaillierung** eines
+groeber definierten Konzeptinhalts mit **benennbarer Ankerstelle** sind,
+(2) dem Bestand **nicht widersprechen** und (3) **keine neue Konzeptdomaene**
+eroeffnen. Jeder Rand ist einzeln dagegen geprueft:
+
+| Rand | Ankerstelle | (1) Ausdetaillierung | (2) widerspruchsfrei | (3) keine neue Domaene | Ergebnis |
+|---|---|---|---|---|---|
+| 2.2 | FK-78 §78.4: `O_CREAT\|O_EXCL` als Schiedsrichter der Klinke plus mtime-Rueckfall fuer verwaiste Klinken | ja — praezisiert, ab wann eine Klinke verwaist ist | ja — der mtime-Rueckfall bleibt unveraendert und greift erst nach TTL | ja | **gedeckt** |
+| 2.4b | FK-78 §78.4: „ein Aufraeumen ohne Identitaetspruefung ist auf keinem Pfad zulaessig" | ja — sagt, was gilt, wenn die Vergleichsgroesse selbst nicht lesbar ist | ja — strengere Auslegung derselben Regel, keine Ausnahme davon | ja | **gedeckt** |
+| 2.6 | FK-78 §78.4 (Fassung vor dieser Story) fuehrte die Read-then-Unlink-Luecke als „benannte Grenze" und nannte die belastbaren Aufloesungen **woertlich**: „ein OS-Advisory-Lock (`fcntl.flock` bzw. `msvcrt.locking`) oder fail-closed manuelle Recovery" | ja — waehlt eine der beiden vom Konzept selbst benannten Optionen und schreibt ihre Randbedingungen aus | ja — Schiedsrichter bleibt `O_CREAT\|O_EXCL`, der Lock serialisiert nur den Aufraeumpfad | ja — die Lockdatei ergaenzt das von §78.3 besessene Layout | **gedeckt** |
+| 2.7 | FK-78 §78.4 (exklusiver Create) plus Rand 2.4, **vom PO ratifiziert** (geschuldete Wirkungen fallen nicht still aus) | ja — sagt, wem die Klinke im Spalt zwischen Create und Payload gehoert | ja | ja | **gedeckt** |
+| 2.8 | FK-78 §78.4 nennt `O_CREAT\|O_EXCL` fuer `RUN.mutex` **seit jeher** | ja — der Code loeste die Zusage nicht ein; der Rand schreibt sie aus | ja — er stellt die Konzepttreue her, statt von ihr abzuweichen | ja | **gedeckt** |
+| 2.9 | Rand 2.6 (Advisory-Lock, gedeckt) und FK-78 §78.4 „compare-before-delete auf jedem Pfad" | ja — dehnt einen bereits normierten Mechanismus auf den zweiten Pfad aus, auf dem dieselbe Luecke besteht | ja — kein Bypass, keine gelockerte Invariante | ja | **gedeckt** |
+| 2.10 | FK-93 §93.0 (Aufnahmekriterium: Werte gehoeren auch dann in den Katalog, wenn sie „fest im Code stehen"); Ownership-Regel in `concept/_meta/assertion-authority.md` | ja — klassifiziert die Zeilen, die §93.0 bereits zulaesst | ja — **beseitigt** einen Widerspruch (§93.0.1 gegen §93.5a/§93.9a), statt einen zu schaffen | ja — FK-93 besitzt den Scope `defaults` | **gedeckt** |
+| Abschnitt 3 (§93.0, §93.9a, §93.9) | FK-93 `authority_over: defaults` und der Titel des Dokuments; fuer §93.9a zusaetzlich FK-78 §78.4 als Regel-Owner | ja — sagt aus, was in den bereits besessenen Scope gehoert | ja — §93.9 stellt klar und aendert die FK-02-Regel nicht | ja | **gedeckt** |
+
+Rand **2.11** ist kein neuer Normsatz und faellt nicht unter das Mandat: er
+stellt den bestehenden Vertrag „quote assertion text exactly"
+(`tools/concept_governance/prompts/scope_consistency_v1.md`,
+`QuotedAssertion`) wieder her, den die Reparatur verletzt hatte.
+
+Damit ist **keine** offene PO-Ratifikation mehr als Vor-Merge-Auflage
+erforderlich. Das ist keine Selbstermaechtigung, sondern die Anwendung der
+Regel, die der PO am 2026-08-02 dafuer gesetzt hat: verboten ist Erfindung,
+nicht Ableitung. Wo ein Anker gefehlt haette, waere der PO zu holen gewesen —
+in dieser Story fehlt keiner.
+
+**(c) Offen.** Nur noch inhaltlich offen, nicht als Freigabe: ob die konkreten
+Sekundenwerte aus FK-93 §93.9a kuenftig konfigurierbar werden sollen — heute
+sind sie fest im Code, was der Katalog auch so ausweist. Ausserdem benannt und
+**nicht** in dieser Story geschlossen: die Konfigurationspfade `permissions.*`
+aus §93.5a fehlen im Konfigurationsschema von FK-03; das ist eine
+Modellierungsschuld bei FK-03/FK-42/FK-55 und wird dort geschlossen, nicht
+hier (§93.5a benennt sie).
