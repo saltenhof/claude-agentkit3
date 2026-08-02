@@ -881,15 +881,18 @@ def corrupt_the_mutex_before_the_release(monkeypatch: pytest.MonkeyPatch, mutex:
     is what makes it dangerous, because the mutation has already landed by
     then. A broken payload is one of the ways ``load_mutex_state`` answers
     ``None``; the injection places it at that seam, the real
-    ``_delete_own_mutex`` then runs untouched.
+    ``_compare_before_delete_mutex`` then runs untouched — behind the
+    cleanup lock and the latch re-proof, which both still happen for real.
     """
-    original = semantic_gate._MutexGuard._delete_own_mutex  # noqa: SLF001 - seam, the real method still runs
+    original = semantic_gate._MutexGuard._compare_before_delete_mutex  # noqa: SLF001 - seam, the real method still runs
 
     def corrupt_then_delete(self: semantic_gate._MutexGuard) -> None:
         mutex.write_bytes(b"{ this is not a mutex payload\n")
         original(self)
 
-    monkeypatch.setattr(semantic_gate._MutexGuard, "_delete_own_mutex", corrupt_then_delete)  # noqa: SLF001 - injection
+    monkeypatch.setattr(  # noqa: SLF001 - injection
+        semantic_gate._MutexGuard, "_compare_before_delete_mutex", corrupt_then_delete
+    )
 
 
 def test_an_unverifiable_mutex_is_never_deleted_and_never_reported_as_success(
@@ -1047,7 +1050,7 @@ def test_a_failed_latch_payload_write_gives_the_latch_back(tmp_path: Path, monke
     so the failure is injected; the behaviour under test is the cleanup.
     """
     intent = tmp_path / semantic_gate.INTENT_NAME
-    real_write = semantic_gate._write_fresh_latch  # noqa: SLF001 - failure injection point
+    real_write = semantic_gate._write_new_payload  # noqa: SLF001 - failure injection point
     calls = {"count": 0}
 
     def flaky_write(descriptor: int, payload: bytes) -> OSError | None:
@@ -1057,7 +1060,7 @@ def test_a_failed_latch_payload_write_gives_the_latch_back(tmp_path: Path, monke
             return OSError(28, "no space left on device")
         return real_write(descriptor, payload)  # type: ignore[no-any-return]  # passthrough
 
-    monkeypatch.setattr(semantic_gate, "_write_fresh_latch", flaky_write)
+    monkeypatch.setattr(semantic_gate, "_write_new_payload", flaky_write)
     owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
     nonce, problem = claim_latch(tmp_path, owed)
     assert nonce is None, "a latch without its payload is not a claim"

@@ -28,15 +28,20 @@ critical section. The intent carries its own nonce
 (``{holder_principal, holder_session, intent_nonce, acquired_at,
 ttl_seconds}``) and is released only by nonce match
 (compare-before-delete). Compare-before-delete alone is read-then-unlink
-and therefore not atomic, so EVERY delete-by-observed-identity of the
-latch — the release as well as the reclaim of an expired one — runs
-under an OS advisory lock on ``RUN.mutex.intent.lock``
-(``fcntl.flock`` / ``msvcrt.locking``). The lock covers read, expiry
-check, identity re-check and unlink as one section, so a cleaner can no
-longer delete a latch that another writer created in the meantime. The
-lock file is a pure serialization device: it is never deleted and never
+and therefore not atomic, so EVERY delete-by-observed-identity — of the
+latch (the release as well as the reclaim of an expired one) AND of
+``RUN.mutex`` — runs under an OS advisory lock on
+``RUN.mutex.intent.lock`` (``fcntl.flock`` / ``msvcrt.locking``). The lock
+covers read, expiry check, identity re-check and unlink as one section, so
+a cleaner can no longer delete a latch that another writer created in the
+meantime. The mutex release additionally re-proves under that lock that
+the latch is STILL ours: a holder that stalls past the latch TTL loses it
+to a reclaimer, and a reclaimer that then takes the mutex over would
+otherwise have its fresh mutex unlinked by the resuming holder. The lock
+file is a pure serialization device: it is never deleted and never
 carries state, and the operating system drops the lock when its holder
-dies. ``O_CREAT|O_EXCL`` remains the arbiter of the claim itself.
+dies. ``O_CREAT|O_EXCL`` remains the arbiter of both claims — the latch
+and a fresh ``RUN.mutex``.
 
 Under the intent the mutex is re-read and must still carry the identity
 observed before; only then is it atomically replaced. Takeover
@@ -425,21 +430,61 @@ class _MutexGuard:
         :class:`_OwedEffects` instead of being dropped.
         """
         try:
-            with _coordination_intent(self.run_dir, self.principal, self.session, self.owed):
-                self._delete_own_mutex()
+            with _coordination_intent(self.run_dir, self.principal, self.session, self.owed) as intent_nonce:
+                self._delete_own_mutex(intent_nonce)
         except MutexLostError as exc:
             self._blocked_release(f"the coordination intent could not be claimed for the release: {exc}")
         except OSError as exc:
             self._blocked_release(f"file system error during the release: {exc}")
 
-    def _delete_own_mutex(self) -> None:
-        """Delete the mutex while it still carries our nonce; caller holds the intent.
+    def _delete_own_mutex(self, intent_nonce: str) -> None:
+        """Delete the mutex while it still carries our nonce, under the cleanup lock.
+
+        WHY THE LOCK IS HERE AND NOT ONLY ON THE LATCH. Compare-before-delete
+        is read-then-unlink: the expected nonce is not part of the delete
+        operation. A releaser that read its own nonce M1 and then stalls
+        past the latch TTL loses the latch to a reclaimer; that reclaimer
+        takes over the (equally expired) mutex, writes M2 and enters its own
+        critical section — and the resuming releaser then unlinks M2, the
+        mutex of a LIVING owner. That is a safety violation: the successor
+        keeps working while its lock is gone.
+
+        Two ways out were possible. Keeping a living process from losing its
+        section is NOT one of them: a frozen process cannot heartbeat, and
+        no timeout can tell it apart from a dead one — which is the whole
+        reason the latch has a TTL. So the fix is the second way: make the
+        delete atomic against exactly this interleaving.
+
+        The device already exists. Every reclaim of an expired latch runs
+        under the advisory cleanup lock, and every mutex takeover requires
+        the latch. Holding that same lock across "the latch is still ours"
+        AND the compare-before-delete therefore orders the two events: while
+        we hold it, nobody can reclaim our latch, hence nobody holds the
+        latch, hence nobody can have taken the mutex over. And if the latch
+        was already reclaimed before we got the lock, we see it and refuse.
 
         A mutex that cannot be validated is NOT deleted — the identity it
         would have to be compared against is precisely what is missing —
         and it is not treated as gone either: it stays as a blocking
         finding, because an unreadable ``RUN.mutex`` wedges the run
         directory for good (see :class:`_Orphan`).
+        """
+        with _cleanup_lock(self.run_dir, FILE_EFFECT_RETRY_SECONDS) as locked:
+            if not locked:
+                self._blocked_release(f"the cleanup lock stayed busy for {FILE_EFFECT_RETRY_SECONDS:g}s")
+                return
+            lost = _latch_lost_reason(self.run_dir, intent_nonce)
+            if lost is not None:
+                self._blocked_release(f"the release could not run safely: {lost}")
+                return
+            self._compare_before_delete_mutex()
+
+    def _compare_before_delete_mutex(self) -> None:
+        """Unlink the mutex only while it still carries our nonce.
+
+        Caller MUST hold both the coordination latch and the advisory
+        cleanup lock, and MUST have re-proven the latch under that lock —
+        that is what makes read-then-unlink safe here.
         """
         mutex = self.run_dir / RUN_MUTEX_FILE
         state, issues = runmodel_locks.load_mutex_state(mutex)
@@ -657,21 +702,35 @@ def _settle_fresh_latch(
     latch and wait it out until the mtime fallback releases it a full TTL
     later. Handing the claim back is the fail-closed outcome.
     """
-    failure = _write_fresh_latch(descriptor, payload)
+    failure = _write_new_payload(descriptor, payload)
     if failure is None:
         return nonce, None
-    problem = f"cannot write the RUN.mutex coordination intent payload: {failure}; refusing to mutate"
-    detail = _remove_owned_file(intent)
+    _give_back_exclusive_create(intent, failure, owed, permanent=False)
+    return None, f"cannot write the RUN.mutex coordination intent payload: {failure}; refusing to mutate"
+
+
+def _give_back_exclusive_create(path: Path, failure: OSError, owed: _OwedEffects, *, permanent: bool) -> None:
+    """Remove a file we created exclusively but could not fill, and report a leftover.
+
+    Nothing to compare against — the file never got an identity. Removing
+    it by path is still safe: we created it exclusively moments ago, and no
+    competitor may touch it before its own TTL.
+
+    ``permanent`` follows :class:`_Orphan`: an empty ``RUN.mutex`` is never
+    taken over (an invalid payload is rejected before the TTL is even
+    looked at), so a leftover there wedges the run for good, whereas the
+    latch has the mtime fallback.
+    """
+    detail = _remove_owned_file(path)
     if detail is not None:
-        # Nothing to compare against — the latch never got an identity.
-        # Removing it by path is still safe: we created it exclusively
-        # moments ago, and no reclaimer may touch it before its mtime TTL.
-        owed.record(intent, f"{detail} (after the payload write failed: {failure})")
-    return None, problem
+        owed.record(path, f"{detail} (after the payload write failed: {failure})", permanent=permanent)
 
 
-def _write_fresh_latch(descriptor: int, payload: bytes) -> OSError | None:
+def _write_new_payload(descriptor: int, payload: bytes) -> OSError | None:
     """Write ``payload`` through ``descriptor`` and close it; report the failure.
+
+    Shared by the latch and by ``RUN.mutex``: both are claimed with
+    ``O_CREAT|O_EXCL`` and then filled, so both have the same two-step gap.
 
     The two failure modes are kept apart on purpose: when ``fdopen``
     itself fails it never took ownership of the descriptor, so the
@@ -934,15 +993,48 @@ def _record_blocked_intent_release(intent: Path, intent_nonce: str, owed: _OwedE
 
 
 @contextlib.contextmanager
-def _coordination_intent(run_dir: Path, principal: str, session: str, owed: _OwedEffects) -> Iterator[None]:
-    """Hold the single coordination intent for the enclosed mutex effect."""
+def _coordination_intent(run_dir: Path, principal: str, session: str, owed: _OwedEffects) -> Iterator[str]:
+    """Hold the single coordination intent for the enclosed mutex effect.
+
+    Yields:
+        The nonce of the claimed latch. A section that DELETES a file on the
+        strength of holding this latch has to be able to re-prove that it
+        still holds it (see :meth:`_MutexGuard._delete_own_mutex`), so the
+        identity is handed out rather than kept private.
+    """
     intent_nonce, problem = _claim_intent(run_dir, principal, session, owed)
     if intent_nonce is None:
         raise MutexLostError(problem or _held_intent_problem())
     try:
-        yield
+        yield intent_nonce
     finally:
         _release_intent(run_dir, intent_nonce, owed)
+
+
+def _latch_lost_reason(run_dir: Path, intent_nonce: str) -> str | None:
+    """Whether the latch we claimed is STILL ours; caller MUST hold the cleanup lock.
+
+    A holder that stalls longer than the latch TTL loses it to
+    :func:`_reclaim_expired_intent` while still believing it is inside its
+    critical section. There is no way to prevent that by waiting harder: a
+    frozen process is indistinguishable from a dead one by any timeout, and
+    a heartbeat cannot be sent by a process that is not running. The sound
+    answer is therefore not prevention but DETECTION — the resuming holder
+    re-proves its claim before it acts.
+
+    Returns:
+        ``None`` while the latch still carries ``intent_nonce``, otherwise
+        why it no longer does. A latch that cannot be verified counts as
+        lost: we may not act on a claim we cannot prove.
+    """
+    intent = run_dir / INTENT_NAME
+    state, issues = runmodel_locks.load_intent_state(intent)
+    ownership = _check_ownership(intent, intent_nonce, state.intent_nonce if state is not None else None)
+    if ownership is _Ownership.OURS:
+        return None
+    if ownership is _Ownership.UNVERIFIABLE:
+        return f"the coordination intent could not be re-proven as ours ({_unverifiable_detail(issues)})"
+    return f"the coordination intent was reclaimed while we held it (now: {ownership.value})"
 
 
 def _acquire_mutex(
@@ -958,12 +1050,56 @@ def _acquire_mutex(
     nonce = uuid.uuid4().hex
     try:
         with _coordination_intent(run_dir, principal, session, owed):
-            if not mutex.exists():
-                _atomic_write_bytes(mutex, _mutex_payload(principal, session, nonce, _now_utc()))
-                return nonce, None
-            return _take_over_mutex(run_dir, mutex, nonce, principal, session, fencing_token)
+            return _create_or_take_over_mutex(run_dir, mutex, nonce, principal, session, fencing_token, owed)
     except (MutexLostError, OSError) as exc:
         return None, _mutation_problem(exc)
+
+
+def _create_or_take_over_mutex(
+    run_dir: Path, mutex: Path, nonce: str, principal: str, session: str, fencing_token: int, owed: _OwedEffects
+) -> tuple[str | None, str | None]:
+    """Create ``RUN.mutex`` exclusively, or take over the one that is there.
+
+    ``O_CREAT|O_EXCL`` is the arbiter of a FRESH mutex, exactly as it is for
+    the latch, and exactly as FK-78 section 78.4 says it is. A
+    read-then-create cannot fill that role: ``Path.exists`` answers
+    ``False`` for a permission or I/O error too (that is what
+    :func:`_file_is_absent` exists to say), so one transient failing
+    ``stat`` on a LIVE foreign mutex was enough to overwrite it with our own
+    nonce. That is a SAFETY defect and not a liveness one — two writers
+    would both hold what each believes is exclusive ownership of the run.
+    Only the kernel can decide that a name did not exist, and
+    ``FileExistsError`` is the only proof that it did.
+
+    Every other ``OSError`` is fail-closed: "the platform refused the create
+    right now" is a lost claim with a regular exit code, never a guess that
+    the file is absent (Rand 2.4 of the decision record).
+    """
+    try:
+        descriptor = os.open(mutex, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return _take_over_mutex(run_dir, mutex, nonce, principal, session, fencing_token)
+    except OSError as exc:
+        return None, f"cannot create RUN.mutex exclusively: {exc}; refusing to mutate"
+    return _settle_fresh_mutex(mutex, descriptor, _mutex_payload(principal, session, nonce, _now_utc()), nonce, owed)
+
+
+def _settle_fresh_mutex(
+    mutex: Path, descriptor: int, payload: bytes, nonce: str, owed: _OwedEffects
+) -> tuple[str | None, str | None]:
+    """Give the exclusively created mutex its payload, or give the claim back.
+
+    The same two-step gap as the latch (:func:`_settle_fresh_latch`), with a
+    harsher leftover: an empty ``RUN.mutex`` is not a valid payload, and an
+    invalid payload is rejected by :func:`_take_over_mutex` BEFORE its TTL is
+    considered. Leaving one behind would wedge the run directory
+    permanently, so the failed claim is handed back.
+    """
+    failure = _write_new_payload(descriptor, payload)
+    if failure is None:
+        return nonce, None
+    _give_back_exclusive_create(mutex, failure, owed, permanent=True)
+    return None, f"cannot write the RUN.mutex payload: {failure}; refusing to mutate"
 
 
 def _take_over_mutex(
@@ -972,9 +1108,7 @@ def _take_over_mutex(
     """Take over an expired mutex; caller MUST hold the coordination intent."""
     observed, issues = runmodel_locks.load_mutex_state(mutex)
     if observed is None:
-        # No TTL takeover for an invalid payload: this refusal is the very
-        # reason an unverifiable RUN.mutex wedges the run permanently.
-        return None, f"RUN.mutex exists but is not a valid mutex payload ({_issue_detail(issues)}); refusing to mutate"
+        return None, _unreadable_mutex_problem(mutex, issues)
     if not runmodel_digests.timestamp_expired(observed.heartbeat_at, observed.ttl_seconds):
         return None, (
             f"RUN.mutex is held by {observed.owner_principal!r} (heartbeat {observed.heartbeat_at}); refusing to mutate"
@@ -987,6 +1121,24 @@ def _take_over_mutex(
         return None, "RUN.mutex changed during takeover (another writer won the race); refusing to mutate"
     _atomic_write_bytes(mutex, _mutex_payload(principal, session, nonce, _now_utc()))
     return nonce, None
+
+
+def _unreadable_mutex_problem(mutex: Path, issues: Sequence[Issue]) -> str:
+    """Say why the mutex we could not create exclusively cannot be taken over.
+
+    Reached only after ``FileExistsError``, so the file WAS there a moment
+    ago. Two very different reasons can make the loader return ``None``, and
+    collapsing them is the same mistake ``_Ownership`` exists to prevent:
+    a payload that does not validate is refused a TTL takeover (which is
+    what makes that blockade permanent), while a file that is PROVABLY gone
+    means somebody deleted the mutex without holding the intent we hold —
+    a protocol violation we refuse rather than race against.
+    """
+    if _file_is_absent(mutex):
+        return "RUN.mutex vanished between the exclusive create and the takeover check; refusing to mutate"
+    # No TTL takeover for an invalid payload: this refusal is the very
+    # reason an unverifiable RUN.mutex wedges the run permanently.
+    return f"RUN.mutex exists but is not a valid mutex payload ({_issue_detail(issues)}); refusing to mutate"
 
 
 def _mutex_still_ours(run_dir: Path, nonce: str, principal: str, session: str) -> str | None:
