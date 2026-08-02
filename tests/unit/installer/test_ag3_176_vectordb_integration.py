@@ -1514,6 +1514,7 @@ def _git_hooks_path(project_root: Path) -> str | None:
 
 def test_real_hook_pair_replaces_legacy_secret_owner_and_chains_foreign_commands_once(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     hooks = tmp_path / "tools" / "hooks"
@@ -1544,9 +1545,20 @@ def test_real_hook_pair_replaces_legacy_secret_owner_and_chains_foreign_commands
     )
     os.chmod(fake_python, 0o755)
 
+    from agentkit.backend.installer import git_hook_dispatch
+
+    # The hook embeds the RESOLVED AK3 interpreter, so substitute it at the seam
+    # rather than on PATH. PATH is then poisoned on purpose: a hook that still
+    # looked there would run the failing stub and the test would go red.
+    monkeypatch.setattr(git_hook_dispatch, "_dispatch_interpreter", lambda: str(fake_python))
     migrate_git_hook_dispatch(tmp_path)
+    poison = tmp_path / "poison-bin"
+    poison.mkdir()
+    poisoned_python = poison / "python"
+    poisoned_python.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+    os.chmod(poisoned_python, 0o755)
     env = dict(os.environ)
-    env["PATH"] = str(fake_bin) + os.pathsep + env["PATH"]
+    env["PATH"] = str(poison) + os.pathsep + env["PATH"]
     subprocess.run(
         ["sh", str(pre)],
         cwd=tmp_path,
@@ -1593,6 +1605,7 @@ def test_real_hook_pair_replaces_legacy_secret_owner_and_chains_foreign_commands
 )
 def test_foreign_pre_and_post_hooks_keep_their_real_interpreter(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     interpreter: str,
     pre_body: str,
     post_body: str,
@@ -1617,9 +1630,20 @@ def test_foreign_pre_and_post_hooks_keep_their_real_interpreter(
     fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     os.chmod(fake_python, 0o755)
 
+    from agentkit.backend.installer import git_hook_dispatch
+
+    # The hook embeds the RESOLVED AK3 interpreter, so substitute it at the seam
+    # rather than on PATH. PATH is then poisoned on purpose: a hook that still
+    # looked there would run the failing stub and the test would go red.
+    monkeypatch.setattr(git_hook_dispatch, "_dispatch_interpreter", lambda: str(fake_python))
     migrate_git_hook_dispatch(tmp_path)
+    poison = tmp_path / "poison-bin"
+    poison.mkdir()
+    poisoned_python = poison / "python"
+    poisoned_python.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+    os.chmod(poisoned_python, 0o755)
     env = dict(os.environ)
-    env["PATH"] = str(fake_bin) + os.pathsep + env["PATH"]
+    env["PATH"] = str(poison) + os.pathsep + env["PATH"]
     subprocess.run(["sh", str(pre)], cwd=tmp_path, env=env, check=True)
     subprocess.run(["sh", str(post)], cwd=tmp_path, env=env, check=True)
 

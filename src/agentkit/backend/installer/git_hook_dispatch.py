@@ -189,6 +189,28 @@ def _foreign_body(
     return body
 
 
+def _dispatch_interpreter() -> str:
+    """Return the ABSOLUTE interpreter the git hooks must dispatch through.
+
+    A bare ``python`` was written into both hooks until 2026-08-02. Whatever
+    interpreter happened to be first on the committing shell's ``PATH`` then ran
+    the dispatch — an interpreter that generally does NOT carry AK3's
+    dependencies, because AK3 lives in its own venv. The failure surfaced at the
+    first commit of the installed project, as a missing third-party import, long
+    after the installer had reported success.
+
+    This is the SAME defect the MCP registration carried, one level further out,
+    and it is resolved through the SAME owner: there is exactly one answer to
+    "which interpreter is AK3's", and it lives in :mod:`mcp_registration`.
+    Duplicating the resolution here would recreate the drift it removes.
+    """
+    from agentkit.backend.installer.mcp_registration import (
+        resolve_story_knowledge_base_command,
+    )
+
+    return resolve_story_knowledge_base_command()
+
+
 def _render_chain(hook_name: str) -> str:
     preserved_name = hook_name + _PRESERVED_SUFFIX
     return (
@@ -203,7 +225,7 @@ def _render_pre_commit(*, has_foreign: bool) -> str:
     content = _SHEBANG + (
         f"{GIT_HOOK_DISPATCH_MARKERS[0]}\n"
         'PROJECT_ROOT="$(git rev-parse --show-toplevel)" || exit 1\n'
-        "python -m agentkit.backend.vectordb.hook_dispatch "
+        f"{shlex.quote(_dispatch_interpreter())} -m agentkit.backend.vectordb.hook_dispatch "
         '--project-root "$PROJECT_ROOT" --phase pre-commit || exit $?\n'
         f"{GIT_HOOK_DISPATCH_MARKERS[1]}\n"
     )
@@ -214,7 +236,7 @@ def _render_post_commit(*, has_foreign: bool) -> str:
     content = _SHEBANG + (
         f"{POST_COMMIT_DISPATCH_MARKERS[0]}\n"
         'PROJECT_ROOT="$(git rev-parse --show-toplevel)" || exit 1\n'
-        "python -m agentkit.backend.vectordb.hook_dispatch "
+        f"{shlex.quote(_dispatch_interpreter())} -m agentkit.backend.vectordb.hook_dispatch "
         '--project-root "$PROJECT_ROOT" --phase post-commit || exit $?\n'
         f"{POST_COMMIT_DISPATCH_MARKERS[1]}\n"
     )
