@@ -194,7 +194,11 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #     ueber `_release_intent()`. Mit der vom Review benannten Mutation (Lock
 #     erwerben und sofort freigeben, dann lesen+loeschen) ist er rot, die vier
 #     bestehenden Release-Tests bleiben dabei gruen -- genau der Befund.
-#  E3 (ERROR) FK-93-Autoritaetsmodell an der Wurzel repariert: 31
+#  E3 (ERROR) FK-93-Autoritaetsmodell an der Wurzel repariert: 34
+#     (KORRIGIERT in Runde 3 -- hier stand faelschlich 31; nachgezaehlt sind es
+#     34 auf 18 Ziele. Der Bericht nannte an anderer Stelle bereits 34/18, die
+#     beiden Stellen widersprachen sich. Aktueller Stand nach Runde 3: 35 auf
+#     19 Ziele, siehe R4.)
 #     scope-qualifizierte defers_to-Kanten (je Abschnitt auf den echten Owner),
 #     neuer §93.0.1 als Pflegeregel, doppelte Ownership in §93.6 gegenueber
 #     FK-35 beseitigt, toter Kapitelverweis in §93.4 korrigiert. Die acht
@@ -267,5 +271,131 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #
 # NICHT FERTIG: Runde 3 geht erneut ins Codex-Review. Behobene Findings sind
 # kein Abschluss (CLAUDE.md, Definition of Done).
+#
+# ===================== RUNDE 3 (2026-08-03) =====================
+# Drittes unabhaengiges Codex-Review: landefaehig NEIN, 5 ERROR + 2 WARNING.
+# Alle sieben an der Wurzel behoben. Runde 3 geht erneut ins Review.
+#
+#  R1 (ERROR, SCHWERSTER BEFUND DER STORY) Der Mutex-Erwerb arbitrierte nicht
+#     exklusiv: _acquire_mutex nutzte Path.exists() + os.replace statt
+#     O_CREAT|O_EXCL -- also genau die Existenzpruefung, die _file_is_absent
+#     wenige hundert Zeilen weiter oben als untauglich beschreibt, weil sie bei
+#     Stat-/IO-Fehlern False liefert. Ein lebender FREMDER Mutex mit
+#     voruebergehend scheiterndem stat wurde mit der eigenen Nonce
+#     ueberschrieben: aus UNVERIFIABLE wurde beim Erwerb still GONE. Das ist ein
+#     SAFETY-Defekt (zwei Schreiber behaupten gleichzeitig Alleineigentum),
+#     kein Liveness-Defekt, und er ist AELTER als diese Story -- drei
+#     Reviewrunden haben ihn nicht gesehen. Behoben: exklusiver Create;
+#     FileExistsError -> validierter Takeover; jeder andere OSError ->
+#     fail-closed; gescheiterter Payload-Write gibt den Anspruch zurueck
+#     (permanent=True, weil ein leerer RUN.mutex NIE per TTL uebernommen wird).
+#     _unreadable_mutex_problem() wendet die _Ownership-Klassifikation aus
+#     Runde 2 auch hier an. 4 neue Tests, alle gegen die alte Fassung rot.
+#     KEINE Lockerung: FK-78 §78.4 sagt O_CREAT|O_EXCL fuer RUN.mutex seit
+#     jeher -- der Code loeste die Zusage nur nicht ein.
+#  R2 (ERROR) Ein nach Klinken-TTL fortgesetzter Releaser loeschte den Mutex
+#     seines Nachfolgers: _delete_own_mutex las die Nonce und loeschte danach
+#     nur nach PFAD. A haelt I1 und stockt ueber die TTL; B sammelt I1 ein,
+#     erwirbt I2, uebernimmt den abgelaufenen Mutex und schreibt M2; A setzt
+#     fort und loescht M2 -- den Mutex eines LEBENDEN Eigentuemers.
+#     ENTSCHEIDUNG (begruendet im Code, nicht nur im Bericht): den Verlust der
+#     Klinke zu VERHINDERN ist unmoeglich -- ein eingefrorener Prozess kann
+#     keinen Heartbeat senden und ist durch keine Frist von einem toten zu
+#     unterscheiden; genau deshalb hat die Klinke eine TTL. Gewaehlt ist daher
+#     ERKENNUNG: die geschuldete Mutex-Loeschung laeuft unter dem bereits
+#     normierten Advisory-Lock und weist DARUNTER erneut nach, dass die Klinke
+#     noch die eigene ist. Weil jedes Einsammeln einer Klinke den Lock braucht
+#     und jede Mutex-Uebernahme die Klinke, ordnet der Kern beide Ereignisse.
+#     Klinke verloren = nicht geloescht: fremder Mutex bleibt ohne Befund, noch
+#     eigener wird zur geschuldeten, nicht erledigten Wirkung (Rand 2.4).
+#     2 neue Tests; Mutationsnachweis in ZWEI Stufen (ohne Lock: beide rot;
+#     Lock ohne Klinken-Nachweis: der Erkennungstest rot).
+#  R3 (ERROR) Die Escape-Reparatur verfaelschte woertliche Evidenz: token[1:]
+#     entfernte JEDEN nicht anerkannten Backslash, aus dem woertlich
+#     geforderten Zitat wurde eine veraenderte Zelle, aus C:\Program wurde
+#     C:Program. Behoben: der Backslash wird VERDOPPELT statt entfernt --
+#     parsebar UND Zeichen fuer Zeichen identisch. ZUSAETZLICH ENTSCHIEDEN
+#     (ueber die Vorgabe hinaus): der Escape-Leak trifft auch SCHEMA-
+#     SCHLUESSEL (chunk\_id). Nur zu verdoppeln haette diese bisher
+#     funktionierenden Faelle gebrochen. In einem WERT kann ein Backslash
+#     Inhalt sein, in einem SCHLUESSEL nie -- deshalb zwei getrennte
+#     Reparaturen: repair_markdown_escapes() auf Textebene (verdoppelt,
+#     worttreu) und normalize_schema_keys() auf dem GEPARSTEN Dokument, wo
+#     "Schluessel" eine strukturelle Tatsache ist. Der Regex-Fallback liest
+#     wieder den Rohtext und erkennt den Feldnamen auch escapt. Die Tests, die
+#     den falschen Vertrag festschrieben, sind korrigiert (neue Spalte
+#     `verbatim`); Mutationsnachweis: alte Fassung -> 10 rot.
+#  R4 (ERROR) FK-93 verwies auf Eigentuemer, die die Werte nicht normieren.
+#     Jeder Katalogwert gegen concept/ geprueft (Wert UND Config-Pfad UND die
+#     FK-XX-NNN-Ids). Ergebnis: 12 von 14 Abschnitten sind echte Wiedergaben
+#     mit externem Wert-Anker. NICHT verankert sind §93.5a (alle 5 Werte; auch
+#     die Config-Pfade `permissions.*` stehen nirgends sonst) und §93.9a (alle
+#     3; FK-78 fuehrt die REGELN, nennt aber keine Sekundenzahl -- so schon im
+#     Record 2026-08-01 Abschnitt 3 entschieden). Fuer diese beiden ist FK-93
+#     ausdruecklich als Normquelle BELASSEN und §93.0.1 entsprechend
+#     differenziert (Zeilenklassen "Wiedergabe" vs. "katalog-eigener Wert",
+#     Spalte `Normquelle`); die Kanten benennen jetzt, was FK-42/FK-55/FK-78
+#     wirklich besitzen. Zusaetzlich gefunden: die §93.10-Kante auf FK-24 zeigte
+#     ins Leere (FK-24 traegt die Review-Zahlen nicht) -- neue Kante auf DK-10
+#     §10.4 als echtem Wert-Owner; §93.12 wich vom Owner ab und ist
+#     angeglichen. Die fehlenden `permissions.*`-Pfade in FK-03 sind als offene
+#     Schuld BEIM OWNER benannt, nicht hier umgewidmet.
+#     Nachgezaehlt: 35 Kanten auf 19 Ziele, 35 verschiedene Scopes.
+#  R5 (ERROR) Der aktive Record erklaerte eigene geltende Norm fuer
+#     unbeschlossen. Aufgeloest ueber das Agentenmandat (AGENTS.md,
+#     PO-Ratifikation 2026-08-02): jeder Rand einzeln gegen die drei
+#     Bedingungen geprueft, mit benannter Ankerstelle, als Tabelle im Record.
+#     ERGEBNIS: 2.2, 2.4b, 2.6, 2.7 UND die neuen 2.8, 2.9, 2.10 sowie
+#     Abschnitt 3 sind ALLE gedeckt -- Anker vorhanden, kein Widerspruch, keine
+#     neue Domaene. Der Anker fuer 2.6 ist woertlich nachgeprueft: FK-78 §78.4
+#     fuehrte die Luecke VOR dieser Story als "benannte Grenze" und nannte die
+#     Aufloesung "OS-Advisory-Lock ... oder fail-closed manuelle Recovery"
+#     selbst (git show 81f28cde:). Rand 2.11 faellt nicht unter das Mandat --
+#     kein neuer Normsatz, sondern Wiederherstellung des bestehenden Vertrags
+#     "quote assertion text exactly". DAMIT IST KEINE PO-RATIFIKATION MEHR
+#     ALS VOR-MERGE-AUFLAGE OFFEN. Nichts einzuholen.
+#  W1 (WARNING) Kantenzahl 31 war falsch (Runde 2: 34 auf 18; der Bericht
+#     nannte an anderer Stelle bereits 34/18 -- die Stellen widersprachen
+#     sich). Beide korrigiert, aktueller Stand 35 auf 19 vermerkt. Weitere
+#     Fundstellen: keine (die "32" im Bericht sind W2-Befunde, keine Kanten).
+#  W2 (WARNING) "verifiziert (0 verbleibende Prozesse)" stand ohne Kommando
+#     und ohne Log da. Selbstbericht abgeschwaecht; als Beleg zitiert ist die
+#     unabhaengige Orchestrator-Gegenpruefung (Win32_Process, Filter auf die
+#     Brenner-Kommandozeile): 0 Brenner, 0 Docker. Fuer Runde 3 eigenstaendig
+#     nachgemessen MIT AUSSCHLUSS DER EIGENEN PID: 0 / 0.
+#
+# NACHWEISE RUNDE 3:
+#   tests/unit/                              8798 passed, 40 skipped (464 s)
+#   tests/unit/concept_toolchain/             399 passed (6 neu)
+#   tests/unit/tools/concept_governance/       55 passed (3 neu, 2 korrigiert)
+#   Lastnachweis (AC 2), 8 CPU-Brenner:       TOTAL RED: 0 / 150
+#   ruff check src tests                      All checks passed!
+#   mypy src --strict                         1032 source files, 0 issues
+#   mypy --platform linux / darwin            je 1032 source files, 0 issues
+#   Konzept-Gates (PYTHONPATH=src)            alle sechs OK
+#     (reference-integrity-baseline.yaml: wandernde Zeile 965 -> 1006
+#      nachgezogen; ohne das STALE_BASELINE + unaufgeloester Verweis)
+#   Mutationsnachweis je neuem Test gefahren: Fix zurueckgedreht -> rot,
+#     wiederhergestellt -> gruen. R1: 4/4 rot. R2: zwei Mutationsstufen.
+#     R3: 10 rot.
+#
+# NACHWEIS-LUECKEN RUNDE 3 (benannt, NICHT als gruen ausgegeben):
+#   - tests/integration, tests/contract, tests/e2e NICHT gefahren. Docker UND
+#     die lokale Postgres-DB sind wegen der laufenden PO-Migration absichtlich
+#     unten und wurden auf ausdrueckliche Anweisung NICHT gestartet. Die
+#     Aenderungen dieser Runde (semantic_gate.py, tools/concept_governance/,
+#     Konzeptdokumente) haben keine DB- oder Container-Abhaengigkeit -- belegt
+#     ist das damit NICHT.
+#   - tests/unit/ selbst brauchte weder Docker noch Postgres: 0 failures,
+#     0 errors. Es gibt in dieser Runde also KEINEN Umgebungs-Fehlschlag,
+#     sondern nur nicht gefahrene Ebenen.
+#   - Jenkins/Sonar nicht erreichbar (bekannt, Migration).
+#   - Zwei BESTANDSBEFUNDE ausserhalb der Gate-Kommandos, auf dem sauberen
+#     Baum gegengeprueft und nicht von dieser Runde verursacht: ruff C901 in
+#     tools/concept_compiler/architecture_conformance.py:1409 (20 > 15) und
+#     ein mypy-Fehler in tools/concept_ingester/discovery.py:243. Beide in
+#     tools/, das weder `ruff check src tests` noch `mypy src` erfasst.
+#
+# NICHT FERTIG: Runde 4 des Codex-Reviews steht aus.
 depends_on: []
 unblocks: []

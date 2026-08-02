@@ -692,6 +692,13 @@ Modellierungsluecke ist Unterdrueckung.
 Die drei Werte aus §93.9a bleiben unveraendert im Katalog — sie erfuellen das
 Aufnahmekriterium.
 
+> **Stand ueberholt (Runde 3).** Die Zahlen oben beschreiben den Stand nach
+> Runde 2. Runde 3 hat eine Kante ergaenzt (DK-10 als Wert-Owner der
+> Review-Minima und Groessenklassen) und §93.0.1 differenziert, weil die
+> Behauptung „jede Zeile hat einen fremden Owner" fuer §93.5a und §93.9a
+> nachweislich falsch war. Aktuell: **35 Kanten auf 19 Owner-Dokumente, 35
+> verschiedene Scopes**. Siehe Runde 3, R4.
+
 **Grenze des heutigen Modells, benannt statt umgangen:** eine `defers_to`-Kante
 auf ein `_meta`-Dokument ist im Frontmatter-Vertrag **nicht moeglich** (der Lint
 kennt nur Contract-Dokumente als Ziele; `FK-00` ist als Index/Appendix
@@ -882,9 +889,18 @@ ausser dem Rueckbau ab.
 habe ich die Ursache korrekt als „Container-Laufzeit unten" erkannt — und sie
 dann **selbst wieder hochgefahren**, um den Nachweis zu bekommen. Das hat die
 laufende Migration des PO aktiv behindert. Auf seinen Hinweis sofort
-zurueckgenommen: Lauf abgebrochen, Engine heruntergefahren, verifiziert (0
-verbleibende Prozesse), Nachweis ohne Container wiederholt. Richtig waere
-gewesen, die weggebrochene Umgebung zu **melden** statt sie zu reparieren.
+zurueckgenommen: Lauf abgebrochen, Engine heruntergefahren, Nachweis ohne
+Container wiederholt. Richtig waere gewesen, die weggebrochene Umgebung zu
+**melden** statt sie zu reparieren.
+
+**Korrektur 2026-08-03 (Codex-Review Runde 3, W2).** Die urspruengliche Fassung
+dieses Absatzes behauptete „verifiziert (0 verbleibende Prozesse)" **ohne
+Kommando und ohne Log** — also genau die Art Behauptung, die dieser Bericht
+sonst zurueckweist. Der Selbstbericht ist entsprechend abgeschwaecht. Was
+tatsaechlich belegt ist, stammt aus einer **unabhaengigen Gegenpruefung des
+Orchestrators** (`Win32_Process`, gefiltert auf die Brenner-Kommandozeile):
+**0 Brenner-Prozesse, 0 Docker-Prozesse**. Das ist der Beleg — nicht die
+Selbstauskunft des Umsetzers.
 
 **Lint und Typen.** `ruff check src tests` → `All checks passed!`.
 `mypy src --strict` → `Success: no issues found in 1032 source files`, ebenso
@@ -1038,3 +1054,340 @@ liegengelassen.
   ist bei langen W2-Laeufen instabil (`Hub epoch release failed ... timed out`
   vor jedem der drei Transport-Abbrueche, danach Lease-Registry-Fehler bzw.
   `WinError 10061`). Drei von vier W2-Laeufen sind daran gescheitert.
+
+---
+
+# Runde 3 (2026-08-03)
+
+Umsetzer: Worker unter Orchestrator-Auftrag nach dem **dritten** unabhaengigen
+Codex-Review (Urteil: landefaehig nein — 5 ERROR, 2 WARNING).
+
+**Die Story ist weiterhin NICHT fertig.** Behobene Findings sind kein
+Abschluss; der Stand geht erneut ins Review.
+
+## R1 (ERROR) — Der Mutex-Erwerb arbitrierte nicht exklusiv
+
+**Der Befund ist berechtigt und er ist der schwerste der Story.**
+`_acquire_mutex` fragte `Path.exists()` und schrieb danach per
+`_atomic_write_bytes`. Dieselbe Existenzpruefung wird ein paar hundert Zeilen
+weiter oben in `_file_is_absent` ausdruecklich als untauglich beschrieben, weil
+sie bei Rechte- und E/A-Fehlern `False` liefert. Ein einziges fehlschlagendes
+`stat` auf einem **lebenden fremden** Mutex genuegte, um ihn mit der eigenen
+Nonce zu ueberschreiben — beim Erwerb wurde aus „nicht pruefbar" still „weg".
+Das ist ein **Safety**-Defekt (zwei Schreiber behaupten gleichzeitig
+Alleineigentum), kein Liveness-Defekt, und er ist aelter als diese Story.
+
+**Behoben** in `semantic_gate.py`:
+
+- `_create_or_take_over_mutex()` erzeugt den frischen Mutex per
+  `os.open(..., O_CREAT|O_EXCL|O_WRONLY)`.
+- `FileExistsError` fuehrt in den validierten Takeover-Pfad (unveraendert:
+  Payload-Gueltigkeit, TTL, Fencing-Token-CAS, Identitaets-Re-Read).
+- Jeder **andere** `OSError` ist fail-closed mit
+  `cannot create RUN.mutex exclusively: ...`, Exit 2, kein Traceback.
+- `_settle_fresh_mutex()` schliesst den Zwei-Schritt-Spalt: scheitert der
+  Payload-Write, wird der Anspruch zurueckgegeben. Ein leerer `RUN.mutex` ist
+  kein gueltiges Payload und wuerde nach Rand 2.4b **permanent** klemmen — der
+  Orphan wird deshalb mit `permanent=True` gefuehrt.
+- `_unreadable_mutex_problem()` wendet die `_Ownership`-Klassifikation aus
+  Runde 2 auch hier an: „verschwunden" wird nur bei **beweisbarer** Abwesenheit
+  behauptet, sonst gilt „vorhanden, aber nicht validierbar".
+
+**Belege — 4 neue Tests, alle gegen die zurueckgedrehte Fassung rot:**
+
+| Test | prueft |
+|---|---|
+| `test_a_failing_stat_never_makes_a_live_mutex_look_absent` | den Stat-Fehler: `exists()` liefert `False` auf einem lebenden fremden Mutex, Ergebnis Exit 2 und Datei byte-identisch |
+| `test_the_fresh_mutex_claim_wins_the_name_before_it_has_a_payload` | die O_EXCL-Kollision: gestopptes Interleaving im Payload-Bau; der Mitbewerber muss den Namen belegt vorfinden |
+| `test_a_refused_mutex_create_aborts_cleanly_instead_of_crashing` | Nicht-EEXIST-Fehler als regulaerer Fehlausgang; weder Mutex noch Klinke bleiben liegen |
+| `test_a_failed_mutex_payload_write_gives_the_claim_back` | zurueckgegebener Anspruch; der naechste Lauf findet das Verzeichnis benutzbar |
+
+Mutationsnachweis: `_create_or_take_over_mutex` auf die alte
+`exists()`-Fassung zurueckgedreht, Ergebnis **4 von 4 rot**; wiederhergestellt,
+Ergebnis gruen.
+
+**Konzept nachgezogen:** FK-78 §78.4 schreibt den exklusiven Create fuer
+`RUN.mutex` jetzt aus und benennt, warum ein Read-then-Create unzulaessig ist.
+Das ist **keine Lockerung**, sondern die Einloesung einer Zusage, die FK-78 die
+ganze Zeit gemacht hat (Record Rand 2.8).
+
+## R2 (ERROR) — Ein nach TTL fortgesetzter Releaser loeschte den Mutex seines Nachfolgers
+
+**Der Befund ist berechtigt.** Rand 2.6 hatte compare-before-delete an der
+**Klinke** atomar gemacht; am **Mutex** blieb `_delete_own_mutex()`
+Read-then-Unlink.
+
+**Entscheidung und Begruendung — sie steht im Code, nicht nur hier.** Das
+Review liess zwei Wege zu. Den Verlust der Klinke zu **verhindern** ist keiner:
+ein eingefrorener Prozess kann keinen Heartbeat senden, und keine Frist
+unterscheidet ihn von einem toten — genau das ist der Grund, warum die Klinke
+ueberhaupt eine TTL hat. Verhindern hiesse, das Problem durch das Problem zu
+loesen. Gewaehlt ist deshalb der zweite Weg, **Erkennung**: der fortsetzende
+Halter weist seinen Anspruch erneut nach, bevor er wirkt. Die Begruendung steht
+im Docstring von `_MutexGuard._delete_own_mutex` und in `_latch_lost_reason`.
+
+**Warum der bereits vorhandene Advisory-Lock das richtige Mittel ist:** jedes
+Einsammeln einer Klinke braucht ihn, und jede Mutex-Uebernahme braucht die
+Klinke. Wer ihn haelt und darunter feststellt, dass die Klinke noch seine ist,
+weiss damit, dass niemand sie einsammeln, niemand sie halten und niemand den
+Mutex uebernehmen kann. Der Kern ordnet die beiden Ereignisse — nicht eine
+Datei, die wir selbst loeschen muessten.
+
+**Behoben:**
+
+- `_coordination_intent()` gibt die Klinken-Nonce heraus (`Iterator[str]`); ein
+  Abschnitt, der auf Basis der Klinke loescht, muss sie nachweisen koennen.
+- `_delete_own_mutex(intent_nonce)` haelt den Cleanup-Lock ueber „Klinke noch
+  unsere" **und** compare-before-delete als **einen** Abschnitt.
+- Klinke verloren bedeutet: **nicht geloescht**. Ein fremder Mutex bleibt
+  unberuehrt und **ohne** Befund (er ist nicht unsere Schuld); ein noch eigener
+  wird zur geschuldeten, nicht erledigten Wirkung nach Rand 2.4.
+
+**Belege — 2 neue Tests:**
+
+| Test | prueft |
+|---|---|
+| `test_a_stalled_release_cannot_lose_its_latch_and_delete_the_successor` | gestopptes Interleaving: A haelt die ueber ihre TTL hinaus gehaltene Klinke I1, liest M1 und stockt vor dem `unlink`; B faehrt den **echten** `_acquire_mutex` (I1-Reclaim, I2-Erwerb, M2-Uebernahme) und muss fail-closed scheitern; A setzt fort und loescht nur M1 |
+| `test_a_releaser_whose_latch_was_reclaimed_refuses_to_delete` | den Erkennungszweig in beiden Ausgaengen: fremder Nachfolger-Mutex bleibt und erzeugt keinen Befund; noch eigener Mutex bleibt und wird zum Befund |
+
+Der Test faehrt bewusst `_delete_own_mutex` direkt statt `release()`:
+`release()` wuerde hier eine **frische** Klinke holen, und eine frische Klinke
+ist per Definition nicht einsammelbar — der Stall, auf den es ankommt, ist der,
+der die **bereits gehaltene** Klinke ueberlebt hat. Genau daran waere die erste
+Fassung dieses Tests vorbeigelaufen; korrigiert vor der Abnahme.
+
+**Mutationsnachweis, zwei Stufen:**
+
+- Lock **und** Klinken-Nachweis entfernt, Ergebnis **beide** Tests rot.
+- Lock behalten, nur den Klinken-Nachweis entfernt, Ergebnis: der
+  Erkennungstest rot, der Interleaving-Test bleibt gruen. Das ist die richtige
+  Aufteilung — der Lock allein deckt das Interleaving, der Nachweis deckt den
+  Fall, in dem die Klinke schon vorher weg war.
+
+**Konzept nachgezogen:** FK-78 §78.4 (Advisory-Lock gilt fuer **jedes**
+Loeschen anhand beobachteter Identitaet, Klinke wie Mutex; erneuter
+Klinken-Nachweis normiert), Record Rand 2.9.
+
+## R3 (ERROR) — Die Escape-Reparatur verfaelschte woertliche Evidenz
+
+**Der Befund ist berechtigt und die Vorgaengerloesung war falsch.** `token[1:]`
+entfernte **jeden** nicht anerkannten Backslash. Aus einer woertlich zitierten
+Tabellenzelle mit markdown-escapten Unterstrichen und Zellentrenner wurde eine
+Zelle ohne sie; aus dem Pfad `C:\Program` wurde `C:Program`.
+
+**Behoben an der Wurzel:** ein nicht anerkannter Backslash wird **verdoppelt**
+statt entfernt. Das macht denselben Text parsebar **und** laesst den dekodierten
+Wert Zeichen fuer Zeichen identisch. Gueltige Escapes (`\\`, `\"`, `\n`,
+`\uXXXX`) bleiben unberuehrt.
+
+**Was dabei zusaetzlich zutage trat — und was ich daraus entschieden habe.**
+Der Escape-Leak trifft nicht nur Werte, sondern auch **Schema-Schluessel**
+(`chunk\_id`, `has\_normative\_statements`). Nur zu verdoppeln haette diese
+Faelle gebrochen, die bisher funktionierten. Der Unterschied ist keine
+Geschmacksfrage: in einem **Wert** kann ein Backslash Inhalt sein, in einem
+**Schluessel** nie — die Antwortschemata sind geschlossene Vokabulare aus
+`snake_case`-Bezeichnern, ein Schluessel ist niemals ein Zitat. Umgesetzt als
+zwei getrennte Reparaturen:
+
+- `repair_markdown_escapes()` — Textebene, verdoppelt, bewahrt Worttreue.
+- `normalize_schema_keys()` — arbeitet auf dem **geparsten** Dokument, wo
+  „Schluessel" eine strukturelle Tatsache und keine Regex-Vermutung ist, und
+  entfernt den Backslash nur dort. Angewandt an der Validierungsnaht beider
+  Parser (`parser.py`, `scope_parser.py`).
+- Der Regex-Fallback in `parser.py` liest wieder den **Rohtext** und erkennt den
+  Feldnamen auch in escapter Schreibweise (`_escapable()`), damit die erfasste
+  Assertion woertlich bleibt.
+
+**Belege:** die Tests, die den falschen Vertrag festschrieben, sind korrigiert
+(`test_only_invalid_escapes_are_repaired` traegt jetzt eine Spalte `verbatim`;
+`test_escaped_table_pipe_json_is_strictly_revalidated` erwartet die Zelle
+woertlich statt entschaerft). Neu: die genaue Zelle des W2-Laufs vom 2026-08-02
+als Wort-fuer-Wort-Roundtrip, ein Windows-Pfad, und ein abgeschnittenes `\u12`.
+**Mutationsnachweis:** `token[1:]` wiederhergestellt, Ergebnis **10 rot**
+(7 davon inhaltlich zur Worttreue); zurueckgedreht, Ergebnis 55 gruen.
+
+**Abgrenzung, unveraendert gueltig:** das bleibt ein eigenstaendiger
+Parser-Bugfix. Neu ist die Einordnung — es ist **kein neuer Normsatz**, sondern
+die Wiederherstellung des bestehenden Vertrags „quote assertion text exactly"
+(`tools/concept_governance/prompts/scope_consistency_v1.md`, `QuotedAssertion`),
+Record Rand 2.11.
+
+## R4 (ERROR) — FK-93 verwies auf Eigentuemer, die die Werte nicht normieren
+
+**Der Befund ist berechtigt.** §93.0.1 behauptete, **jede** Zeile in
+§93.1–§93.12 gebe einen anderswo normierten Wert wieder. Eine `defers_to`-Kante
+auf einen Owner, der den Wert nicht fuehrt, bezeugt maschinenlesbar etwas
+Falsches — schlimmer als die fehlende Kante davor.
+
+**Vorgehen:** jeder Katalogwert wurde gegen `concept/` geprueft (Wert **und**
+Config-Pfad/Parametername, dazu die `FK-XX-NNN`-Ids der FK-Spalte). Ergebnis je
+Abschnitt:
+
+| Abschnitt | Zeilen | Wert extern verankert? | gewaehlter Weg |
+|---|---|---|---|
+| §93.1 Pipeline-Konfiguration | 7 | ja, alle (FK-03 §3.4.2 und das `project.yaml`-Beispiel; Scaffold zusaetzlich in `formal-spec/installer/invariants.md`) | Wiedergabe, Kante bleibt |
+| §93.2 Policy-Engine | 2 | ja (FK-33, FK-20, FK-03) | Wiedergabe |
+| §93.3 VektorDB | 2 | ja (FK-13, FK-21, DK-10) | Wiedergabe |
+| §93.4 Telemetrie und Budget | 2 | ja (FK-68, FK-30) | Wiedergabe |
+| §93.5 Governance-Beobachtung | 3 | ja (FK-35, inkl. `window_size: int = 50` und `cooldown_s: int = 300`) | Wiedergabe |
+| **§93.5a Permission-Runtime** | **5** | **nein — weder Wert noch Config-Pfad ausserhalb FK-93** | **FK-93 als Normquelle belassen, je Zeile ausgewiesen** |
+| §93.6 Risikopunkte | 10 | ja, alle (FK-35 §35.3.2/3, fuenf zusaetzlich FK-68) | Wiedergabe |
+| §93.7 LLM-Evaluator | 4 | ja (FK-11) | Wiedergabe |
+| §93.8 Structural Checks | 5 | ja (FK-33, FK-35) | Wiedergabe |
+| §93.9 Lock-Dateien | 1 | ja (FK-71, FK-02, FK-10, FK-04) | Wiedergabe |
+| **§93.9a Mutex und Klinke** | **3** | **nein — FK-78 §78.4 fuehrt die Regeln, nennt aber keine Sekundenzahl** | **FK-93 als Normquelle belassen, je Zeile ausgewiesen** |
+| §93.10 Review-Haeufigkeit | 3 | ja — aber **nicht** bei FK-24, dorthin zeigte die Kante ins Leere; Wert-Owner ist DK-10 §10.4 (auch DK-02, DK-05) | **Kante auf DK-10 ergaenzt**, FK-24-Begruendung praezisiert |
+| §93.11 Failure Corpus | 6 | ja (FK-41, DK-07, FK-60/62) | Wiedergabe |
+| §93.12 Story-Groessen | 5 | ja (DK-10 §10.4) — **die Wiedergabe wich ab** | **an DK-10 angeglichen** (M: „ein Modul" zu 1-2 Module; Dateispannen ergaenzt) |
+
+**Umgesetzt:**
+
+1. **§93.0.1 differenziert** in zwei Zeilenklassen — „Wiedergabe" (Regelfall)
+   und „katalog-eigener Wert" (Ausnahme, in der Spalte `Normquelle`
+   ausgewiesen). Neu ausdruecklich: eine Kante darf nur behaupten, was ihr Ziel
+   wirklich besitzt; die Ausnahme wird benannt, nie stillschweigend genutzt;
+   eine abweichende Wiedergabe wird an den Owner angeglichen, nicht umgekehrt.
+2. **§93.5a und §93.9a** sind je Zeile als katalog-eigen ausgewiesen; ihre
+   `defers_to`-Begruendungen benennen jetzt, was FK-42/FK-55/FK-78 wirklich
+   besitzen (die **Regel**), und nennen FK-93 als Owner des **Werts**.
+3. **Neue Kante DK-10 / `story-lifecycle`** als Wert-Owner der Review-Minima
+   und der Groessenklassen.
+4. **§93.12 an DK-10 §10.4 angeglichen.**
+5. **Offene Schuld benannt statt umgewidmet:** die Config-Pfade `permissions.*`
+   stehen in **keinem** Konfigurationsmodell, auch nicht in FK-03. §93.5a sagt
+   das jetzt und weist die Luecke FK-03 zusammen mit FK-42/FK-55 zu.
+
+**Zahl nachgezaehlt:** **35** scope-qualifizierte Kanten auf **19**
+Owner-Dokumente, **35** verschiedene Scopes, keine Dublette.
+
+## R5 (ERROR) — Der aktive Record erklaerte eigene geltende Norm fuer unbeschlossen
+
+**Der Befund ist berechtigt:** Raender gleichzeitig „nicht beschlossen" und „in
+der Norm" zu fuehren, ist keine eindeutige normative Wahrheit.
+
+**Umgesetzt** (Abschnitt 5 des Records): jeder Rand einzeln gegen die drei
+Bedingungen des Agentenmandats (`AGENTS.md`, PO-Ratifikation 2026-08-02)
+geprueft, mit benannter Ankerstelle, als Tabelle im Record.
+
+**Ergebnis — alle geprueften Raender sind vom Mandat gedeckt:**
+
+| Rand | Ankerstelle | Ergebnis |
+|---|---|---|
+| 2.2 | FK-78 §78.4: exklusiver Create als Schiedsrichter plus mtime-Rueckfall | gedeckt |
+| 2.4b | FK-78 §78.4: „ein Aufraeumen ohne Identitaetspruefung ist auf keinem Pfad zulaessig" | gedeckt |
+| 2.6 | FK-78 §78.4 **vor** dieser Story: fuehrte die Luecke als „benannte Grenze" und nannte die Aufloesungen woertlich — „ein OS-Advisory-Lock (`fcntl.flock` bzw. `msvcrt.locking`) oder fail-closed manuelle Recovery" | gedeckt |
+| 2.7 | exklusiver Create in §78.4 plus Rand 2.4, der **vom PO ratifiziert** ist | gedeckt |
+| 2.8 (neu) | FK-78 §78.4 nennt den exklusiven Create fuer `RUN.mutex` seit jeher | gedeckt |
+| 2.9 (neu) | Rand 2.6 plus „compare-before-delete auf jedem Pfad" | gedeckt |
+| 2.10 (neu) | FK-93 §93.0 („auch wenn sie fest im Code stehen") plus `_meta/assertion-authority.md` | gedeckt |
+| Abschnitt 3 (§93.0, §93.9a, §93.9) | FK-93 `authority_over: defaults` und der Titel; fuer §93.9a zusaetzlich FK-78 §78.4 als Regel-Owner | gedeckt |
+
+Der Anker fuer 2.6 ist **woertlich** nachgeprueft (`git show 81f28cde:` auf
+FK-78, Fassung vor der Story) — er ist nicht rekonstruiert, sondern zitiert.
+
+Rand **2.11** faellt nicht unter das Mandat: er ist kein neuer Normsatz, sondern
+die Wiederherstellung eines bestehenden Vertrags.
+
+**Damit entfaellt die offene Vor-Merge-Ratifikation.** Kein Rand scheitert an
+Anker, Widerspruchsfreiheit oder Domaenengrenze; **es ist nichts einzuholen.**
+Der Record fuehrt unter (c) nur noch zwei inhaltlich offene Punkte, die
+ausdruecklich **keine** Freigaben sind: ob die Sekundenwerte aus §93.9a
+konfigurierbar werden sollen, und die FK-03-Schuld bei den
+`permissions.*`-Pfaden.
+
+## W1 — Kantenzahl
+
+`status.yaml` nannte **31**; nachgezaehlt waren es zum Zeitpunkt von Runde 2
+**34** auf 18 Ziele — der Bericht nannte an anderer Stelle bereits 34/18, die
+beiden Stellen widersprachen sich. Beide sind korrigiert und tragen jetzt den
+Verweis auf den aktuellen Stand (**35 auf 19**). Weitere Fundstellen derselben
+Zahl: keine. Die „32" an anderer Stelle im Bericht sind aktive W2-Befunde,
+keine Kanten.
+
+## W2 — „verifiziert (0 verbleibende Prozesse)"
+
+Die Behauptung stand ohne Kommando und ohne Log da. Der Selbstbericht ist
+abgeschwaecht; als Beleg zitiert ist die **unabhaengige Gegenpruefung des
+Orchestrators** (`Win32_Process`, gefiltert auf die Brenner-Kommandozeile):
+0 Brenner, 0 Docker-Prozesse.
+
+Fuer **diese** Runde eigenstaendig nachgemessen, mit Ausschluss der eigenen
+PID: nach dem Lastlauf **0 Brenner-Prozesse, 0 Docker-Prozesse**.
+
+## Nachweise Runde 3
+
+**Tests.**
+
+```
+tests/unit/                            8798 passed, 40 skipped   (464 s)
+tests/unit/concept_toolchain/           399 passed               (davon 6 neu)
+tests/unit/tools/concept_governance/     55 passed               (davon 3 neu, 2 korrigiert)
+```
+
+**Lastnachweis (AC 2)** — `bash <scratchpad>/ag3179_load.sh <log>`, 8 CPU-Brenner
+plus 150 isolierte Laeufe des Wettlauf-Tests:
+
+```
+TOTAL RED: 0 / 150
+```
+
+Brenner danach abgeraeumt und gezaehlt **mit Ausschluss der eigenen PID**:
+0 verbleibend.
+
+**Lint und Typen.**
+
+```
+ruff check src tests                   All checks passed!
+mypy src --strict                      Success: no issues found in 1032 source files
+mypy src --strict --platform linux     Success: no issues found in 1032 source files
+mypy src --strict --platform darwin    Success: no issues found in 1032 source files
+```
+
+**Statische Konzept-Gates** (`PYTHONPATH=src`) — alle sechs OK:
+`check_concept_frontmatter` (90 docs), `compile_formal_specs` (192 Dokumente,
+1802 Ids), `check_concept_reference_integrity`, `check_concept_code_contracts`,
+`check_architecture_conformance`, `check_concept_decision_record`.
+
+Die wandernde Zeilennummer in `reference-integrity-baseline.yaml` ist
+nachgezogen (`78_concept_incubation_process.md` 965 zu 1006); ohne das meldete
+das Gate `STALE_BASELINE` **und** einen unaufgeloesten Verweis.
+
+**Keine Unterdrueckung:** kein NOSONAR, kein Rule-Exclude, kein neues
+`noqa`/`type: ignore` ohne Begruendung am Ort, keine abgeschwaechte Assertion.
+Alle neuen Unterdrueckungsmarker folgen dem in dieser Testdatei bereits
+etablierten Muster (Zugriff auf private Namen als Testgegenstand,
+Passthrough-Rueckgaben injizierter Funktionen).
+
+## Nicht ausgefuehrt — benannte Luecken, nicht „gruen"
+
+- **`tests/integration/`, `tests/contract/`, `tests/e2e/`** sind in dieser Runde
+  **nicht** gefahren worden. Docker-Engine und die lokale Postgres-Datenbank
+  sind wegen der laufenden Migration des PO absichtlich unten und wurden auf
+  ausdrueckliche Anweisung **nicht** gestartet. Die Aenderungen dieser Runde
+  liegen in `concept_toolchain/semantic_gate.py`, `tools/concept_governance/`
+  und in Konzeptdokumenten; keiner dieser Pfade hat eine Datenbank- oder
+  Container-Abhaengigkeit. **Belegt ist das damit nicht.**
+- **`tests/unit/` selbst brauchte weder Docker noch Postgres** — 0 Failures,
+  0 Errors, 40 Skips. Es gibt in dieser Runde also keinen Fehlschlag, der auf
+  die Umgebung zurueckzufuehren waere; es gibt nur nicht gefahrene Ebenen.
+- **Jenkins/Sonar** sind nicht erreichbar (bekannt, Migration).
+- **Zwei Bestandsbefunde ausserhalb der Gate-Kommandos**, unveraendert und
+  nicht von dieser Runde verursacht (auf dem sauberen Baum gegengeprueft):
+  `ruff` C901 in `tools/concept_compiler/architecture_conformance.py:1409`
+  (Komplexitaet 20 > 15) und ein `mypy`-Fehler in
+  `tools/concept_ingester/discovery.py:243`. Beide liegen in `tools/`, das
+  weder von `ruff check src tests` noch von `mypy src` erfasst wird. Gemeldet,
+  nicht stillschweigend mitgenommen.
+
+## Was nach Runde 3 offen bleibt
+
+- **Codex-Review Runde 4** steht aus. Ohne dessen Abbruchkriterium ist die Story
+  nicht fertig.
+- **Nicht mehr offen:** die Ratifikation der Raender. Sie ist durch die
+  Mandatspruefung erledigt (R5); nichts ist beim PO einzuholen.
+- **Offen und bewusst unbehoben** (PO-Entscheidung Rand 2.4c): W3 wertet jede
+  Partition genau einmal aus und hat keinen Retry.
+- **Neu benannt, nicht in dieser Story geschlossen:** die Config-Pfade
+  `permissions.*` fehlen im Konfigurationsmodell von FK-03.
+- **Unbelegt** (unveraendert): der Effekt der FK-93-Kanten auf die
+  `UNAUTHORIZED_SCOPE_ASSERTION`-Befunde von W2 ist nicht gemessen.
