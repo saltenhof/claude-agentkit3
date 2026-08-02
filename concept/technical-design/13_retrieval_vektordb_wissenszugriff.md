@@ -128,6 +128,33 @@ Tokenisierung ist unzulaessig.
 
 ## 13.3 Datenmodell
 
+### 13.3.0 Collection-Namen (Eigentuemer: dieser Abschnitt)
+
+Collection-Namen sind **Fremdsystem-Vertrag**: Weaviate verlangt einen
+**Grossbuchstaben am Anfang** und lehnt alles andere mit HTTP 422
+(`is not a valid class name`) ab. Verbindliche Konvention fuer alle von AK3
+angelegten Collections:
+
+- Grossbuchstabe am Anfang, `PascalCase`, keine Unterstriche.
+- Praefix `Ak3` fuer alle AK3-eigenen Buchhaltungs-Collections. Der fachliche
+  Korpus `StoryContext` traegt den Praefix historisch nicht und behaelt seinen
+  Namen.
+
+| Collection | Zweck |
+|---|---|
+| `StoryContext` | Fachlicher Korpus (Story-, Research- und Konzept-Chunks) |
+| `Ak3SyncReceipts` | Completion-Ledger je Quelle (§13.9.9) |
+| `Ak3SyncRuns` | Run-Quittungen des Ledgers (§13.9.9) |
+| `Ak3SourceClaims` | Claim-Datensaetze der Quell-Ownership (§13.9.9) |
+
+Die drei Buchhaltungs-Collections hiessen bis 2026-08-02
+`__agentkit_sync_receipts`, `__agentkit_sync_runs` und
+`__agentkit_source_claims`. Das war eine aus Python uebernommene
+Privat-Schreibweise (fuehrender Doppelunterstrich) auf einem Fremdsystem, das
+sie nie akzeptiert hat: die Anlage schlug gegen jede leere Weaviate-Instanz mit
+422 fehl. Die Namen sind deshalb hier festgeschrieben, statt nur im Code zu
+leben (Beschluss 2026-08-02 „Modellpin folgt der laufenden Infrastruktur").
+
 ### 13.3.1 Weaviate-Collection: `StoryContext`
 
 | Property | Typ | Vektorisiert | Beschreibung |

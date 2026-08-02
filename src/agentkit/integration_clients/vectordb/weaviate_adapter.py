@@ -924,9 +924,10 @@ class _RealWeaviateClient:
 
         An EXISTING collection is not accepted blindly (N12): the FULL read-back
         configuration is compared against the schema SSOT -- property names, data
-        types, per-property vectorisation, TOKENISATION, searchability,
+        types, property-name vectorisation, TOKENISATION, searchability,
         filterability and ALL behaviour-defining named-vector settings, i.e. the
-        vectorizer, its ``model`` AND its ``source_properties`` (N35). Any drift
+        vectorizer, its ``model`` AND its ``source_properties`` (N35, the single
+        surface that states WHICH properties are embedded). Any drift
         fails closed; otherwise a collection whose narrative fields are whole-value
         tokenised (so ``keyword`` search cannot match a word inside them, N18), or
         one that embeds only ``title`` instead of the narrative properties (N35),
@@ -1041,14 +1042,17 @@ class _RealWeaviateClient:
         if vector_source_properties is not None:
             configured_sources = configured_vector_source_properties(config)
             expected_sources = tuple(vector_source_properties)
-            if configured_sources is not None and configured_sources != expected_sources:
+            if configured_sources != expected_sources:
                 raise VectorDbWriteError(
                     f"collection {collection!r} vectorizer SOURCE PROPERTIES drifted "
                     f"from the schema SSOT: expected {list(expected_sources)}, "
-                    f"configured {list(configured_sources)}; fail-closed (N35: the "
-                    "source properties decide WHAT is embedded -- a collection that "
-                    "vectorises only the title answers semantic search from titles "
-                    "alone while pooling and vectorizeClassName still match)."
+                    f"configured {configured_sources if configured_sources is None else list(configured_sources)}; "
+                    "fail-closed (N35: the source properties decide WHAT is embedded "
+                    "-- a collection that vectorises only the title answers semantic "
+                    "search from titles alone while pooling and vectorizeClassName "
+                    "still match). This is the ONLY place that verifies the embedded "
+                    "property set, so a MISSING selection is drift too: without it "
+                    "nothing proves what the collection embeds."
                 )
         expected = {str(spec["name"]): _expected_property_view(spec) for spec in property_specs}
         configured = _configured_properties(config)
@@ -1125,10 +1129,16 @@ def _configured_vectorizer(config: Any) -> str:
 
 
 def _expected_property_view(spec: Mapping[str, object]) -> dict[str, object]:
-    """Project a schema property spec into the comparable read-back view (N12/N18)."""
+    """Project a schema property spec into the comparable read-back view (N12/N18).
+
+    ``skip_vectorization`` is deliberately NOT part of this view. WHICH properties
+    feed the embedding is verified where the named-vectors API actually expresses
+    it -- ``source_properties`` (N35, :func:`configured_vector_source_properties`)
+    -- and nowhere else. See :func:`_configured_properties` for the measurement
+    that settled this.
+    """
     view: dict[str, object] = {
         "data_type": WEAVIATE_DATA_TYPE_NAMES[str(spec["data_type"])],
-        "skip_vectorization": bool(spec["skip_vectorization"]),
         "vectorize_property_name": bool(spec.get("vectorize_property_name", False)),
         "filterable": bool(spec.get("filterable", True)),
     }
@@ -1138,22 +1148,52 @@ def _expected_property_view(spec: Mapping[str, object]) -> dict[str, object]:
     return view
 
 
+def _property_vectorizer_config(prop: Any) -> Any:
+    """Return a read-back property's vectorizer config, whichever surface holds it.
+
+    The pinned client exposes the LEGACY surface as ``prop.vectorizer_config``
+    (a single config) and the NAMED-VECTORS surface as
+    ``prop.vectorizer_configs`` (one entry per named vector). Reading only the
+    legacy attribute yields ``None`` for every named-vector collection, so the
+    per-property settings would silently compare against defaults.
+    """
+    legacy = getattr(prop, "vectorizer_config", None)
+    if legacy is not None:
+        return legacy
+    named = getattr(prop, "vectorizer_configs", None)
+    if isinstance(named, dict) and named:
+        return next(iter(named.values()))
+    return None
+
+
 def _configured_properties(config: Any) -> dict[str, dict[str, object]]:
     """Project an existing collection's properties into the comparable view.
 
-    Covers the BEHAVIOURAL configuration, not just names/types: per-property
-    vectorisation (``skip`` / ``vectorize_property_name``), tokenisation,
-    searchability and filterability (N12/N18).
+    Covers the BEHAVIOURAL configuration, not just names/types:
+    ``vectorize_property_name``, tokenisation, searchability and filterability
+    (N12/N18).
+
+    The per-property ``skip`` flag is NOT compared, and that is a measured
+    decision, not an omission: with the named-vectors API this adapter uses
+    (``Configure.Vectors...``), weaviate-client 4.21.2 never transmits
+    ``Property(skip_vectorization=...)``. A probe collection created with
+    ``skip_vectorization=True`` on a non-source property reads back as
+    ``_PropertyVectorizerConfig(skip=False, ...)`` -- for EVERY property. The
+    flag is the LEGACY spelling of a fact the new API states in
+    ``source_properties``; comparing it verified a memory instead of the
+    running system and made every freshly created collection drift from its own
+    schema on the next start. WHICH properties feed the embedding is therefore
+    verified strictly against ``source_properties`` (N35) in
+    :meth:`WeaviateAdapter._verify_existing_collection`.
     """
     out: dict[str, dict[str, object]] = {}
     for prop in getattr(config, "properties", None) or []:
         name = str(getattr(prop, "name", ""))
         if not name:
             continue
-        vec = getattr(prop, "vectorizer_config", None)
+        vec = _property_vectorizer_config(prop)
         view: dict[str, object] = {
             "data_type": _enum_value(getattr(prop, "data_type", None)),
-            "skip_vectorization": bool(getattr(vec, "skip", False)),
             "vectorize_property_name": bool(getattr(vec, "vectorize_property_name", False)),
             "filterable": bool(getattr(prop, "index_filterable", False)),
         }
@@ -1342,11 +1382,12 @@ def configured_vector_source_properties(config: Any) -> tuple[str, ...] | None:
 
     Returns:
         The EXPLICITLY configured source properties in their configured order, or
-        ``None`` when no named vector declares a selection. ``None`` is not drift:
-        the client reports ``source_properties=None`` when the server derives the
-        set from the per-property ``skip_vectorization`` flags, and those are
-        already verified property by property. An EXPLICIT selection, however, can
-        contradict the schema and is compared.
+        ``None`` when no named vector declares a selection. ``None`` IS drift for
+        a collection whose schema declares a selection: it is the only surface on
+        which the embedded property set can be verified at all (the per-property
+        ``skip`` flag is never transmitted by the named-vectors API -- see
+        :func:`_configured_properties`), so an absent selection means nothing
+        proves what the collection embeds.
     """
     names: list[str] = []
     explicit = False

@@ -29,7 +29,10 @@ if TYPE_CHECKING:
 
     from agentkit.backend.vectordb.client_port import CorpusClientPort
 
-CLAIM_COLLECTION = "__agentkit_source_claims"
+#: Weaviate collection of the source-ownership claim records (FK-13 §13.3.0
+#: naming: initial CAPITAL, ``Ak3`` prefix -- Weaviate rejects anything else
+#: with HTTP 422 ``is not a valid class name``).
+CLAIM_COLLECTION = "Ak3SourceClaims"
 CLAIM_PROPERTIES: tuple[str, ...] = (
     "project_id",
     "source_file",

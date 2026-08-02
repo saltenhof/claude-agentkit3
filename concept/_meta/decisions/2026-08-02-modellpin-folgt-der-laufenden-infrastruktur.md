@@ -68,6 +68,46 @@ gegen das falsche Vokabular gerechnet. Nebenbefund fuer dasselbe Epic: 1000
 Tokens ueberschritten MiniLMs Fenster von 256–512 ohnehin; mit bge-m3 (8192) ist
 das entschaerft.
 
+**2.4 Collection-Namen folgen der Weaviate-Konvention und stehen im Konzept.**
+Die drei Buchhaltungs-Collections heissen `Ak3SyncReceipts`, `Ak3SyncRuns` und
+`Ak3SourceClaims`; die Konvention (Grossbuchstabe am Anfang, `Ak3`-Praefix) ist
+in FK-13 §13.3.0 ausgeschrieben. Die bisherigen Namen
+`__agentkit_sync_receipts`, `__agentkit_sync_runs` und `__agentkit_source_claims`
+waren nie gueltig: Weaviate lehnt sie mit HTTP 422 ab
+(`'__agentkit_sync_receipts' is not a valid class name`). Es wurde eine
+Python-Konvention fuer „privat" auf ein Fremdsystem uebertragen, das
+Klassennamen mit Grossbuchstaben verlangt. Der Fehler ist nie aufgefallen, weil
+die Anlage nie gegen eine leere Instanz lief — die Collections existierten in
+der Entwicklungs-Instanz schlicht nicht. Ein Rename ohne Migration ist
+zulaessig, weil die Collections nie erfolgreich angelegt wurden.
+
+**2.5 Was in den Vektor eingeht, wird an `source_properties` geprueft, nicht am
+per-Property-`skip`.** Der Adapter legt Collections ueber die Named-Vectors-API
+an (`Configure.Vectors...`). **Gemessen** an einer Wegwerf-Collection gegen die
+laufende Instanz mit weaviate-client 4.21.2: ein
+`Property(skip_vectorization=True)` wird von dieser API **nicht uebertragen** —
+der Read-back meldet fuer *jede* Property `_PropertyVectorizerConfig(skip=False,
+…)`, unabhaengig davon, was beim Anlegen mitgegeben wurde.
+
+Der bisherige Drift-Check verglich genau dieses Feld. Er prueft damit nicht die
+Wirklichkeit, sondern die Erinnerung an die Legacy-Schreibweise derselben
+Tatsache — mit der Folge, dass **jede frisch angelegte Collection beim naechsten
+Start von ihrem eigenen Schema abwich** und `cp_10` nie gruen werden konnte.
+
+Der Check zieht deshalb auf die Stelle um, an der die benutzte API die Aussage
+tatsaechlich fuehrt: `source_properties`. N35 wird dabei **staerker**, nicht
+schwaecher — eine *fehlende* Selektion gilt jetzt ebenfalls als Drift, weil ohne
+sie nichts mehr belegt, was die Collection einbettet. N12/N18 pruefen weiterhin
+Namen, Datentypen, `vectorizePropertyName`, Tokenisierung, Searchability und
+Filterability. Zusaetzlich liest der Adapter die per-Property-Konfiguration nun
+aus `vectorizer_configs` (Named-Vectors-Oberflaeche) statt nur aus dem bei
+Named Vectors immer leeren `vectorizer_config`.
+
+Der Rueckweg auf die abgekuendigte Legacy-Vectorizer-API wurde **verworfen**: er
+waere genau die Kompatibilitaetsschicht, die CLAUDE.md ausnahmslos verbietet,
+und haette AK3 an eine abgekuendigte Schnittstelle gebunden, nur um einen
+Pruefausdruck zu retten.
+
 ## 3. Verhaeltnis zum Beschluss „Die Pooling-Strategie folgt dem Einbettungsmodell"
 
 Jener Record (gleiches Datum) liess in §3 ausdruecklich offen, **ob** AK3 auf
@@ -105,4 +145,8 @@ nach `all-MiniLM-L6-v2`, `MiniLM`, `transformers-inference` und
 | `src/agentkit/resources/tokenizer/`, `concepts/tokenizer.py` | nicht-betroffen | Bewusst unveraendert (2.3); keine Bindung an den Modellpin. |
 | Ingest-Chunk-Budgets (`DEFAULT_MAX_TOKENS`) | nicht-betroffen | Bewusst unveraendert (2.3), Epic. |
 | `StoryContext`-Collection in Weaviate | neu angelegt | Loeschen und Neuanlage statt Migration (2.2). |
-| Uebrige FK-Dokumente | nicht-betroffen | Keine weitere Stelle fuehrt Modell, Pooling oder Image. |
+| `concept/technical-design/13_retrieval_vektordb_wissenszugriff.md` §13.3.0 | neu | Normativer Owner der Collection-Namen und der Namenskonvention (2.4). |
+| `src/agentkit/backend/vectordb/completion_ledger.py`, `source_generation.py` | geaendert | `Ak3SyncReceipts`, `Ak3SyncRuns`, `Ak3SourceClaims` statt der von Weaviate abgelehnten `__`-Namen (2.4). |
+| `src/agentkit/integration_clients/vectordb/weaviate_adapter.py` | geaendert | Drift-Check der eingebetteten Properties auf `source_properties` gezogen; `vectorizer_configs` als Leseort (2.5). |
+| `tests/unit/integrations/vectordb/test_weaviate_transport.py` | geaendert | Nur die drei Collection-Namen nachgezogen. |
+| Uebrige FK-Dokumente | nicht-betroffen | Keine weitere Stelle fuehrt Modell, Pooling, Image oder Collection-Namen. |

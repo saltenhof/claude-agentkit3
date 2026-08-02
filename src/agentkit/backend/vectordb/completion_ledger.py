@@ -41,7 +41,13 @@ if TYPE_CHECKING:
 
     from agentkit.backend.vectordb.client_port import CorpusClientPort
 
-RECEIPT_COLLECTION = "__agentkit_sync_receipts"
+#: Weaviate collection of the per-source completion ledger (FK-13 §13.3.0).
+#:
+#: The name follows the FK-13 §13.3.0 convention -- initial CAPITAL, ``Ak3``
+#: prefix. Weaviate rejects anything else with HTTP 422
+#: (``is not a valid class name``); the former ``__agentkit_sync_receipts`` was a
+#: Python "private" spelling on a foreign system that never accepted it.
+RECEIPT_COLLECTION = "Ak3SyncReceipts"
 RECEIPT_PROPERTIES: tuple[str, ...] = (
     "project_id",
     "source_file",
@@ -53,7 +59,8 @@ RECEIPT_PROPERTIES: tuple[str, ...] = (
     "sequence",
     "generation",
 )
-RUN_RECEIPT_COLLECTION = "__agentkit_sync_runs"
+#: Weaviate collection of the per-run ledger receipts (FK-13 §13.3.0 naming).
+RUN_RECEIPT_COLLECTION = "Ak3SyncRuns"
 RUN_RECEIPT_PROPERTIES: tuple[str, ...] = (
     "project_id",
     "run_id",

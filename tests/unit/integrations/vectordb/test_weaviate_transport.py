@@ -635,10 +635,10 @@ def test_n03_insert_object_reports_the_loser_of_a_conditional_create() -> None:
     data = _FakeData(existing_ids={"claim-1"})
     client = _client(_collection(data=data))
     assert client.insert_object(
-        collection="__agentkit_source_claims", uuid="claim-2", properties={"state": "claimed"}
+        collection="Ak3SourceClaims", uuid="claim-2", properties={"state": "claimed"}
     ) is True
     assert client.insert_object(
-        collection="__agentkit_source_claims", uuid="claim-1", properties={"state": "claimed"}
+        collection="Ak3SourceClaims", uuid="claim-1", properties={"state": "claimed"}
     ) is False
 
 
@@ -1267,7 +1267,7 @@ def test_n14_object_already_exists_exception_is_also_a_lost_claim() -> None:
     client = _client(_collection(data=data))
     assert (
         client.insert_object(
-            collection="__agentkit_source_claims", uuid="claim-1", properties={"state": "claimed"}
+            collection="Ak3SourceClaims", uuid="claim-1", properties={"state": "claimed"}
         )
         is False
     )
@@ -1283,7 +1283,7 @@ def test_n14_real_duplicate_response_is_a_lost_claim() -> None:
     client = _client(_collection(data=data))
     assert (
         client.insert_object(
-            collection="__agentkit_source_claims", uuid=uuid, properties={"state": "claimed"}
+            collection="Ak3SourceClaims", uuid=uuid, properties={"state": "claimed"}
         )
         is False
     )
@@ -1298,7 +1298,7 @@ def test_n14_other_unexpected_status_is_a_write_error_not_a_lost_claim() -> None
     client = _client(_collection(data=data))
     with pytest.raises(VectorDbWriteError, match="status 500"):
         client.insert_object(
-            collection="__agentkit_source_claims", uuid="u1", properties={"state": "claimed"}
+            collection="Ak3SourceClaims", uuid="u1", properties={"state": "claimed"}
         )
 
 
@@ -1313,7 +1313,7 @@ def test_n14_existence_probe_settles_an_ambiguous_failure() -> None:
     client = _client(_collection(data=data))
     assert (
         client.insert_object(
-            collection="__agentkit_source_claims", uuid="u1", properties={"state": "claimed"}
+            collection="Ak3SourceClaims", uuid="u1", properties={"state": "claimed"}
         )
         is False
     )
