@@ -1,14 +1,26 @@
 story_id: AG3-183
 story_title_short: "ehrliche-testpyramide"
-title: "Ehrliche Testpyramide: eine eigene E2E-Spitze je Fremdsystem-Vertrag, Fixtures leiten aus der SSOT ab statt zu behaupten, Sollverteilung als PO-Entscheidung."
+title: "Fremdsystem-Vertragsmatrix und eine echte Spitze je Vertrag: maschinenlesbar, vollstaendig ueber ALLE Fremdsysteme, mit Owner, Checkpoint, Credentials, CI-Stufe und Verhalten bei Abwesenheit."
 type: implementation
-status: ready
+status: blocked
 phase: setup
 created: "2026-08-02"
+updated: "2026-08-02"
 size: L
-# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
-# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
-# Gemessen 2026-08-02: 4457 unit / 696 integration / 595 contract / 5 e2e, davon KEINER
-# fuer den VektorDB-Pfad. Eine handgeschriebene Fixture-Konstante hielt 13 Tests gruen.
-depends_on: []
+# Herkunft: PO-Befund vom 2026-08-02, ausgeloest durch sechs VektorDB-Storys
+# ohne einen einzigen Live-Lauf. Gemessen: 4457 unit / 696 integration /
+# 595 contract / 5 e2e, davon KEINER fuer den VektorDB-Pfad.
+#
+# NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review (Auflagen ERROR-10 und
+# ERROR-11):
+#  - AC1 nannte vier Fremdsysteme; integration_clients/ fuehrt neun, dazu
+#    Postgres und Harness.
+#  - Die CI-Forderung war konzeptwidrig (PROJECT_STRUCTURE.md:307) -> die
+#    normative Weiche liegt jetzt bei AG3-194, an der diese Story haengt.
+#  - AC6 erlaubte statt eines realen Tests eine Begruendung, warum er
+#    "unmoeglich" sei -> gestrichen.
+#  - AC2 (skipped darf nicht gruen sein) doppelte AG3-184 AC5 -> genau ein
+#    Owner: AG3-195.
+#  - Fixtures/selbsterfuellende Tests -> AG3-196.
+depends_on: ["AG3-194"]
 unblocks: []

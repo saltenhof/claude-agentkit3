@@ -1,0 +1,20 @@
+story_id: AG3-194
+story_title_short: "entscheidung-testpolitik-ci-stufe-und-sollverteilung"
+title: "PO-Entscheidung: Verbindlichkeitsstufe der Fremdsystem-Realitaetsnachweise in der CI (heute normativ 'nie in Standard-CI') und benannte Sollverteilung der Testpyramide."
+type: concept
+status: ready
+phase: setup
+created: "2026-08-02"
+size: S
+# ENTSCHEIDUNGS-STORY. Sie entscheidet NICHTS selbst -- sie legt die Frage
+# entscheidungsreif vor und haelt das Ergebnis fest.
+#
+# NEU 2026-08-02 aus Auflage ERROR-10 des unabhaengigen Codex-Reviews:
+# AG3-183 forderte blockierende E2E-Nachweise in der CI, waehrend
+# PROJECT_STRUCTURE.md:307 und CLAUDE.md (§Tests/Testebenen) das Gegenteil
+# normieren -- ohne die normative Aenderung zu benennen. Das ist eine echte
+# Weiche zwischen zwei PO-Grundregeln und keine Detailfrage.
+# Zweiter Gegenstand: die "benannte Sollverteilung" aus dem alten AG3-183 AC4,
+# ausdruecklich als PO-Entscheidung markiert und ohne Owner geblieben.
+depends_on: []
+unblocks: ["AG3-183", "AG3-196"]

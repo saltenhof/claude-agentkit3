@@ -1,14 +1,25 @@
 story_id: AG3-184
 story_title_short: "qualitaetswerkzeuge-die-nicht-luegen"
-title: "Qualitaetswerkzeuge, die nicht luegen: Referenz-Baseline von Zeilennummern loesen, tools/ unter ruff und mypy stellen, FK-93-Eigentumsfrage entscheiden."
+title: "Referenz-Integritaets-Baseline von Zeilennummern loesen: ein Eintrag ueberlebt eine Textaenderung, ohne dass jemand ihn gedankenlos nachzieht -- und bleibt trotzdem eng."
 type: implementation
-status: ready
+status: blocked
 phase: setup
 created: "2026-08-02"
+updated: "2026-08-02"
 size: M
-# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
-# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
-# Die Baseline ist am 2026-08-02 DREIMAL an einem Tag gewandert. tools/ (Konzept-Compiler,
-# Governance-Werkzeuge) liegt ausserhalb jedes Gates -- zwei Befunde dort belegt.
-depends_on: []
+# Herkunft: Die Baseline ist am 2026-08-02 DREIMAL an einem Tag gewandert
+# (FK-78 zweimal, FK-13 einmal); belegt in
+# stories/AG3-179-run-mutex-intent-liveness/status.yaml (Runde 2: 878 -> 939;
+# Runde 3: 965 -> 1006) und Commit 51498dae ("Referenz-Baseline auf die
+# verschobene FK-13-Zeile nachziehen").
+#
+# NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review (Auflage ERROR-12):
+# die Story buendelte vier Themen mit vier Eigentuemern. Ausgezogen sind
+# AG3-197 (tools/ unter ruff und mypy), AG3-198 (PO-Entscheidung FK-93),
+# AG3-199 (FK-93-Umsetzung + permissions.*) und AG3-195 (Gate-Outcome).
+#
+# BLOCKIERT auf AG3-179: diese Story aendert genau den Mechanismus, den
+# AG3-179 in noch offenen Reviewrunden fortlaufend anfasst (die Baseline-Zeilen
+# fuer FK-78 und FK-13).
+depends_on: ["AG3-179"]
 unblocks: []

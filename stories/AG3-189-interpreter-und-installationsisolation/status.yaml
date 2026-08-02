@@ -1,0 +1,15 @@
+story_id: AG3-189
+story_title_short: "interpreter-und-installationsisolation"
+title: "AK3-Interpreter- und Installationsisolation: eine global editierbare Installation wird fail-closed verweigert -- AK2 und AK3 teilen den Paketnamen agentkit."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: M
+# Herkunft: erste echte Fremdinstallation am 2026-08-02. `_editable_impl_agentkit.pth`
+# im Benutzer-site-packages zeigt auf T:\codebase\claude-agentkit3\src.
+# Neu geschnitten aus AG3-180 nach unabhaengigem Codex-Review (Auflage ERROR-5):
+# der urspruengliche AC8 erlaubte die globale Installation, solange AK3 warnt --
+# das bricht eine PO-Grundregel aus CLAUDE.md und die Severity-Semantik.
+depends_on: []
+unblocks: ["AG3-187"]

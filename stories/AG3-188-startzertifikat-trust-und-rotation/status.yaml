@@ -1,0 +1,15 @@
+story_id: AG3-188
+story_title_short: "startzertifikat-trust-und-rotation"
+title: "Startzertifikat, Trust-Verteilung und Erneuerung: AK3 erzeugt sein TLS-Startvertrauen selbst -- SAN, Schluesselrechte, Client-Bindung, atomare Rotation."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: M
+# Herkunft: erste echte Fremdinstallation am 2026-08-02. `agentkit serve` verlangt
+# --certfile als Pflichtangabe; erzeugt wird ein Zertifikat von NICHTS in AK3.
+# Neu geschnitten aus AG3-180 nach unabhaengigem Codex-Review (Auflage ERROR-6):
+# ein selbstsigniertes Zertifikat mit SAN besteht nicht automatisch die Pruefung
+# -- es fehlte der Vertrauensvertrag.
+depends_on: []
+unblocks: ["AG3-187"]

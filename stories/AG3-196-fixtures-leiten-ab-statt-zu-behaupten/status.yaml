@@ -1,0 +1,15 @@
+story_id: AG3-196
+story_title_short: "fixtures-leiten-ab-statt-zu-behaupten"
+title: "Fixtures leiten aus der SSOT ab statt zu behaupten; Tests, die sich ihre eigene Voraussetzung erschaffen, sind beseitigt -- plus die Messung des Ist-Stands gegen die Sollverteilung."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-02"
+size: M
+# NEU 2026-08-02 aus dem Neuschnitt von AG3-183 (Auflagen ERROR-10/ERROR-11).
+# Belegt: eine handgeschriebene Fixture-Konstante (_named_vector_config,
+# poolingStrategy "masked_mean") hielt 13 Tests gruen, waehrend die
+# Infrastruktur laengst auf bge-m3 lief.
+# Blockiert auf AG3-194, weil die Sollverteilung eine PO-Entscheidung ist.
+depends_on: ["AG3-194"]
+unblocks: []

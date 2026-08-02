@@ -1,0 +1,15 @@
+story_id: AG3-195
+story_title_short: "gate-outcome-ehrlichkeit"
+title: "Gate-Outcome-Ehrlichkeit: ein uebersprungener, abgebrochener oder nicht gefahrener Lauf ist im Ergebnis von einem bestandenen unterscheidbar -- ueber ALLE Gates hinweg, mit einem Eigentuemer."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: M
+# NEU 2026-08-02 aus Auflage ERROR-11 des unabhaengigen Codex-Reviews:
+# AG3-183 AC2 und AG3-184 AC5 trugen dieselbe Aussage -- zwei Eigentuemer fuer
+# eine Regel. Die Regel hat jetzt genau einen.
+# Belegter Anlassfall: AG3-179 Runde 1 meldete "alle Konzept-Gates gruen",
+# obwohl nur die statischen liefen (AGENTS.md, Z. 89-92).
+depends_on: []
+unblocks: []

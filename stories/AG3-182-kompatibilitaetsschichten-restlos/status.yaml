@@ -1,14 +1,19 @@
 story_id: AG3-182
 story_title_short: "kompatibilitaetsschichten-restlos"
-title: "Kompatibilitaetsschichten restlos entfernen -- der Rest nach Commit 01a27de1, inklusive der ~330 Aufrufstellen in process/language/model.py, plus ein Gate gegen den Rueckfall."
+title: "Flow-/Node-Vokabularmigration in EINEM Zug: PhaseDefinition/TransitionRule/WorkflowDefinition, .phases, get_phase(), phase_names -- 327 Stellen in 38 Dateien, kein Zwischenstand mit beiden Namen."
 type: implementation
 status: ready
 phase: setup
 created: "2026-08-02"
+updated: "2026-08-02"
 size: L
-# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
-# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
-# PO-Grundregel vom 2026-08-02. Der Compat-Alias serve-control-plane hielt Port 9080 am Leben;
-# jede frische Installation zeigte auf einen Port, auf dem nichts lauschte.
+# Herkunft: PO-Grundregel vom 2026-08-02 (CLAUDE.md, "KEINE
+# KOMPATIBILITAETSSCHICHTEN -- AUSNAHMSLOS"); Restbestand nach Commit 01a27de1.
+#
+# NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review (Auflage ERROR-9):
+# die Story buendelte vier Themen mit verschiedenen Eigentuemern und erlaubte in
+# AC3, Treffer nur zu "begruenden". Aufgeteilt in AG3-182 (dieses
+# Vokabular), AG3-191 (QA-/Policy-Fallbacks), AG3-192 (restliche produktive
+# Aliase) und AG3-193 (Anti-Compat-Gate).
 depends_on: []
-unblocks: []
+unblocks: ["AG3-193"]

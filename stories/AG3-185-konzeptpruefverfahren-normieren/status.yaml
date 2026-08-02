@@ -1,14 +1,29 @@
 story_id: AG3-185
 story_title_short: "konzeptpruefverfahren-normieren"
-title: "Agentisches Konzeptpruefverfahren normieren: Entwurf aus dem Inkubator durch das eigene Verfahren fuehren, FK-78 78.14 und die Governance nachziehen, Migrationstreue erstmals wirklich fahren."
-type: implementation
-status: ready
+title: "PO-Entscheidungen und normative Verfahrensmigration: die acht offenen Entscheidungen beantworten, FK-78 78.14 und die Governance nachziehen, die VIER importfaehigen Bausteine entscheiden -- mit vollstaendiger Betroffenheitsmatrix."
+type: concept
+status: blocked
 phase: setup
 created: "2026-08-02"
+updated: "2026-08-02"
 size: L
-# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
-# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
-# PO-Entscheidungen 2026-08-02. Entwurf liegt in concept-incubator/konzeptpruefung-verfahren/
-# workspace/ (Commit fb38a9e7) mit zwoelf Befunden. AGENTS.md ist verankert, das Konzept nicht.
-depends_on: []
-unblocks: []
+# Herkunft: PO-Entscheidungen 2026-08-02; Entwurf in
+# concept-incubator/konzeptpruefung-verfahren/workspace/ (Commit fb38a9e7),
+# vier Liefergegenstaende, zwoelf Befunde. AGENTS.md ist verankert, das Konzept
+# nicht.
+#
+# NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review (Auflagen ERROR-13,
+# ERROR-14, ERROR-15, ERROR-16):
+#  - Die Story war zirkulaer (AC1 verlangte den Durchlauf durch ein Verfahren,
+#    das erst sie normiert) und eine getarnte Epic. Aufgeteilt in AG3-185
+#    (Entscheidungen + Norm), AG3-201 (Mechanik) und AG3-202 (erster Pilot).
+#  - Der Werkstattbericht nennt VIER importfaehige Bausteine; die Story nannte
+#    drei. C-7 (Provider-Claim-Kante) fehlte vollstaendig -- der FK-93-Anlassfall.
+#  - Die normative Betroffenheit war unvollstaendig.
+#
+# BLOCKIERT auf AG3-179 (veraendert FK-78 und FK-93 weiter, Runde 4 offen) und
+# auf AG3-200 (Blueprint-Belegbasis).
+depends_on: ["AG3-179", "AG3-200"]
+unblocks: ["AG3-201"]
+# AG3-186 haengt transitiv (ueber AG3-201 -> AG3-202) und fuehrt AG3-202
+# direkt in seinem autoritativen `depends_on`.

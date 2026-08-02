@@ -1,14 +1,21 @@
 story_id: AG3-180
 story_title_short: "erstzugang-und-startvertrauen"
-title: "Erstzugang und Startvertrauen: AK3 macht sich selbst betriebsbereit -- Bootstrap ohne Handarbeit, selbst erzeugtes Startzertifikat mit SAN, Rotation, und die global editierbare Installation entschaerfen."
+title: "Erstzugang ohne Handarbeit: autorisierte Bootstrap-Oberflaeche, Trust Boundary, atomare Einmaligkeit -- Strategenpasswort und Projekt-Token getrennt normiert."
 type: implementation
 status: ready
 phase: setup
 created: "2026-08-02"
-size: M
-# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
-# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
-# Blocker fuer JEDE Fremdinstallation. set_password wird ausschliesslich aus Tests aufgerufen;
-# ein frisches AK3 kommt an kein Projekt-Token. Belegt am 2026-08-02 im Nachbarprojekt.
+updated: "2026-08-02"
+size: L
+# Herkunft: erste echte Fremdinstallation am 2026-08-02 (Nachbarprojekt).
+# set_password wird ausschliesslich aus Tests aufgerufen; ein frisches AK3 kommt
+# an kein Projekt-Token.
+#
+# NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review des Schnitts vom
+# Commit 77b4b034 (umsetzungsreif: nein, 18 ERROR / 2 WARNING). Auflage ERROR-4:
+# der Bootstrap-Vertrag war sicherheitskritisch unbestimmt und stand mit
+# FK-15 §15.10.4 im Widerspruch. Auflage ERROR-5 (globale editierbare
+# Installation) ist nach AG3-189 ausgezogen, Auflage ERROR-6 (Startzertifikat)
+# nach AG3-188. Diese Story traegt nur noch den Erstzugang.
 depends_on: []
-unblocks: []
+unblocks: ["AG3-187"]

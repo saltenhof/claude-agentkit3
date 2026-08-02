@@ -1,0 +1,14 @@
+story_id: AG3-201
+story_title_short: "leichtpfad-bridge-und-receipt-mechanik"
+title: "Leichtpfad, Harness-Bridge-Adapter und Receipt-Mechanik implementieren: der Adaptertausch auf dem vorhandenen Request-Pack-/Receipt-Vertrag, plus die leichte Freigabebasis."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-02"
+size: L
+# NEU 2026-08-02 aus Auflage ERROR-15 des unabhaengigen Codex-Reviews:
+# AG3-185 war eine getarnte Epic (Entscheidungen + Norm + Mechanik + Pilot).
+# Diese Story traegt die Mechanik; sie setzt die Norm aus AG3-185 um und
+# entscheidet nichts neu.
+depends_on: ["AG3-185"]
+unblocks: ["AG3-202"]

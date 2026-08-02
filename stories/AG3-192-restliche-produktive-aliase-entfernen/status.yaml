@@ -1,0 +1,13 @@
+story_id: AG3-192
+story_title_short: "restliche-produktive-aliase-entfernen"
+title: "Restliche produktive Aliase und Compat-Pfade entfernen: mode-Alias in selectors.py, Hub-Fehlervertrag-Fallback, Governance-Tombstone-Dualwrite, set_eval_deadline, VectorDB-Migrations-Key -- plus vollstaendige, bewertete Inventur."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: L
+# NEU 2026-08-02 aus Auflage ERROR-9 des unabhaengigen Codex-Reviews:
+# das Inventar von AG3-182 war unvollstaendig (mindestens zwei Stellen fehlten
+# namentlich), und AC3 erlaubte, Treffer nur zu "begruenden".
+depends_on: []
+unblocks: ["AG3-193"]

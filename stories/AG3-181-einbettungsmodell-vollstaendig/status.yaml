@@ -1,14 +1,23 @@
 story_id: AG3-181
 story_title_short: "einbettungsmodell-vollstaendig"
-title: "Einbettungsmodell vollstaendig: Tokenizer-Asset auf bge-m3, Chunk-Budgets an das Modellfenster binden, Fenster-/Abschneidevermutung klaeren."
+title: "Einbettungsmodell vollstaendig: Tokenizer-Asset auf bge-m3, Budgetformel ueber alle eingebetteten Felder, vollstaendiger Re-Ingest ohne Altchunks, Fenster-/Abschneidevermutung geklaert."
 type: implementation
 status: ready
 phase: setup
 created: "2026-08-02"
-size: M
-# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
-# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
-# Teilschnitt aus dem Modellwechsel vom 2026-08-02, dort in Decision Record 2.3 benannt.
-# Wirkung nur auf die Chunk-Groessenrechnung, nie auf die serverseitige Einbettung.
-depends_on: ["AG3-183"]
-unblocks: []
+updated: "2026-08-02"
+size: L
+# Herkunft: Modellwechsel auf bge-m3 am 2026-08-02 (Commit 8d80586a), bewusst als
+# Teilschnitt gelandet; Decision Record 2026-08-02-modellpin-folgt-der-laufenden-
+# infrastruktur.md §2.3 benennt die offenen Teile.
+#
+# NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review (Auflagen ERROR-7 und
+# ERROR-8):
+#  - depends_on ["AG3-183"] war FALSCH HERUM und ist entfernt. Der
+#    Qualitaetsnachweis misst den Modellwechsel; sein Vertrag entsteht erst hier.
+#    Der Nachweis ist nach AG3-190 ausgezogen und haengt AN dieser Story.
+#  - Re-Ingest, Budgetformel ueber alle source_properties inkl. Special Tokens,
+#    Grenzkorpus und Read-back der tatsaechlichen Chunkmenge ergaenzt; Groesse
+#    dadurch M -> L.
+depends_on: []
+unblocks: ["AG3-190"]

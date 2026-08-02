@@ -1,0 +1,18 @@
+story_id: AG3-204
+story_title_short: "komponentenregister-portschema-und-checker"
+title: "Komponentenregister, Port-Schema und Architektur-Checker umsetzen: die Codeseite der Komponenten-/Schnittstellenschicht."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-02"
+size: TBD
+# size: TBD ist bewusst ausserhalb des S|M|L-Enums aus stories/README.md 2.1:
+# der Umfang leitet sich aus AG3-186 ab, deren Groesse ihrerseits erst nach dem
+# Metaentscheid AG3-203 bestimmbar ist. AG3-186 setzt die Groesse dieser Story
+# als Teil ihres Abschlusses.
+#
+# NEU 2026-08-02 aus Auflage ERROR-18 des unabhaengigen Codex-Reviews:
+# AG3-186 grenzt Code ausdruecklich aus ("Kein Code in dieser Story"), aber die
+# Folge-Story existierte nicht -- die Umsetzung waere ohne Owner geblieben.
+depends_on: ["AG3-186"]
+unblocks: []

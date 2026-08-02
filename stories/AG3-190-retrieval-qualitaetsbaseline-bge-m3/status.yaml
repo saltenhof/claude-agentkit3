@@ -1,0 +1,14 @@
+story_id: AG3-190
+story_title_short: "retrieval-qualitaetsbaseline-bge-m3"
+title: "Retrieval-Qualitaetsbaseline und Nichtregression bge-m3: versionierter Query-/Relevanzkorpus, benannte Metrik, Mindestschwelle, reproduzierbarer Vorher-Aufbau, Abbruch bei Verschlechterung."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-02"
+size: M
+# NEU 2026-08-02 aus Auflage ERROR-8 des unabhaengigen Codex-Reviews.
+# Der Qualitaetsnachweis war in AG3-183 einsortiert und AG3-181 haengte an
+# AG3-183 -- die Messung haette gegen einen halb migrierten Zustand gemessen.
+# Kante umgedreht: der Nachweis haengt AN AG3-181.
+depends_on: ["AG3-181"]
+unblocks: []

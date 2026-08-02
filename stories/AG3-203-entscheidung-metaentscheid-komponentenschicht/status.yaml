@@ -1,0 +1,18 @@
+story_id: AG3-203
+story_title_short: "entscheidung-metaentscheid-komponentenschicht"
+title: "PO-Metaentscheid Komponenten-/Schnittstellenschicht: Schicht ja/nein, Autoritaetsrang, Objektart, Verhaeltnis zum Formal-Layer, Anspruch an die Codeprojektion."
+type: concept
+status: ready
+phase: setup
+created: "2026-08-02"
+size: S
+# ENTSCHEIDUNGS-STORY. Sie entscheidet NICHTS selbst -- sie legt die Pfosten
+# entscheidungsreif vor und haelt das Ergebnis fest.
+#
+# NEU 2026-08-02 aus Auflage ERROR-17 des unabhaengigen Codex-Reviews:
+# AG3-186 setzte diese PO-Grundentscheidung voraus, stand aber auf `ready` und
+# formulierte ACs bereits auf "Schicht wird eingefuehrt". Ohne die Pfosten waere
+# jede Ausdetaillierung eine neue Konzeptdomaene und damit ausserhalb des
+# Agentenmandats (AGENTS.md, PO-Ratifikation 2026-08-02).
+depends_on: []
+unblocks: ["AG3-186"]

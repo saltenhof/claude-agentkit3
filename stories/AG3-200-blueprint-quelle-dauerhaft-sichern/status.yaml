@@ -1,0 +1,16 @@
+story_id: AG3-200
+story_title_short: "blueprint-quelle-dauerhaft-sichern"
+title: "Blueprint-Quelle dauerhaft, digest-gepinnt, mit Herkunft und Stand -- oder die abhaengigen Storys tragen jede uebernommene Aussage mit eigenem Locator."
+type: concept
+status: ready
+phase: setup
+created: "2026-08-02"
+size: S
+# NEU 2026-08-02 aus Auflage ERROR-16 des unabhaengigen Codex-Reviews:
+# concept-incubator/konzeptpruefung-verfahren/workspace/README.md:21-26 haelt
+# fest, dass der Blueprint urspruenglich unter P:\_private-img2img\concept\_meta
+# lag, das Laufwerk waehrend des Laufs migriert wurde und nur noch aus einer
+# FLUECHTIGEN Scratchpad-Kopie gelesen wurde. AG3-185 und AG3-186 verlangen
+# beide seine Auswertung.
+depends_on: []
+unblocks: ["AG3-185", "AG3-186"]

@@ -1,0 +1,14 @@
+story_id: AG3-193
+story_title_short: "anti-compat-gate"
+title: "Anti-Compat-Gate: ein neuer Deprecated-Alias, ein Re-Export-Shim oder ein Legacy-Default faellt maschinell auf, bevor er landet."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-02"
+size: M
+# NEU 2026-08-02 aus Auflage ERROR-9 des unabhaengigen Codex-Reviews:
+# AG3-182 buendelte den Rueckbau und das Gate. Ein Gate, das auf einem Bestand
+# scharf gestellt wird, der die Regel noch verletzt, ist entweder rot oder
+# muss von Anfang an mit Ausnahmen leben -- deshalb HINTER dem Rueckbau.
+depends_on: ["AG3-182", "AG3-191", "AG3-192"]
+unblocks: []

@@ -1,0 +1,20 @@
+story_id: AG3-198
+story_title_short: "entscheidung-fk93-normquelle"
+title: "PO-Entscheidung: Darf ein Nachschlagekatalog Normquelle sein? Regel WANN -- plus die verwaiste Frage, ob die drei Sekundenwerte aus FK-93 93.9a konfigurierbar werden."
+type: concept
+status: blocked
+phase: setup
+created: "2026-08-02"
+size: S
+# ENTSCHEIDUNGS-STORY. Sie entscheidet NICHTS selbst.
+#
+# NEU 2026-08-02 aus Auflage ERROR-12 des unabhaengigen Codex-Reviews
+# (Ausgliederung aus AG3-184). Zweiter Gegenstand: der WARNING des Reviews --
+# die Konfigurierbarkeit der drei 93.9a-Sekundenwerte ist im Decision Record
+# 2026-08-01-run-mutex-intent-bounded-wait.md Abschnitt 5 (c) als offen
+# vermerkt und hatte keinen Owner. Hier bekommt sie einen.
+#
+# BLOCKIERT auf AG3-179: das FK-93-Autoritaetsmodell ist dort in Runde 3 (R4)
+# angefasst worden und die Story hat noch offene Findings aus Runde 4.
+depends_on: ["AG3-179"]
+unblocks: ["AG3-199"]

@@ -1,0 +1,18 @@
+story_id: AG3-197
+story_title_short: "tools-unter-ruff-und-mypy"
+title: "tools/ unter ruff und mypy stellen: die Werkzeuge, die unsere Konzeptqualitaet sichern, sind selbst ungeprueft -- zwei Befunde belegt."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: L
+# NEU 2026-08-02 aus Auflage ERROR-12 des unabhaengigen Codex-Reviews
+# (Ausgliederung aus AG3-184).
+#
+# GEMESSEN (2026-08-02, statt der im Review genannten Schaetzung "~40 000
+# Zeilen"): tools/ enthaelt 66 .py-Dateien mit 10 670 Zeilen; die gebundelte
+# Zielprojekt-Toolchain unter src/agentkit/bundles/target_project/tools/
+# weitere 11 888 Zeilen. Der Befund bleibt derselbe -- die Groessenangabe ist
+# korrigiert, nicht die Aussage.
+depends_on: []
+unblocks: []

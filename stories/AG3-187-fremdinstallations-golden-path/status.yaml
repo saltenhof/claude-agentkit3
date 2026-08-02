@@ -1,0 +1,14 @@
+story_id: AG3-187
+story_title_short: "fremdinstallations-golden-path"
+title: "Fremdinstallations-Golden-Path aus leerer Umgebung: saubere Maschine -> isolierte AK3-Installation -> Core -> Erstzugang -> Projekt-Token -> Fremdprojekt registrieren -> alle Installer-Checkpoints -> erster echter Commit -> zweiter idempotenter Lauf."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-02"
+size: L
+# NEU 2026-08-02 aus der Auflage ERROR-3 des unabhaengigen Codex-Reviews:
+# Keine der sieben Storys aus Commit 77b4b034 besass den vollstaendigen
+# Produktpfad. Ohne diese Story kann wieder jeder Teil gruen sein, waehrend das
+# Produkt nicht installierbar ist -- genau der Zustand vom 2026-08-02.
+depends_on: ["AG3-180", "AG3-188", "AG3-189"]
+unblocks: []

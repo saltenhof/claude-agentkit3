@@ -1,15 +1,22 @@
 story_id: AG3-186
 story_title_short: "komponenten-und-schnittstellenschicht"
-title: "Komponenten- und Schnittstellenschicht zwischen Prosa und Formal-Layer -- die Projektion auf den realen Repo- und Artefaktschnitt, orthogonal zu den Bounded Contexts."
+title: "Komponenten- und Schnittstellenschicht ausdetaillieren -- NACH dem PO-Metaentscheid, als erster echter Anwendungsfall des neuen Pruefverfahrens."
 type: concept
-status: ready
+status: blocked
 phase: setup
 created: "2026-08-02"
-size: L
-# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
-# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
-# PO-Vorgabe 2026-08-02. AK3 hat die Codeprojektion (FK-07) aber KEIN Komponentenobjekt;
-# module-registry.yaml ist eine flache Namensliste, Ports leben nur in Prosa.
-# BRAUCHT eine PO-Entscheidung auf Meta-Konzeptebene, bevor sie beginnt.
-depends_on: ["AG3-185"]
-unblocks: []
+updated: "2026-08-02"
+size: TBD
+# size: TBD ist bewusst ausserhalb des S|M|L-Enums aus stories/README.md 2.1.
+# Auflage ERROR-17 des unabhaengigen Codex-Reviews: solange der Metaentscheid
+# (AG3-203) offen ist -- Schicht ja/nein, Autoritaetsrang, Objektart,
+# Verhaeltnis zum Formal-Layer, Anspruch an die Codeprojektion -- waere jede
+# Groessenangabe eine Schaetzung ohne Grundlage. AG3-203 AC6 verlangt
+# ausdruecklich, dass die Groesse danach bestimmbar ist; sie wird dort gesetzt.
+#
+# NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review (Auflagen ERROR-17 und
+# ERROR-18): Status von `ready` auf `blocked`; die ACs formulierten bereits auf
+# "Schicht wird eingefuehrt" und waren an mehreren Stellen durch ein leeres
+# Schema bzw. blosses Etikettieren erfuellbar.
+depends_on: ["AG3-203", "AG3-200", "AG3-202"]
+unblocks: ["AG3-204"]
