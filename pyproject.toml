@@ -38,10 +38,12 @@ dependencies = [
     # guards the import and fails closed when the package is absent, but the
     # package itself is part of the base install.
     "weaviate-client>=4.9,<5.0",
-    # Bound tokenizer for deterministic, model-aligned chunk sizing (FK-13
-    # §13.2). Pinned exactly per PO decision D5: the chunk tokeniser must match
-    # the embedding model `sentence-transformers/all-MiniLM-L6-v2` (revision
-    # e4ce9877...). Drift here would silently change chunk boundaries.
+    # Bound tokenizer for deterministic chunk sizing (FK-13 §13.2). Pinned
+    # exactly per PO decision D5; drift here would silently change chunk
+    # boundaries. The shipped asset is still the MiniLM WordPiece tokenizer
+    # while the embedding model pin has moved to `BAAI/bge-m3` — a named,
+    # deliberate gap that affects ingest chunk sizing only (decision record
+    # 2026-08-02 "Modellpin folgt der laufenden Infrastruktur", §2.3).
     "tokenizers==0.21.0",
     # Round-trip TOML writer for the project-local `.codex/config.toml` MCP
     # registration (FK-76 §76.5.4, AG3-175 decision D-1, PO-approved).

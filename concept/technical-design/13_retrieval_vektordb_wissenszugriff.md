@@ -75,13 +75,15 @@ services:
       CLUSTER_HOSTNAME: node1
 
   t2v-transformers:
-    image: semitechnologies/transformers-inference:sentence-transformers-all-MiniLM-L6-v2
+    image: vectordb-text2vec-bge-m3:local
     environment:
       ENABLE_CUDA: 0  # CPU-only
 ```
 
 **Einbettungsmodell und Pooling-Strategie (Eigentuemer: dieser Abschnitt).**
-Das gepinnte Einbettungsmodell ist `sentence-transformers/all-MiniLM-L6-v2`.
+Das gepinnte Einbettungsmodell ist `BAAI/bge-m3`, ausgeliefert vom Sidecar-Image
+`vectordb-text2vec-bge-m3:local`. Der Pin folgt der laufenden Infrastruktur
+(Beschluss 2026-08-02 „Modellpin folgt der laufenden Infrastruktur").
 
 Die **Pooling-Strategie ist kein freier Parameter**, sondern eine *Eigenschaft
 des Modells*: sie folgt daraus, wie das Modell trainiert wurde. Sie wird
@@ -102,16 +104,20 @@ schlechteren Treffern — extern wahrnehmbar, aber nie gemeldet. Genau darum
 braucht der Wert einen Eigentuemer und eine Ableitungskante statt einer zweiten,
 frei stehenden Konstante im Code (Beschluss 2026-08-02).
 
-**Ein Modellwechsel ist keine Einzelzeile.** Modell, Tokenizer-Asset samt
-gepinntem Digest und die Chunk-Budgets des Ingests haengen zusammen: die Budgets
-werden mit dem Tokenizer *dieses* Modells und gegen *dessen* Kontextfenster
-gerechnet. Wer das Modell wechselt, zieht alle drei im selben Zug nach und
-ingestet den Korpus neu. Ein Wechsel, der nur die Pooling-Strategie umstellt,
-erzeugt einen halb migrierten Zustand und ist unzulaessig.
+**Modell, Tokenizer-Asset und Chunk-Budgets haengen zusammen.** Die Budgets des
+Ingests werden mit dem Tokenizer eines Modells und gegen dessen Kontextfenster
+gerechnet. Der Verbund ist derzeit **bewusst und benannt unvollstaendig**: der
+Modellpin steht auf `BAAI/bge-m3`, das ausgelieferte Tokenizer-Asset ist
+weiterhin der MiniLM-WordPiece-Tokenizer und `DEFAULT_MAX_TOKENS = 1000` ist
+gegen MiniLM gerechnet. Beides wirkt ausschliesslich auf die **Chunk-Groessen
+beim Ingest**, nie auf die serverseitige Einbettung — die rechnet der Sidecar mit
+bge-m3. Die Nachfuehrung von Tokenizer-Asset, Digest und Chunk-Budgets samt
+Re-Ingest ist als eigenes Epic gefuehrt (Beschluss 2026-08-02 „Modellpin folgt
+der laufenden Infrastruktur", §3).
 
-**Tokenizer-Bereitstellung (fail-closed):** Das Modell
-`sentence-transformers/all-MiniLM-L6-v2` wird mit einer **gepinnten Modell- und
-Tokenizer-Revision** betrieben. Der Tokenizer (`tokenizer.json` samt Vokabular)
+**Tokenizer-Bereitstellung (fail-closed):** Der Tokenizer wird mit einer
+**gepinnten Modell- und Tokenizer-Revision** betrieben. Der Tokenizer
+(`tokenizer.json` samt Vokabular)
 wird als **versioniertes Package-Asset** ausgeliefert — analog zu den
 versionierten, unveraenderlichen Bundle-Assets (FK-43) — mit einem **gebundenen
 Digest** (SHA-256). Vor Nutzung wird der Digest gegen den gepinnten Sollwert

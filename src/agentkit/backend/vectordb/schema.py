@@ -346,7 +346,7 @@ def weaviate_property_specs() -> list[dict[str, object]]:
 
 
 #: Vectorizer mandated by FK-13 §13.2: a SERVER-SIDE ``text2vec-transformers``
-#: module with the all-MiniLM-L6-v2 sidecar (not client-supplied/precomputed
+#: module with the bge-m3 sidecar (not client-supplied/precomputed
 #: vectors). The three search modes (hybrid/near_text/bm25) are all server-side
 #: and consistent with this configuration (N02 adjudication vs FK-13 §13.2/§13.3).
 FK13_VECTORIZER: Final[str] = "text2vec_transformers"
@@ -368,12 +368,17 @@ FK13_MODEL_POOLING_STRATEGY: Final[dict[str, str]] = {
 #: The embedding model FK-13 §13.2 pins. It is the SINGLE input from which the
 #: pooling strategy below is derived; the two can no longer drift apart.
 #:
-#: It is also the model whose tokenizer is shipped as the pinned package asset
-#: (§13.2 "Tokenizer-Bereitstellung") and against whose context window the ingest
-#: chunk budgets are computed. Changing this constant therefore REQUIRES changing
-#: the tokenizer asset, its pinned digest and the chunk budgets in the same
-#: change — a model pin is not a one-line edit.
-FK13_EMBEDDING_MODEL: Final[str] = "sentence-transformers/all-MiniLM-L6-v2"
+#: It is the model the running text2vec-transformers sidecar
+#: (``vectordb-text2vec-bge-m3:local``) serves; the pin follows the infrastructure
+#: instead of contradicting it (decision record 2026-08-02 "Modellpin folgt der
+#: laufenden Infrastruktur").
+#:
+#: KNOWN OPEN ITEM, deliberately out of scope of that change: the shipped
+#: tokenizer asset (``resources/tokenizer/``) is still the MiniLM WordPiece
+#: tokenizer and the ingest chunk budgets are still sized against MiniLM's
+#: context window. Both only affect chunk sizing at ingest time, never the
+#: server-side embedding. They are tracked as a separate epic (§13.2).
+FK13_EMBEDDING_MODEL: Final[str] = "BAAI/bge-m3"
 
 
 def pooling_strategy_for(model: str) -> str:

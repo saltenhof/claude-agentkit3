@@ -80,6 +80,13 @@ die Abweichung zur Infrastruktur wird vom Adapter **fail-closed erkannt**
 (`weaviate_adapter._verify_existing_collection` meldet die Modelldrift und
 bricht ab) — sie ist sichtbar, nicht stillschweigend geduldet.
 
+**Nachtrag (2026-08-02, noch am selben Tag):** Die hier offen gelassene Frage ist
+entschieden — der Pin steht auf `BAAI/bge-m3`. Massgeblich ist ab sofort
+`2026-08-02-modellpin-folgt-der-laufenden-infrastruktur.md`; die dortige 2.3
+begruendet, warum Tokenizer-Asset und Chunk-Budgets in einem zweiten, benannten
+Schnitt folgen. Die Entscheidungen 2.1–2.4 dieses Records bleiben unveraendert
+gueltig.
+
 ## 4. Konsequenzen
 
 - `FK13_VECTORIZER_MODEL["poolingStrategy"]` ist ein abgeleiteter Wert; ein
