@@ -21,6 +21,7 @@ from tests.unit.concept_toolchain.conftest import TOOLS_DIR
 from tests.unit.concept_toolchain.runfixtures import LF, TAB, WRITER_ARGS, RunFixture, build_promotion_run
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 GATE_SCRIPT = TOOLS_DIR / "concept_toolchain" / "semantic_gate.py"
@@ -648,7 +649,17 @@ print(code)
 
 
 def test_stalled_writer_lands_neither_write_nor_release(fixture: RunFixture, tmp_path: Path) -> None:
-    """R9-1: a writer stalled past the TTL must not write and must not release."""
+    """R9-1: a writer stalled past the TTL must not write and must not release.
+
+    The stall outlives the latch TTL, so since AG3-179 round 4 the refusal
+    comes one step EARLIER than it used to: the commit re-proves the latch
+    under the cleanup lock before it looks at the mutex at all, and the
+    latch is the first thing a stalled writer loses. The refusal is
+    therefore reported as a lost coordination intent rather than as a
+    taken-over mutex — the same fail-closed outcome, detected sooner. That
+    a FOREIGN NONCE alone also aborts is proven separately by
+    :func:`test_foreign_nonce_during_operation_aborts`.
+    """
     fixture.units_path.unlink()
     driver = tmp_path / "stall_driver.py"
     driver.write_text(STALL_DRIVER, encoding="utf-8")
@@ -704,7 +715,7 @@ def test_stalled_writer_lands_neither_write_nor_release(fixture: RunFixture, tmp
 
     reported = int(stdout.strip().splitlines()[-1])
     assert reported == 2, "stalled writer must abort after losing the mutex: " + stdout + stderr
-    assert "taken over by" in stderr
+    assert "reclaimed while we held it" in stderr, stderr
     assert held_intent_nonce != "", "the stalled writer must have held a coordination intent"
     assert fixture.units_path.read_bytes() == after_takeover, "the stalled writer's write landed after the takeover"
     # Its release must not remove the new owner's mutex (compare-before-delete).
@@ -1462,3 +1473,316 @@ def test_the_cleanup_lock_is_a_pure_serialization_device(fixture: RunFixture) ->
     second = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
     assert second == 0, "an existing lock file must not block the next run"
     assert lock.is_file()
+
+
+# --------------------------------------------------------------------------
+# EVERY effect derived from an earlier observation is latched, not just one
+# --------------------------------------------------------------------------
+#
+# AG3-179 round 4. Round 3 established the rule at the release and stopped
+# there. The rule does not care which effect follows the observation: the
+# heartbeat refresh, the mutex takeover and the subcommand's own payload
+# write are all read-then-act, all can outlive the latch TTL, and all can
+# therefore land on top of a living successor. Each of the three gets its
+# own stopped interleaving here.
+
+
+def write_own_live_mutex(run_dir: Path, nonce: str) -> bytes:
+    """Write a mutex owned by orch.alice whose heartbeat is alive right now."""
+    runfixtures.write_json(
+        run_dir / "RUN.mutex",
+        {
+            "owner_principal": "orch.alice",
+            "owner_session": "sess-orch",
+            "nonce": nonce,
+            "acquired_at": runfixtures.now_utc(),
+            "heartbeat_at": runfixtures.now_utc(),
+            "ttl_seconds": 600,
+        },
+    )
+    return (run_dir / "RUN.mutex").read_bytes()
+
+
+class Interleaving:
+    """One effect stopped inside its section until the test resumes it."""
+
+    def __init__(self) -> None:
+        self.inside = threading.Event()
+        self.resume = threading.Event()
+
+    def stop_here(self) -> None:
+        """Stop the FIRST caller that reaches this point until it is resumed."""
+        if self.inside.is_set():
+            return
+        self.inside.set()
+        assert self.resume.wait(timeout=30), "the stalled effect was never resumed"
+
+    def wait_until_inside(self) -> None:
+        """Block until the effect under test really sits in its section."""
+        assert self.inside.wait(timeout=30), "the effect never reached its protected step"
+
+
+def probe_the_real_competitor(run_dir: Path) -> dict[str, object]:
+    """Let the REAL acquire path try to establish a competitor, and record it.
+
+    Deliberately the production function and not a hand-built imitation:
+    what has to be ruled out is that a competitor can establish itself, not
+    that some test double cannot.
+    """
+    bob_owed = semantic_gate._OwedEffects()  # noqa: SLF001 - the competitor's own sink
+    nonce, problem = semantic_gate._acquire_mutex(run_dir, "orch.bob", "sess-bob", 1, bob_owed)  # noqa: SLF001 - real competitor
+    mutex = run_dir / "RUN.mutex"
+    return {"nonce": nonce, "problem": problem, "mutex": mutex.read_bytes() if mutex.exists() else None}
+
+
+def assert_competitor_was_kept_out(seen: dict[str, object], mutex_before: bytes) -> None:
+    """Nobody may establish itself while an effect owns the locked section."""
+    assert seen["nonce"] is None, f"a competitor took the mutex over while the effect owned the section: {seen}"
+    assert "coordination intent" in str(seen["problem"]), seen["problem"]
+    assert seen["mutex"] == mutex_before, "the mutex changed hands inside someone else's locked section"
+
+
+def run_stalled_effect(effect: Callable[[], None], stop: Interleaving) -> threading.Thread:
+    """Start the effect under test in its own thread and wait until it stalls."""
+    worker = threading.Thread(target=effect, name="stalled-effect")
+    worker.start()
+    stop.wait_until_inside()
+    return worker
+
+
+def stall_mutex_writes(monkeypatch: pytest.MonkeyPatch, stop: Interleaving) -> None:
+    """Stop the first ``RUN.mutex`` replacement inside its protected section."""
+    real_write = semantic_gate._atomic_write_bytes  # noqa: SLF001 - stall injection point
+
+    def stalling_write(path: pathlib.Path, data: bytes) -> None:
+        if path.name == "RUN.mutex":
+            stop.stop_here()
+        real_write(path, data)
+
+    monkeypatch.setattr(semantic_gate, "_atomic_write_bytes", stalling_write)
+
+
+def test_a_stalled_heartbeat_refresh_cannot_be_overtaken(fixture: RunFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AG3-179 round 4: the heartbeat refresh is read-then-replace too.
+
+    A reads RUN.mutex, finds its own nonce M1 and freezes before the
+    ``os.replace``. The freeze outlives the latch TTL, so B collects the
+    latch, takes the (by then expired) mutex over and writes M2 — and A,
+    resuming, puts M1 back on top of the mutex of a LIVING owner. Two
+    writers would then both believe they own the run.
+
+    Round 3 protected only the release against this. The refresh runs the
+    same protection now: the cleanup lock is held across the latch proof,
+    the ownership re-read and the replace, so while A is inside, nobody can
+    reclaim A's latch and therefore nobody can take the mutex over.
+    """
+    monkeypatch.setattr(semantic_gate, "INTENT_WAIT_SECONDS", 0.3)  # the budget, not the behaviour
+    run_dir = fixture.run_dir
+    write_latch(run_dir / semantic_gate.INTENT_NAME, nonce="alice-latch", acquired_at="2020-01-01T00:00:00Z")
+    write_own_live_mutex(run_dir, "alice-mutex")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    stop = Interleaving()
+    stall_mutex_writes(monkeypatch, stop)
+    guard = alice_guard(run_dir, "alice-mutex", owed)
+    worker = run_stalled_effect(lambda: guard._refresh_under_the_latch("alice-latch"), stop)  # noqa: SLF001 - unit under test
+    try:
+        # The stall outlives the mutex TTL, exactly as a frozen process would.
+        expired = write_own_expired_mutex(run_dir, "alice-mutex")
+        seen = probe_the_real_competitor(run_dir)
+    finally:
+        stop.resume.set()
+        worker.join(timeout=30)
+    assert_competitor_was_kept_out(seen, expired)
+    refreshed = json.loads((run_dir / "RUN.mutex").read_text(encoding="utf-8"))
+    assert refreshed["nonce"] == "alice-mutex", "the owner that held the section must finish its refresh"
+    assert owed.orphans == [], owed.orphans
+
+
+def test_a_stalled_payload_commit_cannot_be_overtaken(fixture: RunFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AG3-179 round 4: the effect the mutex exists for must not land late.
+
+    Staging can take arbitrarily long, so this is the step most likely to
+    outlive the latch TTL — and it is the one that writes RUN STATE. A
+    writer that resumes after a successor produced its own result would
+    overwrite exactly that result. The commit therefore re-proves latch and
+    mutex inside the same cleanup-lock section as the ``os.replace``.
+    """
+    monkeypatch.setattr(semantic_gate, "INTENT_WAIT_SECONDS", 0.3)  # the budget, not the behaviour
+    run_dir = fixture.run_dir
+    target = fixture.units_path
+    write_latch(run_dir / semantic_gate.INTENT_NAME, nonce="alice-latch", acquired_at="2020-01-01T00:00:00Z")
+    write_own_live_mutex(run_dir, "alice-mutex")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    staged = b"unit rows staged by alice\n"
+    temp = semantic_gate._stage_temp(target, staged)  # noqa: SLF001 - the production staging step
+    stop = Interleaving()
+    real_replace = semantic_gate._replace_owned_file  # noqa: SLF001 - stall injection point
+
+    def stalling_replace(source: pathlib.Path, destination: pathlib.Path) -> None:
+        if destination.name == target.name:
+            stop.stop_here()
+        real_replace(source, destination)
+
+    monkeypatch.setattr(semantic_gate, "_replace_owned_file", stalling_replace)
+    guard = alice_guard(run_dir, "alice-mutex", owed)
+    worker = run_stalled_effect(lambda: guard._commit_under_the_latch("alice-latch", temp, target), stop)  # noqa: SLF001 - unit under test
+    try:
+        expired = write_own_expired_mutex(run_dir, "alice-mutex")
+        seen = probe_the_real_competitor(run_dir)
+    finally:
+        stop.resume.set()
+        worker.join(timeout=30)
+    assert_competitor_was_kept_out(seen, expired)
+    assert target.read_bytes() == staged, "the writer that owned the section must land its own commit"
+
+
+def test_a_stalled_takeover_cannot_be_overtaken(fixture: RunFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AG3-179 round 4: the takeover replaces a file it read a moment earlier.
+
+    The worst of the three, because its effect IS the ownership record: A
+    reads the expired mutex M1, freezes past the latch TTL, B collects the
+    latch and legitimately takes M1 over into its live M2 — and the
+    resuming A replaces M2 with its own payload. The re-read that is meant
+    to catch "another writer won the race" happens BEFORE the replace and
+    therefore cannot catch it; only the lock can.
+    """
+    monkeypatch.setattr(semantic_gate, "INTENT_WAIT_SECONDS", 0.3)  # the budget, not the behaviour
+    run_dir = fixture.run_dir
+    write_latch(run_dir / semantic_gate.INTENT_NAME, nonce="alice-latch", acquired_at="2020-01-01T00:00:00Z")
+    write_expired_mutex(fixture)
+    crashed = (run_dir / "RUN.mutex").read_bytes()
+    stop = Interleaving()
+    stall_mutex_writes(monkeypatch, stop)
+    outcome: dict[str, object] = {}
+
+    def take_over() -> None:
+        outcome["nonce"], outcome["problem"] = semantic_gate._take_over_mutex(  # noqa: SLF001 - unit under test
+            run_dir, "alice-mutex", "orch.alice", "sess-orch", 1, "alice-latch"
+        )
+
+    worker = run_stalled_effect(take_over, stop)
+    try:
+        seen = probe_the_real_competitor(run_dir)
+    finally:
+        stop.resume.set()
+        worker.join(timeout=30)
+    assert_competitor_was_kept_out(seen, crashed)
+    assert outcome["nonce"] == "alice-mutex", outcome["problem"]
+    taken = json.loads((run_dir / "RUN.mutex").read_text(encoding="utf-8"))
+    assert taken["nonce"] == "alice-mutex", "the taker-over that held the section must land its own payload"
+
+
+# --------------------------------------------------------------------------
+# The give-back of an exclusively created file is a delete-by-identity too
+# --------------------------------------------------------------------------
+
+
+def fail_the_first_payload_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the FIRST payload write fail like a full disk; the rest pass."""
+    real_write = semantic_gate._write_new_payload  # noqa: SLF001 - failure injection point
+    calls = {"count": 0}
+
+    def flaky_write(descriptor: int, payload: bytes) -> OSError | None:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            os.close(descriptor)  # the real write path would have closed it too
+            return OSError(28, "no space left on device")
+        return real_write(descriptor, payload)  # type: ignore[no-any-return]  # passthrough
+
+    monkeypatch.setattr(semantic_gate, "_write_new_payload", flaky_write)
+
+
+def test_the_give_back_section_is_mutually_exclusive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AG3-179 round 4: the give-back deleted by path, without lock or identity.
+
+    The claim its docstring made — "no competitor may touch it before its
+    own TTL" — was true only BEFORE that TTL, and the dangerous case is the
+    one after it. A creates the empty latch I1, its payload write fails and
+    it freezes; once the mtime fallback fires, a cleaner is entitled to
+    collect I1. So the give-back is a delete-by-observed-identity like
+    every other one and belongs inside the same section: while A sits
+    between its identity check and its unlink, no cleaner may enter.
+    """
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    fail_the_first_payload_write(monkeypatch)
+    stop = Interleaving()
+    real_remove = semantic_gate._remove_owned_file  # noqa: SLF001 - stall injection point
+
+    def stalling_remove(path: pathlib.Path) -> str | None:
+        if path.name == semantic_gate.INTENT_NAME:
+            stop.stop_here()
+        return real_remove(path)
+
+    monkeypatch.setattr(semantic_gate, "_remove_owned_file", stalling_remove)
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    result: dict[str, object] = {}
+
+    def claim() -> None:
+        result["nonce"], result["problem"] = claim_latch(tmp_path, owed)
+
+    worker = run_stalled_effect(claim, stop)
+    try:
+        # The freeze outlives the mtime fallback, so a cleaner WOULD collect it.
+        long_ago = time.time() - semantic_gate.MUTEX_TTL_SECONDS - 60
+        os.utime(intent, (long_ago, long_ago))
+        assert semantic_gate._reclaim_expired_intent(tmp_path) is False, (  # noqa: SLF001 - second entrant
+            "a cleaner entered the section while the give-back was inside it"
+        )
+        assert intent.exists(), "the cleaner must not have touched the file the give-back owns"
+    finally:
+        stop.resume.set()
+        worker.join(timeout=30)
+    assert result["nonce"] is None, "a latch without its payload is not a claim"
+    assert not intent.exists(), "the give-back that owned the section must finish its own deletion"
+    assert owed.orphans == [], owed.orphans
+
+
+def test_the_give_back_never_deletes_the_file_that_replaced_ours(tmp_path: Path) -> None:
+    """The other half: after the TTL the name may already belong to someone else.
+
+    Exactly the reviewed interleaving. A creates the empty latch I1 and
+    freezes before its cleanup; the TTL elapses, B removes I1 and creates
+    its own I2 under the same name. A must NOT delete I2 — and it cannot
+    compare nonces, because the file it created never got one. The identity
+    it compares is the (device, inode) pair the kernel gave its own
+    descriptor, which answers exactly the question "is this still the file
+    I created".
+    """
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    descriptor = os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    created = semantic_gate._open_identity(descriptor)  # noqa: SLF001 - unit under test
+    os.close(descriptor)
+    assert created is not None, "the platform must report an identity for a file we hold open"
+
+    intent.unlink()  # B collected the abandoned latch after its TTL
+    successor = write_latch(intent, nonce="bob-latch")  # and claimed the name for itself
+    assert semantic_gate._path_identity(intent) != created, (  # noqa: SLF001 - guard against a vacuous pass
+        "the successor must be a different file, otherwise this test proves nothing"
+    )
+
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    semantic_gate._give_back_exclusive_create(  # noqa: SLF001 - unit under test
+        intent, created, OSError(28, "no space left on device"), owed, permanent=False
+    )
+    assert intent.read_bytes() == successor, "the give-back deleted the latch of a living competitor"
+    assert owed.orphans == [], "a file that is no longer ours is not an orphan of ours"
+
+
+def test_the_give_back_reports_a_file_it_cannot_identify(tmp_path: Path) -> None:
+    """An identity we never got is not permission to delete by path.
+
+    ``fstat`` can fail, and then there is nothing to compare against. Fail
+    closed: the file is left alone AND reported, because leaving an empty
+    ``RUN.mutex`` behind wedges the run directory permanently.
+    """
+    mutex = tmp_path / "RUN.mutex"
+    mutex.write_bytes(b"")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    semantic_gate._give_back_exclusive_create(  # noqa: SLF001 - unit under test
+        mutex, None, OSError(28, "no space left on device"), owed, permanent=True
+    )
+    assert mutex.exists(), "a file we cannot identify must never be deleted by path"
+    assert len(owed.orphans) == 1, owed.orphans
+    assert "could not be identified" in owed.orphans[0].detail, owed.orphans[0].detail
+    assert "no space left on device" in owed.orphans[0].detail, "the failure that made it necessary must survive"
+    assert owed.orphans[0].permanent is True, "an empty RUN.mutex is never taken over after its TTL"

@@ -27,21 +27,37 @@ takeover intent), a takeover can never interleave with another writer's
 critical section. The intent carries its own nonce
 (``{holder_principal, holder_session, intent_nonce, acquired_at,
 ttl_seconds}``) and is released only by nonce match
-(compare-before-delete). Compare-before-delete alone is read-then-unlink
-and therefore not atomic, so EVERY delete-by-observed-identity — of the
-latch (the release as well as the reclaim of an expired one) AND of
-``RUN.mutex`` — runs under an OS advisory lock on
-``RUN.mutex.intent.lock`` (``fcntl.flock`` / ``msvcrt.locking``). The lock
-covers read, expiry check, identity re-check and unlink as one section, so
-a cleaner can no longer delete a latch that another writer created in the
-meantime. The mutex release additionally re-proves under that lock that
-the latch is STILL ours: a holder that stalls past the latch TTL loses it
-to a reclaimer, and a reclaimer that then takes the mutex over would
-otherwise have its fresh mutex unlinked by the resuming holder. The lock
+(compare-before-delete).
+
+THE RULE THAT ORDERS EVERYTHING ELSE. Read-then-act is not atomic: the
+identity a caller observed is not part of the ``unlink`` or ``os.replace``
+that follows it. So EVERY effect that a caller derives from an EARLIER
+observation — not only a delete — runs under an OS advisory lock on
+``RUN.mutex.intent.lock`` (``fcntl.flock`` / ``msvcrt.locking``), and the
+observation is re-established INSIDE that lock immediately before the
+effect. Concretely that covers the latch reclaim, the latch release, the
+heartbeat refresh, the mutex takeover, the final payload write of a
+subcommand, the mutex release and the give-back of an exclusively created
+file that could not be filled. Nothing that touches a file on the strength
+of something read beforehand is left outside it.
+
+Why the SAME lock orders latch and mutex: every reclaim of a latch needs
+the lock, and every mutex takeover needs the latch. While an effect holds
+the lock and has re-proven that the latch is still its own, nobody can
+reclaim that latch, hence nobody holds it, hence nobody can have taken the
+mutex over — so the effect cannot land on top of a successor's work. And
+if the latch was already reclaimed before the lock was taken, the effect
+sees it and refuses. Preventing the loss is impossible (a frozen process
+cannot heartbeat and no timeout tells it apart from a dead one — that is
+why the latch has a TTL at all), so the answer is DETECTION, applied to
+every effect and not only to the release.
+
+The lock is held across a handful of file operations only, never across a
+bounded wait and never across the claim: ``O_CREAT|O_EXCL`` remains the
+arbiter of both claims — the latch and a fresh ``RUN.mutex``. The lock
 file is a pure serialization device: it is never deleted and never
 carries state, and the operating system drops the lock when its holder
-dies. ``O_CREAT|O_EXCL`` remains the arbiter of both claims — the latch
-and a fresh ``RUN.mutex``.
+dies.
 
 Under the intent the mutex is re-read and must still carry the identity
 observed before; only then is it atomically replaced. Takeover
@@ -308,21 +324,28 @@ def _file_is_absent(path: Path) -> bool:
     return False
 
 
-def _check_ownership(path: Path, own_nonce: str, observed_nonce: str | None) -> _Ownership:
-    """Classify a compare-before-delete target for the caller's nonce.
+def _check_ownership(path: Path, own_identity: str, observed_identity: str | None) -> _Ownership:
+    """Classify a compare-before-delete target against the caller's identity.
+
+    The identity is a nonce wherever the file carries one, and the kernel's
+    (device, inode) pair for a file that was created exclusively but never
+    got a payload (:func:`_open_identity`). The classification is the same
+    question either way — "is this still the file I am entitled to act on"
+    — so it is answered in one place.
 
     Args:
         path: The file the caller owes a deletion for.
-        own_nonce: The nonce the caller wrote when it took the file.
-        observed_nonce: The nonce just loaded from the file, or ``None``
-            when the load produced no valid state at all.
+        own_identity: The identity the caller established when it took the
+            file.
+        observed_identity: The identity just read back from the file, or
+            ``None`` when reading it produced nothing valid at all.
 
     Returns:
         Which of the four outcomes holds. Only ``OURS`` permits a delete;
         ``UNVERIFIABLE`` obliges the caller to record an owed effect.
     """
-    if observed_nonce is not None:
-        return _Ownership.OURS if observed_nonce == own_nonce else _Ownership.FOREIGN
+    if observed_identity is not None:
+        return _Ownership.OURS if observed_identity == own_identity else _Ownership.FOREIGN
     return _Ownership.GONE if _file_is_absent(path) else _Ownership.UNVERIFIABLE
 
 
@@ -361,6 +384,11 @@ class _MutexGuard:
     heartbeat refresh. The intent is released by nonce match only, under
     the advisory cleanup lock.
 
+    Every single effect inside that section — the heartbeat refresh and the
+    final ``os.replace`` of the payload alike — additionally runs inside
+    :meth:`_proven_ownership`, because holding the intent is not the same as
+    still holding it (see :func:`_latched_effect`).
+
     Owed deletions that the guard could not carry out are recorded in
     ``owed`` rather than dropped: the release runs in ``main``'s
     ``finally`` and must neither crash the teardown nor rewrite the
@@ -375,38 +403,82 @@ class _MutexGuard:
         self.owed = owed
 
     @contextlib.contextmanager
-    def exclusive_write(self) -> Iterator[None]:
+    def _proven_ownership(self, intent_nonce: str) -> Iterator[None]:
+        """Enter a section in which latch AND mutex are re-proven to be ours.
+
+        The two proofs belong together and both belong INSIDE the lock. The
+        latch proof orders us against a takeover (see :func:`_latched_effect`);
+        the mutex proof is the compare part of compare-before-write, and
+        reading it outside the lock would put the very gap back that the
+        lock exists to close.
+
+        Args:
+            intent_nonce: The latch identity claimed by the enclosing
+                :func:`_coordination_intent`.
+
+        Yields:
+            Nothing; the caller's effect runs inside the proven section.
+
+        Raises:
+            MutexLostError: If the latch or the mutex is no longer ours, or
+                could not be proven to be. Callers translate this into an
+                INCOMPLETE result — an unproven claim never acts.
+        """
+        with _latched_effect(self.run_dir, intent_nonce) as blocked:
+            if blocked is not None:
+                raise MutexLostError(blocked)
+            problem = _mutex_still_ours(self.run_dir, self.nonce, self.principal, self.session)
+            if problem is not None:
+                raise MutexLostError(problem)
+            yield
+
+    @contextlib.contextmanager
+    def exclusive_write(self) -> Iterator[str]:
         """Hold the coordination intent over revalidation + heartbeat + effect.
+
+        Yields:
+            The nonce of the claimed latch. An enclosed effect has to be able
+            to re-prove the claim under the cleanup lock before it acts, so
+            the identity is handed out rather than kept private.
 
         Raises:
             MutexLostError: If the intent cannot be claimed or ownership was
                 lost; callers translate this into an INCOMPLETE result.
         """
-        with _coordination_intent(self.run_dir, self.principal, self.session, self.owed):
-            problem = _mutex_still_ours(self.run_dir, self.nonce, self.principal, self.session)
-            if problem is not None:
-                raise MutexLostError(problem)
+        with _coordination_intent(self.run_dir, self.principal, self.session, self.owed) as intent_nonce:
+            self._refresh_under_the_latch(intent_nonce)
+            yield intent_nonce
+
+    def _refresh_under_the_latch(self, intent_nonce: str) -> None:
+        """Refresh the heartbeat as ONE section (:func:`_latched_effect`).
+
+        The refresh is a read-then-replace like every other effect: it reads
+        the mutex, finds our own nonce and replaces the file. A holder that
+        freezes between those two steps for longer than the latch TTL loses
+        the latch, a successor takes the (by then expired) mutex over and
+        writes its own payload — and the resuming holder puts its stale
+        payload back on top, handing the run to a writer that no longer
+        owns it.
+        """
+        with self._proven_ownership(intent_nonce):
             _refresh_heartbeat(self.run_dir, self.nonce, self.principal, self.session)
-            yield
 
     def write_bytes(self, result: CheckResult, path: Path, data: bytes) -> bool:
         """Stage and commit one write under the exclusive section.
 
         Two-phase on purpose: the payload is staged into a temp file
-        first, ownership is re-verified *immediately* before the atomic
-        rename, and only then does the effect happen. A writer that
-        stalls while staging therefore still cannot land its write after
-        another process took the mutex over — the residual window is the
-        single ``os.replace`` call.
+        first, ownership is re-proven *immediately* before the atomic
+        rename and inside the same cleanup-lock section as the rename, and
+        only then does the effect happen. A writer that stalls while
+        staging therefore cannot land its write after another process took
+        the mutex over — not even when the stall outlived the latch TTL,
+        which is exactly the case a check outside the lock would miss.
         """
         try:
-            with self.exclusive_write():
+            with self.exclusive_write() as intent_nonce:
                 temp = _stage_temp(path, data)
                 try:
-                    problem = _mutex_still_ours(self.run_dir, self.nonce, self.principal, self.session)
-                    if problem is not None:
-                        raise MutexLostError(problem)
-                    _replace_owned_file(temp, path)
+                    self._commit_under_the_latch(intent_nonce, temp, path)
                 except BaseException:
                     with contextlib.suppress(OSError):
                         temp.unlink()
@@ -416,6 +488,17 @@ class _MutexGuard:
             result.incomplete_reason = _mutation_problem(exc)
             return False
         return True
+
+    def _commit_under_the_latch(self, intent_nonce: str, temp: Path, path: Path) -> None:
+        """Swap the staged payload in as ONE section (:func:`_latched_effect`).
+
+        This is the effect the whole mutex exists for, so it is the one that
+        must not land late. Staging can take arbitrarily long; a writer that
+        stalls there past the latch TTL would otherwise resume and overwrite
+        the run state that a legitimate successor has meanwhile produced.
+        """
+        with self._proven_ownership(intent_nonce):
+            _replace_owned_file(temp, path)
 
     def revalidate(self) -> None:
         """Confirm ownership and refresh the heartbeat before dispatch."""
@@ -440,28 +523,11 @@ class _MutexGuard:
     def _delete_own_mutex(self, intent_nonce: str) -> None:
         """Delete the mutex while it still carries our nonce, under the cleanup lock.
 
-        WHY THE LOCK IS HERE AND NOT ONLY ON THE LATCH. Compare-before-delete
-        is read-then-unlink: the expected nonce is not part of the delete
-        operation. A releaser that read its own nonce M1 and then stalls
-        past the latch TTL loses the latch to a reclaimer; that reclaimer
-        takes over the (equally expired) mutex, writes M2 and enters its own
-        critical section — and the resuming releaser then unlinks M2, the
-        mutex of a LIVING owner. That is a safety violation: the successor
-        keeps working while its lock is gone.
-
-        Two ways out were possible. Keeping a living process from losing its
-        section is NOT one of them: a frozen process cannot heartbeat, and
-        no timeout can tell it apart from a dead one — which is the whole
-        reason the latch has a TTL. So the fix is the second way: make the
-        delete atomic against exactly this interleaving.
-
-        The device already exists. Every reclaim of an expired latch runs
-        under the advisory cleanup lock, and every mutex takeover requires
-        the latch. Holding that same lock across "the latch is still ours"
-        AND the compare-before-delete therefore orders the two events: while
-        we hold it, nobody can reclaim our latch, hence nobody holds the
-        latch, hence nobody can have taken the mutex over. And if the latch
-        was already reclaimed before we got the lock, we see it and refuse.
+        This is the release end of the rule :func:`_latched_effect` states in
+        full: a releaser that read its own nonce M1 and then stalls past the
+        latch TTL loses the latch to a reclaimer, that reclaimer takes over
+        the (equally expired) mutex and writes M2 — and the resuming
+        releaser would unlink M2, the mutex of a LIVING owner.
 
         A mutex that cannot be validated is NOT deleted — the identity it
         would have to be compared against is precisely what is missing —
@@ -469,13 +535,9 @@ class _MutexGuard:
         finding, because an unreadable ``RUN.mutex`` wedges the run
         directory for good (see :class:`_Orphan`).
         """
-        with _cleanup_lock(self.run_dir, FILE_EFFECT_RETRY_SECONDS) as locked:
-            if not locked:
-                self._blocked_release(f"the cleanup lock stayed busy for {FILE_EFFECT_RETRY_SECONDS:g}s")
-                return
-            lost = _latch_lost_reason(self.run_dir, intent_nonce)
-            if lost is not None:
-                self._blocked_release(f"the release could not run safely: {lost}")
+        with _latched_effect(self.run_dir, intent_nonce) as blocked:
+            if blocked is not None:
+                self._blocked_release(blocked)
                 return
             self._compare_before_delete_mutex()
 
@@ -702,28 +764,102 @@ def _settle_fresh_latch(
     latch and wait it out until the mtime fallback releases it a full TTL
     later. Handing the claim back is the fail-closed outcome.
     """
+    created = _open_identity(descriptor)
     failure = _write_new_payload(descriptor, payload)
     if failure is None:
         return nonce, None
-    _give_back_exclusive_create(intent, failure, owed, permanent=False)
+    _give_back_exclusive_create(intent, created, failure, owed, permanent=False)
     return None, f"cannot write the RUN.mutex coordination intent payload: {failure}; refusing to mutate"
 
 
-def _give_back_exclusive_create(path: Path, failure: OSError, owed: _OwedEffects, *, permanent: bool) -> None:
-    """Remove a file we created exclusively but could not fill, and report a leftover.
+def _open_identity(descriptor: int) -> str | None:
+    """The kernel's identity of an OPEN file: its device and inode.
 
-    Nothing to compare against — the file never got an identity. Removing
-    it by path is still safe: we created it exclusively moments ago, and no
-    competitor may touch it before its own TTL.
+    A file that was created exclusively but never filled carries no nonce,
+    so the payload cannot say who it belongs to. The kernel can: the
+    (device, inode) pair it reports for our own descriptor names THIS file
+    and no other one that may later wear the same path.
+
+    Returns:
+        The identity, or ``None`` when the platform would not report it. An
+        identity we do not have is never guessed at — its only use is to
+        authorize a delete.
+    """
+    try:
+        info = os.fstat(descriptor)
+    except OSError:
+        return None
+    return f"{info.st_dev}:{info.st_ino}"
+
+
+def _path_identity(path: Path) -> str | None:
+    """The identity of whatever currently wears ``path``; ``None`` if unreadable."""
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return f"{info.st_dev}:{info.st_ino}"
+
+
+def _give_back_exclusive_create(
+    path: Path, created: str | None, failure: OSError, owed: _OwedEffects, *, permanent: bool
+) -> None:
+    """Remove a file we created exclusively but could not fill, under the cleanup lock.
+
+    THE CLAIM THIS USED TO MAKE WAS FALSE. "No competitor may touch it
+    before its own TTL" is true only BEFORE that TTL — and the case that
+    matters is the one after it. A caller that created the empty latch I1,
+    failed its payload write and then froze loses I1 to
+    :func:`_reclaim_expired_intent` once the mtime fallback fires; a
+    competitor creates I2 under the same name, and the resuming caller
+    deletes I2 by PATH. Same interleaving as every other read-then-act
+    here, so it takes the same protection (:func:`_latched_effect` states
+    the rule in full).
+
+    The identity compared is not a nonce — the file never got one — but the
+    (device, inode) pair the kernel gave our own descriptor. That is an
+    exact answer to "is this still the very file I created", which is the
+    whole question. The latch does NOT additionally have to be re-proven
+    here: for the latch this file IS the latch, and for ``RUN.mutex`` no
+    successor can exist while an empty mutex sits on the name, because
+    :func:`_take_over_mutex` rejects an invalid payload before it ever
+    looks at a TTL.
 
     ``permanent`` follows :class:`_Orphan`: an empty ``RUN.mutex`` is never
-    taken over (an invalid payload is rejected before the TTL is even
-    looked at), so a leftover there wedges the run for good, whereas the
+    taken over, so a leftover there wedges the run for good, whereas the
     latch has the mtime fallback.
     """
+    with _cleanup_lock(path.parent, FILE_EFFECT_RETRY_SECONDS) as locked:
+        if not locked:
+            busy = f"the cleanup lock stayed busy for {FILE_EFFECT_RETRY_SECONDS:g}s"
+            owed.record(path, _give_back_detail(busy, failure), permanent=permanent)
+            return
+        _delete_the_file_we_created(path, created, failure, owed, permanent=permanent)
+
+
+def _delete_the_file_we_created(
+    path: Path, created: str | None, failure: OSError, owed: _OwedEffects, *, permanent: bool
+) -> None:
+    """Compare the file identity and unlink; caller MUST hold the cleanup lock."""
+    if created is None:
+        unknown = "the file we created exclusively could not be identified, so it may not be deleted by path"
+        owed.record(path, _give_back_detail(unknown, failure), permanent=permanent)
+        return
+    ownership = _check_ownership(path, created, _path_identity(path))
+    if ownership is _Ownership.UNVERIFIABLE:
+        unreadable = "the file exists but could not be verified as ours (its identity could not be read)"
+        owed.record(path, _give_back_detail(unreadable, failure), permanent=permanent)
+        return
+    if ownership is not _Ownership.OURS:
+        return  # reclaimed after its TTL and replaced: deleting it now would hit a competitor's file
     detail = _remove_owned_file(path)
     if detail is not None:
-        owed.record(path, f"{detail} (after the payload write failed: {failure})", permanent=permanent)
+        owed.record(path, _give_back_detail(detail, failure), permanent=permanent)
+
+
+def _give_back_detail(reason: str, failure: OSError) -> str:
+    """Name why the give-back stayed undone, and what made it necessary."""
+    return f"{reason} (after the payload write failed: {failure})"
 
 
 def _write_new_payload(descriptor: int, payload: bytes) -> OSError | None:
@@ -1037,6 +1173,55 @@ def _latch_lost_reason(run_dir: Path, intent_nonce: str) -> str | None:
     return f"the coordination intent was reclaimed while we held it (now: {ownership.value})"
 
 
+@contextlib.contextmanager
+def _latched_effect(run_dir: Path, intent_nonce: str) -> Iterator[str | None]:
+    """Serialize ONE effect that follows from an earlier observation.
+
+    THE ONE PLACE THE RULE LIVES. Read-then-act is two steps: the identity
+    a caller observed is not part of the ``unlink`` or ``os.replace`` that
+    follows it. A caller that observed something, then stalls past the
+    latch TTL, loses the latch to a reclaimer; that reclaimer takes the
+    mutex over and starts working — and the resuming caller then lands its
+    effect on top of a LIVING successor. That is a safety violation, and it
+    is the same violation whether the effect deletes the mutex, refreshes
+    the heartbeat, replaces the mutex in a takeover or commits the
+    subcommand's own payload. So all of them go through here, not just the
+    one a review happened to name.
+
+    Preventing the latch loss is impossible: a frozen process cannot
+    heartbeat and no timeout tells it apart from a dead one — which is why
+    the latch has a TTL in the first place. The answer is therefore
+    DETECTION. Every reclaim of an expired latch needs the advisory cleanup
+    lock, and every mutex takeover needs the latch; holding that lock
+    across "the latch is still ours" AND the effect therefore orders the
+    two events. While we are inside, nobody can reclaim our latch, hence
+    nobody holds it, hence nobody can have taken the mutex over. And if the
+    latch was already reclaimed before we got the lock, we see it and refuse.
+
+    The section stays SHORT by construction — a re-read and one file
+    operation, never a bounded wait and never the claim itself, which
+    remains arbitrated by ``O_CREAT|O_EXCL``. It is also never nested: each
+    caller enters it after the enclosing latch claim has already released
+    the lock again, because the same-process advisory lock would otherwise
+    block against itself.
+
+    Args:
+        run_dir: The incubation run directory holding latch and lock.
+        intent_nonce: The latch identity the caller claimed earlier.
+
+    Yields:
+        ``None`` while the effect may run, otherwise the reason it may not.
+        A caller that receives a reason must not perform its effect; what it
+        does instead (abort, or record an owed effect) depends on whether
+        the effect was owed.
+    """
+    with _cleanup_lock(run_dir, FILE_EFFECT_RETRY_SECONDS) as locked:
+        if not locked:
+            yield f"the cleanup lock stayed busy for {FILE_EFFECT_RETRY_SECONDS:g}s"
+            return
+        yield _latch_lost_reason(run_dir, intent_nonce)
+
+
 def _acquire_mutex(
     run_dir: Path, principal: str, session: str, fencing_token: int, owed: _OwedEffects
 ) -> tuple[str | None, str | None]:
@@ -1046,17 +1231,16 @@ def _acquire_mutex(
     inside the SAME intent that guards heartbeat, write and release, so a
     takeover can never interleave with another writer's critical section.
     """
-    mutex = run_dir / RUN_MUTEX_FILE
     nonce = uuid.uuid4().hex
     try:
-        with _coordination_intent(run_dir, principal, session, owed):
-            return _create_or_take_over_mutex(run_dir, mutex, nonce, principal, session, fencing_token, owed)
+        with _coordination_intent(run_dir, principal, session, owed) as intent_nonce:
+            return _create_or_take_over_mutex(run_dir, nonce, principal, session, fencing_token, owed, intent_nonce)
     except (MutexLostError, OSError) as exc:
         return None, _mutation_problem(exc)
 
 
 def _create_or_take_over_mutex(
-    run_dir: Path, mutex: Path, nonce: str, principal: str, session: str, fencing_token: int, owed: _OwedEffects
+    run_dir: Path, nonce: str, principal: str, session: str, fencing_token: int, owed: _OwedEffects, intent_nonce: str
 ) -> tuple[str | None, str | None]:
     """Create ``RUN.mutex`` exclusively, or take over the one that is there.
 
@@ -1074,11 +1258,16 @@ def _create_or_take_over_mutex(
     Every other ``OSError`` is fail-closed: "the platform refused the create
     right now" is a lost claim with a regular exit code, never a guess that
     the file is absent (Rand 2.4 of the decision record).
+
+    The exclusive create itself needs no cleanup lock: it derives nothing
+    from an earlier observation — the kernel decides, at the instant of the
+    call, whether the name was free.
     """
+    mutex = run_dir / RUN_MUTEX_FILE
     try:
         descriptor = os.open(mutex, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
-        return _take_over_mutex(run_dir, mutex, nonce, principal, session, fencing_token)
+        return _take_over_mutex(run_dir, nonce, principal, session, fencing_token, intent_nonce)
     except OSError as exc:
         return None, f"cannot create RUN.mutex exclusively: {exc}; refusing to mutate"
     return _settle_fresh_mutex(mutex, descriptor, _mutex_payload(principal, session, nonce, _now_utc()), nonce, owed)
@@ -1095,17 +1284,19 @@ def _settle_fresh_mutex(
     considered. Leaving one behind would wedge the run directory
     permanently, so the failed claim is handed back.
     """
+    created = _open_identity(descriptor)
     failure = _write_new_payload(descriptor, payload)
     if failure is None:
         return nonce, None
-    _give_back_exclusive_create(mutex, failure, owed, permanent=True)
+    _give_back_exclusive_create(mutex, created, failure, owed, permanent=True)
     return None, f"cannot write the RUN.mutex payload: {failure}; refusing to mutate"
 
 
 def _take_over_mutex(
-    run_dir: Path, mutex: Path, nonce: str, principal: str, session: str, fencing_token: int
+    run_dir: Path, nonce: str, principal: str, session: str, fencing_token: int, intent_nonce: str
 ) -> tuple[str | None, str | None]:
     """Take over an expired mutex; caller MUST hold the coordination intent."""
+    mutex = run_dir / RUN_MUTEX_FILE
     observed, issues = runmodel_locks.load_mutex_state(mutex)
     if observed is None:
         return None, _unreadable_mutex_problem(mutex, issues)
@@ -1116,11 +1307,37 @@ def _take_over_mutex(
     run, _ = runmodel_run.load_run_state(run_dir / RUN_FILE)
     if run is None or run.lease_fencing_token != fencing_token:
         return None, "expired RUN.mutex takeover requires a caller fencing token equal to RUN.lease_fencing_token"
-    current, _ = runmodel_locks.load_mutex_state(mutex)
-    if current is None or (current.nonce, current.heartbeat_at) != (observed.nonce, observed.heartbeat_at):
-        return None, "RUN.mutex changed during takeover (another writer won the race); refusing to mutate"
-    _atomic_write_bytes(mutex, _mutex_payload(principal, session, nonce, _now_utc()))
-    return nonce, None
+    return _commit_takeover(run_dir, nonce, principal, session, observed, intent_nonce)
+
+
+def _commit_takeover(
+    run_dir: Path,
+    nonce: str,
+    principal: str,
+    session: str,
+    observed: runmodel_locks.MutexState,
+    intent_nonce: str,
+) -> tuple[str | None, str | None]:
+    """Re-read and replace the expired mutex as ONE section (:func:`_latched_effect`).
+
+    The takeover is a read-then-replace like every other effect here, and it
+    is the one with the worst outcome: a taker-over that observed the
+    expired mutex M1 and then stalls past the latch TTL loses the latch, a
+    successor legitimately takes M1 over and writes its live M2 — and the
+    resuming taker-over replaces M2 with its own payload. Two writers would
+    then both believe they hold the run. The re-read therefore happens under
+    the cleanup lock, with the latch re-proven inside it, so no successor
+    can exist by the time the replace runs.
+    """
+    mutex = run_dir / RUN_MUTEX_FILE
+    with _latched_effect(run_dir, intent_nonce) as blocked:
+        if blocked is not None:
+            return None, f"the RUN.mutex takeover could not run safely: {blocked}; refusing to mutate"
+        current, _ = runmodel_locks.load_mutex_state(mutex)
+        if current is None or (current.nonce, current.heartbeat_at) != (observed.nonce, observed.heartbeat_at):
+            return None, "RUN.mutex changed during takeover (another writer won the race); refusing to mutate"
+        _atomic_write_bytes(mutex, _mutex_payload(principal, session, nonce, _now_utc()))
+        return nonce, None
 
 
 def _unreadable_mutex_problem(mutex: Path, issues: Sequence[Issue]) -> str:
