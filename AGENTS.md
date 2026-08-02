@@ -70,21 +70,84 @@ Auftraggeber iterieren.
   pruefen, danach Record-im-Diff oder gueltigen `Concept-Decision`-
   Trailer sowie den gruenen `check_concept_decision_record.py`-Lauf
   bestaetigen.
-- Vor der Landung normativer Konzeptaenderungen W2 gegen die geaenderte
-  Range ausfuehren (LLM-gestuetzt, daher bewusst kein blocking Push-Gate):
-  `python scripts/ci/check_concept_authority_prose.py --mode pre-merge
-  --base "${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-HEAD~1}"`. Neue Befunde sind
-  ERROR bis zum Fix oder einem konkret begruendeten Baseline-Eintrag.
-- Vor der Landung normativer Konzeptaenderungen W3 fuer jeden betroffenen
-  `authority_over`-Scope ausfuehren; `--scope` darf fuer mehrere Scopes
-  wiederholt werden:
-  `python scripts/ci/check_concept_scope_consistency.py --scope "<authority_over-scope>"`.
-  W3 ruft den Hub nie in der
-  blockierenden Push-CI auf; der ungefilterte Nightly-Lauf bleibt explizit
-  nicht blockierend. Neue W3-Befunde sind ERROR bis zum Fix oder einem
-  begruendeten Eintrag in derselben Governance-Baseline wie W2; jeder
-  W3-Baseline-Eintrag braucht die P4-Formalisierungspruefung mit Ja/Nein und
-  konkreter Begruendung.
+- **Die W2/W3-Pre-Merge-Pflicht ist seit 2026-08-02 ausgesetzt (PO-Entscheidung).**
+  Die Konzeptpruefung wird umgestellt: weg von LLM-Hub-Gates, an die
+  Konzeptanteile geschickt werden in der Hoffnung auf saubere
+  Modellantworten, hin zu nativen KI-Agenten ueber die Harness-Bridge,
+  denen von aussen nur Leitplanken, Ziele und Nachweispflichten
+  vorgegeben werden und die ihre Strategie selbst waehlen. Bis das neue
+  Verfahren normiert ist, gilt:
+  - `check_concept_authority_prose.py` (W2) und
+    `check_concept_scope_consistency.py` (W3) sind **kein
+    Abnahmekriterium** mehr. Ein nicht gefahrener, abgebrochener oder
+    unvollstaendiger Sweep blockiert die Landung nicht.
+  - **Ein Lauf bleibt erlaubt, und ein inhaltlicher Befund bleibt
+    verbindlich.** Wer W2/W3 faehrt und einen Befund erhaelt, behebt ihn
+    an der Wurzel oder traegt ihn begruendet in die Baseline ein.
+    Ausgesetzt ist die Pflicht zum Lauf, nicht der Umgang mit dem
+    Ergebnis.
+  - **Ein nicht durchgelaufener Sweep wird niemals als "gruen"
+    berichtet.** "Konzept-Gates gruen" bezeichnet ausschliesslich die
+    statischen Gates. Wer beides zusammenzieht, wiederholt die
+    Ueberbehauptung aus AG3-179 Runde 1.
+  - **Der Grund ist Erfuellbarkeit, nicht Bequemlichkeit.** Eine Regel,
+    die im Repo steht und nicht erfuellbar ist, erzieht dazu, sie still
+    zu uebergehen oder "Gates gruen" zu behaupten — beides ist bereits
+    passiert. Belegt in
+    `stories/AG3-179-run-mutex-intent-liveness/report.md`: ein
+    reproduzierbarer `HUB_UNREACHABLE` an einer Partition von 35666
+    Zeichen im qwen-Adapter, und ein fehlender Retry in
+    `collect_scope_findings`, der einen kompletten Sweep an einem
+    einzigen nicht-woertlichen Modellzitat beendet.
+- **Unveraendert verbindlich und blockierend bleiben alle
+  deterministischen Konzept-Gates:** `check_concept_frontmatter.py`,
+  `compile_formal_specs.py`, `check_concept_reference_integrity.py` (W1),
+  `check_concept_code_contracts.py`, `check_architecture_conformance.py`
+  sowie `check_concept_decision_record.py` (W4) samt Record- und
+  Betroffenheitsmatrix-Pflicht. Die Aussetzung betrifft **ausschliesslich**
+  die beiden LLM-gestuetzten Sweeps. Es gibt weiterhin keinen gate-freien
+  Pfad in die normative Welt.
+- **Was bis zur Normierung des neuen Verfahrens an ihre Stelle tritt:**
+  Eine normative Konzeptaenderung wird vor der Landung einem
+  **unabhaengigen Agenten** vorgelegt — anderer Principal, andere
+  Session als der Verfasser — mit drei benannten Pruefachsen:
+  (1) zeigen die Aenderungen auf die richtigen normativen Zielstellen und
+  auf Dokumente, die den Scope besitzen duerfen, (2) ist die Aenderung in
+  sich und gegen den beruehrten Bestand widerspruchsfrei, (3) trifft sie
+  den Problemraum und ist sie ohne eigene Annahmen umsetzbar. Befunde
+  werden an der Wurzel behoben; "konnte nicht geprueft werden" ist ein
+  zulaessiges Ergebnis und niemals PASS. Das ist die bereits geltende
+  Codex-Review-Grundregel aus `CLAUDE.md`, angewandt auf
+  Konzeptaenderungen — sie braucht keine neue Mechanik.
+- **Leitplanken und Ziel sind nicht Gegenstand der Agentenstrategie**
+  (PO-Ratifikation 2026-08-02). Der Agent ist frei in seiner Strategie
+  und frei in seinem Handeln. Er ist **nicht** frei im Ziel und nicht in
+  den Leitplanken: er muss das Ziel erfuellen und dabei die Leitplanken
+  beruecksichtigen.
+
+  **Er hat dabei ausdruecklich das Mandat, neue normative Inhalte zu
+  schaffen** — also Aussagen darueber, was gilt. Das Mandat ist an drei
+  Bedingungen gebunden, die zusammen gelten muessen:
+  1. Die neue Aussage ist die **Ausdetaillierung** eines Konzeptinhalts,
+     der an anderer Stelle bereits groeber definiert ist. Es gibt eine
+     benennbare Ankerstelle, gegen die sie sich ausweist.
+  2. Sie **widerspricht keinem vorhandenen Konzept**.
+  3. Sie **eroeffnet keine neue Konzeptdomaene**.
+
+  Fehlt der Anker, waere die Domaene neu, oder entstuende ein
+  Widerspruch, **holt der Agent zuerst den Product Owner**. Er legt
+  offen, welcher Pfosten fehlt, und laesst sich die groben Pfosten auf
+  **Meta-Konzeptebene** setzen — nicht die Ausformulierung, sondern den
+  Rahmen. Danach ist die Arbeit wieder Ausdetaillierung entlang eines
+  Ankers, und er schreibt weiter. Ohne diesen Schritt schreibt er nicht
+  weiter: eine fehlende Grundentscheidung wird nicht durch eine gut
+  formulierte Detailaussage ersetzt.
+
+  Damit steht die freie Strategiewahl nicht im Widerspruch zu `CLAUDE.md`
+  und FK-78 section 78.14 ("LLM nur als Bewertungsfunktion, kein
+  Werkzeug entscheidet frei"): frei sind **Ermittlung und
+  Ausdetaillierung entlang eines Ankers**; nicht frei ist das Setzen
+  neuer Grundentscheidungen. Verboten ist Erfindung, nicht Ableitung.
 
 Den Repo-Zustand niemals so lassen, dass Jenkins oder das
 Sonar-Quality-Gate rot wird.

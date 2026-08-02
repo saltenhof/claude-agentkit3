@@ -305,3 +305,32 @@ nicht rueckwirkend darunter.
   ausdruecklich nach Auftrag.
 - **Ob `authority-prose-baseline.yaml` weitergefuehrt, eingefroren oder
   ueberfuehrt wird** (C-11) — sie haengt an E4 und faellt mit ihr.
+
+---
+
+## Ratifiziert am 2026-08-02 (PO)
+
+**E2 — Doktrinkonflikt "Agent waehlt Strategie selbst" vs. "kein Werkzeug
+entscheidet frei": aufgeloest.** Der PO traegt die Praezisierung und hat sie in
+zwei Schritten selbst geschaerft. Der verbindliche Wortlaut steht in `AGENTS.md`
+und ist von dort zu uebernehmen, nicht aus diesem Werkstattdokument zu zitieren.
+
+Der Kern in drei Saetzen:
+
+1. Frei ist die **Strategie und das Handeln**; nicht frei sind **Ziel und
+   Leitplanken**.
+2. Der Agent hat **ausdruecklich das Mandat, neue normative Inhalte zu
+   schaffen** — gebunden an drei gemeinsam geltende Bedingungen:
+   Ausdetaillierung eines groeber definierten Konzeptinhalts mit benennbarer
+   Ankerstelle, kein Widerspruch zum Bestand, keine neue Konzeptdomaene.
+3. Fehlt der Anker, waere die Domaene neu, oder entstuende ein Widerspruch,
+   **holt der Agent den PO** und laesst sich die groben Pfosten auf
+   Meta-Konzeptebene setzen. Erst danach schreibt er weiter.
+
+Verboten ist damit **Erfindung, nicht Ableitung**. Die Regel aus FK-78 §78.14
+bleibt unangetastet; praezisiert ist, dass sie die *Entscheidung* meint und
+nicht die *Ermittlung*.
+
+Offen bleibt die normative Nachfuehrung in FK-78 §78.14 und
+`konzept-konsistenz-governance.md` — sie laeuft ueber das Verfahren, das dieser
+Entwurf beschreibt, samt Decision Record.
