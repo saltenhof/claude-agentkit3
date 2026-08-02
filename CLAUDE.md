@@ -72,6 +72,52 @@ Every deliverable must be fachlich vollstaendig im vereinbarten Scope. Keine sti
 - Keine Attrappen fuer produktive Kernlogik.
 - Keine halbfertigen Architekturuebergaenge, die alte und neue Modelle parallel herumtragen.
 
+**Warum die Regel absolut ist.** Sie steht hier nicht als Anspruch an Sauberkeit,
+sondern als Rechnung: **Keine Schuld ist billiger als ihre Beseitigung.** Sie
+wird transitiv bezahlt — an anderer Stelle, zu einem spaeteren Zeitpunkt, von
+jemand anderem, mit Zinsen und Zinseszins. Wer sie eingeht, bucht die Ersparnis
+sofort und die Rechnung in ein fremdes Quartal.
+
+Ohne diesen Satz ist die Regel wegrechenbar: Wer den heutigen Aufwand gegen den
+heutigen Nutzen haelt, kommt bei Schuld fast immer auf „billiger" — weil die
+Gegenbuchung noch nicht existiert. Genau dieser Vergleich ist der Fehler.
+
+Der Zinseszins hat zwei Mechanismen, beide belegt:
+
+- **Der Fehler vermehrt sich ueber Abhaengigkeiten.** Ein falscher Wert bleibt
+  nicht einer. Er wird kopiert, referenziert und in Tests festgeschrieben; jede
+  Kopie ist eine Zinszahlung, und der Hauptbetrag waechst, weil spaetere Arbeit
+  auf dem falschen Stand aufsetzt.
+- **Schuld, die wie ein Entwurf aussieht, kostet mehr als Schuld, die wie ein
+  Fehler aussieht.** Ein Fehler wird gefunden. Ein Entwurf wird erweitert.
+
+**Wer fremde Schuld mitigiert, uebernimmt sie.** Vorgefundene Schuld gehoert
+dem, der sie erzeugt hat — solange sie sichtbar bleibt. Wer sie umdeutet,
+umbiegt oder still verschwinden laesst, um mit ihr weiterarbeiten zu koennen,
+traegt ihre Konsequenz fort und macht sie damit zu seiner eigenen. Das gilt in
+beide Richtungen und ist an keiner davon harmlos:
+
+- Ein Register, das den fehlenden Eigentuemer durch **eigene Autoritaet**
+  ersetzt, behauptet etwas Falsches.
+- Ein Register, das den heimatlosen Eintrag **stillschweigend weglaesst**, ist
+  unvollstaendig — und erfuellt damit die Funktion nicht mehr, fuer die es
+  existiert.
+
+Beides traegt fort. Zulaessig ist nur, den fehlenden Eigentuemer **herzustellen**
+— oder die Luecke unveraendert sichtbar zu lassen und entscheidungsreif zu
+melden (siehe „FEHLENDES BESCHAFFEN STATT UMGEHEN"). Beruehren ist keine
+Uebernahme; **mitigieren** ist es.
+
+Belegte Anlassfaelle (2026-08-02, ein Tag, ein Repository): der Legacy-Port
+`9080`, den niemand durch den Installer gezogen hatte — bezahlt mit einer
+gescheiterten Fremdinstallation; der Mutex-Vertrag, den FK-78 seit jeher zusagte
+und den der Code nie einloeste — bezahlt mit vier Reviewrunden und sieben
+Defekten, darunter ein Safety-Defekt; eine Pooling-Strategie ohne Eigentuemer —
+bezahlt mit sechs abgenommenen Storys auf falscher Bemessungsgrundlage; ein
+Erstzugang, den nur Tests herstellten — bezahlt damit, dass AK3 nicht
+installierbar war und es ein Dritter gemerkt hat. Keiner dieser Faelle hat bei
+seiner Entstehung wehgetan.
+
 ### KEINE KOMPATIBILITAETSSCHICHTEN — AUSNAHMSLOS (PO-Grundregel)
 
 **Es gibt kein einziges produktives Projekt mit AK3.** Nichts ist im Einsatz,
