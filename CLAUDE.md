@@ -72,6 +72,37 @@ Every deliverable must be fachlich vollstaendig im vereinbarten Scope. Keine sti
 - Keine Attrappen fuer produktive Kernlogik.
 - Keine halbfertigen Architekturuebergaenge, die alte und neue Modelle parallel herumtragen.
 
+### KEINE KOMPATIBILITAETSSCHICHTEN — AUSNAHMSLOS (PO-Grundregel)
+
+**Es gibt kein einziges produktives Projekt mit AK3.** Nichts ist im Einsatz,
+niemand hat einen alten Stand, den es zu schonen gaebe. Jede Form von
+Kompatibilitaet schuetzt damit **niemanden** — sie erzeugt nur Schuld und einen
+zweiten Pfad, den ab sofort jeder mitlesen, mitpflegen und mitpruefen muss.
+
+**Verboten ist nicht nur der Bau, sondern schon die Ueberlegung.** Wer anfaengt,
+ueber Migrationspfade, sanfte Uebergaenge oder Rueckwaertsvertraeglichkeit
+nachzudenken, ist bereits auf dem falschen Weg und hoert dort auf.
+
+Konkret verboten — die Liste ist beispielhaft, nicht abschliessend:
+
+- Deprecated-Aliase, Compat-Kommandos, „Legacy"-Flags und Uebergangs-Defaults
+- Re-Export-Fassaden und Shims, die alte Import- oder Aufrufpfade am Leben halten
+- doppeltes Lesen von altem UND neuem Format, Versionsweichen im Code
+- alte Ports, Pfade, Feld- oder Schluesselnamen, die „noch funktionieren sollen"
+- `# deprecated`, `# legacy`, `# kept for compatibility` als Begruendung, etwas
+  stehen zu lassen
+
+**Wer eine solche Stelle findet, entfernt sie** — mitsamt allem, was nur ihretwegen
+existiert. Sie zu dokumentieren, zu markieren oder in eine Folgestory zu schieben
+ist keine Erledigung. Umbenennen, verschieben, loeschen: der Schnitt wird an einer
+Stelle gemacht, nicht an zweien nacheinander.
+
+Belegter Anlassfall (2026-08-02): Der Compat-Alias `serve-control-plane` hielt den
+Legacy-Port `9080` am Leben. Die Portmigration auf `9702` erreichte den Installer
+nie — **jede frische Installation schrieb eine `control-plane.json`, die auf einen
+Port zeigte, auf dem nichts lauscht.** Die Kompatibilitaetsschicht hat nichts
+geschuetzt und genau den Fehler erzeugt, gegen den sie angeblich half.
+
 ### FIX THE MODEL, NOT THE SYMPTOM
 Die v2-Erfahrung ist hier lehrreich: Fehler entstehen oft durch unklare Ownership, implizite Datenfluesse und versteckte Zustandskopien. Deshalb gilt:
 
