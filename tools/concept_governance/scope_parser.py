@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from concept_governance.json_escapes import repair_markdown_escapes
+from concept_governance.json_escapes import normalize_schema_keys, repair_markdown_escapes
 from concept_governance.scope_contracts import ScopeConsistencyResponse
 
 
@@ -21,7 +21,7 @@ def parse_scope_response(raw_response: str) -> ScopeConsistencyResponse:
             if candidate is None:
                 continue
             try:
-                return ScopeConsistencyResponse.model_validate_json(candidate)
+                return ScopeConsistencyResponse.model_validate_json(normalize_schema_keys(candidate))
             except ValidationError as exc:
                 errors.append(str(exc.errors(include_url=False)))
     raise ScopeResponseParseError(f"structured response is invalid: {'; '.join(errors)}")

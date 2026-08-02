@@ -32,13 +32,19 @@ def test_escaped_table_pipe_json_is_strictly_revalidated() -> None:
     rejects as an invalid escape — the same failure class as ``\\_``, one
     table over. Repairing one character at a time only postpones the next
     one, so every non-JSON escape is repaired.
+
+    The assertion is a VERBATIM quotation of the chunk, so the repair has
+    to give back the cell exactly as it stands there, escapes included. An
+    earlier fix dropped the backslashes: W2 accepted the altered quotation
+    (it does not compare against the chunk) and W3 then rejected it,
+    correctly, for a corruption the toolchain had introduced itself.
     """
+    cell = "`LIGHT\\_INCUBATION` \\| `FULL\\_ATOM`"
     parsed = parse_response(
-        '{"has_normative_statements":true,"assertions":'
-        '[{"assertion":"`LIGHT\\_INCUBATION` \\| `FULL\\_ATOM`","scopes":["lock.lifecycle"]}]}'
+        '{"has_normative_statements":true,"assertions":' + f'[{{"assertion":"{cell}","scopes":["lock.lifecycle"]}}]}}'
     )
     assert parsed.has_normative_statements is True
-    assert parsed.assertions[0].assertion == "`LIGHT_INCUBATION` | `FULL_ATOM`"
+    assert parsed.assertions[0].assertion == cell, "the quoted chunk must survive word for word"
 
 
 def test_a_genuinely_escaped_backslash_survives_the_repair() -> None:
@@ -47,12 +53,15 @@ def test_a_genuinely_escaped_backslash_survives_the_repair() -> None:
     ``\\\\|`` is a VALID escape followed by a pipe. Treating its second
     backslash as stray would silently corrupt the quoted assertion — and a
     corrupted quote is worse than a rejected one, because it parses.
+
+    The stray ``\\|`` in the same string survives as the two characters it
+    was; the genuine ``\\\\\\\\`` still decodes to one backslash.
     """
     parsed = parse_response(
         '{"has_normative_statements":true,"assertions":'
         '[{"assertion":"path C:\\\\\\\\dir \\| next","scopes":["lock.lifecycle"]}]}'
     )
-    assert parsed.assertions[0].assertion == "path C:\\\\dir | next"
+    assert parsed.assertions[0].assertion == "path C:\\\\dir \\| next"
 
 
 def test_regex_fallback_rejects_contradictory_json_and_verdict() -> None:
