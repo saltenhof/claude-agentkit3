@@ -1175,6 +1175,276 @@ def test_the_release_section_is_mutually_exclusive(tmp_path: Path) -> None:
     assert owed.orphans == [], owed.orphans
 
 
+# --------------------------------------------------------------------------
+# O_CREAT|O_EXCL arbitrates the FRESH mutex too, not just the latch
+# --------------------------------------------------------------------------
+
+
+def write_live_foreign_mutex(fixture: RunFixture, *, nonce: str = "busy-nonce") -> bytes:
+    """Write a mutex held by someone else RIGHT NOW and return its bytes."""
+    runfixtures.write_json(
+        fixture.run_dir / "RUN.mutex",
+        {
+            "owner_principal": "busy.writer",
+            "owner_session": "sess-busy",
+            "nonce": nonce,
+            "acquired_at": runfixtures.now_utc(),
+            "heartbeat_at": runfixtures.now_utc(),
+            "ttl_seconds": 600,
+        },
+    )
+    return (fixture.run_dir / "RUN.mutex").read_bytes()
+
+
+def test_a_failing_stat_never_makes_a_live_mutex_look_absent(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AG3-179 R1: the fresh mutex is CREATED exclusively, never written after a look.
+
+    ``Path.exists`` answers ``False`` for a permission or I/O error just as
+    it does for a missing file — the very confusion ``_file_is_absent``
+    exists to name. A read-then-create acquire therefore overwrote a LIVE
+    foreign mutex with its own nonce the moment one ``stat`` failed, and
+    two writers then both believed they owned the run. That is a SAFETY
+    defect, not a liveness one, so the arbiter has to be the kernel:
+    ``O_CREAT|O_EXCL`` cannot be fooled by a failing ``stat``.
+
+    The failing stat is injected exactly as the operating system reports
+    it, i.e. as ``exists() is False`` on a file that is very much there.
+    """
+    fixture.units_path.unlink()
+    held = write_live_foreign_mutex(fixture)
+    real_exists = pathlib.Path.exists
+
+    def blind_exists(self: pathlib.Path, **kwargs: object) -> bool:
+        if self.name == "RUN.mutex":
+            return False  # what a failed stat looks like from here
+        return bool(real_exists(self, **kwargs))  # type: ignore[arg-type]  # passthrough
+
+    monkeypatch.setattr(pathlib.Path, "exists", blind_exists)
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    assert code == 2, "a live foreign mutex is a hard abort, whatever stat says"
+    assert "is held by" in capsys.readouterr().err
+    assert (fixture.run_dir / "RUN.mutex").read_bytes() == held, "a live foreign mutex was overwritten with our nonce"
+    assert not fixture.units_path.exists(), "nothing may be mutated without the mutex"
+
+
+def test_the_fresh_mutex_claim_wins_the_name_before_it_has_a_payload(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The exclusive create happens BEFORE the payload exists — that is the point.
+
+    Stopped interleaving at the only seam both a read-then-create and an
+    exclusive create share: building the payload. A read-then-create has
+    already decided "absent" by then and has NOT taken the name, so a
+    competitor can still slip a live mutex in and get it overwritten. An
+    exclusive create holds the name at that instant, so the competitor's
+    own exclusive create must fail — every time, not usually.
+    """
+    fixture.units_path.unlink()
+    mutex = fixture.run_dir / "RUN.mutex"
+    real_payload = semantic_gate._mutex_payload  # noqa: SLF001 - interleaving point
+    competitor: dict[str, bool] = {}
+
+    def competing_payload(principal: str, session: str, nonce: str, acquired_at: str) -> bytes:
+        if "created" not in competitor:
+            try:
+                descriptor = os.open(mutex, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                competitor["created"] = False
+            else:
+                os.close(descriptor)
+                competitor["created"] = True
+        return real_payload(principal, session, nonce, acquired_at)  # type: ignore[no-any-return]  # passthrough
+
+    monkeypatch.setattr(semantic_gate, "_mutex_payload", competing_payload)
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    assert competitor, "the interleaving point was never reached — the test proves nothing"
+    assert competitor["created"] is False, "the mutex name was still free while its payload was being built"
+    assert code == 0, "the exclusive creator owns the run and must complete it"
+    assert not mutex.exists(), "the owner released its own mutex"
+
+
+def test_a_refused_mutex_create_aborts_cleanly_instead_of_crashing(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Not "it exists" but "the platform refused it": a lost claim, never a traceback.
+
+    Every exit code of this CLI carries its own meaning; a crash carries
+    none. Only ``FileExistsError`` may route into the takeover — any other
+    ``OSError`` is fail-closed with a regular exit.
+    """
+    fixture.units_path.unlink()
+    real_open = os.open
+
+    def refusing_open(path: object, flags: int, *rest: int) -> int:
+        if str(path).endswith("RUN.mutex") and flags & os.O_EXCL:
+            raise PermissionError(13, "permission denied")
+        return real_open(path, flags, *rest)  # type: ignore[arg-type]  # passthrough
+
+    monkeypatch.setattr(semantic_gate.os, "open", refusing_open)
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    assert code == 2, "a refused create is a missing prerequisite, not a validation finding"
+    assert "cannot create RUN.mutex exclusively" in capsys.readouterr().err
+    assert not (fixture.run_dir / "RUN.mutex").exists()
+    assert not (fixture.run_dir / semantic_gate.INTENT_NAME).exists(), "the latch must not be orphaned either"
+    assert not fixture.units_path.exists()
+
+
+def test_a_failed_mutex_payload_write_gives_the_claim_back(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty RUN.mutex would wedge the run FOREVER, so the claim is handed back.
+
+    Same two-step gap as the latch, with a harsher leftover: an invalid
+    mutex payload is rejected by the takeover before its TTL is even looked
+    at, so nothing ever collects it. The next run must therefore find the
+    directory usable.
+    """
+    fixture.units_path.unlink()
+    mutex = fixture.run_dir / "RUN.mutex"
+    real_write = semantic_gate._write_new_payload  # noqa: SLF001 - failure injection point
+    failed: dict[str, bool] = {}
+
+    def flaky_write(descriptor: int, payload: bytes) -> OSError | None:
+        if b"owner_principal" in payload and "once" not in failed:
+            failed["once"] = True
+            os.close(descriptor)  # the real write path would have closed it too
+            return OSError(28, "no space left on device")
+        return real_write(descriptor, payload)  # type: ignore[no-any-return]  # passthrough
+
+    monkeypatch.setattr(semantic_gate, "_write_new_payload", flaky_write)
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    assert failed, "the mutex payload write was never exercised"
+    assert code == 2, "a claim without its payload is not a claim"
+    assert "cannot write the RUN.mutex payload" in capsys.readouterr().err
+    assert not mutex.exists(), "an empty RUN.mutex must not stay behind — nothing would ever collect it"
+    monkeypatch.undo()
+    second = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    assert second == 0, "the run directory must not be wedged by the abandoned claim"
+
+
+# --------------------------------------------------------------------------
+# A releaser that lost its latch must not delete its successor's mutex
+# --------------------------------------------------------------------------
+
+
+def write_own_expired_mutex(run_dir: Path, nonce: str) -> bytes:
+    """Write a mutex owned by orch.alice whose heartbeat has long expired."""
+    runfixtures.write_json(
+        run_dir / "RUN.mutex",
+        {
+            "owner_principal": "orch.alice",
+            "owner_session": "sess-orch",
+            "nonce": nonce,
+            "acquired_at": "2020-01-01T00:00:00Z",
+            "heartbeat_at": "2020-01-01T00:00:00Z",
+            "ttl_seconds": 600,
+        },
+    )
+    return (run_dir / "RUN.mutex").read_bytes()
+
+
+def alice_guard(run_dir: Path, nonce: str, owed: semantic_gate._OwedEffects) -> semantic_gate._MutexGuard:
+    """The guard of the writer that is about to release its own mutex."""
+    return semantic_gate._MutexGuard(run_dir, nonce, "orch.alice", "sess-orch", owed)  # noqa: SLF001 - unit under test
+
+
+def test_a_stalled_release_cannot_lose_its_latch_and_delete_the_successor(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AG3-179 R2: the OWED mutex delete is atomic against a latch reclaim.
+
+    The interleaving that used to destroy a living owner's mutex: A holds
+    latch I1 and reads its own mutex M1, then stalls past the latch TTL. B
+    reclaims I1, claims I2, takes over the (also expired) M1 and writes M2 —
+    and A, resuming, unlinks by PATH and removes M2, the mutex of a writer
+    that is inside its critical section.
+
+    Holding the advisory cleanup lock across "the latch is still ours" and
+    the compare-before-delete orders the two events: while A is inside, B
+    cannot reclaim the latch, so B cannot hold it, so B cannot take the
+    mutex over. B loses its claim — fail-closed — instead of losing a mutex
+    it legitimately owned.
+    """
+    monkeypatch.setattr(semantic_gate, "INTENT_WAIT_SECONDS", 0.3)  # the budget, not the behaviour
+    run_dir = fixture.run_dir
+    intent = run_dir / semantic_gate.INTENT_NAME
+    mutex = run_dir / "RUN.mutex"
+    write_latch(intent, nonce="alice-latch", acquired_at="2020-01-01T00:00:00Z")  # A stalled past the TTL
+    alice_mutex = write_own_expired_mutex(run_dir, "alice-mutex")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    inside = threading.Event()
+    resume = threading.Event()
+    real_remove = semantic_gate._remove_owned_file  # noqa: SLF001 - stall injection point
+    seen: dict[str, object] = {}
+
+    def stalling_remove(path: pathlib.Path) -> str | None:
+        if path.name == "RUN.mutex":
+            inside.set()
+            assert resume.wait(timeout=30), "the stalled releaser was never resumed"
+        return real_remove(path)  # type: ignore[no-any-return]  # passthrough
+
+    def releaser() -> None:
+        # The owed delete itself, entered with the latch A claimed long ago.
+        # Going through ``release()`` would claim a FRESH latch here, and a
+        # fresh latch is by definition not yet reclaimable — the stall that
+        # matters is the one that outlived the latch A already had.
+        alice_guard(run_dir, "alice-mutex", owed)._delete_own_mutex("alice-latch")  # noqa: SLF001 - unit under test
+
+    semantic_gate._remove_owned_file = stalling_remove  # type: ignore[assignment]  # noqa: SLF001 - stall injection
+    thread = threading.Thread(target=releaser, name="mutex-releaser")
+    thread.start()
+    try:
+        assert inside.wait(timeout=30), "the release never reached its unlink"
+        semantic_gate._remove_owned_file = real_remove  # type: ignore[assignment]  # noqa: SLF001 - only A stalls
+        bob_owed = semantic_gate._OwedEffects()  # noqa: SLF001 - the competitor's own sink
+        seen["nonce"], seen["problem"] = semantic_gate._acquire_mutex(  # noqa: SLF001 - the real competitor
+            run_dir, "orch.bob", "sess-bob", 1, bob_owed
+        )
+        seen["mutex"] = mutex.read_bytes() if mutex.exists() else None
+    finally:
+        resume.set()
+        thread.join(timeout=30)
+        semantic_gate._remove_owned_file = real_remove  # type: ignore[assignment]  # noqa: SLF001 - restore
+    assert seen["nonce"] is None, f"a competitor took the mutex over while the release owned the section: {seen}"
+    assert "coordination intent" in str(seen["problem"]), seen["problem"]
+    assert seen["mutex"] == alice_mutex, "the mutex changed hands inside someone else's cleanup section"
+    assert not mutex.exists(), "the releaser that owned the section must finish its owed deletion"
+    assert owed.orphans == [], owed.orphans
+
+
+def test_a_releaser_whose_latch_was_reclaimed_refuses_to_delete(fixture: RunFixture) -> None:
+    """The other half of R2: if the latch IS gone, the release must notice.
+
+    Prevention is impossible — a frozen process cannot heartbeat and no
+    timeout tells it apart from a dead one — so the resuming holder has to
+    DETECT the loss. Two outcomes, both fail-closed and neither destructive:
+    a successor's mutex is left alone silently, and a mutex that is still
+    ours is left alone with a blocking finding, because we could no longer
+    prove we were allowed to remove it.
+    """
+    run_dir = fixture.run_dir
+    intent = run_dir / semantic_gate.INTENT_NAME
+    mutex = run_dir / "RUN.mutex"
+
+    # (a) A successor already established itself: nothing to report, nothing to touch.
+    write_latch(intent, nonce="bob-latch")
+    successor = write_live_foreign_mutex(fixture, nonce="bob-mutex")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    alice_guard(run_dir, "alice-mutex", owed)._delete_own_mutex("alice-latch")  # noqa: SLF001 - unit under test
+    assert mutex.read_bytes() == successor, "the successor's mutex must survive the resuming releaser"
+    assert owed.orphans == [], "a mutex that is not ours is not an orphan of ours"
+
+    # (b) Our own mutex is still there, but we can no longer prove the claim.
+    still_ours = write_own_expired_mutex(run_dir, "alice-mutex")
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    alice_guard(run_dir, "alice-mutex", owed)._delete_own_mutex("alice-latch")  # noqa: SLF001 - unit under test
+    assert mutex.read_bytes() == still_ours, "an unproven claim may not delete, however familiar the nonce looks"
+    assert len(owed.orphans) == 1, owed.orphans
+    assert "reclaimed while we held it" in owed.orphans[0].detail, owed.orphans[0].detail
+
+
 def test_the_cleanup_lock_is_a_pure_serialization_device(fixture: RunFixture) -> None:
     """The lock file is never deleted and never carries state.
 
