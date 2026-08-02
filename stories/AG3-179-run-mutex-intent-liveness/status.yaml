@@ -2,8 +2,14 @@ story_id: AG3-179
 story_title_short: "run-mutex-intent-liveness"
 title: "RUN.mutex-Koordinations-Klinke: Liveness-Defekt beheben — der rechtmaessige Mutex-Eigentuemer wird vom unterlegenen Mitbewerber abgeschossen, weil `_claim_intent` bei einer lebenden fremden Klinke sofort aufgibt statt beschraenkt zu warten; unter Nebenlaeufigkeit kommt dadurch KEIN Schreiber durch."
 type: implementation
-status: done
-phase: closure
+status: in_progress
+phase: implementation
+# 2026-08-02 ZURUECKGESETZT von done. Die Story war nie fertig: es gab KEIN
+# unabhaengiges Codex-Review. Der PO hat die Grundregel klargestellt (jetzt in
+# CLAUDE.md verankert, damit sie eine Compaction ueberlebt): fertig ist ein
+# Arbeitsschritt erst, wenn Codex nichts Substanzielles mehr findet -- ueber so
+# viele Runden wie noetig. Gruene CI ist kein Abbruchkriterium. Mein Abschluss
+# beruhte allein auf Maschinenpruefung plus meinem eigenen Urteil.
 created: "2026-07-30"
 size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagnose.
 # Herkunft: gefunden 2026-07-30 vom Orchestrator beim AG3-176-Abschlusslauf.

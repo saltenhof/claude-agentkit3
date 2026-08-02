@@ -166,6 +166,35 @@ Nicht mischen. Rollentrennung ist ein fachliches und technisches Prinzip von Age
 - Kleine, verifizierbare Aufgaben schneiden. Keine God-Tasks.
 - Ergebnisse aktiv pruefen, nicht blind uebernehmen.
 
+### DEFINITION OF DONE: CODEX-REVIEW BIS ZUM ABBRUCHKRITERIUM (PO-Grundregel)
+
+Ein Arbeitsschritt ist **nicht** fertig, weil er funktioniert. Er ist fertig,
+wenn ein unabhaengiges Codex-Review ihn freigegeben hat. Eigene Verifikation —
+volle Suite, Lint, Typen, Gates, Lastnachweise — ist Voraussetzung, nicht
+Ersatz. Sie belegt "es funktioniert", nie "es ist der richtige Schnitt".
+
+Das Review laeuft in **Runden**, read-only, auf dem tatsaechlichen Stand:
+
+1. Vorlegen mit benannten Pruefachsen (inklusive der eigenen Zweifel) und der
+   ausdruecklichen Aufforderung, darueber hinauszugehen.
+2. Befunde an der **Wurzel** beheben — kein Symptomfix, keine Unterdrueckung.
+3. **Erneut vorlegen.** Behobene Findings sind kein Abschluss. Wer nach
+   "5 Majors behoben" aufhoert, hat die Regel gebrochen.
+
+**Abbruchkriterien — nur diese beiden:**
+
+- Codex findet nichts Substanzielles mehr und sagt das explizit, nachdem es die
+  Arbeit in jeder Dimension geprueft hat, **oder**
+- die verbleibenden Befunde sind nachweislich formale Kleinigkeiten, deren
+  erneute Vorlage keinen Erkenntnisgewinn mehr braechte. Diese Feststellung ist
+  zu **begruenden**, nicht zu behaupten, und die Befunde sind zu benennen.
+
+Erst dann darf `status: done` gesetzt, ein Abschlussbericht geschrieben oder
+"fertig" gemeldet werden. Ein gruener CI-Lauf ist kein Abbruchkriterium.
+
+Diese Regel ist eine PO-Grundregel und gilt fuer jeden Arbeitsschritt, nicht
+nur fuer Storys. Sie steht hier, damit sie eine Kontext-Compaction ueberlebt.
+
 ## Arbeitsdisziplin
 
 ### Feasibility zuerst
