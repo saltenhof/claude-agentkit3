@@ -80,5 +80,90 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #     Praeambel ("Worked for 29s") vor dem JSON und markdown-escapte
 #     Unterstriche; der Parser scheiterte nach 2 Versuchen.
 #   - W3 INCOMPLETE_SWEEP: 17 leere Scope-Sets.
+#
+# ==========================================================================
+# RUNDE 2 (2026-08-02) -- erstes unabhaengiges Codex-Review: LANDEFAEHIG NEIN
+# ==========================================================================
+# Befund: 6 ERROR, 1 WARNING, 1 INFO. Dreimal derselbe Kern -- eine Norm wurde
+# geschrieben und im selben Commit gebrochen. Alle acht an der Wurzel behoben:
+#  F1 (ERROR) Endgueltig gescheiterte Freigabe meldete weiter Erfolg
+#     (`_remove_owned_file` -> False, KEIN Aufrufer wertete das aus; stderr-
+#     WARNING bei Exit 0 und "[units] OK"). Behoben: `_OwedEffects` sammelt
+#     nicht ausgefuehrte geschuldete Loeschungen, `_finish` macht daraus einen
+#     BLOCKIERENDEN ERROR-Befund im FK-78-Envelope, der Datei, TTL-Blockade und
+#     "Mutation moeglicherweise bereits gelandet" benennt. Bewusst Finding und
+#     nicht incomplete_reason: die Freigabe laeuft im finally, der bereits
+#     berechnete Befund bleibt unveraendert.
+#  F2 (ERROR) Gescheitertes Payload-Write hinterliess eine leere Klinke.
+#     Behoben: `_settle_fresh_latch` gibt die exklusiv angelegte Klinke zurueck.
+#  F3 (ERROR) Read-then-Unlink konnte eine LEBENDE fremde Klinke loeschen.
+#     Behoben mit OS-Advisory-Lock (`RUN.mutex.intent.lock`, fcntl.flock /
+#     msvcrt.locking). O_EXCL bleibt Schiedsrichter, der Lock serialisiert NUR
+#     den Aufraeumpfad, Lockdatei wird NIE geloescht, beschraenktes Warten,
+#     Prozesstod gibt ihn frei. sys.platform-Verengung INLINE.
+#     Vorab gemessen: msvcrt sperrt jenseits EOF und kollidiert auch zwischen
+#     zwei Handles im selben Prozess (sonst waeren die Thread-Tests wertlos).
+#     FK-78 fuehrt den Punkt jetzt als GELOEST, nicht mehr als benannte Grenze.
+#  F4 (ERROR) Decision Record behauptete eine Ratifikation, die es nicht gab.
+#     Behoben: §5 trennt (a) PO-freigegeben, (b) Orchestrator gesetzt +
+#     offengelegt + RATIFIKATION AUSSTEHEND, (c) offen. Rand 2.4 ueberarbeitet.
+#  F5 (ERROR) W2/W3 Pre-Merge-Laeufe fehlten -- siehe Nachweise unten.
+#  F6 (ERROR) Tests bewiesen ihre Aussagen nicht. Behoben: Obergrenze im
+#     bounded-Test (mit Rettungs-Timer, damit eine unbegrenzte Fassung
+#     terminiert statt zu haengen), Startbarriere + Kollisionszaehler in beide
+#     Richtungen im Flicker-Test, gemessene Haltezeitraeume (konservativ innen)
+#     im Zwei-Prozess-Test, plus neue Regressionstests fuer F1, F2, F3.
+#  F7 (WARNING) FK-93-Abgrenzung: Kriterium statt Einzelfall. Neu §93.0
+#     (extern wahrnehmbar -> Katalog; internes Tuning -> Code; Abwesenheit ist
+#     kein Argument) und §93.9a mit TTL 600s, Wartefrist, Retry-Frist.
+#  INFO Falsche Behauptung "Verhalten und Reihenfolge unveraendert" korrigiert.
+#
+# MUTATIONSNACHWEIS RUNDE 2 (je Fix zurueckgedreht -> rot; wiederhergestellt ->
+# gruen), sieben Mutationen einzeln gefahren: M1 Finding->print, M2 kein
+# Latch-Cleanup, M3 Reclaim ohne Lock, M4 Release ohne Lock, M5 unbegrenztes
+# Warten (terminierte nach 10,3 s ueber den Rettungs-Timer), M6 sofortiges
+# Aufgeben, M7 lebender fremder Mutex uebernehmbar -- M7 wurde an der NEUEN
+# Ueberlapp-Assertion rot ("two processes held the mutex concurrently"), was
+# belegt, dass die Gleichzeitigkeits-Erkennung wirklich greift.
+#
+# NACHWEISE RUNDE 2 (Details in report.md, Abschnitt "Nachweise Runde 2"):
+#  - Lastnachweis: TOTAL RED: 0 / 150 (8 CPU-Brenner, unveraendertes Skript).
+#  - ruff: clean. mypy --strict: gruen fuer win32, linux UND darwin.
+#  - Alle statischen Konzept-Gates gruen (inkl. nachgezogener Zeilennummer
+#    878 -> 939 in reference-integrity-baseline.yaml).
+#  - Volle Suite: 4 failed, 10944 passed, 14 skipped. Die vier Fehlschlaege
+#    sind BESTAND (per git stash auf 474a97bd gegengeprueft): AG3-176-Tests
+#    rufen `sh`, das auf dieser Windows-Maschine nicht im PATH liegt
+#    (FileNotFoundError WinError 2). Portabilitaetsdefekt der AG3-176-Tests,
+#    nicht von AG3-179 verursacht -- als WARNING gespiegelt.
+#  - W2 pre-merge: 40 Befunde, ALLE UNAUTHORIZED_SCOPE_ASSERTION, ALLE in
+#    FK-93. FK-78 und der Decision Record: NULL Befunde. Davon 8 aus meinem
+#    neuen §93.9a -> regelkonform baselined mit je konkreter Begruendung
+#    (maschinell gegengeprueft: die 8 Keys treffen exakt die 8 Befunde).
+#    Die 32 Bestandsbefunde aus §93.6-§93.9 sind BEWUSST NICHT baselined:
+#    ihre Triage ist eine normative Entscheidung ueber ein cross-cutting
+#    Autoritaetsdokument und gehoert nicht in diese Story. W2 ist damit
+#    NICHT gruen, und das wird auch nicht behauptet.
+#    Der alte W2-Parserdefekt trat NICHT erneut auf (bereits mit 8473ae84
+#    behoben).
+#  - W3 pre-merge: PASS (scope_sets=2, partitions=4, completed=4, errors=0)
+#    fuer die beiden Scope-Sets, die die Aenderungen tragen (`defaults`,
+#    `concept-incubation-technical`). W3 lieferte dort EINEN echten Befund:
+#    SCOPE_CONTRADICTION zwischen FK-93 §93.9 ("automatische TTL-Freigabe
+#    entfaellt") und meinem neuen §93.9a (TTL 600s). BEHOBEN statt baselined:
+#    §93.9 gilt ausschliesslich fuer Story-Locks (Kapitel 02) und sagt das
+#    jetzt; §93.9a grenzt sich spiegelbildlich ab. Vorher/Nachher belegt.
+#    Die vier restlichen, inhaltlich IDENTISCHEN Scope-Sets sind BLOCKIERT:
+#    (a) qwen-Adapter verweigert die 35666-Zeichen-Partition reproduzierbar
+#        (groesste erfolgreiche: 35202) -- externer Dienst;
+#    (b) mit kleineren Partitionen kam der Transport durch, der Sweep brach
+#        aber an INVALID_EVALUATION_RESPONSE ab (nicht-woertliches Zitat).
+#    (b) legt eine Robustheitsluecke in UNSEREM Code offen: W3 wertet jede
+#    Partition GENAU EINMAL aus, ohne Retry -- W2 hat fuer dieselbe Klasse
+#    zwei Versuche mit Korrektur-Prompt. Das zu beheben aendert den Vertrag
+#    eines Governance-Gates und gehoert in eine eigene Story (WARNING).
+#
+# NICHT FERTIG: Runde 2 geht erneut ins Codex-Review. Behobene Findings sind
+# kein Abschluss (CLAUDE.md, Definition of Done).
 depends_on: []
 unblocks: []

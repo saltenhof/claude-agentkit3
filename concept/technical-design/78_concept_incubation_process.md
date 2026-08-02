@@ -214,6 +214,8 @@ concept-incubator/
   runs/<run_id>/
     RUN.json                        # einziger autoritativer Lauf-Zustand (78.4)
     RUN.mutex                       # Mutations-Mutex (nur waehrend Schreibvorgang)
+    RUN.mutex.intent                # Koordinations-Klinke (nur waehrend eines kritischen Abschnitts, 78.4)
+    RUN.mutex.intent.lock           # Advisory-Lock-Datei fuer die Klinken-Bereinigung; wird NIE geloescht (78.4)
     LEASE.json                      # Writer-Lease (78.4)
     briefing.md                     # Auftrag, Scope-Frame, Datenklassifikation
     baseline/
@@ -349,6 +351,25 @@ ueberschreiben. Das Intent traegt deshalb eine eigene Nonce und wird
 ausschliesslich per Nonce-Match freigegeben (compare-before-delete);
 ein Aufraeumen ohne Identitaetspruefung ist auf keinem Pfad zulaessig.
 
+**Compare-before-delete laeuft unter einem OS-Advisory-Lock.** Lesen und
+Loeschen sind zwei Schritte; die Identitaetspruefung allein macht die
+Folge nicht atomar. **Jedes** Loeschen der Klinke anhand einer zuvor
+beobachteten Identitaet — die regulaere Freigabe ebenso wie das
+Einsammeln einer abgelaufenen Klinke — laeuft deshalb vollstaendig unter
+einem Advisory-Lock auf `RUN.mutex.intent.lock` (`fcntl.flock` bzw.
+`msvcrt.locking`): Lesen, Ablaufpruefung, erneute Identitaetspruefung und
+`unlink` sind ein Abschnitt. Die Lockdatei ist ein reines
+Serialisierungsmittel: sie traegt keinen Zustand und wird **nie**
+geloescht — eine loeschbare Lockdatei haette genau das
+Read-then-Unlink-Problem, das sie aufloest. Das Betriebssystem gibt den
+Lock beim Tod des Halters frei; er wird nur ueber den kurzen
+Aufraeumabschnitt gehalten, nie ueber ein Warten. Der Geltungsbereich ist
+bewusst eng: Schiedsrichter des Anspruchs bleibt `O_CREAT|O_EXCL`, der
+Lock serialisiert ausschliesslich den Aufraeumpfad. Auf den Lock wird
+beschraenkt gewartet und danach fail-closed abgebrochen; wer ihn beim
+opportunistischen Einsammeln nicht sofort bekommt, laesst die Klinke in
+Ruhe, weil bereits ein anderer genau diesen Abschnitt ausfuehrt.
+
 **Das Intent ist eine kurz gehaltene Klinke, kein Eigentumsrecht.**
 Eigentum traegt der Mutex mit Nonce, TTL und Fencing-Token; die Klinke
 serialisiert nur die einzelnen kritischen Abschnitte. Wer sie nicht per
@@ -390,9 +411,32 @@ verschluckt, ist nicht die vorsichtige Variante: die Klinke bleibt dann
 bis zum Ablauf ihrer TTL liegen und blockiert jeden weiteren Schreiber,
 obwohl niemand sie haelt. Loeschen und Ersetzen werden deshalb
 beschraenkt wiederholt. Ein Ersetzen, das endgueltig scheitert, ist
-harter Abbruch — der Write ist nicht gelandet. Ein Loeschen, das
-endgueltig scheitert, wird mit Dateipfad als WARNING gemeldet und nie als
-Erfolg ausgegeben. Symmetrisch dazu ist ein vom Betriebssystem
+harter Abbruch — der Write ist nicht gelandet.
+
+Ein Loeschen, das endgueltig scheitert, beendet den Lauf mit einem
+**blockierenden ERROR-Befund im Envelope** und niemals mit Exit 0 oder
+der Meldung „OK". Der Befund benennt (a) welche Datei liegen blieb,
+(b) dass sie bis zum Ablauf ihrer TTL jeden weiteren Schreiber blockiert
+und manuell entfernt werden muss, und (c) dass die Mutation selbst
+**moeglicherweise bereits gelandet** ist — die Freigabe laeuft im
+Teardown, lange nachdem der Ausgang der Mutation feststeht. Ein
+unstrukturierter Hinweis auf stderr bei Exit 0 erfuellt das nicht: er
+hat keinen Owner und loest keinen Folgeauftrag aus. Der bereits
+berechnete Befund des Laufs darf dabei weder verlorengehen noch
+verfaelscht werden; insbesondere wird eine gelandete Mutation nicht
+nachtraeglich als „nicht passiert" ausgegeben.
+
+Ebenso gilt: **nach dem erfolgreichen exklusiven Create gehoert die
+Klinke dem Ersteller — einschliesslich ihrer Bereinigung.** Exklusiver
+Create und Payload-Write sind zwei Schritte; scheitert der Write (volle
+Platte, I/O-Fehler), wird die soeben angelegte Klinke wieder entfernt und
+der Anspruch geht regulaer fail-closed verloren. Eine leer
+zurueckgelassene Klinke waere fuer jeden Folgelauf eine frisch gehaltene
+Klinke und blockierte ihn bis zum Greifen des mtime-Fallbacks, also eine
+volle TTL lang. Scheitert auch dieses Entfernen endgueltig, greift die
+Regel des vorigen Absatzes.
+
+Symmetrisch dazu ist ein vom Betriebssystem
 **verweigerter** Create (nicht „existiert bereits", sondern „darf gerade
 nicht") ein verlorener Anspruch mit regulaerem Fehlausgang, kein
 Programmabsturz: Exit-Codes tragen Bedeutung, ein Traceback nicht. Daraus folgt auch die Poll-Disziplin des Wartenden:
@@ -401,27 +445,44 @@ oeffnet) und liest die Payload nur selten nach, denn die TTL misst
 Minuten. Ein Wartender, der im Millisekundentakt liest, haelt die Datei
 oft genug offen, um ihrem Halter die eigene Freigabe zu blockieren.
 
-**Benannte Grenze — Aufraeumen verwaister Intents.** Bleibt ein Intent
-nach einem Prozessabsturz liegen, ist seine automatische Bereinigung
-Read-then-Unlink und damit selbst nicht atomar: Zwei Aufraeumer koennen
-dieselbe alte Nonce lesen, der eine loescht und legt ein neues Intent
-an, der andere loescht anschliessend dieses neue Intent auf Basis seiner
-frueher gelesenen Identitaet — der erste liefe dann ohne sein Intent
-weiter. Der Pfad ist auf den seltenen Fall "verwaistes Intent trifft auf
-zwei gleichzeitige Aufraeumer" beschraenkt und beruehrt den normalen
-Einzelschreiber-Betrieb nicht. Belastbar aufgeloest wird er nur durch
-einen nachweislich atomaren Mechanismus: ein OS-Advisory-Lock
-(`fcntl.flock` bzw. `msvcrt.locking`) oder fail-closed manuelle
-Recovery, bei der ein verwaistes Intent gar nicht automatisch bereinigt
-wird, sondern der Lauf mit klarer Aufforderung blockiert. Bis dahin ist
-dies eine offen deklarierte Grenze, kein unerkannter Rest.
+**Aufraeumen verwaister Intents — geloest, nicht mehr deklariert.**
+Dieser Punkt war bis 2026-08-02 eine benannte Grenze: die automatische
+Bereinigung eines liegengebliebenen Intents ist Read-then-Unlink und
+damit selbst nicht atomar. Zwei Aufraeumer konnten dieselbe alte Nonce
+lesen; der eine loeschte sie und legte ein neues Intent an, der andere
+loeschte anschliessend dieses **neue** Intent auf Basis seiner frueher
+gelesenen Identitaet — der erste liefe dann ohne sein Intent weiter, und
+ein dritter Schreiber koennte parallel eines anlegen. Das verletzt die
+Kerninvariante; eine verletzte Kerninvariante wird nicht deklariert,
+sondern behoben.
 
-Zur selben Grenze gehoert der Rest der Sharing-Verletzung: laesst ein
-Leser waehrend der gesamten Wiederholungsfrist kein Fenster, ueberlebt
-die Klinke bis zu ihrer TTL. Die Wiederholung macht das sehr
-unwahrscheinlich, nicht unmoeglich; die WARNING benennt den Fall, damit
-er nicht als „Schreiber X haelt die Klinke" fehlgelesen wird. Auch dieser
-Rest verschwindet erst mit einem OS-Advisory-Lock.
+Aufgeloest ist der Fall durch den oben normierten OS-Advisory-Lock auf
+`RUN.mutex.intent.lock`: Lesen, Ablaufpruefung, Identitaetspruefung und
+`unlink` bilden einen einzigen, kernel-serialisierten Abschnitt, sodass
+ein zweiter Aufraeumer gar nicht erst zwischen Pruefung und Loeschung
+geraten kann. Die Alternative — fail-closed manuelle Recovery ohne jede
+automatische Bereinigung — wurde damit nicht gebraucht.
+
+**Was als Rest bleibt** (keine Beschoenigung, aber auch keine
+Kerninvarianten-Verletzung mehr):
+
+- Bekommt ein Schreiber den Advisory-Lock innerhalb seiner Frist nicht,
+  unterbleibt die Bereinigung. Das ist fail-closed: es wird nichts
+  Falsches geloescht, die Klinke ueberlebt hoechstens bis zu ihrer TTL,
+  und eine dadurch ausgefallene **geschuldete** Loeschung wird als
+  blockierender ERROR-Befund gemeldet.
+- Laesst ein Leser waehrend der gesamten Wiederholungsfrist kein Fenster
+  fuer das `unlink`, ueberlebt die Klinke bis zu ihrer TTL. Die
+  Wiederholung macht das sehr unwahrscheinlich, nicht unmoeglich; der
+  ERROR-Befund benennt den Fall mit Dateipfad, damit er nicht als
+  „Schreiber X haelt die Klinke" fehlgelesen wird.
+- Advisory-Locks setzen ein Dateisystem mit funktionierender
+  Bereichssperre voraus. Auf Netz-Dateisystemen ohne verlaessliche
+  `flock`-Semantik faellt die Serialisierung aus; ein Inkubator-Lauf
+  gehoert dort nicht hin. Das ist eine Betriebsvoraussetzung, keine
+  offene Frage im Mechanismus.
+- Die Lockdatei bleibt dauerhaft im Lauf-Verzeichnis liegen. Das ist
+  Absicht (siehe oben) und kein Leck.
 
 `LEASE.json`
 (`{schema_version, run_id, owner{principal_id, harness, session_ref},

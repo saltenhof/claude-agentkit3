@@ -149,11 +149,13 @@ def test_cleanup_never_removes_a_newly_claimed_intent(fixture: RunFixture) -> No
             "ttl_seconds": 600,
         },
     )
-    semantic_gate._release_intent(fixture.run_dir, "stale-intent-nonce")  # noqa: SLF001 - release guard under test
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - release guard under test
+    semantic_gate._release_intent(fixture.run_dir, "stale-intent-nonce", owed)  # noqa: SLF001 - release guard under test
     assert intent_path.is_file(), "a foreign intent must survive a stale holder's cleanup"
     assert json.loads(intent_path.read_text(encoding="utf-8"))["intent_nonce"] == "fresh-intent"
-    semantic_gate._release_intent(fixture.run_dir, "fresh-intent")  # noqa: SLF001 - release guard under test
+    semantic_gate._release_intent(fixture.run_dir, "fresh-intent", owed)  # noqa: SLF001 - release guard under test
     assert not intent_path.exists()
+    assert owed.orphans == [], "both releases did exactly what they owed"
 
 
 def test_full_run_leaves_no_intent_behind(fixture: RunFixture) -> None:

@@ -17,6 +17,27 @@ formal_scope: prose-only
 
 # 93 — Standardwerte, Schwellwerte und Timeouts
 
+## 93.0 Aufnahmekriterium — was in diesen Katalog gehoert
+
+Der Katalog ist kein Sammelbecken fuer jede Zahl im Code. Massgeblich ist
+**externe Wahrnehmbarkeit**:
+
+- **In den Katalog gehoert ein Wert, wenn ein Betreiber ihn am Verhalten
+  des Systems bemerkt** — weil er eine Wartezeit, eine Frist, eine
+  Ablehnung, eine Blockade oder eine Mengenbegrenzung erklaert, die
+  jemand von aussen sieht und gegen die er diagnostiziert. Solche Werte
+  brauchen einen benannten Ort, an dem sie nachschlagbar sind, auch wenn
+  sie fest im Code stehen (Spalte `Quelle`).
+- **Im Code bleibt ein Wert, wenn er reines internes Tuning ist** — Poll-
+  und Probe-Intervalle, Puffergroessen, Kadenzen. Sie sind ohne Wirkung
+  auf das, was ein Betreiber beobachtet; ihre Aenderung veraendert kein
+  zugesagtes Verhalten, sondern nur dessen Kosten.
+
+Abwesenheit eines vergleichbaren Werts ist **kein** Argument gegen die
+Aufnahme eines neuen: dass ein verwandter Wert bisher fehlt, heisst nur,
+dass er ebenfalls fehlt. Entschieden wird nach dem Kriterium, nicht nach
+dem Praezedenzfall.
+
 ## 93.1 Pipeline-Konfiguration
 
 | Parameter | Default | Config-Pfad | FK | Kapitel |
@@ -106,9 +127,37 @@ Die folgende Punktetabelle ist normative FK-93-Sollwert-Quelle.
 
 ## 93.9 Lock-Dateien
 
+Dieser Abschnitt gilt **ausschliesslich fuer Story-Locks** (Kapitel 02). Andere
+Sperrmechanismen mit eigener Norm sind nicht erfasst — insbesondere nicht der
+Mutations-Mutex und die Koordinations-Klinke des Concept-Incubators (§93.9a,
+FK-78 §78.4), deren TTL-basierte Uebernahme dort ausdruecklich normiert ist.
+
 | Parameter | Default | Quelle | Kapitel |
 |-----------|---------|--------|---------|
-| Automatische Lock-Freigabe (TTL/PID) | Entfällt — Locks enden nur über offizielle Pfade (Closure, Exit, Reset, Split, Ownership-Transfer); Stale-Anzeige nur als Information | Fest im Code | 02 |
+| Automatische Freigabe eines Story-Locks (TTL/PID) | Entfällt — Story-Locks enden nur über offizielle Pfade (Closure, Exit, Reset, Split, Ownership-Transfer); Stale-Anzeige nur als Information | Fest im Code | 02 |
+
+## 93.9a Concept-Incubator: Mutations-Mutex und Koordinations-Klinke
+
+Alle drei Werte sind extern wahrnehmbar (§93.0): sie erklaeren, wie lange
+ein Schreiber wartet, wie lange ein Lauf-Verzeichnis nach einem Absturz
+blockiert bleibt und ab wann eine nicht ausfuehrbare Wirkung als
+blockierender Befund gemeldet wird.
+
+Abgrenzung zu §93.9: Mutex und Klinke des Concept-Incubators sind **keine
+Story-Locks**. Fuer sie ist die TTL-basierte Uebernahme eines verwaisten
+Halters ausdruecklich vorgesehen (FK-78 §78.4) — das Verbot automatischer
+TTL-Freigabe aus §93.9 gilt fuer Story-Locks und beruehrt sie nicht.
+
+| Parameter | Default | Quelle | FK | Kapitel |
+|-----------|---------|--------|-----|---------|
+| TTL von `RUN.mutex` und `RUN.mutex.intent` (Uebernahme nach Absturz) | 600s (10 Min) | Fest im Code (`MUTEX_TTL_SECONDS`) | — | 78.4 |
+| Wartefrist auf eine lebende fremde Klinke, danach fail-closed | 5s | Fest im Code (`INTENT_WAIT_SECONDS`) | — | 78.4 |
+| Wiederholungsfrist geschuldeter Datei-Wirkungen (Loeschen, atomares Ersetzen, Advisory-Lock) | 5s | Fest im Code (`FILE_EFFECT_RETRY_SECONDS`) | — | 78.4 |
+
+Bewusst **nicht** im Katalog, weil reines internes Tuning ohne extern
+beobachtbare Zusage: das Poll-Intervall der Warteschleife
+(`INTENT_POLL_SECONDS`) und die Probe-Kadenz, mit der ein Wartender die
+Payload der Klinke nachliest (`INTENT_PROBE_SECONDS`).
 
 ## 93.10 Review-Häufigkeit
 

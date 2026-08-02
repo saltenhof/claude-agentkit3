@@ -77,5 +77,7 @@ tools/cloc-*.exe
 concept-incubator/locks/
 concept-incubator/runs/*/secrets/
 concept-incubator/runs/*/RUN.mutex
+concept-incubator/runs/*/RUN.mutex.intent
+concept-incubator/runs/*/RUN.mutex.intent.lock
 concept-incubator/locks/*.takeover
 concept-incubator/runs/*/artifact-register.local.tsv

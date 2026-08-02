@@ -188,15 +188,17 @@ def test_release_never_deletes_a_foreign_mutex(fixture: RunFixture) -> None:
             }
         ).encode("utf-8"),
     )
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - release guard under test
     foreign = semantic_gate._MutexGuard(  # noqa: SLF001 - release guard under test
-        fixture.run_dir, "our-different-nonce", "orch.alice", "sess-orch"
+        fixture.run_dir, "our-different-nonce", "orch.alice", "sess-orch", owed
     )
     foreign.release()
     assert (fixture.run_dir / "RUN.mutex").is_file()
-    owner = semantic_gate._MutexGuard(fixture.run_dir, nonce, "other.writer", "sess-other")  # noqa: SLF001 - under test
+    owner = semantic_gate._MutexGuard(fixture.run_dir, nonce, "other.writer", "sess-other", owed)  # noqa: SLF001 - under test
     owner.release()
     assert not (fixture.run_dir / "RUN.mutex").exists()
     assert not (fixture.run_dir / semantic_gate.INTENT_NAME).exists()
+    assert owed.orphans == [], "nothing was owed here: the foreign mutex was left alone on purpose"
 
 
 def test_mutex_is_released_after_mutation(fixture: RunFixture) -> None:

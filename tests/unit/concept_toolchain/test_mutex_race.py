@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import threading
@@ -24,18 +25,77 @@ if TYPE_CHECKING:
 
 GATE_SCRIPT = TOOLS_DIR / "concept_toolchain" / "semantic_gate.py"
 
-#: Both processes block on this barrier file, then race for the takeover.
+#: Both processes block on a wall-clock instant, then race for the takeover.
+#:
+#: Each racer records CONSERVATIVE (inner) hold intervals: the start is stamped
+#: AFTER the claim returned and the end BEFORE the release runs, so every
+#: recorded interval is a strict subset of the real hold. An overlap between
+#: two processes is therefore always a real violation of mutual exclusion and
+#: never a measurement artefact — which is what lets the test rule out
+#: concurrency inside the critical section instead of only inspecting the
+#: final file content.
 RACE_DRIVER = """
-import json, subprocess, sys, time
-script, project_root, run_rel, start_at = sys.argv[1:5]
+import json, sys, time
+tools, project_root, run_rel, start_at = sys.argv[1:5]
+sys.path.insert(0, tools)
+from concept_toolchain import semantic_gate
+
+spans = []
+
+
+def open_span(kind):
+    spans.append([kind, time.time(), None])
+
+
+def close_span(kind):
+    for span in reversed(spans):
+        if span[0] == kind and span[2] is None:
+            span[2] = time.time()
+            return
+
+
+claim_intent = semantic_gate._claim_intent
+release_intent = semantic_gate._release_intent
+acquire_mutex = semantic_gate._acquire_mutex
+guard_release = semantic_gate._MutexGuard.release
+
+
+def timed_claim_intent(run_dir, principal, session, owed):
+    nonce, problem = claim_intent(run_dir, principal, session, owed)
+    if nonce is not None:
+        open_span("intent")
+    return nonce, problem
+
+
+def timed_release_intent(run_dir, nonce, owed):
+    close_span("intent")
+    release_intent(run_dir, nonce, owed)
+
+
+def timed_acquire_mutex(run_dir, principal, session, token, owed):
+    nonce, problem = acquire_mutex(run_dir, principal, session, token, owed)
+    if nonce is not None:
+        open_span("mutex")
+    return nonce, problem
+
+
+def timed_guard_release(self):
+    close_span("mutex")
+    guard_release(self)
+
+
+semantic_gate._claim_intent = timed_claim_intent
+semantic_gate._release_intent = timed_release_intent
+semantic_gate._acquire_mutex = timed_acquire_mutex
+semantic_gate._MutexGuard.release = timed_guard_release
+
 while time.time() < float(start_at):
     time.sleep(0.001)
-completed = subprocess.run(
-    [sys.executable, script, "--project-root", project_root, "units", run_rel,
-     "--principal", "orch.alice", "--session", "sess-orch", "--fencing-token", "1"],
-    check=False, capture_output=True, encoding="utf-8",
-)
-print(json.dumps({"code": completed.returncode, "stderr": completed.stderr}))
+code = semantic_gate.main([
+    "--project-root", project_root, "units", run_rel,
+    "--principal", "orch.alice", "--session", "sess-orch", "--fencing-token", "1",
+])
+print(json.dumps({"code": code, "spans": [span for span in spans if span[2] is not None]}))
 """
 
 
@@ -59,14 +119,30 @@ def write_expired_mutex(fixture: RunFixture) -> None:
 
 
 @dataclass(frozen=True)
+class Hold:
+    """One conservatively measured hold of a coordination primitive."""
+
+    kind: str
+    start: float
+    end: float
+
+    def __str__(self) -> str:
+        return f"{self.kind}[{self.start:.6f} .. {self.end:.6f}]"
+
+
+@dataclass(frozen=True)
 class RaceOutcome:
-    """Both racers' exit codes plus their diagnostics, so a red race is readable."""
+    """Both racers' exit codes, diagnostics and hold intervals."""
 
     codes: list[int]
     diagnostics: list[str]
+    holds: list[list[Hold]]
 
     def __str__(self) -> str:
-        return "\n".join(f"[{code}] {text.strip()}" for code, text in zip(self.codes, self.diagnostics, strict=True))
+        return "\n".join(
+            f"[{code}] {text.strip()} | holds: {', '.join(str(hold) for hold in held)}"
+            for code, text, held in zip(self.codes, self.diagnostics, self.holds, strict=True)
+        )
 
 
 def race_two_processes(fixture: RunFixture, tmp_path: Path) -> RaceOutcome:
@@ -74,7 +150,7 @@ def race_two_processes(fixture: RunFixture, tmp_path: Path) -> RaceOutcome:
     driver = tmp_path / "race_driver.py"
     driver.write_text(RACE_DRIVER, encoding="utf-8")
     start_at = str(time.time() + 1.5)
-    arguments = [sys.executable, str(driver), str(GATE_SCRIPT), str(fixture.project_root), fixture.run_rel, start_at]
+    arguments = [sys.executable, str(driver), str(TOOLS_DIR), str(fixture.project_root), fixture.run_rel, start_at]
 
     def launch() -> subprocess.CompletedProcess[str]:
         return subprocess.run(arguments, check=False, capture_output=True, encoding="utf-8")
@@ -82,7 +158,28 @@ def race_two_processes(fixture: RunFixture, tmp_path: Path) -> RaceOutcome:
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = [future.result() for future in [pool.submit(launch), pool.submit(launch)]]
     reported = [json.loads(result.stdout.strip().splitlines()[-1]) for result in results]
-    return RaceOutcome([int(item["code"]) for item in reported], [str(item["stderr"]) for item in reported])
+    return RaceOutcome(
+        codes=[int(item["code"]) for item in reported],
+        diagnostics=[str(result.stderr) for result in results],
+        holds=[[Hold(str(span[0]), float(span[1]), float(span[2])) for span in item["spans"]] for item in reported],
+    )
+
+
+def assert_holds_never_overlap(outcome: RaceOutcome, kind: str) -> None:
+    """No two processes may hold the same primitive at overlapping instants."""
+    first, second = ([hold for hold in held if hold.kind == kind] for held in outcome.holds)
+    for left in first:
+        for right in second:
+            disjoint = left.end <= right.start or right.end <= left.start
+            assert disjoint, f"two processes held the {kind} concurrently: {left} vs {right}\n{outcome}"
+
+
+def assert_both_contended(outcome: RaceOutcome) -> None:
+    """Guard against a vacuous pass: both racers must have reached the latch."""
+    for index, held in enumerate(outcome.holds):
+        assert any(hold.kind == "intent" for hold in held), (
+            f"racer {index} never held the coordination intent, so the race proves nothing\n{outcome}"
+        )
 
 
 def test_two_processes_racing_a_takeover_never_mutate_concurrently(fixture: RunFixture, tmp_path: Path) -> None:
@@ -93,6 +190,10 @@ def test_two_processes_racing_a_takeover_never_mutate_concurrently(fixture: RunF
     codes = outcome.codes
     assert 0 in codes, f"no writer won the race:\n{outcome}"
     assert set(codes) <= {0, 2}, f"a writer neither won nor aborted cleanly:\n{outcome}"
+    # Measured mutual exclusion, not just a plausible end state.
+    assert_both_contended(outcome)
+    assert_holds_never_overlap(outcome, "intent")
+    assert_holds_never_overlap(outcome, "mutex")
     # No writer left the mutex or the takeover intent behind.
     assert not (fixture.run_dir / "RUN.mutex").exists()
     assert not (fixture.run_dir / semantic_gate.INTENT_NAME).exists()
@@ -119,6 +220,12 @@ def test_two_processes_racing_a_live_mutex_both_abort(fixture: RunFixture, tmp_p
     outcome = race_two_processes(fixture, tmp_path)
     assert outcome.codes == [2, 2], outcome
     assert not fixture.units_path.exists()
+    # Both aborted, but both DID pass through the latch — serialized, never together.
+    assert_both_contended(outcome)
+    assert_holds_never_overlap(outcome, "intent")
+    assert all(hold.kind != "mutex" for held in outcome.holds for hold in held), (
+        f"nobody may own a mutex that is held by a live foreign writer\n{outcome}"
+    )
     state = json.loads((fixture.run_dir / "RUN.mutex").read_text(encoding="utf-8"))
     assert state["nonce"] == "busy-nonce", "a live foreign mutex must survive untouched"
 
@@ -151,6 +258,12 @@ def write_latch(intent: Path, *, nonce: str = "held-latch", acquired_at: str | N
     return intent.read_bytes()
 
 
+def claim_latch(run_dir: Path, owed: semantic_gate._OwedEffects | None = None) -> tuple[str | None, str | None]:
+    """Claim the latch as the unit under test, with an owed-effects sink."""
+    sink = owed if owed is not None else semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    return semantic_gate._claim_intent(run_dir, "orch.alice", "sess-orch", sink)  # noqa: SLF001 - unit under test
+
+
 def test_a_live_latch_is_waited_out_instead_of_lost(tmp_path: Path) -> None:
     """AG3-179: the latch is short-held, so a competitor waits for it."""
     intent = tmp_path / semantic_gate.INTENT_NAME
@@ -158,7 +271,7 @@ def test_a_live_latch_is_waited_out_instead_of_lost(tmp_path: Path) -> None:
     releasing = threading.Timer(0.3, semantic_gate._remove_owned_file, args=(intent,))  # noqa: SLF001 - same delete path
     releasing.start()
     try:
-        nonce, problem = semantic_gate._claim_intent(tmp_path, "orch.alice", "sess-orch")  # noqa: SLF001 - unit under test
+        nonce, problem = claim_latch(tmp_path)
     finally:
         releasing.join()
     assert nonce is not None, f"the waiting writer must get the latch once its holder releases it: {problem}"
@@ -169,15 +282,31 @@ def test_a_live_latch_is_waited_out_instead_of_lost(tmp_path: Path) -> None:
 
 
 def test_the_wait_budget_ends_in_a_fail_closed_refusal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Waiting is bounded: a latch that never frees up is still a hard abort."""
+    """Waiting is bounded ON BOTH SIDES: not shorter, and not longer either.
+
+    The lower bound alone would be satisfied by a writer that waits
+    forever, i.e. by the very defect the bound is supposed to exclude. The
+    rescue timer exists so an unbounded implementation TERMINATES instead
+    of hanging the suite: it frees the latch long after the budget, which
+    makes an unbounded writer succeed late — and both the ``nonce is None``
+    assertion and the upper bound then fail loudly.
+    """
     monkeypatch.setattr(semantic_gate, "INTENT_WAIT_SECONDS", 0.2)  # the budget, not the behaviour, is shortened
     intent = tmp_path / semantic_gate.INTENT_NAME
     held = write_latch(intent)
+    rescue = threading.Timer(10.0, lambda: intent.unlink(missing_ok=True))
+    rescue.start()
     started = time.monotonic()
-    nonce, problem = semantic_gate._claim_intent(tmp_path, "orch.alice", "sess-orch")  # noqa: SLF001 - unit under test
-    assert nonce is None
+    try:
+        nonce, problem = claim_latch(tmp_path)
+    finally:
+        rescue.cancel()
+        rescue.join()
+    elapsed = time.monotonic() - started
+    assert nonce is None, "a writer must not get a latch that its holder never released"
     assert problem is not None and "coordination intent" in problem, problem
-    assert time.monotonic() - started >= 0.2, "a writer must not give up before its wait budget is spent"
+    assert elapsed >= 0.2, "a writer must not give up before its wait budget is spent"
+    assert elapsed < 5.0, f"the wait must END with its budget; it took {elapsed:.2f}s for a 0.2s budget"
     assert intent.read_bytes() == held, "a live foreign latch must survive untouched"
 
 
@@ -187,7 +316,7 @@ def test_an_expired_latch_is_still_reclaimed_without_waiting(tmp_path: Path, mon
     intent = tmp_path / semantic_gate.INTENT_NAME
     write_latch(intent, acquired_at="2020-01-01T00:00:00Z")
     started = time.monotonic()
-    nonce, problem = semantic_gate._claim_intent(tmp_path, "orch.alice", "sess-orch")  # noqa: SLF001 - unit under test
+    nonce, problem = claim_latch(tmp_path)
     assert nonce is not None, problem
     assert time.monotonic() - started < 1.0, "an expired latch is reclaimed, not waited out"
 
@@ -199,7 +328,7 @@ def test_a_latch_without_a_payload_yet_is_waited_out_not_stolen(
     monkeypatch.setattr(semantic_gate, "INTENT_WAIT_SECONDS", 0.2)
     intent = tmp_path / semantic_gate.INTENT_NAME
     intent.touch()
-    nonce, _ = semantic_gate._claim_intent(tmp_path, "orch.alice", "sess-orch")  # noqa: SLF001 - unit under test
+    nonce, _ = claim_latch(tmp_path)
     assert nonce is None
     assert intent.exists(), "a fresh latch that is not readable yet must not be reclaimed"
 
@@ -268,7 +397,8 @@ def test_a_reader_holding_the_latch_open_cannot_orphan_it(tmp_path: Path) -> Non
     the deletion succeeds at once and this stays a regression guard.
     """
     intent = tmp_path / semantic_gate.INTENT_NAME
-    nonce, problem = semantic_gate._claim_intent(tmp_path, "orch.alice", "sess-orch")  # noqa: SLF001 - unit under test
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    nonce, problem = claim_latch(tmp_path, owed)
     assert nonce is not None, problem
     opened = threading.Event()
 
@@ -281,33 +411,58 @@ def test_a_reader_holding_the_latch_open_cannot_orphan_it(tmp_path: Path) -> Non
     reader.start()
     try:
         assert opened.wait(timeout=10), "the reader never got the latch open"
-        semantic_gate._release_intent(tmp_path, nonce)  # noqa: SLF001 - unit under test
+        semantic_gate._release_intent(tmp_path, nonce, owed)  # noqa: SLF001 - unit under test
     finally:
         reader.join(timeout=10)
     assert not intent.exists(), "a released latch must not survive its holder"
+    assert owed.orphans == [], "a release that succeeded must not report an orphan"
 
 
-def test_a_flickering_competitor_cannot_evict_the_mutex_owner(fixture: RunFixture) -> None:
+def test_a_flickering_competitor_cannot_evict_the_mutex_owner(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """AG3-179 regression: the loser's latch holds must not abort the owner.
 
     The rightful owner claims the latch four times (acquire, revalidate,
     write, release). A competitor that takes the latch between two of them
     used to end the owner's run with exit 2 — so under contention nobody
     got through at all.
+
+    Two things make this a proof rather than a coincidence. A start barrier
+    holds the owner back until the competitor is actually holding the
+    latch, so the very first claim contends. And both directions of
+    contention are counted: the owner must have waited for the competitor
+    at least once, and the competitor must have found the latch taken by
+    the owner at least once. Without those counters the test would pass
+    just as happily if the owner had finished all four claims before the
+    competitor ever showed up.
     """
     fixture.units_path.unlink()
     intent = fixture.run_dir / semantic_gate.INTENT_NAME
     stop = threading.Event()
+    competitor_holds_it = threading.Event()
+    collisions = {"count": 0}
+    waits = {"count": 0}
+
+    original_wait = semantic_gate._wait_out_the_latch  # noqa: SLF001 - contention counter
+
+    def counting_wait(run_dir: Path, deadline: float, probe_at: float | None) -> tuple[bool, float | None]:
+        waits["count"] += 1
+        return original_wait(run_dir, deadline, probe_at)  # type: ignore[no-any-return]  # passthrough
+
+    monkeypatch.setattr(semantic_gate, "_wait_out_the_latch", counting_wait)
 
     def flicker() -> None:
         while not stop.is_set():
             try:
                 descriptor = os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
-                time.sleep(0.005)  # the owner holds it; a competitor never steals
+                collisions["count"] += 1  # the owner holds it; a competitor never steals
+                time.sleep(0.005)
                 continue
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(semantic_gate._intent_payload("other.writer", "sess-other", "flicker"))  # noqa: SLF001 - competitor payload
+            competitor_holds_it.set()
             time.sleep(0.04)
             with contextlib.suppress(OSError):
                 intent.unlink()  # only ever the latch this thread created exclusively
@@ -316,11 +471,14 @@ def test_a_flickering_competitor_cannot_evict_the_mutex_owner(fixture: RunFixtur
     competitor = threading.Thread(target=flicker, name="latch-flicker")
     competitor.start()
     try:
+        assert competitor_holds_it.wait(timeout=10), "the competitor never got the latch"
         code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
     finally:
         stop.set()
         competitor.join(timeout=10)
     assert code == 0, "a competitor holding the latch briefly must not abort the mutex owner"
+    assert waits["count"] > 0, "the owner never had to wait for the competitor — no contention was exercised"
+    assert collisions["count"] > 0, "the competitor never met the owner's latch — no contention was exercised"
     rows, issues = runmodel_registers.load_source_units(fixture.units_path, require_disposition=False)
     assert issues == [], issues
     assert len(rows) == 4
@@ -372,8 +530,10 @@ def test_mutex_replaced_under_intent_aborts_the_loser(fixture: RunFixture, capsy
     write_expired_mutex(fixture)
     original_claim = semantic_gate._claim_intent  # noqa: SLF001 - race injection point
 
-    def claim_then_replace(run_dir: Path, principal: str, session: str) -> tuple[str | None, str | None]:
-        claimed, problem = original_claim(run_dir, principal, session)
+    def claim_then_replace(
+        run_dir: Path, principal: str, session: str, owed: semantic_gate._OwedEffects
+    ) -> tuple[str | None, str | None]:
+        claimed, problem = original_claim(run_dir, principal, session, owed)
         if claimed is not None:
             runfixtures.write_json(
                 fixture.run_dir / "RUN.mutex",
@@ -526,3 +686,203 @@ def test_stalled_writer_lands_neither_write_nor_release(fixture: RunFixture, tmp
     surviving = json.loads((fixture.run_dir / "RUN.mutex").read_text(encoding="utf-8"))
     assert surviving["nonce"] == "owner-after-takeover" != stalled_nonce
     assert not (fixture.run_dir / semantic_gate.INTENT_NAME).exists()
+
+
+# --------------------------------------------------------------------------
+# An owed deletion that does not happen is never a success
+# --------------------------------------------------------------------------
+
+
+def refuse_unlink_of(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Make the deletion of exactly one file fail like a sharing violation.
+
+    A reader that blocks ``unlink`` for the WHOLE retry budget cannot be
+    provoked on demand — it is a timing artefact of the platform. The
+    refusal is therefore injected; what is under test is the outcome of a
+    definitively failed owed deletion, not the errno that caused it.
+    """
+    real_unlink = pathlib.Path.unlink
+
+    def refusing(self: pathlib.Path, *args: object, **kwargs: object) -> None:
+        if self.name == name:
+            raise PermissionError(32, "the process cannot access the file because it is being used")
+        real_unlink(self, *args, **kwargs)  # type: ignore[arg-type]  # passthrough
+
+    monkeypatch.setattr(pathlib.Path, "unlink", refusing)
+
+
+def test_a_failed_owed_deletion_is_never_reported_as_success(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AG3-179 / FK-78 78.4: an orphaned mutex ends the run, not with ``OK``.
+
+    The release runs in ``main``'s ``finally``. When its owed deletion
+    fails for good, the mutex stays behind and blocks EVERY further writer
+    until its TTL elapses — reporting that on stderr while exiting 0 made
+    the CLI claim a clean run over a wedged run directory.
+    """
+    fixture.units_path.unlink()
+    monkeypatch.setattr(semantic_gate, "FILE_EFFECT_RETRY_SECONDS", 0.05)
+    refuse_unlink_of(monkeypatch, "RUN.mutex")
+    code = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    captured = capsys.readouterr()
+    assert code != 0, f"a run that orphaned its mutex must not exit 0:\n{captured.out}{captured.err}"
+    assert "[units] OK" not in captured.out, "an orphaned mutex must never be reported as success"
+    assert (fixture.run_dir / "RUN.mutex").exists(), "the injection must really leave the file behind"
+    # The mutation is NOT retroactively denied: it landed, and the report says so.
+    assert fixture.units_path.exists(), "the write landed and must not be reported away"
+    assert "MAY ALREADY HAVE LANDED" in captured.out, captured.out
+    assert "RUN.mutex" in captured.out, captured.out
+    assert "blocks every further writer" in captured.out, captured.out
+
+
+def test_a_failed_owed_deletion_is_a_structured_finding_in_the_envelope(
+    fixture: RunFixture, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The outcome travels in the FK-78 envelope, not as a print to stderr."""
+    fixture.units_path.unlink()
+    monkeypatch.setattr(semantic_gate, "FILE_EFFECT_RETRY_SECONDS", 0.05)
+    refuse_unlink_of(monkeypatch, "RUN.mutex")
+    code = semantic_gate.main(
+        ["--project-root", str(fixture.project_root), "--json", "units", fixture.run_rel, *WRITER_ARGS]
+    )
+    envelope = json.loads(capsys.readouterr().out)
+    assert code == 1, envelope
+    orphan_findings = [
+        finding
+        for finding in envelope["findings"]
+        if finding["severity"] == "ERROR" and finding["path"] == "RUN.mutex" and finding["locator"] == "owed-deletion"
+    ]
+    assert orphan_findings, envelope
+    assert envelope["complete"] is True, "the check ran to completion; only its teardown failed"
+
+
+def test_a_release_that_cannot_get_the_cleanup_lock_reports_the_orphan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Waiting for the cleanup lock is bounded, and giving up is not silent."""
+    monkeypatch.setattr(semantic_gate, "FILE_EFFECT_RETRY_SECONDS", 0.05)
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    nonce, problem = claim_latch(tmp_path, owed)
+    assert nonce is not None, problem
+    descriptor = os.open(tmp_path / semantic_gate.INTENT_LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o644)
+    started = time.monotonic()
+    try:
+        assert semantic_gate._try_advisory_lock(descriptor), "a second descriptor must be able to take the lock"  # noqa: SLF001 - unit under test
+        semantic_gate._release_intent(tmp_path, nonce, owed)  # noqa: SLF001 - unit under test
+    finally:
+        semantic_gate._drop_advisory_lock(descriptor)  # noqa: SLF001 - unit under test
+        os.close(descriptor)
+    assert time.monotonic() - started < 3.0, "the wait for the cleanup lock must be bounded"
+    assert intent.exists(), "the release could not run, so the latch is still there"
+    assert [orphan for orphan in owed.orphans if orphan.path.name == semantic_gate.INTENT_NAME], owed.orphans
+
+
+# --------------------------------------------------------------------------
+# A failed payload write gives the latch back
+# --------------------------------------------------------------------------
+
+
+def test_a_failed_latch_payload_write_gives_the_latch_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AG3-179: the exclusive create makes the latch OURS — including its cleanup.
+
+    ``O_CREAT|O_EXCL`` succeeds, then the payload write fails (a full disk,
+    an I/O error). The empty file left behind used to look like a freshly
+    held latch to every later run, which then waited it out and aborted —
+    for a full TTL, because only the mtime fallback releases a latch
+    without a readable payload. A full disk cannot be provoked on demand,
+    so the failure is injected; the behaviour under test is the cleanup.
+    """
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    real_write = semantic_gate._write_fresh_latch  # noqa: SLF001 - failure injection point
+    calls = {"count": 0}
+
+    def flaky_write(descriptor: int, payload: bytes) -> OSError | None:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            os.close(descriptor)  # the real write path would have closed it too
+            return OSError(28, "no space left on device")
+        return real_write(descriptor, payload)  # type: ignore[no-any-return]  # passthrough
+
+    monkeypatch.setattr(semantic_gate, "_write_fresh_latch", flaky_write)
+    owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
+    nonce, problem = claim_latch(tmp_path, owed)
+    assert nonce is None, "a latch without its payload is not a claim"
+    assert problem is not None and "payload" in problem, problem
+    assert not intent.exists(), "an empty latch must not stay behind"
+    assert owed.orphans == [], "the cleanup succeeded, so nothing was orphaned"
+    # And the run directory is not wedged: the next claim goes through at once.
+    started = time.monotonic()
+    second, second_problem = claim_latch(tmp_path)
+    assert second is not None, second_problem
+    assert time.monotonic() - started < 1.0, "the abandoned latch must not delay the next writer"
+
+
+# --------------------------------------------------------------------------
+# The read-then-unlink window is closed by an OS advisory lock
+# --------------------------------------------------------------------------
+
+
+def test_the_latch_cleanup_section_is_mutually_exclusive(tmp_path: Path) -> None:
+    """AG3-179 / FK-78 78.4: compare-before-delete alone is not atomic.
+
+    Cleaner A reads the expired nonce N1 and stalls before its ``unlink``.
+    B removes N1, exclusively creates N2 and enters its critical section —
+    and A then deletes N2, because the expected nonce is not part of the
+    delete operation. A third writer could claim the latch in parallel.
+
+    The advisory lock closes exactly that window, so what has to be proven
+    is that no second cleaner can be inside the section while the first one
+    sits between its identity check and its unlink.
+    """
+    intent = tmp_path / semantic_gate.INTENT_NAME
+    held = write_latch(intent, nonce="expired-one", acquired_at="2020-01-01T00:00:00Z")
+    inside = threading.Event()
+    resume = threading.Event()
+    real_remove = semantic_gate._remove_owned_file  # noqa: SLF001 - stall injection point
+    outcome: dict[str, bool] = {}
+
+    def stalling_remove(path: pathlib.Path) -> str | None:
+        inside.set()
+        assert resume.wait(timeout=30), "the stalled cleaner was never resumed"
+        return real_remove(path)  # type: ignore[no-any-return]  # passthrough
+
+    def first_cleaner() -> None:
+        outcome["reclaimed"] = semantic_gate._reclaim_expired_intent(tmp_path)  # noqa: SLF001 - unit under test
+
+    semantic_gate._remove_owned_file = stalling_remove  # type: ignore[assignment]  # noqa: SLF001 - stall injection
+    cleaner = threading.Thread(target=first_cleaner, name="latch-cleaner")
+    cleaner.start()
+    try:
+        assert inside.wait(timeout=30), "the first cleaner never reached its unlink"
+        semantic_gate._remove_owned_file = real_remove  # type: ignore[assignment]  # noqa: SLF001 - only the FIRST cleaner stalls
+        assert semantic_gate._reclaim_expired_intent(tmp_path) is False, (  # noqa: SLF001 - unit under test
+            "a second cleaner entered the section while the first one was inside it"
+        )
+        assert intent.read_bytes() == held, "the second cleaner must not have touched the latch"
+    finally:
+        resume.set()
+        cleaner.join(timeout=30)
+        semantic_gate._remove_owned_file = real_remove  # type: ignore[assignment]  # noqa: SLF001 - restore
+    assert outcome["reclaimed"] is True, "the cleaner that owned the section must finish its reclaim"
+    assert not intent.exists()
+
+
+def test_the_cleanup_lock_is_a_pure_serialization_device(fixture: RunFixture) -> None:
+    """The lock file is never deleted and never carries state.
+
+    A lock file that could itself be removed would have the very
+    read-then-unlink problem it exists to solve, so it outlives every run.
+    """
+    fixture.units_path.unlink()
+    lock = fixture.run_dir / semantic_gate.INTENT_LOCK_NAME
+    first = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    assert first == 0
+    assert lock.is_file(), "the cleanup lock must survive the run that created it"
+    assert lock.stat().st_size == 0, "the cleanup lock carries no state"
+    assert not (fixture.run_dir / semantic_gate.INTENT_NAME).exists()
+    assert not (fixture.run_dir / "RUN.mutex").exists()
+    second = semantic_gate.main(["--project-root", str(fixture.project_root), "units", fixture.run_rel, *WRITER_ARGS])
+    assert second == 0, "an existing lock file must not block the next run"
+    assert lock.is_file()

@@ -1,5 +1,9 @@
 # Concept-Incubator (FK-78): Locks und Secrets sind nie versioniert
 concept-incubator/locks/
 concept-incubator/runs/*/secrets/
+# Mutations-Mutex, Koordinations-Klinke und ihre Advisory-Lock-Datei (FK-78 §78.4)
+concept-incubator/runs/*/RUN.mutex
+concept-incubator/runs/*/RUN.mutex.intent
+concept-incubator/runs/*/RUN.mutex.intent.lock
 # Lokale Overlays sensibler Register (FK-78 §78.13)
 concept-incubator/runs/*/artifact-register.local.tsv

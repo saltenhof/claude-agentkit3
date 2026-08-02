@@ -15,10 +15,15 @@ formal_scope: prose-only
 
 # Concept-Decision-Record — Coordination-Intent ist eine Klinke mit Wartefrist (FK-78 §78.4)
 
-Datum: 2026-08-01. **Korrektur zweier Liveness-Defekte** (Story AG3-179). Das
+Datum: 2026-08-01, **ueberarbeitet 2026-08-02** nach einem unabhaengigen
+Codex-Review (siehe Rand 2.4, 2.6, 2.7 sowie Abschnitt 3 und 5).
+**Korrektur mehrerer Defekte derselben Familie** (Story AG3-179). Das
 Coordination-Intent `RUN.mutex.intent` wird bei lebender fremder Klinke
-beschraenkt ausgewartet statt sofort aufgegeben (Rand 2.1) — und seine Freigabe
-darf nicht mehr still ausfallen (Rand 2.4).
+beschraenkt ausgewartet statt sofort aufgegeben (Rand 2.1); seine Freigabe darf
+nicht mehr still ausfallen (Rand 2.4); die Klinke gehoert nach dem exklusiven
+Create ihrem Ersteller einschliesslich der Bereinigung (Rand 2.7); und
+compare-before-delete laeuft unter einem OS-Advisory-Lock, womit die bisher als
+Grenze gefuehrte Read-then-Unlink-Luecke geschlossen ist (Rand 2.6).
 
 ## 1. Anlass
 
@@ -77,10 +82,24 @@ Das ist kein Windows-Detail, sondern eine Modellfrage: nach
 compare-before-delete steht das Eigentum fest, die Loeschung ist damit eine
 **geschuldete Wirkung** und kein Versuch. Loeschen und atomares Ersetzen werden
 deshalb beschraenkt wiederholt; ein endgueltig gescheitertes Ersetzen ist harter
-Abbruch, ein endgueltig gescheitertes Loeschen wird als WARNING mit Dateipfad
-gemeldet statt als Erfolg ausgegeben. Ergaenzend liest ein Wartender die Payload
-nur noch im Sekundentakt nach — der exklusive Create ist die billige Probe, und
-haeufiges Lesen ist genau das, was dem Halter die Freigabe blockiert.
+Abbruch. Ergaenzend liest ein Wartender die Payload nur noch im Sekundentakt
+nach — der exklusive Create ist die billige Probe, und haeufiges Lesen ist genau
+das, was dem Halter die Freigabe blockiert.
+
+**Korrektur 2026-08-02 (Codex-Review):** Die urspruengliche Fassung dieses Rands
+sagte, ein endgueltig gescheitertes Loeschen werde „als WARNING mit Dateipfad
+gemeldet". Umgesetzt war das als Text auf stderr bei **Exit 0** und der Meldung
+„OK" — also genau die stille Erfolgsmeldung, die derselbe Rand verbietet. Ein
+WARNING ohne Owner und ohne Folgeauftrag erfuellt die Severity-Semantik nicht;
+ein Befund, fuer den niemand spaeter Zeit bekommt, ist im Effekt ein ignorierter
+Befund. Normativ gilt daher jetzt: ein endgueltig gescheitertes Loeschen ist ein
+**blockierender ERROR-Befund im Envelope**, niemals Exit 0 und niemals „OK". Der
+Befund benennt die liegengebliebene Datei, dass sie bis zum TTL-Ablauf jeden
+weiteren Schreiber blockiert, und dass die Mutation **moeglicherweise bereits
+gelandet** ist. Der bereits berechnete Befund des Laufs darf dabei weder
+verlorengehen noch verfaelscht werden — die Freigabe laeuft im Teardown, lange
+nachdem der Ausgang der Mutation feststeht; eine gelandete Mutation wird nicht
+nachtraeglich als „nicht passiert" ausgegeben.
 
 Symmetrisch dazu gilt das auch fuer den Erwerb: ein vom Betriebssystem
 **verweigerter** Create — nicht „existiert bereits", sondern „darf gerade
@@ -90,9 +109,8 @@ CLI mit einem Traceback und Exit 1, also ausgerechnet mit dem Code, den derselbe
 Vertrag fuer Validierungsfunde reserviert. Ein Absturz ist keine Aussage.
 
 Der Rest ist benannt: laesst ein Leser waehrend der ganzen Wiederholungsfrist
-kein Fenster, ueberlebt die Klinke bis zu ihrer TTL. Er gehoert zur bereits
-deklarierten Grenze „Aufraeumen verwaister Intents" und verschwindet erst mit
-einem OS-Advisory-Lock.
+kein Fenster, ueberlebt die Klinke bis zu ihrer TTL. Der ERROR-Befund benennt
+diesen Fall mit Dateipfad.
 
 **2.5 Nichts an der Strenge geaendert.** Schiedsrichter bleibt O_CREAT|O_EXCL;
 compare-before-delete bleibt auf jedem Pfad; ein abgelaufenes Intent wird weiter
@@ -100,16 +118,63 @@ sofort uebernommen und nicht ausgewartet; nach Fristablauf wird abgebrochen, nic
 durchgewunken; ein lebender fremder **Mutex** bleibt fuer jeden Mitbewerber ein
 harter Abbruch.
 
+**2.6 Compare-before-delete laeuft unter einem OS-Advisory-Lock**
+(neu 2026-08-02). Compare-before-delete ist Read-then-Unlink und damit selbst
+nicht atomar. Aufraeumer A liest die abgelaufene Nonce N1 und pausiert vor dem
+`unlink`; B loescht N1, legt exklusiv N2 an und beginnt seinen kritischen
+Abschnitt; A setzt fort und loescht N2, weil die erwartete Nonce nicht Teil der
+Loeschoperation ist — ein dritter Schreiber kann jetzt parallel eine Klinke
+anlegen. Das ist eine verletzte Kerninvariante, und eine verletzte
+Kerninvariante wird nicht deklariert, sondern behoben; FK-78 hatte sie bis dahin
+als „benannte Grenze" gefuehrt und die belastbare Aufloesung (Advisory-Lock oder
+fail-closed manuelle Recovery) selbst benannt.
+
+Umgesetzt ist die erste Variante: **jedes** Loeschen der Klinke anhand einer
+zuvor beobachteten Identitaet — regulaere Freigabe wie Einsammeln einer
+abgelaufenen Klinke — laeuft vollstaendig unter einem Advisory-Lock auf
+`RUN.mutex.intent.lock` (`fcntl.flock` bzw. `msvcrt.locking`). Randbedingungen,
+die zur Norm gehoeren: Lesen, Ablaufpruefung, erneute Identitaetspruefung und
+`unlink` sind ein Abschnitt; die Lockdatei wird **nie** geloescht und traegt
+keinen Zustand (eine loeschbare Lockdatei haette dasselbe Problem); der
+Geltungsbereich bleibt eng — Schiedsrichter des Anspruchs ist weiterhin
+`O_CREAT|O_EXCL`, serialisiert wird nur der Aufraeumpfad; auf den Lock wird
+beschraenkt gewartet und danach fail-closed abgebrochen; er wird nur ueber den
+kurzen Aufraeumabschnitt gehalten, damit der Prozesstod ihn freigibt.
+
+Was bleibt, ist in FK-78 §78.4 als Rest ausgeschrieben (Lock nicht bekommen =
+keine Bereinigung, fail-closed; Leser blockiert das `unlink` ueber die ganze
+Frist; Netz-Dateisysteme ohne verlaessliche Bereichssperre; die dauerhaft
+liegende Lockdatei). Keiner dieser Punkte verletzt eine Kerninvariante.
+
+**2.7 Die exklusiv angelegte Klinke gehoert ihrem Ersteller — samt Bereinigung**
+(neu 2026-08-02). Exklusiver Create und Payload-Write sind zwei Schritte.
+Scheitert der Write (volle Platte, I/O-Fehler), blieb bisher eine leere Datei
+liegen; jeder Folgelauf las sie als frisch gehaltene Klinke und wartete sie aus,
+bis nach einer vollen TTL der mtime-Fallback griff. Normativ gilt: nach dem
+erfolgreichen Create wird eine nicht beschreibbare Klinke wieder entfernt und
+der Anspruch geht regulaer fail-closed verloren. Scheitert auch dieses Entfernen
+endgueltig, greift Rand 2.4.
+
 ## 3. Abgrenzung
 
-Die Frist ist ein Betriebswert und steht als Konstante im Code
-(`semantic_gate.INTENT_WAIT_SECONDS`), wie schon die Mutex-TTL. FK-93 fuehrt
-keinen der beiden Werte; diese Entscheidung aendert daran nichts und legt die
-Zahl in der Norm bewusst nicht fest — normativ ist „beschraenkt warten, dann
-fail-closed", nicht die Sekundenzahl.
+**Ueberarbeitet 2026-08-02.** Die urspruengliche Fassung begruendete die
+Nicht-Aufnahme in FK-93 damit, dass FK-93 „auch die Mutex-TTL nicht fuehrt".
+Abwesenheit ist kein Argument; sie zeigt nur, dass der andere Wert ebenfalls
+fehlt. Massgeblich ist ein Kriterium, und dieses Kriterium ist jetzt in FK-93
+§93.0 ausgeschrieben: **extern wahrnehmbare Werte gehoeren in den Katalog**,
+weil ein Betreiber sie am Verhalten bemerkt und gegen sie diagnostiziert; reine
+interne Tuning-Werte bleiben im Code.
+
+Danach sind aufgenommen (FK-93 §93.9a): die TTL von `RUN.mutex` und
+`RUN.mutex.intent` (600s), die Wartefrist auf eine lebende fremde Klinke und die
+Wiederholungsfrist geschuldeter Datei-Wirkungen. Im Code bleiben das
+Poll-Intervall und die Probe-Kadenz. Normativ bleibt in FK-78 weiterhin
+„beschraenkt warten, dann fail-closed" — die Sekundenzahl steht im Katalog, nicht
+im Normsatz.
 
 Kein neuer Scope, keine neue Faehigkeit: die Nebenlaeufigkeitsgarantien sind
-unveraendert, nur erreicht sie der Mechanismus jetzt auch tatsaechlich.
+unveraendert, nur erreicht sie der Mechanismus jetzt auch tatsaechlich. Neu ist
+allein die Lockdatei `RUN.mutex.intent.lock` im Lauf-Verzeichnis.
 
 ## 4. Betroffenheitsmatrix
 
@@ -119,21 +184,42 @@ unveraendert, nur erreicht sie der Mechanismus jetzt auch tatsaechlich.
 | 2.1 | Takeover-Satz | FK-78 §78.4 | geaendert | „wer es nicht anlegen kann, verliert" → „wer es auch nach Ablauf der Wartefrist nicht anlegen kann, verliert" |
 | 2.2 | Leerer Create | FK-78 §78.4 | geaendert | Spalt zwischen Create und Payload-Write ist ein Halten, kein verwaistes Intent |
 | 2.3 | Eigentuemer-Bypass | FK-78 §78.4 | nicht-betroffen | ausdruecklich verworfen; Atomizitaet Pruefung↔Wirkung bleibt |
-| 2.4 | Geschuldete Wirkungen | FK-78 §78.4 | geaendert | Loeschen/Ersetzen werden wiederholt; gescheitertes Ersetzen = Abbruch, gescheitertes Loeschen = WARNING, nie stiller Erfolg |
+| 2.4 | Geschuldete Wirkungen | FK-78 §78.4 | geaendert | Loeschen/Ersetzen werden wiederholt; gescheitertes Ersetzen = Abbruch, gescheitertes Loeschen = blockierender ERROR-Befund im Envelope, nie Exit 0 und nie „OK" |
 | 2.4 | Poll-Disziplin | FK-78 §78.4 | geaendert | Wartende lesen die Payload nur im Sekundentakt; der exklusive Create ist die Probe |
 | 2.4 | Verweigerter Create | FK-78 §78.4 | geaendert | nicht-EEXIST-Fehler am Create = verlorener Anspruch mit Exit-Code, kein Traceback |
-| 2.4 | Sharing-Rest | FK-78 §78.4, benannte Grenze | erweitert | nicht loeschbare Klinke ueberlebt bis TTL; als Teil derselben Grenze deklariert |
-| 2.5 | Aufraeumen verwaister Intents | FK-78 §78.4, benannte Grenze | nicht-betroffen | Read-then-Unlink-Grenze und mtime-Fallback unveraendert |
+| 2.6 | Aufraeumen verwaister Intents | FK-78 §78.4 | **geloest** | war benannte Grenze; compare-before-delete laeuft jetzt unter OS-Advisory-Lock, Abschnitt ist kernel-serialisiert |
+| 2.6 | Lockdatei | FK-78 §78.4, Layout-Block | neu | `RUN.mutex.intent.lock` im Lauf-Verzeichnis; reines Serialisierungsmittel, wird nie geloescht |
+| 2.6 | Verbleibender Rest | FK-78 §78.4 | ersetzt | Lock nicht bekommen / Leser blockiert `unlink` / Netz-FS ohne Bereichssperre — ausgeschrieben statt als eine Sammelgrenze |
+| 2.7 | Eigentum an der frischen Klinke | FK-78 §78.4 | neu | gescheiterter Payload-Write entfernt die Klinke wieder; leere Klinke blockiert sonst eine volle TTL |
+| 3 | Aufnahmekriterium des Wertekatalogs | FK-93 §93.0 | neu | extern wahrnehmbar → Katalog; reines internes Tuning → Code; Abwesenheit ist kein Argument |
+| 3 | Mutex-/Klinken-Werte | FK-93 §93.9a | neu | TTL 600s, Wartefrist, Wiederholungsfrist aufgenommen; Poll und Probe bewusst nicht |
+| 3 | Abgrenzung Story-Locks | FK-93 §93.9 | geaendert | Klarstellung nach W3-Befund `SCOPE_CONTRADICTION`: §93.9 gilt nur fuer Story-Locks (Kapitel 02) und beruehrt die TTL-Uebernahme des Inkubator-Mutex nicht; keine Aenderung der FK-02-Regel selbst |
+| — | Layout des Lauf-Verzeichnisses | FK-78 §78.3 | geaendert | `RUN.mutex.intent` (bisher fehlend) und `RUN.mutex.intent.lock` ergaenzt |
 | — | Mutex-Semantik | FK-78 §78.4 | nicht-betroffen | Nonce, TTL, Heartbeat, Fencing-Token-CAS unveraendert |
 
-## 5. Herkunft der Ratifikation
+## 5. Herkunft — was freigegeben ist und was nicht
 
-PO-Auftrag 2026-08-01: „setz jetzt mal die 179 um gemaess der bisherigen
-Richtlinien." Die Loesungsrichtung — beschraenktes Warten, Invarianten
-unangetastet, kein Bypass fuer den Eigentuemer — war Bestandteil der Story
-AG3-179, die der PO mit diesem Auftrag zur Umsetzung freigegeben hat.
+Dieser Abschnitt trennt bewusst drei Klassen. Ratifiziert ist nur die erste.
 
-Die Normkorrektur wurde nicht vorab einzeln vorgelegt: den Fix zu bauen und die
-Norm weiter „sofort verlieren" sagen zu lassen, waere die schlechtere
-Alternative gewesen. Das Delta ist dem PO im Abschlussbericht dieser Story im
-Wortlaut vorgelegt.
+**(a) Vom PO freigegeben.** PO-Auftrag 2026-08-01: „setz jetzt mal die 179 um
+gemaess der bisherigen Richtlinien." Damit freigegeben ist die
+**Loesungsrichtung, die in der Story AG3-179 stand**: beschraenktes Warten auf
+eine lebende fremde Klinke statt sofortigem Aufgeben, Invarianten unangetastet,
+kein Bypass fuer den Mutex-Eigentuemer. Das sind die Raender 2.1, 2.3 und 2.5.
+
+**(b) Vom Orchestrator gesetzt, dem PO offengelegt, Ratifikation ausstehend.**
+Die Raender **2.2, 2.4, 2.6 und 2.7** sowie die FK-93-Aenderungen aus
+Abschnitt 3 standen **nicht** in der Story. Sie sind erst bei der Umsetzung und
+im anschliessenden Codex-Review zutage getreten und unter der stehenden
+Anweisung „Befunde an der Wurzel beheben" vom Orchestrator entschieden. Sie sind
+dem PO im Abschlussbericht dieser Story im Wortlaut vorgelegt worden — **eine
+Vorlage ist keine Ratifikation.** Solange der PO nicht ausdruecklich zustimmt,
+sind diese Raender als gesetzt-und-offengelegt zu lesen, nicht als beschlossen.
+Sie sind gleichwohl umgesetzt, weil die jeweilige Alternative (den Fix bauen und
+die Norm weiter das Gegenteil sagen lassen, bzw. eine verletzte Kerninvariante
+als „Grenze" weiterfuehren) schlechter waere als die Entscheidung selbst.
+
+**(c) Offen.** Die Ratifikation von (b) durch den PO. Zusaetzlich offen und hier
+nur benannt, nicht entschieden: ob die konkreten Sekundenwerte aus FK-93 §93.9a
+kuenftig konfigurierbar werden sollen — heute sind sie fest im Code, was der
+Katalog auch so ausweist.
