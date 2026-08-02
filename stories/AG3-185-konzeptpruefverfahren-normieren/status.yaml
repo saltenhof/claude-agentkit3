@@ -1,0 +1,14 @@
+story_id: AG3-185
+story_title_short: "konzeptpruefverfahren-normieren"
+title: "Agentisches Konzeptpruefverfahren normieren: Entwurf aus dem Inkubator durch das eigene Verfahren fuehren, FK-78 78.14 und die Governance nachziehen, Migrationstreue erstmals wirklich fahren."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: L
+# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
+# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
+# PO-Entscheidungen 2026-08-02. Entwurf liegt in concept-incubator/konzeptpruefung-verfahren/
+# workspace/ (Commit fb38a9e7) mit zwoelf Befunden. AGENTS.md ist verankert, das Konzept nicht.
+depends_on: []
+unblocks: []

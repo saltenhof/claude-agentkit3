@@ -1,0 +1,14 @@
+story_id: AG3-184
+story_title_short: "qualitaetswerkzeuge-die-nicht-luegen"
+title: "Qualitaetswerkzeuge, die nicht luegen: Referenz-Baseline von Zeilennummern loesen, tools/ unter ruff und mypy stellen, FK-93-Eigentumsfrage entscheiden."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: M
+# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
+# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
+# Die Baseline ist am 2026-08-02 DREIMAL an einem Tag gewandert. tools/ (Konzept-Compiler,
+# Governance-Werkzeuge) liegt ausserhalb jedes Gates -- zwei Befunde dort belegt.
+depends_on: []
+unblocks: []

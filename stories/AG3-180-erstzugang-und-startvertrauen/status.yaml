@@ -1,0 +1,14 @@
+story_id: AG3-180
+story_title_short: "erstzugang-und-startvertrauen"
+title: "Erstzugang und Startvertrauen: AK3 macht sich selbst betriebsbereit -- Bootstrap ohne Handarbeit, selbst erzeugtes Startzertifikat mit SAN, Rotation, und die global editierbare Installation entschaerfen."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: M
+# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
+# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
+# Blocker fuer JEDE Fremdinstallation. set_password wird ausschliesslich aus Tests aufgerufen;
+# ein frisches AK3 kommt an kein Projekt-Token. Belegt am 2026-08-02 im Nachbarprojekt.
+depends_on: []
+unblocks: []

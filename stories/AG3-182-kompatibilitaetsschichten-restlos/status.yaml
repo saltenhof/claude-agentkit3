@@ -1,0 +1,14 @@
+story_id: AG3-182
+story_title_short: "kompatibilitaetsschichten-restlos"
+title: "Kompatibilitaetsschichten restlos entfernen -- der Rest nach Commit 01a27de1, inklusive der ~330 Aufrufstellen in process/language/model.py, plus ein Gate gegen den Rueckfall."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: L
+# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
+# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
+# PO-Grundregel vom 2026-08-02. Der Compat-Alias serve-control-plane hielt Port 9080 am Leben;
+# jede frische Installation zeigte auf einen Port, auf dem nichts lauschte.
+depends_on: []
+unblocks: []

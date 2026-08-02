@@ -1,0 +1,14 @@
+story_id: AG3-183
+story_title_short: "ehrliche-testpyramide"
+title: "Ehrliche Testpyramide: eine eigene E2E-Spitze je Fremdsystem-Vertrag, Fixtures leiten aus der SSOT ab statt zu behaupten, Sollverteilung als PO-Entscheidung."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: L
+# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
+# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
+# Gemessen 2026-08-02: 4457 unit / 696 integration / 595 contract / 5 e2e, davon KEINER
+# fuer den VektorDB-Pfad. Eine handgeschriebene Fixture-Konstante hielt 13 Tests gruen.
+depends_on: []
+unblocks: []

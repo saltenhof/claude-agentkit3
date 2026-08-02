@@ -1,0 +1,15 @@
+story_id: AG3-186
+story_title_short: "komponenten-und-schnittstellenschicht"
+title: "Komponenten- und Schnittstellenschicht zwischen Prosa und Formal-Layer -- die Projektion auf den realen Repo- und Artefaktschnitt, orthogonal zu den Bounded Contexts."
+type: concept
+status: ready
+phase: setup
+created: "2026-08-02"
+size: L
+# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
+# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
+# PO-Vorgabe 2026-08-02. AK3 hat die Codeprojektion (FK-07) aber KEIN Komponentenobjekt;
+# module-registry.yaml ist eine flache Namensliste, Ports leben nur in Prosa.
+# BRAUCHT eine PO-Entscheidung auf Meta-Konzeptebene, bevor sie beginnt.
+depends_on: ["AG3-185"]
+unblocks: []

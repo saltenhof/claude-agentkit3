@@ -1,0 +1,14 @@
+story_id: AG3-181
+story_title_short: "einbettungsmodell-vollstaendig"
+title: "Einbettungsmodell vollstaendig: Tokenizer-Asset auf bge-m3, Chunk-Budgets an das Modellfenster binden, Fenster-/Abschneidevermutung klaeren."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-02"
+size: M
+# Herkunft: Sammelaufnahme der Befunde vom 2026-08-02 (erste echte Fremdinstallation
+# im Nachbarprojekt plus vier Codex-Reviewrunden an AG3-179).
+# Teilschnitt aus dem Modellwechsel vom 2026-08-02, dort in Decision Record 2.3 benannt.
+# Wirkung nur auf die Chunk-Groessenrechnung, nie auf die serverseitige Einbettung.
+depends_on: ["AG3-183"]
+unblocks: []
