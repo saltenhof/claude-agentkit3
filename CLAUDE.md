@@ -310,6 +310,43 @@ Ratespiel ist hier kein akzeptabler Modus.
 - Tests duerfen produktiven Pipeline-State nicht als Abkuerzung manuell zusammenfantasieren, wenn er im echten Lauf durch Vorgaengerphasen erzeugt wird.
 - Gueltige und ungueltige Uebergaenge des Workflow-Graphs muessen verprobt werden.
 
+### REALITAETSNACHWEIS AN FREMDSYSTEM-GRENZEN (PO-Grundregel)
+
+**Ein Fremdsystem-Vertrag gilt erst als abgenommen, wenn der zugehoerige
+Checkpoint einmal gegen das laufende System gelaufen ist.** Gruene Unit-Tests
+sind Voraussetzung, niemals Nachweis.
+
+Der Grund ist strukturell, nicht organisatorisch: Eine Testsuite kann interne
+Konsistenz und Durchsetzung beweisen. **Uebereinstimmung mit der Welt kann sie
+nicht beweisen** — sie leitet Eingabe UND Erwartung aus derselben Annahme im
+Repo ab. Ist die Annahme falsch, sind die Tests gruen und die Wirklichkeit ist
+eine andere. Mehr Tests derselben Sorte aendern daran nichts.
+
+Das gilt ausdruecklich auch fuer sorgfaeltig gebaute Negativpfade: Ein Test, der
+einen abweichenden Fremdwert als Verletzung zurueckweist, ist gruendlich ueber
+den **Mechanismus** und blind ueber den **Wert**. Er fragt nie, ob der gepinnte
+Wert derjenige ist, den das reale Gegenueber fuehrt.
+
+Daraus folgt fuer jede Story mit Fremdsystem-Vertrag — VektorDB, State-Backend,
+Harness, CI, Konzept-Compiler, jedes Drittsystem:
+
+- Der Live-Lauf des Checkpoints gegen das echte Gegenueber ist **Abnahme-
+  kriterium**, nicht Opt-in. Ohne ihn ist die Story nicht fertig.
+- Faellt der Live-Lauf aus (Dienst nicht verfuegbar, Umgebung im Umbau), ist das
+  eine **benannte Luecke** mit Grund — nie „gruen", nie stillschweigend.
+- Werte, die ein Fremdsystem mitbestimmt (Modelle, Schemata, Ports, Endpunkte,
+  Versionen), brauchen einen benannten Eigentaemer im Konzept. Ein Wert, der nur
+  im Code lebt, driftet — und niemand ist zustaendig, es zu merken.
+
+Belegter Anlassfall (2026-08-02): Sechs VektorDB-Storys sind abgenommen worden,
+ohne dass der Installer je gegen ein laufendes Weaviate lief. Die erste echte
+Installation zeigte sofort eine falsch gepinnte Pooling-Strategie —
+`masked_mean` statt `cls`, der Wert des Vorgaengermodells, seit dem Wechsel auf
+bge-m3 veraltet. Jede Einbettung waere still falsch gerechnet worden. Die
+Drift-Erkennung selbst funktionierte einwandfrei und war sogar negativ getestet;
+sie setzte nur den falschen Wert durch. Kein Test der Welt haette das gefunden,
+nur der Lauf gegen das reale System.
+
 ### Testebenen
 
 - `tests/unit/` fuer reine Logik
