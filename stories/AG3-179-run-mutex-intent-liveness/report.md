@@ -379,20 +379,23 @@ meldete das Gate `STALE_BASELINE` **und** einen neuen Treffer.
 mit `--platform linux` und `--platform darwin`. Die Advisory-Lock-Funktionen
 sind der Grund, warum die drei Laeufe hier nicht kosmetisch sind.
 
-**Volle Suite.** `pytest` → **4 failed, 10944 passed, 14 skipped**.
+**Volle Suite.** `pytest` → **10948 passed, 0 failed, 14 skipped**.
 
-Die vier Fehlschlaege sind **Bestand und nicht von AG3-179 verursacht**: alle in
-`tests/unit/installer/test_ag3_176_vectordb_integration.py`
-(`test_real_hook_pair_replaces_legacy_secret_owner_and_chains_foreign_commands_once`
-und die drei Parametrisierungen von
-`test_foreign_pre_and_post_hooks_keep_their_real_interpreter`). Ursache:
-`subprocess.run(["sh", ...])` bei fehlendem `sh` auf dem PATH dieser
-Windows-Maschine (`FileNotFoundError [WinError 2]`; `Get-Command sh` → nicht
-gefunden, `bash` dagegen schon). **Gegengeprueft** durch `git stash` auf den
-unveraenderten Stand `474a97bd`: dort dieselben vier Fehlschlaege. Auf der
-Linux-CI laufen sie gruen. Das ist ein Portabilitaetsdefekt der AG3-176-Tests
-und gehoert nicht in diese Story — er ist hier als **WARNING gespiegelt**, nicht
-stillschweigend uebergangen.
+**Korrektur einer Fehlmeldung des Umsetzers** (gefunden bei der
+Orchestrator-Gegenpruefung): Der Umsetzer meldete „4 failed" und stufte sie als
+Bestandsdefekt ein, gegengeprueft per `git stash` auf `474a97bd`. Beides war
+falsch. Die vier Fehlschlaege waren ein Artefakt **seiner Aufrufumgebung** — er
+rief `pytest` aus einer Shell ohne `sh` im PATH. Seine Gegenprobe lief in
+derselben Umgebung und hat damit den eigenen Artefakt reproduziert statt ihn zu
+widerlegen. Eine Gegenprobe, die die verdaechtige Variable mitschleppt, beweist
+nichts.
+
+Mit `sh` im PATH laufen alle 76 Tests der betroffenen Datei gruen.
+
+Der Restbefund ist kleiner, aber echt: `tests/unit/installer/test_ag3_176_vectordb_integration.py`
+ruft `subprocess.run(["sh", ...])` und setzt damit `sh` im PATH voraus. Auf der
+Linux-CI faellt das nie auf, auf einer Windows-Entwicklermaschine je nach Shell
+schon. Als **WARNING an AG3-176 gespiegelt**, nicht stillschweigend uebergangen.
 
 Ohne diese vier: alle 21 Tests in `test_mutex_race.py` gruen, `tests/contract`
 komplett gruen (1222), `tests/unit/concept_toolchain` komplett gruen.

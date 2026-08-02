@@ -131,11 +131,16 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 #  - ruff: clean. mypy --strict: gruen fuer win32, linux UND darwin.
 #  - Alle statischen Konzept-Gates gruen (inkl. nachgezogener Zeilennummer
 #    878 -> 939 in reference-integrity-baseline.yaml).
-#  - Volle Suite: 4 failed, 10944 passed, 14 skipped. Die vier Fehlschlaege
-#    sind BESTAND (per git stash auf 474a97bd gegengeprueft): AG3-176-Tests
-#    rufen `sh`, das auf dieser Windows-Maschine nicht im PATH liegt
-#    (FileNotFoundError WinError 2). Portabilitaetsdefekt der AG3-176-Tests,
-#    nicht von AG3-179 verursacht -- als WARNING gespiegelt.
+#  - Volle Suite: 10948 passed, 0 failed, 14 skipped.
+#    KORREKTUR des Umsetzer-Berichts (Orchestrator-Gegenpruefung): der
+#    Umsetzer meldete "4 failed, BESTAND, per git stash gegengeprueft". Das
+#    war ein Artefakt SEINER Aufrufumgebung -- er rief pytest aus einer Shell
+#    ohne `sh` im PATH, und seine Gegenprobe lief in derselben Umgebung,
+#    reproduzierte also den eigenen Artefakt statt ihn zu widerlegen. Mit
+#    `sh` im PATH laufen alle 76 Tests der Datei gruen.
+#    Der Restbefund ist kleiner, aber echt: die AG3-176-Tests rufen
+#    `subprocess.run(["sh", ...])` und setzen `sh` im PATH voraus. Auf der
+#    Linux-CI faellt das nie auf. Als WARNING an AG3-176 gespiegelt.
 #  - W2 pre-merge: 40 Befunde, ALLE UNAUTHORIZED_SCOPE_ASSERTION, ALLE in
 #    FK-93. FK-78 und der Decision Record: NULL Befunde. Davon 8 aus meinem
 #    neuen §93.9a -> regelkonform baselined mit je konkreter Begruendung
