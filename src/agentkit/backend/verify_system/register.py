@@ -54,13 +54,13 @@ ADVERSARIAL_SANDBOX_STAGE: Final[str] = "qa-adversarial"
 # AG3-026 §AK7 requires three separate QA artifacts for Layer 2
 # (qa_review.json, semantic_review.json, doc_fidelity.json); hence
 # three separate Layer-2 producers with distinguishable names.
-# ``verify-system.layer-2-llm`` (legacy from AG3-023) stays registered for
-# backward compatibility with existing code (write_layer_artifacts in
-# verify_system.artifacts).
 # Producer names reference the cross-cutting SSOT
-# ``core_types.qa_artifact_names`` (no second naming truth, AG3-034 R2-H); the
-# legacy ``verify-system.layer-2-llm`` producer is not a QA-layer SSOT member and
-# stays literal here.
+# ``core_types.qa_artifact_names`` (no second naming truth, AG3-034 R2-H).
+#
+# The AG3-023-era ``verify-system.layer-2-llm`` producer is REMOVED (2026-08-02):
+# ``write_layer_artifacts`` maps every layer onto one of the three named Layer-2
+# producers, so it was a registry entry nothing could ever produce — kept only
+# for backward compatibility, which AK3 does not do.
 #
 # AG3-065 (remediation 3): Layer-2 prompt-audit and dialogue-audit records are
 # persisted via the concept-owned ``prompt-runtime.materialization`` producer
@@ -79,7 +79,6 @@ _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = 
         ProducerType.DETERMINISTIC,
     ),
     # Layer 2 (legacy AG3-023, write_layer_artifacts/_decision path)
-    (ArtifactClass.QA, "verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
     (ArtifactClass.QA, ADVERSARIAL_PRODUCER, ProducerType.LLM_REVIEWER),
     # SonarQube-Green-Gate (FK-33 §33.6 / §33.2.2, AG3-052): Layer-1
     # deterministic stage sequenced after Layer 3.

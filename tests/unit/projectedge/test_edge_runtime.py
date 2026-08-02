@@ -323,7 +323,7 @@ def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path: Path, monkeyp
     control_plane_dir = tmp_path / ".agentkit" / "config"
     control_plane_dir.mkdir(parents=True, exist_ok=True)
     (control_plane_dir / "control-plane.json").write_text(
-        json.dumps({"base_url": "https://127.0.0.1:9080", "ca_file": None}),
+        json.dumps({"base_url": "https://127.0.0.1:9702", "ca_file": None}),
         encoding="utf-8",
     )
     (control_plane_dir / "project.yaml").write_text(

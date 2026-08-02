@@ -42,11 +42,11 @@ from agentkit.backend.process.language.definitions import (
 )
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
-    read_phase_snapshot_record,
-    read_phase_state_record,
+    load_phase_snapshot,
+    load_phase_state,
 )
 from agentkit.backend.state_backend.story_lifecycle_store import (
-    read_story_context_record,
+    load_story_context,
     save_story_context,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -251,9 +251,9 @@ class TestSmokeImplementationStory:
         )
 
         # 7. Verify canonical persisted records and optional projections
-        assert read_phase_state_record(s_dir) is not None
-        assert read_phase_snapshot_record(s_dir, "setup") is not None
-        assert read_phase_snapshot_record(s_dir, "closure") is not None
+        assert load_phase_state(s_dir) is not None
+        assert load_phase_snapshot(s_dir, "setup") is not None
+        assert load_phase_snapshot(s_dir, "closure") is not None
         assert (s_dir / "phase-state.json").exists()
         assert (s_dir / "context.json").exists()
         assert len(load_attempts(s_dir, "setup")) >= 1
@@ -323,10 +323,10 @@ class TestSmokeImplementationStory:
         registry = _registry_for_workflow(workflow)
         run_pipeline(ctx, s_dir, registry, workflow)
 
-        assert read_phase_state_record(s_dir) is not None
-        assert read_phase_snapshot_record(s_dir, "setup") is not None
-        assert read_phase_snapshot_record(s_dir, "implementation") is not None
-        assert read_phase_snapshot_record(s_dir, "closure") is not None
+        assert load_phase_state(s_dir) is not None
+        assert load_phase_snapshot(s_dir, "setup") is not None
+        assert load_phase_snapshot(s_dir, "implementation") is not None
+        assert load_phase_snapshot(s_dir, "closure") is not None
 
         # Projections are not canonical, but they should still be parseable.
         json_files = list(s_dir.rglob("*.json"))
@@ -595,7 +595,7 @@ class TestSmokeConceptStory:
         registry = _registry_for_workflow(workflow)
         run_pipeline(ctx, s_dir, registry, workflow)
 
-        loaded = read_story_context_record(s_dir)
+        loaded = load_story_context(s_dir)
         assert loaded is not None
         assert loaded.story_id == "CONCEPT-002"
         assert loaded.story_type == StoryType.CONCEPT
@@ -826,7 +826,7 @@ class TestSmokePipelineRobustness:
 
         assert result.final_status == "completed"
         assert result.phases_executed == ("setup", "implementation", "closure")
-        assert read_phase_state_record(s_dir) is not None
+        assert load_phase_state(s_dir) is not None
 
     def test_pipeline_with_yielding_handler(self, tmp_path: Path) -> None:
         """Pipeline correctly yields when a handler returns PAUSED."""
@@ -863,7 +863,7 @@ class TestSmokePipelineRobustness:
         assert result.phases_executed == ("setup", "implementation")
 
         # Verify persisted state reflects the yield
-        loaded_state = read_phase_state_record(s_dir)
+        loaded_state = load_phase_state(s_dir)
         assert loaded_state is not None
         assert loaded_state.status == PhaseStatus.PAUSED
 
@@ -921,7 +921,7 @@ class TestSmokePipelineRobustness:
 
         # Each completed phase should have a canonical snapshot record.
         for phase_name in result.phases_executed:
-            snapshot = read_phase_snapshot_record(s_dir, phase_name)
+            snapshot = load_phase_snapshot(s_dir, phase_name)
             assert snapshot is not None, f"No canonical snapshot for completed phase '{phase_name}'"
             assert snapshot.phase == phase_name
             assert snapshot.status == PhaseStatus.COMPLETED

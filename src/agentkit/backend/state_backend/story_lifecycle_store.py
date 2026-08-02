@@ -140,11 +140,6 @@ def load_story_contexts_global(
     ]
 
 
-def read_story_context_record(story_dir: Path) -> StoryContext | None:
-    """Compatibility alias for ``load_story_context``."""
-    return load_story_context(story_dir)
-
-
 def save_session_run_binding_global(record: Any) -> None:
     """Persist the session-to-run binding projection."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -421,7 +416,7 @@ __all__ = [
     "load_story_context_by_story_number_global",
     "load_story_context_by_uuid_global",
     "load_story_contexts_global",
-    "read_story_context_record",
+    "load_story_context",
     "save_session_run_binding_global",
     "load_session_run_binding_global",
     "delete_session_run_binding_global",

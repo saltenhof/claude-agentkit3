@@ -22,7 +22,7 @@ from agentkit.backend.verify_system.pre_merge_runner.ci_run import (
 from agentkit.backend.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
 from agentkit.integration_clients.sonar import SonarApiError
 
-#: Default tree hash a fake :func:`fake_tree_resolver` returns for any commit.
+#: Deterministic tree hash used by the candidate fixtures below.
 FAKE_TREE_HASH = "tree9999"
 
 
@@ -216,12 +216,6 @@ class _Body:
     """Minimal stand-in carrying a ``json_body`` like ``SonarHttpResponse``."""
 
     json_body: dict[str, Any]
-
-
-def fake_tree_resolver(commit_sha: str) -> str:
-    """Deterministic :class:`TreeHashResolver` for tests (no git subprocess)."""
-    del commit_sha
-    return FAKE_TREE_HASH
 
 
 def empty_ledger() -> AcceptedExceptionLedger:

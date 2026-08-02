@@ -42,6 +42,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 _TELEMETRY_PATH = "/v1/telemetry/events"
+#: ``serve_control_plane`` takes no port default (the port registry is owned by
+#: ``cli.serve``, FK-10 §10.7.2). These tests never bind a real socket -- the
+#: HTTPS server class is faked -- so any explicit port states the intent.
+_TEST_LISTENER_PORT = 9702
 
 
 class _RecordingTelemetryService:
@@ -313,6 +317,7 @@ def test_serve_control_plane_app_none_is_handshake_gated(
     # has its own dedicated tests). Inject a no-op hook so the handshake-gating
     # wiring is exercised without a live control-plane backend.
     serve_control_plane(
+        port=_TEST_LISTENER_PORT,
         certfile=Path("tls/control-plane.pem"),
         app=None,
         startup_hook=lambda _app: None,
@@ -341,6 +346,7 @@ def test_serve_control_plane_gates_injected_ungated_app_over_socket(
     )
     # AG3-138: no-op startup hook (handshake-gating concern only; see above).
     serve_control_plane(
+        port=_TEST_LISTENER_PORT,
         certfile=Path("tls/control-plane.pem"),
         app=ungated,
         startup_hook=lambda _app: None,
@@ -378,6 +384,7 @@ def test_auth_login_without_handshake_works_through_production_wiring(
     )
     # AG3-138: no-op startup hook (handshake-gating concern only; see above).
     serve_control_plane(
+        port=_TEST_LISTENER_PORT,
         certfile=Path("tls/control-plane.pem"),
         app=None,
         startup_hook=lambda _app: None,

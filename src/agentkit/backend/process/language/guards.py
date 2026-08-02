@@ -2,7 +2,7 @@
 
 Guards are side-effect-free callables that evaluate whether a transition
 or phase entry is allowed. They return a ``GuardResult`` indicating
-PASS or FAIL with an optional reason.
+``pass_`` or ``fail`` with an optional reason.
 
 The ``@guard`` decorator binds metadata (name, description, reads)
 to guard functions for introspection and documentation.
@@ -51,9 +51,6 @@ class GuardResult:
             A ``GuardResult`` with ``passed=False`` and the given reason.
         """
         return cls(passed=False, reason=reason)
-
-    PASS = pass_  # NOSONAR - public DSL compatibility alias
-    FAIL = fail  # NOSONAR - public DSL compatibility alias
 
 
 GuardFn = Callable[["StoryContext", "PhaseState"], GuardResult]
@@ -112,13 +109,13 @@ def preflight_passed(ctx: StoryContext, state: PhaseState) -> GuardResult:
         state: The current phase state to inspect.
 
     Returns:
-        ``GuardResult.PASS()`` if setup is completed, ``FAIL`` otherwise.
+        ``GuardResult.pass_()`` if setup is completed, ``fail`` otherwise.
     """
     from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 
     if state.phase == "setup" and state.status == PhaseStatus.COMPLETED:
-        return GuardResult.PASS()
-    return GuardResult.FAIL(
+        return GuardResult.pass_()
+    return GuardResult.fail(
         reason=f"Setup phase not completed: phase={state.phase!r}, "
         f"status={state.status!r}",
     )
@@ -147,8 +144,8 @@ def exploration_gate_approved(
         state: The current phase state to inspect.
 
     Returns:
-        ``GuardResult.PASS()`` only when phase is ``exploration``, status is
-        ``COMPLETED`` AND ``payload.gate_status == APPROVED``; ``FAIL``
+        ``GuardResult.pass_()`` only when phase is ``exploration``, status is
+        ``COMPLETED`` AND ``payload.gate_status == APPROVED``; ``fail``
         otherwise.
     """
     from agentkit.backend.core_types import ExplorationGateStatus
@@ -166,9 +163,9 @@ def exploration_gate_approved(
         and payload.gate_status == ExplorationGateStatus.APPROVED
     )
     if approved:
-        return GuardResult.PASS()
+        return GuardResult.pass_()
     gate_status = getattr(payload, "gate_status", None)
-    return GuardResult.FAIL(
+    return GuardResult.fail(
         reason=(
             "Exploration gate not approved: "
             f"phase={state.phase!r}, status={state.status!r}, "
@@ -190,13 +187,13 @@ def implementation_completed(ctx: StoryContext, state: PhaseState) -> GuardResul
         state: The current phase state to inspect.
 
     Returns:
-        ``GuardResult.PASS()`` if implementation is completed, ``FAIL`` otherwise.
+        ``GuardResult.pass_()`` if implementation is completed, ``fail`` otherwise.
     """
     from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 
     if state.phase == "implementation" and state.status == PhaseStatus.COMPLETED:
-        return GuardResult.PASS()
-    return GuardResult.FAIL(
+        return GuardResult.pass_()
+    return GuardResult.fail(
         reason=f"Implementation phase not completed: phase={state.phase!r}, "
         f"status={state.status!r}",
     )
@@ -221,14 +218,14 @@ def implementation_qa_needs_remediation(
         state: The current phase state to inspect.
 
     Returns:
-        ``GuardResult.PASS()`` if implementation needs remediation,
-        ``GuardResult.FAIL`` if implementation completed successfully.
+        ``GuardResult.pass_()`` if implementation needs remediation,
+        ``GuardResult.fail`` if implementation completed successfully.
     """
     from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 
     if state.phase == "implementation" and state.status != PhaseStatus.COMPLETED:
-        return GuardResult.PASS()
-    return GuardResult.FAIL(
+        return GuardResult.pass_()
+    return GuardResult.fail(
         reason="Implementation phase completed successfully, no remediation needed",
     )
 
@@ -253,8 +250,8 @@ def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
         state: The current phase state (unused but required by signature).
 
     Returns:
-        ``GuardResult.PASS()`` only when the route is EXPLORATION AND the story
-        is not in fast mode; ``FAIL`` otherwise.
+        ``GuardResult.pass_()`` only when the route is EXPLORATION AND the story
+        is not in fast mode; ``fail`` otherwise.
     """
     from agentkit.backend.story_context_manager.routing_rules import (
         is_execution_routing_blocked,
@@ -263,7 +260,7 @@ def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
     from agentkit.backend.story_context_manager.types import StoryMode
 
     if ctx.mode is WireStoryMode.FAST:
-        return GuardResult.FAIL(
+        return GuardResult.fail(
             reason=(
                 "Story is in fast mode: the Exploration phase is skipped "
                 "(FK-24 §24.3.4 Mode-Profil Exploration=OUT); routing setup "
@@ -275,10 +272,10 @@ def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
     # route is not EXPLORATION (the direct setup -> implementation edge is blocked
     # by _mode_is_not_exploration via the same routing predicate).
     if is_execution_routing_blocked(ctx):
-        return GuardResult.PASS()
+        return GuardResult.pass_()
     if ctx.execution_route == StoryMode.EXPLORATION:
-        return GuardResult.PASS()
-    return GuardResult.FAIL(
+        return GuardResult.pass_()
+    return GuardResult.fail(
         reason=(
             "Story execution route is not EXPLORATION: "
             f"execution_route={ctx.execution_route!r}"

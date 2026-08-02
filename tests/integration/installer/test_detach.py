@@ -660,10 +660,17 @@ def _expected_ak3_server(project_root: Path) -> DesiredMcpServer:
     expected shape, so a fixture that deviates from it is (correctly) not
     AK3-owned.
     """
+    from agentkit.backend.installer.mcp_registration import (
+        resolve_story_knowledge_base_command,
+    )
+
     shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
+    # The story-knowledge-base command is machine-resolved (the ABSOLUTE
+    # interpreter that provides AK3), so the shape carries a sentinel rather than
+    # a literal; the fixture must use the value AK3 really writes.
     return DesiredMcpServer(
         name=STORY_KNOWLEDGE_BASE_SERVER,
-        command=shape.command,
+        command=resolve_story_knowledge_base_command(),
         args=shape.args,
         cwd=str(project_root),
         env=tuple((key, "value") for key in sorted(shape.env_keys)),

@@ -29,7 +29,6 @@ def add_lifecycle_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     """Register the level-specific lifecycle subcommands (FK-10 §10.2.0)."""
-    _add_serve_control_plane_alias_parser(subparsers)
     _add_serve_parser(subparsers)
     _add_ui_parser(subparsers)
     _add_update_parser(subparsers)
@@ -57,19 +56,6 @@ def _add_serve_parser(
     serve_parser.add_argument("--port", type=int, default=None)
     serve_parser.add_argument("--certfile", required=True)
     serve_parser.add_argument("--keyfile")
-
-
-def _add_serve_control_plane_alias_parser(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    control_plane_parser = subparsers.add_parser(
-        "serve-control-plane",
-        help="[deprecated] Alias for 'serve --project-api' (FK-10 §10.2.5)",
-    )
-    control_plane_parser.add_argument("--host", default="127.0.0.1")
-    control_plane_parser.add_argument("--port", type=int, default=None)
-    control_plane_parser.add_argument("--certfile", required=True)
-    control_plane_parser.add_argument("--keyfile")
 
 
 def _add_ui_parser(
@@ -168,30 +154,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     profile = ServeProfile.UI_BFF if args.ui_bff else ServeProfile.PROJECT_API
     return run_serve(
         profile=profile,
-        host=args.host,
-        port=args.port,
-        certfile=Path(args.certfile),
-        keyfile=Path(args.keyfile) if args.keyfile is not None else None,
-    )
-
-
-def cmd_serve_control_plane_alias(args: argparse.Namespace) -> int:
-    """Handle the deprecated ``serve-control-plane`` compat alias (FK-10 §10.2.5).
-
-    Delegates to the SINGLE serve implementation with the Project-API profile —
-    no second transport path. The port default migrated from the legacy ``9080``
-    to the Project-API ``9702`` (cert/key flags stay functionally compatible).
-    """
-    print(
-        "agentkit serve-control-plane is deprecated; use 'agentkit serve "
-        "--project-api' (the canonical level-1 Core bootstrap). Delegating to the "
-        "same serve implementation.",
-        file=sys.stderr,
-    )
-    from agentkit.backend.cli.serve import ServeProfile, run_serve
-
-    return run_serve(
-        profile=ServeProfile.PROJECT_API,
         host=args.host,
         port=args.port,
         certfile=Path(args.certfile),
@@ -464,7 +426,6 @@ __all__ = [
     "cmd_decommission",
     "cmd_detach",
     "cmd_serve",
-    "cmd_serve_control_plane_alias",
     "cmd_ui",
     "cmd_update",
 ]

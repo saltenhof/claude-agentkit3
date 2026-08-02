@@ -42,7 +42,7 @@ unresolved_references:
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/13_retrieval_vektordb_wissenszugriff.md
-    line: 108
+    line: 137
     reference: stories/ODIN-042/story.md
     reason: Illustrative target-project story instance, not a repository fixture.
   - code: UNRESOLVED_REPO_PATH

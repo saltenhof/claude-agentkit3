@@ -120,8 +120,6 @@ def _dispatch_command(args: argparse.Namespace, cli_args: list[str]) -> tuple[bo
     from agentkit.backend.cli import lifecycle
 
     handlers = {
-        "install": lambda: _installer_commands._cmd_install(args),
-        "uninstall": lambda: _installer_commands._cmd_uninstall(args),
         "register-project": lambda: _installer_commands._cmd_register_project(args),
         "verify-project": lambda: _installer_commands._cmd_verify_project(args),
         "upgrade-project": lambda: _installer_commands._cmd_upgrade_project(args),
@@ -136,7 +134,6 @@ def _dispatch_command(args: argparse.Namespace, cli_args: list[str]) -> tuple[bo
         "update": lambda: lifecycle.cmd_update(args),
         "detach": lambda: lifecycle.cmd_detach(args),
         "decommission": lambda: lifecycle.cmd_decommission(args),
-        "serve-control-plane": lambda: lifecycle.cmd_serve_control_plane_alias(args),
         "export-story-md": lambda: _cmd_export_story_md(args),
         "repair-story-md": lambda: _cmd_repair_story_md(args),
         "failure-corpus": lambda: _cmd_failure_corpus(args),

@@ -68,11 +68,6 @@ def load_phase_state_global(
     )
 
 
-def read_phase_state_record(story_dir: Path) -> PhaseState | None:
-    """Compatibility alias for ``load_phase_state``."""
-    return load_phase_state(story_dir)
-
-
 def save_phase_snapshot(story_dir: Path, snapshot: PhaseSnapshot) -> None:
     """Persist one phase snapshot."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -93,14 +88,6 @@ def load_phase_snapshot(story_dir: Path, phase: str) -> PhaseSnapshot | None:
         phase,
         db_label=str(story_dir),
     )
-
-
-def read_phase_snapshot_record(
-    story_dir: Path,
-    phase: str,
-) -> PhaseSnapshot | None:
-    """Compatibility alias for ``load_phase_snapshot``."""
-    return load_phase_snapshot(story_dir, phase)
 
 
 def save_attempt(story_dir: Path, attempt: AttemptRecord) -> None:
@@ -316,10 +303,10 @@ __all__ = [
     "save_phase_state",
     "load_phase_state",
     "load_phase_state_global",
-    "read_phase_state_record",
+    "load_phase_state",
     "save_phase_snapshot",
     "load_phase_snapshot",
-    "read_phase_snapshot_record",
+    "load_phase_snapshot",
     "save_attempt",
     "save_phase_completion",
     "load_attempts",

@@ -21,7 +21,6 @@ from .fakes import (
     FakeCiBackend,
     FakeSonarClient,
     empty_ledger,
-    fake_tree_resolver,
     make_ci_result,
     run_cache,
 )
@@ -51,7 +50,6 @@ def _runner(backend: FakeCiBackend, client: FakeSonarClient) -> CiSonarScanRunne
         client=client,  # type: ignore[arg-type]
         config=_sonar_config(),
         ledger=empty_ledger(),
-        tree_resolver=fake_tree_resolver,
     )
 
 
@@ -320,20 +318,20 @@ class TestNegativePaths:
         assert backend.calls == []
 
 class TestEdgeReportedTreeBinding:
-    def test_backend_tree_resolver_is_not_called(self) -> None:
-        """AG3-152: Dim-9 verifies the Edge hash and never re-measures git."""
+    def test_attestation_binds_the_edge_reported_tree_hash(self) -> None:
+        """AG3-152: Dim-9 verifies the Edge hash and never re-measures git.
+
+        The ``tree_resolver`` injection seam is REMOVED (2026-08-02): production
+        never read it, so it was deprecated surface that existed only for tests.
+        """
         backend = FakeCiBackend(result=make_ci_result())
         client = FakeSonarClient(analyzed_revision=_SHA)
-
-        def _boom(commit_sha: str) -> str:
-            raise RuntimeError(f"no such commit {commit_sha}")
 
         runner = CiSonarScanRunner(
             run_cache=run_cache(backend),
             client=client,  # type: ignore[arg-type]
             config=_sonar_config(),
             ledger=empty_ledger(),
-            tree_resolver=_boom,
         )
         outcome = runner.produce_attestation(_candidate())
         assert outcome.produced is True

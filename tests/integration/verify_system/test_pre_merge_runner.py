@@ -250,11 +250,6 @@ def _candidate() -> CandidateRef:
     return CandidateRef(branch=_BRANCH, commit_sha=_SHA, tree_hash=_TREE)
 
 
-def _fake_tree(commit_sha: str) -> str:
-    del commit_sha
-    return _TREE
-
-
 def _scan_runner(
     cache: CandidateRunCache, sonar: _StubSonarClient
 ) -> CiSonarScanRunner:
@@ -263,7 +258,6 @@ def _scan_runner(
         client=sonar,  # type: ignore[arg-type]
         config=_sonar_config(),
         ledger=AcceptedExceptionLedger(),
-        tree_resolver=_fake_tree,
     )
 
 

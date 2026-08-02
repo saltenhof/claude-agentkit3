@@ -26,9 +26,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agentkit.backend.execution_planning.entities import ParallelizationConfig
+from agentkit.backend.project_management._flow_constants import (
+    SUBSTEP_SEQUENCE_FAST,
+    SUBSTEP_SEQUENCE_STANDARD,
+)
 from agentkit.backend.project_management.read_models import (
-    _SUBSTEP_SEQUENCE_FAST,
-    _SUBSTEP_SEQUENCE_STANDARD,
     AreVerdictRequiredError,
     build_are_evidence,
     build_coverage_acceptance,
@@ -132,7 +134,7 @@ def test_flow_snapshot_backlog_story_all_phases_pending_with_substeps() -> None:
     for phase in result.phases:
         assert phase.state == "pending"
         # Full substep sequences populated (not empty).
-        expected_substeps = list(_SUBSTEP_SEQUENCE_STANDARD[phase.phase])
+        expected_substeps = list(SUBSTEP_SEQUENCE_STANDARD[phase.phase])
         actual_substep_ids = [s.substep for s in phase.substeps]
         assert actual_substep_ids == expected_substeps, (
             f"Phase {phase.phase!r}: expected substeps {expected_substeps}, "
@@ -164,7 +166,7 @@ def test_flow_snapshot_done_story_all_phases_done_with_substeps() -> None:
     assert len(result.phases) == 4
     for phase in result.phases:
         assert phase.state == "done", f"Phase {phase.phase!r} must be done"
-        expected_substeps = list(_SUBSTEP_SEQUENCE_STANDARD[phase.phase])
+        expected_substeps = list(SUBSTEP_SEQUENCE_STANDARD[phase.phase])
         actual_substep_ids = [s.substep for s in phase.substeps]
         assert actual_substep_ids == expected_substeps
         for substep in phase.substeps:
@@ -194,13 +196,13 @@ def test_flow_snapshot_active_story_implementation_position_derivation() -> None
     # Prior phases: done with full substep sequences.
     assert phases["setup"].state == "done"
     assert [s.substep for s in phases["setup"].substeps] == list(
-        _SUBSTEP_SEQUENCE_STANDARD["setup"]
+        SUBSTEP_SEQUENCE_STANDARD["setup"]
     )
     assert all(s.state == "done" for s in phases["setup"].substeps)
 
     assert phases["exploration"].state == "done"
     assert [s.substep for s in phases["exploration"].substeps] == list(
-        _SUBSTEP_SEQUENCE_STANDARD["exploration"]
+        SUBSTEP_SEQUENCE_STANDARD["exploration"]
     )
     assert all(s.state == "done" for s in phases["exploration"].substeps)
 
@@ -214,12 +216,12 @@ def test_flow_snapshot_active_story_implementation_position_derivation() -> None
             f"(no FK-39 substep pointer), got {substep.state!r}"
         )
     # Canonical substep sequence intact.
-    assert list(impl_substeps.keys()) == list(_SUBSTEP_SEQUENCE_STANDARD["implementation"])
+    assert list(impl_substeps.keys()) == list(SUBSTEP_SEQUENCE_STANDARD["implementation"])
 
     # Later phase: pending with full substep sequences.
     assert phases["closure"].state == "pending"
     assert [s.substep for s in phases["closure"].substeps] == list(
-        _SUBSTEP_SEQUENCE_STANDARD["closure"]
+        SUBSTEP_SEQUENCE_STANDARD["closure"]
     )
 
 
@@ -291,11 +293,11 @@ def test_flow_snapshot_fast_mode_active_implementation_uses_fast_sequence() -> N
     # Setup is done (prior to implementation)
     assert phases["setup"].state == "done"
     assert [s.substep for s in phases["setup"].substeps] == list(
-        _SUBSTEP_SEQUENCE_FAST["setup"]
+        SUBSTEP_SEQUENCE_FAST["setup"]
     )
     # Implementation is active with fast substep sequence
     impl_substeps = [s.substep for s in phases["implementation"].substeps]
-    assert impl_substeps == list(_SUBSTEP_SEQUENCE_FAST["implementation"])
+    assert impl_substeps == list(SUBSTEP_SEQUENCE_FAST["implementation"])
     # qa_layer2_llm is OUT in fast mode -> not present
     assert "qa_layer2_llm" not in impl_substeps
     # No per-substep pointer -> all substeps pending or optional-pending
@@ -346,7 +348,7 @@ def test_flow_snapshot_active_setup_phase_substeps_all_pending() -> None:
         )
     # Full canonical substep sequence populated.
     ids = [s.substep for s in setup_phase.substeps]
-    assert ids == list(_SUBSTEP_SEQUENCE_STANDARD["setup"])
+    assert ids == list(SUBSTEP_SEQUENCE_STANDARD["setup"])
 
 
 def test_flow_snapshot_escalation_reason_in_state_reason() -> None:

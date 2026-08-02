@@ -35,7 +35,7 @@ from agentkit.backend.process.language.definitions import IMPLEMENTATION_WORKFLO
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.pipeline_runtime_store import (
-    read_phase_state_record,
+    load_phase_state,
     save_flow_execution,
 )
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
@@ -484,7 +484,7 @@ def test_engine_persists_remediation_and_adversarial_spawn(
     assert result.next_phase is None
 
     # The PERSISTED PhaseState carries BOTH spawn orders (FK-45 §45.3).
-    persisted = read_phase_state_record(story_dir)
+    persisted = load_phase_state(story_dir)
     assert persisted is not None
     assert persisted.status == PhaseStatus.IN_PROGRESS
     spawn = persisted.agents_to_spawn

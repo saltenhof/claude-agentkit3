@@ -22,7 +22,6 @@ from agentkit.backend.installer.mcp_registration import (
     CODEX_CONFIG_ARTIFACT,
     MCP_JSON_ARTIFACT,
     STORY_KNOWLEDGE_BASE_ARGS,
-    STORY_KNOWLEDGE_BASE_COMMAND,
     ProbedRegistration,
     RegistrationBeforeImage,
     RenderedRegistration,
@@ -30,6 +29,7 @@ from agentkit.backend.installer.mcp_registration import (
     desired_server_from_spec,
     merge_mcp_json_servers,
     render_mcp_json_text,
+    resolve_story_knowledge_base_command,
     server_command_from_desired,
 )
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
@@ -54,7 +54,7 @@ def _spec(cwd: str = "C:/proj") -> object:
     """Build a real FK-13 spec through the productive RuntimeBinding path."""
     binding = RuntimeBinding.from_env(
         _env(),
-        command=STORY_KNOWLEDGE_BASE_COMMAND,
+        command=resolve_story_knowledge_base_command(),
         args=STORY_KNOWLEDGE_BASE_ARGS,
         cwd=cwd,
     )
@@ -123,7 +123,7 @@ def test_empty_env_value_is_rejected(field: str, empty: str) -> None:
 
 def test_projection_carries_the_spec_values_verbatim() -> None:
     server = _desired()
-    assert server.command == STORY_KNOWLEDGE_BASE_COMMAND
+    assert server.command == resolve_story_knowledge_base_command()
     assert server.args == STORY_KNOWLEDGE_BASE_ARGS
     assert server.cwd == "C:/proj"
     assert server.env_dict() == _env()
@@ -136,7 +136,7 @@ def test_non_default_endpoints_survive_verbatim_into_the_projection() -> None:
     odd_grpc = "vectors.example.test:16051"
     binding = RuntimeBinding.from_env(
         _env(WEAVIATE_HTTP_ENDPOINT=odd_http, WEAVIATE_GRPC_ENDPOINT=odd_grpc),
-        command=STORY_KNOWLEDGE_BASE_COMMAND,
+        command=resolve_story_knowledge_base_command(),
         args=STORY_KNOWLEDGE_BASE_ARGS,
         cwd="C:/proj",
     )
@@ -166,7 +166,7 @@ def test_projection_rejects_a_missing_registered_env_key() -> None:
     }
     binding = RuntimeBinding.from_env(
         partial,
-        command=STORY_KNOWLEDGE_BASE_COMMAND,
+        command=resolve_story_knowledge_base_command(),
         args=STORY_KNOWLEDGE_BASE_ARGS,
         cwd="C:/proj",
     )
@@ -178,7 +178,7 @@ def test_projection_rejects_a_missing_registered_env_key() -> None:
 def test_projection_rejects_an_unexpected_env_key() -> None:
     binding = RuntimeBinding.from_env(
         _env(GH_REPO="owner/repo"),
-        command=STORY_KNOWLEDGE_BASE_COMMAND,
+        command=resolve_story_knowledge_base_command(),
         args=STORY_KNOWLEDGE_BASE_ARGS,
         cwd="C:/proj",
     )

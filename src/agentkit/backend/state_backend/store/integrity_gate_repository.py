@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     backend_has_completed_snapshot,
     backend_has_valid_phase_state,
-    read_phase_state_record,
+    load_phase_state,
 )
 from agentkit.backend.state_backend.runtime_scope_resolver import resolve_runtime_scope
 from agentkit.backend.state_backend.story_lifecycle_store import (
@@ -225,11 +225,11 @@ class StateBackendIntegrityGateStateAdapter:
         """
         return load_latest_verify_decision_for_scope(scope)
 
-    def read_phase_state_record(
+    def load_phase_state(
         self,
         story_dir: Path,
     ) -> object | None:
-        """Delegate to ``read_phase_state_record``.
+        """Delegate to ``load_phase_state``.
 
         Args:
             story_dir: Story base directory.
@@ -237,7 +237,7 @@ class StateBackendIntegrityGateStateAdapter:
         Returns:
             The phase state object or None.
         """
-        return read_phase_state_record(story_dir)
+        return load_phase_state(story_dir)
 
     def resolve_runtime_scope(self, story_dir: Path) -> RuntimeStateScope:
         """Delegate to ``resolve_runtime_scope``.

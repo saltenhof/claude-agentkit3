@@ -20,7 +20,12 @@ def test_review_preflight_template_manifest_entry_hash_matches_resource() -> Non
     template_path = MANIFEST_PATH.parent.parent.parent / Path(entry["relpath"])
     content = template_path.read_text(encoding="utf-8")
 
-    assert manifest["bundle_version"] == "5"
+    # Bumped 5 -> 6 on 2026-08-02: AG3-120 changed template BODIES without moving
+    # the version key, so the immutable, version-keyed prompt-bundle store held
+    # two different contents under "5" and every machine that had installed
+    # before AG3-120 failed closed with "Canonical prompt bundle store collision".
+    # A content change REQUIRES a version bump; this pin is what enforces it.
+    assert manifest["bundle_version"] == "6"
     assert entry["relpath"] == "internal/prompts/review-preflight.md"
     assert hashlib.sha256(content.encode("utf-8")).hexdigest() == entry["sha256"]
     assert load_prompt_template("review-preflight") == content

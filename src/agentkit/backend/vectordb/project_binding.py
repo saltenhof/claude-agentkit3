@@ -68,13 +68,11 @@ class ProjectBinding:
                 "weaviate_http_endpoint is missing/empty; the endpoint is a "
                 "configuration value (no localhost default, fail-closed)."
             )
-        # The endpoint must never be a synthesised localhost default.
-        ep = self.weaviate_http_endpoint.strip()
-        if ep in {"http://localhost:8080", "http://127.0.0.1:8080"}:
-            raise ProjectBindingError(
-                f"weaviate_http_endpoint {ep!r} is a forbidden localhost default; "
-                "the endpoint must come from explicit configuration."
-            )
+        # No block list: "not synthesised" is guaranteed by ORIGIN (the endpoint
+        # is a mandatory, defaultless configuration value that fails closed above
+        # when absent), not by the endpoint's wording. A word-match cannot tell a
+        # deliberately configured loopback Weaviate — the NORMAL AK3 topology,
+        # FK-15 localhost-only — from an accidental one, and rejected the former.
         if not isinstance(self.weaviate_grpc_endpoint, str) or not self.weaviate_grpc_endpoint.strip():
             raise ProjectBindingError(
                 "weaviate_grpc_endpoint is missing/empty; both endpoints are "

@@ -321,7 +321,7 @@ def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, pr
         return False
     if set(entry) != set(AK3_OWNED_SERVER_FIELDS):
         return False
-    if entry.get("command") != shape.command:
+    if not shape.matches_command(entry.get("command")):
         return False
     args = entry.get("args")
     if not isinstance(args, list) or tuple(args) != shape.args:
@@ -671,7 +671,7 @@ def _remove_owned_servers(
         if not isinstance(entry, dict) or shape is None:
             continue
         args = entry.get("args")
-        if entry.get("command") != shape.command or not isinstance(args, list):
+        if not shape.matches_command(entry.get("command")) or not isinstance(args, list):
             continue
         if tuple(args) != shape.args:
             continue

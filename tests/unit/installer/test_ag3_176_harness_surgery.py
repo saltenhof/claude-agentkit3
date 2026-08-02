@@ -6,8 +6,8 @@ import json
 
 from agentkit.backend.installer.mcp_registration import (
     STORY_KNOWLEDGE_BASE_ARGS,
-    STORY_KNOWLEDGE_BASE_COMMAND,
     render_mcp_json_without_ak3,
+    resolve_story_knowledge_base_command,
 )
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
     load_codex_config,
@@ -26,7 +26,7 @@ def test_mcp_json_detach_removes_only_owned_fields_and_preserves_foreign_values(
             },
             "story-knowledge-base": {
                 "type": "stdio",
-                "command": STORY_KNOWLEDGE_BASE_COMMAND,
+                "command": resolve_story_knowledge_base_command(),
                 "args": list(STORY_KNOWLEDGE_BASE_ARGS),
                 "cwd": "T:/project",
                 "env": {"PROJECT_ID": "AG3"},
@@ -54,7 +54,7 @@ command = "agentkit-hook-codex"
 command = "foreign-hook"
 
 [mcp_servers.story-knowledge-base]
-command = "{STORY_KNOWLEDGE_BASE_COMMAND}"
+command = {json.dumps(resolve_story_knowledge_base_command())}
 args = {json.dumps(list(STORY_KNOWLEDGE_BASE_ARGS))}
 cwd = "T:/project"
 required = true

@@ -119,9 +119,6 @@ class StoryContext(BaseModel):
             return data
 
         data = dict(data)
-        concept_paths = data.pop("concept_paths", None)
-        if "concept_refs" not in data and concept_paths is not None:
-            data["concept_refs"] = concept_paths
         if data.get("story_number") is None and isinstance(data.get("story_id"), str):
             data["story_number"] = _story_number_from_id(data["story_id"])
 

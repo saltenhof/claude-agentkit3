@@ -552,11 +552,11 @@ class VectorDbConfig(BaseModel):
     (``vectordb.runtime_binding.RuntimeBinding``) and ``ProjectBinding`` both
     model them as full endpoint strings, and composing one from parts would have
     to invent the scheme -- exactly the synthesised endpoint PO decision D2
-    forbids. Only SHAPE is validated here; the single authority for rejecting a
-    synthesised localhost default stays ``runtime_binding._reject_localhost``, so
-    there is no second block list. That layering is deliberate:
-    ``http://localhost:8080`` passes THIS model and is rejected at the binding,
-    which CP 10 evaluates before any write.
+    forbids. Only SHAPE is validated here. There is no endpoint block list
+    anywhere (removed 2026-08-02): D2 is enforced by ORIGIN -- the value is a
+    mandatory, defaultless configuration input that fails closed when absent --
+    not by matching endpoint spellings, which cannot distinguish a configured
+    loopback Weaviate from an accidental one and wrongly rejected the former.
 
     **The former ``host`` / ``port`` fields are REMOVED, not deprecated** (PO
     decision D-2, ZERO DEBT). They said the same thing as

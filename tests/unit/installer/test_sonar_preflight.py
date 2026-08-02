@@ -42,7 +42,7 @@ class _StubSonarClient:
     def installed_plugins(self) -> SonarHttpResponse:
         plugins = []
         if self.plugin_version is not None:
-            plugins = [{"key": "communityBranchSupport", "version": self.plugin_version}]
+            plugins = [{"key": "communityBranchPlugin", "version": self.plugin_version}]
         return SonarHttpResponse(status_code=200, json_body={"plugins": plugins})
 
 

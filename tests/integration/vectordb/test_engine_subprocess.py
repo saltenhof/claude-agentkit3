@@ -60,16 +60,21 @@ def test_r02_subprocess_non_default_endpoint_reaches_connection(tmp_path: Path) 
     assert payload["error_type"] != "RuntimeBindingError"
 
 
-def test_r02_subprocess_localhost_endpoint_fails_at_binding() -> None:
-    """A localhost endpoint is rejected at BINDING (D2), before any connection."""
+def test_r02_subprocess_missing_endpoint_fails_at_binding() -> None:
+    """A MISSING endpoint is rejected at BINDING (D2), before any connection.
+
+    This is what D2 actually forbids: an endpoint AK3 would have to invent. The
+    check is on provenance, not on spelling — see
+    ``test_r02_subprocess_registered_loopback_endpoint_binds`` below and the
+    decision record ``2026-08-02-port-9702-single-owner-und-endpunkt-herkunft``.
+    """
     script_snippet = textwrap.dedent(
         """
         import json
         from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
         env = {
             "PROJECT_ID": "acme",
-            "WEAVIATE_HTTP_ENDPOINT": "http://localhost:8080",
-            "WEAVIATE_GRPC_ENDPOINT": "localhost:50051",
+            "WEAVIATE_GRPC_ENDPOINT": "weaviate.acme.local:50051",
         }
         try:
             RuntimeBinding.from_env(env, command="python", args=(), cwd=".")
@@ -87,6 +92,40 @@ def test_r02_subprocess_localhost_endpoint_fails_at_binding() -> None:
     payload = json.loads(out.stdout.strip().splitlines()[-1])
     assert payload["bound"] is False
     assert payload["error_type"] == "RuntimeBindingError"
+
+
+def test_r02_subprocess_registered_loopback_endpoint_binds() -> None:
+    """A REGISTERED loopback endpoint binds — it is the normal AK3 topology.
+
+    Regression for the removed endpoint block list: it rejected exactly this env
+    and thereby made a local Weaviate (FK-15 localhost-only) unusable, while
+    proving nothing about provenance.
+    """
+    script_snippet = textwrap.dedent(
+        """
+        import json
+        from agentkit.backend.vectordb.runtime_binding import RuntimeBinding, RuntimeBindingError
+        env = {
+            "PROJECT_ID": "acme",
+            "WEAVIATE_HTTP_ENDPOINT": "http://localhost:8080",
+            "WEAVIATE_GRPC_ENDPOINT": "localhost:50051",
+        }
+        try:
+            binding = RuntimeBinding.from_env(env, command="python", args=(), cwd=".")
+            print(json.dumps({"bound": True, "http": binding.weaviate_http_endpoint}))
+        except RuntimeBindingError as exc:
+            print(json.dumps({"bound": False, "error_type": "RuntimeBindingError", "detail": str(exc)}))
+        """
+    )
+    out = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", script_snippet],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    payload = json.loads(out.stdout.strip().splitlines()[-1])
+    assert payload["bound"] is True
+    assert payload["http"] == "http://localhost:8080"
 
 
 # --------------------------------------------------------------------------- #

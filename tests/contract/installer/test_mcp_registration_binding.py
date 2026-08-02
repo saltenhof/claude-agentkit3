@@ -22,13 +22,13 @@ from agentkit.backend.core_types.mcp_server_registration import (
 from agentkit.backend.installer.codex_settings import CODEX_HOOK_COMMAND
 from agentkit.backend.installer.mcp_registration import (
     STORY_KNOWLEDGE_BASE_ARGS,
-    STORY_KNOWLEDGE_BASE_COMMAND,
     ProbedRegistration,
     RegistrationBeforeImage,
     RenderedRegistration,
     build_registration_env,
     desired_server_from_spec,
     render_mcp_json_text,
+    resolve_story_knowledge_base_command,
 )
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
@@ -55,7 +55,7 @@ def _desired() -> object:
     )
     binding = RuntimeBinding.from_env(
         env,
-        command=STORY_KNOWLEDGE_BASE_COMMAND,
+        command=resolve_story_knowledge_base_command(),
         args=STORY_KNOWLEDGE_BASE_ARGS,
         cwd=_PROJECT,
     )
@@ -229,31 +229,37 @@ def test_empty_cwd_is_rejected(bad_cwd: str) -> None:
     with pytest.raises(RuntimeBindingError):
         RuntimeBinding.from_env(
             env,
-            command=STORY_KNOWLEDGE_BASE_COMMAND,
+            command=resolve_story_knowledge_base_command(),
             args=STORY_KNOWLEDGE_BASE_ARGS,
             cwd=bad_cwd,
         )
 
 
-@pytest.mark.parametrize("forbidden", ["http://localhost:8080", "http://127.0.0.1:8080"])
-def test_synthesised_localhost_default_is_rejected(forbidden: str) -> None:
-    """Ratified D2 semantics -- pinned so it is never 'repaired' as a bug."""
-    from agentkit.backend.vectordb.runtime_binding import RuntimeBindingError
+@pytest.mark.parametrize("endpoint", ["http://localhost:8080", "http://127.0.0.1:8080"])
+def test_explicitly_registered_loopback_endpoint_is_accepted(endpoint: str) -> None:
+    """D2 is enforced by ORIGIN, not by endpoint spelling (decision 2026-08-02).
 
+    The former block list rejected these two strings outright and thereby broke
+    the NORMAL AK3 topology: a loopback Weaviate (FK-15 localhost-only). It could
+    never tell a configured endpoint from an accidental one, because the string
+    carries no provenance. ``build_registration_env`` IS the explicit
+    configuration surface — it fails closed on a missing/empty value (the tests
+    above) and never invents one, which is the whole content of D2.
+    """
     env = build_registration_env(
         project_id="DEMO",
-        weaviate_http_endpoint=forbidden,
+        weaviate_http_endpoint=endpoint,
         weaviate_grpc_endpoint=_GRPC,
         concepts_dir=f"{_PROJECT}/concepts",
         stories_dir=f"{_PROJECT}/stories",
     )
-    with pytest.raises(RuntimeBindingError):
-        RuntimeBinding.from_env(
-            env,
-            command=STORY_KNOWLEDGE_BASE_COMMAND,
-            args=STORY_KNOWLEDGE_BASE_ARGS,
-            cwd=_PROJECT,
-        )
+    binding = RuntimeBinding.from_env(
+        env,
+        command=resolve_story_knowledge_base_command(),
+        args=STORY_KNOWLEDGE_BASE_ARGS,
+        cwd=_PROJECT,
+    )
+    assert binding.weaviate_http_endpoint == endpoint
 
 
 def test_divergent_project_id_is_rejected() -> None:
@@ -270,3 +276,87 @@ def test_divergent_project_id_is_rejected() -> None:
             env={"PROJECT_ID": "SOMETHING-ELSE"},
             config_project_id="DEMO",
         )
+
+
+# --------------------------------------------------------------------------- #
+# The registered interpreter must actually carry AK3 (regression 2026-08-02)
+# --------------------------------------------------------------------------- #
+
+
+def test_registered_command_is_an_absolute_interpreter_path() -> None:
+    """REGRESSION: a bare ``python`` let the harness' PATH pick the interpreter.
+
+    AK3 lives in its own venv; the interpreter first on a harness process' PATH
+    generally does NOT carry AK3's dependencies. The MCP server then started and
+    died on the first missing import — at first use, with the installer having
+    reported success. The registered command is now the ABSOLUTE path of the
+    interpreter that provides AK3.
+    """
+    command = resolve_story_knowledge_base_command()
+    assert Path(command).is_absolute()
+    assert Path(command).is_file()
+    assert command != "python"
+
+    mcp_entry, codex_entry = _both_entries()
+    assert mcp_entry["command"] == command
+    assert codex_entry["command"] == command
+
+
+def test_ownership_still_recognises_a_machine_specific_interpreter() -> None:
+    """The absolute path must not break AK3-ownership detection on detach.
+
+    Ownership is carried by the server name, the exact ``args`` vector, the field
+    set and ``cwd`` — never by a literal interpreter spelling, which is
+    machine-specific by construction.
+    """
+    from agentkit.backend.core_types.mcp_server_registration import AK3_SERVER_SHAPES
+    from agentkit.backend.installer.mcp_registration import render_mcp_json_without_ak3
+
+    shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
+    assert shape.matches_command(resolve_story_knowledge_base_command())
+    assert shape.matches_command("/opt/other-venv/bin/python")
+    assert shape.matches_command(r"C:envsk3\Scripts\python.exe")
+    # A bare tool name is never what AK3 writes -- a foreign entry parked under
+    # the AK3 server name must NOT be classified as ours (and then stripped).
+    assert not shape.matches_command("python")
+    assert not shape.matches_command("foreign-tool")
+    assert not shape.matches_command("")
+    assert not shape.matches_command(None)
+
+    server = _desired()
+    mcp_text, _ = render_mcp_json_text({}, (server,))  # type: ignore[arg-type]
+    stripped = json.loads(render_mcp_json_without_ak3(mcp_text.encode("utf-8")))
+    assert STORY_KNOWLEDGE_BASE_SERVER not in stripped.get("mcpServers", {})
+
+
+def test_interpreter_preflight_fails_closed_when_ak3_is_not_importable() -> None:
+    """A non-importing interpreter is an INSTALL failure, not a first-use crash."""
+    from types import SimpleNamespace
+
+    from agentkit.backend.installer.mcp_registration import verify_interpreter_serves_ak3
+
+    def _failing_runner(argv: list[str], **_kwargs: object) -> SimpleNamespace:
+        assert argv[1] == "-c"
+        return SimpleNamespace(
+            returncode=1, stdout="", stderr="ModuleNotFoundError: No module named 'tomlkit'"
+        )
+
+    with pytest.raises(McpServerRegistrationError, match="cannot import"):
+        verify_interpreter_serves_ak3("C:/other/python.exe", runner=_failing_runner)
+
+
+def test_interpreter_preflight_fails_closed_when_the_interpreter_cannot_run() -> None:
+    from agentkit.backend.installer.mcp_registration import verify_interpreter_serves_ak3
+
+    def _boom(argv: list[str], **_kwargs: object) -> object:
+        raise OSError("no such executable")
+
+    with pytest.raises(McpServerRegistrationError, match="could not be executed"):
+        verify_interpreter_serves_ak3("C:/missing/python.exe", runner=_boom)
+
+
+def test_interpreter_preflight_passes_for_the_running_interpreter() -> None:
+    """The real venv interpreter imports the MCP entrypoint (no stub)."""
+    from agentkit.backend.installer.mcp_registration import verify_interpreter_serves_ak3
+
+    verify_interpreter_serves_ak3(resolve_story_knowledge_base_command())

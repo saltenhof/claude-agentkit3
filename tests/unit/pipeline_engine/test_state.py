@@ -24,15 +24,15 @@ from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEN
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
-    read_phase_snapshot_record,
-    read_phase_state_record,
+    load_phase_snapshot,
+    load_phase_state,
     save_attempt,
     save_phase_snapshot,
     save_phase_state,
 )
 from agentkit.backend.state_backend.sqlite_store import state_db_path_for
 from agentkit.backend.state_backend.story_lifecycle_store import (
-    read_story_context_record,
+    load_story_context,
     save_story_context,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -202,7 +202,7 @@ class TestPhaseStatePersistence:
         state = _make_state()
         _bootstrap_context(story_dir)
         save_phase_state(story_dir, state)
-        loaded = read_phase_state_record(story_dir)
+        loaded = load_phase_state(story_dir)
 
         assert loaded is not None
         assert loaded.story_id == state.story_id
@@ -216,7 +216,7 @@ class TestPhaseStatePersistence:
         assert (story_dir / "phase-state.json").exists()
 
     def test_load_missing_returns_none(self, tmp_path: Path) -> None:
-        result = read_phase_state_record(_story_dir(tmp_path))
+        result = load_phase_state(_story_dir(tmp_path))
         assert result is None
 
     def test_load_corrupt_raises_error(self, tmp_path: Path) -> None:
@@ -227,7 +227,7 @@ class TestPhaseStatePersistence:
             conn.execute("UPDATE phase_states SET payload_json = 'not json'")
             conn.commit()
         with pytest.raises(CorruptStateError, match="corrupt"):
-            read_phase_state_record(story_dir)
+            load_phase_state(story_dir)
 
     def test_load_invalid_schema_raises_error(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
@@ -240,7 +240,7 @@ class TestPhaseStatePersistence:
             )
             conn.commit()
         with pytest.raises(CorruptStateError, match="payload is invalid"):
-            read_phase_state_record(story_dir)
+            load_phase_state(story_dir)
 
 
 # --- save_story_context / load_story_context ---
@@ -253,7 +253,7 @@ class TestStoryContextPersistence:
         story_dir = _story_dir(tmp_path)
         ctx = _make_ctx()
         save_story_context(story_dir, ctx)
-        loaded = read_story_context_record(story_dir)
+        loaded = load_story_context(story_dir)
 
         assert loaded is not None
         assert loaded.story_id == ctx.story_id
@@ -262,7 +262,7 @@ class TestStoryContextPersistence:
         assert loaded.title == ctx.title
 
     def test_load_missing_returns_none(self, tmp_path: Path) -> None:
-        result = read_story_context_record(_story_dir(tmp_path))
+        result = load_story_context(_story_dir(tmp_path))
         assert result is None
 
     def test_load_corrupt_returns_none(self, tmp_path: Path) -> None:
@@ -272,7 +272,7 @@ class TestStoryContextPersistence:
             conn.execute("UPDATE story_contexts SET payload_json = 'not json'")
             conn.commit()
         with pytest.raises(CorruptStateError, match="invalid"):
-            read_story_context_record(story_dir)
+            load_story_context(story_dir)
 
 
 # --- save_attempt / load_attempts ---
@@ -364,7 +364,7 @@ class TestPhaseSnapshotPersistence:
         _bootstrap_context(story_dir)
         snapshot = _make_snapshot()
         save_phase_snapshot(story_dir, snapshot)
-        loaded = read_phase_snapshot_record(story_dir, "setup")
+        loaded = load_phase_snapshot(story_dir, "setup")
 
         assert loaded is not None
         assert loaded.story_id == snapshot.story_id
@@ -374,7 +374,7 @@ class TestPhaseSnapshotPersistence:
         assert loaded.evidence == {"tests_passed": True}
 
     def test_load_missing_returns_none(self, tmp_path: Path) -> None:
-        result = read_phase_snapshot_record(_story_dir(tmp_path), "setup")
+        result = load_phase_snapshot(_story_dir(tmp_path), "setup")
         assert result is None
 
     def test_writes_to_correct_filename(self, tmp_path: Path) -> None:
@@ -423,7 +423,7 @@ class TestPhaseSnapshotPersistence:
             )
             conn.commit()
 
-        assert read_phase_snapshot_record(story_dir, "setup") is None
+        assert load_phase_snapshot(story_dir, "setup") is None
 
 
 # --- Pipeline robustness tests ---
@@ -445,11 +445,11 @@ class TestPipelineRobustness:
             conn.execute("UPDATE phase_states SET payload_json = '{invalid json!!!'")
             conn.commit()
         with pytest.raises(CorruptStateError):
-            read_phase_state_record(story_dir)
+            load_phase_state(story_dir)
 
     def test_missing_context_json_returns_none(self, tmp_path: Path) -> None:
         """context.json does not exist at all."""
-        assert read_story_context_record(_story_dir(tmp_path)) is None
+        assert load_story_context(_story_dir(tmp_path)) is None
 
     def test_two_valid_attempts_both_loaded(self, tmp_path: Path) -> None:
         """Two valid attempts in the ``attempts`` table are both loaded."""
@@ -479,7 +479,7 @@ class TestPipelineRobustness:
             )
             conn.commit()
         with pytest.raises(CorruptStateError, match="payload is invalid"):
-            read_phase_state_record(story_dir)
+            load_phase_state(story_dir)
 
     def test_snapshot_with_corrupt_json_returns_none(
         self,
@@ -491,11 +491,11 @@ class TestPipelineRobustness:
             "{{broken",
             encoding="utf-8",
         )
-        assert read_phase_snapshot_record(story_dir, "verify") is None
+        assert load_phase_snapshot(story_dir, "verify") is None
 
     def test_load_phase_state_missing_returns_none(self, tmp_path: Path) -> None:
         """Missing phase-state.json returns None (fresh run)."""
-        assert read_phase_state_record(_story_dir(tmp_path)) is None
+        assert load_phase_state(_story_dir(tmp_path)) is None
 
     def test_load_phase_state_non_dict_raises_error(self, tmp_path: Path) -> None:
         """Array instead of object in phase-state.json -> CorruptStateError."""
@@ -506,4 +506,4 @@ class TestPipelineRobustness:
             conn.execute("UPDATE phase_states SET payload_json = '[1, 2, 3]'")
             conn.commit()
         with pytest.raises(CorruptStateError, match="payload is invalid"):
-            read_phase_state_record(story_dir)
+            load_phase_state(story_dir)

@@ -44,7 +44,6 @@ from agentkit.backend.installer.codex_settings import (
 )
 from agentkit.backend.installer.mcp_registration import (
     STORY_KNOWLEDGE_BASE_ARGS,
-    STORY_KNOWLEDGE_BASE_COMMAND,
     ProbedRegistration,
     RegistrationBeforeImage,
     RenderedRegistration,
@@ -53,6 +52,8 @@ from agentkit.backend.installer.mcp_registration import (
     desired_server_from_spec,
     probe_registration,
     render_mcp_json_text,
+    resolve_story_knowledge_base_command,
+    verify_interpreter_serves_ak3,
 )
 from agentkit.backend.installer.paths import (
     CODEX_CONFIG_FILE,
@@ -276,9 +277,15 @@ def _story_knowledge_base_server(context: CheckpointContext) -> DesiredMcpServer
         concepts_dir=_absolute_within_root(context.project_root, project_config.concepts_dir),
         stories_dir=_absolute_within_root(context.project_root, project_config.wiki_stories_dir),
     )
+    # The registered command is the ABSOLUTE interpreter that provides AK3, and
+    # it is proven able to import the MCP entrypoint BEFORE anything is written.
+    # A bare "python" would hand the choice to the harness process' PATH, which
+    # generally resolves to an interpreter without AK3's dependencies.
+    command = resolve_story_knowledge_base_command()
+    verify_interpreter_serves_ak3(command)
     binding = RuntimeBinding.from_env(
         env,
-        command=STORY_KNOWLEDGE_BASE_COMMAND,
+        command=command,
         args=STORY_KNOWLEDGE_BASE_ARGS,
         cwd=str(context.project_root),
     )

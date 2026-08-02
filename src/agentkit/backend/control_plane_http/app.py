@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 from pydantic import ValidationError
 
 from agentkit.backend.auth.middleware import AuthMiddlewareResponse
+from agentkit.backend.config.defaults import CORE_LOOPBACK_HOST
 from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService
 from agentkit.backend.control_plane.models import (
     AdminAbortRequest,
@@ -1344,14 +1345,20 @@ class ControlPlaneApplication(
 
 def serve_control_plane(
     *,
-    host: str = "127.0.0.1",
-    port: int = 9080,
+    port: int,
     certfile: Path,
+    host: str = CORE_LOOPBACK_HOST,
     keyfile: Path | None = None,
     app: ControlPlaneApplication | None = None,
     startup_hook: Callable[[ControlPlaneApplication], None] | None = None,
 ) -> None:
     """Run the control-plane HTTPS server until interrupted.
+
+    ``port`` is MANDATORY and carries no default: the listener does not own the
+    port registry. The profile-to-port mapping lives with the operator surface
+    (``cli.serve``, fed by ``config.defaults``); a default here would be a second
+    copy of that fact — the exact defect that let a stale ``9080`` survive here
+    while every other consumer had moved on.
 
     AG3-138 IMPL-003: ``startup_hook`` is the pre-serve hook run BETWEEN app
     construction and ``serve_forever()``; it defaults to the productive

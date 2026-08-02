@@ -126,7 +126,6 @@ class TestMigrationRoundtrip:
         """Vier Layer-Producer koennen Envelopes schreiben; alle per read lesbar."""
         layers = [
             ("verify-system.layer-1-structural", ProducerType.DETERMINISTIC),
-            ("verify-system.layer-2-llm", ProducerType.LLM_REVIEWER),
             ("verify-system.layer-3-adversarial", ProducerType.LLM_REVIEWER),
             ("verify-system.layer-4-policy", ProducerType.DETERMINISTIC),
         ]
@@ -203,4 +202,4 @@ class TestMigrationRoundtrip:
         register_verify_producers(registry)
         register_verify_producers(registry)  # idempotent
         # AG3-067 adds context-sufficiency; AG3-069 adds stability-gate producer.
-        assert len(registry.known_producers(ArtifactClass.QA)) == 10  # noqa: PLR2004
+        assert len(registry.known_producers(ArtifactClass.QA)) == 9  # noqa: PLR2004

@@ -109,13 +109,6 @@ def load_latest_verify_decision_for_scope(
     )
 
 
-def read_latest_verify_decision_record(
-    story_dir: Path,
-) -> JsonRecord | None:
-    """Compatibility alias for ``load_latest_verify_decision``."""
-    return load_latest_verify_decision(story_dir)
-
-
 def find_latest_qa_envelope(
     story_dir: Path,
     scope: RuntimeStateScope | None,
@@ -187,7 +180,7 @@ __all__ = [
     "record_verify_decision",
     "load_latest_verify_decision",
     "load_latest_verify_decision_for_scope",
-    "read_latest_verify_decision_record",
+    "load_latest_verify_decision",
     "find_latest_qa_envelope",
     "backend_has_structural_artifact",
     "backend_has_structural_artifact_for_scope",

@@ -16,11 +16,9 @@ from tests.unit.installer.checkpoint_engine.conftest import (
 from agentkit.backend.core_types.mcp_server_registration import DesiredMcpServer
 from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.installer import mcp_registration as mcp_registration_mod
-from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
-from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
-    cp10_mcp_registration,
-    cp10c_are_scope_validation,
-)
+from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp_registration as cp10_mod
+from agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration import cp10_mcp_registration
+from agentkit.backend.installer.bootstrap_checkpoints.cp10c_are_scope import cp10c_are_scope_validation
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
     run_checkpoint_install,

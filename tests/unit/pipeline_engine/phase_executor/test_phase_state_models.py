@@ -137,11 +137,18 @@ def test_phase_state_consistency_validators_reject_invalid_states(
 
 
 def test_phase_state_models_import_from_phase_executor_owner() -> None:
+    """FK-39 §39.7: ``phase_executor`` is the ONE owner of the phase-state models.
+
+    The ``story_context_manager`` re-export bridge is REMOVED (2026-08-02): a
+    second import path for the same model is a compat construct, and it made the
+    ownership statement above unfalsifiable.
+    """
     import agentkit.backend.pipeline_engine.phase_executor as owner
-    import agentkit.backend.story_context_manager as bridge
+    import agentkit.backend.story_context_manager as former_bridge
 
     assert owner.PhaseState is PhaseState
-    assert bridge.PhaseState is PhaseState
+    for name in ("PhaseSnapshot", "PhaseState", "PhaseStatus"):
+        assert not hasattr(former_bridge, name), name
 
 
 def test_no_production_importer_sources_phase_models_from_story_context_manager() -> None:

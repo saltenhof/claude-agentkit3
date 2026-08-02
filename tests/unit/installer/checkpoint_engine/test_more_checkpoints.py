@@ -10,12 +10,10 @@ from tests.unit.installer.checkpoint_engine.conftest import (
 )
 
 from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
-from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
-    cp10_mcp_registration,
-    cp10a_concept_context_properties,
-    cp10b_concept_validation_hook,
-    cp10d_sonarqube,
-)
+from agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration import cp10_mcp_registration
+from agentkit.backend.installer.bootstrap_checkpoints.cp10a_initial_sync_checkpoint import cp10a_concept_context_properties
+from agentkit.backend.installer.bootstrap_checkpoints.cp10b_hook_dispatch_checkpoint import cp10b_concept_validation_hook
+from agentkit.backend.installer.bootstrap_checkpoints.cp10d_sonarqube import cp10d_sonarqube
 from agentkit.backend.installer.bootstrap_checkpoints.cp11_to_12 import (
     cp11_git_hooks_and_claude,
     cp12_verify_registration,

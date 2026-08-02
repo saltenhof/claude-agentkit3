@@ -539,7 +539,7 @@ def test_https_json_transport_returns_object(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     assert transport.send(method="GET", path="/healthz") == {"status": "ok"}
 
@@ -559,7 +559,7 @@ def test_https_transport_strategist_login_reuses_cookie_csrf_and_project_scope(
         return _FakeResponse(b'{"status": "ok"}')
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     authenticated = transport.authenticate_strategist(
         username="strategist",
@@ -585,7 +585,7 @@ def test_https_transport_bearer_auth_carries_project_scope(
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     transport = HttpsJsonTransport(
-        base_url="https://127.0.0.1:9080",
+        base_url="https://127.0.0.1:9702",
         bearer_token="ak3-token",
         project_key="tenant-a",
     )
@@ -601,7 +601,7 @@ def test_https_json_transport_raises_runtime_error_for_http_error(monkeypatch: p
     def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         raise HTTPError(
-            url="https://127.0.0.1:9080/v1/project-edge/sync",
+            url="https://127.0.0.1:9702/v1/project-edge/sync",
             code=503,
             msg="Service Unavailable",
             hdrs=Message(),
@@ -610,7 +610,7 @@ def test_https_json_transport_raises_runtime_error_for_http_error(monkeypatch: p
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     try:
         transport.send(method="GET", path="/healthz")
@@ -627,7 +627,7 @@ def test_https_json_transport_rejects_non_object_response(monkeypatch: pytest.Mo
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     try:
         transport.send(method="GET", path="/healthz")
@@ -672,7 +672,7 @@ def test_https_transport_returns_structured_rejection_for_409(
     def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         raise HTTPError(
-            url="https://127.0.0.1:9080/v1/story-runs/run-100/phases/setup/start",
+            url="https://127.0.0.1:9702/v1/story-runs/run-100/phases/setup/start",
             code=409,
             msg="Conflict",
             hdrs=Message(),
@@ -681,7 +681,7 @@ def test_https_transport_returns_structured_rejection_for_409(
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
     body = transport.send(method="POST", path="/v1/story-runs/run-100/phases/setup/start")
 
     assert body["status"] == "rejected"
@@ -703,7 +703,7 @@ def test_client_returns_rejection_and_publishes_nothing_on_real_409(
     def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         raise HTTPError(
-            url="https://127.0.0.1:9080/v1/story-runs/run-100/phases/setup/start",
+            url="https://127.0.0.1:9702/v1/story-runs/run-100/phases/setup/start",
             code=409,
             msg="Conflict",
             hdrs=Message(),
@@ -713,7 +713,7 @@ def test_client_returns_rejection_and_publishes_nothing_on_real_409(
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
     client = ProjectEdgeClient(
-        transport=HttpsJsonTransport(base_url="https://127.0.0.1:9080"),
+        transport=HttpsJsonTransport(base_url="https://127.0.0.1:9702"),
         publisher=LocalEdgePublisher(project_root=tmp_path),
     )
 
@@ -737,7 +737,7 @@ def test_client_still_raises_on_non_409_http_error(
     def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         raise HTTPError(
-            url="https://127.0.0.1:9080/v1/story-runs/run-100/phases/setup/start",
+            url="https://127.0.0.1:9702/v1/story-runs/run-100/phases/setup/start",
             code=503,
             msg="Service Unavailable",
             hdrs=Message(),
@@ -747,7 +747,7 @@ def test_client_still_raises_on_non_409_http_error(
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
     client = ProjectEdgeClient(
-        transport=HttpsJsonTransport(base_url="https://127.0.0.1:9080"),
+        transport=HttpsJsonTransport(base_url="https://127.0.0.1:9702"),
         publisher=LocalEdgePublisher(project_root=tmp_path),
     )
 
@@ -767,7 +767,7 @@ def _conflict_urlopen(body: bytes) -> Any:
     def fake_urlopen(request: Any, context: Any = None) -> Any:
         del request, context
         raise HTTPError(
-            url="https://127.0.0.1:9080/v1/story-runs/run-100/phases/setup/start",
+            url="https://127.0.0.1:9702/v1/story-runs/run-100/phases/setup/start",
             code=409,
             msg="Conflict",
             hdrs=Message(),
@@ -798,7 +798,7 @@ def test_409_non_conforming_body_raises_not_returns(
     ).encode("utf-8")
     monkeypatch.setattr("urllib.request.urlopen", _conflict_urlopen(bogus))
 
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     with pytest.raises(RuntimeError, match="HTTP 409"):
         transport.send(
@@ -815,7 +815,7 @@ def test_409_malformed_json_raises(
         "urllib.request.urlopen", _conflict_urlopen(b"not json at all")
     )
 
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     with pytest.raises(RuntimeError, match="HTTP 409"):
         transport.send(
@@ -842,7 +842,7 @@ def test_409_wrong_status_raises(
         "urllib.request.urlopen", _conflict_urlopen(not_rejected)
     )
 
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     with pytest.raises(RuntimeError, match="HTTP 409"):
         transport.send(

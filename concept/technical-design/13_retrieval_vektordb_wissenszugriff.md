@@ -80,6 +80,35 @@ services:
       ENABLE_CUDA: 0  # CPU-only
 ```
 
+**Einbettungsmodell und Pooling-Strategie (Eigentuemer: dieser Abschnitt).**
+Das gepinnte Einbettungsmodell ist `sentence-transformers/all-MiniLM-L6-v2`.
+
+Die **Pooling-Strategie ist kein freier Parameter**, sondern eine *Eigenschaft
+des Modells*: sie folgt daraus, wie das Modell trainiert wurde. Sie wird
+deshalb **aus dem gepinnten Modell abgeleitet** und nirgends unabhaengig
+gesetzt:
+
+| Einbettungsmodell | Pooling-Strategie |
+|---|---|
+| `sentence-transformers/all-MiniLM-L6-v2` | `masked_mean` |
+| `BAAI/bge-m3` | `cls` |
+
+`vectorizeClassName` ist in jedem Fall `false` — der Collection-Name ist nicht
+Teil einer Einbettung.
+
+Eine falsche Pooling-Strategie wirft **keinen Fehler**. Sie rechnet jede
+Einbettung mit der falschen Aggregation und aeussert sich ausschliesslich in
+schlechteren Treffern — extern wahrnehmbar, aber nie gemeldet. Genau darum
+braucht der Wert einen Eigentuemer und eine Ableitungskante statt einer zweiten,
+frei stehenden Konstante im Code (Beschluss 2026-08-02).
+
+**Ein Modellwechsel ist keine Einzelzeile.** Modell, Tokenizer-Asset samt
+gepinntem Digest und die Chunk-Budgets des Ingests haengen zusammen: die Budgets
+werden mit dem Tokenizer *dieses* Modells und gegen *dessen* Kontextfenster
+gerechnet. Wer das Modell wechselt, zieht alle drei im selben Zug nach und
+ingestet den Korpus neu. Ein Wechsel, der nur die Pooling-Strategie umstellt,
+erzeugt einen halb migrierten Zustand und ist unzulaessig.
+
 **Tokenizer-Bereitstellung (fail-closed):** Das Modell
 `sentence-transformers/all-MiniLM-L6-v2` wird mit einer **gepinnten Modell- und
 Tokenizer-Revision** betrieben. Der Tokenizer (`tokenizer.json` samt Vokabular)

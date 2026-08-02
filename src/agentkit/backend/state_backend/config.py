@@ -7,7 +7,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-from agentkit.backend.config.sqlite_gate import ALLOW_SQLITE_ENV, sqlite_allowed
+from agentkit.backend.config.sqlite_gate import ALLOW_SQLITE_ENV
+from agentkit.backend.config.sqlite_gate import sqlite_allowed as _gate_sqlite_allowed
 
 STATE_BACKEND_ENV = "AGENTKIT_STATE_BACKEND"
 STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
@@ -212,15 +213,17 @@ class StateBackendConfig:
     database_url: str | None = None
 
 
-def _sqlite_allowed() -> bool:
-    """Backward-compatible accessor for the config-foundation SQLite gate.
+def sqlite_allowed() -> bool:
+    """Boundary-permitted accessor for the config-foundation SQLite gate.
 
-    Defined locally (not a bare import alias) so existing
-    ``boundary.state_backend_repository`` modules may keep importing it from
-    this driver-config module under mypy's ``no_implicit_reexport``. The single
-    source of truth is :func:`agentkit.backend.config.sqlite_gate.sqlite_allowed`.
+    NOT a compatibility alias: architecture rule AC010 lets the
+    ``StateBackendRepository`` boundary module import this driver-config module,
+    but NOT the ``Config`` boundary module directly. The repositories therefore
+    reach the gate through here. The single source of truth stays
+    :func:`agentkit.backend.config.sqlite_gate.sqlite_allowed`; this function
+    adds no decision of its own.
     """
-    return sqlite_allowed()
+    return _gate_sqlite_allowed()
 
 
 def load_state_backend_config() -> StateBackendConfig:
@@ -235,7 +238,7 @@ def load_state_backend_config() -> StateBackendConfig:
             "expected 'postgres' or 'sqlite'"
         ) from exc
 
-    if backend is StateBackendKind.SQLITE and not _sqlite_allowed():
+    if backend is StateBackendKind.SQLITE and not _gate_sqlite_allowed():
         raise RuntimeError(
             "SQLite backend is disabled for runtime/build/contract/integration/e2e "
             f"paths. Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",

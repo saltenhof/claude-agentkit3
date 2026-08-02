@@ -52,7 +52,7 @@ from agentkit.backend.state_backend.store.story_dependency_repository import (
 from agentkit.backend.state_backend.store.story_repository import (
     StateBackendStoryRepository,
 )
-from agentkit.backend.state_backend.story_lifecycle_store import read_story_context_record
+from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (
@@ -177,7 +177,7 @@ def test_setup_phase_builds_context_from_story_service_no_issue(
     assert result.status is PhaseStatus.COMPLETED, result.errors
     # The enriched context was persisted from the Story-Service record.
     s_dir = story_dir(tmp_path, "TEST-001")
-    loaded = read_story_context_record(s_dir)
+    loaded = load_story_context(s_dir)
     assert loaded is not None
     assert loaded.story_id == "TEST-001"
     assert loaded.title == "Code-producing story without any GitHub issue"
@@ -238,4 +238,4 @@ def test_setup_phase_fails_closed_on_unresolvable_story_identity(
     )
 
     # Fail-closed: no enriched StoryContext was persisted for the unknown story.
-    assert read_story_context_record(story_dir(tmp_path, "FAIL-404")) is None
+    assert load_story_context(story_dir(tmp_path, "FAIL-404")) is None

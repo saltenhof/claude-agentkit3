@@ -23,11 +23,11 @@ from agentkit.backend.core_types.mcp_server_registration import (
     DesiredMcpServer,
 )
 from agentkit.backend.installer import mcp_registration as mcp_registration_mod
-from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp_registration as cp10_mod
 from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     cp05_pipeline_config,
 )
-from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
+from agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration import cp10_mcp_registration
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
 )
@@ -300,7 +300,11 @@ def test_real_derivation_produces_the_production_spec_unsubstituted(
     assert len(servers) == 1
     server = servers[0]
     assert server.name == STORY_KNOWLEDGE_BASE_SERVER
-    assert server.command == "python"
+    # The registered command is the ABSOLUTE interpreter that provides AK3, not
+    # a bare "python" the harness' PATH would resolve to some other environment
+    # (regression 2026-08-02: that interpreter lacks AK3's dependencies).
+    assert server.command == sys.executable or Path(server.command).is_file()
+    assert Path(server.command).is_absolute()
     assert server.args == ("-m", "agentkit.backend.vectordb.engine")
     assert Path(server.cwd).resolve() == Path(ctx.project_root).resolve()
     env = server.env_dict()
@@ -336,7 +340,8 @@ def test_real_derivation_is_what_the_probe_receives(
     assert result.status is CheckpointStatus.FAILED
     assert len(observed) == 1
     probed = observed[0]
-    assert probed.command == "python"
+    assert Path(probed.command).is_absolute()
+    assert Path(probed.command).is_file()
     assert tuple(probed.args) == ("-m", "agentkit.backend.vectordb.engine")
     assert probed.cwd == str(ctx.project_root)
     assert probed.env is not None

@@ -19,13 +19,10 @@ if TYPE_CHECKING:
     from agentkit.backend.config.models import SonarQubeConfig
     from agentkit.integration_clients.sonar import SonarClient
 
-_COMMUNITY_BRANCH_PLUGIN_KEYS = frozenset(
-    {
-        "communityBranchPlugin",
-        # Backward-compatible alias used by older tests/docs around the probe.
-        "communityBranchSupport",
-    }
-)
+#: The plugin key SonarQube itself reports for the community branch plugin.
+#: ONE key, no alias set: a second accepted spelling kept "for older tests/docs"
+#: made the probe pass on a name the server never emits (removed 2026-08-02).
+_COMMUNITY_BRANCH_PLUGIN_KEY = "communityBranchPlugin"
 
 
 def _parse_version(value: str) -> tuple[int, ...]:
@@ -93,7 +90,7 @@ def _find_branch_plugin(plugins: object) -> dict[str, object] | None:
     if not isinstance(plugins, list):
         return None
     for entry in plugins:
-        if isinstance(entry, dict) and entry.get("key") in _COMMUNITY_BRANCH_PLUGIN_KEYS:
+        if isinstance(entry, dict) and entry.get("key") == _COMMUNITY_BRANCH_PLUGIN_KEY:
             return entry
     return None
 

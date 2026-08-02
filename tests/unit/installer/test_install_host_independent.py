@@ -1,6 +1,6 @@
 """Host-independent install/uninstall coverage for the runner (AG3-048).
 
-These tests drive the FULL ``install_agentkit`` glue and ``uninstall_agentkit``
+These tests drive the FULL ``install_agentkit`` glue and ``detach_project``
 WITHOUT needing symlink privilege (no Developer Mode required). Symlink
 creation is the ONLY part of a real install that needs the privilege, so we
 inject a fake ``Skills`` top-surface whose ``bind_skill`` records the call
@@ -33,11 +33,11 @@ from agentkit.backend.control_plane.third_party_models import (
     ThirdPartyValidationRequest,
     ThirdPartyValidationResponse,
 )
+from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
     install_agentkit,
-    uninstall_agentkit,
 )
 from agentkit.backend.skills.bundle_store import SkillBundle
 
@@ -222,7 +222,7 @@ def test_full_install_passes_ci_preflight_with_backend_verdict(tmp_path: Path) -
 
 
 def test_install_then_uninstall_removes_artifacts(tmp_path: Path) -> None:
-    """``uninstall_agentkit`` removes the installed artifact tree (host-indep:
+    """``detach_project`` removes the installed artifact tree (host-indep:
     no symlinks were created by the fake bind, so removal of empty harness
     dirs and the .agentkit tree is exercised end-to-end)."""
     skills = _RecordingSkills()
@@ -231,7 +231,7 @@ def test_install_then_uninstall_removes_artifacts(tmp_path: Path) -> None:
     install_agentkit(config)
     root = config.project_root
 
-    result = uninstall_agentkit(root)
+    result = detach_project(root)
 
     assert result.success
     assert not (root / ".agentkit").exists()

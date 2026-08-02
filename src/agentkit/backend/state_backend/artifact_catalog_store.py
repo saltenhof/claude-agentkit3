@@ -38,14 +38,6 @@ def load_artifact_record_for_scope(
     )
 
 
-def read_artifact_record(
-    story_dir: Path,
-    artifact_kind: str,
-) -> JsonRecord | None:
-    """Compatibility alias for ``load_artifact_record``."""
-    return load_artifact_record(story_dir, artifact_kind)
-
-
 def purge_run_bound_artifact_envelopes(
     story_dir: Path,
     story_id: str,
@@ -64,6 +56,6 @@ def purge_run_bound_artifact_envelopes(
 __all__ = [
     "load_artifact_record",
     "load_artifact_record_for_scope",
-    "read_artifact_record",
+    "load_artifact_record",
     "purge_run_bound_artifact_envelopes",
 ]

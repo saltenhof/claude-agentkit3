@@ -2,14 +2,12 @@
 
 FK-10 §10.2.5 / §10.7.2-§10.7.4 define the Core bootstrap verbs of installation
 level 1 (the central core). The AK3 backend is **one** server process (FK-72
-§72.8); the ``--ui-bff`` (port 9701) and ``--project-api`` (port 9702) profiles
-are the same control-plane listener bound to a profile-specific default port.
-There is therefore exactly **one** serve implementation (:func:`run_serve`); the
-retired ``serve-control-plane`` verb is a compat alias that delegates to
-``run_serve`` with the :data:`ServeProfile.PROJECT_API` profile (no second
-transport path — FIX THE MODEL).
+§72.8); the ``--ui-bff`` and ``--project-api`` profiles are the same
+control-plane listener bound to a profile-specific default port. There is
+therefore exactly **one** serve implementation (:func:`run_serve`) and exactly
+one transport path.
 
-``agentkit ui`` (port 9700) provisions the SPA frontend (a static bundle), a
+``agentkit ui`` provisions the SPA frontend (a static bundle), a
 distinct artifact from the backend listener; it never provisions Postgres nor
 runs DB migrations (those are ops-driven, §10.2.5).
 """
@@ -23,15 +21,14 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from agentkit.backend.config.defaults import (
+    CORE_PROJECT_API_PORT,
+    CORE_UI_BFF_PORT,
+    CORE_UI_PORT,
+)
+
 if TYPE_CHECKING:
     from http.server import SimpleHTTPRequestHandler
-
-#: Default SPA (UI) port (FK-10 §10.7.2: ``agentkit ui``).
-UI_PORT = 9700
-#: Default UI-BFF backend port (FK-10 §10.7.2: ``agentkit serve --ui-bff``).
-UI_BFF_PORT = 9701
-#: Default Project-API backend port (FK-10 §10.7.2: ``agentkit serve --project-api``).
-PROJECT_API_PORT = 9702
 
 
 class ServeProfile(Enum):
@@ -42,8 +39,8 @@ class ServeProfile(Enum):
 
 
 _PROFILE_DEFAULT_PORTS: dict[ServeProfile, int] = {
-    ServeProfile.UI_BFF: UI_BFF_PORT,
-    ServeProfile.PROJECT_API: PROJECT_API_PORT,
+    ServeProfile.UI_BFF: CORE_UI_BFF_PORT,
+    ServeProfile.PROJECT_API: CORE_PROJECT_API_PORT,
 }
 
 
@@ -83,10 +80,9 @@ def run_serve(
 ) -> int:
     """Run the Core backend listener for ``profile`` (the SINGLE serve impl).
 
-    Both ``serve --ui-bff`` / ``serve --project-api`` and the deprecated
-    ``serve-control-plane`` alias funnel through here, so there is exactly one
-    transport path. The profile only selects the default port; an explicit
-    ``--port`` overrides it.
+    Both ``serve --ui-bff`` and ``serve --project-api`` funnel through here, so
+    there is exactly one transport path. The profile only selects the default
+    port; an explicit ``--port`` overrides it.
 
     Args:
         profile: The backend serve profile (UI-BFF or Project-API).
@@ -125,7 +121,7 @@ def run_ui(
 
     Args:
         host: The bind host.
-        port: An explicit port override; defaults to :data:`UI_PORT`.
+        port: An explicit port override; defaults to :data:`CORE_UI_PORT`.
         dist_dir: The SPA bundle directory; defaults to the packaged bundle.
         serve_fn: Injection seam for the static server (tests assert wiring
             without binding a socket); defaults to the productive SPA server.
@@ -141,7 +137,7 @@ def run_ui(
             file=sys.stderr,
         )
         return 1
-    resolved_port = port if port is not None else UI_PORT
+    resolved_port = port if port is not None else CORE_UI_PORT
     runner = serve_fn if serve_fn is not None else _default_ui_serve_fn()
     runner(host=host, port=resolved_port, dist_dir=resolved_dist)
     return 0
@@ -244,9 +240,6 @@ def _build_spa_handler(dist_dir: Path) -> type[SimpleHTTPRequestHandler]:
 
 
 __all__ = [
-    "PROJECT_API_PORT",
-    "UI_BFF_PORT",
-    "UI_PORT",
     "ServeFn",
     "ServeProfile",
     "UiBindHostError",

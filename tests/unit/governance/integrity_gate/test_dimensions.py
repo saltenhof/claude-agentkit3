@@ -256,7 +256,7 @@ class _StubPort:
         _ = scope
         return self.decision
 
-    def read_phase_state_record(self, story_dir: object) -> object | None:
+    def load_phase_state(self, story_dir: object) -> object | None:
         _ = story_dir
         return None
 

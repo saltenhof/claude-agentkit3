@@ -1,9 +1,8 @@
 """Unit tests for the install-trinity lifecycle CLI verbs (AG3-122).
 
-Covers the pure dispatch/flag logic: serve profiles share ONE implementation
-with the ``serve-control-plane`` alias (incl. the 9080->9702 port-default
-migration and cert/key compatibility), the ``update`` fail-closed path, and the
-retirement of the level-conflating ``install``/``uninstall`` generics.
+Covers the pure dispatch/flag logic: the serve profiles share ONE
+implementation, the ``update`` fail-closed path, and the fact that every
+install-trinity level owns exactly one verb — no compat aliases beside them.
 """
 
 from __future__ import annotations
@@ -72,26 +71,10 @@ class TestServe:
         with pytest.raises(SystemExit):
             main(["serve", "--ui-bff", "--project-api", "--certfile", "tls/cp.pem"])
 
-    def test_alias_delegates_to_same_impl_with_port_migration_and_cert_key(
+    def test_serve_passes_cert_and_key_through(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The retired ``serve-control-plane`` alias funnels through the SAME serve
-        implementation as ``serve --project-api`` (no second transport path), with
-        the 9080->9702 port-default migration and cert/key flags intact."""
-        alias_args = _capture_serve(monkeypatch)
-        main([
-            "serve-control-plane",
-            "--certfile",
-            "tls/cp.pem",
-            "--keyfile",
-            "tls/cp.key",
-        ])
-        # Port default migrated from the legacy 9080 to the Project-API 9702.
-        assert alias_args["port"] == 9702
-        assert alias_args["certfile"] == str(PurePath("tls/cp.pem"))
-        assert alias_args["keyfile"] == str(PurePath("tls/cp.key"))
-
-        serve_args = _capture_serve(monkeypatch)
+        captured = _capture_serve(monkeypatch)
         main([
             "serve",
             "--project-api",
@@ -100,9 +83,8 @@ class TestServe:
             "--keyfile",
             "tls/cp.key",
         ])
-        # The alias and the canonical profile produce identical serve calls: one
-        # implementation, reached through a single ``run_serve`` seam.
-        assert alias_args == serve_args
+        assert captured["certfile"] == str(PurePath("tls/cp.pem"))
+        assert captured["keyfile"] == str(PurePath("tls/cp.key"))
 
 
 class TestUi:
@@ -349,62 +331,44 @@ class TestDetachAndDecommissionDispatch:
         assert "db_volume_preserved" in capsys.readouterr().out
 
 
-class TestGenericsRetired:
-    def test_uninstall_is_deprecated_alias_for_detach(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        exit_code = main(["uninstall", "--project-root", str(tmp_path)])
-        assert exit_code == 0
-        out = capsys.readouterr()
-        assert "deprecated" in out.err.lower()
-        assert "detach" in out.err.lower()
-        assert "uninstalled" in out.out.lower()
+class TestNoCompatAliases:
+    """No compat alias survives beside a level verb (PO rule, 2026-08-02).
 
-    def test_install_is_deprecated_and_points_to_level_verbs(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        # No github coordinates -> install fails closed, but the deprecation
-        # banner naming the level-specific verbs must already have been emitted.
-        exit_code = main([
-            "install",
-            "--project-key",
-            "k",
-            "--project-name",
-            "n",
-            "--project-root",
-            str(tmp_path),
-        ])
-        assert exit_code == 1
-        err = capsys.readouterr().err.lower()
-        assert "deprecated" in err
-        assert "register-project" in err
+    ``install``, ``uninstall`` and ``serve-control-plane`` are REMOVED, not
+    deprecated. A deprecated alias protects nobody here — there is no productive
+    AK3 installation — while doubling the surface everyone must read, maintain
+    and review. ``serve-control-plane`` proved the cost: it kept the dead
+    ``9080`` port alive until every fresh install pointed at it.
+    """
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["install", "--project-key", "k", "--project-name", "n", "--project-root", "."],
+            ["uninstall", "--project-root", "."],
+            ["serve-control-plane", "--certfile", "tls/cp.pem"],
+        ],
+        ids=["install", "uninstall", "serve-control-plane"],
+    )
+    def test_retired_alias_is_not_a_command(self, argv: list[str]) -> None:
+        with pytest.raises(SystemExit):
+            main(argv)
 
     def test_each_level_has_its_own_verb(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """The level semantics are no longer conflated: every install-trinity
-        level owns a distinct verb and the generics are explicitly deprecated."""
+        """Every install-trinity level owns exactly one distinct verb."""
         # ``main([])`` prints the full help (no SystemExit, unlike ``--help``).
         assert main([]) == 0
         help_text = capsys.readouterr().out
         for verb in ("serve", "ui", "update", "detach", "decommission", "register-project"):
             assert verb in help_text
-        # The generics survive only as explicitly deprecated aliases (argparse may
-        # wrap the help text, so assert on the stable tokens, not the full line).
-        assert "deprecated" in help_text
-        assert "register-project" in help_text
 
 
-class TestInstallConvergence:
-    """The deprecated ``install`` alias converges on the SINGLE checkpoint engine.
+class TestRegisterProjectEngine:
+    """``register-project`` is the SINGLE level-3 installer path (FK-50 §50.2)."""
 
-    ``install`` is NOT a divergent installer path: ``install_agentkit`` delegates
-    to ``run_checkpoint_install`` — the exact engine ``register-project`` uses.
-    This locks the single-engine invariant: both verbs reach
-    ``run_checkpoint_install`` (FK-10 §2.1.5 / §10.2.0).
-    """
-
-    def test_install_and_register_both_reach_run_checkpoint_install(
+    def test_register_project_reaches_run_checkpoint_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         calls: list[object] = []
@@ -413,34 +377,111 @@ class TestInstallConvergence:
             success = True
             created_files: tuple[str, ...] = ()
             errors: tuple[str, ...] = ()
+            checkpoint_results: tuple[object, ...] = ()
 
         def spy(config: object, *, mode: object = None) -> _FakeResult:
             calls.append(mode)
             return _FakeResult()
 
-        # Both cmd_install (via install_agentkit) and _cmd_register_project import
-        # run_checkpoint_install from THIS module — the single checkpoint engine.
         monkeypatch.setattr(
             "agentkit.backend.installer.bootstrap_checkpoints.orchestrator."
             "run_checkpoint_install",
             spy,
         )
-        common = [
-            "--project-key",
-            "demo-key",
-            "--project-name",
-            "Demo",
-            "--project-root",
-            str(tmp_path),
-            "--github-owner",
-            "octo",
-            "--github-repo",
-            "repo",
+        assert main([
+            "register-project",
+            "--project-key", "demo-key",
+            "--project-name", "Demo",
+            "--project-root", str(tmp_path),
+            "--github-owner", "octo",
+            "--github-repo", "repo",
             "--no-sonarqube-available",
             "--no-ci-available",
-        ]
+        ]) == 0
+        assert len(calls) == 1
 
-        assert main(["install", *common]) == 0
-        assert main(["register-project", *common]) == 0
-        # Both verbs funnelled into the one engine (no divergent installer path).
-        assert len(calls) == 2
+
+class TestControlPlaneEndpointWiring:
+    """The installed ``control-plane.json`` must name the port ``serve`` binds."""
+
+    def test_control_plane_base_url_default_matches_the_project_api_serve_port(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """REGRESSION (2026-08-02): the installed control-plane.json must name the
+        port ``agentkit serve --project-api`` actually binds.
+
+        The original defect was a hand-written ``https://127.0.0.1:9080`` literal
+        in ``InstallConfig`` that survived the listener's move to 9702, so every
+        fresh install pointed at a dead port. Both sides now derive from the one
+        owner in ``config.defaults``; this test binds them together.
+        """
+        from agentkit.backend.cli.serve import ServeProfile, resolve_serve_port
+
+        captured: list[object] = []
+
+        class _FakeResult:
+            success = True
+            created_files: tuple[str, ...] = ()
+            errors: tuple[str, ...] = ()
+            checkpoint_results: tuple[object, ...] = ()
+
+        def spy(config: object, *, mode: object = None) -> _FakeResult:
+            captured.append(config)
+            return _FakeResult()
+
+        monkeypatch.setattr(
+            "agentkit.backend.installer.bootstrap_checkpoints.orchestrator."
+            "run_checkpoint_install",
+            spy,
+        )
+        assert main([
+            "register-project",
+            "--project-key", "demo-key",
+            "--project-name", "Demo",
+            "--project-root", str(tmp_path),
+            "--github-owner", "octo",
+            "--github-repo", "repo",
+            "--no-sonarqube-available",
+            "--no-ci-available",
+        ]) == 0
+        base_url = captured[0].control_plane_base_url  # type: ignore[attr-defined]
+        serve_port = resolve_serve_port(ServeProfile.PROJECT_API, None)
+        assert base_url.endswith(f":{serve_port}")
+        assert "9080" not in base_url
+
+    def test_control_plane_base_url_is_operator_configurable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Core on another host/port is stated, never hand-patched afterwards."""
+        captured: list[object] = []
+
+        class _FakeResult:
+            success = True
+            created_files: tuple[str, ...] = ()
+            errors: tuple[str, ...] = ()
+            checkpoint_results: tuple[object, ...] = ()
+
+        def spy(config: object, *, mode: object = None) -> _FakeResult:
+            captured.append(config)
+            return _FakeResult()
+
+        monkeypatch.setattr(
+            "agentkit.backend.installer.bootstrap_checkpoints.orchestrator."
+            "run_checkpoint_install",
+            spy,
+        )
+        assert main([
+            "register-project",
+            "--project-key", "demo-key",
+            "--project-name", "Demo",
+            "--project-root", str(tmp_path),
+            "--github-owner", "octo",
+            "--github-repo", "repo",
+            "--no-sonarqube-available",
+            "--no-ci-available",
+            "--control-plane-base-url", "https://core.internal:9702",
+            "--control-plane-ca-file", "/etc/ssl/core-ca.pem",
+        ]) == 0
+        config = captured[0]
+        assert config.control_plane_base_url == "https://core.internal:9702"  # type: ignore[attr-defined]
+        assert config.control_plane_ca_file == "/etc/ssl/core-ca.pem"  # type: ignore[attr-defined]

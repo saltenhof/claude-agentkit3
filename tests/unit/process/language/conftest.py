@@ -97,12 +97,12 @@ def completed_implementation_state() -> PhaseState:
 
 def _always_pass(ctx: StoryContext, state: PhaseState) -> GuardResult:
     """Trivial guard that always passes."""
-    return GuardResult.PASS()
+    return GuardResult.pass_()
 
 
 def _always_fail(ctx: StoryContext, state: PhaseState) -> GuardResult:
     """Trivial guard that always fails."""
-    return GuardResult.FAIL(reason="always fails")
+    return GuardResult.fail(reason="always fails")
 
 
 @pytest.fixture()

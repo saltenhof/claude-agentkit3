@@ -55,7 +55,7 @@ parameters and the analyses-search chain reads it back as proof.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from agentkit.backend.verify_system.pre_merge_runner.binding import prove_binding
 from agentkit.backend.verify_system.pre_merge_runner.ci_run import CiRunUnavailableError
@@ -86,20 +86,6 @@ if TYPE_CHECKING:
     from agentkit.integration_clients.sonar import SonarClient
 
 
-class TreeHashResolver(Protocol):
-    """Resolves the git tree hash of a commit (fail-closed seam).
-
-    The productive implementation runs ``git rev-parse <commit>^{tree}`` in
-    the integrated-candidate repo; tests supply a deterministic fake. A
-    resolution failure raises so the runner never stamps an empty tree hash
-    into a "produced" attestation (FIX-4).
-    """
-
-    def __call__(self, commit_sha: str) -> str:
-        """Return the tree hash of ``commit_sha`` (raise on failure)."""
-        ...
-
-
 @dataclass(frozen=True)
 class CiSonarScanRunner:
     """Productive :class:`PreMergeScanPort` over a shared CI run + Sonar client.
@@ -113,15 +99,12 @@ class CiSonarScanRunner:
         config: The resolved ``sonarqube`` config stanza.
         ledger: The accepted-exception ledger actually used for this analysis
             (its content hash is bound into the attestation, FIX-4).
-        tree_resolver: Deprecated injected test seam. Productive closure trusts
-            only the Edge-reported ``candidate.tree_hash`` and never re-measures.
     """
 
     run_cache: CandidateRunCache
     client: SonarClient
     config: SonarQubeConfig
     ledger: AcceptedExceptionLedger
-    tree_resolver: TreeHashResolver | None = None
 
     def produce_attestation(self, candidate: CandidateRef) -> ScanOutcome:
         """Execute a scan on the candidate and return a proven outcome.
@@ -282,4 +265,4 @@ def _check_built_commit(run: CiRunResult, commit_sha: str) -> ScanOutcome | None
     return None
 
 
-__all__ = ["CiSonarScanRunner", "TreeHashResolver"]
+__all__ = ["CiSonarScanRunner"]

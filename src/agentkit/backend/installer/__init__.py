@@ -23,9 +23,7 @@ from agentkit.backend.installer.repository import ProjectRegistrationRepository
 from agentkit.backend.installer.runner import (
     InstallConfig,
     InstallResult,
-    UninstallResult,
     install_agentkit,
-    uninstall_agentkit,
 )
 from agentkit.backend.installer.upgrade import (
     CustomizationFootprint,
@@ -50,7 +48,6 @@ __all__ = [
     "RepoExistenceProbe",
     "RepoProbeResult",
     "RuntimeProfile",
-    "UninstallResult",
     "UpgradeResult",
     "UpgradeScenario",
     "build_installer_flow",
@@ -59,5 +56,4 @@ __all__ = [
     "run_checkpoint_install",
     "run_cleanup",
     "run_upgrade",
-    "uninstall_agentkit",
 ]

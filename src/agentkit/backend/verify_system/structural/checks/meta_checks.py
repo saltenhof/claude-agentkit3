@@ -20,17 +20,17 @@ from agentkit.backend.core_types.qa_artifact_names import (
     VERIFY_DECISION_FILE,
 )
 from agentkit.backend.exceptions import CorruptStateError
-from agentkit.backend.state_backend.artifact_catalog_store import read_artifact_record
+from agentkit.backend.state_backend.artifact_catalog_store import load_artifact_record
 from agentkit.backend.state_backend.paths import (
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,
 )
 from agentkit.backend.state_backend.pipeline_runtime_store import (
-    read_phase_snapshot_record,
-    read_phase_state_record,
+    load_phase_snapshot,
+    load_phase_state,
 )
 from agentkit.backend.state_backend.story_lifecycle_store import (
-    read_story_context_record,
+    load_story_context,
 )
 from agentkit.backend.verify_system.protocols import Finding, Severity, TrustClass
 
@@ -48,7 +48,7 @@ def check_context_exists(story_dir: Path) -> Finding | None:
     """Check that a canonical story context record exists."""
 
     try:
-        if read_story_context_record(story_dir) is not None:
+        if load_story_context(story_dir) is not None:
             return None
     except CorruptStateError:
         pass
@@ -66,7 +66,7 @@ def check_context_valid(story_dir: Path) -> Finding | None:
     """Check that the canonical story context can be loaded."""
 
     try:
-        read_story_context_record(story_dir)
+        load_story_context(story_dir)
     except CorruptStateError:
         return Finding(
             layer="structural",
@@ -87,7 +87,7 @@ def check_phase_snapshots(
     findings: list[Finding] = []
     for phase in required_phases:
         try:
-            snapshot = read_phase_snapshot_record(story_dir, phase)
+            snapshot = load_phase_snapshot(story_dir, phase)
         except CorruptStateError:
             snapshot = None
         if snapshot is None:
@@ -117,7 +117,7 @@ def check_artifacts_present(
         artifact_kind = _ARTIFACT_NAME_TO_KIND.get(artifact)
         if artifact_kind is not None:
             try:
-                if read_artifact_record(story_dir, artifact_kind) is not None:
+                if load_artifact_record(story_dir, artifact_kind) is not None:
                     continue
             except CorruptStateError:
                 pass
@@ -158,7 +158,7 @@ def check_no_corrupt_state(story_dir: Path) -> Finding | None:
     """Check that the canonical current phase-state record is valid if present."""
 
     try:
-        read_phase_state_record(story_dir)
+        load_phase_state(story_dir)
     except CorruptStateError:
         return Finding(
             layer="structural",

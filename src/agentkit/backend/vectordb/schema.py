@@ -351,12 +351,63 @@ def weaviate_property_specs() -> list[dict[str, object]]:
 #: and consistent with this configuration (N02 adjudication vs FK-13 §13.2/§13.3).
 FK13_VECTORIZER: Final[str] = "text2vec_transformers"
 
+#: Pooling strategy per embedding model. The strategy is NOT a free parameter:
+#: it is a PROPERTY of the model, fixed by how that model was trained. Pinning it
+#: independently is how it silently went stale — a wrong strategy raises no error,
+#: it only degrades every embedding, so nothing ever reports it.
+#:
+#: Sentence-transformers models trained with mean pooling over the attention mask
+#: use ``masked_mean``; BERT/XLM-R-style models whose sentence embedding is the
+#: ``[CLS]``/``<s>`` token use ``cls``. Adding a model here without its trained
+#: strategy is a defect, not a convenience.
+FK13_MODEL_POOLING_STRATEGY: Final[dict[str, str]] = {
+    "sentence-transformers/all-MiniLM-L6-v2": "masked_mean",
+    "BAAI/bge-m3": "cls",
+}
+
+#: The embedding model FK-13 §13.2 pins. It is the SINGLE input from which the
+#: pooling strategy below is derived; the two can no longer drift apart.
+#:
+#: It is also the model whose tokenizer is shipped as the pinned package asset
+#: (§13.2 "Tokenizer-Bereitstellung") and against whose context window the ingest
+#: chunk budgets are computed. Changing this constant therefore REQUIRES changing
+#: the tokenizer asset, its pinned digest and the chunk budgets in the same
+#: change — a model pin is not a one-line edit.
+FK13_EMBEDDING_MODEL: Final[str] = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+def pooling_strategy_for(model: str) -> str:
+    """Return the pooling strategy the given embedding model was trained with.
+
+    Args:
+        model: Fully qualified embedding-model identifier.
+
+    Returns:
+        The model's pooling strategy as Weaviate reports it back.
+
+    Raises:
+        KeyError: For an unknown model — fail-closed. Guessing a strategy for an
+            unknown model is the exact failure mode this table exists to prevent:
+            it would produce silently degraded embeddings, never an error.
+    """
+    try:
+        return FK13_MODEL_POOLING_STRATEGY[model]
+    except KeyError as exc:
+        known = ", ".join(sorted(FK13_MODEL_POOLING_STRATEGY))
+        msg = (
+            f"no pooling strategy declared for embedding model {model!r}; "
+            f"declare it explicitly (known: {known}). A guessed strategy would "
+            "degrade every embedding without raising anything."
+        )
+        raise KeyError(msg) from exc
+
+
 #: The vectorizer MODEL settings FK-13 §13.2 requires, in the wire-key form the
 #: client reports back (N30). ``vectorizeClassName`` must stay False (the
-#: collection name is not part of any embedding) and the pooling strategy is
-#: pinned, because a drifted model silently changes every vector.
+#: collection name is not part of any embedding); the pooling strategy is DERIVED
+#: from :data:`FK13_EMBEDDING_MODEL` and is never written here by hand.
 FK13_VECTORIZER_MODEL: Final[dict[str, object]] = {
-    "poolingStrategy": "masked_mean",
+    "poolingStrategy": pooling_strategy_for(FK13_EMBEDDING_MODEL),
     "vectorizeClassName": False,
 }
 
@@ -407,6 +458,8 @@ __all__ = [
     "GenerationClass",
     "classify_owning_generation",
     "is_ordered_generation",
+    "FK13_EMBEDDING_MODEL",
+    "FK13_MODEL_POOLING_STRATEGY",
     "FK13_VECTORIZER",
     "FK13_VECTORIZER_MODEL",
     "FK13_VECTOR_SOURCE_PROPERTIES",
@@ -420,6 +473,7 @@ __all__ = [
     "PropertySpec",
     "StoryContextObject",
     "deterministic_uuid",
+    "pooling_strategy_for",
     "property_data_type",
     "property_names",
     "property_spec",

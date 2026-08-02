@@ -101,7 +101,10 @@ class Ak3ServerShape:
     KEYS are fully determined.
 
     Attributes:
-        command: Executable command AK3 registers for this server name.
+        command: Executable command AK3 registers for this server name, or
+            :data:`AK3_INTERPRETER_COMMAND` when the command is the ABSOLUTE
+            path of the interpreter that provides AK3 (resolved per machine at
+            registration time, see below).
         args: Argument vector AK3 registers for this server name.
         env_keys: Exact set of environment keys AK3 registers.
     """
@@ -110,6 +113,36 @@ class Ak3ServerShape:
     args: tuple[str, ...]
     env_keys: frozenset[str]
 
+    def matches_command(self, candidate: object) -> bool:
+        """Return whether ``candidate`` is a command AK3 itself would register.
+
+        For :data:`AK3_INTERPRETER_COMMAND` shapes the concrete value is a
+        machine-specific interpreter PATH, so it cannot be compared to a literal.
+        What AK3 always writes there — and what a bare tool name never is — is a
+        path: it carries a separator. That stays checkable without touching the
+        filesystem (a detach still recognises its own entry after the venv is
+        gone) and OS-independently (a POSIX path is not "absolute" to
+        ``PureWindowsPath`` and vice versa). The remaining ownership weight is
+        carried by the rest of the shape — server name, exact ``args``, exact
+        field and env-key sets, ``cwd`` — which already over-determines it.
+        """
+        if not isinstance(candidate, str) or not candidate.strip():
+            return False
+        if self.command == AK3_INTERPRETER_COMMAND:
+            return "/" in candidate or "\\" in candidate
+        return candidate == self.command
+
+
+#: Sentinel for a shape whose command is resolved per machine: the ABSOLUTE path
+#: of the interpreter that actually provides AK3 and its dependencies.
+#:
+#: A bare ``"python"`` was registered here until 2026-08-02. It made the harness
+#: process' ``PATH`` decide which interpreter starts the MCP server — an
+#: interpreter that generally does NOT have AK3's dependencies, because AK3 lives
+#: in its own venv. The server then died on the first missing import, at first
+#: use, with the installer having reported success.
+AK3_INTERPRETER_COMMAND: str = "<ak3-interpreter>"
+
 
 #: Expected registration per AK3-owned server name. SINGLE SOURCE OF TRUTH: the
 #: installer derives the values it writes from here, and the harness adapter
@@ -117,7 +150,7 @@ class Ak3ServerShape:
 #: never disagree about "what does our own entry look like".
 AK3_SERVER_SHAPES: dict[str, Ak3ServerShape] = {
     STORY_KNOWLEDGE_BASE_SERVER: Ak3ServerShape(
-        command="python",
+        command=AK3_INTERPRETER_COMMAND,
         args=("-m", "agentkit.backend.vectordb.engine"),
         env_keys=frozenset(REGISTERED_ENV_KEYS),
     ),
@@ -389,6 +422,7 @@ def registration_digest(
 
 __all__ = [
     "AK3_MCP_SERVER_NAMES",
+    "AK3_INTERPRETER_COMMAND",
     "AK3_SERVER_SHAPES",
     "ARE_MCP_SERVER",
     "ARE_MCP_SERVER_ENV_KEY",

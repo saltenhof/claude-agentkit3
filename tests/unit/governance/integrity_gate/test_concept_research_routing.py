@@ -73,7 +73,7 @@ class _NonCodePort:
         _ = scope
         return None
 
-    def read_phase_state_record(self, story_dir: object) -> None:
+    def load_phase_state(self, story_dir: object) -> None:
         _ = story_dir
         return None
 

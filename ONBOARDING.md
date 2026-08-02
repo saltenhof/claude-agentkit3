@@ -71,6 +71,47 @@ python -m venv .venv
 
 ---
 
+## 4a. Backend hochfahren (Runbook, verifiziert 2026-08-02)
+
+Das AK3-Backend ist **ein** Serverprozess mit zwei Profilen (FK-10 §10.7.2):
+`--ui-bff` (Port 9701, Strategen-/SPA-Surface) und `--project-api` (Port 9702,
+Pflicht-Endpunkt fuer Hooks/Edge/CLI). **Es gibt keinen Port 9080** — der war ein
+Altbestand aus dem entfernten Compat-Alias `serve-control-plane` und ist
+verbannt. Der Listener hat keinen Port-Default; die Profile liefern ihn.
+
+Reihenfolge, die tatsaechlich funktioniert:
+
+```bash
+# 1) Postgres muss laufen (kanonisches State-Backend). Beispiel: lokaler Container.
+docker ps --filter name=ak3-postgres-local
+
+# 2) State-Backend in der Shell setzen — die .env wird NICHT implizit geladen.
+export AGENTKIT_STATE_BACKEND=postgres
+export AGENTKIT_STATE_DATABASE_URL="postgresql://USER:PASS@127.0.0.1:PORT/DBNAME"
+# Das versionierte Schema legt der Startup-Hook selbst an; eine leere Datenbank genuegt.
+
+# 3) TLS: der Listener ist ausschliesslich HTTPS, --certfile ist Pflicht.
+#    AK3 erzeugt KEIN Zertifikat. var/devcert/{cert,key}.pem ist ein von Hand
+#    angelegtes Dev-Zertifikat (CN=localhost, gueltig bis 2027-06-21).
+
+# 4) Project-API starten (Vordergrund; Strg-C beendet).
+.venv/Scripts/agentkit serve --project-api \
+  --certfile var/devcert/cert.pem --keyfile var/devcert/key.pem
+
+# 5) In einer zweiten Shell pruefen (Dev-Zertifikat ist self-signed):
+curl -sk https://127.0.0.1:9702/healthz     # -> {"status": "ok"}
+```
+
+Fehlt `AGENTKIT_STATE_DATABASE_URL`, bricht der Pre-Serve-Startup-Hook
+fail-closed ab (`RuntimeError: AGENTKIT_STATE_DATABASE_URL must be set …`) —
+das ist gewollt, kein Bug: der Listener bindet den Socket erst, nachdem
+Instance-Identity und Orphan-Reconciliation erfolgreich waren.
+
+Die SPA (`agentkit ui`, Port 9700) und der Vite-Dev-Server proxen auf die
+**UI-BFF (9701)**, nicht auf die Project-API.
+
+---
+
 ## 5. Zielprojekt mit AgentKit initialisieren
 
 Dieser Abschnitt beschreibt das Onboarding eines Zielprojekts, nicht das Setup
@@ -125,6 +166,25 @@ Unterordner unter `codebase/`:
 
 `agentkit doctor --project-root /path/to/project` prueft die lokale CLI-Sicht auf
 das Zielprojekt.
+
+### Core-Endpunkt des Zielprojekts (`control-plane.json`)
+
+Der Installer schreibt `.agentkit/config/control-plane.json` mit der Basis-URL,
+ueber die das Zielprojekt das Core-Backend erreicht. Der Default ist aus der
+Portregistrierung FK-10 §10.7.2 **abgeleitet** (`https://127.0.0.1:9702`,
+Project-API) und liegt als einziger Owner in
+`src/agentkit/backend/config/defaults.py`. Laeuft das Core woanders, wird das
+gesagt statt die erzeugte Datei nachtraeglich zu editieren:
+
+```bash
+.venv/Scripts/agentkit register-project ... \
+  --control-plane-base-url https://core.internal:9702 \
+  --control-plane-ca-file /etc/ssl/core-ca.pem
+```
+
+Verifiziert (2026-08-02): frische Installation -> `control-plane.json` mit
+`"base_url": "https://127.0.0.1:9702"` -> `GET {base_url}/healthz` gegen das
+laufende Backend antwortet `200 {"status": "ok"}`.
 
 ---
 

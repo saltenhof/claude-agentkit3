@@ -44,7 +44,7 @@ from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEN
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
-    read_phase_state_record,
+    load_phase_state,
 )
 from agentkit.backend.state_backend.telemetry_event_store import load_execution_events
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -193,12 +193,12 @@ class TrackingHandler:
 
 @guard("always_pass", description="Always passes")
 def _always_pass(ctx: StoryContext, state: PhaseState) -> GuardResult:
-    return GuardResult.PASS()
+    return GuardResult.pass_()
 
 
 @guard("always_fail", description="Always fails")
 def _always_fail(ctx: StoryContext, state: PhaseState) -> GuardResult:
-    return GuardResult.FAIL(reason="Guard always fails")
+    return GuardResult.fail(reason="Guard always fails")
 
 
 @guard(
@@ -209,8 +209,8 @@ def _require_setup_done(
     ctx: StoryContext, state: PhaseState,
 ) -> GuardResult:
     if state.phase == "setup" and state.status == PhaseStatus.COMPLETED:
-        return GuardResult.PASS()
-    return GuardResult.FAIL(reason="Setup not completed")
+        return GuardResult.pass_()
+    return GuardResult.fail(reason="Setup not completed")
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +328,7 @@ class TestRunPhaseNormal:
         )
         engine.run_phase(story_ctx, _make_envelope(state))
 
-        loaded = read_phase_state_record(story_dir)
+        loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.phase == "setup"
         assert loaded.status == PhaseStatus.COMPLETED
@@ -518,7 +518,7 @@ class TestGuardAndPrecondition:
         result = engine.run_phase(story_ctx, _make_envelope(state))
         assert result.status == "failed"
 
-        loaded = read_phase_state_record(story_dir)
+        loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.status == PhaseStatus.FAILED
 
@@ -958,7 +958,7 @@ class TestPipelineRobustness:
         assert result.status == "failed"
 
         # Load persisted state and verify story_id is preserved
-        loaded = read_phase_state_record(story_dir)
+        loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.story_id == "TEST-001"
         assert loaded.story_id != "unknown"
@@ -1214,7 +1214,7 @@ class TestTransitionEvaluation:
         assert "Guard always fails" in result.errors[0]
 
         # Failed state persisted as FAILED
-        loaded = read_phase_state_record(story_dir)
+        loaded = load_phase_state(story_dir)
         assert loaded is not None
         assert loaded.status == PhaseStatus.FAILED
 

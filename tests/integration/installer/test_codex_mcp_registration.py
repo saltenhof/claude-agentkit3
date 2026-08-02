@@ -36,11 +36,11 @@ from agentkit.backend.core_types.mcp_server_registration import (
     DesiredMcpServer,
 )
 from agentkit.backend.installer import mcp_registration as mcp_registration_mod
-from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp_registration as cp10_mod
 from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     cp05_pipeline_config,
 )
-from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
+from agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration import cp10_mcp_registration
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
 )
@@ -350,7 +350,10 @@ def test_full_cp8_to_cp10_region_uses_the_real_derivation(
     # The real derivation reached the probe with the production spec.
     assert len(observed) == 1, result
     probed = observed[0]
-    assert probed.command == "python"
+    # The ABSOLUTE interpreter that provides AK3 (regression 2026-08-02: a bare
+    # "python" let the harness' PATH pick an interpreter without AK3's deps).
+    assert Path(probed.command).is_absolute()
+    assert Path(probed.command).is_file()
     assert tuple(probed.args) == ("-m", "agentkit.backend.vectordb.engine")
     assert probed.cwd == str(root)
     assert probed.env is not None

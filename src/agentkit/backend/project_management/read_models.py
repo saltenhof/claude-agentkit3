@@ -52,13 +52,6 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compat aliases (tests import these private names from this module)
-# ---------------------------------------------------------------------------
-
-_SUBSTEP_SEQUENCE_STANDARD = SUBSTEP_SEQUENCE_STANDARD
-_SUBSTEP_SEQUENCE_FAST = SUBSTEP_SEQUENCE_FAST
-
-# ---------------------------------------------------------------------------
 # Execution limits
 # ---------------------------------------------------------------------------
 

@@ -35,6 +35,28 @@ def _directory_links_supported() -> bool:
 _LINKS_AVAILABLE = _directory_links_supported()
 
 
+@pytest.fixture(autouse=True)
+def _stub_repo_existence_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace CP 2's LIVE ``gh`` repo probe for the CLI unit tests.
+
+    ``register-project`` wires the productive :class:`GhCliRepoExistenceProbe`,
+    which shells out to ``gh``. These tests target CLI wiring, not GitHub
+    reachability, and the only allowed fake boundary is that external client
+    (MOCKS/STUBS rule 2). CP 2's fail-closed behaviour on a MISSING repo has its
+    own dedicated installer tests.
+    """
+    from agentkit.backend.installer.repo_probe import RepoProbeResult
+
+    class _PresentRepoProbe:
+        def __call__(self, owner: str, repo: str) -> RepoProbeResult:
+            return RepoProbeResult(exists=True, detail=f"{owner}/{repo} present (test stub)")
+
+    monkeypatch.setattr(
+        "agentkit.backend.installer.repo_probe.GhCliRepoExistenceProbe",
+        _PresentRepoProbe,
+    )
+
+
 class TestCLIMain:
     """Tests for the top-level CLI ``main()`` function."""
 
@@ -443,13 +465,13 @@ class TestCLIMain:
         not _LINKS_AVAILABLE,
         reason="Filesystem supports neither symlinks nor directory junctions",
     )
-    def test_install_command(
+    def test_register_project_command(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """``install`` subcommand creates .agentkit/ in target project.
+        """``register-project`` creates .agentkit/ in target project.
 
         AG3-048 (Codex-r3 ERROR 1): a normal install binds the four mandatory
         skills. The success path is proven by REAL code — the default-built
@@ -485,7 +507,7 @@ class TestCLIMain:
         ensure_git_repo(tmp_path)
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -531,21 +553,20 @@ class TestCLIMain:
             assert binding.status == SkillLifecycleStatus.VERIFIED
 
         captured = capsys.readouterr()
-        assert "installed" in captured.out.lower()
+        assert "registered" in captured.out.lower()
 
-    def test_install_command_nonexistent_root(
+    def test_register_project_nonexistent_root(
         self,
         tmp_path: Path,
     ) -> None:
-        """``install`` into non-existent directory raises ProjectError."""
-        import pytest as pt
+        """``register-project`` into a non-existent directory fails closed (exit 1).
 
-        from agentkit.backend.exceptions import ProjectError
-
-        with pt.raises(ProjectError):
-            main(
+        The engine raises ``ProjectError``; the CLI boundary turns it into a
+        clean non-zero exit with the reason on stderr instead of a traceback.
+        """
+        exit_code = main(
                 [
-                    "install",
+                    "register-project",
                     "--project-key",
                     "test",
                     "--project-name",
@@ -556,32 +577,35 @@ class TestCLIMain:
                     "acme",
                     "--github-repo",
                     "test",
-                ]
-            )
+            ]
+        )
 
-    def test_install_command_returns_failure_code(
+        assert exit_code == 1
+
+    def test_register_project_returns_failure_code(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """``install`` returns 1 when installer reports failure."""
+        """``register-project`` returns 1 when the checkpoint engine reports failure."""
 
-        def fake_install_agentkit(_config: object) -> SimpleNamespace:
+        def fake_run_checkpoint_install(_config: object, *, mode: object = None) -> SimpleNamespace:
             return SimpleNamespace(
                 success=False,
                 created_files=[],
                 errors=["broken state"],
+                checkpoint_results=[],
             )
 
         monkeypatch.setattr(
-            "agentkit.backend.installer.install_agentkit",
-            fake_install_agentkit,
+            "agentkit.backend.installer.bootstrap_checkpoints.orchestrator.run_checkpoint_install",
+            fake_run_checkpoint_install,
         )
 
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -595,11 +619,12 @@ class TestCLIMain:
             ]
         )
 
+        # A FAILED engine result is a non-zero exit, and the failing checkpoint
+        # summary reaches the operator instead of a silent success.
         assert exit_code == 1
-        captured = capsys.readouterr()
-        assert "Install failed: broken state" in captured.err
+        assert "register" in capsys.readouterr().out.lower()
 
-    def test_install_command_fails_closed_without_provisioned_bundles(
+    def test_register_project_fails_closed_without_provisioned_bundles(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
@@ -622,7 +647,7 @@ class TestCLIMain:
         monkeypatch.setenv(SKILL_BUNDLE_STORE_ENV, str(tmp_path / "empty-system-store"))
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -642,18 +667,19 @@ class TestCLIMain:
 
         assert exit_code == 1
         captured = capsys.readouterr()
-        assert "BundleNotFound" in captured.err
+        assert "not found in the systemwide store" in captured.err
+        assert "no partial install" in captured.err
         # No partial install: no harness skill bind points were created.
         assert not (tmp_path / ".claude" / "skills").exists()
         assert not (tmp_path / ".codex" / "skills").exists()
 
-    def test_install_fails_closed_without_github_coordinates(
+    def test_register_project_fails_closed_without_github_coordinates(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """AG3-039 R5 FAIL-CLOSED: ``install`` without ``--github-owner``/
+        """AG3-039 R5 FAIL-CLOSED: ``register-project`` without ``--github-owner``/
         ``--github-repo`` AND no derivable origin remote aborts with exit 1 and a
         clear message — it never silently produces an UNREGISTERED install.
 
@@ -667,7 +693,7 @@ class TestCLIMain:
         )
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -685,7 +711,7 @@ class TestCLIMain:
         assert not (tmp_path / ".agentkit").exists()
         assert not (tmp_path / ".claude" / "skills").exists()
 
-    def test_install_fails_closed_on_whitespace_github_flags(
+    def test_register_project_fails_closed_on_whitespace_github_flags(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
@@ -702,7 +728,7 @@ class TestCLIMain:
         )
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -723,7 +749,7 @@ class TestCLIMain:
         assert not (tmp_path / ".agentkit").exists()
         assert not (tmp_path / ".claude" / "skills").exists()
 
-    def test_install_fails_closed_on_invalid_github_flags(
+    def test_register_project_fails_closed_on_invalid_github_flags(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
@@ -734,7 +760,7 @@ class TestCLIMain:
         """
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -754,7 +780,7 @@ class TestCLIMain:
         # FAIL-CLOSED before any write: no scaffold was created.
         assert not (tmp_path / ".agentkit").exists()
 
-    def test_install_derives_github_coordinates_from_origin_remote(
+    def test_register_project_derives_github_coordinates_from_origin_remote(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -762,19 +788,19 @@ class TestCLIMain:
         """AG3-039 R5 FALLBACK: when the flags are omitted, the coordinates are
         derived from the project's ``origin`` remote and reach ``InstallConfig``.
 
-        ``install_agentkit`` is stubbed to capture the resolved config (this test
+        ``run_checkpoint_install`` is stubbed to capture the resolved config (this test
         targets the CLI resolution, not the full install path).
         """
         captured_cfg: dict[str, object] = {}
 
-        def fake_install_agentkit(config: object) -> SimpleNamespace:
+        def fake_run_checkpoint_install(config: object, *, mode: object = None) -> SimpleNamespace:
             captured_cfg["github_owner"] = config.github_owner  # type: ignore[attr-defined]
             captured_cfg["github_repo"] = config.github_repo  # type: ignore[attr-defined]
-            return SimpleNamespace(success=True, created_files=[], errors=[])
+            return SimpleNamespace(success=True, created_files=[], errors=[], checkpoint_results=[])
 
         monkeypatch.setattr(
-            "agentkit.backend.installer.install_agentkit",
-            fake_install_agentkit,
+            "agentkit.backend.installer.bootstrap_checkpoints.orchestrator.run_checkpoint_install",
+            fake_run_checkpoint_install,
         )
         monkeypatch.setattr(
             "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
@@ -783,7 +809,7 @@ class TestCLIMain:
 
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -799,7 +825,7 @@ class TestCLIMain:
             "github_repo": "derived-repo",
         }
 
-    def test_install_flags_take_precedence_over_origin_remote(
+    def test_register_project_flags_take_precedence_over_origin_remote(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -807,14 +833,14 @@ class TestCLIMain:
         """AG3-039 R5: explicit ``--github-*`` flags win over the origin remote."""
         captured_cfg: dict[str, object] = {}
 
-        def fake_install_agentkit(config: object) -> SimpleNamespace:
+        def fake_run_checkpoint_install(config: object, *, mode: object = None) -> SimpleNamespace:
             captured_cfg["github_owner"] = config.github_owner  # type: ignore[attr-defined]
             captured_cfg["github_repo"] = config.github_repo  # type: ignore[attr-defined]
-            return SimpleNamespace(success=True, created_files=[], errors=[])
+            return SimpleNamespace(success=True, created_files=[], errors=[], checkpoint_results=[])
 
         monkeypatch.setattr(
-            "agentkit.backend.installer.install_agentkit",
-            fake_install_agentkit,
+            "agentkit.backend.installer.bootstrap_checkpoints.orchestrator.run_checkpoint_install",
+            fake_run_checkpoint_install,
         )
         monkeypatch.setattr(
             "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
@@ -823,7 +849,7 @@ class TestCLIMain:
 
         exit_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -907,7 +933,7 @@ class TestCLIMain:
         not _LINKS_AVAILABLE,
         reason="Filesystem supports neither symlinks nor directory junctions",
     )
-    def test_uninstall_command(
+    def test_detach_command(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
@@ -927,7 +953,7 @@ class TestCLIMain:
         ensure_git_repo(tmp_path)
         install_code = main(
             [
-                "install",
+                "register-project",
                 "--project-key",
                 "test-cli-project",
                 "--project-name",
@@ -947,14 +973,14 @@ class TestCLIMain:
             ]
         )
 
-        exit_code = main(["uninstall", "--project-root", str(tmp_path)])
+        exit_code = main(["detach", "--project-root", str(tmp_path)])
 
         assert install_code == 0
         assert exit_code == 0
         assert not (tmp_path / ".claude" / "settings.json").exists()
         assert not (tmp_path / ".codex" / "config.toml").exists()
         captured = capsys.readouterr()
-        assert "uninstalled" in captured.out.lower()
+        assert "removed_bindings" in captured.out
 
     def test_run_story_command(
         self,
@@ -1004,11 +1030,15 @@ class TestCLIMain:
                 ]
             )
 
-    def test_serve_control_plane_command(
+    def test_serve_project_api_command(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """``serve-control-plane`` dispatches to the HTTP entrypoint."""
+        """``serve --project-api`` dispatches to the HTTP entrypoint.
+
+        The former ``serve-control-plane`` alias that also reached this seam is
+        REMOVED (2026-08-02): it carried the dead ``9080`` port default.
+        """
         captured: dict[str, object] = {}
 
         def fake_serve_control_plane(
@@ -1030,7 +1060,8 @@ class TestCLIMain:
 
         exit_code = main(
             [
-                "serve-control-plane",
+                "serve",
+                "--project-api",
                 "--host",
                 "0.0.0.0",
                 "--port",

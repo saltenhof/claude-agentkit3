@@ -23,7 +23,7 @@ from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeS
 from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
 )
-from agentkit.backend.state_backend.story_lifecycle_store import read_story_context_record
+from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
@@ -115,7 +115,7 @@ class TestSetupPhaseE2E:
 
         # 3. Verify context.json was written from the Story-Service record.
         s_dir = story_dir(tmp_path, "TEST-001")
-        loaded = read_story_context_record(s_dir)
+        loaded = load_story_context(s_dir)
         assert loaded is not None
         assert loaded.story_id == "TEST-001"
         assert loaded.title == "E2E setup: builds context from Story-Service"

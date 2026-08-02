@@ -29,7 +29,7 @@ class TestGateStage:
 
     def test_full_construction(self) -> None:
         def cond(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         gs = GateStage(
             name="semantic",

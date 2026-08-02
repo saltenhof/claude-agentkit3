@@ -47,7 +47,6 @@ from agentkit.backend.verify_system.pre_merge_runner.runtime_wiring import (
 )
 from agentkit.backend.verify_system.pre_merge_runner.scan_runner import (
     CiSonarScanRunner,
-    TreeHashResolver,
 )
 
 __all__ = [
@@ -65,7 +64,6 @@ __all__ = [
     "PreMergeRunnerUnavailableError",
     "PreMergeScanPort",
     "ScanOutcome",
-    "TreeHashResolver",
     "build_pre_merge_runners",
     "prove_binding",
 ]

@@ -7,6 +7,7 @@ Pure text-to-text: no filesystem, no process.
 
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 
@@ -33,15 +34,24 @@ _HOOK = "agentkit-hook-codex"
 _ROOT = Path("C:/proj")
 
 
+def _ak3_command() -> str:
+    """The ABSOLUTE interpreter path AK3 registers (never a bare name)."""
+    from agentkit.backend.installer.mcp_registration import (
+        resolve_story_knowledge_base_command,
+    )
+
+    return resolve_story_knowledge_base_command()
+
+
 def _server(
     name: str = STORY_KNOWLEDGE_BASE_SERVER,
     *,
-    command: str = "python",
+    command: str | None = None,
     args: tuple[str, ...] = ("-m", "agentkit.backend.vectordb.engine"),
 ) -> DesiredMcpServer:
     return DesiredMcpServer(
         name=name,
-        command=command,
+        command=_ak3_command() if command is None else command,
         args=args,
         cwd=str(_ROOT),
         env=tuple((key, "value") for key in REGISTERED_ENV_KEYS),
@@ -91,7 +101,7 @@ def test_fresh_render_with_server_carries_all_five_fields_and_required() -> None
     text = _render(None, _server())
     parsed = tomllib.loads(text)
     entry = parsed["mcp_servers"][STORY_KNOWLEDGE_BASE_SERVER]
-    assert entry["command"] == "python"
+    assert entry["command"] == _ak3_command()
     assert entry["args"] == ["-m", "agentkit.backend.vectordb.engine"]
     assert entry["cwd"] == str(_ROOT)
     assert entry["env"]["PROJECT_ID"] == "value"
@@ -203,9 +213,10 @@ def test_matching_command_and_args_is_our_own_entry_not_foreign_occupation() -> 
     """Same identity (command+args) -> upsert, and unknown fields survive."""
     raw = (
         b"[mcp_servers.story-knowledge-base]\n"
-        b'command = "python"\n'
-        b'args = ["-m", "agentkit.backend.vectordb.engine"]\n'
-        b'future_codex_field = "keep me"\n'
+        + _rendered_command_bytes()
+        + b"\n"
+        + b'args = ["-m", "agentkit.backend.vectordb.engine"]\n'
+        + b'future_codex_field = "keep me"\n'
     )
     text = _render(raw, _server())
     parsed = tomllib.loads(text)
@@ -404,9 +415,10 @@ def test_unknown_field_survives_the_merge_and_keeps_the_file_preserved() -> None
         b'command = "agentkit-hook-codex"\n'
         b"\n"
         b"[mcp_servers.story-knowledge-base]\n"
-        b'command = "python"\n'
-        b'args = ["-m", "agentkit.backend.vectordb.engine"]\n'
-        b'future_codex_field = "keep me"\n'
+        + _rendered_command_bytes()
+        + b"\n"
+        + b'args = ["-m", "agentkit.backend.vectordb.engine"]\n'
+        + b'future_codex_field = "keep me"\n'
     )
     merged = _render(raw, _server()).encode("utf-8")
 
@@ -425,6 +437,11 @@ def _ak3_file_bytes() -> bytes:
     return _render(None, _server()).encode("utf-8")
 
 
+def _rendered_command_bytes() -> bytes:
+    """The ``command = "..."`` line AK3 actually renders (absolute interpreter)."""
+    return f"command = {json.dumps(_ak3_command())}".encode()
+
+
 def _replace_in_table(raw: bytes, old: bytes, new: bytes) -> bytes:
     assert old in raw, f"fixture drift: {old!r} not in rendered file"
     return raw.replace(old, new)
@@ -433,7 +450,7 @@ def _replace_in_table(raw: bytes, old: bytes, new: bytes) -> bytes:
 @pytest.mark.parametrize(
     ("label", "old", "new"),
     [
-        ("foreign command", b'command = "python"', b'command = "foreign-tool"'),
+        ("foreign command", _rendered_command_bytes(), b'command = "foreign-tool"'),
         (
             "foreign args",
             b'args = ["-m", "agentkit.backend.vectordb.engine"]',
@@ -476,7 +493,7 @@ def test_ak3_registration_of_another_project_is_not_ak3_owned_here() -> None:
     other_root = Path("C:/some-other-project")
     other = DesiredMcpServer(
         name=STORY_KNOWLEDGE_BASE_SERVER,
-        command="python",
+        command=_ak3_command(),
         args=("-m", "agentkit.backend.vectordb.engine"),
         cwd=str(other_root),
         env=tuple((key, "value") for key in REGISTERED_ENV_KEYS),
@@ -501,7 +518,7 @@ def test_recognition_helper_accepts_only_the_expected_shape() -> None:
     """Directly pins the value gate against the SSOT shape table."""
     shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
     good = {
-        "command": shape.command,
+        "command": _ak3_command(),
         "args": list(shape.args),
         "cwd": str(_ROOT),
         "env": dict.fromkeys(shape.env_keys, "value"),
@@ -512,6 +529,7 @@ def test_recognition_helper_accepts_only_the_expected_shape() -> None:
     )
     for mutation in (
         {"command": "other"},
+        {"command": "python"},  # relative: never what AK3 writes
         {"args": ["-m", "other"]},
         {"required": False},
         {"cwd": "C:/elsewhere"},

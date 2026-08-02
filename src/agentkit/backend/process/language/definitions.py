@@ -46,7 +46,7 @@ def _mode_is_not_exploration(
     )
 
     if is_execution_routing_blocked(ctx):
-        return GuardResult.FAIL(
+        return GuardResult.fail(
             reason=(
                 "integration_stabilization mandates exploration before "
                 "implementation; the direct setup -> implementation transition "
@@ -60,10 +60,10 @@ def _mode_is_not_exploration(
     from agentkit.backend.story_context_manager.story_model import WireStoryMode
 
     if ctx.mode is WireStoryMode.FAST:
-        return GuardResult.PASS()
+        return GuardResult.pass_()
     if ctx.execution_route != StoryMode.EXPLORATION:
-        return GuardResult.PASS()
-    return GuardResult.FAIL(
+        return GuardResult.pass_()
+    return GuardResult.fail(
         reason=(
             "Story execution route is EXPLORATION: "
             f"execution_route={ctx.execution_route!r}"
@@ -116,7 +116,7 @@ def _is_manifest_approved_and_bound(ctx: StoryContext) -> GuardResult:
     (FK-05 §5.5.1/§5.5.4/§5.6, AC2/AC8).
     """
     if ctx.project_root is None:
-        return GuardResult.FAIL(
+        return GuardResult.fail(
             reason=(
                 "integration_stabilization: cannot resolve the story directory "
                 "to verify manifest approval; execution is blocked fail-closed "
@@ -141,7 +141,7 @@ def _is_manifest_approved_and_bound(ctx: StoryContext) -> GuardResult:
     manifest = load_integration_manifest(s_dir)
     approval = load_manifest_approval(s_dir)
     if manifest is None or not check_approval_present(approval).approved:
-        return GuardResult.FAIL(
+        return GuardResult.fail(
             reason=(
                 "integration_stabilization: no approved IntegrationScopeManifest; "
                 "the exploration -> implementation transition is blocked until the "
@@ -155,13 +155,13 @@ def _is_manifest_approved_and_bound(ctx: StoryContext) -> GuardResult:
         run_id = approval.run_id
     binding = check_binding_integrity(manifest, approval, current_run_id=run_id)
     if not binding.binding_valid:
-        return GuardResult.FAIL(
+        return GuardResult.fail(
             reason=(
                 "integration_stabilization: manifest-approval binding invalid "
                 f"({binding.reason}); execution blocked fail-closed (FK-05 §5.5.4)."
             ),
         )
-    return GuardResult.PASS()
+    return GuardResult.pass_()
 
 
 def _build_implementation_workflow() -> WorkflowDefinition:

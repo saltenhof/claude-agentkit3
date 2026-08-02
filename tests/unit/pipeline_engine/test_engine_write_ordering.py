@@ -295,7 +295,7 @@ class TestGuardFailureResultWriteOrdering:
 
         @guard("always_fail", description="Always fails")
         def _always_fail(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.FAIL(reason="Guard always fails")
+            return GuardResult.fail(reason="Guard always fails")
 
         workflow = (
             Workflow("wo-guard")

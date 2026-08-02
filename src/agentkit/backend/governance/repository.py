@@ -261,7 +261,7 @@ class IntegrityGateStatePort(Protocol):
         """
         ...
 
-    def read_phase_state_record(
+    def load_phase_state(
         self,
         story_dir: Path,
     ) -> object | None:

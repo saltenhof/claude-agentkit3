@@ -49,9 +49,24 @@ def test_project_binding_requires_the_grpc_endpoint_too(tmp_path: Path) -> None:
         _binding(tmp_path, weaviate_grpc_endpoint="")
 
 
-def test_project_binding_rejects_localhost_default(tmp_path: Path) -> None:
-    with pytest.raises(ProjectBindingError, match="localhost default"):
-        _binding(tmp_path, weaviate_http_endpoint="http://localhost:8080")
+def test_project_binding_accepts_an_explicitly_configured_loopback_endpoint(
+    tmp_path: Path,
+) -> None:
+    """A loopback Weaviate is a LEGITIMATE, explicitly configured deployment.
+
+    Regression for the 2026-08-02 endpoint block list: it rejected
+    ``http://localhost:8080`` / ``127.0.0.1:50051`` by spelling and thereby broke
+    the normal single-machine AK3 topology (FK-15 localhost-only). D2 ("never a
+    synthesised endpoint") is guaranteed by origin — the value is mandatory and
+    defaultless — which the missing/empty tests above prove.
+    """
+    binding = _binding(
+        tmp_path,
+        weaviate_http_endpoint="http://localhost:8080",
+        weaviate_grpc_endpoint="127.0.0.1:50051",
+    )
+    assert binding.weaviate_http_endpoint == "http://localhost:8080"
+    assert binding.weaviate_grpc_endpoint == "127.0.0.1:50051"
 
 
 def test_resolve_within_root_accepts_inner(tmp_path: Path) -> None:
@@ -113,10 +128,15 @@ def test_grpc_endpoint_empty_fails_closed() -> None:
         RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
 
 
-def test_grpc_endpoint_localhost_rejected() -> None:
+def test_grpc_endpoint_loopback_is_accepted_when_explicitly_registered() -> None:
+    """``localhost:50051`` is the real gRPC port of a local Weaviate container.
+
+    Regression for the removed block list: the registered env IS the explicit
+    configuration, so a loopback endpoint in it is a decision, not an accident.
+    """
     env = {**_GOOD_ENV, "WEAVIATE_GRPC_ENDPOINT": "localhost:50051"}
-    with pytest.raises(RuntimeBindingError, match="localhost default"):
-        RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
+    rb = RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
+    assert rb.weaviate_grpc_endpoint == "localhost:50051"
 
 
 def test_binding_carries_both_exact_endpoints() -> None:
@@ -156,10 +176,11 @@ def test_runtime_binding_wrong_typed_value_fails_closed() -> None:
         RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
 
 
-def test_runtime_binding_rejects_localhost_default() -> None:
+def test_runtime_binding_accepts_loopback_http_endpoint() -> None:
+    """Counterpart for the HTTP endpoint (see the gRPC regression above)."""
     env = {**_GOOD_ENV, "WEAVIATE_HTTP_ENDPOINT": "http://127.0.0.1:8080"}
-    with pytest.raises(RuntimeBindingError, match="localhost default"):
-        RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
+    rb = RuntimeBinding.from_env(env, command="python", args=(), cwd="/srv")
+    assert rb.weaviate_http_endpoint == "http://127.0.0.1:8080"
 
 
 def test_runtime_binding_rejects_empty_cwd() -> None:

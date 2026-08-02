@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.backend.config.defaults import (
+    DEFAULT_CONTROL_PLANE_BASE_URL,
     DEFAULT_MAX_FEEDBACK_ROUNDS,
     DEFAULT_MAX_REMEDIATION_ROUNDS,
     DEFAULT_STORY_TYPES,
@@ -177,7 +178,13 @@ class InstallConfig:
     # ProjectEdge client is the sole Dev->Core seam; focused tests may inject it,
     # while production resolves it from control-plane.json at CP 10d.
     project_edge_client: ProjectEdgeClient | None = None
-    control_plane_base_url: str = "https://127.0.0.1:9080"
+    # The Core endpoint written into ``.agentkit/config/control-plane.json``. The
+    # default is DERIVED from the FK-10 §10.7.2 port registry (the single owner in
+    # ``config.defaults``), never a literal typed here: a hand-written literal is
+    # exactly how a stale ``9080`` outlived the listener's move to ``9702`` and
+    # made every fresh install point at a dead port. Operators whose Core listens
+    # elsewhere pass ``--control-plane-base-url``.
+    control_plane_base_url: str = DEFAULT_CONTROL_PLANE_BASE_URL
     control_plane_ca_file: str | None = None
     # AG3-052 Design-Decision (FK-03 §3): the scaffold default for a
     # code-producing project is ``sonarqube.available: true`` — the green gate
@@ -281,14 +288,6 @@ class InstallResult:
     # engine is OUT of scope (story §2.2) and will populate this typed list when
     # it lands. ``None`` means "no checkpoint results captured" (legacy callers).
     checkpoint_results: tuple[CheckpointResult, ...] | None = None
-
-
-@dataclass(frozen=True)
-class UninstallResult:
-    success: bool
-    project_root: Path
-    removed_files: tuple[str, ...] = ()
-    errors: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _default_sonarqube_stanza(config: InstallConfig) -> dict[str, object]:
@@ -1792,38 +1791,10 @@ def _sonar_cp_to_checkpoint_result(result: SonarPreflightResult) -> CheckpointRe
     )
 
 
-def uninstall_agentkit(project_root: Path) -> UninstallResult:
-    """Remove AgentKit-managed install artifacts from a target project.
-
-    This is the DEPRECATED generic teardown; it delegates to the single level-3
-    project-detach path (``detach_project``, FK-10 §10.2.9) so there is exactly
-    one teardown implementation. Detach is surgical (AK3 hook blocks only, foreign
-    hooks preserved) and removes skill junctions via ``unlink``/``rmdir`` after an
-    ``isjunction`` check — never ``rmtree`` through the link (FK-43 §43.4.1.1).
-    """
-    from agentkit.backend.installer.lifecycle.detach import detach_project
-
-    if not project_root.is_dir():
-        raise ProjectError(
-            f"Project root does not exist: {project_root}",
-            detail={"project_root": str(project_root)},
-        )
-
-    result = detach_project(project_root)
-    removed = list(result.detached_junctions) + list(result.removed_bindings)
-    return UninstallResult(
-        success=result.success,
-        project_root=project_root,
-        removed_files=tuple(removed),
-    )
-
-
 __all__ = [
     "MANDATORY_SKILLS",
     "PROJECT_CONFIG_VERSION",
     "InstallConfig",
     "InstallResult",
-    "UninstallResult",
     "install_agentkit",
-    "uninstall_agentkit",
 ]

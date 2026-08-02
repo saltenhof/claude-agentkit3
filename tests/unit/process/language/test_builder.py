@@ -23,12 +23,12 @@ if TYPE_CHECKING:
 
 def _trivial_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:
     """Trivial guard that always passes."""
-    return GuardResult.PASS()
+    return GuardResult.pass_()
 
 
 def _blocking_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:
     """Trivial guard that always fails."""
-    return GuardResult.FAIL(reason="blocked")
+    return GuardResult.fail(reason="blocked")
 
 
 class TestWorkflowBuilderBasic:

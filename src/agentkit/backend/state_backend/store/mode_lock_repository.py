@@ -214,10 +214,14 @@ def _postgres_connect() -> Iterator[Any]:
 @contextmanager
 def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     from agentkit.backend.state_backend import sqlite_store
-    from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, _sqlite_allowed, versioned_sqlite_db_file
+    from agentkit.backend.state_backend.config import (
+        ALLOW_SQLITE_ENV,
+        sqlite_allowed,
+        versioned_sqlite_db_file,
+    )
     from agentkit.backend.state_backend.paths import state_backend_dir
 
-    if not _sqlite_allowed():
+    if not sqlite_allowed():
         raise RuntimeError(f"SQLite mode-lock requires {ALLOW_SQLITE_ENV}=1")
     path = state_backend_dir(store_dir) / versioned_sqlite_db_file()
     path.parent.mkdir(parents=True, exist_ok=True)

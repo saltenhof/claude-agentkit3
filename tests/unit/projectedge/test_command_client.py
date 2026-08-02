@@ -175,7 +175,7 @@ def test_confirm_push_ownership_offline_is_never_a_confirmation(
         raise urllib.error.URLError("connection refused")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    client = _client(HttpsJsonTransport(base_url="https://127.0.0.1:9080"), tmp_path)
+    client = _client(HttpsJsonTransport(base_url="https://127.0.0.1:9702"), tmp_path)
 
     probe = client.confirm_push_ownership(
         run_id="run-1", project_key="tenant-a", story_id="AG3-100", session_id="sess-A"
@@ -226,7 +226,7 @@ def test_transport_returns_structured_command_rejection_on_4xx(
     def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         raise HTTPError(
-            url="https://127.0.0.1:9080/v1/project-edge/commands/cmd-1/result",
+            url="https://127.0.0.1:9702/v1/project-edge/commands/cmd-1/result",
             code=http_code,
             msg="rejected",
             hdrs=Message(),
@@ -234,7 +234,7 @@ def test_transport_returns_structured_command_rejection_on_4xx(
         )
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     body = transport.send(
         method="POST",
@@ -259,7 +259,7 @@ def test_client_report_surfaces_ownership_transferred_rejection_over_real_transp
     def fake_urlopen(request: Any, context: Any = None) -> _FakeResponse:
         del request, context
         raise HTTPError(
-            url="https://127.0.0.1:9080/v1/project-edge/commands/cmd-1/result",
+            url="https://127.0.0.1:9702/v1/project-edge/commands/cmd-1/result",
             code=403,
             msg="Forbidden",
             hdrs=Message(),
@@ -267,7 +267,7 @@ def test_client_report_surfaces_ownership_transferred_rejection_over_real_transp
         )
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    client = _client(HttpsJsonTransport(base_url="https://127.0.0.1:9080"), tmp_path)
+    client = _client(HttpsJsonTransport(base_url="https://127.0.0.1:9702"), tmp_path)
 
     result = client.report_command_result(command_id="cmd-1", request=_result_request())
 

@@ -136,10 +136,9 @@ class VerifySystem:
     intentionally typed against the internal classes; consumers must
     not reach into them.
 
-    W1: Layer 2 is now three distinct reviewers (``layer_2a``,
-    ``layer_2b``, ``layer_2c``) each producing its own ``LayerResult``
-    with distinct findings. The backward-compatible ``layer_2`` property
-    returns ``layer_2a`` for test-double wiring.
+    W1: Layer 2 is three distinct reviewers (``layer_2a``, ``layer_2b``,
+    ``layer_2c``), each producing its own ``LayerResult`` with distinct
+    findings.
 
     Attributes:
         layer_1: Layer-1 deterministic structural checker.
@@ -156,8 +155,6 @@ class VerifySystem:
             productive state-backed adapter is wired via
             ``composition_root.build_verify_system``. Eliminates the
             direct ``state_backend.store`` import in ``run_qa_subflow``.
-        adversarial_challenger: Backward-compatible alias for ``layer_3``;
-            kept to avoid breaking AG3-023/AG3-024 consumers.
         sonar_gate_port: Read-port resolving the SonarQube-Green-Gate
             inputs (FK-33 §33.6, AG3-052). Default is the absent-Sonar
             port (``sonarqube.available == false`` => stage SKIP). The
@@ -231,24 +228,6 @@ class VerifySystem:
     )
 
     @property
-    def layer_2(self) -> QALayer:
-        """Backward-compatible alias for ``layer_2a``.
-
-        Returns:
-            ``layer_2a`` (QaReviewReviewer by default).
-        """
-        return self.layer_2a
-
-    @property
-    def adversarial_challenger(self) -> QALayer:
-        """Backward-compatible alias for ``layer_3`` (AG3-023/AG3-024 compat).
-
-        Returns:
-            The QALayer instance held as ``layer_3``.
-        """
-        return self.layer_3
-
-    @property
     def stage_registry(self) -> StageRegistry:
         """Return the StageRegistry used by the policy engine (FK-33 §33.2.1).
 
@@ -277,41 +256,6 @@ class VerifySystem:
             artifact_manager=artifact_manager,
             defaults=resolve_default_options(defaults, overrides),
         )
-
-    # ------------------------------------------------------------------
-    # Backward-compatible methods (AG3-023 / AG3-024 surface)
-    # ------------------------------------------------------------------
-
-    def policy_decision(
-        self,
-        layer_results: list[LayerResult],
-    ) -> VerifyDecision:
-        """Aggregate ``LayerResult`` instances into a final decision.
-
-        Pure delegation to
-        :meth:`agentkit.backend.verify_system.policy_engine.engine.PolicyEngine.decide`.
-
-        Args:
-            layer_results: Results from all QA layers executed for this
-                subflow round.
-
-        Returns:
-            Aggregated :class:`VerifyDecision` from the policy engine.
-        """
-        return self.policy_engine.decide(layer_results)
-
-    def adversarial_layer(self) -> QALayer:
-        """Return the adversarial QA layer (FK-27 Layer 3).
-
-        The layer satisfies the :class:`QALayer` protocol and is
-        intended to be appended to the QA-subflow layer list assembled
-        by the caller.
-
-        Returns:
-            The :class:`AdversarialChallenger` instance held by this
-            facade, typed against the public :class:`QALayer` protocol.
-        """
-        return self.layer_3
 
     # ------------------------------------------------------------------
     # New public method: AG3-026 Top-Surface

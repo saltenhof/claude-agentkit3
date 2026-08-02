@@ -38,7 +38,7 @@ from agentkit.backend.pipeline_engine.runner import run_pipeline
 from agentkit.backend.process.language.definitions import resolve_workflow
 from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
 from agentkit.backend.state_backend.story_lifecycle_store import (
-    read_story_context_record,
+    load_story_context,
     save_story_context,
 )
 from agentkit.backend.state_backend.telemetry_event_store import append_execution_event
@@ -227,7 +227,7 @@ class TestRealPipelineE2E:
         assert "closure" in result.phases_executed
 
         # Context was enriched by real setup (not manually built)
-        loaded_ctx = read_story_context_record(s_dir)
+        loaded_ctx = load_story_context(s_dir)
         assert loaded_ctx is not None
         assert loaded_ctx.story_id == story_id
 
@@ -319,7 +319,7 @@ class TestRealPipelineE2E:
         )
 
         # Context was enriched by real setup
-        loaded_ctx = read_story_context_record(s_dir)
+        loaded_ctx = load_story_context(s_dir)
         assert loaded_ctx is not None
         assert loaded_ctx.story_id == story_id
 

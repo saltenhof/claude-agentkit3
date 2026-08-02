@@ -22,32 +22,32 @@ class TestGuardResult:
     """Tests for GuardResult value object."""
 
     def test_pass(self) -> None:
-        result = GuardResult.PASS()
+        result = GuardResult.pass_()
         assert result.passed is True
         assert result.reason is None
 
     def test_fail_with_reason(self) -> None:
-        result = GuardResult.FAIL(reason="not ready")
+        result = GuardResult.fail(reason="not ready")
         assert result.passed is False
         assert result.reason == "not ready"
 
     def test_frozen(self) -> None:
-        result = GuardResult.PASS()
+        result = GuardResult.pass_()
         with pytest.raises(AttributeError):
             result.passed = False  # type: ignore[misc]
 
     def test_equality(self) -> None:
-        a = GuardResult.PASS()
-        b = GuardResult.PASS()
+        a = GuardResult.pass_()
+        b = GuardResult.pass_()
         assert a == b
 
-        c = GuardResult.FAIL(reason="x")
-        d = GuardResult.FAIL(reason="x")
+        c = GuardResult.fail(reason="x")
+        d = GuardResult.fail(reason="x")
         assert c == d
         assert a != c
 
     def test_fail_reason_present(self) -> None:
-        result = GuardResult.FAIL(reason="setup incomplete")
+        result = GuardResult.fail(reason="setup incomplete")
         assert "setup incomplete" in (result.reason or "")
 
 
@@ -57,28 +57,28 @@ class TestGuardDecorator:
     def test_attaches_name(self) -> None:
         @guard("test_guard")
         def my_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         assert my_guard.guard_name == "test_guard"  # type: ignore[attr-defined]
 
     def test_attaches_description(self) -> None:
         @guard("test_guard", description="Does testing")
         def my_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         assert my_guard.guard_description == "Does testing"  # type: ignore[attr-defined]
 
     def test_attaches_reads(self) -> None:
         @guard("test_guard", reads=frozenset({"phase", "status"}))
         def my_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         assert my_guard.guard_reads == frozenset({"phase", "status"})  # type: ignore[attr-defined]
 
     def test_defaults_reads_to_empty_frozenset(self) -> None:
         @guard("test_guard")
         def my_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         assert my_guard.guard_reads == frozenset()  # type: ignore[attr-defined]
 
@@ -87,7 +87,7 @@ class TestGuardDecorator:
     ) -> None:
         @guard("test_guard")
         def my_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         result = my_guard(minimal_story_context, minimal_phase_state)
         assert result.passed is True

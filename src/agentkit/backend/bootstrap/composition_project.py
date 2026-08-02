@@ -584,7 +584,7 @@ def cli_load_story_context(story_dir: Path) -> project_types.StoryContext | None
 def cli_read_phase_state_record(story_dir: Path) -> object:
     """Read the current phase-state record for the CLI.
 
-    Thin composition-root wrapper over ``pipeline_runtime_store.read_phase_state_record`` so
+    Thin composition-root wrapper over ``pipeline_runtime_store.load_phase_state`` so
     the operator/recovery CLI (AG3-076) can read phase state without importing
     ``agentkit.backend.state_backend.store`` directly.
 
@@ -594,9 +594,9 @@ def cli_read_phase_state_record(story_dir: Path) -> object:
     Returns:
         The persisted phase-state model instance, or ``None`` when absent.
     """
-    from agentkit.backend.state_backend.pipeline_runtime_store import read_phase_state_record
+    from agentkit.backend.state_backend.pipeline_runtime_store import load_phase_state
 
-    return read_phase_state_record(story_dir)
+    return load_phase_state(story_dir)
 
 
 def build_compat_window_reader(

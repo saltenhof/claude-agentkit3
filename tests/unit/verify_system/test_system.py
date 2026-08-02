@@ -33,7 +33,7 @@ class TestVerifySystemFacade:
         assert isinstance(verify_system, VerifySystem)
         assert isinstance(verify_system.policy_engine, PolicyEngine)
         assert isinstance(
-            verify_system.adversarial_challenger, AdversarialChallenger
+            verify_system.layer_3, AdversarialChallenger
         )
 
     def test_create_default_propagates_max_major_findings(self) -> None:
@@ -59,7 +59,7 @@ class TestVerifySystemFacade:
                 ),
             ),
         )
-        decision_non_blocking = verify_system.policy_decision([non_blocking])
+        decision_non_blocking = verify_system.policy_engine.decide([non_blocking])
         assert decision_non_blocking.passed is True
         assert decision_non_blocking.blocking_findings == ()
 
@@ -77,7 +77,7 @@ class TestVerifySystemFacade:
                 ),
             ),
         )
-        decision_blocking = verify_system.policy_decision([blocking])
+        decision_blocking = verify_system.policy_engine.decide([blocking])
         assert decision_blocking.passed is False
         assert len(decision_blocking.blocking_findings) == 3
 
@@ -94,16 +94,16 @@ class TestVerifySystemFacade:
             msg = "VerifySystem must be a frozen dataclass"
             raise AssertionError(msg)
 
-    def test_policy_decision_pass_without_findings(self) -> None:
+    def test_policy_engine_decide_pass_without_findings(self) -> None:
         verify_system = make_test_verify_system()
-        decision = verify_system.policy_decision(
+        decision = verify_system.policy_engine.decide(
             [LayerResult(layer="probe", passed=True, findings=())],
         )
         assert decision.passed is True
         assert decision.status == "PASS"
         assert decision.blocking_findings == ()
 
-    def test_policy_decision_fail_on_system_blocking(self) -> None:
+    def test_policy_engine_decide_fail_on_system_blocking(self) -> None:
         verify_system = make_test_verify_system()
         result = LayerResult(
             layer="structural",
@@ -118,21 +118,25 @@ class TestVerifySystemFacade:
                 ),
             ),
         )
-        decision = verify_system.policy_decision([result])
+        decision = verify_system.policy_engine.decide([result])
         assert decision.passed is False
         assert decision.status == "FAIL"
         assert len(decision.blocking_findings) == 1
 
-    def test_adversarial_layer_returns_qa_layer_protocol(self) -> None:
+    def test_layer_3_is_the_adversarial_qa_layer(self) -> None:
+        """``layer_3`` is the ONE name for the adversarial layer.
+
+        The ``adversarial_challenger`` / ``adversarial_layer()`` compat surface
+        that mirrored it is removed (2026-08-02): three spellings for one field
+        is exactly what the no-compat-layers rule forbids.
+        """
         verify_system = make_test_verify_system()
-        layer = verify_system.adversarial_layer()
+        layer = verify_system.layer_3
         assert isinstance(layer, QALayer)
         assert layer.name == "adversarial"
-
-    def test_adversarial_layer_returns_facade_owned_instance(self) -> None:
-        verify_system = make_test_verify_system()
-        # Pure delegation: facade exposes the instance it holds.
-        assert verify_system.adversarial_layer() is verify_system.adversarial_challenger
+        assert not hasattr(verify_system, "adversarial_challenger")
+        assert not hasattr(verify_system, "adversarial_layer")
+        assert not hasattr(verify_system, "policy_decision")
 
 
 # ---------------------------------------------------------------------------

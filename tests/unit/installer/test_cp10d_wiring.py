@@ -12,7 +12,7 @@ from agentkit.backend.control_plane.third_party_models import (
     ThirdPartyValidationResponse,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError, InstallationError
-from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10d_sonarqube
+from agentkit.backend.installer.bootstrap_checkpoints.cp10d_sonarqube import cp10d_sonarqube
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
 )

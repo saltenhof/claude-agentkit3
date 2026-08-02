@@ -37,13 +37,6 @@ export {
 } from './storyFixtures';
 export type { ProjectFixture } from './storyFixtures';
 
-/* Backward-compatible aliases for legacy importers. */
-export {
-  ACTIVE_PROJECT as project,
-  CONCEPT_ANCHORS as conceptAnchors,
-  PROJECT_FIXTURES as projects,
-} from './storyFixtures';
-
 export {
   buildStoryKpiTiles,
   DEFAULT_EXECUTION_LIMITS,

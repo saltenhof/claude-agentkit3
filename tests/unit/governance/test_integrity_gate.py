@@ -728,8 +728,8 @@ class _RecordingStatePort:
         self.calls.append(("load_latest_verify_decision_for_scope", scope))
         return {"status": "PASS", "passed": True, "major_threshold": 0}
 
-    def read_phase_state_record(self, story_dir: object) -> object | None:
-        self.calls.append(("read_phase_state_record", story_dir))
+    def load_phase_state(self, story_dir: object) -> object | None:
+        self.calls.append(("load_phase_state", story_dir))
         return None
 
     def resolve_runtime_scope(self, story_dir: object) -> RuntimeStateScope:

@@ -16,7 +16,8 @@ from tests.fixtures.vectordb_installer import (
 )
 from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
-from agentkit.backend.installer import InstallConfig, install_agentkit, uninstall_agentkit
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.backend.installer.runner import MANDATORY_SKILLS
 from agentkit.backend.skills import Skills, create_directory_link, is_directory_link
@@ -142,7 +143,7 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
 def test_uninstall_removes_harness_settings(tmp_path: Path) -> None:
     install_agentkit(_make_config(tmp_path))
 
-    result = uninstall_agentkit(tmp_path)
+    result = detach_project(tmp_path)
 
     assert result.success is True
     assert not (tmp_path / ".claude" / "settings.json").exists()
@@ -169,7 +170,7 @@ def test_uninstall_removes_skill_links_and_central_bundle_survives(
     claude_links = [p for p in (tmp_path / ".claude" / "skills").iterdir() if is_directory_link(p)]
     assert len(claude_links) == len(MANDATORY_SKILLS)
 
-    uninstall_agentkit(tmp_path)
+    detach_project(tmp_path)
 
     # No skill links survive; both bind-point dirs are removed.
     assert not (tmp_path / ".claude" / "skills").exists()

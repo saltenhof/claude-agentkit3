@@ -17,14 +17,8 @@ class TestPackageExports:
     def test_story_context_exported(self) -> None:
         assert hasattr(story_pkg, "StoryContext")
 
-    def test_phase_state_exported(self) -> None:
-        assert hasattr(story_pkg, "PhaseState")
 
-    def test_phase_status_exported(self) -> None:
-        assert hasattr(story_pkg, "PhaseStatus")
 
-    def test_phase_snapshot_exported(self) -> None:
-        assert hasattr(story_pkg, "PhaseSnapshot")
 
     def test_story_size_exported(self) -> None:
         assert hasattr(story_pkg, "StorySize")
@@ -44,11 +38,11 @@ class TestPackageExports:
         assert hasattr(story_pkg, "format_story_display_id")
 
     def test_all_list_matches_exports(self) -> None:
+        # The phase-state models (PhaseSnapshot/PhaseState/PhaseStatus) are NOT
+        # here: their owner is pipeline_engine.phase_executor (FK-39 §39.7) and
+        # the re-export bridge that duplicated them was removed on 2026-08-02.
         expected = {
             "ImplementationContract",
-            "PhaseSnapshot",
-            "PhaseState",
-            "PhaseStatus",
             "StoryContext",
             "StoryMode",
             "StorySize",

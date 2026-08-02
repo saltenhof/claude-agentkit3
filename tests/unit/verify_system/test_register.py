@@ -5,7 +5,7 @@ und Typen gegen die in der Story verbindlich gesetzte Tabelle.
 
 AG3-026 Re-Review (2026-05-19): Layer 2 zerfaellt in drei Producer
 (qa-review, semantic-review, doc-fidelity) gemaess FK-27 §27.7;
-``verify-system.layer-2-llm`` bleibt fuer Backward-Compatibility
+``verify-system.layer-2-llm`` ist entfernt (kein Compat-Bestand)
 mit dem AG3-023-Bestandspfad registriert.
 """
 
@@ -30,7 +30,6 @@ EXPECTED_QA_PRODUCERS: frozenset[str] = frozenset(
         "verify-system.layer-2-semantic-review",
         "verify-system.layer-2-doc-fidelity",
         CONTEXT_SUFFICIENCY_PRODUCER,
-        "verify-system.layer-2-llm",  # AG3-023-Bestand
         "verify-system.layer-3-adversarial",
         SONARQUBE_GATE_PRODUCER,
         "verify-system.layer-4-policy",
@@ -61,7 +60,6 @@ def test_layer_1_and_4_are_deterministic() -> None:
 
     types_by_name = {name: ptype for _, name, ptype in _VERIFY_PRODUCERS}
     assert types_by_name["verify-system.layer-1-structural"] is ProducerType.DETERMINISTIC
-    assert types_by_name["verify-system.layer-2-llm"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-2-qa-review"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-2-semantic-review"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-2-doc-fidelity"] is ProducerType.LLM_REVIEWER

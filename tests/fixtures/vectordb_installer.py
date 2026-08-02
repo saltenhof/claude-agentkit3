@@ -52,7 +52,8 @@ def passing_mcp_probe(
 
 def wire_ready_vectordb(monkeypatch: MonkeyPatch) -> RecordingWeaviateClient:
     """Wire only the external Weaviate/MCP-process boundaries for CLI tests."""
-    from agentkit.backend.installer.bootstrap_checkpoints import cp10, orchestrator
+    from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp_registration as cp10
+    from agentkit.backend.installer.bootstrap_checkpoints import orchestrator
     from agentkit.backend.vectordb import engine
 
     ready = ReadyVectorDbPreflight()

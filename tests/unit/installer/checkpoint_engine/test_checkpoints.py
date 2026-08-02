@@ -30,10 +30,8 @@ from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     cp03_reserved,
     cp04_reserved,
 )
-from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
-    cp10_mcp_registration,
-    cp10c_are_scope_validation,
-)
+from agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration import cp10_mcp_registration
+from agentkit.backend.installer.bootstrap_checkpoints.cp10c_are_scope import cp10c_are_scope_validation
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
     run_checkpoint_install,
@@ -276,13 +274,11 @@ def _are_ctx(
     from agentkit.backend.core_types.mcp_server_registration import (
         DesiredMcpServer,
     )
-    from agentkit.backend.installer.bootstrap_checkpoints import cp10 as cp10_mod
+    from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp_registration as cp10_mod
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp05_pipeline_config,
     )
-    from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
-        cp10_mcp_registration,
-    )
+    from agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration import cp10_mcp_registration
 
     cp05_pipeline_config(ctx)
     if mode.mutations_allowed:

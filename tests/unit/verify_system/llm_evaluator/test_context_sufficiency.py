@@ -101,24 +101,31 @@ def test_truncated_diff_is_reviewable_with_gaps(tmp_path) -> None:
     assert result.artifact.bundles["diff_summary"].status == "truncated"
 
 
-def test_legacy_concept_paths_are_still_read(tmp_path) -> None:
+def test_concept_refs_is_the_only_accepted_key(tmp_path) -> None:
+    """``concept_refs`` is read; the removed ``concept_paths`` spelling is not.
+
+    Reading old AND new key names for one fact is the dual-read compat the
+    no-compat-layers rule forbids (2026-08-02). One key, one meaning: an unknown
+    key simply yields no concept excerpt instead of silently working.
+    """
     story_dir = tmp_path / "stories" / "AG3-067"
     concept_dir = tmp_path / "concept" / "technical-design"
     story_dir.mkdir(parents=True)
     concept_dir.mkdir(parents=True)
     (story_dir / "story.md").write_text("# Story\nbody", encoding="utf-8")
-    (concept_dir / "37.md").write_text("# Legacy concept\nbody", encoding="utf-8")
+    (concept_dir / "37.md").write_text("# Concept body\nbody", encoding="utf-8")
 
-    builder = ContextSufficiencyBuilder(
-        story_id="AG3-067",
-        story_dir=story_dir,
-        context_json={"concept_paths": ["37.md"]},
-        worktree_root=tmp_path,
-    )
+    def _excerpt(context_json: dict[str, object]) -> str:
+        builder = ContextSufficiencyBuilder(
+            story_id="AG3-067",
+            story_dir=story_dir,
+            context_json=context_json,
+            worktree_root=tmp_path,
+        )
+        return builder.build(Layer2ReviewInput()).enriched_input.concept_excerpt
 
-    result = builder.build(Layer2ReviewInput())
-
-    assert "Legacy concept" in result.enriched_input.concept_excerpt
+    assert "Concept body" in _excerpt({"concept_refs": ["37.md"]})
+    assert "Concept body" not in _excerpt({"concept_paths": ["37.md"]})
 
 
 def test_broken_handover_degrades_fail_open_but_logs_evidence(tmp_path, caplog) -> None:

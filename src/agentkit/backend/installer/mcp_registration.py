@@ -22,6 +22,8 @@ diverged. Here the projection goes spec -> command directly, all four fields.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -49,12 +51,92 @@ if TYPE_CHECKING:
 
     from agentkit.backend.vectordb.runtime_binding import McpServerSpec
 
-#: Interpreter command of the story-knowledge-base MCP server (FK-50 §50.3 CP 10).
-#: A bare name on purpose: ``resolve_command`` resolves it via ``PATH`` in the
-#: target project, and FK-50 documents this value. That the target-project
-#: interpreter must see ``agentkit`` is an installation precondition, not a
-#: rendering decision.
-STORY_KNOWLEDGE_BASE_COMMAND: str = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER].command
+#: The module the registered interpreter must be able to import for the
+#: story-knowledge-base MCP server to start at all.
+_MCP_ENTRYPOINT_MODULE: str = "agentkit.backend.vectordb.engine"
+
+#: Seconds granted to the one-shot import preflight below.
+_INTERPRETER_PROBE_TIMEOUT_SECONDS: float = 60.0
+
+
+def resolve_story_knowledge_base_command() -> str:
+    """Return the ABSOLUTE interpreter path registered for the MCP server.
+
+    ``sys.executable`` is the interpreter currently running the installer, i.e.
+    the one AK3 is installed into. Registering it by absolute path removes the
+    harness process' ``PATH`` from the decision entirely.
+
+    A bare ``"python"`` was registered until 2026-08-02. It let whatever
+    interpreter happened to be first on the harness' ``PATH`` start the server —
+    an interpreter that generally does NOT carry AK3's dependencies, because AK3
+    lives in its own venv. The failure surfaced only at first use, as a missing
+    third-party import, long after the installer had reported success.
+
+    Raises:
+        McpServerRegistrationError: If the running interpreter cannot be
+            resolved to a real file (fail-closed; never register a guess).
+    """
+    raw = sys.executable
+    if not raw or not raw.strip():
+        raise McpServerRegistrationError(
+            "cannot resolve the AK3 interpreter: sys.executable is empty; the "
+            "MCP server command must be an absolute interpreter path "
+            "(fail-closed, no PATH lookup)."
+        )
+    interpreter = Path(raw).resolve()
+    if not interpreter.is_file():
+        raise McpServerRegistrationError(
+            f"cannot resolve the AK3 interpreter: {interpreter} is not a file; "
+            "the MCP server command must be an absolute interpreter path "
+            "(fail-closed, no PATH lookup)."
+        )
+    return str(interpreter)
+
+
+def verify_interpreter_serves_ak3(
+    command: str,
+    *,
+    runner: object | None = None,
+) -> None:
+    """Fail closed unless ``command`` can import the MCP server entrypoint.
+
+    Registering an interpreter that cannot import
+    ``agentkit.backend.vectordb.engine`` produces a registration that looks
+    successful and dies on first use. This runs the import ONCE, at registration
+    time, and turns the failure into an install failure instead.
+
+    Args:
+        command: The interpreter path about to be registered.
+        runner: Injection seam for the subprocess call (tests); defaults to
+            :func:`subprocess.run`.
+
+    Raises:
+        McpServerRegistrationError: If the interpreter is missing, times out, or
+            cannot import the entrypoint module (with the import error attached).
+    """
+    run = subprocess.run if runner is None else runner
+    argv = [command, "-c", f"import {_MCP_ENTRYPOINT_MODULE}"]
+    try:
+        completed = run(  # type: ignore[operator]
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=_INTERPRETER_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise McpServerRegistrationError(
+            f"registered MCP interpreter {command!r} could not be executed "
+            f"({exc}); the MCP server would fail on first use (fail-closed)."
+        ) from exc
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise McpServerRegistrationError(
+            f"registered MCP interpreter {command!r} cannot import "
+            f"{_MCP_ENTRYPOINT_MODULE!r} (exit {completed.returncode}): {detail}. "
+            "The MCP server would start and immediately die; install AK3 and its "
+            "dependencies into THIS interpreter (fail-closed)."
+        )
 
 #: Argument vector of the story-knowledge-base MCP server.
 #:
@@ -534,7 +616,7 @@ def _remove_owned_mcp_servers(servers: dict[str, object]) -> None:
         if not isinstance(entry, dict):
             continue
         args = entry.get("args")
-        if entry.get("command") != shape.command or not isinstance(args, list):
+        if not shape.matches_command(entry.get("command")) or not isinstance(args, list):
             continue
         if tuple(args) != shape.args:
             continue
@@ -549,7 +631,6 @@ __all__ = [
     "CODEX_CONFIG_ARTIFACT",
     "MCP_JSON_ARTIFACT",
     "STORY_KNOWLEDGE_BASE_ARGS",
-    "STORY_KNOWLEDGE_BASE_COMMAND",
     "STORY_KNOWLEDGE_BASE_SERVER",
     "ProbedRegistration",
     "RegistrationBeforeImage",

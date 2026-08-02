@@ -1,6 +1,6 @@
 {
   "bundle_id": "internal-bootstrap-prompts",
-  "bundle_version": "5",
+  "bundle_version": "6",
   "templates": {
     "worker-implementation": {
       "relpath": "internal/prompts/worker-implementation.md",

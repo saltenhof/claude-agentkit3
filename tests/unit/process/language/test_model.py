@@ -89,7 +89,7 @@ class TestPrecondition:
 
     def test_construction_guard_only(self) -> None:
         def g(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         pc = Precondition(guard=g)
         assert pc.guard is g
@@ -97,7 +97,7 @@ class TestPrecondition:
 
     def test_construction_with_when(self) -> None:
         def g(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         def w(ctx: StoryContext, state: PhaseState) -> bool:
             return True
@@ -108,7 +108,7 @@ class TestPrecondition:
 
     def test_frozen(self) -> None:
         def g(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         pc = Precondition(guard=g)
         with pytest.raises(dataclasses.FrozenInstanceError):
@@ -127,7 +127,7 @@ class TestTransitionRule:
 
     def test_with_guard_and_policy(self) -> None:
         def g(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         tr = TransitionRule(
             source="setup",
@@ -163,7 +163,7 @@ class TestPhaseDefinition:
 
     def test_full_construction(self) -> None:
         def g(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         gate = Gate(id="test_gate")
         yp = YieldPoint(status="waiting")
@@ -247,10 +247,10 @@ class TestWorkflowDefinition:
 
     def test_multiple_transitions_from_same_source(self) -> None:
         def g1(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.PASS()
+            return GuardResult.pass_()
 
         def g2(ctx: StoryContext, state: PhaseState) -> GuardResult:
-            return GuardResult.FAIL(reason="nope")
+            return GuardResult.fail(reason="nope")
 
         wd = WorkflowDefinition(
             flow_id="branching",

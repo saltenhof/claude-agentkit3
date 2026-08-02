@@ -81,7 +81,6 @@ def test_build_producer_registry_includes_verify_producers() -> None:
     qa_producers = registry.known_producers(ArtifactClass.QA)
     assert {
         "verify-system.layer-1-structural",
-        "verify-system.layer-2-llm",
         "verify-system.layer-3-adversarial",
         "verify-system.layer-4-policy",
     }.issubset(qa_producers)

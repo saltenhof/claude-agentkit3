@@ -27,7 +27,6 @@ _MISSING_STATUSES: frozenset[str] = frozenset({"missing"})
 _GAP_STATUSES: frozenset[str] = frozenset({"truncated", "summary_only"})
 _SUMMARY_KEYS: tuple[str, ...] = ("concept_excerpt", "concept_summary", "summary")
 _CONCEPT_REFS_KEY: str = "concept_refs"
-_LEGACY_CONCEPT_PATHS_KEY: str = "concept_paths"
 _EXTERNAL_SOURCES_KEY: str = "external_sources"
 
 
@@ -243,8 +242,6 @@ class ContextSufficiencyBuilder:
 
     def _load_concept_refs(self) -> str:
         refs = self._context_json.get(_CONCEPT_REFS_KEY)
-        if not isinstance(refs, list):
-            refs = self._context_json.get(_LEGACY_CONCEPT_PATHS_KEY)
         if not isinstance(refs, list):
             return ""
         sections: list[str] = []

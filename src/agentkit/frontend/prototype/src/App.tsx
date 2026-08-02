@@ -51,10 +51,10 @@ import {
 } from 'lucide-react';
 import {
   buildStoryKpiTiles,
-  conceptAnchors,
+  CONCEPT_ANCHORS,
+  ACTIVE_PROJECT,
   DEFAULT_EXECUTION_LIMITS,
-  project,
-  projects,
+  PROJECT_FIXTURES,
   selectActiveProjectMode,
   selectStoryCounters,
   STORY_FIXTURES as initialStories,
@@ -487,7 +487,7 @@ export function App() {
     [storyState],
   );
 
-  const activeProject = projects.find((candidate) => candidate.key === activeProjectKey) ?? project;
+  const activeProject = PROJECT_FIXTURES.find((candidate) => candidate.key === activeProjectKey) ?? ACTIVE_PROJECT;
 
   useEffect(() => {
     const nextHash = `#${view}`;
@@ -635,7 +635,7 @@ export function App() {
               </button>
               {projectMenuOpen && (
                 <div className="project-menu">
-                  {projects.map((candidate) => (
+                  {PROJECT_FIXTURES.map((candidate) => (
                     <button
                       className={candidate.key === activeProjectKey ? 'active' : ''}
                       key={candidate.key}
@@ -1935,7 +1935,7 @@ function SpecificationTab({ story }: { story: Story }) {
 
       <section className="detail-section concept">
         <h3>Konzeptanker</h3>
-        {conceptAnchors.map((anchor) => (
+        {CONCEPT_ANCHORS.map((anchor) => (
           <p key={anchor}>{anchor}</p>
         ))}
       </section>

@@ -14,86 +14,7 @@ if TYPE_CHECKING:
 def add_installer_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    """Register installer and project-registration subcommands."""
-    # install -- deprecated compatibility alias.
-    install_parser = subparsers.add_parser(
-        "install",
-        help="[deprecated] Use 'register-project' (level 3); see FK-10 §10.2.0",
-    )
-    install_parser.add_argument("--project-key", required=True)
-    install_parser.add_argument("--project-name", required=True)
-    install_parser.add_argument("--project-root", required=True)
-    _add_vectordb_endpoint_flags(install_parser, required=False)
-    install_parser.add_argument(
-        "--github-owner",
-        required=False,
-        help=(
-            "GitHub owner for State-Backend registration (FK-50 CP 7). Falls back to the project's origin remote when omitted."
-        ),
-    )
-    install_parser.add_argument(
-        "--github-repo",
-        required=False,
-        help=(
-            "GitHub repo name for State-Backend registration (FK-50 CP 7). "
-            "Falls back to the project's origin remote when omitted."
-        ),
-    )
-    install_parser.add_argument(
-        "--prompt-bundle-root",
-        required=False,
-        help="Optional prompt bundle root to bind into the project",
-    )
-    install_parser.add_argument(
-        "--default-project-structure",
-        action="store_true",
-        help=(
-            "Create the optional AgentKit default target-project structure "
-            "(concepts/, codebase/, temp/, input/_meetings/, guardrails/, stories/)."
-        ),
-    )
-    install_parser.add_argument(
-        "--multi-repo",
-        action="store_true",
-        help=("Use multi-repository mode. Only in this mode is codebase/ ignored by the root repository."),
-    )
-    install_parser.add_argument(
-        "--code-repo",
-        action="append",
-        default=[],
-        metavar="NAME=URL",
-        help=(
-            "Explicit code repository for --multi-repo. Repeatable. The installer "
-            "registers it at codebase/NAME and clones URL when the directory is absent."
-        ),
-    )
-    install_parser.add_argument(
-        "--sonarqube-available",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help=(
-            "Declare SonarQube present for this code-producing project "
-            "(FK-03 §3 default). Use --no-sonarqube-available for the "
-            "conscious opt-out (gate not applicable)."
-        ),
-    )
-    install_parser.add_argument(
-        "--ci-available",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help=(
-            "Declare a CI (Jenkins) pre-merge runner present for this "
-            "code-producing project. Use --no-ci-available for the conscious "
-            "opt-out (pre-merge runner not applicable)."
-        ),
-    )
-
-    uninstall_parser = subparsers.add_parser(
-        "uninstall",
-        help="[deprecated] Use 'detach' (level 3); see FK-10 §10.2.9",
-    )
-    uninstall_parser.add_argument("--project-root", required=True)
-
+    """Register the level-3 project-registration subcommands (FK-10 §10.2.0)."""
     _add_register_verify_parsers(subparsers)
     _add_upgrade_parser(subparsers)
 
@@ -167,118 +88,6 @@ def _resolve_github_coordinates(
     return github_owner, github_repo
 
 
-def _cmd_install(args: argparse.Namespace) -> int:
-    """Handle ``agentkit install`` command.
-
-    Creates the AgentKit directory structure in the target project
-    using the installer from :mod:`agentkit.backend.installer`.
-
-    Args:
-        args: Parsed CLI arguments with ``project_name`` and
-            ``project_root``.
-
-    Returns:
-        Exit code: 0 on success, 1 on failure.
-    """
-    from pathlib import Path
-
-    from agentkit.backend.exceptions import InstallationError
-    from agentkit.backend.installer import InstallConfig, install_agentkit
-
-    # AG3-122 (FK-10 §10.2.0): the generic 'install' verb conflated levels and is
-    # retired to a deprecated alias. Point the operator at the level-3 verb.
-    print(
-        "agentkit install is deprecated (it conflated install levels). Use the "
-        "level-specific verbs: 'register-project' (level 3 project), 'serve' "
-        "(level 1 core), 'decommission' (level 1/2). See FK-10 §10.2.0.",
-        file=sys.stderr,
-    )
-    project_root = Path(args.project_root)
-
-    # AG3-039 (FK-50 §50.3 CP 7): resolve the MANDATORY github coordinates
-    # (flags take precedence, else derive from origin) and validate them
-    # fail-closed BEFORE any project write. A ``None`` result means the failure
-    # reason was already printed to stderr.
-    coordinates = _resolve_github_coordinates(args, project_root)
-    if coordinates is None:
-        return 1
-    github_owner, github_repo = coordinates
-    repositories = _parse_code_repo_args(getattr(args, "code_repo", ()))
-    if repositories is None:
-        return 1
-    if repositories and not args.multi_repo:
-        print("--code-repo requires --multi-repo.", file=sys.stderr)
-        return 1
-
-    # AG3-048 (FK-43 §43.3.1, AC#5): the skill fields are intentionally left at
-    # their defaults. ``skill_bundle_ids=None`` resolves to the four mandatory
-    # skill bundles (DEFAULT_MANDATORY_SKILL_BUNDLE_IDS) — it does NOT skip
-    # binding. A normal ``agentkit install`` therefore binds all four; if the
-    # systemwide skill-bundle store has not been provisioned the install fails
-    # closed with InstallationError(cause=BundleNotFound) (AC#7).
-    config = InstallConfig(
-        project_key=args.project_key,
-        project_name=args.project_name,
-        project_root=project_root,
-        default_project_structure=bool(args.default_project_structure),
-        multi_repo=bool(args.multi_repo),
-        repositories=repositories,
-        github_owner=github_owner,
-        github_repo=github_repo,
-        prompt_bundle_root=(Path(args.prompt_bundle_root) if args.prompt_bundle_root is not None else None),
-        # AG3-052 (FK-03 §3): default available:true; --no-sonarqube-available
-        # is the conscious opt-out. CP 10d then verifies fail-closed (E5) or
-        # SKIPs (opt-out).
-        sonarqube_available=args.sonarqube_available,
-        # AG3-056 (FIX-5): default ci.available:true; --no-ci-available is the
-        # conscious opt-out. The CI preflight then verifies fail-closed or SKIPs.
-        ci_available=args.ci_available,
-        vectordb_http_endpoint=args.weaviate_http_endpoint,
-        vectordb_grpc_endpoint=args.weaviate_grpc_endpoint,
-    )
-    try:
-        result = install_agentkit(config)
-    except InstallationError as exc:
-        # FAIL-CLOSED (AC#7): mandatory-skill binding could not complete (e.g.
-        # the systemwide skill-bundle store is not provisioned). Surface a
-        # clean non-zero exit instead of a partial install or a traceback.
-        cause = exc.detail.get("cause", "InstallationError")
-        print(f"Install failed [{cause}]: {exc}", file=sys.stderr)
-        return 1
-    if result.success:
-        print(f"AgentKit installed into {args.project_root}")
-        for f in result.created_files:
-            print(f"  + {f}")
-        return 0
-
-    print(f"Install failed: {'; '.join(result.errors)}", file=sys.stderr)
-    return 1
-
-
-def _cmd_uninstall(args: argparse.Namespace) -> int:
-    """Handle ``agentkit uninstall`` command."""
-
-    from pathlib import Path
-
-    from agentkit.backend.installer import uninstall_agentkit
-
-    # AG3-122 (FK-10 §10.2.9): 'uninstall' is retired to a deprecated alias that
-    # delegates to the single level-3 detach teardown path (no second path).
-    print(
-        "agentkit uninstall is deprecated. Use 'agentkit detach' (level-3 project-detach). Delegating to the same teardown path.",
-        file=sys.stderr,
-    )
-    result = uninstall_agentkit(Path(args.project_root))
-    if result.success:
-        print(f"AgentKit uninstalled from {args.project_root}")
-        for removed in result.removed_files:
-            print(f"  - {removed}")
-        return 0
-
-    print(f"Uninstall failed: {'; '.join(result.errors)}", file=sys.stderr)
-    return 1
-
-
 def _add_register_verify_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -319,6 +128,12 @@ def _add_register_verify_parsers(
         ),
     )
     _add_sonar_ci_availability_flags(register_parser)
+    _add_control_plane_flags(register_parser)
+    register_parser.add_argument(
+        "--prompt-bundle-root",
+        required=False,
+        help="Optional prompt bundle root to bind into the project.",
+    )
     register_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -336,6 +151,33 @@ def _add_register_verify_parsers(
     verify_parser.add_argument("--github-owner", required=False)
     verify_parser.add_argument("--github-repo", required=False)
     _add_sonar_ci_availability_flags(verify_parser)
+    _add_control_plane_flags(verify_parser)
+
+
+def _add_control_plane_flags(parser: argparse.ArgumentParser) -> None:
+    """Add the Core-endpoint flags written into ``control-plane.json``.
+
+    The default is DERIVED from the FK-10 §10.7.2 port registry
+    (``DEFAULT_CONTROL_PLANE_BASE_URL``), so it always names the port
+    ``agentkit serve --project-api`` actually binds. An operator whose Core runs
+    on another host/port states it here instead of hand-editing the installed
+    ``control-plane.json`` afterwards.
+    """
+    from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
+
+    parser.add_argument(
+        "--control-plane-base-url",
+        default=DEFAULT_CONTROL_PLANE_BASE_URL,
+        help=(
+            "Base URL of the AK3 Core Project-API written into "
+            f"control-plane.json (default: {DEFAULT_CONTROL_PLANE_BASE_URL})."
+        ),
+    )
+    parser.add_argument(
+        "--control-plane-ca-file",
+        default=None,
+        help="CA bundle used to verify the Core TLS certificate (default: system trust).",
+    )
 
 
 def _add_sonar_ci_availability_flags(parser: argparse.ArgumentParser) -> None:
@@ -412,7 +254,35 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
         ci_available=bool(getattr(args, "ci_available", True)),
         vectordb_http_endpoint=getattr(args, "weaviate_http_endpoint", None),
         vectordb_grpc_endpoint=getattr(args, "weaviate_grpc_endpoint", None),
+        prompt_bundle_root=_optional_path(getattr(args, "prompt_bundle_root", None)),
+        control_plane_base_url=_control_plane_base_url(args),
+        control_plane_ca_file=_control_plane_ca_file(args),
     )
+
+
+def _optional_path(raw: str | None) -> Path | None:
+    """Return ``Path(raw)`` for a non-empty flag value, else ``None``."""
+    if raw is None or not str(raw).strip():
+        return None
+    return Path(str(raw).strip())
+
+
+def _control_plane_base_url(args: argparse.Namespace) -> str:
+    """Return the Core base URL for ``control-plane.json`` (flag or derived default)."""
+    from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
+
+    raw = getattr(args, "control_plane_base_url", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return DEFAULT_CONTROL_PLANE_BASE_URL
+
+
+def _control_plane_ca_file(args: argparse.Namespace) -> str | None:
+    """Return the operator-supplied Core CA bundle path, or ``None``."""
+    raw = getattr(args, "control_plane_ca_file", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
 
 
 def _parse_code_repo_args(raw_values: Sequence[str] | None) -> list[dict[str, str]] | None:

@@ -28,8 +28,15 @@ class RuntimeBindingError(ValueError):
 
 
 #: Environment keys that MUST be present and non-empty (D2: env is sole authority).
-#: Both Weaviate endpoints (HTTP + gRPC) are mandatory and strictly validated;
-#: neither is ever a synthesised localhost default.
+#: Both Weaviate endpoints (HTTP + gRPC) are mandatory and strictly validated.
+#:
+#: D2 ("never a synthesised endpoint") is enforced by ORIGIN, not by wording: no
+#: AK3 code path invents an endpoint, the installer flags carry no default, and a
+#: missing value fails closed right here. A string block list was tried and
+#: removed (2026-08-02): it cannot tell an explicitly configured endpoint from an
+#: accidental one, and it rejected legitimate loopback Weaviate deployments —
+#: which are the NORMAL AK3 topology (FK-15 localhost-only). See the decision
+#: record ``2026-08-02-no-compat-layers-port-9702.md``.
 REQUIRED_ENV_KEYS: tuple[str, ...] = (
     "PROJECT_ID",
     "WEAVIATE_HTTP_ENDPOINT",
@@ -50,21 +57,6 @@ def _required(mapping: Mapping[str, str], key: str) -> str:
             "(no default fallback, fail-closed)."
         )
     return value.strip()
-
-
-def _reject_localhost(endpoint: str, *, label: str) -> None:
-    """Reject synthesised localhost defaults for either endpoint (D2)."""
-    forbidden = {
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "localhost:50051",
-        "127.0.0.1:50051",
-    }
-    if endpoint in forbidden:
-        raise RuntimeBindingError(
-            f"{label} {endpoint!r} is a forbidden localhost default; the endpoint "
-            "must be explicitly configured (D2)."
-        )
 
 
 @dataclass(frozen=True)
@@ -99,8 +91,8 @@ class RuntimeBinding:
     """Validated MCP runtime binding (FK-13 §13.4.3, Review 174-P0-4, D2).
 
     Built from an explicit ``env`` mapping; every required key is present,
-    non-empty and string-typed, and the endpoint is never a synthesised
-    localhost default.
+    non-empty and string-typed. The endpoints come from the registered env and
+    nowhere else — AK3 never synthesises one (D2).
     """
 
     spec: McpServerSpec
@@ -135,16 +127,14 @@ class RuntimeBinding:
             cwd: Working / containment boundary.
 
         Raises:
-            RuntimeBindingError: If any required value is missing/empty/wrong-
-                typed or the endpoint is a forbidden localhost default.
+            RuntimeBindingError: If any required value is missing, empty or
+                wrong-typed, or ``cwd`` is empty.
         """
         for key in REQUIRED_ENV_KEYS:
             _required(env, key)
         project_id = _required(env, "PROJECT_ID")
         http_endpoint = _required(env, "WEAVIATE_HTTP_ENDPOINT")
-        _reject_localhost(http_endpoint, label="WEAVIATE_HTTP_ENDPOINT")
         grpc_endpoint = _required(env, "WEAVIATE_GRPC_ENDPOINT")
-        _reject_localhost(grpc_endpoint, label="WEAVIATE_GRPC_ENDPOINT")
         if not cwd.strip():
             raise RuntimeBindingError(
                 "cwd is empty; it is the containment boundary (fail-closed)."

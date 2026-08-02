@@ -40,7 +40,7 @@ class FakeThirdPartySonarClient:
             status_code=200,
             json_body={
                 "plugins": [
-                    {"key": "communityBranchSupport", "version": "1.23.0"}
+                    {"key": "communityBranchPlugin", "version": "1.23.0"}
                 ]
             },
         )

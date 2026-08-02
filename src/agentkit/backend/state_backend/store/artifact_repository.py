@@ -61,9 +61,9 @@ def _assert_sqlite_allowed() -> None:
 
     Enforces the AGENTKIT_ALLOW_SQLITE=1 gating pattern (Fix E8, AG3-031 Pass-6).
     """
-    from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, _sqlite_allowed
+    from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, sqlite_allowed
 
-    if not _sqlite_allowed():
+    if not sqlite_allowed():
         raise RuntimeError(
             "SQLite backend is disabled for this path. "
             f"Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
