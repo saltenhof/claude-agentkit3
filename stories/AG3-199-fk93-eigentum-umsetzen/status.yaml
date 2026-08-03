@@ -1,12 +1,27 @@
 story_id: AG3-199
 story_title_short: "fk93-eigentum-umsetzen"
-title: "FK-93-Eigentumsentscheidung umsetzen: die acht heimatlosen Werte normieren bzw. die WANN-Regel maschinell pruefbar machen -- plus ein Konfigurationsmodell fuer die permissions.*-Pfade."
+title: "Die acht heimatlosen FK-93-Werte bekommen Eigentuemer: bei ihren besitzenden Fachkonzepten normieren, FK-93 auf Wiedergabe zurueckfuehren, Konfigurationsmodell fuer die permissions.*-Pfade."
 type: implementation
 status: blocked
 phase: setup
 created: "2026-08-02"
-size: M
+size: L
 # NEU 2026-08-02 aus Auflage ERROR-12 des unabhaengigen Codex-Reviews
-# (Ausgliederung aus AG3-184). Die Entscheidung selbst holt AG3-198 ein.
-depends_on: ["AG3-198"]
+# (Ausgliederung aus AG3-184).
+#
+# 2026-08-03: Diese Story hat die vormalige Entscheidungs-Story AG3-198
+# AUFGENOMMEN. Es gibt dort nichts zu entscheiden -- die Antwort ist aus der
+# ZERO-DEBT-Regel ableitbar, und der PO hat die Ableitung am 2026-08-02
+# gefuehrt: fehlendes Eigentum ist eine Schuld; wer sie umdeutet (Katalog als
+# Normquelle) oder still weglaesst (unvollstaendiges Register), macht sie zu
+# seiner eigenen. Zulaessig ist nur, den Eigentuemer HERZUSTELLEN. AG3-198 ist
+# damit aufgeloest, nicht verschoben.
+#
+# Die drei Werte aus 93.9a haben ihren Owner bereits: FK-78 fuehrt die Regeln,
+# nur die Sekundenzahl stand nie dort. Fuer die fuenf aus 93.5a ist der Owner
+# zu bestimmen (FK-03 / FK-42 / FK-55).
+#
+# BLOCKIERT auf AG3-179: dort werden FK-78 und FK-93 in laufenden Reviewrunden
+# fortlaufend angefasst. Das ist ein Datei-Konflikt, keine offene Entscheidung.
+depends_on: ["AG3-179"]
 unblocks: []

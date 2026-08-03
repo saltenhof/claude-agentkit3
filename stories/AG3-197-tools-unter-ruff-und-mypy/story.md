@@ -60,7 +60,7 @@ den Typen. Die Story muss deshalb zuerst die Paketstruktur/Konfiguration von
 ### Out of Scope
 
 - Die Referenz-Baseline — **AG3-184**.
-- Die FK-93-Eigentumsfrage — **AG3-198** / **AG3-199**.
+- Die FK-93-Eigentumsfrage — **AG3-199**.
 - Gate-Outcome-Semantik — **AG3-195**.
 - Keine funktionale Aenderung an den Werkzeugen ueber das hinaus, was die
   Befunde erfordern.

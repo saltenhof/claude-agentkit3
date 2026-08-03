@@ -15,8 +15,8 @@ size: M
 #
 # NEUSCHNITT 2026-08-02 nach unabhaengigem Codex-Review (Auflage ERROR-12):
 # die Story buendelte vier Themen mit vier Eigentuemern. Ausgezogen sind
-# AG3-197 (tools/ unter ruff und mypy), AG3-198 (PO-Entscheidung FK-93),
-# AG3-199 (FK-93-Umsetzung + permissions.*) und AG3-195 (Gate-Outcome).
+# AG3-197 (tools/ unter ruff und mypy), AG3-199 (FK-93-Eigentum herstellen +
+# permissions.*) und AG3-195 (Gate-Outcome).
 #
 # BLOCKIERT auf AG3-179: diese Story aendert genau den Mechanismus, den
 # AG3-179 in noch offenen Reviewrunden fortlaufend anfasst (die Baseline-Zeilen

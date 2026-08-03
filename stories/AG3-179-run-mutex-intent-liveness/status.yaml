@@ -526,4 +526,7 @@ size: S  # von S belassen; der Schnitt hat gehalten, der Umfang lag in der Diagn
 # NICHT FERTIG: Codex-Review Runde 5 steht aus. Der Abschluss wird vom Review
 # entschieden, nicht von einer gruenen Suite (CLAUDE.md, Definition of Done).
 depends_on: []
-unblocks: []
+# AG3-184 (Referenz-Baseline), AG3-185 (Konzeptpruefverfahren) und AG3-199
+# (FK-93-Eigentum) blockieren auf dieser Story: alle drei fassen FK-78 bzw.
+# FK-93 an, die hier in laufenden Reviewrunden fortlaufend geaendert werden.
+unblocks: ["AG3-184", "AG3-185", "AG3-199"]

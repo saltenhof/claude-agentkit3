@@ -66,8 +66,7 @@ ein vermeidbarer Konflikt.
 ### Out of Scope
 
 - `tools/` unter `ruff` und `mypy` — **AG3-197**.
-- Die FK-93-Eigentumsfrage — **AG3-198** (Entscheidung) und **AG3-199**
-  (Umsetzung).
+- Die FK-93-Eigentumsfrage — **AG3-199**.
 - Gate-Outcome-Semantik — **AG3-195**.
 - **Keine neuen Gates und keine Verschaerfung bestehender Schwellwerte.** Diese
   Story repariert das Werkzeug, das es gibt, damit seine Aussagen tragen.

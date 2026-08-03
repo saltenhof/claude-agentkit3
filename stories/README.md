@@ -558,6 +558,39 @@ Pflichtsuite. AG3-173 (ARE) laeuft neben dem Suchteil.
    selben landbaren Stand vorliegen — nie ein Zwischenstand mit
    Phantomeintrag oder Ausfall.
 
+### 6.11 Befundstrang 2026-08-02/03 (AG3-180…AG3-204)
+
+Entstanden an einem einzigen Tag, an dem AK3 zum ersten Mal wirklich
+installiert und in einem Fremdprojekt benutzt wurde. Fast jeder Eintrag hier
+ist ein **belegter Anlassfall**, kein antizipiertes Risiko: eine
+Erstinstallation, die ohne Testcode keinen Zugang herstellen konnte; sechs
+abgenommene VektorDB-Storys, die nie gegen ein laufendes Weaviate liefen; ein
+Secret-Scan, der Fachprosa fuer einen Schluessel hielt; Werkzeuge, die
+plattformabhaengig dekodierten.
+
+Der Strang hat drei Schwerpunkte:
+
+- **Produktpfad Fremdinstallation** (u. a. AG3-180 Erstzugang, AG3-187):
+  was ein Dritter braucht, um AK3 in Betrieb zu nehmen, ohne Tests zu lesen.
+- **Ehrliche Nachweise** (AG3-183 Fremdsystem-Vertragsmatrix, AG3-194
+  Testpyramide, AG3-195 Gate-Outcome, AG3-196 selbsterfuellende Fixtures):
+  eine Suite kann interne Konsistenz beweisen, Uebereinstimmung mit der Welt
+  nicht. Diese Storys bauen die fehlende Spitze.
+- **Eigentum und Werkzeugtreue** (AG3-184 Referenz-Baseline, AG3-197 `tools/`
+  unter Lint und Typen, AG3-199 FK-93-Eigentum, AG3-203 Komponentenschicht).
+
+**Sofort startbar:** 180, 181, 182, 188, 189, 191, 192, 194, 195, 197, 200, 203.
+Der Rest blockiert auf AG3-179 (laufende Reviewrunden an FK-78/FK-93) oder auf
+einer der Metaentscheidungen aus AG3-194 bzw. AG3-203.
+
+**Aufgeloest:** AG3-198 war als Entscheidungs-Story geschnitten („Darf ein
+Nachschlagekatalog Normquelle sein?"). Diese Entscheidung existiert nicht — sie
+ist aus der ZERO-DEBT-Regel ableitbar: fehlendes Eigentum ist eine Schuld, und
+sowohl das Umdeuten (Katalog erklaert sich selbst zur Norm) als auch das stille
+Weglassen (unvollstaendiges Register) traegt sie fort. Zulaessig ist nur, den
+Eigentuemer herzustellen. AG3-198 ist deshalb am 2026-08-03 in **AG3-199**
+aufgegangen, nicht verschoben worden.
+
 ## 7. Konzept- und Guardrail-Bezug
 
 - **Konzepte** unter `concept/` sind die Quelle der Wahrheit fuer
