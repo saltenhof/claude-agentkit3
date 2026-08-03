@@ -300,14 +300,17 @@ def _git(root: Path, *args: str) -> str:
         result = subprocess.run(
             ["git", "-C", str(root), *args],
             capture_output=True,
+            # A revision, a branch name and a commit SHA are MACHINE protocol,
+            # and they travel on into a Sonar URL. Carrying an undecodable byte
+            # through losslessly only moves the failure to `urlencode`, where it
+            # arrives without a cause. Strict decoding rejects it here, named.
             text=True,
             encoding="utf-8",
-            errors="surrogateescape",
             check=False,
         )
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise SonarCoordinatesUnavailableError(
-            f"git {' '.join(args)} failed to spawn in {root}: {exc}"
+            f"git {' '.join(args)} failed in {root}: {exc}"
         ) from exc
     out = result.stdout.strip()
     if result.returncode != 0 or not out:

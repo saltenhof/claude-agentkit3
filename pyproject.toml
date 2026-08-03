@@ -102,10 +102,13 @@ markers = [
 # Text I/O that takes the platform's preferred encoding is a defect, not a
 # style question: it decodes the same bytes differently on Windows than on
 # Linux. `PYTHONWARNDEFAULTENCODING=1` makes the interpreter report every such
-# call site as `EncodingWarning`; here it becomes a test failure. This is the
-# semantic half of the rule -- it sees through wrappers and injected runners
-# that no syntax check can resolve (see
-# tests/contract/backend/test_subprocess_text_encoding.py).
+# call site as `EncodingWarning`; this entry turns it into a test failure.
+#
+# It covers THIS interpreter only. The environment variable
+# `PYTHONWARNINGS=error::EncodingWarning` does the same for child processes,
+# which a pytest filter cannot reach -- both are set in the CI stages, and
+# tests/contract/backend/test_subprocess_text_encoding.py proves each half
+# actually fires instead of assuming it.
 filterwarnings = ["error::EncodingWarning"]
 
 [tool.coverage.run]

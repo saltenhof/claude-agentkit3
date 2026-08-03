@@ -16,21 +16,20 @@ if TYPE_CHECKING:
 
 
 def _is_test_file(path: str) -> bool:
-    """Return whether ``path`` IS a test file -- by structure, not by substring.
+    """Return whether ``path`` is a file pytest would COLLECT as a test.
 
-    ``"test_" in path`` accepted ``src/latest_feature.py`` as evidence of a
-    test, and ``"tests/" in path`` accepted ``src/protests/helper.py``. Both made
-    ``check_test_file_count`` pass on a change set that carries no test at all --
-    a fail-open in a BLOCKING check. The role of a file is decided by its path
-    SEGMENTS and its filename, the way the test runner decides it.
+    This backs a BLOCKING check, so every widening is a fail-open. Substring
+    matching accepted ``src/latest_feature.py`` ("test_" is inside it) and
+    ``src/protests/helper.py``; matching a ``tests`` path segment then accepted
+    ``tests/README.md`` and ``tests/fixtures/input.json`` -- a change set with no
+    executable test passing as tested. The only honest definition is pytest's
+    own default discovery: a ``.py`` file named ``test_*`` or ``*_test``.
     """
-    segments = path.replace("\\", "/").strip().split("/")
-    if not segments or not segments[-1]:
+    name = path.replace("\\", "/").strip().rsplit("/", maxsplit=1)[-1]
+    stem, dot, suffix = name.rpartition(".")
+    if not dot or suffix != "py":
         return False
-    name = segments[-1]
-    if "tests" in segments[:-1]:
-        return True
-    return name.startswith("test_") or name.rpartition(".")[0].endswith("_test")
+    return stem.startswith("test_") or stem.endswith("_test")
 
 
 @dataclass(frozen=True)

@@ -94,10 +94,10 @@ def _read_before(path: Path) -> _FileBeforeImage:
 def _decode_hook(before: _FileBeforeImage) -> str:
     if before.content is None:
         return ""
-    try:
-        return before.content.decode("utf-8", errors="surrogateescape")
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"hook is not UTF-8: {before.path}") from exc
+    # `surrogateescape` carries bytes that are not valid UTF-8 through unchanged
+    # and back out on write, so there is no rejection path left to handle: a
+    # foreign hook with a cp1252 comment is preserved, not refused.
+    return before.content.decode("utf-8", errors="surrogateescape")
 
 
 def _remove_managed_block(

@@ -13,6 +13,17 @@ class GitScopeError(ValueError):
     """Raised when the pre-merge Git range cannot be read."""
 
 
+def _printable(text: str) -> str:
+    """Return ``text`` safe to put in a message that will be printed.
+
+    Paths are read losslessly (``surrogateescape``) because they are compared
+    and reused. A surrogate reaching ``print`` on a strict stdout raises
+    ``UnicodeEncodeError``, so a diagnostic string -- which nothing is derived
+    from -- is flattened at the boundary where it stops being data.
+    """
+    return text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+
+
 def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> frozenset[str]:
     """Return committed and working-tree Markdown changes for pre-merge review."""
     try:
@@ -44,7 +55,9 @@ def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> froz
             errors="surrogateescape",
         )
         if completed.returncode != 0:
-            raise GitScopeError(completed.stderr.strip() or f"git diff exited {completed.returncode}")
+            raise GitScopeError(
+                _printable(completed.stderr).strip() or f"git diff exited {completed.returncode}"
+            )
         changed.update(_parse_changed_paths(completed.stdout, prefix))
     return frozenset(changed)
 

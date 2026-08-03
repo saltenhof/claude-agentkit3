@@ -104,14 +104,28 @@ haendigt dem Projekt eine Datei aus, die es so nie geschrieben hat.
 Ein Fremdprozess, den AK3 startet, bekommt zusaetzlich `PYTHONIOENCODING=utf-8`
 — steuern statt hoffen.
 
-**Durchgesetzt wird die Regel von zwei Seiten.** Statisch: ein Contract-Test
-verlangt an jedem direkt benannten Text-I/O-Einstieg ein literales UTF-8 — eng
-geschnitten, weil ein Fehlalarm in einem blockierenden Test jeden Commit im
-Repository stoppt und damit genau den Schaden erzeugt, gegen den 2.1 antritt.
-Semantisch: `PYTHONWARNDEFAULTENCODING=1` macht jede tatsaechlich ausgefuehrte
-Stelle ohne Kodierung zur `EncodingWarning`, und die Suite behandelt sie als
-Fehler. Die statische Haelfte sieht alles, was benannt ist; die semantische
-sieht durch Wrapper und injizierte Runner, die keine Syntaxregel aufloest.
+**Durchgesetzt wird die Regel semantisch, nicht syntaktisch.**
+`PYTHONWARNDEFAULTENCODING=1` macht jede tatsaechlich ausgefuehrte Stelle ohne
+Kodierung zur `EncodingWarning`; die Suite behandelt sie als Fehler.
+
+Ein statischer Guard wurde gebaut und wieder **entfernt**. Drei Fassungen, jede
+zweifach geschlagen: eine Umgehung, die sie nicht sah, und ein Fehlalarm, den
+sie erfand — zuletzt `document_api.read_text(format="markdown")`. Das ist
+dieselbe Fehlerklasse „Name behauptet Identitaet", nur begangen von der Regel,
+die sie verhindern soll. Und ein Fehlalarm in einem blockierenden Test stoppt
+jeden Commit im Repository, also genau der Schaden aus 2.1. **Eine Pruefung,
+die etwas behauptet, was sie nicht wissen kann, ist schlechter als keine.**
+
+Zwei Grenzen, gemessen und benannt:
+
+- Gesehen wird nur, was laeuft. Die Abdeckung ist die Schranke.
+- Die Eskalation steht **nicht global** in der CI: `PYTHONWARNINGS` erreicht
+  jeden Kindprozess, auch fremde Werkzeuge, die AK3 nicht besitzt — mit ihr
+  bricht `mypy` an seiner eigenen ungepinnten Lesestelle ab (Exit 2,
+  reproduziert). Auf das Paket zuschneiden geht nicht: das Modulfeld eines
+  Warnfilters wird auf **exakte** Namensgleichheit kompiliert, ein Praefix
+  greift nie. Die CI setzt daher `PYTHONWARNDEFAULTENCODING=1` und eskaliert
+  im Prozess; fuer AK3-CLIs, die ein Test startet, eskaliert der Test selbst.
 
 ## 3. Was NICHT entschieden wurde — und warum
 

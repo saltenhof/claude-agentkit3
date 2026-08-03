@@ -72,13 +72,28 @@ def _is_ak3_hook_command(command: object) -> bool:
         tokens = shlex.split(command.replace("\\", "/"), posix=True)
     except ValueError:
         return False  # unparsable shell is not provably ours -- keep it
-    for token in tokens:
-        if token in {AK3_CLAUDE_HOOK_WRAPPER, AK3_CODEX_HOOK_WRAPPER}:
-            return True
-        segments = token.split("/")
-        if ".agentkit" in segments and "hooks" in segments[segments.index(".agentkit") + 1 :]:
-            return True
-    return False
+    if not tokens:
+        return False
+    # A shell operator starts a NEW command; anything after one is somebody
+    # else's. `echo "agentkit-hook-codex" && ./foreign-gate` is a foreign hook
+    # that merely prints our name, and detach deletes what it matches.
+    if any(token in {"&&", "||", ";", "|", "&"} for token in tokens):
+        return False
+    executed = tokens[0]
+    if executed in {AK3_CLAUDE_HOOK_WRAPPER, AK3_CODEX_HOOK_WRAPPER}:
+        return True
+    # `python .agentkit/hooks/<x>.py`: the SCRIPT argument must live in the
+    # AK3-owned hooks directory -- `.agentkit` and `hooks` adjacent, in that
+    # order. A foreign `/opt/.agentkit/cache/hooks/foreign.sh` is not ours.
+    return any(_is_ak3_hooks_path(token) for token in tokens[1:])
+
+
+def _is_ak3_hooks_path(token: str) -> bool:
+    segments = token.split("/")
+    return any(
+        first == ".agentkit" and second == "hooks"
+        for first, second in zip(segments, segments[1:], strict=False)
+    )
 
 
 @dataclass(frozen=True)
