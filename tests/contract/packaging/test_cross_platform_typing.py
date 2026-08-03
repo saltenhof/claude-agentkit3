@@ -14,6 +14,7 @@ explicitly. It is the reason a platform-gated surface must narrow on
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,12 @@ def test_src_type_checks_for_target_platform(platform: str) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        # `PYTHONWARNINGS=error::EncodingWarning` is set for the suite so AK3's
+        # own CLI children fail on an unpinned read. mypy is NOT AK3's code and
+        # carries such a read itself: inherited, the escalation aborts it with
+        # exit 2 on a defect nobody here can fix. The variable is dropped at
+        # this one FOREIGN boundary, named -- not switched off for everyone.
+        env={k: v for k, v in os.environ.items() if k != "PYTHONWARNINGS"},
         check=False,
     )
     assert completed.returncode == 0, (

@@ -25,7 +25,9 @@ def _is_test_file(path: str) -> bool:
     executable test passing as tested. The only honest definition is pytest's
     own default discovery: a ``.py`` file named ``test_*`` or ``*_test``.
     """
-    name = path.replace("\\", "/").strip().rsplit("/", maxsplit=1)[-1]
+    # No `strip()`: a trailing space is part of the filename, and removing it
+    # invents a file pytest would collect where the real one is not collected.
+    name = path.replace("\\", "/").rsplit("/", maxsplit=1)[-1]
     stem, dot, suffix = name.rpartition(".")
     if not dot or suffix != "py":
         return False
@@ -151,14 +153,13 @@ class _CiBuildTestEvidenceAdapter:
         from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
         assert isinstance(repo, ClosureRepo)  # noqa: S101 - internal typed call
-        out = self._read(repo, "diff", "--name-only", "origin/main...HEAD")
+        # `-z` because a path is an IDENTITY, not a line of text: a filename may
+        # legally contain a newline or a trailing space, and line splitting plus
+        # trimming turned `test_real.py ` into a collectible `test_real.py`.
+        out = self._read(repo, "diff", "--name-only", "-z", "origin/main...HEAD")
         if out is None:
-            out = self._read(repo, "diff", "--name-only", "HEAD")
-        return sum(
-            1
-            for line in (out or "").splitlines()
-            if _is_test_file(line)
-        )
+            out = self._read(repo, "diff", "--name-only", "-z", "HEAD")
+        return sum(1 for path in (out or "").split("\0") if _is_test_file(path))
 
     def _read(self, repo: object, *args: str) -> str | None:
         from agentkit.backend.closure.multi_repo_saga import ClosureRepo

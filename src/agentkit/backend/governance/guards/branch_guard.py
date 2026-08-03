@@ -116,10 +116,28 @@ class BranchGuard:
         return GuardVerdict.allow(self.name)
 
     def _is_official_allow_path(self, command: str) -> bool:
+        """Whether the command IS an official AK3 command -- and nothing else.
+
+        This returns before every danger check, so a loose match is a guard
+        bypass, not a cosmetic issue. ``startswith`` granted the exemption to
+        ``agentkit reset-story-evil`` (the prefix continues into another word)
+        and to ``agentkit reset-story && git push --force`` (the prefix is only
+        the FIRST of two commands). The exemption now requires the whole command
+        to be exactly the official one plus its own arguments: no shell
+        operator, no redirection, no substitution anywhere in the line.
+        """
         stripped = command.strip()
-        return any(
-            stripped.startswith(prefix) for prefix in self._OFFICIAL_ALLOW_PREFIXES
-        )
+        if any(marker in stripped for marker in ("&&", "||", ";", "|", "`", "$(", ">", "<", "\n")):
+            return False
+        try:
+            tokens = shlex.split(stripped, posix=True)
+        except ValueError:
+            return False
+        for prefix in self._OFFICIAL_ALLOW_PREFIXES:
+            expected = shlex.split(prefix, posix=True)
+            if tokens[: len(expected)] == expected:
+                return True
+        return False
 
     def _story_execution_branch_violation(
         self,

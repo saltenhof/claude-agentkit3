@@ -281,12 +281,12 @@ def _current_hooks_path(project_root: Path) -> str | None:
                 "--get",
                 _GIT_CONFIG_KEY,
             ],
+            # BYTES: the two channels carry different contracts and `text=True`
+            # can only give them one decoder. The VALUE is compared and written
+            # back on rollback, so it must survive losslessly; stderr is
+            # diagnosis and is flattened, so a bad byte in an error message
+            # cannot raise on its way out and bury the real failure.
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            # This value is compared and written back on rollback -- replacing a
-            # byte here restores a `core.hooksPath` the project never had.
-            errors="surrogateescape",
             timeout=15,
             check=False,
         )
@@ -295,9 +295,9 @@ def _current_hooks_path(project_root: Path) -> str | None:
     if completed.returncode == 1:
         return None
     if completed.returncode != 0:
-        detail = completed.stderr.strip()
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
         raise OSError(f"cannot read core.hooksPath: {detail}")
-    value = completed.stdout.rstrip("\r\n")
+    value = completed.stdout.decode("utf-8", errors="surrogateescape").rstrip("\r\n")
     if not value:
         raise OSError("core.hooksPath is present with an empty value")
     return value

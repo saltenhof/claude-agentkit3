@@ -82,10 +82,20 @@ def _is_ak3_hook_command(command: object) -> bool:
     executed = tokens[0]
     if executed in {AK3_CLAUDE_HOOK_WRAPPER, AK3_CODEX_HOOK_WRAPPER}:
         return True
-    # `python .agentkit/hooks/<x>.py`: the SCRIPT argument must live in the
-    # AK3-owned hooks directory -- `.agentkit` and `hooks` adjacent, in that
-    # order. A foreign `/opt/.agentkit/cache/hooks/foreign.sh` is not ours.
-    return any(_is_ak3_hooks_path(token) for token in tokens[1:])
+    # `python .agentkit/hooks/<x>.py`: the interpreter must RUN the AK3 script,
+    # not merely mention it. `echo .agentkit/hooks/story_guard.py` prints it and
+    # `foreign-tool --config /srv/.agentkit/hooks/config` reads it -- neither is
+    # ours, and detach deletes what it claims.
+    if executed.rsplit("/", maxsplit=1)[-1] not in _INTERPRETERS:
+        return False
+    script = next((token for token in tokens[1:] if not token.startswith("-")), None)
+    return script is not None and _is_ak3_hooks_path(script)
+
+
+#: Programs that execute their first non-flag argument as a script.
+_INTERPRETERS = frozenset(
+    {"python", "python3", "python3.exe", "python.exe", "sh", "bash", "node", "pwsh"}
+)
 
 
 def _is_ak3_hooks_path(token: str) -> bool:

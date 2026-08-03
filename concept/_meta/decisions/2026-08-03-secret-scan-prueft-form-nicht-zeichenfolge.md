@@ -77,10 +77,8 @@ ausserhalb eines Hunks erkannt.
 Plattform: UTF-8 unter Linux und macOS, cp1252 unter deutschem Windows.
 Derselbe Code las damit denselben Repository-Inhalt auf der einen Maschine
 korrekt und brach auf der anderen ab. Ein Wert, der von der Maschine abhaengt,
-ist kein Wert. Ein Contract-Test haelt die Klasse ueber `src/`, `tools/`,
-`scripts/` und `tests/` geschlossen und weist nach, dass er die bekannten
-Umgehungen faengt — Alias, Re-Import, `getattr`, `partial`, `**kwargs`,
-`encoding=None` und jedes nicht-UTF-8-Literal.
+ist kein Wert. Wie das durchgesetzt wird, steht in 2.8 — und warum es
+**nicht** statisch durchgesetzt wird, ebenfalls.
 
 **2.7 Gepinnt heisst nicht strikt. Drei Faelle, nicht zwei.** Die Kodierung
 haengt nie an der Maschine — was mit einem abweichenden Byte geschieht,
@@ -92,9 +90,14 @@ Regel „Werkzeugausgabe ist Anzeigetext" waere deshalb falsch.
 
 | Fall | Verfahren | Warum |
 |---|---|---|
-| **AK3-eigenes Protokoll** — eigene Konzeptdateien, JSON-Ledger, Snapshots | `strict` | Eine kaputte Kodierung ist eine Protokollverletzung und muss fail-closed auffallen. Ein ersetzend gelesener Ledger wird akzeptiert und gehasht — mit verfaelschtem Inhalt. |
-| **Wert, der verglichen, geparst oder zurueckgeschrieben wird** — `.gitignore`, fremde Hooks, `core.hooksPath`, Pfade, SHAs, Branch-Namen, Diff-Inhalt | `surrogateescape` | Verlustfrei. Ein Read-modify-write gibt jedes Byte zurueck, das er nicht angefasst hat; ein Rollback stellt her, was war. `replace` wuerde U+FFFD hineinschreiben — irreversibel und unbemerkt. |
-| **Text, der ausschliesslich angezeigt wird** — Testprotokolle, Werkzeug-Logausgabe | `replace` | Es wird nichts daraus abgeleitet. Ein Streubyte darf keinen gruenen Lauf in `STDOUT: None` verwandeln. |
+| **AK3-eigenes Protokoll** — eigene Konzeptdateien, JSON-Ledger, Snapshots, sowie ASCII-Maschinenwerte wie SHA, Branch und Revision | `strict` | Eine kaputte Kodierung ist eine Protokollverletzung und muss fail-closed auffallen. Ein ersetzend gelesener Ledger wird akzeptiert und gehasht — mit verfaelschtem Inhalt. Und ein Surrogat, das bis in eine URL oder einen JSON-Transport getragen wird, kommt dort ohne Ursache an. |
+| **Fremder Wert, der verglichen oder zurueckgeschrieben wird** — `.gitignore`, fremde Hooks, `core.hooksPath`, Pfade in fremden Repositorys, Diff-Inhalt | `surrogateescape` | Verlustfrei. Ein Read-modify-write gibt jedes Byte zurueck, das er nicht angefasst hat; ein Rollback stellt her, was war. `replace` wuerde U+FFFD hineinschreiben — irreversibel und unbemerkt. |
+| **Text, der ausschliesslich angezeigt wird** — Testprotokolle, Werkzeug-Logausgabe, `stderr` | `replace` | Es wird nichts daraus abgeleitet. Ein Streubyte darf keinen gruenen Lauf in `STDOUT: None` verwandeln — und darf erst recht nicht beim Ausgeben der Fehlermeldung den eigentlichen Fehler verdecken. |
+
+**Ein Aufruf kann zwei Vertraege haben.** `git config --get` liefert auf
+`stdout` einen Wert, der zurueckgeschrieben wird, und auf `stderr` reine
+Diagnose. `text=True` kennt nur EINEN `errors`-Wert und kann das nicht
+abbilden; solche Aufrufe lesen deshalb **Bytes** und dekodieren je Kanal.
 
 Verlustfreiheit hat zwei Bedingungen, und eine allein genuegt nicht: der
 **Codec** (`surrogateescape`) und die **Zeilenenden** (`newline=""`). Ohne die
@@ -104,9 +107,11 @@ haendigt dem Projekt eine Datei aus, die es so nie geschrieben hat.
 Ein Fremdprozess, den AK3 startet, bekommt zusaetzlich `PYTHONIOENCODING=utf-8`
 — steuern statt hoffen.
 
-**Durchgesetzt wird die Regel semantisch, nicht syntaktisch.**
+**2.8 Durchgesetzt wird die Regel semantisch, nicht syntaktisch.**
 `PYTHONWARNDEFAULTENCODING=1` macht jede tatsaechlich ausgefuehrte Stelle ohne
-Kodierung zur `EncodingWarning`; die Suite behandelt sie als Fehler.
+Kodierung zur `EncodingWarning`; `PYTHONWARNINGS=error::EncodingWarning` macht
+daraus einen Fehler — auch ueber die Prozessgrenze, die ein pytest-Filter nicht
+erreicht. Beide stehen in den CI-Teststufen.
 
 Ein statischer Guard wurde gebaut und wieder **entfernt**. Drei Fassungen, jede
 zweifach geschlagen: eine Umgehung, die sie nicht sah, und ein Fehlalarm, den
@@ -116,16 +121,16 @@ die sie verhindern soll. Und ein Fehlalarm in einem blockierenden Test stoppt
 jeden Commit im Repository, also genau der Schaden aus 2.1. **Eine Pruefung,
 die etwas behauptet, was sie nicht wissen kann, ist schlechter als keine.**
 
-Zwei Grenzen, gemessen und benannt:
+Die Eskalation erreicht auch **fremde** Kindprozesse. `mypy` traegt selbst eine
+ungepinnte Lesestelle und bricht dann mit Exit 2 ab — an einem Defekt, den hier
+niemand beheben kann. Auf das Paket zuschneiden geht nicht: das Modulfeld eines
+Warnfilters wird auf **exakte** Namensgleichheit kompiliert, ein Praefix greift
+nie. Die Variable wird deshalb an genau dieser einen fremden Grenze entfernt,
+dort wo der Prozess gestartet wird, und dort benannt — nicht global abgeschaltet.
 
-- Gesehen wird nur, was laeuft. Die Abdeckung ist die Schranke.
-- Die Eskalation steht **nicht global** in der CI: `PYTHONWARNINGS` erreicht
-  jeden Kindprozess, auch fremde Werkzeuge, die AK3 nicht besitzt — mit ihr
-  bricht `mypy` an seiner eigenen ungepinnten Lesestelle ab (Exit 2,
-  reproduziert). Auf das Paket zuschneiden geht nicht: das Modulfeld eines
-  Warnfilters wird auf **exakte** Namensgleichheit kompiliert, ein Praefix
-  greift nie. Die CI setzt daher `PYTHONWARNDEFAULTENCODING=1` und eskaliert
-  im Prozess; fuer AK3-CLIs, die ein Test startet, eskaliert der Test selbst.
+**Grenze, benannt:** gesehen wird nur, was laeuft. Die Abdeckung ist die
+Schranke. Das ist der ehrliche Preis gegenueber einer Syntaxregel, die
+funktionierenden Code falsch beschuldigt.
 
 ## 3. Was NICHT entschieden wurde — und warum
 

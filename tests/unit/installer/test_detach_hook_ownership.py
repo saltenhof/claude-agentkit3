@@ -24,6 +24,10 @@ from agentkit.backend.installer.lifecycle.detach import _is_ak3_hook_command
         "sh /opt/.agentkit/hooks-backup/quality.sh",
         "python /opt/.agentkit/cache/hooks/foreign.sh",
         "python hooks/.agentkit/foreign.py",
+        # The AK3 path is MENTIONED, not executed.
+        "echo .agentkit/hooks/story_guard.py",
+        "foreign-tool --config /srv/.agentkit/hooks/config",
+        "cat .agentkit/hooks/story_guard.py",
         # Not a command at all.
         "",
     ],

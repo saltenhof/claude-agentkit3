@@ -27,19 +27,17 @@ is semantic rather than syntactic:
   boundary, where a pytest filter has no reach. The tests below spawn a real
   child both ways and prove it, rather than assuming the variable works.
 
-**Two named limits, both measured, neither talked away:**
+Both variables are set for the CI test stages, so every AK3 child inherits the
+escalation without a test having to remember it. ``PYTHONWARNINGS`` reaches
+FOREIGN children too, and one of them -- ``mypy`` -- carries such a read itself
+and aborts with exit 2 on a defect nobody here can fix. Scoping the filter to
+the ``agentkit`` package is not possible (a filter's module field compiles to an
+EXACT match, so a package prefix never applies), so the variable is dropped at
+that one foreign boundary, in the test that spawns it, named there.
 
-1. *Only code that runs is seen.* Coverage is the bound -- an unexecuted branch
-   stays unchecked. That is the honest trade against a syntactic rule that
-   mislabels working code.
-2. *The escalation is not set globally in CI.* ``PYTHONWARNINGS`` reaches every
-   child, including third-party tools AK3 does not own and cannot fix: with it
-   set, ``mypy`` aborts on its own unpinned read (exit 2, reproduced here).
-   Scoping the filter to the ``agentkit`` package is not possible either -- a
-   filter's module field is compiled to an EXACT match, so a package prefix
-   never applies. CI therefore sets ``PYTHONWARNDEFAULTENCODING=1`` (the
-   warnings appear) and escalates in-process; AK3 CLIs spawned by a test are
-   covered where that test opts in, as here.
+**Named limit:** only code that RUNS is seen. Coverage is the bound -- an
+unexecuted branch stays unchecked. That is the honest trade against a syntactic
+rule that mislabels working code.
 """
 
 from __future__ import annotations

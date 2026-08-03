@@ -1075,7 +1075,11 @@ def test_ci_build_test_evidence_adapter_maps_green(tmp_path: Path) -> None:
             ("rev-parse", "--abbrev-ref", "HEAD"): "story/X-1",
             ("rev-parse", "HEAD"): "abc123",
             ("rev-parse", "HEAD^{tree}"): "tree9",
-            ("diff", "--name-only", "origin/main...HEAD"): ("src/a.py\ntests/test_a.py\n"),
+            # `-z`: git separates paths with NUL, so a filename may contain a
+            # newline or a trailing space without being split or trimmed.
+            ("diff", "--name-only", "-z", "origin/main...HEAD"): (
+                "src/a.py\0tests/test_a.py\0tests/README.md\0src/test_data.json\0"
+            ),
         }
     )
     adapter = _CiBuildTestEvidenceAdapter(build_test_port=_FakeBuildTestPort(green=True), git_backend=git)
@@ -1083,7 +1087,9 @@ def test_ci_build_test_evidence_adapter_maps_green(tmp_path: Path) -> None:
     assert ev is not None
     assert ev.build_ok is True
     assert ev.tests_green is True
-    assert ev.test_file_count == 1  # tests/test_a.py
+    # Only `tests/test_a.py` is a file pytest collects: a README and a JSON
+    # fixture under a `tests` path are not evidence that a test exists.
+    assert ev.test_file_count == 1
 
 
 def test_ci_build_test_evidence_adapter_failclosed_red(tmp_path: Path) -> None:

@@ -132,7 +132,15 @@ class ArtifactGuard:
 
     @staticmethod
     def _is_active_story_qa_dir(file_path: str, story_id: str) -> bool:
-        """Whether ``file_path`` lives in the active story's ``_temp/qa`` dir."""
-        normalized = os.path.normpath(file_path).replace("\\", "/")
-        protected_prefix = f"_temp/qa/{story_id}/"
-        return protected_prefix in f"{normalized}/"
+        """Whether ``file_path`` lives in the active story's ``_temp/qa`` dir.
+
+        Matched on path SEGMENTS: a substring search also claimed
+        ``/repo/not_temp/qa/<story>/...``, so a foreign directory whose name
+        merely ends in ``_temp`` had its writes blocked as if they were AK3 QA
+        artefacts.
+        """
+        segments = os.path.normpath(file_path).replace("\\", "/").split("/")
+        return any(
+            first == "_temp" and second == "qa" and third == story_id
+            for first, second, third in zip(segments, segments[1:], segments[2:], strict=False)
+        )

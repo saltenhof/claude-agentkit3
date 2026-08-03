@@ -13,15 +13,6 @@ class GitScopeError(ValueError):
     """Raised when the pre-merge Git range cannot be read."""
 
 
-def _printable(text: str) -> str:
-    """Return ``text`` safe to put in a message that will be printed.
-
-    Paths are read losslessly (``surrogateescape``) because they are compared
-    and reused. A surrogate reaching ``print`` on a strict stdout raises
-    ``UnicodeEncodeError``, so a diagnostic string -- which nothing is derived
-    from -- is flattened at the boundary where it stops being data.
-    """
-    return text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
 
 
 def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> frozenset[str]:
@@ -46,19 +37,20 @@ def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> froz
             "--",
             concept_relative,
         ]
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="surrogateescape",
-        )
+        # One call, two contracts: the concept corpus is AK3-owned and must be
+        # UTF-8, so a path that is not decodable is a protocol violation and
+        # fails closed here -- carrying it on losslessly only moves the crash
+        # into the JSON transport, where it arrives without a cause. stderr is
+        # diagnosis; it is flattened so a bad byte cannot hide the real error.
+        completed = subprocess.run(command, check=False, capture_output=True)
         if completed.returncode != 0:
-            raise GitScopeError(
-                _printable(completed.stderr).strip() or f"git diff exited {completed.returncode}"
-            )
-        changed.update(_parse_changed_paths(completed.stdout, prefix))
+            detail = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise GitScopeError(detail or f"git diff exited {completed.returncode}")
+        try:
+            stdout = completed.stdout.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise GitScopeError(f"concept path is not UTF-8: {exc}") from exc
+        changed.update(_parse_changed_paths(stdout, prefix))
     return frozenset(changed)
 
 
