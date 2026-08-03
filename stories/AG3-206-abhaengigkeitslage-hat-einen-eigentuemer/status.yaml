@@ -18,5 +18,11 @@ size: M
 # globale Installation ueberschreibt AK2.
 #
 # Diese Story setzt die Entscheidung durch. Sie trifft sie nicht.
+#
+# NEUSCHNITT 2026-08-03 (PO-Entscheid): AG3-189 und AG3-206 trugen beide das
+# venv-Kriterium. Die DURCHSETZUNG (globale Installation fail-closed, genau ein
+# aufloesbarer Interpreter) liegt jetzt vollstaendig bei AG3-189; hier bleibt
+# die VOLLSTAENDIGKEIT der Umgebung (deklariert gegen importierbar) und die
+# Sichtbarkeit verschluckter Hook-Fehler. Alte AC 3 entfernt, AC 4-6 -> 3-5.
 depends_on: []
 unblocks: []

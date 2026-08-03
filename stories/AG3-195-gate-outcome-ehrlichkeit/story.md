@@ -34,6 +34,38 @@ bestandener. Belegt, nicht vermutet:
 Der Mutex-Fall ist der Beleg dafuer, dass die Regel loesbar ist — er hat sie
 fuer **ein** Werkzeug geloest. Die uebrigen Gates haben sie nicht.
 
+### Nachtrag 2026-08-03 — der schwerste Fall, gemessen
+
+Der CI-Job selbst ist ein Beispiel der Fehlerklasse, und zwar das folgenreichste.
+
+Build **#1216** meldet `lastBuiltRevision = 2dc0ed94…` — exakt `origin/main`.
+Getestet hat er das nicht. Im Konsolenprotokoll steht:
+
+```
+Stage "Prepare" skipped due to this build restarting at stage "Setup"
+```
+
+Der Lauf war ein **Restart ab Stage „Setup"**. Uebersprungen wurde damit
+`Prepare` — und dort stehen `deleteDir()` **und** der frische
+`git clone --branch main … agentkit-src` (`Jenkinsfile:66-73`). Saemtliche
+folgenden Stages laufen in `dir('agentkit-src')`; getestet wurde also der
+**Restbestand des Workspace** eines frueheren Laufs. Beweis: der Lauf scheiterte
+an `tests/integration/auth/test_bootstrap_network_and_processes.py`, einer
+Datei, die es auf `2dc0ed94` **nicht gibt**.
+
+Die gemeldete Revision stammt vom `Checkout SCM` im Workspace-Root und hat mit
+dem tatsaechlichen Pruefgegenstand in `agentkit-src` nichts zu tun. **Ein
+Restart erzeugt damit eine Build-Farbe zu einem SHA, der nie geprueft wurde** —
+gruen wie rot. Alle bisher ueber „Restart from Stage" gewonnenen Ergebnisse
+dieses Jobs sind ohne Aussage; welche das waren, ist aus den Protokollen zu
+erheben.
+
+Aufzunehmen ist deshalb: **der Pruefgegenstand ist zu verifizieren, nicht zu
+protokollieren.** Die erste Stage, die `agentkit-src` benutzt, weist
+fail-closed ab, wenn `git -C agentkit-src rev-parse HEAD` nicht der Revision
+des Laufs entspricht — und ein Lauf, dessen Vorbereitung uebersprungen wurde,
+ist kein bestandener Lauf, sondern ein nicht gefahrener.
+
 ### Warum das eine eigene Story ist
 
 Die Aussage „uebersprungen ist nicht bestanden" ist eine **Quer**-Eigenschaft
@@ -98,6 +130,25 @@ Eigentuemer.
    konstruierten Lauf ohne Container-Laufzeit.
 6. **Die Aussage gilt auch fuer den Jenkins-Gesamtstatus.** Ein Build, in dem
    eine Pflicht-Stage uebersprungen wurde, ist nicht gruen.
+6a. **Der Pruefgegenstand wird verifiziert, nicht protokolliert.** Die erste
+   Stage, die `agentkit-src` benutzt, weist **fail-closed** ab, wenn
+   `git -C agentkit-src rev-parse HEAD` nicht der Revision des Laufs
+   entspricht. Nachgewiesen an einem Restart ab „Setup": er endet als **nicht
+   gefahren**, nicht als bestanden oder fehlgeschlagen. (Anlassfall Build
+   #1216, siehe Kontext-Nachtrag.)
+6b. **Die Vergangenheit ist erhoben — bereits erledigt, hier zur Entlastung
+   dokumentiert.** Ueber die letzten 40 Builds (#1179–#1218) wurde am
+   2026-08-03 ausgezaehlt, welche ueber „Restart from Stage" entstanden sind:
+   **sechs — #1211 bis #1216, ausnahmslos FAILURE.** Kein einziges **gruenes**
+   Ergebnis stammt aus einem Restart; keine Abnahme ruht darauf. Der
+   Implementierer muss diese Erhebung nicht wiederholen, sondern nur die
+   Wiederholbarkeit sichern (AC 6a).
+
+   **Nebenbefund derselben Erhebung, mit eigenem Gewicht:** Von 40 Laeufen sind
+   **drei** gruen (#1202, #1204, #1206). Der CI-Boden ist nicht gelegentlich
+   rot, er ist ueberwiegend rot — und wurde trotzdem als Nachweis behandelt.
+   Ein Gate, dessen Normalzustand Rot ist, erzieht seine Leser dazu, es nicht
+   zu lesen. Das gehoert in den Abschlussbericht dieser Story.
 7. **Konzept nachgezogen** (FK-78 §78.14 Exit-Code-/Envelope-Vertrag; `AGENTS.md`
    Pflicht-Gates) mit Decision Record und Betroffenheitsmatrix; alle
    deterministischen Konzept-Gates gruen.

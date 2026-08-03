@@ -1,0 +1,13 @@
+story_id: AG3-208
+story_title_short: "edge-kern-distributionszielbild"
+title: "Edge-/Kern-Distributionszielbild: FK-10, FK-01, FK-30, PROJECT_STRUCTURE und Architektur-Conformance definieren Edge, Kern und kleines Wire-Vertragspaket eindeutig."
+type: concept
+status: ready
+phase: setup
+created: "2026-08-03"
+size: M
+# Herkunft: PO-Entscheidung vom 2026-08-03 im Decision Record
+# 2026-08-03-edge-und-kern-sind-zwei-distributionen.md. AG3-207 ist laut
+# Auftraggeber reserviert; der Umsetzungsbacklog beginnt deshalb bei AG3-208.
+depends_on: []
+unblocks: ["AG3-209"]

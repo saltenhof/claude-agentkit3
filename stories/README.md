@@ -583,6 +583,22 @@ Der Strang hat drei Schwerpunkte:
 Der Rest blockiert auf AG3-179 (laufende Reviewrunden an FK-78/FK-93) oder auf
 einer der Metaentscheidungen aus AG3-194 bzw. AG3-203.
 
+**Neuschnitt 2026-08-03 (PO-Entscheid).** AG3-189 und AG3-206 trugen beide das
+venv-Kriterium. Die **Durchsetzung** (globale Installation fail-closed, genau
+ein aufloesbarer Interpreter) liegt jetzt allein bei **AG3-189**; **AG3-206**
+behaelt die **Vollstaendigkeit** der Umgebung (deklariert gegen importierbar)
+und die Sichtbarkeit verschluckter Hook-Fehler. AG3-189 traegt zusaetzlich den
+Hinweis, dass seine Praemisse „Namenskonflikt wird isoliert, nicht aufgeloest"
+durch die Distributionsentscheidung vom selben Tag ueberholt ist.
+
+**Neu 2026-08-03: AG3-210** — der Update-Pfad rollt keine Bundle-/Scaffold-
+Dateien aus. `upgrade-project` hat sechs Checkpoints, keiner materialisiert
+eine Bundle-Datei; `up_04_migrate_hooks` erneuert dagegen die Eintraege in
+`settings.json` und besiegelt damit eine Bindung auf eine Datei, die es nicht
+auffrischt. Der Rollout haengt an `deploy_post_registration_artifacts()` im
+**Register**-Fluss. Belegter Anlassfall: der Scaffold-Hook-Fix vom 2026-08-03
+erreichte das installierte Fremdprojekt nie. Sofort startbar, `depends_on: []`.
+
 **Aufgeloest:** AG3-198 war als Entscheidungs-Story geschnitten („Darf ein
 Nachschlagekatalog Normquelle sein?"). Diese Entscheidung existiert nicht — sie
 ist aus der ZERO-DEBT-Regel ableitbar: fehlendes Eigentum ist eine Schuld, und
@@ -590,6 +606,39 @@ sowohl das Umdeuten (Katalog erklaert sich selbst zur Norm) als auch das stille
 Weglassen (unvollstaendiges Register) traegt sie fort. Zulaessig ist nur, den
 Eigentuemer herzustellen. AG3-198 ist deshalb am 2026-08-03 in **AG3-199**
 aufgegangen, nicht verschoben worden.
+
+### 6.12 Edge und Kern als getrennte Distributionen (AG3-208…AG3-209)
+
+Ausgeloest durch die PO-Entscheidung vom 2026-08-03 in
+`concept/_meta/decisions/2026-08-03-edge-und-kern-sind-zwei-distributionen.md`:
+Der Harness-Adapter und die lokale Guard-Engine laufen auf dem
+Entwicklerrechner, der Kern in der Cloud; beide kommunizieren ausschliesslich
+ueber Edge->Kern-HTTP. Das heutige Einzel-Wheel packt trotzdem den gesamten
+Kern auf den Laptop. AG3-207 ist reserviert; der Umsetzungsstrang beginnt daher
+bei AG3-208.
+
+Die 40 gemessenen `harness_client -> backend`-Importstellen sind in AG3-208
+vollstaendig klassifiziert. Der Schnitt hat bewusst nur zwei Storys: zuerst das
+normative Zielbild, danach die gesamte Code-/Paketmigration inklusive Installer,
+Entry Points, Bundles, Tests und blockierendem Gate in einem Zug. Ein separates
+spaeteres Gate oder ein spaeterer Installer-Nachzug waere selbst ein verbotener
+Zwischenzustand.
+
+| ID | Titel | Typ | Groesse | Status | depends_on |
+|----|-------|-----|---------|--------|------------|
+| AG3-208 | Edge-/Kern-Distributionszielbild in FK-10, FK-01, FK-30, `PROJECT_STRUCTURE.md` und Formal-Spec | concept | M | ready | — |
+| AG3-209 | Edge, Kern und Wire-Vertrag atomar schneiden: Module, Dependencies, Entry Points, Installer, Bundles, Tests und Distribution-Gate | implementation | L | blocked | 208 |
+
+**Graph und gueltige Linearisierung:** `AG3-208 -> AG3-209`.
+
+**Beruehrung bestehender Storys:** AG3-189 und AG3-206 bleiben mit ihren
+Isolation-/Vollstaendigkeitsinvarianten gueltig, enthalten aber
+Ein-Artefakt-Wortlaut, den der PO vor ihrer Umsetzung gegen das neue Zielbild
+bewerten muss. AG3-187s Golden Path muss Core- und Edge-Installation getrennt
+abbilden; AG3-209s gezielter Clean-Edge-Hook-Nachweis ersetzt ihn nicht. AG3-193
+ist das Muster fuer ein baseline-freies Pflicht-Gate, aber keine Dependency;
+das Distribution-Gate landet bereits mit AG3-209, weil die Grenze sonst bis zu
+einer Folgestory nur Konvention bliebe.
 
 ## 7. Konzept- und Guardrail-Bezug
 

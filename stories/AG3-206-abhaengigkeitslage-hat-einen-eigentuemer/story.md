@@ -47,9 +47,6 @@ auf User-Ebene, mit `2>/dev/null || true`) taeuscht bis heute Erfolg vor.
 
 - **Preflight:** die deklarierten Abhaengigkeiten aus `pyproject.toml` werden
   gegen die **tatsaechlich importierbaren** geprueft, fail-closed.
-- Die venv-Politik aus dem Decision Record wird durchgesetzt: AK3 stellt fest,
-  ob es in einer venv laeuft, und meldet einen Systeminterpreter als
-  Installationsfehler — mit Nennung des AK2-Namenskonflikts als Grund.
 - **Sichtbarkeit:** ein Werkzeug, das `hook_non_blocking_error`-Attachments aus
   den Transcripts aggregiert (nach Hook gruppiert, nach Fehlertext
   dedupliziert). Ohne das bleibt diese Fehlerklasse strukturell unsichtbar.
@@ -58,6 +55,12 @@ auf User-Ebene, mit `2>/dev/null || true`) taeuscht bis heute Erfolg vor.
 
 ### Out of Scope
 
+- **Die Durchsetzung der venv-Politik selbst — Owner: AG3-189.** Dass eine
+  globale, nicht-venv Installation fail-closed abgewiesen wird und dass es
+  genau **einen** aufloesbaren AK3-Interpreter gibt, traegt AG3-189 (dort AC 1
+  und AC 3). Diese Story prueft die **Vollstaendigkeit** der Umgebung, nicht
+  ihre **Art**. (Neuschnitt 2026-08-03 auf PO-Entscheid: beide Storys trugen
+  dasselbe Kriterium.)
 - Die Entscheidung venv vs. global — getroffen, siehe Decision Record.
 - Der Scaffold-Hook — im Hotfix vom 2026-08-03 behoben.
 - CCAG — auf PO-Ansage deaktiviert (Regeldateien fliegen aus dem Scaffold), der
@@ -72,29 +75,33 @@ auf User-Ebene, mit `2>/dev/null || true`) taeuscht bis heute Erfolg vor.
 2. **Der Nachweis laeuft gegen die Deklaration, nicht gegen eine Liste.** Eine
    neue Zeile in `pyproject.toml` ist ohne Codeaenderung mitgeprueft — eine
    gepflegte Zweitliste ist genau die zweite Wahrheit, die den Fall erzeugt hat.
-3. **Ein Systeminterpreter wird als Installationsfehler gemeldet**, mit dem
-   AK2-Namenskonflikt als Begruendung — nicht als Warnung, die untergeht.
-4. **Die Hook-Fehlerklasse ist auswertbar.** Das Werkzeug liefert aus einem
+3. **Die Hook-Fehlerklasse ist auswertbar.** Das Werkzeug liefert aus einem
    Transcript die Fehler nach Hook gruppiert und nach Text dedupliziert;
    nachgewiesen am realen Transcript vom 2026-08-03 mit seinen 164 Fehlern.
-5. **Kein Hook taeuscht mehr Erfolg vor.** Jeder Hook, der seinen Fehlschlag
+4. **Kein Hook taeuscht mehr Erfolg vor.** Jeder Hook, der seinen Fehlschlag
    verschluckt, wird benannt und entweder korrigiert oder mit Begruendung
    dokumentiert. Ein `|| true` ohne Begruendung ist ein Fehler.
-6. **Volle Suite gruen**, `ruff` clean, `mypy --strict` fuer `win32`, `linux`,
+5. **Volle Suite gruen**, `ruff` clean, `mypy --strict` fuer `win32`, `linux`,
    `darwin`; Decision Record mit Betroffenheitsmatrix.
 
 ## Definition of Done
 
-- AC 1–6 erfuellt, jedes mit benanntem Beleg (Kommando, Ausgabe, Testname).
+- AC 1–5 erfuellt, jedes mit benanntem Beleg (Kommando, Ausgabe, Testname).
 - **Realitaetsnachweis:** der Preflight ist einmal gegen eine echte,
   unvollstaendige Umgebung gelaufen — nicht nur gegen eine simulierte.
 - Unabhaengiges Codex-Review bis zum Abbruchkriterium aus `CLAUDE.md`.
 
-## Offene Frage an den PO — in dieser Story vorzulegen
+## Beruehrungspunkte
 
-Legt AK3 die venv **selbst an**, oder verlangt es eine vorhandene und
-verweigert sonst den Dienst? Beides erfuellt die Entscheidung; die Wahl
-bestimmt, ob der Installer Umgebungen erzeugt oder nur prueft.
+- **AG3-189** traegt die venv-Durchsetzung und den Interpreterbegriff. Die dort
+  offene Frage „legt AK3 die venv selbst an oder verlangt es eine vorhandene"
+  ist mit dem Schnitt ebenfalls dorthin gewandert — sie gehoert zur Art der
+  Umgebung, nicht zu ihrer Vollstaendigkeit.
+- **AG3-209** teilt AK3 in zwei Distributionen. Danach ist „die deklarierten
+  Abhaengigkeiten" nicht mehr eine Liste, sondern zwei. Der Preflight aus AC 1
+  muss deshalb gegen die Deklaration des **jeweils installierten Artefakts**
+  pruefen, nicht gegen eine Gesamtliste. Keine Abhaengigkeitskante: wer zuerst
+  landet, zieht den anderen nach.
 
 ## Guardrail-Referenzen
 

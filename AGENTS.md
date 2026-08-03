@@ -1,5 +1,26 @@
 # Local Agent Instructions
 
+## Lies zuerst CLAUDE.md — diese Datei ist nicht die ganze Ordnung
+
+`CLAUDE.md` im Repo-Root ist die **normative** Verhaltens- und Codeordnung
+dieses Projekts. Diese Datei hier ergaenzt sie und ersetzt sie nicht. Wer nur
+`AGENTS.md` liest, kennt unter anderem folgende bindenden Regeln **nicht**:
+
+- ZERO DEBT und die Begruendung, warum Schuld nie billiger ist als ihre
+  Beseitigung
+- **KEINE KOMPATIBILITAETSSCHICHTEN — AUSNAHMSLOS**, inklusive des Verbots,
+  ueber Migrationspfade auch nur nachzudenken
+- FAIL-CLOSED, NO ERROR BYPASSING, MOCKS/STUBS nur im engen Ausnahmefall
+- **ARCH-55**: Quellcode, Bezeichner, Wire-Keys, DB-Spalten und Kommentare
+  ausnahmslos englisch
+- die Struktur- und Deployment-Unit-Regeln
+- **REALITAETSNACHWEIS AN FREMDSYSTEM-GRENZEN**: gruene Unit-Tests sind
+  Voraussetzung, nie Nachweis
+- die Zugaenge zu den lokalen Diensten (Postgres, Sonar, Jenkins) — sie sind
+  vorhanden und **nicht** beim Auftraggeber zu erfragen
+
+Bei Konflikt zwischen dieser Datei und `CLAUDE.md` gewinnt `CLAUDE.md`.
+
 ## Severity-Semantik
 
 Drei Stufen, klar abgegrenzt:

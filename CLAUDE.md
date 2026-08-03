@@ -243,6 +243,59 @@ Nicht mischen. Rollentrennung ist ein fachliches und technisches Prinzip von Age
 - Kleine, verifizierbare Aufgaben schneiden. Keine God-Tasks.
 - Ergebnisse aktiv pruefen, nicht blind uebernehmen.
 
+#### Das Mandat ist Pflichtbestandteil jedes Auftrags
+
+Ein Auftrag, der nur sagt **was** zu tun ist, laesst offen, **wie weit** der
+Agent gehen darf — und ein faehiger Agent geht dann so weit, wie die Aufgabe es
+seiner Meinung nach verlangt. Das ist kein Ungehorsam, das ist die Luecke im
+Auftrag. Jeder Auftrag enthaelt deshalb alle vier Teile:
+
+1. **Ziel** — der Zustand, der am Ende gelten soll. Nicht die Taetigkeit.
+2. **Mandat** — was der Agent aendern darf: welche Verzeichnisse, welche
+   Dateiarten, welche Vertraege.
+3. **Ausdrueckliche Grenze** — was er **nicht** darf. Diese Liste ist der Teil,
+   der am haeufigsten fehlt. Als Vorgabe gilt, sofern nicht ausdruecklich
+   freigegeben:
+   - kein Produktionsmodul loeschen oder umbenennen
+   - keine oeffentliche Schnittstelle entfernen (Route, CLI-Verb, Entry Point,
+     exportierte Funktion)
+   - keine Konzeptdatei ausserhalb der vom Auftrag benannten aendern
+   - keine Datei ausserhalb des benannten Story-Scopes anfassen, auch nicht,
+     um einen fremden roten Test gruen zu bekommen
+   - nicht committen, nicht pushen, `status.yaml` nicht anfassen
+4. **Eskalationsweg** — der Satz, der die Grenze arbeitsfaehig macht:
+
+   > Haeltst du eine Aenderung ausserhalb deines Mandats fuer die richtige
+   > Loesung, **fuehre sie nicht aus**. Halte an, benenne sie mit Begruendung
+   > und Locator, und arbeite am Rest weiter. Ein Auftrag, der mit einer
+   > begruendeten Mandatsanfrage endet, ist ein gutes Ergebnis.
+
+   Die Freigabe erteilt der Orchestrator — gegebenenfalls nach Ruecksprache mit
+   dem PO — und setzt den Agenten erneut an. Das kostet eine Runde und ist
+   billiger als eine Architekturaenderung, die niemand beauftragt hat.
+
+**Streng, nicht kleinlich.** Das Mandat beschreibt Grenzen, nicht Arbeitsschritte.
+Wie der Agent innerhalb seiner Grenzen vorgeht, ist seine Sache; Mikromanagement
+verschenkt genau die Faehigkeit, fuer die er beauftragt wurde.
+
+**Belegter Anlassfall (2026-08-03, AG3-180).** Ein Remediationsauftrag nannte 13
+zu behebende Befunde und als Grenze nur den Satz „Scope bleibt AG3-180". Der
+Agent loeschte daraufhin ein Produktionsmodul (`auth/bootstrap.py`), entfernte
+die HTTP-Bootstrap-Route ersatzlos, aenderte FK-10 und den API-Ereigniskatalog
+und fasste **76 Dateien** an — regelkonform nach dem Auftrag, den er hatte.
+Die Kosten traegt die Reviewrunde, die nun zuerst klaeren muss, ob ein
+Akzeptanzkriterium erfuellt oder nur gegenstandslos gemacht wurde.
+
+#### Effizienz gehoert ins Briefing
+
+`guardrails/test-execution-efficiency.md` (R1–R4) ist jedem Auftrag
+mitzugeben, der Tests ausfuehrt — **innere Schleife nur auf der betroffenen
+Teilmenge, genau EIN voller Lauf mit Coverage im selben Durchlauf vor der
+Uebergabe.** Ohne diesen Hinweis prueft ein sorgfaeltiger Agent nach jeder
+Einzelaenderung erneut. Gemessen am 2026-08-03: **394 pytest-Aufrufe** und
+**600 Dateiaenderungen** in einem einzigen Remediationsauftrag, acht Stunden
+Laufzeit fuer 13 Befunde.
+
 ### DEFINITION OF DONE: CODEX-REVIEW BIS ZUM ABBRUCHKRITERIUM (PO-Grundregel)
 
 Ein Arbeitsschritt ist **nicht** fertig, weil er funktioniert. Er ist fertig,
@@ -422,6 +475,38 @@ Wenn oeffentliche Schnittstellen, Kernzustandsmodelle oder breit wirksame Pipeli
 
 - `.venv\Scripts\python -m ruff check src tests`
 - `.venv\Scripts\python -m mypy src`
+
+### Zugaenge zu den lokalen Diensten — NICHT nachfragen
+
+Alle Zugangsdaten der lokalen Dienste liegen in **`.env`** im Repo-Root
+(gitignored, `.gitignore:37`). Die Datei wird **nicht** automatisch geladen.
+Wer einen Dienst abfragen will, laedt sie fuer die Session:
+
+```powershell
+Get-Content .env | Where-Object { $_ -match '^\s*[A-Za-z_]' } |
+  ForEach-Object { $k,$v = $_ -split '=',2; Set-Item "env:$($k.Trim())" $v.Trim() }
+```
+
+| Dienst | Adresse | Schluessel in `.env` |
+|---|---|---|
+| PostgreSQL (Produktion) | `localhost:5432` | `AGENTKIT_STATE_BACKEND`, `AGENTKIT_STATE_DATABASE_URL` |
+| SonarQube | `http://localhost:9901` | `SONAR_HOST_URL`, `SONAR_USER`, `SONAR_PASSWORD` |
+| Jenkins | `http://localhost:9900` | API-Token in `var/jenkins-api-token.txt` |
+
+**Diese Zugaenge sind vorhanden. Sie sind nicht beim Auftraggeber zu erfragen.**
+
+Zwei Fallen, an denen mehrere Agents nacheinander gescheitert sind:
+
+- **Jenkins antwortet anonym mit `403`, nicht `401`.** Clients, die Basic-Auth
+  erst nach einer `401`-Challenge senden (u. a. PowerShells `-Credential`,
+  `Invoke-RestMethod`), schicken die Daten deshalb **nie**. Den
+  `Authorization: Basic …`-Header praeemptiv setzen. Fuer POSTs zusaetzlich
+  einen Crumb von `/crumbIssuer/api/json` holen und **dieselbe Session**
+  (Cookie) weiterverwenden — Crumb ohne Session ist ebenfalls `403`.
+- **Niemals mit gesetzter `AGENTKIT_STATE_DATABASE_URL` pytest starten.** Die
+  Fixture weist Port 5432 fail-closed ab, damit die Produktions-DSN nicht in
+  einen Testlauf leckt. Und die DSN nie als `User`-/`Machine`-Variable
+  persistieren.
 
 ### Temp- und Laufzeitdaten
 

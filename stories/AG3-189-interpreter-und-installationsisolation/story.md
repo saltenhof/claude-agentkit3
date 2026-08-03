@@ -45,6 +45,17 @@ Start." Die Warnalternative ist unzulaessig:
 
 ## Scope
 
+> **Neuschnitt 2026-08-03 (PO-Entscheid).** AG3-206 trug dasselbe
+> venv-Kriterium. Diese Story ist ab jetzt der **alleinige** Eigentuemer der
+> Durchsetzung: Installationsart, Interpreterbegriff, Verweigerung. AG3-206
+> behaelt ausschliesslich die **Vollstaendigkeit** der Umgebung (deklarierte
+> gegen importierbare Abhaengigkeiten) und die Sichtbarkeit verschluckter
+> Hook-Fehler. Aus AG3-206 hierher gewandert ist auch deren offene Frage:
+> **legt AK3 die venv selbst an, oder verlangt es eine vorhandene und
+> verweigert sonst den Dienst?** Beides erfuellt den Decision Record; die Wahl
+> bestimmt, ob der Installer Umgebungen erzeugt oder nur prueft. Dem PO bei
+> Umsetzungsbeginn vorzulegen.
+
 ### In Scope
 
 - Fail-closed-Verweigerung einer globalen (nicht-venv) Installation von AK3.
@@ -60,8 +71,16 @@ Start." Die Warnalternative ist unzulaessig:
 - Kein Umbau der `pyproject.toml`-Paketstruktur ueber das hinaus, was die
   Verweigerung braucht.
 - Keine Umbenennung des Paketnamens `agentkit`. Der Namenskonflikt mit AK2 wird
-  **isoliert**, nicht aufgeloest — eine Umbenennung waere eine eigene
-  Grundentscheidung.
+  hier **isoliert**, nicht aufgeloest.
+  **ACHTUNG — diese Praemisse ist ueberholt (2026-08-03).** Die Grundentscheidung
+  ist inzwischen gefallen: `agentkit` ist der Framework-Name und gehoert keinem
+  Artefakt allein; jede Distribution bekommt eine eigene, kollisionsfreie
+  Importwurzel (Decision Record
+  `concept/_meta/decisions/2026-08-03-edge-und-kern-sind-zwei-distributionen.md`
+  §4.1, umgesetzt in AG3-208/AG3-209). **Damit stirbt der AK2-Konflikt, statt
+  eingezaeunt zu werden.** Vor Umsetzungsbeginn ist deshalb zu klaeren, ob diese
+  Story ihre Isolation ueberhaupt noch braucht oder nur noch den Zeitraum bis
+  AG3-209 ueberbrueckt. Das entscheidet der PO, nicht der Implementierer.
 - Die bereits gelandeten Interpreter-Fixes (`01a27de1`, `cb3662c4`) werden
   nicht erneut gemacht; diese Story sorgt dafuer, dass ihr Fehlen kuenftig
   auffaellt.

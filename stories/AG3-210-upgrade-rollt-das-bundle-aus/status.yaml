@@ -1,0 +1,24 @@
+story_id: AG3-210
+story_title_short: "upgrade-rollt-das-bundle-aus"
+title: "Der Update-Pfad rollt aus, was er bestaetigt: upgrade-project frischt Bundle-/Scaffold-Dateien auf, statt Bindungen auf veraltete Dateien zu besiegeln."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-03"
+size: M
+# NEU 2026-08-03. Belegter Anlassfall aus der Fremdinstallation `intima`:
+# Der Scaffold-Hook `.agentkit/hooks/pre_tool_use.py` war defekt (toter Import
+# auf `agentkit.governance.*`), der Fix landete am 2026-08-03 in AK3 -- und
+# erreichte das installierte Projekt NICHT. Ein fremder Agent suchte den
+# Update-Weg, fand `upgrade-project`, fuhr ihn (dry-run) und stellte fest, dass
+# keiner seiner sechs Checkpoints Bundle-Dateien materialisiert.
+#
+# Der Rollout haengt an `deploy_post_registration_artifacts()`
+# (installer/runner.py:1150), aufgerufen aus CP 8
+# (bootstrap_checkpoints/cp07_to_09.py:239) -- also im REGISTER-Fluss.
+# `_deploy_static_resource_files` (runner.py:581-596) kopiert dort jede
+# Nicht-Template-Datei inhaltsgewacht. Das Verb, das "Upgrade" heisst,
+# upgraded die ausgelieferten Dateien nicht; das Verb, das es tut, heisst
+# "register". Ein Bediener greift zwangslaeufig zum falschen.
+depends_on: []
+unblocks: []

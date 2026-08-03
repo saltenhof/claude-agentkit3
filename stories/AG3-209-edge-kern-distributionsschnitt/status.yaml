@@ -1,0 +1,13 @@
+story_id: AG3-209
+story_title_short: "edge-kern-distributionsschnitt"
+title: "Edge, Kern und kleines Wire-Vertragspaket in EINEM Zug: Module, Dependencies, Entry Points, Installer, Bundles, Tests und blockierendes Distribution-Gate schneiden gemeinsam um."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-03"
+size: L
+# Kein Zwischenstand mit alten und neuen Import-/Installationswegen. Das
+# Distribution-Gate landet im selben Diff wie der Schnitt; ein spaeteres Gate
+# waere eine nur konventionelle Grenze und widerspraeche dem Decision Record.
+depends_on: ["AG3-208"]
+unblocks: []
