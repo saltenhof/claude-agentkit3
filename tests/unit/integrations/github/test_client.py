@@ -186,7 +186,7 @@ class TestResolveTokenForOwner:
     ) -> None:
         """Falls back to cred file when keyring returns None."""
         creds_file = tmp_path / ".git-credentials-testowner"
-        creds_file.write_text("https://testowner:ghp_test123@github.com\n")
+        creds_file.write_text("https://testowner:ghp_test123@github.com\n", encoding="utf-8")
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
@@ -229,7 +229,7 @@ class TestResolveTokenForOwner:
     ) -> None:
         """Returns None when cred file has credentials for a different user."""
         creds_file = tmp_path / ".git-credentials-testowner"
-        creds_file.write_text("https://otheruser:ghp_other@github.com\n")
+        creds_file.write_text("https://otheruser:ghp_other@github.com\n", encoding="utf-8")
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
@@ -247,7 +247,7 @@ class TestResolveTokenForOwner:
         creds_file.write_text(
             "https://testowner:ghp_first@github.com\n"
             "https://testowner:ghp_second@github.com\n"
-        )
+        , encoding="utf-8")
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
@@ -310,7 +310,7 @@ class TestResolveTokenFromCredentialsFile:
     ) -> None:
         """Reads token from ~/.git-credentials-{owner}."""
         creds_file = tmp_path / ".git-credentials-testowner"
-        creds_file.write_text("https://testowner:ghp_abc@github.com\n")
+        creds_file.write_text("https://testowner:ghp_abc@github.com\n", encoding="utf-8")
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         token = _resolve_token_from_credentials_file("testowner")

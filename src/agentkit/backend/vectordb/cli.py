@@ -46,7 +46,7 @@ def _repo_root(start: Path) -> Path:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="replace",
+            errors="surrogateescape",
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise GitOperationError(f"could not resolve git repo root from {start}: {exc}") from exc
@@ -71,7 +71,7 @@ def _staged_concept_overlays(repo_root: Path, concepts_dir: Path) -> dict[str, s
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="replace",
+            errors="surrogateescape",
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise GitOperationError(f"git diff --cached failed: {exc}") from exc
@@ -125,7 +125,7 @@ def _changed_concept_files(repo_root: Path, concepts_dir: Path) -> list[str]:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="replace",
+            errors="surrogateescape",
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise GitOperationError(f"git diff --name-only HEAD failed: {exc}") from exc

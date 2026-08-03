@@ -62,3 +62,38 @@ class TestGitignoreLinkBindpointHygiene:
         claude_lines = [ln for ln in content.splitlines() if "claude/skills" in ln]
         assert len(claude_lines) == 1  # normalised match -> not re-added
         assert ".codex/skills/" in content
+
+
+class TestForeignGitignoreIsNotRewritten:
+    """The installer appends to a file the project owns -- it may not reformat it.
+
+    A lossless codec alone was not enough: reading with universal newlines
+    turned every CRLF into LF, so the write handed the project back a file it
+    had not written. The bytes that were there before must still be there,
+    unchanged, byte for byte.
+    """
+
+    def test_crlf_and_non_utf8_bytes_survive_untouched(self, tmp_path: Path) -> None:
+        gitignore = tmp_path / ".gitignore"
+        # cp1252 'ä' (0xE4), CRLF endings, and a trailing blank line.
+        original = b"# Gr\xe4sse\r\n*.tmp\r\n\r\n"
+        gitignore.write_bytes(original)
+
+        _ensure_link_bindpoint_gitignore(tmp_path)
+
+        after = gitignore.read_bytes()
+        assert after.startswith(original), "existing bytes were rewritten"
+        appended = after[len(original) :]
+        assert b"\r\n" in appended, "the project's line ending was not carried on"
+        assert b"\n" not in appended.replace(b"\r\n", b""), "a lone LF was introduced"
+        assert b"\xef\xbf\xbd" not in after, "a byte was replaced by U+FFFD"
+
+    def test_entries_are_still_added(self, tmp_path: Path) -> None:
+        gitignore = tmp_path / ".gitignore"
+        gitignore.write_bytes(b"# Gr\xe4sse\r\n")
+
+        _ensure_link_bindpoint_gitignore(tmp_path)
+
+        text = gitignore.read_text(encoding="utf-8", errors="surrogateescape")
+        assert ".claude/skills/" in text
+        assert ".codex/skills/" in text

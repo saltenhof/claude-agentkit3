@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,17 +50,6 @@ AK3_CLAUDE_HOOK_WRAPPER = "agentkit-hook-claude"
 #: AK3 Codex hooks are emitted through this wrapper command (settings_writer).
 AK3_CODEX_HOOK_WRAPPER = "agentkit-hook-codex"
 
-#: Substrings that uniquely identify an AK3-owned hook command. Beyond the two
-#: harness wrappers, AK3 also registers hooks that invoke a script under the
-#: project ``.agentkit/hooks/`` directory (e.g. ``python .agentkit/hooks/...``);
-#: a FOREIGN hook never references the AK3-owned ``.agentkit/hooks`` path, so this
-#: stays surgical (foreign hooks are preserved, FK-10 §10.2.9).
-_AK3_HOOK_MARKERS = (
-    AK3_CLAUDE_HOOK_WRAPPER,
-    AK3_CODEX_HOOK_WRAPPER,
-    ".agentkit/hooks",
-)
-
 #: Structural keys of a hook matcher group. Any OTHER key is foreign-owned data
 #: that must survive even when the group's AK3 handler list is fully stripped
 #: (FK-10 §10.2.9 surgical removal — never discard foreign config).
@@ -67,11 +57,28 @@ _MATCHER_GROUP_STRUCTURAL_KEYS = frozenset({"matcher", "hooks"})
 
 
 def _is_ak3_hook_command(command: object) -> bool:
-    """Return whether ``command`` is an AK3-owned hook command (surgical match)."""
+    """Return whether ``command`` is an AK3-owned hook command.
+
+    Ownership is decided on the command's TOKENS, not on a substring of the
+    whole line. A foreign hook that merely mentions an AK3 name --
+    ``echo "agentkit-hook-codex" && ./foreign-quality-gate`` -- was removed by
+    detach; a foreign backup path ``/opt/.agentkit/hooks-backup/quality.sh``
+    counted as ours because it contains ``.agentkit/hooks``. Detach deletes what
+    it matches, so a wrong match destroys foreign configuration.
+    """
     if not isinstance(command, str):
         return False
-    normalized = command.replace("\\", "/")
-    return any(marker in normalized for marker in _AK3_HOOK_MARKERS)
+    try:
+        tokens = shlex.split(command.replace("\\", "/"), posix=True)
+    except ValueError:
+        return False  # unparsable shell is not provably ours -- keep it
+    for token in tokens:
+        if token in {AK3_CLAUDE_HOOK_WRAPPER, AK3_CODEX_HOOK_WRAPPER}:
+            return True
+        segments = token.split("/")
+        if ".agentkit" in segments and "hooks" in segments[segments.index(".agentkit") + 1 :]:
+            return True
+    return False
 
 
 @dataclass(frozen=True)

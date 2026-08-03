@@ -124,18 +124,43 @@ def _read_foreign_text(path: Path) -> str:
     """Read a file AK3 does not own, losslessly.
 
     The installer appends to files the project brought with it. A `.gitignore`
-    with a cp1252 comment is legitimate and none of AK3's business -- but a
-    read-modify-write must return every byte it did not touch. Strict decoding
-    would abort the install; replacing decoding would silently write U+FFFD over
-    the project's own line. ``surrogateescape`` round-trips exactly, as long as
-    the write uses it too.
+    with a cp1252 comment and CRLF endings is legitimate and none of AK3's
+    business -- but a read-modify-write must return every byte it did not touch.
+    Two things are needed for that, and one alone is not enough:
+
+    * ``surrogateescape`` carries bytes that are not valid UTF-8 through the
+      decode unchanged. Strict decoding would abort the install; replacing
+      decoding would silently write U+FFFD over the project's own line.
+    * ``newline=""`` switches OFF universal-newline translation. Without it the
+      read alone turns every CRLF into LF, and the write turns the whole file
+      over -- lossless codec, rewritten file.
     """
-    return path.read_text(encoding="utf-8", errors="surrogateescape")
+    with path.open("r", encoding="utf-8", errors="surrogateescape", newline="") as handle:
+        return handle.read()
 
 
 def _write_foreign_text(path: Path, content: str) -> None:
     """Write back text obtained from :func:`_read_foreign_text`, byte for byte."""
-    path.write_text(content, encoding="utf-8", errors="surrogateescape")
+    with path.open("w", encoding="utf-8", errors="surrogateescape", newline="") as handle:
+        handle.write(content)
+
+
+def _newline_of(text: str) -> str:
+    """Return the line ending the file already uses -- never a new convention."""
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def _append_gitignore_block(existing: str, comment: str, entries: list[str]) -> str:
+    """Append a section to ``existing`` WITHOUT rewriting a byte of it."""
+    newline = _newline_of(existing)
+    parts = [existing]
+    if existing and not existing.endswith(("\n", "\r")):
+        parts.append(newline)  # terminate the project's unterminated last line
+    if existing.strip() and not existing.endswith((newline * 2, "\n\n")):
+        parts.append(newline)  # blank separator before the new section
+    parts.append(comment + newline)
+    parts.extend(entry + newline for entry in entries)
+    return "".join(parts)
 
 
 def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
@@ -156,22 +181,21 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
         return entry.strip().rstrip("/")
 
     gitignore_path = root / ".gitignore"
-    existing_lines: list[str] = []
-    if gitignore_path.is_file():
-        existing_lines = _read_foreign_text(gitignore_path).splitlines()
-    present = {_norm(line) for line in existing_lines}
+    existing = _read_foreign_text(gitignore_path) if gitignore_path.is_file() else ""
+    present = {_norm(line) for line in existing.splitlines()}
     required = (*_LINK_BINDPOINT_GITIGNORE_ENTRIES, *_PYTHON_CACHE_GITIGNORE_ENTRIES)
     missing = [entry for entry in required if _norm(entry) not in present]
     if not missing:
         return None
 
-    block: list[str] = []
-    if existing_lines and existing_lines[-1].strip() != "":
-        block.append("")  # blank separator before the new section
-    block.append("# AgentKit skill bind points — links to central bundles (FK-43 §43.4.1.1)")
-    block.extend(missing)
-    new_text = "\n".join([*existing_lines, *block]).rstrip("\n") + "\n"
-    _write_foreign_text(gitignore_path, new_text)
+    _write_foreign_text(
+        gitignore_path,
+        _append_gitignore_block(
+            existing,
+            "# AgentKit skill bind points — links to central bundles (FK-43 §43.4.1.1)",
+            missing,
+        ),
+    )
     return str(gitignore_path.relative_to(root))
 
 
@@ -188,25 +212,22 @@ def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str
     forbidden = [] if _effective_multi_repo(config) else [f"/{CODEBASE_DIR}/"]
 
     gitignore_path = root / ".gitignore"
-    existing = (
-        _read_foreign_text(gitignore_path).splitlines()
-        if gitignore_path.is_file()
-        else []
-    )
-    filtered = [line for line in existing if line.strip() not in forbidden]
-    present = {line.strip() for line in existing}
+    existing = _read_foreign_text(gitignore_path) if gitignore_path.is_file() else ""
+    # `keepends` keeps every line ending exactly as the project wrote it; only
+    # the forbidden lines are dropped, and nothing else is re-serialised.
+    kept = [line for line in existing.splitlines(keepends=True) if line.strip() not in forbidden]
+    present = {line.strip() for line in existing.splitlines()}
     missing = [entry for entry in required if entry not in present]
-    changed = filtered != existing
+    changed = len(kept) != len(existing.splitlines(keepends=True))
     if not missing and not changed:
         return None
 
-    block: list[str] = []
-    if filtered and filtered[-1].strip() != "" and missing:
-        block.append("")
-    if missing:
-        block.append("# AgentKit default project scaffold")
-        block.extend(missing)
-    new_text = "\n".join([*filtered, *block]).rstrip("\n") + "\n"
+    remaining = "".join(kept)
+    new_text = (
+        _append_gitignore_block(remaining, "# AgentKit default project scaffold", missing)
+        if missing
+        else remaining
+    )
     _write_foreign_text(gitignore_path, new_text)
     return str(gitignore_path.relative_to(root))
 

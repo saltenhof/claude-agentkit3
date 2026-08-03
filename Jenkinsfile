@@ -130,6 +130,7 @@ PY
                         . .venv/bin/activate
                         AGENTKIT_STATE_BACKEND=sqlite \
                         AGENTKIT_ALLOW_SQLITE=1 \
+                        PYTHONWARNDEFAULTENCODING=1 \
                         python -m pytest tests/unit \
                             -q \
                             --junitxml=test-results/ci.xml \
@@ -210,6 +211,7 @@ else:
     )
 PY
                         set +e
+                        PYTHONWARNDEFAULTENCODING=1 \
                         python -m pytest tests/contract tests/integration tests/e2e \
                             -m "not requires_gh" \
                             -q \

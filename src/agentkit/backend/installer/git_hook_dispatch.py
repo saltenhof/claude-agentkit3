@@ -284,7 +284,9 @@ def _current_hooks_path(project_root: Path) -> str | None:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="replace",
+            # This value is compared and written back on rollback -- replacing a
+            # byte here restores a `core.hooksPath` the project never had.
+            errors="surrogateescape",
             timeout=15,
             check=False,
         )

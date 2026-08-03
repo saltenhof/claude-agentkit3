@@ -254,7 +254,7 @@ class TestBindSkillFailClosed:
         bundle_root.mkdir()
         (bundle_root / "manifest.json").write_text(
             '{"bundle_id": "x", "manifest_digest": "deadbeef"}'
-        )
+        , encoding="utf-8")
         project_root = tmp_path / "project"
         project_root.mkdir()
 
@@ -372,7 +372,7 @@ class TestBindSkillSelfAtomicCleanup:
         for harness in harnesses:
             d = _harness_skill_dir(project_root, harness)
             d.mkdir(parents=True, exist_ok=True)
-            (d / "implement").write_text("stub")
+            (d / "implement").write_text("stub", encoding="utf-8")
 
         repo = _FailingSaveRepo()
         skills = Skills(bundle_store=SkillBundleStore(), binding_repo=repo)
@@ -547,7 +547,7 @@ class TestBindSkillNoSilentPartialState:
             for harness in (HarnessKind.CLAUDE_CODE, HarnessKind.CODEX):
                 d = _harness_skill_dir(project_root, harness)
                 d.mkdir(parents=True, exist_ok=True)
-                (d / "implement").write_text("stub")
+                (d / "implement").write_text("stub", encoding="utf-8")
             return SkillBindingMode.SYMLINK
 
         monkeypatch.setattr(top_mod, "_create_harness_links", _fake_create)
@@ -662,7 +662,7 @@ class TestBindSkillNoSilentPartialState:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 # First harness: create a plain-file stand-in for the link.
-                link_path.write_text("stub-link-1")
+                link_path.write_text("stub-link-1", encoding="utf-8")
                 return SkillBindingMode.SYMLINK
             # Second harness: fail (e.g. OS error mid-creation).
             raise OSError("link-2 creation failed (simulated)")
@@ -702,7 +702,7 @@ class TestBindSkillNoSilentPartialState:
         def _fake_create(link_path: Path, target: Path) -> SkillBindingMode:
             call_count["n"] += 1
             if call_count["n"] == 1:
-                link_path.write_text("stub-link-1")
+                link_path.write_text("stub-link-1", encoding="utf-8")
                 return SkillBindingMode.SYMLINK
             raise OSError("link-2 creation failed (simulated)")
 

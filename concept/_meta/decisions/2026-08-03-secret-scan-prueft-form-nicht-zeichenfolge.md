@@ -86,15 +86,32 @@ Umgehungen faengt — Alias, Re-Import, `getattr`, `partial`, `**kwargs`,
 haengt nie an der Maschine — was mit einem abweichenden Byte geschieht,
 entscheidet dagegen der **Zweck** der Bytes:
 
+Massgeblich ist der **Vertrag des einzelnen Ausgabefeldes**, nicht der Prozess,
+der es liefert. Derselbe `git`-Aufruf liefert Pfade, SHAs und Diagnosetext; eine
+Regel „Werkzeugausgabe ist Anzeigetext" waere deshalb falsch.
+
 | Fall | Verfahren | Warum |
 |---|---|---|
 | **AK3-eigenes Protokoll** — eigene Konzeptdateien, JSON-Ledger, Snapshots | `strict` | Eine kaputte Kodierung ist eine Protokollverletzung und muss fail-closed auffallen. Ein ersetzend gelesener Ledger wird akzeptiert und gehasht — mit verfaelschtem Inhalt. |
-| **Fremder Inhalt, der zurueckgeschrieben oder verglichen wird** — `.gitignore`, fremde Hooks, Pfade aus `git status` | `surrogateescape` | Verlustfrei. Ein Read-modify-write gibt jedes Byte zurueck, das er nicht angefasst hat. `replace` wuerde U+FFFD ueber fremde Zeilen schreiben — irreversibel. |
-| **Reiner Anzeigetext** — Diagnoseprotokolle, Werkzeugausgabe | `replace` | Es wird nichts daraus abgeleitet. Ein Streubyte darf keinen gruenen Lauf in `STDOUT: None` verwandeln. |
+| **Wert, der verglichen, geparst oder zurueckgeschrieben wird** — `.gitignore`, fremde Hooks, `core.hooksPath`, Pfade, SHAs, Branch-Namen, Diff-Inhalt | `surrogateescape` | Verlustfrei. Ein Read-modify-write gibt jedes Byte zurueck, das er nicht angefasst hat; ein Rollback stellt her, was war. `replace` wuerde U+FFFD hineinschreiben — irreversibel und unbemerkt. |
+| **Text, der ausschliesslich angezeigt wird** — Testprotokolle, Werkzeug-Logausgabe | `replace` | Es wird nichts daraus abgeleitet. Ein Streubyte darf keinen gruenen Lauf in `STDOUT: None` verwandeln. |
+
+Verlustfreiheit hat zwei Bedingungen, und eine allein genuegt nicht: der
+**Codec** (`surrogateescape`) und die **Zeilenenden** (`newline=""`). Ohne die
+zweite macht schon das Lesen aus jedem CRLF ein LF, und der Rueckschreibvorgang
+haendigt dem Projekt eine Datei aus, die es so nie geschrieben hat.
 
 Ein Fremdprozess, den AK3 startet, bekommt zusaetzlich `PYTHONIOENCODING=utf-8`
-— steuern statt hoffen. Und die Entscheidung faellt immer am Rueckgabewert, nie
-am Zeichensatz.
+— steuern statt hoffen.
+
+**Durchgesetzt wird die Regel von zwei Seiten.** Statisch: ein Contract-Test
+verlangt an jedem direkt benannten Text-I/O-Einstieg ein literales UTF-8 — eng
+geschnitten, weil ein Fehlalarm in einem blockierenden Test jeden Commit im
+Repository stoppt und damit genau den Schaden erzeugt, gegen den 2.1 antritt.
+Semantisch: `PYTHONWARNDEFAULTENCODING=1` macht jede tatsaechlich ausgefuehrte
+Stelle ohne Kodierung zur `EncodingWarning`, und die Suite behandelt sie als
+Fehler. Die statische Haelfte sieht alles, was benannt ist; die semantische
+sieht durch Wrapper und injizierte Runner, die keine Syntaxregel aufloest.
 
 ## 3. Was NICHT entschieden wurde — und warum
 

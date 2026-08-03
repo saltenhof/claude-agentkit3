@@ -99,6 +99,14 @@ markers = [
     "contract: contract/snapshot tests",
     "e2e: end-to-end tests against live systems",
 ]
+# Text I/O that takes the platform's preferred encoding is a defect, not a
+# style question: it decodes the same bytes differently on Windows than on
+# Linux. `PYTHONWARNDEFAULTENCODING=1` makes the interpreter report every such
+# call site as `EncodingWarning`; here it becomes a test failure. This is the
+# semantic half of the rule -- it sees through wrappers and injected runners
+# that no syntax check can resolve (see
+# tests/contract/backend/test_subprocess_text_encoding.py).
+filterwarnings = ["error::EncodingWarning"]
 
 [tool.coverage.run]
 source = ["agentkit"]

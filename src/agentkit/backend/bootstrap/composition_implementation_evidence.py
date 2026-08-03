@@ -15,7 +15,22 @@ if TYPE_CHECKING:
     from agentkit.backend.verify_system.pre_merge_runner.contract import BuildTestPort
 
 
-_TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
+def _is_test_file(path: str) -> bool:
+    """Return whether ``path`` IS a test file -- by structure, not by substring.
+
+    ``"test_" in path`` accepted ``src/latest_feature.py`` as evidence of a
+    test, and ``"tests/" in path`` accepted ``src/protests/helper.py``. Both made
+    ``check_test_file_count`` pass on a change set that carries no test at all --
+    a fail-open in a BLOCKING check. The role of a file is decided by its path
+    SEGMENTS and its filename, the way the test runner decides it.
+    """
+    segments = path.replace("\\", "/").strip().split("/")
+    if not segments or not segments[-1]:
+        return False
+    name = segments[-1]
+    if "tests" in segments[:-1]:
+        return True
+    return name.startswith("test_") or name.rpartition(".")[0].endswith("_test")
 
 
 @dataclass(frozen=True)
@@ -143,7 +158,7 @@ class _CiBuildTestEvidenceAdapter:
         return sum(
             1
             for line in (out or "").splitlines()
-            if any(marker in line for marker in _TEST_FILE_MARKERS)
+            if _is_test_file(line)
         )
 
     def _read(self, repo: object, *args: str) -> str | None:
