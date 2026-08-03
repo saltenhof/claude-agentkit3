@@ -35,7 +35,13 @@ def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> froz
             "--",
             concept_relative,
         ]
-        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
         if completed.returncode != 0:
             raise GitScopeError(completed.stderr.strip() or f"git diff exited {completed.returncode}")
         changed.update(_parse_changed_paths(completed.stdout, prefix))

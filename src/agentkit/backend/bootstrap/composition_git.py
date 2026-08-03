@@ -20,6 +20,7 @@ class CompositionSubprocessGitBackend:
             ["git", "-C", str(repo.command_cwd), *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
         )
         return GitCommandResult(result.returncode, result.stdout, result.stderr)

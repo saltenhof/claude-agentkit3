@@ -81,6 +81,7 @@ class GitLsRemoteReader:
                 ["git", "ls-remote", "--exit-code", remote, ref],  # noqa: S607
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=self.timeout_seconds,
                 check=False,
             )

@@ -61,13 +61,30 @@ def scan_staged_diff(repo_root: Path) -> SecretScanResult:
 
 
 def _added_lines_from_unified_diff(diff_text: str) -> tuple[tuple[str, str], ...]:
+    """Return ``(path, added_line)`` pairs, distinguishing header from payload.
+
+    A ``+``-prefixed line is header or payload depending on WHERE it stands, not
+    on how it starts: inside a hunk, ``+++counter`` is the added source line
+    ``++counter``. Recognizing headers by prefix alone dropped such lines.
+    """
     current_path = ""
+    in_hunk = False
     added: list[tuple[str, str]] = []
     for raw_line in diff_text.splitlines():
-        if raw_line.startswith("+++ b/"):
-            current_path = raw_line.removeprefix("+++ b/")
+        if raw_line.startswith("diff --git "):
+            current_path = ""
+            in_hunk = False
             continue
-        if raw_line.startswith("+") and not raw_line.startswith("+++"):
+        if not in_hunk:
+            if raw_line.startswith("+++ "):
+                target = raw_line.removeprefix("+++ ")
+                current_path = target.removeprefix("b/")
+            elif raw_line.startswith("@@"):
+                in_hunk = True
+            continue
+        if raw_line.startswith("@@"):
+            continue
+        if raw_line.startswith("+"):
             added.append((current_path, raw_line[1:]))
     return tuple(added)
 
@@ -83,6 +100,7 @@ def _git_text(repo_root: Path, *args: str) -> str:
             ["git", "-C", str(repo_root), *args],  # noqa: S607
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
         )
     except OSError as exc:

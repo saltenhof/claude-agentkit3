@@ -221,8 +221,14 @@ durch CCAG blockierbar ist).
 | `*_SECRET*`, `*_TOKEN*`, `*_PASSWORD*` | Ja (BLOCKING) |
 | `*.keystore`, `*.jks` | Ja (BLOCKING) |
 
-Zusätzlich scannt der Check Diff-Inhalte auf Credential-Präfixe:
-`AKIA` (AWS Access Key), `ghp_` (GitHub PAT), `sk-` (OpenAI Key).
+Zusätzlich scannt der Check Diff-Inhalte auf Credential-Präfixe. Geführt
+werden die Familien, die die Aussteller tatsächlich vergeben:
+
+| Aussteller | Präfixe |
+|---|---|
+| AWS Access Key ID | `AKIA` (dauerhaft), `ASIA` (temporär, STS) |
+| GitHub Token | `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_` |
+| OpenAI API Key | `sk-` (einschliesslich `sk-proj-`) |
 
 **Ein Präfix allein ist kein Treffer.** Gescannt wird die *Form* des
 ausgestellten Credentials, nicht die blosse Zeichenfolge. Ein Treffer
@@ -231,18 +237,36 @@ verlangt beides:
 1. **Token-Anfang.** Unmittelbar vor dem Präfix darf kein Token-Zeichen
    (`[A-Za-z0-9_-]`) stehen. Fachprosa, die das Präfix im Wortinneren
    trägt — `risk-adjusted`, `task-`, `desk-` —, ist damit kein Treffer.
-2. **Mindestkörper.** Nach dem Präfix müssen mindestens so viele
-   Token-Zeichen folgen, wie das ausstellende System vergibt: `AKIA` 16,
-   `ghp_` 36, `sk-` 20.
+   Die Ankerung sitzt vor dem *Präfix*, nicht vor dem Wort.
+2. **Mindestkörper.** Nach dem Präfix muss eine Mindestzahl von
+   Token-Zeichen folgen.
 
 Beide Bedingungen sind Pflicht. Ohne (1) blockiert der Scan deutsche und
 englische Prosa dauerhaft und erzieht damit zu `--no-verify`; ohne (2)
 genügt ein Präfix am Zeilenanfang. Ein Scanner, der Fliesstext ablehnt,
 schützt nichts — er wird umgangen.
 
-Eigentümer der konkreten Werte ist
-`src/agentkit/backend/governance/guard_system/secret_patterns.py`; die
-Längen sind dort je Präfix hinterlegt und begründet.
+**Der Mindestkörper ist eine Falsch-Positiv-Untergrenze, kein
+Aussteller-Vertrag.** Er liegt bewusst unterhalb der kürzesten
+dokumentierten Ausstellung, damit ein verkürztes oder geändertes
+Upstream-Format weiterhin trifft. Auf der realen Länge gesetzt wäre er
+ein Fail-open, das niemand bemerkt. Die durchgesetzten Zahlen stehen in
+`src/agentkit/backend/governance/guard_system/secret_patterns.py` —
+abgeleitet aus dieser Regel, nicht als eigene Norm daneben.
+
+**Grenze des Werkzeugs, ausdrücklich benannt:** Der Scan adressiert das
+*versehentliche* Einchecken. Ein zerlegtes Literal, Base64 oder
+URL-Encoding umgehen jeden Zeilenscanner; wer absichtlich exfiltriert,
+wird hier nicht gefasst.
+
+**Eingebüßte Abdeckung, ebenso ausdrücklich:** Eine Zerlegung *hinter*
+einem vollständigen Präfix (`"sk-" "proj-…"`) wurde von einer reinen
+Substring-Suche noch getroffen und wird von der Formprüfung nicht mehr
+getroffen. Das ist der Preis der Ankerung und bewusst hingenommen: den
+Fall zu behalten hieße, das bloße Präfix als Treffer zu werten — genau
+die Regel, die Fachprosa dauerhaft blockiert hat.
+
+Siehe `concept/_meta/decisions/2026-08-03-secret-scan-prueft-form-nicht-zeichenfolge.md`.
 
 ### 15.5.3 Governance-Beobachtung: Secret-Zugriff
 

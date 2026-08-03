@@ -45,6 +45,7 @@ def _repo_root(start: Path) -> Path:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise GitOperationError(f"could not resolve git repo root from {start}: {exc}") from exc
@@ -61,11 +62,14 @@ def _staged_concept_overlays(repo_root: Path, concepts_dir: Path) -> dict[str, s
     """
     try:
         out = subprocess.run(  # noqa: S603
-            ["git", "diff", "--cached", "--name-status"],
+            # `core.quotepath=false` keeps non-ASCII paths as UTF-8 instead of
+            # octal escapes; `encoding` keeps Windows from guessing cp1252.
+            ["git", "-c", "core.quotepath=false", "diff", "--cached", "--name-status"],
             cwd=str(repo_root),
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise GitOperationError(f"git diff --cached failed: {exc}") from exc
@@ -86,15 +90,20 @@ def _staged_concept_overlays(repo_root: Path, concepts_dir: Path) -> dict[str, s
             overlays[path] = ""  # staged deletion -> remove from candidate
             continue
         try:
-            content = subprocess.run(  # noqa: S603
+            # The blob is read as BYTES and decoded as UTF-8 here: what lies in
+            # the repository is UTF-8, not whatever code page the machine runs.
+            blob = subprocess.run(  # noqa: S603
                 ["git", "show", f":{path}"],
                 cwd=str(repo_root),
                 check=True,
                 capture_output=True,
-                text=True,
             ).stdout
         except (FileNotFoundError, subprocess.CalledProcessError) as exc:
             raise GitOperationError(f"git show :{path} failed: {exc}") from exc
+        try:
+            content = blob.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise GitOperationError(f"staged concept file {path} is not UTF-8: {exc}") from exc
         overlays[path] = content
     # Re-key overlays relative to the concept root (candidate is concept-rooted).
     rel_overlays: dict[str, str] = {}
@@ -108,11 +117,12 @@ def _changed_concept_files(repo_root: Path, concepts_dir: Path) -> list[str]:
     """Return concept files changed vs HEAD (for ``lint --changed``, R07)."""
     try:
         out = subprocess.run(  # noqa: S603
-            ["git", "diff", "--name-only", "HEAD"],
+            ["git", "-c", "core.quotepath=false", "diff", "--name-only", "HEAD"],
             cwd=str(repo_root),
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise GitOperationError(f"git diff --name-only HEAD failed: {exc}") from exc

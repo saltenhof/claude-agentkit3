@@ -10,19 +10,18 @@ from enum import StrEnum
 TOKEN_BODY_CHARACTERS = "A-Za-z0-9_-"
 
 
-class SecretPatternKind(StrEnum):
-    """Kinds of canonical secret-detection patterns."""
+class SecretFilePatternKind(StrEnum):
+    """Kinds of canonical secret-detection patterns over changed file paths."""
 
     FILE_EXTENSION = "file_extension"
     FILE_NAME = "file_name"
-    TOKEN_PREFIX = "token_prefix"
 
 
 @dataclass(frozen=True)
-class SecretPattern:
+class SecretFilePattern:
     """One typed secret-detection pattern over changed file paths."""
 
-    kind: SecretPatternKind
+    kind: SecretFilePatternKind
     value: str
 
 
@@ -36,19 +35,19 @@ class SecretTokenPattern:
     happens to contain the prefix inside a word (``risk-adjusted``) or a short
     look-alike is therefore not a hit.
 
+    ``min_body_length`` is a **false-positive floor**, not an issuer contract:
+    it is deliberately set below the shortest documented issuance so that a
+    longer or changed issuer format still produces a hit. The issuer-side
+    truth has no live checkpoint in this repository -- see FK-15 §15.5.2.
+
     Attributes:
         value: The literal credential prefix, anchored at a token start.
         min_body_length: Minimum number of token characters that must follow
-            ``value``, taken from the shape the issuing system actually emits.
+            ``value`` for a hit.
     """
 
     value: str
     min_body_length: int
-
-    @property
-    def kind(self) -> SecretPatternKind:
-        """Return the pattern kind, fixed for every secret-token pattern."""
-        return SecretPatternKind.TOKEN_PREFIX
 
 
 @dataclass(frozen=True)
@@ -56,7 +55,7 @@ class SecretFileHit:
     """A path matched by the canonical secret filename pattern source."""
 
     path: str
-    pattern: SecretPattern
+    pattern: SecretFilePattern
 
 
 @dataclass(frozen=True)
@@ -68,28 +67,42 @@ class SecretContentHit:
     line: str
 
 
-SECRET_FILE_PATTERNS: tuple[SecretPattern, ...] = (
-    SecretPattern(SecretPatternKind.FILE_EXTENSION, ".env"),
-    SecretPattern(SecretPatternKind.FILE_EXTENSION, ".pem"),
-    SecretPattern(SecretPatternKind.FILE_EXTENSION, ".key"),
-    SecretPattern(SecretPatternKind.FILE_EXTENSION, ".pfx"),
-    SecretPattern(SecretPatternKind.FILE_EXTENSION, ".p12"),
-    SecretPattern(SecretPatternKind.FILE_EXTENSION, ".keystore"),
-    SecretPattern(SecretPatternKind.FILE_EXTENSION, ".jks"),
-    SecretPattern(SecretPatternKind.FILE_NAME, "credentials.json"),
-    SecretPattern(SecretPatternKind.FILE_NAME, "serviceaccount.json"),
-    SecretPattern(SecretPatternKind.FILE_NAME, "*_secret*"),
-    SecretPattern(SecretPatternKind.FILE_NAME, "*_token*"),
-    SecretPattern(SecretPatternKind.FILE_NAME, "*_password*"),
+SECRET_FILE_PATTERNS: tuple[SecretFilePattern, ...] = (
+    SecretFilePattern(SecretFilePatternKind.FILE_EXTENSION, ".env"),
+    SecretFilePattern(SecretFilePatternKind.FILE_EXTENSION, ".pem"),
+    SecretFilePattern(SecretFilePatternKind.FILE_EXTENSION, ".key"),
+    SecretFilePattern(SecretFilePatternKind.FILE_EXTENSION, ".pfx"),
+    SecretFilePattern(SecretFilePatternKind.FILE_EXTENSION, ".p12"),
+    SecretFilePattern(SecretFilePatternKind.FILE_EXTENSION, ".keystore"),
+    SecretFilePattern(SecretFilePatternKind.FILE_EXTENSION, ".jks"),
+    # FK-15 §15.5.2 norms `.env.*`, not only `.env`.
+    SecretFilePattern(SecretFilePatternKind.FILE_NAME, ".env.*"),
+    SecretFilePattern(SecretFilePatternKind.FILE_NAME, "*.env.*"),
+    SecretFilePattern(SecretFilePatternKind.FILE_NAME, "credentials.json"),
+    SecretFilePattern(SecretFilePatternKind.FILE_NAME, "serviceaccount.json"),
+    SecretFilePattern(SecretFilePatternKind.FILE_NAME, "*_secret*"),
+    SecretFilePattern(SecretFilePatternKind.FILE_NAME, "*_token*"),
+    SecretFilePattern(SecretFilePatternKind.FILE_NAME, "*_password*"),
 )
 
+# The floors are set BELOW the shortest documented issuance on purpose: a
+# credential that grows or changes its alphabet must keep hitting. They are the
+# point below which natural prose becomes plausible, not an issuer contract.
 SECRET_CONTENT_PATTERNS: tuple[SecretTokenPattern, ...] = (
-    # AWS access key ID: prefix plus 16 characters.
-    SecretTokenPattern("AKIA", min_body_length=16),
-    # GitHub personal access token: prefix plus 36 characters.
-    SecretTokenPattern("ghp_", min_body_length=36),
-    # OpenAI API key: prefix plus at least 20 characters.
-    SecretTokenPattern("sk-", min_body_length=20),
+    # AWS long-term access key ID (`AccessKeyId` is 16-128 chars in total).
+    SecretTokenPattern("AKIA", min_body_length=12),
+    # AWS temporary STS access key ID.
+    SecretTokenPattern("ASIA", min_body_length=12),
+    # GitHub token families: personal, OAuth, user-to-server, server-to-server,
+    # refresh, and the fine-grained `github_pat_` format.
+    SecretTokenPattern("ghp_", min_body_length=16),
+    SecretTokenPattern("gho_", min_body_length=16),
+    SecretTokenPattern("ghu_", min_body_length=16),
+    SecretTokenPattern("ghs_", min_body_length=16),
+    SecretTokenPattern("ghr_", min_body_length=16),
+    SecretTokenPattern("github_pat_", min_body_length=16),
+    # OpenAI API key, including the `sk-proj-` and service-account forms.
+    SecretTokenPattern("sk-", min_body_length=16),
 )
 
 _TOKEN_MATCHERS: tuple[tuple[SecretTokenPattern, re.Pattern[str]], ...] = tuple(
@@ -115,13 +128,13 @@ def find_secret_file_hits(paths: tuple[str, ...]) -> tuple[SecretFileHit, ...]:
     return tuple(hits)
 
 
-def secret_file_pattern_for(path: str) -> SecretPattern | None:
+def secret_file_pattern_for(path: str) -> SecretFilePattern | None:
     """Return the first matching canonical secret file pattern for ``path``."""
     normalized = path.replace("\\", "/")
     basename = normalized.rsplit("/", maxsplit=1)[-1].lower()
     lowered = normalized.lower()
     for pattern in SECRET_FILE_PATTERNS:
-        if pattern.kind is SecretPatternKind.FILE_EXTENSION:
+        if pattern.kind is SecretFilePatternKind.FILE_EXTENSION:
             if lowered.endswith(pattern.value):
                 return pattern
             continue
@@ -156,8 +169,8 @@ __all__ = [
     "TOKEN_BODY_CHARACTERS",
     "SecretContentHit",
     "SecretFileHit",
-    "SecretPattern",
-    "SecretPatternKind",
+    "SecretFilePattern",
+    "SecretFilePatternKind",
     "SecretTokenPattern",
     "find_secret_content_hits",
     "find_secret_file_hits",

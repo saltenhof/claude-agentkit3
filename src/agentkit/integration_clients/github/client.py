@@ -57,6 +57,7 @@ def _resolve_token_from_keyring(owner: str) -> str | None:
             ["gh", "auth", "token", "--user", owner],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
@@ -163,6 +164,7 @@ def run_gh(*args: str, check: bool = True, owner: str | None = None) -> str:
             ["gh", *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=30,
             env=env,
         )

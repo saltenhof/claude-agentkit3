@@ -20,8 +20,8 @@ from agentkit.backend.governance.guard_system.secret_patterns import (
     SECRET_FILE_PATTERNS,
     SecretContentHit,
     SecretFileHit,
-    SecretPattern,
-    SecretPatternKind,
+    SecretFilePattern,
+    SecretFilePatternKind,
     SecretTokenPattern,
 )
 from agentkit.backend.governance.guard_system.skill_usage_check import (
@@ -53,8 +53,8 @@ __all__ = [
     "PromptIntegrityStage",
     "SecretContentHit",
     "SecretFileHit",
-    "SecretPattern",
-    "SecretPatternKind",
+    "SecretFilePattern",
+    "SecretFilePatternKind",
     "SecretTokenPattern",
     "SkillBindingLookup",
     "SpawnHeader",

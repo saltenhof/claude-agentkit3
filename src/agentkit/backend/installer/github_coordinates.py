@@ -159,6 +159,7 @@ def derive_github_coordinates(project_root: Path) -> tuple[str, str] | None:
             ["git", "-C", str(project_root), "remote", "get-url", "origin"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=5,
             check=False,
         )

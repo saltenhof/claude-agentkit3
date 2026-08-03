@@ -256,6 +256,7 @@ def _clone_repo(remote_url: str, target: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         raise ProjectError(

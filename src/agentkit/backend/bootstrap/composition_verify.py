@@ -448,11 +448,18 @@ class _SubprocessGitChangeEvidenceProvider:
         branch = self._git(story_dir, "rev-parse", "--abbrev-ref", "HEAD")
         if branch is None:
             return ChangeEvidence(available=False)
+        # An unresolvable base is NOT an empty change set: diffing against HEAD
+        # alone would inspect uncommitted work and report the story's commits as
+        # clean. Every downstream read must succeed or the evidence is absent.
         base = self._merge_base(story_dir)
+        if base is None:
+            return ChangeEvidence(available=False)
         commits = self._commit_messages(story_dir, base)
         changed = self._changed_files(story_dir, base)
-        secret_files = self._secret_files(changed)
         secret_content_hits = self._secret_content_hits(story_dir, base)
+        if commits is None or changed is None or secret_content_hits is None:
+            return ChangeEvidence(available=False)
+        secret_files = self._secret_files(changed)
         actual_impact = _derive_actual_impact(changed)
         return ChangeEvidence(
             available=True,
@@ -470,18 +477,16 @@ class _SubprocessGitChangeEvidenceProvider:
         """Resolve the base ref to diff against (``origin/main``, else empty)."""
         return self._git(story_dir, "merge-base", self.base_ref, "HEAD")
 
-    def _commit_messages(self, story_dir: Path, base: str | None) -> tuple[str, ...]:
-        rng = f"{base}..HEAD" if base else "HEAD"
-        out = self._git(story_dir, "log", "--format=%B%x00", rng)
+    def _commit_messages(self, story_dir: Path, base: str) -> tuple[str, ...] | None:
+        out = self._git(story_dir, "log", "--format=%B%x00", f"{base}..HEAD")
         if out is None:
-            return ()
+            return None
         return tuple(m.strip() for m in out.split("\x00") if m.strip())
 
-    def _changed_files(self, story_dir: Path, base: str | None) -> tuple[str, ...]:
-        spec = f"{base}..HEAD" if base else "HEAD"
-        out = self._git(story_dir, "diff", "--name-only", spec)
+    def _changed_files(self, story_dir: Path, base: str) -> tuple[str, ...] | None:
+        out = self._git(story_dir, "diff", "--name-only", f"{base}..HEAD")
         if out is None:
-            return ()
+            return None
         return tuple(line.strip() for line in out.splitlines() if line.strip())
 
     def _secret_files(self, changed: tuple[str, ...]) -> tuple[str, ...]:
@@ -494,14 +499,13 @@ class _SubprocessGitChangeEvidenceProvider:
     def _secret_content_hits(
         self,
         story_dir: Path,
-        base: str | None,
-    ) -> tuple[str, ...]:
+        base: str,
+    ) -> tuple[str, ...] | None:
         from agentkit.backend.governance.guard_system.secret_scan import scan_paths_and_diff
 
-        spec = f"{base}..HEAD" if base else "HEAD"
-        out = self._git(story_dir, "diff", "--unified=0", "--no-ext-diff", spec)
+        out = self._git(story_dir, "diff", "--unified=0", "--no-ext-diff", f"{base}..HEAD")
         if out is None:
-            return ()
+            return None
         result = scan_paths_and_diff((), out)
         return tuple(f"{hit.path}:{hit.pattern.value}" for hit in result.content_hits)
 
@@ -515,6 +519,7 @@ class _SubprocessGitChangeEvidenceProvider:
                 ["git", "-C", str(story_dir), *args],  # noqa: S607
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 check=False,
             )
         except OSError:

@@ -122,6 +122,7 @@ def verify_interpreter_serves_ak3(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=_INTERPRETER_PROBE_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.SubprocessError) as exc:

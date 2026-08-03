@@ -406,7 +406,7 @@ class _OperatorServiceController:
         )
         try:
             completed = self._runner(
-                argv, check=False, capture_output=True, text=True
+                argv, check=False, capture_output=True, text=True, encoding="utf-8"
             )
         except OSError as exc:
             msg = f"core teardown command {argv!r} could not be executed "

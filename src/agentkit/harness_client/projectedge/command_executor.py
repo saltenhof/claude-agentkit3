@@ -147,6 +147,7 @@ def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
             ["git", "-C", str(repo_root), *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
             timeout=_EDGE_GIT_TIMEOUT_S,
         )
@@ -623,6 +624,7 @@ def _push_official_ref(
             ["git", "-C", str(worktree_path), "push", "origin", refspec],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
             env=_push_env(credential_ref),
             timeout=_EDGE_GIT_PUSH_TIMEOUT_S,

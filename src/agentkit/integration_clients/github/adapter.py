@@ -109,6 +109,7 @@ class GitHubCodeBackendAdapter:
                 ["gh", "repo", "view", f"{self.owner}/{self.repo}", "--json", "name"],  # noqa: S607
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=self.gh_timeout_seconds,
                 check=False,
             )

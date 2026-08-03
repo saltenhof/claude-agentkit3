@@ -18,6 +18,7 @@ from agentkit.backend.governance.hook_registration import (
     HookEventName,
     RegistrationResult,
 )
+from agentkit.backend.installer.git_hook_dispatch import GIT_HOOK_DISPATCH_MARKERS
 from agentkit.backend.installer.upgrade.hook_migration import (
     determine_hook_definitions,
     has_dispatch_block,
@@ -197,6 +198,67 @@ def test_git_hook_dispatch_migration_replaces_recognised_secret_owner(
     assert "agentkit secret-detection" not in content
     assert "guard_system.secret_scan" not in content
     assert not hook.with_name("pre-commit.bak").exists()
+
+
+def test_a_hook_that_only_mentions_the_sentinel_keeps_its_own_code(
+    tmp_path: Path,
+) -> None:
+    """A foreign hook that ECHOES the marker is not a managed block.
+
+    Recognizing the sentinel as a substring made the removal path delete
+    everything between two such mentions -- the foreign project's own quality
+    gate disappeared silently on migration.
+    """
+    _init_git(tmp_path)
+    hook = tmp_path / "tools" / "hooks" / "pre-commit"
+    hook.parent.mkdir(parents=True)
+    start, end = GIT_HOOK_DISPATCH_MARKERS
+    foreign = (
+        "#!/bin/sh\n"
+        f"echo '{start}'\n"
+        "./tools/foreign-quality-gate.sh || exit 1\n"
+        f"echo '{end}'\n"
+    )
+    hook.write_text(foreign, encoding="utf-8")
+
+    assert has_dispatch_block(foreign) is False
+
+    outcome = migrate_git_hook_dispatch(tmp_path)
+
+    assert outcome.migrated is True
+    # The foreign body survives -- either chained into the hook or preserved.
+    preserved = hook.with_name("pre-commit.bak")
+    surviving = hook.read_text(encoding="utf-8") + (
+        preserved.read_text(encoding="utf-8") if preserved.exists() else ""
+    )
+    assert "foreign-quality-gate.sh" in surviving
+
+
+def test_a_hook_that_only_echoes_the_legacy_secret_marker_keeps_its_own_code(
+    tmp_path: Path,
+) -> None:
+    """The LEGACY marker is a comment, not any line carrying the words.
+
+    ``echo "agentkit secret-detection enabled"`` is the foreign project's own
+    output. Treated as a marker, the migration refused to run at all.
+    """
+    _init_git(tmp_path)
+    hook = tmp_path / "tools" / "hooks" / "pre-commit"
+    hook.parent.mkdir(parents=True)
+    hook.write_text(
+        '#!/bin/sh\necho "agentkit secret-detection enabled"\n./foreign-gate\n',
+        encoding="utf-8",
+    )
+
+    outcome = migrate_git_hook_dispatch(tmp_path)
+
+    assert outcome.migrated is True
+    preserved = hook.with_name("pre-commit.bak")
+    surviving = hook.read_text(encoding="utf-8") + (
+        preserved.read_text(encoding="utf-8") if preserved.exists() else ""
+    )
+    assert "./foreign-gate" in surviving
+    assert "agentkit secret-detection enabled" in surviving
 
 
 def test_git_hook_dispatch_migration_unrecognised_hook_writes_bak(

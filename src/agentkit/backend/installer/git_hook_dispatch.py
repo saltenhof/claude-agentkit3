@@ -60,9 +60,23 @@ def _preserved_path(hook_path: Path) -> Path:
     return hook_path.with_name(hook_path.name + _PRESERVED_SUFFIX)
 
 
+def _is_marker_line(line: str, marker: str) -> bool:
+    """Return whether ``line`` IS the sentinel, not merely contains it.
+
+    A foreign hook that mentions the sentinel -- ``echo '# >>> ... >>>'`` -- must
+    not be read as a managed block; substring matching let the removal path
+    delete the foreign code between two such mentions.
+    """
+    return line.strip() == marker
+
+
 def has_dispatch_block(content: str) -> bool:
     """Return whether ``content`` carries the complete managed marker pair."""
-    return all(marker in content for marker in GIT_HOOK_DISPATCH_MARKERS)
+    lines = content.splitlines()
+    return all(
+        any(_is_marker_line(line, marker) for line in lines)
+        for marker in GIT_HOOK_DISPATCH_MARKERS
+    )
 
 
 def _read_before(path: Path) -> _FileBeforeImage:
@@ -94,13 +108,13 @@ def _remove_managed_block(
     inside = False
     found_start = False
     for line in lines:
-        if markers[0] in line:
+        if _is_marker_line(line, markers[0]):
             if inside or found_start:
                 raise ValueError("hook contains duplicate managed dispatch blocks")
             inside = True
             found_start = True
             continue
-        if markers[1] in line:
+        if _is_marker_line(line, markers[1]):
             if not inside:
                 raise ValueError("hook contains an unmatched dispatch end marker")
             inside = False
@@ -112,10 +126,22 @@ def _remove_managed_block(
     return output
 
 
+def _is_legacy_secret_marker_candidate(line: str) -> bool:
+    """Return whether ``line`` is an AgentKit secret-owner MARKER, not a mention.
+
+    A foreign hook that echoes the words -- ``echo "agentkit secret-detection
+    enabled"`` -- carries the text but is the project's own code. Only a comment
+    line qualifies; a comment that deviates from the canonical marker still
+    raises downstream, so an AgentKit variant is never rewritten half-way.
+    """
+    stripped = line.strip()
+    return stripped.startswith("#") and _SECRET_DETECTION_MARKER in stripped
+
+
 def _remove_legacy_secret_owner(lines: list[str]) -> list[str]:
     """Remove the canonical legacy AgentKit secret owner, retaining foreign code."""
     marker_indexes = [
-        index for index, line in enumerate(lines) if _SECRET_DETECTION_MARKER in line
+        index for index, line in enumerate(lines) if _is_legacy_secret_marker_candidate(line)
     ]
     if not marker_indexes:
         return lines
@@ -257,6 +283,7 @@ def _current_hooks_path(project_root: Path) -> str | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=15,
             check=False,
         )
@@ -290,6 +317,7 @@ def _write_hooks_path(project_root: Path, value: str | None) -> None:
             command,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=15,
             check=False,
         )

@@ -608,6 +608,13 @@ def test_change_evidence_pushed_is_sourced_from_the_push_verification_port(
     _git("config", "user.email", "t@example.com")
     _git("config", "user.name", "T")
     _git("config", "commit.gpgsign", "false")
+    # The base ref is part of the state a real story worktree carries. Without
+    # it the provider has nothing to diff the story's commits against, and the
+    # evidence must be ABSENT rather than an empty change set.
+    (repo / "base.py").write_text("base = 1\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-q", "-m", "chore: base")
+    _git("update-ref", "refs/remotes/origin/main", "HEAD")
     (repo / "f.py").write_text("x = 1\n", encoding="utf-8")
     _git("add", ".")
     _git("commit", "-q", "-m", "feat(AG3-147): x")
@@ -635,6 +642,53 @@ def test_change_evidence_pushed_is_sourced_from_the_push_verification_port(
         push_verification_port=_FakePort(False),  # type: ignore[arg-type]
     ).collect(repo)
     assert ev_false.pushed is False
+
+
+@pytest.mark.requires_git
+def test_change_evidence_is_absent_when_the_base_ref_cannot_be_resolved(
+    tmp_path: Path,
+) -> None:
+    """An unresolvable base ref is ABSENT evidence, never an empty change set.
+
+    Falling back to ``HEAD`` inspected uncommitted work only: the story's own
+    commits were never diffed, so ``secret_content_hits`` came back empty and
+    the BLOCKING structural checks passed on unread commits.
+    """
+    import subprocess
+
+    from agentkit.backend.bootstrap.composition_root import (
+        _SubprocessGitChangeEvidenceProvider,
+    )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def _git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+    _git("init", "-q", "-b", "story/AG3-147")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "T")
+    _git("config", "commit.gpgsign", "false")
+    (repo / "f.py").write_text("x = 1\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-q", "-m", "feat(AG3-147): x")
+
+    class _Port:
+        def confirm_story_pushed(self, _story_dir: Path) -> bool:
+            return True
+
+    evidence = _SubprocessGitChangeEvidenceProvider(
+        push_verification_port=_Port(),  # type: ignore[arg-type]
+    ).collect(repo)
+
+    assert evidence.available is False
 
 
 @pytest.mark.requires_git
@@ -666,6 +720,10 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
     _git("config", "user.email", "t@example.com")
     _git("config", "user.name", "T")
     _git("config", "commit.gpgsign", "false")
+    (repo / "base.py").write_text("base = 1\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-q", "-m", "chore: base")
+    _git("update-ref", "refs/remotes/origin/main", "HEAD")
     (repo / "f.py").write_text("x = 1\n", encoding="utf-8")
     _git("add", ".")
     _git("commit", "-q", "-m", "feat(AG3-147): x")

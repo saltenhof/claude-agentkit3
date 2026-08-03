@@ -396,6 +396,7 @@ def _push(worktree_path: Path, lease: str, refspec: str) -> subprocess.Completed
             ["git", "-C", str(worktree_path), "push", lease, "origin", refspec],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
             env=env,
             timeout=120,

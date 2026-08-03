@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
 import subprocess
 import sys
@@ -138,6 +139,7 @@ def _verify_candidate_head(root: Path, repository: VerifyEvidenceRepository) -> 
         ["git", "-C", str(root), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
         timeout=30,
     )
@@ -157,6 +159,7 @@ def _verify_candidate_head(root: Path, repository: VerifyEvidenceRepository) -> 
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
         timeout=30,
     )
@@ -477,12 +480,20 @@ def _run_test(
             duration_ms=_elapsed_ms(start),
         )
     try:
+        # The child is a FOREIGN producer: pinning the reader to UTF-8 alone
+        # would turn a stray byte into a dead reader thread -- a green test run
+        # observed as `STDOUT: None`. So the child is told to emit UTF-8, and
+        # what it still emits is decoded replacing, never dropped: this is a log
+        # for a human, not content a decision is derived from.
         result = subprocess.run(
             [sys.executable, "-m", "pytest", *command.arguments],
             cwd=root,
             shell=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             check=False,
             timeout=command.timeout_seconds,
         )
