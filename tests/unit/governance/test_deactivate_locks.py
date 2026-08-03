@@ -123,7 +123,7 @@ class TestDeactivateLocksHappyPath:
         story_id = "story-edge-001"
         bundle_path = tmp_path / "_temp" / "governance" / story_id / "edge-bundle.json"
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        bundle_path.write_text('{"status": "active"}')
+        bundle_path.write_text('{"status": "active"}', encoding="utf-8")
 
         repo = _RecordingLockRepo()
         gov = _make_governance(repo)
@@ -215,7 +215,7 @@ class TestDeactivateLocksIOErrors:
         story_id = "story-io-fail"
         bundle_path = tmp_path / "_temp" / "governance" / story_id / "edge-bundle.json"
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        bundle_path.write_text("{}")
+        bundle_path.write_text("{}", encoding="utf-8")
 
         # Monkeypatch Path.unlink to raise OSError
         original_unlink = Path.unlink

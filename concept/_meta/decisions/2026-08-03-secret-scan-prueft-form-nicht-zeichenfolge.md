@@ -82,15 +82,19 @@ ist kein Wert. Ein Contract-Test haelt die Klasse ueber `src/`, `tools/`,
 Umgehungen faengt — Alias, Re-Import, `getattr`, `partial`, `**kwargs`,
 `encoding=None` und jedes nicht-UTF-8-Literal.
 
-**2.7 Gepinnt heisst nicht strikt: wem die Bytes gehoeren, entscheidet.**
-Strikt zu dekodieren ist richtig, wo AK3 die Bytes besitzt — eigene
-Konzeptdateien, JSON-Protokolle. Es ist **falsch** fuer den Diff eines fremden
-Repositorys, fuer Committext und fuer ein Diagnoseprotokoll: dort macht ein
-einziges abweichendes Byte aus einem funktionierenden Werkzeug einen
-dauerhaften Blocker — genau der Schaden, gegen den 2.1 antritt. Fremdbesessene
-Ausgabe wird deshalb **ersetzend** gelesen; die Entscheidung faellt weiter am
-Rueckgabewert, nicht am Zeichensatz. Ein Fremdprozess, den AK3 startet,
-bekommt zusaetzlich `PYTHONIOENCODING=utf-8` — steuern statt hoffen.
+**2.7 Gepinnt heisst nicht strikt. Drei Faelle, nicht zwei.** Die Kodierung
+haengt nie an der Maschine — was mit einem abweichenden Byte geschieht,
+entscheidet dagegen der **Zweck** der Bytes:
+
+| Fall | Verfahren | Warum |
+|---|---|---|
+| **AK3-eigenes Protokoll** — eigene Konzeptdateien, JSON-Ledger, Snapshots | `strict` | Eine kaputte Kodierung ist eine Protokollverletzung und muss fail-closed auffallen. Ein ersetzend gelesener Ledger wird akzeptiert und gehasht — mit verfaelschtem Inhalt. |
+| **Fremder Inhalt, der zurueckgeschrieben oder verglichen wird** — `.gitignore`, fremde Hooks, Pfade aus `git status` | `surrogateescape` | Verlustfrei. Ein Read-modify-write gibt jedes Byte zurueck, das er nicht angefasst hat. `replace` wuerde U+FFFD ueber fremde Zeilen schreiben — irreversibel. |
+| **Reiner Anzeigetext** — Diagnoseprotokolle, Werkzeugausgabe | `replace` | Es wird nichts daraus abgeleitet. Ein Streubyte darf keinen gruenen Lauf in `STDOUT: None` verwandeln. |
+
+Ein Fremdprozess, den AK3 startet, bekommt zusaetzlich `PYTHONIOENCODING=utf-8`
+— steuern statt hoffen. Und die Entscheidung faellt immer am Rueckgabewert, nie
+am Zeichensatz.
 
 ## 3. Was NICHT entschieden wurde — und warum
 

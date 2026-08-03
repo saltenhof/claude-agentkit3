@@ -120,6 +120,24 @@ _PYTHON_CACHE_GITIGNORE_ENTRIES: tuple[str, ...] = ("__pycache__/", "*.py[cod]")
 _GITKEEP_FILENAME = ".gitkeep"
 
 
+def _read_foreign_text(path: Path) -> str:
+    """Read a file AK3 does not own, losslessly.
+
+    The installer appends to files the project brought with it. A `.gitignore`
+    with a cp1252 comment is legitimate and none of AK3's business -- but a
+    read-modify-write must return every byte it did not touch. Strict decoding
+    would abort the install; replacing decoding would silently write U+FFFD over
+    the project's own line. ``surrogateescape`` round-trips exactly, as long as
+    the write uses it too.
+    """
+    return path.read_text(encoding="utf-8", errors="surrogateescape")
+
+
+def _write_foreign_text(path: Path, content: str) -> None:
+    """Write back text obtained from :func:`_read_foreign_text`, byte for byte."""
+    path.write_text(content, encoding="utf-8", errors="surrogateescape")
+
+
 def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     """Idempotently git-ignore the harness link bind points in *root*.
 
@@ -140,7 +158,7 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     gitignore_path = root / ".gitignore"
     existing_lines: list[str] = []
     if gitignore_path.is_file():
-        existing_lines = gitignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        existing_lines = _read_foreign_text(gitignore_path).splitlines()
     present = {_norm(line) for line in existing_lines}
     required = (*_LINK_BINDPOINT_GITIGNORE_ENTRIES, *_PYTHON_CACHE_GITIGNORE_ENTRIES)
     missing = [entry for entry in required if _norm(entry) not in present]
@@ -153,7 +171,7 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     block.append("# AgentKit skill bind points — links to central bundles (FK-43 §43.4.1.1)")
     block.extend(missing)
     new_text = "\n".join([*existing_lines, *block]).rstrip("\n") + "\n"
-    gitignore_path.write_text(new_text, encoding="utf-8", errors="replace")
+    _write_foreign_text(gitignore_path, new_text)
     return str(gitignore_path.relative_to(root))
 
 
@@ -171,7 +189,7 @@ def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str
 
     gitignore_path = root / ".gitignore"
     existing = (
-        gitignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        _read_foreign_text(gitignore_path).splitlines()
         if gitignore_path.is_file()
         else []
     )
@@ -189,7 +207,7 @@ def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str
         block.append("# AgentKit default project scaffold")
         block.extend(missing)
     new_text = "\n".join([*filtered, *block]).rstrip("\n") + "\n"
-    gitignore_path.write_text(new_text, encoding="utf-8", errors="replace")
+    _write_foreign_text(gitignore_path, new_text)
     return str(gitignore_path.relative_to(root))
 
 

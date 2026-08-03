@@ -214,7 +214,7 @@ class TestResolveTokenForOwner:
     ) -> None:
         """Returns None when credentials file has no matching line."""
         creds_file = tmp_path / ".git-credentials-testowner"
-        creds_file.write_text("# comment only\n")
+        creds_file.write_text("# comment only\n", encoding="utf-8")
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(

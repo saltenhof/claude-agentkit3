@@ -163,7 +163,7 @@ class CommitHook(EmittingHook):
             return None
         path = self._snapshot_path(key)
         try:
-            payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+            payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
         if not isinstance(payload, dict):

@@ -1299,7 +1299,7 @@ class TestQueryTelemetryConfigFlag:
     ) -> None:
         """--config with a valid config that yields project_key succeeds."""
         cfg_path = tmp_path / "agentkit.yaml"
-        cfg_path.write_text("project_key: proj-from-config\n")
+        cfg_path.write_text("project_key: proj-from-config\n", encoding="utf-8")
         event_a = self._make_event("run-1", "agent_start", "2025-01-01T00:00:00")
 
         mock_cfg = MagicMock()

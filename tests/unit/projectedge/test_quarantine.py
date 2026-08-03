@@ -45,7 +45,7 @@ def test_quarantine_moves_whole_local_tree_and_writes_only_local_audit(
     assert not source.exists()
     destination = Path(result.quarantine_root)
     assert (destination / "unpushed.txt").read_text(encoding="utf-8") == "local-only"
-    audit = json.loads((store / "audit" / f"{result.event_id}.json").read_text("utf-8"))
+    audit = json.loads((store / "audit" / f"{result.event_id}.json").read_text(encoding="utf-8"))
     assert audit["reason"] == "ownership_transferred"
 
 
@@ -89,7 +89,7 @@ def test_quarantine_cross_device_fallback_copies_then_removes_source(
 
     assert result is not None
     assert not source.exists()
-    assert Path(result.quarantine_root, "unpushed.txt").read_text("utf-8") == "preserved"
+    assert Path(result.quarantine_root, "unpushed.txt").read_text(encoding="utf-8") == "preserved"
 
 
 def test_quarantine_absent_source_converges_and_invalid_sources_fail_closed(

@@ -157,8 +157,8 @@ class TestCheckPhaseSnapshots:
 class TestCheckArtifactsPresent:
     def test_all_present_returns_empty(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
-        (story_dir / "protocol.md").write_text("protocol")
-        (story_dir / "manifest.json").write_text("{}")
+        (story_dir / "protocol.md").write_text("protocol", encoding="utf-8")
+        (story_dir / "manifest.json").write_text("{}", encoding="utf-8")
         result = check_artifacts_present(story_dir, ["protocol.md", "manifest.json"])
         assert result == []
 

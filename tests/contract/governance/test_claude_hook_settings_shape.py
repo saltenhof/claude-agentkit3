@@ -35,7 +35,7 @@ def test_claude_settings_shape_is_event_group_handlers(tmp_path: Path) -> None:
         ]
     )
 
-    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
     groups = data["hooks"]["PreToolUse"]
     assert groups == [
         {

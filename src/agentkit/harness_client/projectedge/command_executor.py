@@ -211,7 +211,7 @@ def _read_story_marker(worktree_path: Path) -> dict[str, object] | None:
     if not marker_path.is_file():
         return None
     try:
-        payload = json.loads(marker_path.read_text(encoding="utf-8", errors="replace"))
+        payload = json.loads(marker_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return payload if isinstance(payload, dict) else None

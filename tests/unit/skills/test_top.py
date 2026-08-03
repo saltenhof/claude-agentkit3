@@ -173,7 +173,7 @@ class TestBindSkillHappyPath:
         """Invariant: bind_skill must not copy files into the project."""
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
-        (bundle_root / "skill.md").write_text("skill content")
+        (bundle_root / "skill.md").write_text("skill content", encoding="utf-8")
         project_root = tmp_path / "project"
         project_root.mkdir()
 
@@ -276,7 +276,7 @@ class TestBindSkillFailClosed:
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
         manifest = {"bundle_id": "x", "manifest_digest": digest}
-        (bundle_root / "manifest.json").write_text(json.dumps(manifest))
+        (bundle_root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         project_root = tmp_path / "project"
         project_root.mkdir()
 
@@ -291,7 +291,7 @@ class TestBindSkillFailClosed:
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
         manifest = {"bundle_id": "x", "variants": {"CORE": "other_skill"}}
-        (bundle_root / "manifest.json").write_text(json.dumps(manifest))
+        (bundle_root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         project_root = tmp_path / "project"
         project_root.mkdir()
 

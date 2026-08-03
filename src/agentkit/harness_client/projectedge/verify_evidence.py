@@ -160,6 +160,7 @@ def _verify_candidate_head(root: Path, repository: VerifyEvidenceRepository) -> 
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="surrogateescape",
         check=False,
         timeout=30,
     )

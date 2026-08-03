@@ -99,7 +99,7 @@ def test_malformed_digest_file_fails_closed(monkeypatch: pytest.MonkeyPatch) -> 
         "read_text",
         lambda self, *a, **k: "not-a-hex-digest"
         if self == ASSET_DIR / "tokenizer.json.sha256"
-        else Path.read_text(self, *a, **k),
+        else Path.read_text(self, *a, **k, encoding="utf-8"),
     )
     with pytest.raises(TokenizerAssetError, match="valid SHA-256"):
         load_bound_tokenizer()

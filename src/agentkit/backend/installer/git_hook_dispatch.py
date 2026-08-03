@@ -95,7 +95,7 @@ def _decode_hook(before: _FileBeforeImage) -> str:
     if before.content is None:
         return ""
     try:
-        return before.content.decode("utf-8")
+        return before.content.decode("utf-8", errors="surrogateescape")
     except UnicodeDecodeError as exc:
         raise ValueError(f"hook is not UTF-8: {before.path}") from exc
 
@@ -333,22 +333,29 @@ def _write_hooks_path(project_root: Path, value: str | None) -> None:
 def _publish_hook(path: Path, content: str) -> None:
     from agentkit.backend.utils.io import atomic_write_text
 
-    atomic_write_text(path, content, newline="")
+    # `surrogateescape` mirrors `_decode_hook`: a foreign hook body that is not
+    # UTF-8 -- a cp1252 comment is enough -- comes back out as the bytes it went
+    # in as. Strict encoding here would reject the very hook we preserved.
+    atomic_write_text(path, content, newline="", errors="surrogateescape")
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
 
 def _restore_file(before: _FileBeforeImage) -> None:
+    """Restore a before-image BYTE for byte -- a rollback may not reinterpret."""
     if before.content is None:
         if before.path.exists() or before.path.is_symlink():
             before.path.unlink()
         return
+    # The image was taken with `read_bytes`; decoding it here only invented a
+    # way for the rollback to fail on content it had already captured intact.
+    tmp = before.path.with_suffix(before.path.suffix + ".restore-tmp")
     try:
-        content = before.content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise OSError(f"cannot restore non-UTF-8 before-image: {before.path}") from exc
-    from agentkit.backend.utils.io import atomic_write_text
-
-    atomic_write_text(before.path, content, newline="")
+        tmp.write_bytes(before.content)
+        os.replace(str(tmp), str(before.path))
+    except OSError:
+        if tmp.exists():
+            tmp.unlink()
+        raise
     if before.mode is None:
         raise OSError(f"existing hook before-image has no file mode: {before.path}")
     os.chmod(before.path, before.mode)

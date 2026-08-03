@@ -22,6 +22,7 @@ def atomic_write_text(
     content: str,
     *,
     newline: str | None = None,
+    errors: str | None = None,
 ) -> None:
     """Write text content atomically via temporary file and ``os.replace``.
 
@@ -38,11 +39,15 @@ def atomic_write_text(
             ``content.encode("utf-8")`` byte-for-byte -- required where a
             digest of the written file must match a digest of *content*
             (e.g. prompt-audit byte reproducibility, FK-44 §44.6).
+        errors: Encoding error handling passed to ``open``. Defaults to
+            ``None`` (strict). Pass ``"surrogateescape"`` to write back text
+            that was READ with ``surrogateescape`` -- foreign content whose
+            original bytes must survive a read-modify-write untouched.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
-        with tmp.open("w", encoding="utf-8", newline=newline) as f:
+        with tmp.open("w", encoding="utf-8", newline=newline, errors=errors) as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())

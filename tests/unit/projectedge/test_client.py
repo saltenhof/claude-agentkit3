@@ -126,7 +126,7 @@ def test_local_edge_publisher_writes_current_bundle_and_worktree_export(
     publisher.publish(bundle)
 
     current = json.loads(
-        (tmp_path / "_temp" / "governance" / "current.json").read_text(),
+        (tmp_path / "_temp" / "governance" / "current.json").read_text(encoding="utf-8"),
     )
     qa_lock = json.loads(
         (
@@ -136,11 +136,11 @@ def test_local_edge_publisher_writes_current_bundle_and_worktree_export(
             / "bundles"
             / "edge-001"
             / "qa-lock.json"
-        ).read_text(),
+        ).read_text(encoding="utf-8"),
     )
-    lock_export = json.loads((worktree / ".agent-guard" / "lock.json").read_text())
+    lock_export = json.loads((worktree / ".agent-guard" / "lock.json").read_text(encoding="utf-8"))
     freeze_export = json.loads(
-        (worktree / ".agent-guard" / "freeze.json").read_text()
+        (worktree / ".agent-guard" / "freeze.json").read_text(encoding="utf-8")
     )
 
     assert current["export_version"] == "edge-001"
@@ -161,7 +161,7 @@ def test_local_edge_publisher_can_fail_closed_until_authoritative_sync(
 
     expected = {"active_freezes": [], "state_readable": False}
     assert json.loads(
-        (worktree / ".agent-guard" / "freeze.json").read_text()
+        (worktree / ".agent-guard" / "freeze.json").read_text(encoding="utf-8")
     ) == expected
     assert json.loads(
         (
@@ -171,7 +171,7 @@ def test_local_edge_publisher_can_fail_closed_until_authoritative_sync(
             / "bundles"
             / "edge-001"
             / "freeze.json"
-        ).read_text()
+        ).read_text(encoding="utf-8")
     ) == expected
 
 
@@ -526,7 +526,7 @@ def test_local_edge_publisher_removes_tombstoned_lock_export(tmp_path: Path) -> 
             / "bundles"
             / "edge-free-001"
             / "session.json"
-        ).read_text(),
+        ).read_text(encoding="utf-8"),
     )
     assert session_payload["operating_mode"] == "ai_augmented"
     assert not lock_path.exists()

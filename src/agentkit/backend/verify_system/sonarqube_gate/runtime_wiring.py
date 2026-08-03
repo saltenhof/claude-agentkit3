@@ -256,7 +256,7 @@ def _read_report_task(root: Path) -> dict[str, str]:
     """Parse the scanner ``report-task.txt`` properties file (fail-closed)."""
     path = root / _REPORT_TASK_REL
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise SonarCoordinatesUnavailableError(
             f"scanner report-task not found/readable at {path} "
@@ -333,7 +333,7 @@ def _load_ledger(
         return AcceptedExceptionLedger()
     try:
         return AcceptedExceptionLedger.model_validate_json(
-            path.read_text(encoding="utf-8", errors="replace")
+            path.read_text(encoding="utf-8")
         )
     except (OSError, ValueError) as exc:
         raise SonarCoordinatesUnavailableError(

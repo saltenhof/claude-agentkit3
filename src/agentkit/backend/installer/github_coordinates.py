@@ -160,6 +160,7 @@ def derive_github_coordinates(project_root: Path) -> tuple[str, str] | None:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="surrogateescape",
             timeout=5,
             check=False,
         )
