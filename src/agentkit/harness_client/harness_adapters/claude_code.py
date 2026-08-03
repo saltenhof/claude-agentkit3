@@ -43,9 +43,20 @@ _AGENT_TOOL = "Agent"
 
 
 class ClaudeCodeHookEvent(BaseModel):
-    """Claude Code pre-tool hook payload."""
+    """Claude Code pre-tool hook payload.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    ``extra="ignore"``, like :class:`ClaudeCodePostToolEvent` below. Fail-closed
+    is right for AK3's OWN inputs -- guard ids, configuration, rule sets. It
+    inverts against a foreign harness payload: Claude Code adds fields without
+    announcing them (``transcript_path``, ``tool_use_id``, ``permission_mode``,
+    ``prompt_id``, ``effort`` appeared this way), and with ``extra="forbid"``
+    each new field made the hook exit 2 -- which this interface reads as BLOCK.
+    Every Bash call in every AK3-installed project was refused, and no guard
+    logic ran at all. Rejecting the payload does not protect anything; it makes
+    AK3 depend on a release cadence it has no say in.
+    """
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     tool_name: str
     tool_input: dict[str, object] = {}
@@ -318,6 +329,81 @@ def main(argv: list[str] | None = None) -> int:
             ),
             file=sys.stderr,
         )
+    return 0
+
+
+def main_project_edge(argv: list[str] | None = None) -> int:
+    """Evaluate ALL pre-tool guards for one tool call, without arguments.
+
+    The project-local wrapper in ``.agentkit/hooks/pre_tool_use.py`` is
+    registered on ``Bash|Write|Edit|Read|Grep|Glob`` and is started with no
+    arguments at all. Its collective entry point was lost in the deployment-unit
+    restructure: the wrapper kept pointing at a module that no longer exists, so
+    it died at import -- silently, which is why nobody noticed that **no AK3
+    guard runs for Write, Edit, Read, Grep or Glob**. The per-guard command
+    (``agentkit-hook-claude pre <id>``) only covers Bash, WebFetch/WebSearch and
+    Agent.
+
+    Repairing only the import would have been worse than the defect: the
+    argument parser would then reject the empty argv and return 2, which this
+    interface reads as BLOCK -- turning silent failures into refused tool calls.
+    Both halves are therefore fixed together, and this entry point takes no
+    arguments by contract.
+
+    Args:
+        argv: Accepted so the harness may pass an empty list; any argument is
+            rejected, because this entry point evaluates every guard and has
+            nothing to select.
+
+    Returns:
+        0 on ALLOW, 2 on BLOCK.
+    """
+    arguments = list(sys.argv[1:]) if argv is None else list(argv)
+    if arguments:
+        print(
+            "agentkit project-edge pre-tool hook takes no arguments; "
+            f"got {arguments!r}. Use 'agentkit-hook-claude pre <id>' for a single guard.",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        claude_event = _parse_hook_event(sys.stdin.read(), phase="pre")
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    from agentkit.backend.governance.guard_evaluation import evaluate_pre_tool_use
+
+    try:
+        decision = evaluate_pre_tool_use(to_neutral_event(claude_event), project_root=Path.cwd())
+    except Exception as exc:  # noqa: BLE001 — outermost fail-closed safety net.
+        print(
+            json.dumps(
+                {
+                    "decision": "block",
+                    "guard": "guard_evaluation",
+                    "message": f"project-edge hook failed fail-closed: {exc}",
+                    "detail": {"fault_class": type(exc).__name__},
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+
+    if not decision.allowed:
+        print(
+            json.dumps(
+                {
+                    "decision": "block",
+                    "guard": decision.guard_name,
+                    "message": decision.message,
+                    "detail": decision.detail,
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
     return 0
 
 

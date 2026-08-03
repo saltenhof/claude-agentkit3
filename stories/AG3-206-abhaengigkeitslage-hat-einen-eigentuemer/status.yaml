@@ -1,0 +1,22 @@
+story_id: AG3-206
+story_title_short: "abhaengigkeitslage-hat-einen-eigentuemer"
+title: "AK3 setzt die venv-Politik durch: Preflight prueft deklarierte gegen importierbare Abhaengigkeiten fail-closed, und Hook-Fehlschlaege werden sichtbar statt verschluckt."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-03"
+size: M
+# NEU 2026-08-03 aus einer Fremdinstallation (intima): 164 Hook-Fehler an einem
+# Tag, 90 davon "No module named 'tomlkit'" -- einer Pflicht-Abhaengigkeit, die
+# seit jeher in pyproject.toml steht. Saemtliche Guards liefen NICHT; sie sind
+# vor der ersten Zeile Fachlogik am Import gestorben.
+#
+# PO-Entscheidung vom 2026-08-03 (Decision Record
+# 2026-08-03-abhaengigkeiten-leben-in-einer-venv.md): AK3 und seine
+# Abhaengigkeiten leben in einer venv -- AK3 darf das System nicht verschmutzen.
+# Zwingend hinzu kommt: AK3 und AK2 teilen den Paketnamen `agentkit`, eine
+# globale Installation ueberschreibt AK2.
+#
+# Diese Story setzt die Entscheidung durch. Sie trifft sie nicht.
+depends_on: []
+unblocks: []

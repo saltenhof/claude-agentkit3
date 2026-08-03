@@ -80,9 +80,15 @@ _ALIASES: dict[str, tuple[str, ...]] = {
 
 
 class CodexHookEvent(BaseModel):
-    """Codex pre-tool hook payload accepted by the AK3 adapter."""
+    """Codex pre-tool hook payload accepted by the AK3 adapter.
 
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+    ``extra="ignore"`` for the same reason as the Claude adapter: this is a
+    FOREIGN harness's payload, and rejecting an unknown field turns every tool
+    call into a BLOCK. The post-tool model beside it already drew that
+    conclusion.
+    """
+
+    model_config = ConfigDict(extra="ignore", frozen=True, populate_by_name=True)
 
     tool_name: str
     tool_input: dict[str, object] = {}
