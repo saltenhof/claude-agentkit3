@@ -16,12 +16,19 @@ class CompositionSubprocessGitBackend:
 
     def run(self, repo: ClosureRepo, *args: str) -> GitCommandResult:
         """Run one bounded Git command for a non-closure evidence consumer."""
-        result = subprocess.run(
-            ["git", "-C", str(repo.command_cwd), *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="surrogateescape",
-            check=False,
-        )
+        # Strict UTF-8: this reads AK3's OWN repositories, and the values it
+        # returns -- SHA, branch, tree hash -- travel on into URLs and JSON. A
+        # value that is not decodable is a protocol violation and fails closed
+        # here; carried through losslessly it would raise in `urlencode`,
+        # arriving without a cause.
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo.command_cwd), *args],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+        except UnicodeDecodeError as exc:
+            return GitCommandResult(1, "", f"git output is not UTF-8: {exc}")
         return GitCommandResult(result.returncode, result.stdout, result.stderr)

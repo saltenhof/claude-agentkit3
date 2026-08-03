@@ -32,6 +32,8 @@ class BranchGuard:
         ".git/index",
         ".git/worktrees",
     )
+    #: Shell tokens that end one command and begin another.
+    _SHELL_OPERATORS: frozenset[str] = frozenset({"&", "&&", "|", "||", ";", ">", ">>", "<"})
     _GIT_MUTATION_COMMANDS: tuple[str, ...] = (
         "rm ",
         "del ",
@@ -126,13 +128,17 @@ class BranchGuard:
         to be exactly the official one plus its own arguments: no shell
         operator, no redirection, no substitution anywhere in the line.
         """
-        stripped = command.strip()
-        if any(marker in stripped for marker in ("&", "|", ";", "`", "$(", ">", "<", "\n")):
-            return False
         try:
-            tokens = shlex.split(stripped, posix=True)
+            tokens = shlex.split(command.strip(), posix=True)
         except ValueError:
             return False
+        # Operators are recognised as TOKENS, not as substrings of the raw line.
+        # A substring test blocked `--reason "docs say push --force & retry"`,
+        # where the `&` is quoted DATA -- the same class of fault, one step on.
+        if any(token in self._SHELL_OPERATORS for token in tokens):
+            return False
+        if "\n" in command or any(marker in command for marker in ("`", "$(")):
+            return False  # substitution is never part of an official command
         for prefix in self._OFFICIAL_ALLOW_PREFIXES:
             expected = shlex.split(prefix, posix=True)
             if tokens[: len(expected)] == expected:

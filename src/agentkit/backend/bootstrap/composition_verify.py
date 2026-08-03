@@ -520,10 +520,9 @@ class _SubprocessGitChangeEvidenceProvider:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                errors="surrogateescape",
                 check=False,
             )
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return None
         if result.returncode != 0:
             return None

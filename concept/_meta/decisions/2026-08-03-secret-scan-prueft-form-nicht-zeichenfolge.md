@@ -104,12 +104,14 @@ Verlustfreiheit hat zwei Bedingungen, und eine allein genuegt nicht: der
 zweite macht schon das Lesen aus jedem CRLF ein LF, und der Rueckschreibvorgang
 haendigt dem Projekt eine Datei aus, die es so nie geschrieben hat.
 
-Wo AK3 einen Fremdprozess startet, dessen Ausgabe es liest, wird zusaetzlich
-`PYTHONIOENCODING=utf-8` gesetzt — steuern statt hoffen. Das ist heute an einer
-Stelle umgesetzt (Verify-Evidence-Testlauf) und **nicht** flaechendeckend; die
-generischen Git-Leser dekodieren weiterhin mit einem Codec fuer alle Felder.
-Beides ist offen und in AG3-205 geschnitten, nicht hier stillschweigend
-behauptet.
+Beim Verify-Evidence-Testlauf steuert AK3 die Ausgabe seines Python-Kindes ueber
+`PYTHONIOENCODING=utf-8` und dekodiert das Protokoll unabhaengig davon
+ersetzend. Das ist **eine** Stelle, keine allgemeine Regel: `PYTHONIOENCODING`
+wirkt ausserdem nur auf Python-Kinder — `git`, `pwsh` oder ein fremdes
+Testprogramm erreicht es nicht. Die feldweise Trennung in den generischen
+Git-Lesern ist in AG3-205 geschnitten; bis dahin lesen sie durchgaengig
+**strikt**, weil sie AK3-eigene Repositorys lesen und ein undekodierbarer Wert
+dort eine Protokollverletzung ist.
 
 **2.8 Durchgesetzt wird die Regel semantisch, nicht syntaktisch.**
 `PYTHONWARNDEFAULTENCODING=1` macht jede tatsaechlich ausgefuehrte Stelle ohne

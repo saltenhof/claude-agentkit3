@@ -1077,8 +1077,12 @@ def test_ci_build_test_evidence_adapter_maps_green(tmp_path: Path) -> None:
             ("rev-parse", "HEAD^{tree}"): "tree9",
             # `-z`: git separates paths with NUL, so a filename may contain a
             # newline or a trailing space without being split or trimmed.
+            # The FIRST entry carries a leading space on purpose: a trimming
+            # reader would turn ` test_root.py` into the collectible
+            # `test_root.py` and count a test that does not exist. Restoring
+            # `.strip()` must make this test fail.
             ("diff", "--name-only", "-z", "origin/main...HEAD"): (
-                "src/a.py\0tests/test_a.py\0tests/README.md\0src/test_data.json\0"
+                " test_root.py\0src/a.py\0tests/test_a.py\0tests/README.md\0src/test_data.json\0"
             ),
         }
     )

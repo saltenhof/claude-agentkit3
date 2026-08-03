@@ -341,10 +341,9 @@ def _git_output(repo: Path, *args: str) -> str:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="surrogateescape",
             timeout=5,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, UnicodeDecodeError, subprocess.SubprocessError):
         return ""
     if result.returncode != 0:
         return ""

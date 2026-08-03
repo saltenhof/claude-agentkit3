@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 import shlex
 import shutil
 from dataclasses import dataclass
@@ -83,57 +84,59 @@ def _is_ak3_hook_command(command: object) -> bool:
     if executed in {AK3_CLAUDE_HOOK_WRAPPER, AK3_CODEX_HOOK_WRAPPER}:
         return True
     # The third producer is the bundled target-project settings, which register
-    # `python .agentkit/hooks/<script>.py`. Ownership means the interpreter
-    # RUNS that script: `echo .agentkit/hooks/x.py` prints it and
-    # `foreign-tool --config /srv/.agentkit/hooks/config` reads it -- detach
-    # deletes what it claims, so neither may count.
-    if executed.rsplit("/", maxsplit=1)[-1] not in _INTERPRETERS:
+    # exactly `python .agentkit/hooks/<script>.py`. Only PYTHON is modelled: a
+    # flag grammar shared across python, bash, node and pwsh does not exist
+    # (`node -e` and `pwsh -Command` take code, not a path), and guessing one
+    # made detach delete foreign hooks. What no producer writes is not claimed.
+    if executed.rsplit("/", maxsplit=1)[-1] not in _PYTHON_INTERPRETERS:
         return False
-    script = _executed_script(tokens[1:])
+    script = _python_script_argument(tokens[1:])
     return script is not None and _is_ak3_hooks_path(script)
 
 
-#: Programs that execute their first non-flag argument as a script.
-_INTERPRETERS = frozenset(
-    {"python", "python3", "python3.exe", "python.exe", "sh", "bash", "node", "pwsh"}
-)
-#: Flags that consume the NEXT argument, which is therefore not the script.
-_VALUE_FLAGS = frozenset({"-W", "-X", "-O", "--check-hash-based-pycs", "-o"})
-#: Flags after which no script path follows at all -- the code is inline.
-_NO_SCRIPT_FLAGS = frozenset({"-c", "-m"})
+#: The only interpreter AK3 registers hook scripts through.
+_PYTHON_INTERPRETERS = frozenset({"python", "python3", "python.exe", "python3.exe"})
+#: Python options that consume the NEXT argument -- it is not the script.
+_PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
+#: Python options after which no script path follows: the code is inline.
+_PYTHON_INLINE_OPTIONS = frozenset({"-c", "-m"})
 
 
 def _is_ak3_hooks_path(token: str) -> bool:
-    """Whether ``token`` points INTO the AK3-owned hooks directory.
+    """Whether ``token`` resolves INTO the AK3-owned hooks directory.
 
-    ``.agentkit`` and ``hooks`` must be adjacent segments in that order: a
-    foreign ``/opt/.agentkit/cache/hooks/foreign.sh`` is not ours.
+    ``.agentkit`` and ``hooks`` must be adjacent segments in that order, and
+    ``..`` is resolved first: ``/opt/.agentkit/cache/hooks/foreign.sh`` is not
+    ours, and neither is ``.agentkit/hooks/../foreign.py``, which lands outside
+    the directory it appears to name.
     """
-    segments = token.replace("\\", "/").split("/")
+    normalized = posixpath.normpath(token.replace("\\", "/"))
+    segments = normalized.split("/")
     return any(
         first == ".agentkit" and second == "hooks"
         for first, second in zip(segments, segments[1:], strict=False)
-    )
+    ) and len(segments) > segments.index("hooks") + 1
 
 
-def _executed_script(arguments: list[str]) -> str | None:
-    """Return the path the interpreter EXECUTES, or ``None`` if it executes none.
+def _python_script_argument(arguments: list[str]) -> str | None:
+    """Return the path python EXECUTES, or ``None`` if it executes no file.
 
-    ``python -c .agentkit/hooks/x.py`` runs the text as code and
-    ``python -m .agentkit/hooks/x.py`` treats it as a module name; neither runs
-    the file. ``python -W ignore .agentkit/hooks/x.py`` does run it.
+    ``python -c <text>`` runs the text as code and ``python -m <name>`` treats
+    it as a module; neither runs the file. ``python -W ignore <path>`` and
+    ``python -O <path>`` both do -- ``-O`` is a boolean switch and must not
+    swallow the script, which is how an AK3 hook was left behind on detach.
     """
     remaining = list(arguments)
     while remaining:
         token = remaining.pop(0)
-        if token in _NO_SCRIPT_FLAGS:
+        if token in _PYTHON_INLINE_OPTIONS:
             return None
-        if token in _VALUE_FLAGS:
+        if token in _PYTHON_VALUE_OPTIONS:
             if remaining:
                 remaining.pop(0)
             continue
         if token.startswith("-"):
-            continue
+            continue  # boolean switch such as -O, -B, -u
         return token
     return None
 

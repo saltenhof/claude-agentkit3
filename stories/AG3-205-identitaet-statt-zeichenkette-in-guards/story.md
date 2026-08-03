@@ -35,7 +35,6 @@ ein Gate, das Zerstoerung durchlaesst, schuetzt nie wieder.
 
 | Ort | Eingabe | Ergebnis |
 |---|---|---|
-| `branch_guard._is_official_allow_path` | `agentkit reset-story & git push --force origin main` | erlaubt, vor jeder Gefahrenpruefung |
 | `branch_guard._target_branch` | `FOO=1 git switch main`, `env git checkout main`, `/usr/bin/git checkout main`, `command git rebase main` | Branch-Wechsel unerkannt |
 | `branch_guard` Gefahrenmuster | `echo "do not push --force into docs"`, `echo "rm .git/config"` | faelschlich blockiert |
 | `branch_guard` Pfadschutz | `/repo/not.git` blockiert; `.GIT/config` unter Windows erlaubt | beide falsch |
@@ -43,6 +42,13 @@ ein Gate, das Zerstoerung durchlaesst, schuetzt nie wieder.
 | `story_creation_guard` | `echo agentkit story create`, `POST /archive?next=/v1/stories` | gilt als Story-Erzeugung |
 | `skill_usage_check` | `echo agentkit semantic-review` | gilt als Ad-hoc-Review, blockiert |
 | `scope_guard` | erlaubt `T:\Repo\Worktree`, Ziel `t:\repo\worktree\x.py` | blockiert; Junction nach draussen erlaubt |
+
+Nicht mehr in dieser Story, weil im Hotfix `fccf101b^..HEAD` an der Wurzel
+behoben und mit Regressionstests belegt: der Bypass ueber
+`_is_official_allow_path` (`&&`, `&`, `;`, `|`, Substitution) samt der
+Gegenrichtung (gequotete Daten wie `--reason "… push --force & retry"` bleiben
+erlaubt), die Detach-Eigentumsentscheidung und der Testdatei-Nachweis. Wer
+mitigiert, uebernimmt — deshalb liegt dort die ganze Wurzel, nicht die Haelfte.
 
 ### Zweiter Gegenstand: Feldvertraege der generischen Git-Leser
 
@@ -57,14 +63,25 @@ Revision (die eine Protokollverletzung fail-closed melden muessen). Ein
 Der Decision Record vom 2026-08-03 fordert bereits den Vertrag des einzelnen
 Feldes. Diese Leser erfuellen ihn nicht.
 
-### Dritter Gegenstand: FK-51 beschreibt einen Producer, den es nicht gibt
+### Dritter Gegenstand: FK-51 nennt ein Kommando-Muster, das kein Producer schreibt
 
-FK-51 §51.6 fuehrt das Kommando-Muster `python -m agentkit.` fuer registrierte
-Hooks. Der tatsaechliche Producer emittiert ausschliesslich
-`agentkit-hook-claude` und `agentkit-hook-codex`. Der Hotfix hat Detach auf den
-realen Producer zurueckgeschnitten; **die Konzeptaussage bleibt offen** und
-gehoert hierher — nicht als stille Anpassung des Codes an die Prosa oder
-umgekehrt.
+Es gibt **drei** Producer registrierter Hook-Kommandos:
+`agentkit-hook-claude` (`hook_registration`), `agentkit-hook-codex`
+(`codex_settings`) und `python .agentkit/hooks/<script>.py` aus den
+gebuendelten Zielprojekt-Settings
+(`src/agentkit/bundles/target_project/.claude/settings.json`).
+
+FK-51 §51.6 fuehrt daneben das Muster `python -m agentkit.`, das **keiner**
+dieser drei erzeugt. Der Hotfix hat Detach auf die drei realen Formen
+ausgerichtet; die Konzeptaussage bleibt offen und gehoert hierher — nicht als
+stille Anpassung des Codes an die Prosa oder umgekehrt.
+
+> Anmerkung zur Provenienz: Das unabhaengige Review hat in Runde 8 behauptet,
+> die `python .agentkit/hooks`-Familie werde nirgends erzeugt. Das war falsch,
+> und die ungeprueffte Uebernahme dieser Aussage hat Detach kurzzeitig
+> zerstoert (gefangen von `test_uninstall_removes_harness_settings`). Der
+> Producer ist oben mit Datei und Zeile benannt, damit die Story nicht auf
+> derselben Fehlannahme aufsetzt.
 
 ## Scope
 
@@ -92,7 +109,12 @@ umgekehrt.
 
 1. **Ein Modell, nicht funf.** Kommando- und Pfadidentitaet liegen je an genau
    einer Stelle; jeder Guard ruft sie auf. Eine zweite Heuristik daneben ist
-   ein Fehler, kein Sonderfall.
+   ein Fehler, kein Sonderfall. Es existieren bereits zentrale Ansaetze in
+   `governance/principal_capabilities/operations.py` und `.../paths.py` — die
+   Story **erweitert oder abloest** sie ausdruecklich und stellt kein drittes
+   Modell daneben. Die verlangte Link-/Junction-Aufloesung ist mit der
+   billigen, fail-closed Hook-Klassifikation aus FK-55 §55.10.2 zu vereinbaren;
+   wo beides kollidiert, gewinnt fail-closed und der Konflikt wird benannt.
 2. **Jeder Befund der Tabelle oben ist ein Regressionstest**, mit der dort
    genannten Eingabe.
 3. **Die vom Review verlangten Faelle sind abgedeckt** — BranchGuard: einzelnes
@@ -106,10 +128,13 @@ umgekehrt.
 4. **Beide Richtungen sind belegt.** Fuer jeden Guard existiert mindestens ein
    Test, der zeigt, dass er nicht ueberschiesst — ein blockierender Guard mit
    Fehlalarm ist derselbe Schaden wie ein durchlaessiger.
-5. **Feldvertraege umgesetzt:** die generischen Git-Leser dekodieren SHA,
-   Branch und Revision strikt und fremde Pfade/Diffs verlustfrei; nachgewiesen
-   an einem Wert mit ungueltigem Byte, der fail-closed auffaellt statt in
-   `urlencode` zu laufen.
+5. **Feldvertraege je Leser und je Ausgabeklasse nachgewiesen.** Fuer **jeden**
+   generischen Git-Leser existiert je ein Nachweis fuer Maschinenwert (strikt,
+   fail-closed), fuer fremden Pfad/Diff (verlustfrei) und fuer `stderr`
+   (ersetzend). Ein einzelner Nachweis an einem einzelnen Leser erfuellt dieses
+   Kriterium **nicht** — genau so ist die Klasse beim letzten Mal zurueckgekehrt.
+   Hinweis: Der Hotfix hat die Leser vorerst durchgaengig auf strikt gestellt,
+   weil sie AK3-eigene Repositorys lesen; diese Story trennt sie nach Feld.
 6. **FK-51 §51.6 und der Producer stimmen ueberein**, mit Decision Record.
 7. **Volle Suite gruen**, `ruff` clean, `mypy --strict` fuer `win32`, `linux`,
    `darwin`; alle deterministischen Konzept-Gates gruen.
@@ -124,6 +149,10 @@ umgekehrt.
 ## Konzept-Referenzen
 
 - `concept/technical-design/05_*` — Guard-Modell
+- `concept/technical-design/30_*`, `31_*` — Governance-/Hook-Eigentum
+- `concept/technical-design/55_principal_capability_model_story_scope_enforcement.md`
+  §55.10.2 — billige, fail-closed Hook-Klassifikation (Grenze fuer die
+  Link-Aufloesung)
 - `concept/technical-design/10_*` §10.2.9 — chirurgisches Detach
 - `concept/technical-design/51_upgrade_migration_customization_preservation.md`
   §51.6 — Hook-Registrierung und Kommando-Muster

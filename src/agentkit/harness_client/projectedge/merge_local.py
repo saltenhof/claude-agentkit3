@@ -397,7 +397,6 @@ def _push(worktree_path: Path, lease: str, refspec: str) -> subprocess.Completed
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="surrogateescape",
             check=False,
             env=env,
             timeout=120,
