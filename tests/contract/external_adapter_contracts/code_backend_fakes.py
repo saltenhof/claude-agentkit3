@@ -69,6 +69,7 @@ class FakeAzureDevOpsCodeBackendAdapter:
                 ["git", "ls-remote", self.remote_url],  # noqa: S607
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=_PROBE_TIMEOUT_SECONDS,
                 check=False,
             )

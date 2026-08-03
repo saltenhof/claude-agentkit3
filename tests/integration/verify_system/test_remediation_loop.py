@@ -78,7 +78,7 @@ def _story_context_port() -> StaticStoryContextPort:
 
 
 def _git(args: list[str], cwd: Path) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8")
 
 
 def _init_repo(root: Path) -> None:

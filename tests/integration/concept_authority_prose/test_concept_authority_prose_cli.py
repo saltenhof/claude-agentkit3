@@ -86,11 +86,11 @@ def _run(repo_root: Path, concept: Path, baseline: Path, offline: Path) -> subpr
             "--concept-root", str(concept), "--baseline", str(baseline),
             "--mode", "nightly", "--offline-evaluations", str(offline),
         ],
-        cwd=Path.cwd(), capture_output=True, text=True, check=False,
+        cwd=Path.cwd(), capture_output=True, text=True, encoding="utf-8", check=False,
     )
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True,
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True,
     )

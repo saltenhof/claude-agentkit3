@@ -200,7 +200,7 @@ def test_cp11_leaves_hook_activation_to_atomic_cp10b_owner(
     root = tmp_path / "gitproj"
     root.mkdir()
     init = subprocess.run(  # noqa: S603
-        ["git", "-C", str(root), "init"], capture_output=True, text=True, check=False
+        ["git", "-C", str(root), "init"], capture_output=True, text=True, encoding="utf-8", check=False
     )
     if init.returncode != 0:  # pragma: no cover - git always present in CI
         import pytest
@@ -214,6 +214,7 @@ def test_cp11_leaves_hook_activation_to_atomic_cp10b_owner(
         ["git", "-C", str(root), "config", "--get", "core.hooksPath"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     assert hooks_path.returncode != 0

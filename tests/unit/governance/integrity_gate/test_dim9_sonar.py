@@ -208,6 +208,7 @@ def _git(root: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     return out.stdout.strip()
 

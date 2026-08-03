@@ -43,6 +43,7 @@ def test_src_type_checks_for_target_platform(platform: str) -> None:
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     assert completed.returncode == 0, (

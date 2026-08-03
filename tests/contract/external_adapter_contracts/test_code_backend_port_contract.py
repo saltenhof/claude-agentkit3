@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 
 def _run_git(*args: str) -> None:
-    subprocess.run(["git", *args], check=True, capture_output=True, text=True)  # noqa: S603, S607
+    subprocess.run(["git", *args], check=True, capture_output=True, text=True, encoding="utf-8")  # noqa: S603, S607
 
 
 def _init_bare_repo_with_commit(tmp_path: Path) -> tuple[Path, str]:
@@ -64,6 +64,7 @@ def _init_bare_repo_with_commit(tmp_path: Path) -> tuple[Path, str]:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     return bare, result.stdout.strip()
 

@@ -5644,6 +5644,7 @@ def _setup_clean_reconcile_queue(
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         ).stdout.strip()
     config = ProjectConfig(
         project_key=_PROJECT,
@@ -5747,6 +5748,7 @@ def test_real_transfer_command_queue_contested_bundle_blocks_active_owner(
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         ).stdout.strip()
     config = ProjectConfig(
         project_key=_PROJECT,

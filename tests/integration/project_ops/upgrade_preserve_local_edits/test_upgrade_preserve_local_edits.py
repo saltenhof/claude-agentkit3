@@ -92,6 +92,7 @@ def _init_git_repo(project_root: Path) -> None:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
 

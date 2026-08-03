@@ -324,6 +324,7 @@ def test_hook_modules_are_python_m_invocable(tmp_path: Path, module_name: str) -
         ],
         input=json.dumps({"cwd": str(tmp_path)}),
         text=True,
+        encoding="utf-8",
         cwd=tmp_path,
         capture_output=True,
         check=False,

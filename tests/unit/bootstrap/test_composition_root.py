@@ -602,7 +602,7 @@ def test_change_evidence_pushed_is_sourced_from_the_push_verification_port(
     repo.mkdir()
 
     def _git(*args: str) -> None:
-        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, encoding="utf-8")
 
     _git("init", "-q", "-b", "story/AG3-147")
     _git("config", "user.email", "t@example.com")
@@ -714,6 +714,7 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
     _git("init", "-q", "-b", "story/AG3-147")

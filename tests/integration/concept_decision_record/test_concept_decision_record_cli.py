@@ -13,6 +13,7 @@ def _git(repo: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     return completed.stdout.strip()
 
@@ -48,6 +49,7 @@ def test_cli_range_exits_one_for_normative_change_without_record(tmp_path: Path)
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
     assert completed.returncode == 1
@@ -77,6 +79,7 @@ def test_cli_range_exits_one_for_normative_change_without_record(tmp_path: Path)
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
     assert renamed.returncode == 1

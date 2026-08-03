@@ -62,7 +62,7 @@ class _FixedWorkspaceLocator:
 
 
 def _git(root: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True, encoding="utf-8")
 
 
 def _bare_remote_with_story_branch(
@@ -85,7 +85,7 @@ def _bare_remote_with_story_branch(
         _git(work, "push", "-q", str(remote), f"HEAD:refs/heads/{_BRANCH}")
         sha = subprocess.run(
             ["git", "-C", str(work), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True,
+            check=True, capture_output=True, text=True, encoding="utf-8",
         ).stdout.strip()
     return remote, sha
 

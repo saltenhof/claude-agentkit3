@@ -216,6 +216,7 @@ def test_cli_returns_nonzero_for_unresolved_reference() -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
     assert completed.returncode == 1

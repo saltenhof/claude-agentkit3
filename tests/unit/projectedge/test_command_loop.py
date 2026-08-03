@@ -182,6 +182,7 @@ def test_loop_rejects_genuinely_unaccepted_takeover_status(tmp_path: Path) -> No
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     client = _RecordingClient(
         [
@@ -288,6 +289,7 @@ def test_loop_aggregates_multi_repo_takeover_results_through_official_route(
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         ).stdout.strip()
 
     commands = [

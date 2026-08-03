@@ -262,9 +262,10 @@ wird hier nicht gefasst.
 **Eingebüßte Abdeckung, ebenso ausdrücklich:** Eine Zerlegung *hinter*
 einem vollständigen Präfix (`"sk-" "proj-…"`) wurde von einer reinen
 Substring-Suche noch getroffen und wird von der Formprüfung nicht mehr
-getroffen. Das ist der Preis der Ankerung und bewusst hingenommen: den
-Fall zu behalten hieße, das bloße Präfix als Treffer zu werten — genau
-die Regel, die Fachprosa dauerhaft blockiert hat.
+getroffen. Das ist bewusst hingenommen — und **nicht alternativlos**: ein
+sprachnaher Matcher, der benachbarte String-Literale zusammenzieht,
+fänge den Fall. Der Scan arbeitet absichtlich sprachneutral auf der
+Rohzeile und kennt keine Grammatik; deshalb endet die Abdeckung hier.
 
 Siehe `concept/_meta/decisions/2026-08-03-secret-scan-prueft-form-nicht-zeichenfolge.md`.
 

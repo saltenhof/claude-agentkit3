@@ -77,7 +77,20 @@ ausserhalb eines Hunks erkannt.
 Plattform: UTF-8 unter Linux und macOS, cp1252 unter deutschem Windows.
 Derselbe Code las damit denselben Repository-Inhalt auf der einen Maschine
 korrekt und brach auf der anderen ab. Ein Wert, der von der Maschine abhaengt,
-ist kein Wert. Ein Contract-Test haelt die Klasse geschlossen.
+ist kein Wert. Ein Contract-Test haelt die Klasse ueber `src/`, `tools/`,
+`scripts/` und `tests/` geschlossen und weist nach, dass er die bekannten
+Umgehungen faengt — Alias, Re-Import, `getattr`, `partial`, `**kwargs`,
+`encoding=None` und jedes nicht-UTF-8-Literal.
+
+**2.7 Gepinnt heisst nicht strikt: wem die Bytes gehoeren, entscheidet.**
+Strikt zu dekodieren ist richtig, wo AK3 die Bytes besitzt — eigene
+Konzeptdateien, JSON-Protokolle. Es ist **falsch** fuer den Diff eines fremden
+Repositorys, fuer Committext und fuer ein Diagnoseprotokoll: dort macht ein
+einziges abweichendes Byte aus einem funktionierenden Werkzeug einen
+dauerhaften Blocker — genau der Schaden, gegen den 2.1 antritt. Fremdbesessene
+Ausgabe wird deshalb **ersetzend** gelesen; die Entscheidung faellt weiter am
+Rueckgabewert, nicht am Zeichensatz. Ein Fremdprozess, den AK3 startet,
+bekommt zusaetzlich `PYTHONIOENCODING=utf-8` — steuern statt hoffen.
 
 ## 3. Was NICHT entschieden wurde — und warum
 
@@ -86,12 +99,17 @@ was diese Entscheidung kostet und was sie nicht kostet:
 
 - **Zerlegung *hinter* einem vollstaendigen Praefix** — `"sk-" "proj-…"` — hat
   die alte Substring-Suche **getroffen** und trifft jetzt nicht mehr. Das ist
-  eine **bewusst hingenommene Abdeckungseinbusse**, kein Randfall. Sie ist der
-  Preis der Ankerung: den Fall zu behalten hiesse, das blosse Praefix als
-  Treffer zu werten — also genau den Zustand wiederherzustellen, der Fachprosa
-  dauerhaft blockiert hat. Zwischen „faengt ein zerlegtes Literal" und „laesst
-  korrekte Arbeit durch" ist das Zweite die richtige Wahl, weil ein umgangenes
-  Gate gar nichts mehr faengt.
+  eine **bewusst hingenommene Abdeckungseinbusse**, kein Randfall.
+
+  Sie ist **nicht technisch alternativlos.** Ein sprachnaher Matcher, der
+  unmittelbar benachbarte String-Literale derselben Zeile zusammenzieht und
+  danach dieselbe Formpruefung anwendet, wuerde den Fall fangen und
+  `risk-adjusted` weiterhin nicht treffen. Der gewaehlte Matcher arbeitet
+  bewusst **sprachneutral auf der Rohzeile**: er kennt weder Python noch
+  JavaScript noch YAML und braucht keine Grammatik nachzuziehen, wenn eine neue
+  Sprache dazukommt. Diese Einfachheit ist der Grund, dass die Abdeckung hier
+  endet — nicht eine Unmoeglichkeit. Wer sie zurueckholen will, baut einen
+  sprachbewussten Matcher; das ist eine eigene Entscheidung mit eigenem Preis.
 - **Zerlegung des Praefixes selbst** (`"sk" "-" "proj-…"`), Base64,
   URL-Encoding: umgehen **beide** Implementierungen. Das ist die Reichweite des
   Werkzeugs, nicht diese Entscheidung.

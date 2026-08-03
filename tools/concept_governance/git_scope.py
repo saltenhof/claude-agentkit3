@@ -41,6 +41,7 @@ def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> froz
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
         )
         if completed.returncode != 0:
             raise GitScopeError(completed.stderr.strip() or f"git diff exited {completed.returncode}")

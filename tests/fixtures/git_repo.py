@@ -52,6 +52,7 @@ def ensure_git_repo(project_root: Path) -> None:
         ["git", "init", "--quiet", str(project_root)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     if init.returncode != 0:
@@ -70,5 +71,6 @@ def ensure_git_repo(project_root: Path) -> None:
             ["git", "-C", str(project_root), *argv],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
         )

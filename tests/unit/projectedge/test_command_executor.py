@@ -63,7 +63,7 @@ _BRANCH = "story/AG3-700"
 
 
 def _git(root: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True, encoding="utf-8")
 
 
 def _init_repo(root: Path) -> None:
@@ -177,7 +177,7 @@ def test_provision_creates_worktree_marker_and_reports_head_sha(tmp_path: Path) 
     # The branch was really created dev-locally.
     branches = subprocess.run(
         ["git", "-C", str(repo_root), "branch", "--list", _BRANCH],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, encoding="utf-8", check=True,
     )
     assert _BRANCH in branches.stdout
 
@@ -247,6 +247,7 @@ def test_reset_worktree_keeps_local_head_and_discards_uncommitted_changes(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     (worktree / "local-commit.txt").write_text("dirty\n", encoding="utf-8")
     (worktree / "untracked").mkdir()
@@ -632,6 +633,7 @@ def test_candidate_collection_rejects_dirty_worktree_but_allows_edge_marker(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
     (root / ".agentkit-story.json").write_text("{}\n", encoding="utf-8")
@@ -664,6 +666,7 @@ def test_pytest_artifacts_do_not_self_invalidate_evidence_batch(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     request = VerifyEvidenceRequest(
         request_index=0,
@@ -705,6 +708,7 @@ def test_pytest_genuine_tracked_mutation_still_fails_closed(tmp_path: Path) -> N
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     request = VerifyEvidenceRequest(
         request_index=0,
@@ -743,6 +747,7 @@ def test_untracked_source_inside_cache_still_fails_closed(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
     forged = root / relative_path
@@ -764,6 +769,7 @@ def test_untracked_pycache_bytecode_is_tolerated_but_never_collected(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
     bytecode = root / "some" / "__pycache__" / "mod.pyc"
@@ -794,6 +800,7 @@ def test_untracked_root_bytecode_fails_closed_while_pycache_is_tolerated(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     repository = VerifyEvidenceRepository(repo_id="app", expected_head_sha=head)
     root_bytecode = root / "root.pyc"

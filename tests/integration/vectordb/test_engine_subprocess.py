@@ -49,6 +49,7 @@ def test_r02_subprocess_non_default_endpoint_reaches_connection(tmp_path: Path) 
         cwd=str(tmp_path),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=env,
         timeout=60,
     )
@@ -87,6 +88,7 @@ def test_r02_subprocess_missing_endpoint_fails_at_binding() -> None:
         [sys.executable, "-c", script_snippet],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     payload = json.loads(out.stdout.strip().splitlines()[-1])
@@ -121,6 +123,7 @@ def test_r02_subprocess_registered_loopback_endpoint_binds() -> None:
         [sys.executable, "-c", script_snippet],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     payload = json.loads(out.stdout.strip().splitlines()[-1])

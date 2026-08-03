@@ -21,6 +21,7 @@ class CompositionSubprocessGitBackend:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             check=False,
         )
         return GitCommandResult(result.returncode, result.stdout, result.stderr)

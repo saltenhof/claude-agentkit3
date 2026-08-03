@@ -322,7 +322,7 @@ def test_sync_push_without_context_is_fail_closed(tmp_path: Path) -> None:
 
 
 def _git(root: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True, encoding="utf-8")
 
 
 def _real_push_repo(
@@ -379,7 +379,7 @@ def test_gate_open_pushes_official_ref_to_remote(tmp_path: Path) -> None:
     # The official ref landed on the remote at the reported head SHA.
     remote_ref = subprocess.run(
         ["git", "-C", str(remote), "rev-parse", f"refs/heads/{_BRANCH}"],
-        check=True, capture_output=True, text=True,
+        check=True, capture_output=True, text=True, encoding="utf-8",
     ).stdout.strip()
     assert remote_ref == result.head_sha
 
@@ -435,5 +435,6 @@ def test_unavailable_change_evidence_does_not_block_push(
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout.strip()
     assert len(remote_ref) == 40

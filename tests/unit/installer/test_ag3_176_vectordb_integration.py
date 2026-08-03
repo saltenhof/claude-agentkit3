@@ -1507,6 +1507,7 @@ def _git_hooks_path(project_root: Path) -> str | None:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     return result.stdout.strip() if result.returncode == 0 else None

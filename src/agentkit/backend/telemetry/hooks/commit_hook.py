@@ -163,7 +163,7 @@ class CommitHook(EmittingHook):
             return None
         path = self._snapshot_path(key)
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
         except (OSError, ValueError):
             return None
         if not isinstance(payload, dict):
@@ -341,6 +341,7 @@ def _git_output(repo: Path, *args: str) -> str:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             timeout=5,
         )
     except (OSError, subprocess.SubprocessError):

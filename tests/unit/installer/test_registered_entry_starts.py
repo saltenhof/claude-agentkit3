@@ -93,6 +93,7 @@ def _run(
         cwd=str(root),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=_PROCESS_TIMEOUT_SECONDS,
         check=False,
         stdin=subprocess.DEVNULL,

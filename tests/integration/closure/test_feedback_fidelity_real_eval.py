@@ -152,6 +152,7 @@ def _init_git_with_diff(project_root: Path) -> None:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
     _git("init", "-b", "main")

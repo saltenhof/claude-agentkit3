@@ -190,6 +190,7 @@ def _docker_container_ids(docker: str, docker_filter: str) -> list[str]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         return []
@@ -202,6 +203,7 @@ def _inspect_container(docker: str, container_id: str) -> dict[str, Any] | None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         return None
@@ -255,6 +257,7 @@ def _sweep_stale_test_postgres_containers(docker: str) -> None:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
 
@@ -459,6 +462,7 @@ def _container_state(docker: str, name: str) -> str | None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         return None
@@ -478,7 +482,7 @@ def _start_shared_local_container(docker: str) -> None:
     if status == "running":
         return
     if status is not None:
-        subprocess.run([docker, "start", name], check=False, capture_output=True, text=True)
+        subprocess.run([docker, "start", name], check=False, capture_output=True, text=True, encoding="utf-8")
         return
     result = subprocess.run(
         [
@@ -500,6 +504,7 @@ def _start_shared_local_container(docker: str) -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode == 0:
         return
@@ -508,7 +513,7 @@ def _start_shared_local_container(docker: str) -> None:
     if status == "running":
         return
     if status is not None:
-        subprocess.run([docker, "start", name], check=False, capture_output=True, text=True)
+        subprocess.run([docker, "start", name], check=False, capture_output=True, text=True, encoding="utf-8")
         return
     raise RuntimeError(
         f"failed to start shared local Postgres container {name!r}: "
@@ -532,6 +537,7 @@ def _wait_for_shared_local_postgres_ready(docker: str, url: str) -> None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         if probe.returncode == 0:
             try:

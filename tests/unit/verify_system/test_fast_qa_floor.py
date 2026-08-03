@@ -41,7 +41,7 @@ def _git_worktree(tmp_path: Path) -> None:
 
     def _git(*args: str) -> None:
         subprocess.run(
-            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True
+            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True, encoding="utf-8"
         )
 
     _git("init", "-b", "main")

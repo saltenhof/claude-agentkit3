@@ -73,6 +73,7 @@ class GitDiffChangeEvidencePort:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         if result.returncode != 0:
             return ChangeEvidence(available=False)
@@ -212,6 +213,7 @@ def init_git_story_worktree(story_dir: Path) -> None:
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
     initialized_toplevel = _git_toplevel(story_dir)
     if initialized_toplevel is None or not _same_path(initialized_toplevel, story_dir):
@@ -241,6 +243,7 @@ def _ensure_git_implementation_change(story_dir: Path) -> None:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     subprocess.run(
         ["git", "commit", "-m", "test fixture implementation change"],
@@ -248,6 +251,7 @@ def _ensure_git_implementation_change(story_dir: Path) -> None:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
 
@@ -282,6 +286,7 @@ def _git_toplevel(story_dir: Path) -> Path | None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         return None
@@ -309,6 +314,7 @@ def _git_output(args: list[str], story_dir: Path) -> str | None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         return None

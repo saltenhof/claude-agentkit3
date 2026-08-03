@@ -284,6 +284,7 @@ def _current_hooks_path(project_root: Path) -> str | None:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             timeout=15,
             check=False,
         )
@@ -318,6 +319,7 @@ def _write_hooks_path(project_root: Path, value: str | None) -> None:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             timeout=15,
             check=False,
         )
@@ -530,11 +532,11 @@ def _verify_hook_files(project_root: Path) -> None:
         raise ValueError("canonical pre-commit/post-commit hooks are missing")
     pre_foreign = _preserved_path(pre).is_file()
     post_foreign = _preserved_path(post).is_file()
-    if pre.read_text(encoding="utf-8") != _render_pre_commit(
+    if pre.read_text(encoding="utf-8", errors="replace") != _render_pre_commit(
         has_foreign=pre_foreign,
     ):
         raise ValueError("pre-commit canonical dispatch block is incomplete")
-    if post.read_text(encoding="utf-8") != _render_post_commit(
+    if post.read_text(encoding="utf-8", errors="replace") != _render_post_commit(
         has_foreign=post_foreign,
     ):
         raise ValueError("post-commit canonical dispatch block is incomplete")
@@ -544,7 +546,7 @@ def _verify_hook_files(project_root: Path) -> None:
     ):
         if not preserved.is_file():
             continue
-        content = preserved.read_text(encoding="utf-8")
+        content = preserved.read_text(encoding="utf-8", errors="replace")
         if (
             _foreign_body(
                 content,

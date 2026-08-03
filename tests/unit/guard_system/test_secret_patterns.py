@@ -196,6 +196,41 @@ def test_scan_reads_a_real_staged_git_diff(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.requires_git
+def test_scan_survives_a_diff_that_is_not_utf8(tmp_path: Path) -> None:
+    """A legitimate cp1252 file must not turn the scan into a permanent blocker.
+
+    Decoding a FOREIGN repository's diff strictly reintroduces exactly the harm
+    the anchoring fix removed: correct work that can no longer be committed.
+    """
+
+    def _git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+    _git("init", "-q")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "T")
+    # 0xE4 is 'ä' in cp1252 and invalid UTF-8.
+    (tmp_path / "legacy.txt").write_bytes("Gr\xe4sse und Ma\xdf".encode("cp1252"))
+    (tmp_path / "app.py").write_text(
+        f"TOKEN = '{GITHUB_PREFIX}{GITHUB_BODY}'\n",
+        encoding="utf-8",
+    )
+    _git("add", ".")
+
+    result = scan_staged_diff(tmp_path)
+
+    # The undecodable file does not hide the real hit beside it.
+    assert [hit.path for hit in result.content_hits] == ["app.py"]
+
+
 def test_hook_scanner_and_pattern_module_share_one_source() -> None:
     diff = _diff(("app.py", f"token = '{GITHUB_PREFIX}{GITHUB_BODY}'"))
     result = scan_paths_and_diff(("prod/credentials.json",), diff)

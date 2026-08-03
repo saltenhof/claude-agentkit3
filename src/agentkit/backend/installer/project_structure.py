@@ -140,7 +140,7 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     gitignore_path = root / ".gitignore"
     existing_lines: list[str] = []
     if gitignore_path.is_file():
-        existing_lines = gitignore_path.read_text(encoding="utf-8").splitlines()
+        existing_lines = gitignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
     present = {_norm(line) for line in existing_lines}
     required = (*_LINK_BINDPOINT_GITIGNORE_ENTRIES, *_PYTHON_CACHE_GITIGNORE_ENTRIES)
     missing = [entry for entry in required if _norm(entry) not in present]
@@ -153,7 +153,7 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     block.append("# AgentKit skill bind points — links to central bundles (FK-43 §43.4.1.1)")
     block.extend(missing)
     new_text = "\n".join([*existing_lines, *block]).rstrip("\n") + "\n"
-    gitignore_path.write_text(new_text, encoding="utf-8")
+    gitignore_path.write_text(new_text, encoding="utf-8", errors="replace")
     return str(gitignore_path.relative_to(root))
 
 
@@ -171,7 +171,7 @@ def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str
 
     gitignore_path = root / ".gitignore"
     existing = (
-        gitignore_path.read_text(encoding="utf-8").splitlines()
+        gitignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
         if gitignore_path.is_file()
         else []
     )
@@ -189,7 +189,7 @@ def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str
         block.append("# AgentKit default project scaffold")
         block.extend(missing)
     new_text = "\n".join([*filtered, *block]).rstrip("\n") + "\n"
-    gitignore_path.write_text(new_text, encoding="utf-8")
+    gitignore_path.write_text(new_text, encoding="utf-8", errors="replace")
     return str(gitignore_path.relative_to(root))
 
 
@@ -241,7 +241,7 @@ def _ensure_default_scaffold_gitkeep(config: InstallConfig, root: Path) -> list[
         marker = directory / _GITKEEP_FILENAME
         if marker.exists():
             continue
-        marker.write_text("", encoding="utf-8")
+        marker.write_text("", encoding="utf-8", errors="replace")
         changed.append(str(marker.relative_to(root)))
     return changed
 
@@ -257,6 +257,7 @@ def _clone_repo(remote_url: str, target: Path) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         raise ProjectError(
