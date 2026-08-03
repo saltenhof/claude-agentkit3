@@ -82,13 +82,14 @@ def _is_ak3_hook_command(command: object) -> bool:
     executed = tokens[0]
     if executed in {AK3_CLAUDE_HOOK_WRAPPER, AK3_CODEX_HOOK_WRAPPER}:
         return True
-    # `python .agentkit/hooks/<x>.py`: the interpreter must RUN the AK3 script,
-    # not merely mention it. `echo .agentkit/hooks/story_guard.py` prints it and
-    # `foreign-tool --config /srv/.agentkit/hooks/config` reads it -- neither is
-    # ours, and detach deletes what it claims.
+    # The third producer is the bundled target-project settings, which register
+    # `python .agentkit/hooks/<script>.py`. Ownership means the interpreter
+    # RUNS that script: `echo .agentkit/hooks/x.py` prints it and
+    # `foreign-tool --config /srv/.agentkit/hooks/config` reads it -- detach
+    # deletes what it claims, so neither may count.
     if executed.rsplit("/", maxsplit=1)[-1] not in _INTERPRETERS:
         return False
-    script = next((token for token in tokens[1:] if not token.startswith("-")), None)
+    script = _executed_script(tokens[1:])
     return script is not None and _is_ak3_hooks_path(script)
 
 
@@ -96,14 +97,45 @@ def _is_ak3_hook_command(command: object) -> bool:
 _INTERPRETERS = frozenset(
     {"python", "python3", "python3.exe", "python.exe", "sh", "bash", "node", "pwsh"}
 )
+#: Flags that consume the NEXT argument, which is therefore not the script.
+_VALUE_FLAGS = frozenset({"-W", "-X", "-O", "--check-hash-based-pycs", "-o"})
+#: Flags after which no script path follows at all -- the code is inline.
+_NO_SCRIPT_FLAGS = frozenset({"-c", "-m"})
 
 
 def _is_ak3_hooks_path(token: str) -> bool:
-    segments = token.split("/")
+    """Whether ``token`` points INTO the AK3-owned hooks directory.
+
+    ``.agentkit`` and ``hooks`` must be adjacent segments in that order: a
+    foreign ``/opt/.agentkit/cache/hooks/foreign.sh`` is not ours.
+    """
+    segments = token.replace("\\", "/").split("/")
     return any(
         first == ".agentkit" and second == "hooks"
         for first, second in zip(segments, segments[1:], strict=False)
     )
+
+
+def _executed_script(arguments: list[str]) -> str | None:
+    """Return the path the interpreter EXECUTES, or ``None`` if it executes none.
+
+    ``python -c .agentkit/hooks/x.py`` runs the text as code and
+    ``python -m .agentkit/hooks/x.py`` treats it as a module name; neither runs
+    the file. ``python -W ignore .agentkit/hooks/x.py`` does run it.
+    """
+    remaining = list(arguments)
+    while remaining:
+        token = remaining.pop(0)
+        if token in _NO_SCRIPT_FLAGS:
+            return None
+        if token in _VALUE_FLAGS:
+            if remaining:
+                remaining.pop(0)
+            continue
+        if token.startswith("-"):
+            continue
+        return token
+    return None
 
 
 @dataclass(frozen=True)

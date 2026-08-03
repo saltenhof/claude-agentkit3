@@ -24,10 +24,16 @@ from agentkit.backend.installer.lifecycle.detach import _is_ak3_hook_command
         "sh /opt/.agentkit/hooks-backup/quality.sh",
         "python /opt/.agentkit/cache/hooks/foreign.sh",
         "python hooks/.agentkit/foreign.py",
-        # The AK3 path is MENTIONED, not executed.
+        # The AK3 path is MENTIONED or read, not executed as a script.
         "echo .agentkit/hooks/story_guard.py",
         "foreign-tool --config /srv/.agentkit/hooks/config",
         "cat .agentkit/hooks/story_guard.py",
+        # `-c` runs the text as code, `-m` treats it as a module name: neither
+        # executes the file.
+        "python -c .agentkit/hooks/story_guard.py",
+        "python -m .agentkit/hooks/story_guard.py",
+        # The wrapper name as an ARGUMENT, not as the executed command.
+        "sh -c agentkit-hook-claude",
         # Not a command at all.
         "",
     ],
@@ -41,8 +47,12 @@ def test_foreign_hook_commands_are_not_claimed(command: str) -> None:
     [
         "agentkit-hook-claude pre branch_guard",
         "agentkit-hook-codex post commit",
-        "python .agentkit/hooks/story_guard.py",
+        # The form the bundled target-project settings actually register.
+        "python .agentkit/hooks/pre_tool_use.py",
         "python /srv/project/.agentkit/hooks/story_guard.py",
+        # A flag that consumes its own value does not hide the script.
+        "python -W ignore .agentkit/hooks/story_guard.py",
+        "bash .agentkit/hooks/story_guard.sh",
     ],
 )
 def test_ak3_owned_hook_commands_are_claimed(command: str) -> None:

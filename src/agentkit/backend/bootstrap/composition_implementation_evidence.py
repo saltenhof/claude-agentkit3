@@ -156,9 +156,9 @@ class _CiBuildTestEvidenceAdapter:
         # `-z` because a path is an IDENTITY, not a line of text: a filename may
         # legally contain a newline or a trailing space, and line splitting plus
         # trimming turned `test_real.py ` into a collectible `test_real.py`.
-        out = self._read(repo, "diff", "--name-only", "-z", "origin/main...HEAD")
+        out = self._read_raw(repo, "diff", "--name-only", "-z", "origin/main...HEAD")
         if out is None:
-            out = self._read(repo, "diff", "--name-only", "-z", "HEAD")
+            out = self._read_raw(repo, "diff", "--name-only", "-z", "HEAD")
         return sum(1 for path in (out or "").split("\0") if _is_test_file(path))
 
     def _read(self, repo: object, *args: str) -> str | None:
@@ -167,3 +167,16 @@ class _CiBuildTestEvidenceAdapter:
         assert isinstance(repo, ClosureRepo)  # noqa: S101 - internal typed call
         result = self.git_backend.run(repo, *args)
         return result.stdout.strip() if result.ok and result.stdout.strip() else None
+
+    def _read_raw(self, repo: object, *args: str) -> str | None:
+        """Read git output WITHOUT trimming -- for NUL-separated identities.
+
+        The trimming reader turned a real ` test_root.py` into the collectible
+        `test_root.py`: leading and trailing whitespace belong to the filename,
+        and stripping them invents a file that pytest would never collect.
+        """
+        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
+
+        assert isinstance(repo, ClosureRepo)  # noqa: S101 - internal typed call
+        result = self.git_backend.run(repo, *args)
+        return result.stdout if result.ok and result.stdout else None

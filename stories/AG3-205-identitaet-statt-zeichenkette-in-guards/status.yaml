@@ -1,0 +1,27 @@
+story_id: AG3-205
+story_title_short: "identitaet-statt-zeichenkette-in-guards"
+title: "Guards entscheiden Identitaet statt Zeichenketten: ein Modell fuer Kommando- und Pfadidentitaet, Feldvertraege in den generischen Git-Lesern, FK-51 mit dem realen Producer zur Deckung bringen."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-03"
+size: L
+# NEU 2026-08-03. Ausgeschnitten aus dem Secret-Scan-Hotfix, nachdem acht
+# unabhaengige Codex-Reviewrunden dieselbe Fehlerklasse in FUENF weiteren
+# Guards nachgewiesen haben. Der Hotfix (fccf101b..ff0aa56c) hat behoben, was
+# er selbst angefasst hat; alles andere ist vorgefundene Schuld und wird hier
+# SICHTBAR weitergefuehrt, nicht im Hotfix mitgeschleift und nicht umgedeutet.
+#
+# Zwei Befunde sind sicherheitswirksam und reproduziert:
+#   - BranchGuard erlaubt "agentkit reset-story & git push --force origin main"
+#     (einzelnes & fehlt in der Sperrliste; behoben, aber _target_branch und
+#     die Gefahrenmuster bleiben Stringheuristik).
+#   - ArtifactGuard ist unter Windows case-sensitiv und laesst
+#     "_TEMP\QA\<story>" durch, obwohl es derselbe Pfad ist.
+#
+# Ebenso reproduziert, in die Gegenrichtung: echo-Texte mit "push --force"
+# werden blockiert, und ScopeGuard blockiert einen Pfad im erlaubten Worktree,
+# wenn die Gross-/Kleinschreibung abweicht. Ein Guard mit Fehlalarm ist
+# derselbe Schaden wie ein durchlaessiger.
+depends_on: []
+unblocks: []

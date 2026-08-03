@@ -104,8 +104,12 @@ Verlustfreiheit hat zwei Bedingungen, und eine allein genuegt nicht: der
 zweite macht schon das Lesen aus jedem CRLF ein LF, und der Rueckschreibvorgang
 haendigt dem Projekt eine Datei aus, die es so nie geschrieben hat.
 
-Ein Fremdprozess, den AK3 startet, bekommt zusaetzlich `PYTHONIOENCODING=utf-8`
-— steuern statt hoffen.
+Wo AK3 einen Fremdprozess startet, dessen Ausgabe es liest, wird zusaetzlich
+`PYTHONIOENCODING=utf-8` gesetzt — steuern statt hoffen. Das ist heute an einer
+Stelle umgesetzt (Verify-Evidence-Testlauf) und **nicht** flaechendeckend; die
+generischen Git-Leser dekodieren weiterhin mit einem Codec fuer alle Felder.
+Beides ist offen und in AG3-205 geschnitten, nicht hier stillschweigend
+behauptet.
 
 **2.8 Durchgesetzt wird die Regel semantisch, nicht syntaktisch.**
 `PYTHONWARNDEFAULTENCODING=1` macht jede tatsaechlich ausgefuehrte Stelle ohne

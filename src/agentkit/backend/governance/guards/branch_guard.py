@@ -127,7 +127,7 @@ class BranchGuard:
         operator, no redirection, no substitution anywhere in the line.
         """
         stripped = command.strip()
-        if any(marker in stripped for marker in ("&&", "||", ";", "|", "`", "$(", ">", "<", "\n")):
+        if any(marker in stripped for marker in ("&", "|", ";", "`", "$(", ">", "<", "\n")):
             return False
         try:
             tokens = shlex.split(stripped, posix=True)
