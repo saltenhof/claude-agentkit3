@@ -52,6 +52,60 @@ def _repo_root(start: Path) -> Path:
     return Path(out.stdout.strip())
 
 
+def _name_status_candidate(line: str, concept_root_rel: str) -> tuple[str, str] | None:
+    """Project one ``--name-status`` line to ``(status, path)``, or ``None`` to skip.
+
+    Skipped are blank lines, non-Markdown paths and anything outside the concept
+    corpus -- those are not staged-overlay candidates at all.
+
+    Args:
+        line: One raw output line of ``git diff --cached --name-status``.
+        concept_root_rel: The concept root, repo-relative and POSIX-shaped.
+
+    Returns:
+        The status letter and the repo-relative POSIX path, or ``None``.
+    """
+    if not line.strip():
+        return None
+    parts = line.split("\t")
+    path = (parts[-1] if len(parts) > 1 else "").strip().replace("\\", "/")
+    if not path.endswith(".md") or not path.startswith(concept_root_rel):
+        return None
+    return parts[0].strip(), path
+
+
+def _read_staged_blob(repo_root: Path, path: str) -> str:
+    """Return the STAGED content of ``path`` as UTF-8 text.
+
+    The blob is read as BYTES and decoded as UTF-8 here: what lies in the
+    repository is UTF-8, not whatever code page the machine happens to run.
+
+    Args:
+        repo_root: The repository root the blob is read from.
+        path: Repo-relative POSIX path of the staged file.
+
+    Returns:
+        The staged file content.
+
+    Raises:
+        GitOperationError: If git fails or the blob is not UTF-8 -- never a
+            silent skip (R08).
+    """
+    try:
+        blob = subprocess.run(  # noqa: S603
+            ["git", "show", f":{path}"],
+            cwd=str(repo_root),
+            check=True,
+            capture_output=True,
+        ).stdout
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise GitOperationError(f"git show :{path} failed: {exc}") from exc
+    try:
+        return blob.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GitOperationError(f"staged concept file {path} is not UTF-8: {exc}") from exc
+
+
 def _staged_concept_overlays(repo_root: Path, concepts_dir: Path) -> dict[str, str]:
     """Return staged concept files as ``{rel_posix: content}`` via name-status.
 
@@ -76,35 +130,12 @@ def _staged_concept_overlays(repo_root: Path, concepts_dir: Path) -> dict[str, s
     overlays: dict[str, str] = {}
     concept_root_rel = concepts_dir.resolve().relative_to(repo_root.resolve()).as_posix()
     for line in out.stdout.splitlines():
-        if not line.strip():
+        candidate = _name_status_candidate(line, concept_root_rel)
+        if candidate is None:
             continue
-        parts = line.split("\t")
-        status = parts[0].strip()
-        path = (parts[-1] if len(parts) > 1 else "").strip().replace("\\", "/")
-        if not path.endswith(".md"):
-            continue
-        # Only concept-corpus files are staged-overlay candidates.
-        if not path.startswith(concept_root_rel):
-            continue
-        if status.startswith("D"):
-            overlays[path] = ""  # staged deletion -> remove from candidate
-            continue
-        try:
-            # The blob is read as BYTES and decoded as UTF-8 here: what lies in
-            # the repository is UTF-8, not whatever code page the machine runs.
-            blob = subprocess.run(  # noqa: S603
-                ["git", "show", f":{path}"],
-                cwd=str(repo_root),
-                check=True,
-                capture_output=True,
-            ).stdout
-        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-            raise GitOperationError(f"git show :{path} failed: {exc}") from exc
-        try:
-            content = blob.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise GitOperationError(f"staged concept file {path} is not UTF-8: {exc}") from exc
-        overlays[path] = content
+        status, path = candidate
+        # A staged deletion removes the file from the candidate corpus.
+        overlays[path] = "" if status.startswith("D") else _read_staged_blob(repo_root, path)
     # Re-key overlays relative to the concept root (candidate is concept-rooted).
     rel_overlays: dict[str, str] = {}
     for path, content in overlays.items():

@@ -399,12 +399,11 @@ def pooling_strategy_for(model: str) -> str:
         return FK13_MODEL_POOLING_STRATEGY[model]
     except KeyError as exc:
         known = ", ".join(sorted(FK13_MODEL_POOLING_STRATEGY))
-        msg = (
+        raise KeyError(
             f"no pooling strategy declared for embedding model {model!r}; "
             f"declare it explicitly (known: {known}). A guessed strategy would "
             "degrade every embedding without raising anything."
-        )
-        raise KeyError(msg) from exc
+        ) from exc
 
 
 #: The vectorizer MODEL settings FK-13 §13.2 requires, in the wire-key form the
