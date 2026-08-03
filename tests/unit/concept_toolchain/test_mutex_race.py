@@ -1751,14 +1751,25 @@ def test_the_give_back_never_deletes_the_file_that_replaced_ours(tmp_path: Path)
     intent = tmp_path / semantic_gate.INTENT_NAME
     descriptor = os.open(intent, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     created = semantic_gate._open_identity(descriptor)  # noqa: SLF001 - unit under test
-    os.close(descriptor)
     assert created is not None, "the platform must report an identity for a file we hold open"
 
-    intent.unlink()  # B collected the abandoned latch after its TTL
-    successor = write_latch(intent, nonce="bob-latch")  # and claimed the name for itself
-    assert semantic_gate._path_identity(intent) != created, (  # noqa: SLF001 - guard against a vacuous pass
-        "the successor must be a different file, otherwise this test proves nothing"
-    )
+    # POSIX may immediately recycle an unlinked inode after the final handle is
+    # closed, making a genuinely new successor look identical and rendering
+    # the test vacuous. Keep I1 open there until I2 has been created. Windows
+    # mandatory sharing prevents unlink while the descriptor is open.
+    retained_descriptor = descriptor if sys.platform != "win32" else None
+    if retained_descriptor is None:
+        os.close(descriptor)
+
+    try:
+        intent.unlink()  # B collected the abandoned latch after its TTL
+        successor = write_latch(intent, nonce="bob-latch")  # and claimed the name for itself
+        assert semantic_gate._path_identity(intent) != created, (  # noqa: SLF001 - guard against a vacuous pass
+            "the successor must be a different file, otherwise this test proves nothing"
+        )
+    finally:
+        if retained_descriptor is not None:
+            os.close(retained_descriptor)
 
     owed = semantic_gate._OwedEffects()  # noqa: SLF001 - unit under test
     semantic_gate._give_back_exclusive_create(  # noqa: SLF001 - unit under test
