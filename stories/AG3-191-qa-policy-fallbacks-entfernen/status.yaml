@@ -2,8 +2,8 @@ story_id: AG3-191
 story_title_short: "qa-policy-fallbacks-entfernen"
 title: "QA-/Policy-Fallbacks im verify_system entfernen: origin_check_ref-Fallback, Legacy-Result-Namen in Policy-Engine und Stage-Coverage-Mapping, Legacy-Schwellwertknopf."
 type: implementation
-status: in_progress  # Code gelandet (c64f1de1); done erst nach gruenem Jenkins + sauberer Reviewrunde
-phase: setup
+status: done
+phase: closure
 created: "2026-08-02"
 size: M
 # NEU 2026-08-02 aus Auflage ERROR-9 des unabhaengigen Codex-Reviews:
@@ -12,3 +12,30 @@ size: M
 # zu weich.
 depends_on: []
 unblocks: ["AG3-193"]
+
+
+# 2026-08-05 ABGESCHLOSSEN. Neun Runden, acht davon mit substanziellen
+# Befunden -- keine einzige mit blosser Stilkritik. Abbruchkriterium in
+# Runde 9 ausdruecklich erreicht ("PASS, keine substanziellen Findings"),
+# bestaetigt durch Jenkins #1239 SUCCESS gegen 1f0e1ab7 samt gruenem
+# Sonar-Quality-Gate.
+#
+# Aus sechs vermuteten Fallback-Pfaden wurden acht entfernte plus vier
+# Datenintegritaetsdefekte, die kein Test je gesehen hatte:
+#   - der Postgres-Rewrite loeschte unter der rohen, schrieb unter der
+#     kanonischen Stage-ID -- Leichen bei jedem Wiederholungslauf
+#   - der Rewrite loeschte nur die Stages des eingehenden Batches; ein
+#     kleinerer Zweitlauf liess die alten Zeilen stehen
+#   - der Reset lief ueber drei separat committende Aufrufe
+#   - `phase_snapshots` kollabierte mehrfache Ausfuehrungen still auf
+#     eine Outcome-Zeile (in R8 ueber eigene Registry-IDs geloest)
+#
+# Das teuerste Muster durchgehend dasselbe: die Zusage ist gebaut, ein
+# realer Weg laeuft daran vorbei -- ein Aufrufer, der die Pruefung
+# speist; ein gruener Test, der zwei private Helfer vergleicht, von denen
+# einer tot ist; ein Batch-Filter vor der Validierung; ein Reset, der die
+# Atomizitaet des Schreibens nicht teilt. Das findet keine Testsuite, nur
+# ein Reviewer, der fragt, wer die Pruefung produktiv aufruft.
+#
+# Drei Befunde lagen ausserhalb des Schnitts und sind als AG3-212,
+# AG3-213 und AG3-215 geschnitten.
