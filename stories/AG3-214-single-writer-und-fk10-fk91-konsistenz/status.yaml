@@ -2,7 +2,7 @@ story_id: AG3-214
 story_title_short: "single-writer-und-fk10-fk91-konsistenz"
 title: "FK-10 verlangt zwei schreibende Backend-Prozesse, FK-91 genau einen Writer -- der zweite Prozess kann Claims des lebenden ersten als verwaist reconcilieren. Dazu vier weitere FK-10/FK-91-Abweichungen aus dem AG3-180-Umfeld."
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-08-04"
 size: L

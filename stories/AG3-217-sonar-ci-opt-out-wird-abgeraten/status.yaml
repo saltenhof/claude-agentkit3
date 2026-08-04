@@ -1,0 +1,29 @@
+story_id: AG3-217
+story_title_short: "sonar-ci-opt-out-wird-abgeraten"
+title: "Der Sonar-/CI-Opt-out bleibt normativ zulaessig, aber der Installer raet strikt davon ab und benennt die Konsequenz -- damit ihn niemand mehr versehentlich waehlt."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-04"
+size: S
+# Herkunft: PO-Hinweis am 2026-08-04 beim Vorbereiten der Wiederregistrierung
+# von ibkr-tax-analyzer, das mit sonarqube.available=false und ci.available
+# =false registriert ist, obwohl es implementation- und bugfix-Storys fuehrt.
+#
+# Der PO hielt das fuer einen Installer-Defekt ("AK3 hat Jenkins und Sonar
+# verpflichtend"). Die Pruefung ergab das Gegenteil: FK-03 §3 erlaubt den
+# Opt-out ausdruecklich, auch fuer codeproduzierende Projekte, und die CLI
+# setzt genau das um. Es war also der vorgesehene Weg, nicht ein Bug.
+#
+# PO-ENTSCHEID 2026-08-04: "lassen, aber im installer ein warning ausgeben,
+# dass von diesem Modus strikt abgeraten wird." FK-03 bleibt unveraendert.
+#
+# WICHTIG fuer die Umsetzung: Das ist KEIN Severity-WARNING nach CLAUDE.md --
+# dort ist WARNING ein aufschiebbarer Handlungsauftrag mit Spiegelungspflicht.
+# Hier hat der Betreiber bereits zulaessig entschieden; es gibt nichts zu
+# spiegeln und nichts nachzuverfolgen. Gebaut wird eine Abratung zum
+# Entscheidungszeitpunkt: laut, konkret, danach abgeschlossen. Wer hier einen
+# Nachverfolgungsmechanismus baut, erzeugt genau die Warning-Flut, wegen der
+# CLAUDE.md sonst zu ERROR raet.
+depends_on: []
+unblocks: []
