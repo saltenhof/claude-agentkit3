@@ -19,7 +19,6 @@ configuration is the control-plane base URL from
 from __future__ import annotations
 
 import json
-import os
 import ssl
 import urllib.parse
 from typing import TYPE_CHECKING
@@ -55,7 +54,6 @@ _WORKER_HEALTH_PATH = "/v1/governance/worker-health"
 _TELEMETRY_EVENTS_PATH = "/v1/telemetry/events"
 _PERMISSION_REQUESTS_PATH = "/v1/governance/permission-requests"
 _PERMISSION_LEASES_PATH = "/v1/governance/permission-leases"
-_PROJECT_API_TOKEN_ENV = "AGENTKIT_PROJECT_API_TOKEN"
 #: Error code the core returns when a story detail read finds no record.
 _STORY_NOT_FOUND_CODE = "story_not_found"
 
@@ -312,6 +310,10 @@ def build_governance_edge_client(project_root: Path) -> GovernanceEdgeClient:
         A configured :class:`GovernanceEdgeClient`.
     """
     from agentkit.backend.config.loader import load_project_config
+    from agentkit.harness_client.projectedge.credentials import (
+        load_reconciled_active_project_credentials,
+        project_credentials_path,
+    )
     from agentkit.harness_client.projectedge.permission_projection import (
         LocalPermissionStateProjection,
     )
@@ -326,13 +328,19 @@ def build_governance_edge_client(project_root: Path) -> GovernanceEdgeClient:
     )
     cafile = config.get("ca_file")
     ssl_context = ssl.create_default_context(cafile=cafile) if cafile else None
+    project_config = load_project_config(project_root)
+    credential_path = project_credentials_path(project_root)
+    credential = load_reconciled_active_project_credentials(
+        credential_path,
+        project_key=project_config.project_key,
+    )
     return GovernanceEdgeClient(
         transport=HttpsJsonTransport(
             base_url=str(config["base_url"]),
             ssl_context=ssl_context,
             skill_bundle_version=_read_bound_skill_bundle_version(project_root),
-            bearer_token=os.environ.get(_PROJECT_API_TOKEN_ENV),
-            project_key=load_project_config(project_root).project_key,
+            bearer_token=credential.project_api_token,
+            project_key=project_config.project_key,
         ),
         permission_projection=LocalPermissionStateProjection(project_root),
     )

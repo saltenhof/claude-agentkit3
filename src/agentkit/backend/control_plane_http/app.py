@@ -527,9 +527,9 @@ class ControlPlaneApplication(
             )
             if third_party_response is not None:
                 return third_party_response
-            return self._handle_get_request(route_path, query, correlation_id)
+            return self._handle_get_request(route_path, query, correlation_id, auth_result)
         if method == "DELETE":
-            return self._handle_delete_request(route_path, body, correlation_id)
+            return self._handle_delete_request(route_path, body, correlation_id, auth_result)
         read_only_block = _read_only_method_not_allowed(
             self._read_model_routes, route_path, correlation_id
         )
@@ -556,6 +556,7 @@ class ControlPlaneApplication(
         route_path: str,
         query: dict[str, list[str]],
         correlation_id: str,
+        auth_result: AuthResult | None,
     ) -> HttpResponse:
         # Version compat window (non-project-scoped, read-only, handshake-exempt
         # to avoid the hen-and-egg trap; FK-91 §91.1a / FK-10 §10.2.7):
@@ -604,7 +605,11 @@ class ControlPlaneApplication(
             )
 
         # Auth routes (non-project-scoped):
-        auth_response = self._auth_routes.handle_get(route_path, correlation_id)
+        auth_response = self._auth_routes.handle_get(
+            route_path,
+            correlation_id,
+            auth_result,
+        )
         if auth_response is not None:
             return _auth_response_to_http_response(auth_response)
 
@@ -749,7 +754,11 @@ class ControlPlaneApplication(
         # AG3-091 read-only endpoints already returned 405 in _dispatch_method
         # (before body decode); this handler only sees genuine mutation paths.
         auth_response = self._auth_routes.handle_post(
-            route_path, payload, correlation_id, request_headers,
+            route_path,
+            payload,
+            correlation_id,
+            request_headers,
+            auth_result,
         )
         if auth_response is not None:
             return _auth_response_to_http_response(auth_response)
@@ -966,6 +975,7 @@ class ControlPlaneApplication(
         route_path: str,
         body: bytes,
         correlation_id: str,
+        auth_result: AuthResult | None,
     ) -> HttpResponse:
         # AG3-091 read-only endpoints: DELETE -> 405 (AC1/AC5).
         rm_delete = self._read_model_routes.handle_delete(route_path, correlation_id)
@@ -980,7 +990,7 @@ class ControlPlaneApplication(
         if isinstance(payload, HttpResponse):
             return payload
         auth_response = self._auth_routes.handle_delete(
-            route_path, payload, correlation_id,
+            route_path, payload, correlation_id, auth_result,
         )
         if auth_response is not None:
             return _auth_response_to_http_response(auth_response)
@@ -1368,18 +1378,7 @@ def serve_control_plane(
     control-plane backend; the productive listener always runs the real hook.
     """
 
-    if app is None:
-        from agentkit.backend.auth.middleware import AuthMiddleware
-
-        # Production wires the handshake middleware ON (fail-closed by default,
-        # FK-91 §91.1a Rule 11 / FK-10 §10.2.8): no fail-open default on the
-        # real listener, mirroring the always-on auth middleware here.
-        application = ControlPlaneApplication(
-            auth_middleware=AuthMiddleware(),
-            version_handshake_middleware=VersionHandshakeMiddleware(),
-        )
-    else:
-        application = app
+    application = _build_production_application() if app is None else app
     # GUARANTEE the real listener is handshake-gated even when an app was injected
     # without a handshake middleware (close the fail-OPEN path; FK-91 Rule 11).
     application.ensure_version_handshake()
@@ -1406,6 +1405,29 @@ def serve_control_plane(
         server.serve_forever()
     finally:
         server.server_close()
+
+
+def _build_production_application() -> ControlPlaneApplication:
+    """Build one profile with the cross-process strategist session owner."""
+    from agentkit.backend.auth.credentials import StrategistCredentialStore
+    from agentkit.backend.auth.http.routes import AuthRoutes
+    from agentkit.backend.auth.middleware import AuthMiddleware
+    from agentkit.backend.auth.sessions import FileSessionStore
+
+    credential_store = StrategistCredentialStore()
+    session_store = FileSessionStore(credential_store)
+    auth_middleware = AuthMiddleware(session_store=session_store)
+    return ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            auth_routes=AuthRoutes(
+                credential_store=credential_store,
+                session_store=session_store,
+                token_repository=auth_middleware.token_repository,
+            ),
+        ),
+        auth_middleware=auth_middleware,
+        version_handshake_middleware=VersionHandshakeMiddleware(),
+    )
 
 
 def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]:
@@ -1451,6 +1473,9 @@ def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]
 
         def log_message(self, message_format: str, *args: object) -> None:
             logger.info("control-plane %s", message_format % args)
+
+        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+            super().log_request(code, size)
 
     return ControlPlaneHandler
 

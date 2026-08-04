@@ -13,7 +13,7 @@ from agentkit.backend.installer.mcp_registration import (
 from agentkit.backend.installer.vectordb_preflight import VectorDbPreflightReceipt
 
 if TYPE_CHECKING:
-    from pytest import MonkeyPatch
+    from pytest import FixtureRequest, MonkeyPatch
 
     from agentkit.backend.config.models import ProjectConfig
 
@@ -50,7 +50,10 @@ def passing_mcp_probe(
     )
 
 
-def wire_ready_vectordb(monkeypatch: MonkeyPatch) -> RecordingWeaviateClient:
+def wire_ready_vectordb(
+    monkeypatch: MonkeyPatch,
+    request: FixtureRequest,
+) -> RecordingWeaviateClient:
     """Wire only the external Weaviate/MCP-process boundaries for CLI tests."""
     from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp_registration as cp10
     from agentkit.backend.installer.bootstrap_checkpoints import orchestrator
@@ -58,6 +61,7 @@ def wire_ready_vectordb(monkeypatch: MonkeyPatch) -> RecordingWeaviateClient:
 
     ready = ReadyVectorDbPreflight()
     client = RecordingWeaviateClient()
+    request.addfinalizer(client.close)
     monkeypatch.setattr(orchestrator.HttpVectorDbPreflight, "check", ready.check)
     monkeypatch.setattr(engine, "connect_real_client", lambda _binding: client)
     monkeypatch.setattr(cp10, "probe_registration", passing_mcp_probe)

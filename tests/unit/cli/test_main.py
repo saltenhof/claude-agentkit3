@@ -57,6 +57,19 @@ def _stub_repo_existence_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_auth_provisioning_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep generic CLI unit tests independent of a live authenticated Core."""
+    monkeypatch.setattr(
+        "agentkit.backend.cli.auth_commands.provision_installer_project_token",
+        lambda _args, _context=None: 0,
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.cli.auth_commands.prepare_installer_auth_context",
+        lambda _args: None,
+    )
+
+
 class TestCLIMain:
     """Tests for the top-level CLI ``main()`` function."""
 
@@ -470,6 +483,7 @@ class TestCLIMain:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
+        request: pytest.FixtureRequest,
     ) -> None:
         """``register-project`` creates .agentkit/ in target project.
 
@@ -501,7 +515,7 @@ class TestCLIMain:
             wire_ready_vectordb,
         )
 
-        wire_ready_vectordb(monkeypatch)
+        wire_ready_vectordb(monkeypatch, request)
         # CP 11 configures core.hooksPath on the target; real targets are git
         # repos, so provision one (else CP 11 aborts on a clean CI agent).
         ensure_git_repo(tmp_path)
@@ -629,6 +643,7 @@ class TestCLIMain:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
+        request: pytest.FixtureRequest,
     ) -> None:
         """A normal CLI install with an UNPROVISIONED systemwide skill store
         fails closed (exit 1, BundleNotFound) — it does NOT silently produce an
@@ -643,7 +658,7 @@ class TestCLIMain:
         from agentkit.backend.skills.bundle_store import SKILL_BUNDLE_STORE_ENV
 
         # Point the default systemwide store at an empty dir (no bundles).
-        wire_ready_vectordb(monkeypatch)
+        wire_ready_vectordb(monkeypatch, request)
         monkeypatch.setenv(SKILL_BUNDLE_STORE_ENV, str(tmp_path / "empty-system-store"))
         exit_code = main(
             [
@@ -938,6 +953,7 @@ class TestCLIMain:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
+        request: pytest.FixtureRequest,
     ) -> None:
         """``uninstall`` removes AgentKit harness settings."""
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
@@ -947,7 +963,7 @@ class TestCLIMain:
             wire_ready_vectordb,
         )
 
-        wire_ready_vectordb(monkeypatch)
+        wire_ready_vectordb(monkeypatch, request)
         # CP 11 configures core.hooksPath on the target; real targets are git
         # repos, so provision one (else CP 11 aborts on a clean CI agent).
         ensure_git_repo(tmp_path)
@@ -1063,7 +1079,7 @@ class TestCLIMain:
                 "serve",
                 "--project-api",
                 "--host",
-                "0.0.0.0",
+                "127.0.0.1",
                 "--port",
                 "9910",
                 "--certfile",
@@ -1075,7 +1091,7 @@ class TestCLIMain:
 
         assert exit_code == 0
         assert captured == {
-            "host": "0.0.0.0",
+            "host": "127.0.0.1",
             "port": 9910,
             "certfile": str(PurePath("tls/control-plane.pem")),
             "keyfile": str(PurePath("tls/control-plane.key")),

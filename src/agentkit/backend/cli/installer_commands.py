@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from agentkit.backend.installer.runner import InstallConfig
+
 
 def add_installer_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
@@ -217,7 +219,7 @@ def _add_vectordb_endpoint_flags(parser: argparse.ArgumentParser, *, required: b
     )
 
 
-def _build_engine_config(args: argparse.Namespace) -> object | None:
+def _build_engine_config(args: argparse.Namespace) -> InstallConfig | None:
     """Build the :class:`InstallConfig` for the engine-driven subcommands.
 
     Resolves the github coordinates fail-closed (flags or origin remote) exactly
@@ -328,20 +330,38 @@ def _cmd_register_project(args: argparse.Namespace) -> int:
         run_checkpoint_install,
     )
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+    from agentkit.harness_client.projectedge.credentials import ProjectCredentialError
 
     config = _build_engine_config(args)
     if config is None:
         return 1
     mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
+    auth_context = None
     try:
-        result = run_checkpoint_install(config, mode=mode)  # type: ignore[arg-type]
-    except ProjectError as exc:
-        print(f"register-project failed: {exc}", file=sys.stderr)
-        return 1
-    label = "planned" if args.dry_run else "registered"
-    print(f"Project {label} ({mode.value}) at {args.project_root}")
-    _print_checkpoint_results(result)
-    return 0 if result.success else 1
+        try:
+            if mode is ExecutionMode.REGISTER:
+                from agentkit.backend.cli.auth_commands import prepare_installer_auth_context
+
+                auth_context = prepare_installer_auth_context(args)
+                if auth_context is not None:
+                    config.project_edge_client = auth_context.project_edge_client
+            result = run_checkpoint_install(config, mode=mode)
+        except (ProjectError, ProjectCredentialError) as exc:
+            print(f"register-project failed: {exc}", file=sys.stderr)
+            return 1
+        label = "planned" if args.dry_run else "registered"
+        print(f"Project {label} ({mode.value}) at {args.project_root}")
+        _print_checkpoint_results(result)
+        if not result.success:
+            return 1
+        if args.dry_run:
+            return 0
+        from agentkit.backend.cli.auth_commands import provision_installer_project_token
+
+        return provision_installer_project_token(args, auth_context)
+    finally:
+        if auth_context is not None:
+            auth_context.clear_secret()
 
 
 def _cmd_verify_project(args: argparse.Namespace) -> int:
@@ -359,7 +379,7 @@ def _cmd_verify_project(args: argparse.Namespace) -> int:
     if config is None:
         return 1
     try:
-        result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)  # type: ignore[arg-type]
+        result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)
     except ProjectError as exc:
         print(f"verify-project failed: {exc}", file=sys.stderr)
         return 1

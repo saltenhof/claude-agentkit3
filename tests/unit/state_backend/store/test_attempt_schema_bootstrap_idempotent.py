@@ -9,6 +9,7 @@ Verifiziert:
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -146,7 +147,11 @@ class TestAttemptsSchemaConstraints:
         with _connect(story_dir) as _:
             pass
 
-        with sqlite3.connect(str(db_path)) as conn, pytest.raises(sqlite3.IntegrityError):
+        with (
+            closing(sqlite3.connect(str(db_path))) as conn,
+            conn,
+            pytest.raises(sqlite3.IntegrityError),
+        ):
             conn.execute(
                 """
                 INSERT INTO attempts
@@ -175,7 +180,11 @@ class TestAttemptsSchemaConstraints:
         with _connect(story_dir) as _:
             pass
 
-        with sqlite3.connect(str(db_path)) as conn, pytest.raises(sqlite3.IntegrityError):
+        with (
+            closing(sqlite3.connect(str(db_path))) as conn,
+            conn,
+            pytest.raises(sqlite3.IntegrityError),
+        ):
             conn.execute(
                 """
                 INSERT INTO attempts
@@ -203,7 +212,7 @@ class TestAttemptsSchemaConstraints:
 
         old_db_path = old_db_dir / "agentkit_3_4_0.sqlite"
         # Minimale leere alte DB
-        with sqlite3.connect(str(old_db_path)) as conn:
+        with closing(sqlite3.connect(str(old_db_path))) as conn, conn:
             conn.execute("CREATE TABLE IF NOT EXISTS dummy (id TEXT PRIMARY KEY)")
             conn.commit()
 
@@ -219,7 +228,7 @@ class TestAttemptsSchemaConstraints:
         assert new_db_path.name != old_db_path.name
         # Alte DB bleibt unveraendert
         assert old_db_path.exists()
-        with sqlite3.connect(str(old_db_path)) as old_conn:
+        with closing(sqlite3.connect(str(old_db_path))) as old_conn, old_conn:
             tables = [
                 row[0]
                 for row in old_conn.execute(

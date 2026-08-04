@@ -17,5 +17,17 @@ class TokenNotFoundError(AuthError):
     """Requested project API token does not exist."""
 
 
+class ProjectApiTokenAlreadyExistsError(AuthError):
+    """A project API token id was already registered and cannot be reused."""
+
+
 class ProjectMismatchError(AuthError):
     """A token was used for a different project than its owner project."""
+
+
+class BootstrapAlreadyCompletedError(AuthError):
+    """The one-time strategist bootstrap has already completed."""
+
+
+class CredentialStateError(AuthError):
+    """A credential file is absent, malformed, or not active."""

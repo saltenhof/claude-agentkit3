@@ -37,7 +37,7 @@ unresolved_references:
     reason: Installer target-project location, not a source-repository location.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/10_runtime_deployment_speicher.md
-    line: 394
+    line: 407
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
@@ -47,7 +47,7 @@ unresolved_references:
     reason: Illustrative target-project story instance, not a repository fixture.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/15_security_secrets_identity_zugriffsmodell.md
-    line: 199
+    line: 206
     reference: tools/hooks/pre-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH

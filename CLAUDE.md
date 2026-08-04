@@ -467,7 +467,29 @@ AK3 und AK2 teilen denselben Package-Namen `agentkit`. Globale Installs uebersch
 AK2 und zerstoeren dessen Claude-Code-Hooks. Niemals `pip install` ohne venv-Prefix.
 
 - `.venv\Scripts\python -m pip install -e ".[dev]"`
-- `.venv\Scripts\python -m pytest`
+- `.venv\Scripts\python -m pytest <betroffene Teilmenge>` — **niemals ohne
+  Pfadangabe**, siehe die Regel unmittelbar darunter.
+
+### DIE VOLLE TESTSUITE LAEUFT NUR AUF JENKINS (PO-Anweisung 2026-08-04)
+
+**Das Ausfuehren der kompletten Testsuite ist fuer ALLE Agents strikt
+verboten** — Orchestrator wie Sub-Agents, ohne Ausnahme, ohne „einmal zum
+Abschluss".
+
+- Verboten: `pytest` ohne Pfadangabe, `pytest tests`, jede Variante mit oder
+  ohne `--cov`, die den gesamten Bestand sammelt.
+- Erlaubt: die von der Aenderung betroffene Teilmenge
+  (`guardrails/test-execution-efficiency.md` R2), `ruff` und `mypy`.
+- Der vollstaendige Nachweis entsteht **ausschliesslich im Jenkins-Job**, gegen
+  den tatsaechlichen Kandidaten-SHA.
+
+Ein lokaler Volllauf kostet zwoelf Minuten, blockiert den Arbeitsbaum,
+konkurriert mit jedem parallelen Lauf um dieselbe Datenbank — und beweist
+weniger als Jenkins, weil er auf dem falschen Betriebssystem laeuft. Belegt am
+2026-08-03: drei Defekte auf `main` waren lokal auf Windows gruen und fielen
+erst im ersten Jenkins-Lauf seit Tagen auf.
+
+**Diese Regel ist jedem Sub-Agent-Auftrag mitzugeben.**
 
 Wenn oeffentliche Schnittstellen, Kernzustandsmodelle oder breit wirksame Pipeline-Logik geaendert wurden, ist nicht nur ein schmaler Ausschnitt zu pruefen.
 

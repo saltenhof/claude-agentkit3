@@ -19,6 +19,19 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 
+@pytest.fixture(autouse=True)
+def _isolate_auth_provisioning_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep lifecycle flag tests independent of a live authenticated Core."""
+    monkeypatch.setattr(
+        "agentkit.backend.cli.auth_commands.provision_installer_project_token",
+        lambda _args, _context=None: 0,
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.cli.auth_commands.prepare_installer_auth_context",
+        lambda _args: None,
+    )
+
+
 def _capture_serve(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     """Patch the single control-plane entrypoint and capture its call args."""
     captured: dict[str, object] = {}
@@ -62,6 +75,24 @@ class TestServe:
         captured = _capture_serve(monkeypatch)
         main(["serve", "--project-api", "--port", "9999", "--certfile", "tls/cp.pem"])
         assert captured["port"] == 9999
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "192.0.2.10", "::"])
+    def test_core_serve_preserves_remote_core_bind_topology(self, host: str) -> None:
+        from agentkit.backend.cli.serve import ServeProfile, run_serve
+
+        captured: dict[str, object] = {}
+
+        def _listener(**kwargs: object) -> None:
+            captured.update(kwargs)
+
+        assert run_serve(
+            profile=ServeProfile.PROJECT_API,
+            host=host,
+            certfile=Path("tls/cp.pem"),
+            keyfile=None,
+            serve_fn=_listener,
+        ) == 0
+        assert captured["host"] == host
 
     def test_serve_requires_a_profile(self) -> None:
         with pytest.raises(SystemExit):
@@ -118,9 +149,10 @@ class TestUi:
     def test_serve_spa_rejects_non_loopback_cleartext_bind(
         self, host: str, tmp_path: Path
     ) -> None:
-        from agentkit.backend.cli.serve import UiBindHostError, _serve_spa
+        from agentkit.backend.boundary.network import LoopbackBindHostError
+        from agentkit.backend.cli.serve import _serve_spa
 
-        with pytest.raises(UiBindHostError, match="restricted to loopback"):
+        with pytest.raises(LoopbackBindHostError, match="restricted to loopback"):
             _serve_spa(host=host, port=9700, dist_dir=tmp_path)
 
     @pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])

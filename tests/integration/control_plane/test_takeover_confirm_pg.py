@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -11,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -21,7 +23,6 @@ import pytest
 from agentkit.backend.auth.credentials import StrategistCredentialStore
 from agentkit.backend.auth.http.routes import AuthRoutes
 from agentkit.backend.auth.middleware import AuthMiddleware
-from agentkit.backend.auth.tokens import issue_project_api_token
 from agentkit.backend.bootstrap.story_reset_adapters import ResetDisownAdapter
 from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
@@ -201,10 +202,10 @@ from agentkit.harness_client.projectedge import (
 from agentkit.harness_client.projectedge.command_executor import (
     execute_provision_worktree,
 )
+from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-    from pathlib import Path
     from typing import Literal
 
     from agentkit.backend.auth.entities import ProjectApiToken
@@ -596,8 +597,15 @@ class _InMemoryTokenRepository:
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [token for token in self.tokens.values() if token.project_key == project_key]
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
+        if token.token_id in self.tokens:
+            raise ValueError("duplicate token id")
         self.tokens[token.token_id] = token
+
+    def mark_used(self, token_id: str, *, used_at: object) -> None:
+        self.tokens[token_id] = self.tokens[token_id].model_copy(
+            update={"last_used_at": used_at},
+        )
 
     def revoke(self, project_key: str, token_id: str) -> None:
         del project_key
@@ -648,6 +656,74 @@ def _live_http_app(app: ControlPlaneApplication) -> Iterator[str]:
     try:
         host, port = server.server_address
         yield f"http://{host}:{port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+@contextmanager
+def _live_https_app(
+    app: ControlPlaneApplication,
+    certificate_directory: Path,
+) -> Iterator[tuple[str, ssl.SSLContext]]:
+    """Expose the real application through a trusted ephemeral HTTPS listener."""
+    certfile = certificate_directory / "control-plane-cert.pem"
+    keyfile = certificate_directory / "control-plane-key.pem"
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(keyfile),
+            "-out",
+            str(certfile),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+        ],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+        text=True,
+    )
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib handler contract
+            length = int(self.headers.get("Content-Length", "0"))
+            response = app.handle_request(
+                method="POST",
+                path=self.path,
+                body=self.rfile.read(length),
+                request_headers=dict(self.headers.items()),
+            )
+            self.send_response(response.status_code)
+            for key, value in response.headers:
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(response.body)))
+            self.end_headers()
+            self.wfile.write(response.body)
+
+        def log_message(self, _format: str, *args: object) -> None:
+            del _format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(certfile=certfile, keyfile=keyfile)
+    server.socket = server_context.wrap_socket(server.socket, server_side=True)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    client_context = ssl.create_default_context(cafile=str(certfile))
+    try:
+        host, port = server.server_address
+        yield f"https://{host}:{port}", client_context
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -903,7 +979,7 @@ def test_cli_takeover_confirm_requires_real_strategist_session_and_is_403_withou
     tokens = _InMemoryTokenRepository()
     auth = AuthMiddleware(token_repository=tokens)
     credentials = StrategistCredentialStore(tmp_path / "auth.json")
-    credentials.set_password("secret", username="strategist")
+    credentials.initialize_password("secret")
     routes = ControlPlaneApplicationRoutes(
         auth_routes=AuthRoutes(
             credential_store=credentials,
@@ -916,11 +992,11 @@ def test_cli_takeover_confirm_requires_real_strategist_session_and_is_403_withou
         runtime_service=service,
         auth_middleware=auth,
     )
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key=_PROJECT,
         label="agent-confirm-negative",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
 
     args = SimpleNamespace(
         story=story_id,
@@ -930,14 +1006,15 @@ def test_cli_takeover_confirm_requires_real_strategist_session_and_is_403_withou
         project=_PROJECT,
         config=None,
         project_root=str(tmp_path),
-        username="strategist",
+        username="admin",
         op_id="op-cli-confirm-final",
     )
-    with _live_http_app(app) as base_url:
+    with _live_https_app(app, tmp_path) as (base_url, ssl_context):
         args.base_url = base_url
         agent_client = ProjectEdgeClient(
             transport=HttpsJsonTransport(
                 base_url=base_url,
+                ssl_context=ssl_context,
                 bearer_token=issued.plaintext_token,
                 project_key=_PROJECT,
             ),
@@ -952,8 +1029,29 @@ def test_cli_takeover_confirm_requires_real_strategist_session_and_is_403_withou
         assert forbidden == 1
         assert "[agent_confirm_forbidden] HTTP 403" in capsys.readouterr().err
 
+        def build_strategist_client(
+            requested_base_url: str,
+            project_root: str,
+            project_key: str,
+            username: str,
+            password: str,
+        ) -> ProjectEdgeClient:
+            authenticated = HttpsJsonTransport(
+                base_url=requested_base_url,
+                ssl_context=ssl_context,
+            ).authenticate_strategist(
+                username=username,
+                password=password,
+                project_key=project_key,
+            )
+            return ProjectEdgeClient(
+                transport=authenticated,
+                publisher=LocalEdgePublisher(project_root=Path(project_root)),
+            )
+
         committed = _cmd_takeover_confirm(
             args,
+            client_builder=build_strategist_client,
             password_reader=lambda _prompt: "secret",
             confirmation_reader=lambda _prompt: "YES",
         )
@@ -984,11 +1082,11 @@ def test_deployed_edge_tool_agent_commands_are_server_fail_closed(
     _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
 
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key=_PROJECT,
         label="deployed-edge",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     auth = AuthMiddleware(token_repository=tokens)
     app = ControlPlaneApplication(runtime_service=service, auth_middleware=auth)
 
@@ -1738,11 +1836,11 @@ def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
     assert first.status == "committed"
 
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key=_PROJECT,
         label="disowned-read",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     read_response = ControlPlaneApplication(
         runtime_service=service,
         auth_middleware=AuthMiddleware(token_repository=tokens),
@@ -3301,11 +3399,11 @@ def test_token_authenticated_takeover_deny_is_forbidden_and_writes_nothing(
     approval_id = pending_result.pending_human_approval.approval_id
     before = _state_snapshot(story_id, run_id, approval_id)
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key=_PROJECT,
         label="agent",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     app = ControlPlaneApplication(
         runtime_service=service,
         auth_middleware=AuthMiddleware(token_repository=tokens),

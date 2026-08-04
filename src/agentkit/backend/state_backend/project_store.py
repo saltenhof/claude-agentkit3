@@ -64,15 +64,33 @@ def load_project_by_story_id_prefix(
     return mappers.project_row_to_entity(row)
 
 
-def save_project_api_token(
+def insert_project_api_token(
     token: ProjectApiToken,
     store_dir: Path | None = None,
 ) -> None:
-    """Persist one opaque project API token record."""
+    """Insert one opaque project API token record exactly once."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.project_api_token_to_row(token)
-    _backend_module().save_project_api_token_row(store_dir, row)
+    _backend_module().insert_project_api_token_row(store_dir, row)
+
+
+def mark_project_api_token_used(
+    token_id: str,
+    used_at: str,
+    store_dir: Path | None = None,
+) -> None:
+    """Update only the last-use timestamp of one project API token."""
+    _backend_module().mark_project_api_token_used_row(store_dir, token_id, used_at)
+
+
+def revoke_project_api_token(
+    token_id: str,
+    revoked_at: str,
+    store_dir: Path | None = None,
+) -> None:
+    """Update only the revocation timestamp of one project API token."""
+    _backend_module().revoke_project_api_token_row(store_dir, token_id, revoked_at)
 
 
 def load_project_api_token(
@@ -120,8 +138,10 @@ __all__ = [
     "load_project",
     "load_projects",
     "load_project_by_story_id_prefix",
-    "save_project_api_token",
+    "insert_project_api_token",
     "load_project_api_token",
     "load_project_api_token_by_hash",
     "load_project_api_tokens_for_project",
+    "mark_project_api_token_used",
+    "revoke_project_api_token",
 ]

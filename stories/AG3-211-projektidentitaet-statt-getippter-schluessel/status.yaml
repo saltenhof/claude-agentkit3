@@ -1,0 +1,26 @@
+story_id: AG3-211
+story_title_short: "projektidentitaet-statt-getippter-schluessel"
+title: "Ein Projekt existiert serverseitig genau einmal: der zweite Bediener wird zugeordnet statt neu angelegt -- Identitaet aus dem Repository, nicht aus einem getippten Schluessel."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-03"
+size: M
+# PO-Anforderung vom 2026-08-03: Der erste Bediener, der AK3 in einen
+# Projektordner installiert, legt das Projekt serverseitig an. Ein zweiter
+# Bediener, der dasselbe Projekt bei sich installiert, darf es NICHT ein
+# zweites Mal erzeugen, sondern muss der vorhandenen Instanz zugeordnet werden.
+#
+# Ist-Stand (gemessen 2026-08-03): `create_project`
+# (project_management/lifecycle.py:39) ist eine reine Fabrik ohne
+# Dublettenpruefung. Eindeutig ist allein der `project_key` -- ein vom Bediener
+# getippter Name, kein Identitaetsmerkmal. Zwei Bediener koennen fuer dasselbe
+# Repository verschiedene Schluessel waehlen (zwei Projekte) oder denselben
+# Schluessel fuer verschiedene Repositories (Kollision).
+#
+# Abgegrenzt von AG3-180: das ist Erstzugang und Credentials, dies ist
+# Projektidentitaet. Keine Abhaengigkeitskante, aber eine fachliche Naht --
+# AG3-180 AC 1b (Bediener haengt einen Rechner an ein VORHANDENES Projekt)
+# setzt voraus, dass "vorhanden" ueberhaupt bestimmbar ist.
+depends_on: []
+unblocks: []

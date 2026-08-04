@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import secrets
-import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -16,39 +13,28 @@ from agentkit.backend.auth.errors import AuthFailedError, ProjectMismatchError
 if TYPE_CHECKING:
     from agentkit.backend.auth.repository import ProjectApiTokenRepository
 
-_TOKEN_PREFIX = "ak3"
 _AUTH_FAILED_MESSAGE = "Authentication failed"
 
 
-@dataclass(frozen=True)
-class IssuedProjectApiToken:
-    """One-time plaintext token issue result."""
-
-    record: ProjectApiToken
-    plaintext_token: str
-
-
-def issue_project_api_token(
+def register_prepared_project_api_token(
     *,
     project_key: str,
     label: str,
+    token_id: str,
+    token_hash: str,
     repository: ProjectApiTokenRepository,
     now: datetime | None = None,
-) -> IssuedProjectApiToken:
-    """Create, hash, persist, and return one project API token."""
-
-    token_id = uuid.uuid4().hex
-    secret = secrets.token_urlsafe(32)
-    plaintext = f"{_TOKEN_PREFIX}_{token_id}_{secret}"
+) -> ProjectApiToken:
+    """Persist the server-safe half of a client-prepared project API token."""
     record = ProjectApiToken(
         token_id=token_id,
         project_key=project_key,
         label=label,
-        token_hash=hash_project_api_token(plaintext),
+        token_hash=token_hash,
         created_at=now or datetime.now(UTC),
     )
-    repository.save(record)
-    return IssuedProjectApiToken(record=record, plaintext_token=plaintext)
+    repository.insert(record)
+    return record
 
 
 def hash_project_api_token(plaintext_token: str) -> str:
@@ -72,8 +58,16 @@ def validate_project_api_token(
         raise AuthFailedError(_AUTH_FAILED_MESSAGE)
     if record.project_key != project_key:
         raise ProjectMismatchError(_AUTH_FAILED_MESSAGE)
-    updated = record.model_copy(update={"last_used_at": now or datetime.now(UTC)})
-    repository.save(updated)
+    used_at = now or datetime.now(UTC)
+    updated = record.model_copy(update={"last_used_at": used_at})
+    repository.mark_used(updated.token_id, used_at=used_at)
     if not hmac.compare_digest(updated.token_hash, token_hash):
         raise AuthFailedError(_AUTH_FAILED_MESSAGE)
     return updated
+
+
+__all__ = [
+    "hash_project_api_token",
+    "register_prepared_project_api_token",
+    "validate_project_api_token",
+]

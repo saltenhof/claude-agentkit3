@@ -269,6 +269,7 @@ class HttpsJsonTransport:
         project_key: str,
     ) -> HttpsJsonTransport:
         """Log in through FK-15 and return a cookie/CSRF-bound transport."""
+        self._require_https_for_password_transport()
         request = urllib.request.Request(
             url=f"{self._base_url}/v1/auth/login",
             method="POST",
@@ -299,6 +300,12 @@ class HttpsJsonTransport:
                 "X-Project-Key": project_key,
             },
         )
+
+    def _require_https_for_password_transport(self) -> None:
+        """Reject an endpoint before it can receive a strategist password."""
+        parsed = urllib.parse.urlsplit(self._base_url)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            raise ValueError("Control-plane credentials may only be sent over HTTPS")
 
     @staticmethod
     def _handle_http_error(exc: urllib.error.HTTPError) -> dict[str, object]:

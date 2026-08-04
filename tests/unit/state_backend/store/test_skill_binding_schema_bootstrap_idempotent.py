@@ -11,6 +11,7 @@ Pinnt (mirror ``test_attempt_schema_bootstrap_idempotent.py``):
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -197,7 +198,7 @@ class TestSideBySideMigration:
         old_dir = tmp_path / "stories" / "OLD"
         old_dir.mkdir(parents=True, exist_ok=True)
         old_db = old_dir / "agentkit_3_13_0.sqlite"
-        with sqlite3.connect(str(old_db)) as conn:
+        with closing(sqlite3.connect(str(old_db))) as conn, conn:
             conn.execute("CREATE TABLE dummy (id TEXT PRIMARY KEY)")
             conn.commit()
 
@@ -211,7 +212,7 @@ class TestSideBySideMigration:
             pass
 
         assert old_db.exists()
-        with sqlite3.connect(str(old_db)) as old_conn:
+        with closing(sqlite3.connect(str(old_db))) as old_conn, old_conn:
             tables = [
                 row[0]
                 for row in old_conn.execute(

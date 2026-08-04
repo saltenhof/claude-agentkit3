@@ -114,7 +114,6 @@ class ResolvedEdgeState:
 #: Project-pinned prompt-bundle lock (FK-43/FK-44), the authoritative local
 #: source of the bound skill-bundle version surfaced in the version handshake.
 _PROMPT_BUNDLE_LOCK_RELPATH = Path(".agentkit") / "config" / "prompt-bundle.lock.json"
-_PROJECT_API_TOKEN_ENV = "AGENTKIT_PROJECT_API_TOKEN"
 
 
 def _read_bound_skill_bundle_version(project_root: Path) -> str | None:
@@ -155,7 +154,17 @@ def read_bound_skill_bundle_version(project_root: Path) -> str | None:
 
 def build_project_edge_client(project_root: Path) -> ProjectEdgeClient:
     """Construct a configured project-edge client from local project config."""
+    from agentkit.harness_client.projectedge.credentials import (
+        load_reconciled_active_project_credentials,
+        project_credentials_path,
+    )
+
     project_config = load_project_config(project_root)
+    credential_path = project_credentials_path(project_root)
+    credential = load_reconciled_active_project_credentials(
+        credential_path,
+        project_key=project_config.project_key,
+    )
     config = json.loads(
         (project_root / ".agentkit" / "config" / "control-plane.json").read_text(encoding="utf-8"),
     )
@@ -166,7 +175,7 @@ def build_project_edge_client(project_root: Path) -> ProjectEdgeClient:
             base_url=str(config["base_url"]),
             ssl_context=ssl_context,
             skill_bundle_version=_read_bound_skill_bundle_version(project_root),
-            bearer_token=os.environ.get(_PROJECT_API_TOKEN_ENV),
+            bearer_token=credential.project_api_token,
             project_key=project_config.project_key,
         ),
         publisher=LocalEdgePublisher(project_root=project_root),

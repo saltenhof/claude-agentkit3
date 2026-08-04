@@ -21,8 +21,13 @@ class Session(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    session_id: str
-    csrf_token: str
+    #: Both values are bearer secrets: whoever holds ``session_id`` IS the
+    #: session, and ``csrf_token`` guards its mutating use. ``repr=False`` keeps
+    #: them out of tracebacks, logs and telemetry -- the same channel that
+    #: already leaked the password hash. The values stay reachable as
+    #: attributes; only their DISPLAY is suppressed.
+    session_id: str = Field(repr=False)
+    csrf_token: str = Field(repr=False)
     created_at: datetime
     last_activity_at: datetime
     expires_at: datetime
@@ -36,7 +41,9 @@ class ProjectApiToken(BaseModel):
     token_id: str
     project_key: str
     label: str
-    token_hash: str
+    #: The hash is a verifier, not a public value: it belongs in no traceback,
+    #: log or telemetry line. Same channel, same rule as ``Session`` above.
+    token_hash: str = Field(repr=False)
     created_at: datetime
     revoked_at: datetime | None = None
     last_used_at: datetime | None = None

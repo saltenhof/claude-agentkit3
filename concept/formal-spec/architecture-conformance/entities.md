@@ -1189,6 +1189,7 @@ boundary_modules:
       - architecture-conformance.boundary.control_plane_http
       - architecture-conformance.boundary.control_plane_records
       - architecture-conformance.boundary.projectedge
+      - architecture-conformance.boundary.auth
       # AG3-130 (FK-10 §10.1.0 I3): the operator-recovery verbs run-phase/resume are
       # thin REST requesters at the core. They call the official Dev-Edge client
       # (agentkit.harness_client.projectedge.client.ProjectEdgeClient / HttpsJsonTransport)
@@ -1360,6 +1361,7 @@ boundary_modules:
     may_import_boundary_modules:
       - architecture-conformance.boundary.shared
       - architecture-conformance.boundary.state_backend_repository
+      - architecture-conformance.boundary.filesystem
     # Aeussere API-Auth-Schicht fuer UI-BFF und Project-API:
     # Strategen-Cookie-Sessions, CSRF und projektgebundene Thin-Client-
     # Tokens. Kein A-BC, keine Rollen-/Quota- oder fachliche Policy-Logik.
@@ -1431,7 +1433,6 @@ boundary_modules:
     bloodgroup: "0"
     boundary_kind: shared_foundation
     module_prefixes:
-      - agentkit.shared
       - agentkit.backend.exceptions
     importable_by: any
     may_import_component_groups: []

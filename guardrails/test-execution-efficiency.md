@@ -17,20 +17,38 @@ Zeitfresser darstellt.
 - Nur **~6 %** der Items sind DB-gebunden (Postgres). Der `-n 4`-Cap ist wegen
   dieser ~6 % noetig, wird aber faelschlich auf 100 % der Suite angewandt.
 
+## R0 — Die volle Suite laeuft AUSSCHLIESSLICH auf Jenkins (PO-Anweisung 2026-08-04)
+
+**Kein Agent faehrt die vollstaendige Testsuite lokal. Nie.** Weder zur
+Iteration, noch als Pre-Push-Gate, noch „einmal zum Abschluss". Der Ort, an dem
+die volle Suite laeuft, ist der Jenkins-Job — und sonst keiner.
+
+Das gilt fuer Orchestrator und Sub-Agents gleichermassen und hat Vorrang vor
+allem, was weiter unten steht.
+
+**Was lokal erlaubt bleibt:** die betroffene Teilmenge nach R2, `ruff` und
+`mypy` (beide laufen in Sekunden, siehe R6). Was darueber hinausgeht, wird
+gepusht und von Jenkins beantwortet.
+
+**Warum:** Ein lokaler Volllauf kostet zwoelf Minuten, blockiert den
+Arbeitsbaum, konkurriert mit jedem parallelen Lauf um dieselbe Datenbank — und
+beweist am Ende weniger als Jenkins, weil er auf dem falschen Betriebssystem
+laeuft. Belegt am 2026-08-03: drei Defekte auf `main` waren lokal auf Windows
+gruen und fielen erst im ersten Jenkins-Lauf seit Tagen auf.
+
 ## Regel
 
 ### R1 — Zweistufiges Modell ist Pflicht
 - **Innere Schleife (Iteration):** NUR die von der Aenderung betroffene
   Teilmenge (siehe R2). Ziel: Sekunden bis wenige Minuten Feedback.
-- **Pre-Push-Gate (genau EINMAL, bevor gepusht wird):** die volle Suite mit
-  Coverage in EINEM Durchlauf (R4). Hier — und nur hier — wird die
-  Regressionssicherheit ueber BC-Grenzen hinweg nachgewiesen.
-- **Jenkins:** finaler Boden (nicht lokal 1:1 spiegelbar — anderes OS/Infra),
-  einmal getriggert, wenn das lokale Pre-Push-Gate gruen ist.
+- **Vollstaendiger Nachweis:** ausschliesslich Jenkins (R0). Das frueher hier
+  beschriebene lokale „Pre-Push-Gate" ist mit R0 **entfallen** — es wird
+  gepusht, und Jenkins ist der Nachweis.
+- **Jenkins:** finaler und einziger Boden fuer die volle Suite; gegen den
+  tatsaechlichen Kandidaten-SHA zu pruefen, nicht gegen einen angenommenen.
 
-Die Regressionssorge „meine Aenderung bricht einen Consumer" ist durch das
-Pre-Push-Gate abgedeckt — sie rechtfertigt NICHT die volle Suite bei JEDER
-Iteration.
+Die Regressionssorge „meine Aenderung bricht einen Consumer" ist durch den
+Jenkins-Lauf abgedeckt — sie rechtfertigt keinen lokalen Volllauf.
 
 ### R2 — Sichere Selektions-Regel fuer die innere Schleife
 Fuer eine Aenderung, die auf NICHT-geteilte Module EINES BC beschraenkt ist

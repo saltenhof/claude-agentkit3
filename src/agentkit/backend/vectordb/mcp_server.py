@@ -122,6 +122,13 @@ class McpToolService:
     concepts_dir: Path
     stories_dir: Path
 
+    def close(self) -> None:
+        """Release the transport owned by a composed production service."""
+        client = getattr(self.retrieval, "client", None)
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
+
     # ------------------------------------------------------------------ #
     # story_search
     # ------------------------------------------------------------------ #

@@ -10,6 +10,7 @@ AG3-023 §2.1.7 — Roundtrip-Tests:
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -244,7 +245,7 @@ class TestIdempotency:
         from agentkit.backend.state_backend.paths import state_backend_dir
 
         db_path = state_backend_dir(tmp_path) / versioned_sqlite_db_file()
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn, conn:
             cursor = conn.execute("SELECT COUNT(*) FROM artifact_envelopes")
             count = cursor.fetchone()[0]
         assert count == 1
@@ -274,11 +275,11 @@ class TestSchemaBootstrapIdempotent:
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
 
         db_path = tmp_path / "test_idempotent.sqlite"
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn, conn:
             _ensure_artifact_table_sqlite(conn)
             conn.commit()
 
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn, conn:
             _ensure_artifact_table_sqlite(conn)  # zweiter Aufruf — darf nicht failen
             conn.commit()
             cursor = conn.execute(

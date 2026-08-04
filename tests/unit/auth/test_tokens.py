@@ -8,9 +8,10 @@ import pytest
 from agentkit.backend.auth.errors import AuthFailedError, ProjectMismatchError
 from agentkit.backend.auth.tokens import (
     hash_project_api_token,
-    issue_project_api_token,
+    register_prepared_project_api_token,
     validate_project_api_token,
 )
+from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
 
 if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
@@ -32,8 +33,15 @@ class _InMemoryTokenRepository:
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [token for token in self.tokens.values() if token.project_key == project_key]
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
+        if token.token_id in self.tokens:
+            raise ValueError("duplicate token id")
         self.tokens[token.token_id] = token
+
+    def mark_used(self, token_id: str, *, used_at: datetime) -> None:
+        self.tokens[token_id] = self.tokens[token_id].model_copy(
+            update={"last_used_at": used_at},
+        )
 
     def revoke(self, project_key: str, token_id: str) -> None:
         token = self.tokens[token_id]
@@ -43,27 +51,34 @@ class _InMemoryTokenRepository:
         )
 
 
-def test_issue_token_persists_hash_and_returns_plaintext_once() -> None:
+def test_client_prepares_plaintext_and_server_persists_only_hash() -> None:
     repository = _InMemoryTokenRepository()
 
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="thin-client",
+    )
+    registered = register_prepared_project_api_token(
+        project_key="tenant-a",
+        label="thin-client",
+        token_id=issued.record.token_id,
+        token_hash=issued.record.token_hash,
         repository=repository,
     )
 
     assert issued.plaintext_token.startswith("ak3_")
     assert issued.record.token_hash == hash_project_api_token(issued.plaintext_token)
-    assert repository.get(issued.record.token_id) == issued.record
+    assert repository.get(issued.record.token_id) == registered
+    assert issued.plaintext_token not in registered.model_dump_json()
 
 
 def test_validate_token_enforces_project_and_revocation() -> None:
     repository = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="thin-client",
-        repository=repository,
     )
+    repository.insert(issued.record)
 
     validated = validate_project_api_token(
         plaintext_token=issued.plaintext_token,

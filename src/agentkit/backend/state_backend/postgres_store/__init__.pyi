@@ -625,6 +625,9 @@ from ._story_project_rows import (
     delete_story_dependency_row as delete_story_dependency_row,
 )
 from ._story_project_rows import (
+    insert_project_api_token_row as insert_project_api_token_row,
+)
+from ._story_project_rows import (
     load_parallelization_config_row as load_parallelization_config_row,
 )
 from ._story_project_rows import (
@@ -670,13 +673,16 @@ from ._story_project_rows import (
     load_story_dependency_rows_for_story as load_story_dependency_rows_for_story,
 )
 from ._story_project_rows import (
+    mark_project_api_token_used_row as mark_project_api_token_used_row,
+)
+from ._story_project_rows import (
     read_story_context_row as read_story_context_row,
 )
 from ._story_project_rows import (
-    save_parallelization_config_row as save_parallelization_config_row,
+    revoke_project_api_token_row as revoke_project_api_token_row,
 )
 from ._story_project_rows import (
-    save_project_api_token_row as save_project_api_token_row,
+    save_parallelization_config_row as save_parallelization_config_row,
 )
 from ._story_project_rows import (
     save_project_row as save_project_row,

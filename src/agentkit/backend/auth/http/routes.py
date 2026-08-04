@@ -2,22 +2,29 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
+from threading import RLock
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agentkit.backend.auth.credentials import StrategistCredentialStore
 from agentkit.backend.auth.entities import StrategistCredentials
-from agentkit.backend.auth.errors import AuthFailedError, TokenNotFoundError
+from agentkit.backend.auth.errors import (
+    AuthFailedError,
+    ProjectApiTokenAlreadyExistsError,
+    TokenNotFoundError,
+)
 from agentkit.backend.auth.middleware import AuthMiddleware
-from agentkit.backend.auth.sessions import InMemorySessionStore
-from agentkit.backend.auth.tokens import issue_project_api_token
+from agentkit.backend.auth.sessions import InMemorySessionStore, SessionStore
+from agentkit.backend.auth.tokens import register_prepared_project_api_token
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    CommittedMutationError,
     IdempotencyRequest,
     InflightIdempotencyGuard,
     StateBackendInflightIdempotencyGuard,
@@ -29,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from agentkit.backend.auth.entities import ProjectApiToken, Session
+    from agentkit.backend.auth.middleware import AuthResult
     from agentkit.backend.auth.repository import ProjectApiTokenRepository
 
 _CORRELATION_HEADER = "X-Correlation-Id"
@@ -70,12 +78,23 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1)
 
 
+class RotateStrategistPasswordRequest(BaseModel):
+    """Request body for authenticated strategist password rotation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    new_password: str = Field(min_length=1, repr=False)
+    op_id: str = Field(min_length=1)
+
+
 class CreateProjectApiTokenRequest(BaseModel):
     """Request body for issuing a project API token."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     label: str = "thin-client"
+    token_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    token_hash: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
     #: FK-91 §91.1a Rule 5: client-supplied idempotency key (AG3-140: no server
     #: default remains).
     op_id: str = Field(min_length=1)
@@ -96,7 +115,7 @@ class AuthRoutes:
         self,
         *,
         credential_store: StrategistCredentialStore | None = None,
-        session_store: InMemorySessionStore | None = None,
+        session_store: SessionStore | None = None,
         token_repository: ProjectApiTokenRepository | None = None,
         idempotency_guard: InflightIdempotencyGuard | None = None,
     ) -> None:
@@ -109,6 +128,7 @@ class AuthRoutes:
         self._credential_store = credential_store or StrategistCredentialStore()
         self._session_store = session_store or InMemorySessionStore()
         self._token_repository = token_repository
+        self._strategist_transition_lock = RLock()
         #: FK-91 §91.1a Rule 5 (AG3-140): the unified in-flight idempotency guard.
         #: ``None`` resolves the stateless Postgres-backed production guard lazily
         #: per call; unit tests inject a shared in-memory guard so claim state
@@ -116,7 +136,7 @@ class AuthRoutes:
         self.idempotency_guard = idempotency_guard
 
     @property
-    def session_store(self) -> InMemorySessionStore:
+    def session_store(self) -> SessionStore:
         """Return the shared session store."""
 
         return self._session_store
@@ -131,12 +151,16 @@ class AuthRoutes:
         self,
         route_path: str,
         correlation_id: str,
+        auth_result: AuthResult | None = None,
     ) -> AuthRouteResponse | None:
         """Handle auth GET routes or return None."""
 
         match = _TOKEN_COLLECTION_PATH.match(route_path)
         if match is None:
             return None
+        authorization_error = _require_strategist(auth_result, correlation_id)
+        if authorization_error is not None:
+            return authorization_error
         tokens = self._token_repository.list_for_project(match.group("project_key"))
         return _json_response(
             HTTPStatus.OK,
@@ -150,6 +174,7 @@ class AuthRoutes:
         payload: object,
         correlation_id: str,
         request_headers: Mapping[str, str] | None,
+        auth_result: AuthResult | None = None,
     ) -> AuthRouteResponse | None:
         """Handle auth POST routes or return None."""
 
@@ -157,9 +182,28 @@ class AuthRoutes:
             return self._handle_login(payload, correlation_id)
         if route_path == "/v1/auth/logout":
             return self._handle_logout(correlation_id, request_headers)
+        if route_path == "/v1/auth/password":
+            authorization_error = _require_strategist(auth_result, correlation_id)
+            if authorization_error is not None:
+                return authorization_error
+            if auth_result is None or auth_result.project_key is None:
+                return _error_response(
+                    HTTPStatus.BAD_REQUEST,
+                    error_code="project_context_required",
+                    message="Password rotation requires an authenticated project context",
+                    correlation_id=correlation_id,
+                )
+            return self._handle_rotate_password(
+                payload,
+                correlation_id,
+                project_key=auth_result.project_key,
+            )
         match = _TOKEN_COLLECTION_PATH.match(route_path)
         if match is None:
             return None
+        authorization_error = _require_strategist(auth_result, correlation_id)
+        if authorization_error is not None:
+            return authorization_error
         return self._handle_create_token(match.group("project_key"), payload, correlation_id)
 
     def handle_delete(
@@ -167,12 +211,16 @@ class AuthRoutes:
         route_path: str,
         payload: object,
         correlation_id: str,
+        auth_result: AuthResult | None = None,
     ) -> AuthRouteResponse | None:
         """Handle auth DELETE routes or return None."""
 
         match = _TOKEN_DETAIL_PATH.match(route_path)
         if match is None:
             return None
+        authorization_error = _require_strategist(auth_result, correlation_id)
+        if authorization_error is not None:
+            return authorization_error
         return self._handle_revoke_token(
             match.group("project_key"),
             match.group("token_id"),
@@ -185,17 +233,18 @@ class AuthRoutes:
         payload: object,
         correlation_id: str,
     ) -> AuthRouteResponse:
-        try:
-            request = LoginRequest.model_validate(payload)
-            self._credential_store.verify(
-                StrategistCredentials(
-                    username=request.username,
-                    password=request.password,
-                ),
-            )
-        except (ValidationError, AuthFailedError):
-            return _unauthorized_response(correlation_id)
-        session = self._session_store.create()
+        with self._credential_store.transition_lock(), self._strategist_transition_lock:
+            try:
+                request = LoginRequest.model_validate(payload)
+                self._credential_store.verify(
+                    StrategistCredentials(
+                        username=request.username,
+                        password=request.password,
+                    ),
+                )
+            except (ValidationError, AuthFailedError):
+                return _unauthorized_response(correlation_id)
+            session = self._session_store.create()
         return _json_response(
             HTTPStatus.OK,
             {
@@ -222,6 +271,99 @@ class AuthRoutes:
             headers=(_clear_session_cookie(),),
         )
 
+    def _handle_rotate_password(
+        self,
+        payload: object,
+        correlation_id: str,
+        *,
+        project_key: str,
+    ) -> AuthRouteResponse:
+        try:
+            request = RotateStrategistPasswordRequest.model_validate(payload)
+        except ValidationError as exc:
+            return _validation_error_response(
+                "invalid_password_rotation_payload",
+                "Invalid password rotation payload",
+                correlation_id,
+                exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if _op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
+            )
+        idempotency_request = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="strategist_password_rotate",
+            body_hash=compute_body_hash(request.model_dump(mode="json")),
+            project_key=project_key,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idempotency_request,
+            lambda: self._do_rotate_password(request, correlation_id),
+            correlation_id,
+            recover_inflight=lambda finalize: self._recover_rotated_password(
+                request,
+                correlation_id,
+                finalize,
+            ),
+        )
+
+    def _do_rotate_password(
+        self,
+        request: RotateStrategistPasswordRequest,
+        correlation_id: str,
+    ) -> AuthRouteResponse:
+        """Rotate the password once under the FK-91 idempotency claim."""
+        with self._credential_store.transition_lock(), self._strategist_transition_lock:
+            self._credential_store.rotate_password(
+                request.new_password,
+                op_id=request.op_id,
+            )
+            try:
+                self._session_store.revoke_all()
+            except Exception as exc:
+                raise CommittedMutationError(
+                    "password published before session cleanup completed",
+                ) from exc
+        return _json_response(
+            HTTPStatus.OK,
+            {
+                "status": "rotated",
+                "op_id": request.op_id,
+                "correlation_id": correlation_id,
+            },
+            correlation_id=correlation_id,
+            headers=(_clear_session_cookie(),),
+        )
+
+    def _recover_rotated_password(
+        self,
+        request: RotateStrategistPasswordRequest,
+        correlation_id: str,
+        finalize: Callable[[AuthRouteResponse], bool],
+    ) -> AuthRouteResponse | None:
+        """Recover an orphan claim only when its requested password is active."""
+        with self._credential_store.transition_lock(), self._strategist_transition_lock:
+            try:
+                self._credential_store.verify_applied_rotation(
+                    StrategistCredentials(username="admin", password=request.new_password),
+                    op_id=request.op_id,
+                )
+            except AuthFailedError:
+                return None
+            self._session_store.revoke_all()
+            response = _json_response(
+                HTTPStatus.OK,
+                {
+                    "status": "rotated",
+                    "op_id": request.op_id,
+                    "correlation_id": correlation_id,
+                },
+                correlation_id=correlation_id,
+                headers=(_clear_session_cookie(),),
+            )
+            return response if finalize(response) else None
+
     # ------------------------------------------------------------------
     # Unified in-flight idempotency guard (AG3-140 / FK-91 §91.1a Rule 5)
     # ------------------------------------------------------------------
@@ -240,6 +382,12 @@ class AuthRoutes:
         request: IdempotencyRequest,
         mutate: Callable[[], AuthRouteResponse],
         correlation_id: str,
+        *,
+        recover_inflight: Callable[
+            [Callable[[AuthRouteResponse], bool]],
+            AuthRouteResponse | None,
+        ]
+        | None = None,
     ) -> AuthRouteResponse:
         """Run one mutation under the unified idempotency contract.
 
@@ -253,19 +401,28 @@ class AuthRoutes:
             (2xx or domain 4xx) is finalized so a replay returns it verbatim; a
             truly unexpected ``5xx`` releases the claim so a retry may re-run.
         """
-        return run_route_idempotent(
-            self._guard(),
-            request,
-            mutate=mutate,
-            replay=lambda payload: self._replay_response(payload, correlation_id),
-            conflict=lambda error_code, message, detail: _error_response(
-                HTTPStatus.CONFLICT,
-                error_code=error_code,
-                message=message,
+        try:
+            return run_route_idempotent(
+                self._guard(),
+                request,
+                mutate=mutate,
+                replay=lambda payload: self._replay_response(payload, correlation_id),
+                conflict=lambda error_code, message, detail: _error_response(
+                    HTTPStatus.CONFLICT,
+                    error_code=error_code,
+                    message=message,
+                    correlation_id=correlation_id,
+                    detail=detail,
+                ),
+                recover_inflight=recover_inflight,
+            )
+        except CommittedMutationError:
+            return _error_response(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                error_code="operation_completion_failed",
+                message="operation committed but completion failed; retry the same op_id",
                 correlation_id=correlation_id,
-                detail=detail,
-            ),
-        )
+            )
 
     def _replay_response(
         self,
@@ -325,6 +482,12 @@ class AuthRoutes:
             req,
             lambda: self._do_create_token(project_key, request, correlation_id),
             correlation_id,
+            recover_inflight=lambda finalize: self._recover_created_token(
+                project_key,
+                request,
+                correlation_id,
+                finalize,
+            ),
         )
 
     def _do_create_token(
@@ -335,15 +498,54 @@ class AuthRoutes:
     ) -> AuthRouteResponse:
         """Issue one project API token (guarded by :meth:`_run_idempotent`).
 
-        THE KEY FIX (AG3-140): the guard wraps the WHOLE issuance, so a replay of
-        the same ``op_id`` never re-enters this method — ``issue_project_api_token``
-        runs exactly once and the replay returns the SAME stored plaintext token.
+        The guard wraps the complete hash registration. A replay of the same
+        ``op_id`` never re-enters this method and therefore never creates a
+        second token record. Plaintext is client-owned and absent from both the
+        request and the stored replay result.
         """
-        issued = issue_project_api_token(
-            project_key=project_key,
-            label=request.label,
-            repository=self._token_repository,
-        )
+        try:
+            token = register_prepared_project_api_token(
+                project_key=project_key,
+                label=request.label,
+                token_id=request.token_id,
+                token_hash=request.token_hash,
+                repository=self._token_repository,
+            )
+        except ProjectApiTokenAlreadyExistsError:
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="project_api_token_id_conflict",
+                message="Project API token id is already registered",
+                correlation_id=correlation_id,
+            )
+        return self._created_token_response(token, request, correlation_id)
+
+    def _recover_created_token(
+        self,
+        project_key: str,
+        request: CreateProjectApiTokenRequest,
+        correlation_id: str,
+        finalize: Callable[[AuthRouteResponse], bool],
+    ) -> AuthRouteResponse | None:
+        """Recover only the exact active hash record committed before a crash."""
+        token = self._token_repository.get(request.token_id)
+        if (
+            token is None
+            or token.project_key != project_key
+            or token.label != request.label
+            or token.revoked_at is not None
+            or not hmac.compare_digest(token.token_hash, request.token_hash)
+        ):
+            return None
+        response = self._created_token_response(token, request, correlation_id)
+        return response if finalize(response) else None
+
+    @staticmethod
+    def _created_token_response(
+        token: ProjectApiToken,
+        request: CreateProjectApiTokenRequest,
+        correlation_id: str,
+    ) -> AuthRouteResponse:
         return _json_response(
             HTTPStatus.CREATED,
             {
@@ -351,8 +553,7 @@ class AuthRoutes:
                 "op_id": request.op_id,
                 "operation_kind": "project_api_token_create",
                 "correlation_id": correlation_id,
-                "token": _token_payload(issued.record),
-                "plaintext_token": issued.plaintext_token,
+                "token": _token_payload(token),
             },
             correlation_id=correlation_id,
         )
@@ -396,6 +597,13 @@ class AuthRoutes:
             req,
             lambda: self._do_revoke_token(project_key, token_id, request, correlation_id),
             correlation_id,
+            recover_inflight=lambda finalize: self._recover_revoked_token(
+                project_key,
+                token_id,
+                request,
+                correlation_id,
+                finalize,
+            ),
         )
 
     def _do_revoke_token(
@@ -430,6 +638,38 @@ class AuthRoutes:
             },
             correlation_id=correlation_id,
         )
+
+    def _recover_revoked_token(
+        self,
+        project_key: str,
+        token_id: str,
+        request: RevokeProjectApiTokenRequest,
+        correlation_id: str,
+        finalize: Callable[[AuthRouteResponse], bool],
+    ) -> AuthRouteResponse | None:
+        """Recover a committed revocation or deterministic missing-token result."""
+        token = self._token_repository.get(token_id)
+        if token is None:
+            response = _error_response(
+                HTTPStatus.NOT_FOUND,
+                error_code="project_api_token_not_found",
+                message="Project API token not found",
+                correlation_id=correlation_id,
+            )
+            return response if finalize(response) else None
+        if token.project_key != project_key or token.revoked_at is None:
+            return None
+        response = _json_response(
+            HTTPStatus.OK,
+            {
+                "status": "committed",
+                "op_id": request.op_id,
+                "operation_kind": "project_api_token_revoke",
+                "correlation_id": correlation_id,
+            },
+            correlation_id=correlation_id,
+        )
+        return response if finalize(response) else None
 
 
 def _token_payload(token: ProjectApiToken) -> dict[str, object]:
@@ -523,7 +763,22 @@ def _validation_error_response(
         error_code=error_code,
         message=message,
         correlation_id=correlation_id,
-        detail=exc.errors(),
+        detail=exc.errors(include_input=False, include_url=False),
+    )
+
+
+def _require_strategist(
+    auth_result: AuthResult | None,
+    correlation_id: str,
+) -> AuthRouteResponse | None:
+    """Allow administrative auth surfaces only to a strategist session."""
+    if auth_result is not None and auth_result.is_human_bff_session:
+        return None
+    return _error_response(
+        HTTPStatus.FORBIDDEN,
+        error_code="strategist_session_required",
+        message="Administrative authentication operation requires a strategist session",
+        correlation_id=correlation_id,
     )
 
 

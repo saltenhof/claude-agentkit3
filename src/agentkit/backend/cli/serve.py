@@ -14,13 +14,12 @@ runs DB migrations (those are ops-driven, §10.2.5).
 
 from __future__ import annotations
 
-import ipaddress
-import socket
 import sys
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from agentkit.backend.boundary.network import LoopbackBindHostError, ensure_loopback_bind_host
 from agentkit.backend.config.defaults import (
     CORE_PROJECT_API_PORT,
     CORE_UI_BFF_PORT,
@@ -56,10 +55,6 @@ class UiServeFn(Protocol):
     """The SPA static-bundle server entrypoint."""
 
     def __call__(self, *, host: str, port: int, dist_dir: Path) -> None: ...
-
-
-class UiBindHostError(ValueError):
-    """Raised when the cleartext SPA server is asked to bind outside loopback."""
 
 
 def resolve_serve_port(profile: ServeProfile, explicit_port: int | None) -> int:
@@ -182,41 +177,13 @@ def _serve_spa(*, host: str, port: int, dist_dir: Path) -> None:
 
 def _ensure_spa_loopback_host(host: str) -> None:
     """Reject cleartext SPA binds that resolve outside the loopback interface."""
-    if _is_loopback_host(host):
-        return
-    msg = (
-        "agentkit ui serves cleartext HTTP and is restricted to loopback; "
-        f"refusing to bind non-loopback host {host!r} "
-        "(FK-15 localhost-only). Use 127.0.0.1/localhost, or run the SPA "
-        "behind an HTTPS reverse proxy."
-    )
-    raise UiBindHostError(msg)
-
-
-def _is_loopback_host(host: str) -> bool:
-    candidate = host.strip()
-    if not candidate:
-        return False
     try:
-        return ipaddress.ip_address(candidate).is_loopback
-    except ValueError:
-        pass
-
-    try:
-        infos = socket.getaddrinfo(candidate, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return False
-    addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
-    for info in infos:
-        sockaddr = info[4]
-        if not sockaddr:
-            return False
-        raw_address = str(sockaddr[0])
-        try:
-            addresses.add(ipaddress.ip_address(raw_address))
-        except ValueError:
-            return False
-    return bool(addresses) and all(address.is_loopback for address in addresses)
+        ensure_loopback_bind_host(host)
+    except LoopbackBindHostError as exc:
+        raise LoopbackBindHostError(
+            "agentkit ui serves cleartext HTTP and is restricted to loopback; "
+            f"{exc}",
+        ) from exc
 
 
 def _build_spa_handler(dist_dir: Path) -> type[SimpleHTTPRequestHandler]:
@@ -242,7 +209,7 @@ def _build_spa_handler(dist_dir: Path) -> type[SimpleHTTPRequestHandler]:
 __all__ = [
     "ServeFn",
     "ServeProfile",
-    "UiBindHostError",
+    "LoopbackBindHostError",
     "UiServeFn",
     "default_ui_dist_dir",
     "resolve_serve_port",

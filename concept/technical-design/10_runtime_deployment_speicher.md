@@ -330,18 +330,31 @@ sequenceDiagram
 
     Note over M,INS: Vorbedingung — Ebene 2 vorhanden (agentkit-Paket + Bundle-Store, §10.2.6), Core erreichbar (Ebene 1, §10.2.5)
     M->>INS: agentkit register-project --gh-owner acme --gh-repo platform
+    M->>INS: Strategenpasswort im interaktiven Terminal
+    INS->>BE: Strategen-Login (temporaere Cookie-/CSRF-Session)
     INS->>BE: Projekt registrieren / Konfiguration validieren (REST)
     BE->>STATE: Projekt-Record schreiben (nur Backend, I1)
-    INS->>BE: Dritt-System-Referenzen validieren (Project Edge Client, REST /v1)
-    Note over INS,BE: Dev sendet nur token_env-Referenzen; Backend loest Secrets in eigener Umgebung auf und probt Sonar/Jenkins/ARE
+    INS->>BE: Dritt-System-Referenzen validieren (temporaere Strategen-Session, REST /v1)
+    Note over INS,BE: Nur beim Erstlauf ohne Project-Token; Dev sendet nur token_env-Referenzen, Backend loest Secrets auf und probt Sonar/Jenkins/ARE
     INS->>PROJ: .agentkit/config/project.yaml + harness-spezifische Settings (z. B. .claude/settings.json, FK-76 §76.5)
     INS->>PROJ: harness-spezifische Skill-Links (Symlink/Junction) auf Bundle-Version
     INS->>PROJ: tools/agentkit/ Project-Edge-Launcher (REST-Client) binden
+    INS->>PROJ: Token + op_id als geschuetztes credentials.pending vorbereiten
+    INS->>BE: Token-ID + Hash idempotent registrieren (Strategen-Session)
+    BE->>STATE: Projekt-Token insert-only speichern
+    INS->>PROJ: credentials atomar aktivieren; Pending entfernen
+    Note over INS,BE: Danach endet die temporaere Session; regulaere Edge-Aufrufe nutzen ausschliesslich das Project-Token
     Note over PROJ: Nur lokale Konfiguration, Skill-Bindungen und REST-Launcher —<br/>keine kopierten Skills/Prompts/DB-Dateien/Backend-Runtime
 ```
 
 **Keine Docker-Abhängigkeit für AgentKit selbst.** Docker wird für
 Pflicht-Infrastrukturdienste benötigt (Weaviate).
+
+Der Erstlauf ist damit nicht zirkulaer: CP7 erzeugt zuerst den projektbezogenen
+Serverkontext, CP10d darf bis zur Tokenaktivierung genau die bereits
+authentifizierte Strategen-Session des bedienten Installers verwenden, und erst
+der erfolgreiche Gesamt-Installationslauf publiziert die ProjectEdge-Credential.
+Ein Project-Token ist keine Vorbedingung seiner eigenen Ausstellung.
 
 ### 10.2.2 Laufzeitabhängigkeiten
 

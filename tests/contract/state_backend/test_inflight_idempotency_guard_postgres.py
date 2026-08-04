@@ -34,12 +34,13 @@ def _req(
     body: dict[str, object],
     *,
     story_id: str | None = "AG3-140",
+    project_key: str = "tenant-a",
 ) -> IdempotencyRequest:
     return IdempotencyRequest(
         op_id=op_id,
         operation_kind="task_create",
         body_hash=compute_body_hash(body),
-        project_key="tenant-a",
+        project_key=project_key,
         story_id=story_id,
     )
 
@@ -96,6 +97,28 @@ def test_same_op_id_different_body_is_mismatch_real_store(
 
 
 @pytest.mark.contract
+def test_same_op_id_and_body_in_another_project_is_mismatch_real_store(
+    postgres_backend_env: object,
+) -> None:
+    """Project scope is part of request identity even when JSON is identical."""
+    del postgres_backend_env
+    guard = StateBackendInflightIdempotencyGuard()
+    original = _req("op-guard-project-mismatch", {"title": "T"})
+    first = guard.claim(original)
+    assert isinstance(first, FreshClaim)
+    assert guard.finalize(original, first, {"status_code": 201, "body": {}})
+
+    outcome = guard.claim(
+        _req(
+            "op-guard-project-mismatch",
+            {"title": "T"},
+            project_key="tenant-b",
+        ),
+    )
+    assert isinstance(outcome, MismatchOutcome)
+
+
+@pytest.mark.contract
 def test_released_claim_is_reclaimable_real_store(
     postgres_backend_env: object,
 ) -> None:
@@ -132,6 +155,23 @@ def test_crash_window_claim_without_finalize_retry_is_in_flight_real_store(
 
     retry = guard.claim(req)
     assert isinstance(retry, InFlightOutcome)
+
+
+@pytest.mark.contract
+def test_exact_domain_proof_recovers_orphan_claim_real_store(
+    postgres_backend_env: object,
+) -> None:
+    """A matching orphan can be finalized only after the route proves its result."""
+    del postgres_backend_env
+    guard = StateBackendInflightIdempotencyGuard()
+    req = _req("op-guard-domain-recovery", {"title": "T"})
+    assert isinstance(guard.claim(req), FreshClaim)
+    payload = {"status_code": 201, "body": {"task_id": "TM-recovered"}}
+
+    assert guard.recover(req, payload) is True
+    replay = guard.claim(req)
+    assert isinstance(replay, ReplayOutcome)
+    assert replay.result_payload == payload
 
 
 @pytest.mark.contract

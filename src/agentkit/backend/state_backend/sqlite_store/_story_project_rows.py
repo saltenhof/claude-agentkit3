@@ -649,8 +649,8 @@ def load_project_rows(
 # ---------------------------------------------------------------------------
 
 
-def save_project_api_token_row(store_dir: Path | None, row: dict[str, Any]) -> None:
-    """Persist a project API token row."""
+def insert_project_api_token_row(store_dir: Path | None, row: dict[str, Any]) -> None:
+    """Insert a project API token row without a conflict update path."""
 
     with _connect(_project_store_dir(store_dir)) as conn:
         conn.execute(
@@ -665,11 +665,6 @@ def save_project_api_token_row(store_dir: Path | None, row: dict[str, Any]) -> N
                 last_used_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(token_id) DO UPDATE SET
-                label = excluded.label,
-                token_hash = excluded.token_hash,
-                revoked_at = excluded.revoked_at,
-                last_used_at = excluded.last_used_at
             """,
             (
                 row["token_id"],
@@ -680,6 +675,32 @@ def save_project_api_token_row(store_dir: Path | None, row: dict[str, Any]) -> N
                 row["revoked_at"],
                 row["last_used_at"],
             ),
+        )
+
+
+def mark_project_api_token_used_row(
+    store_dir: Path | None,
+    token_id: str,
+    used_at: str,
+) -> None:
+    """Update only a token's last-use timestamp."""
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.execute(
+            "UPDATE project_api_tokens SET last_used_at = ? WHERE token_id = ?",
+            (used_at, token_id),
+        )
+
+
+def revoke_project_api_token_row(
+    store_dir: Path | None,
+    token_id: str,
+    revoked_at: str,
+) -> None:
+    """Set a token's revocation timestamp without changing its identity."""
+    with _connect(_project_store_dir(store_dir)) as conn:
+        conn.execute(
+            "UPDATE project_api_tokens SET revoked_at = ? WHERE token_id = ?",
+            (revoked_at, token_id),
         )
 
 

@@ -9,6 +9,7 @@ exercised through a stubbed AG3-052 capability seam (no live Sonar).
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -314,7 +315,7 @@ def _populate_implementation_story(story_dir: Path) -> None:
 
 
 def _corrupt_table_payload(story_dir: Path, table: str) -> None:
-    with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+    with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
         if table == "decision_records":
             conn.execute("UPDATE decision_records SET payload_json = 'not json'")
         elif table == "artifact_records":
@@ -325,7 +326,7 @@ def _corrupt_table_payload(story_dir: Path, table: str) -> None:
 
 
 def _delete_from_table(story_dir: Path, table: str) -> None:
-    with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+    with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
         actual_table = "artifact_envelopes" if table == "artifact_records" else table
         conn.execute(f"DELETE FROM {actual_table}")
         conn.commit()

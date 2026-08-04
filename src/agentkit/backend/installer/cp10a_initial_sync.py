@@ -412,41 +412,46 @@ def run_initial_sync(
         runtime = service or _service(project_root, project_config, client=client)
     except (RuntimeBindingError, VectorDbError) as exc:
         raise InstallationError(f"CP10a engine composition failed: {exc}") from exc
+    owns_runtime_transport = service is None and client is None
     try:
-        prepared = runtime.prepare_initial_sync()
-    except (SyncError, VectorDbError) as exc:
-        raise InstallationError(f"CP10a initial sync failed without publishing freshness: {exc}") from exc
-    old = (old_story, old_concept)
-    paths = (story_path, concept_path)
-    before = (before_story, before_concept)
-    candidate = _prepare_receipts(prepared, *old)
-    # Commit FIRST, publish second. The receipt files are evidence, and evidence
-    # may only ever describe a state that was actually reached. Publishing them
-    # before the completion commit made every unresolved or failed commit leave
-    # a `status="success"` file behind that no reader could tell apart from the
-    # real thing. The remaining failure mode is the harmless one: a committed
-    # corpus whose local evidence is missing or stale, which fails closed on the
-    # next verify and is republished by the next run.
-    # The window opens BEFORE the commit, not after it. A marker written after
-    # the commit cannot cover the very gap it exists for: a crash in between
-    # would leave an advanced corpus, stale receipts, no marker and no pending
-    # journal entry — indistinguishable from a clean run. Declaring the intent
-    # first makes the window closed at both ends; the cost is a conservative
-    # marker after a pre-commit abort, which the next run clears.
-    marker = project_root / _PUBLICATION_MARKER
-    _open_publication_window(marker, expected_project_id, candidate)
-    _commit_prepared(prepared, paths, before, marker)
-    published_receipts, changed = _publish_receipts(
-        paths,
-        before,
-        old,
-        candidate,
-    )
-    _close_publication_window(marker)
-    return InitialSyncOutcome(
-        receipts=published_receipts,
-        changed=changed,
-    )
+        try:
+            prepared = runtime.prepare_initial_sync()
+        except (SyncError, VectorDbError) as exc:
+            raise InstallationError(f"CP10a initial sync failed without publishing freshness: {exc}") from exc
+        old = (old_story, old_concept)
+        paths = (story_path, concept_path)
+        before = (before_story, before_concept)
+        candidate = _prepare_receipts(prepared, *old)
+        # Commit FIRST, publish second. The receipt files are evidence, and evidence
+        # may only ever describe a state that was actually reached. Publishing them
+        # before the completion commit made every unresolved or failed commit leave
+        # a `status="success"` file behind that no reader could tell apart from the
+        # real thing. The remaining failure mode is the harmless one: a committed
+        # corpus whose local evidence is missing or stale, which fails closed on the
+        # next verify and is republished by the next run.
+        # The window opens BEFORE the commit, not after it. A marker written after
+        # the commit cannot cover the very gap it exists for: a crash in between
+        # would leave an advanced corpus, stale receipts, no marker and no pending
+        # journal entry — indistinguishable from a clean run. Declaring the intent
+        # first makes the window closed at both ends; the cost is a conservative
+        # marker after a pre-commit abort, which the next run clears.
+        marker = project_root / _PUBLICATION_MARKER
+        _open_publication_window(marker, expected_project_id, candidate)
+        _commit_prepared(prepared, paths, before, marker)
+        published_receipts, changed = _publish_receipts(
+            paths,
+            before,
+            old,
+            candidate,
+        )
+        _close_publication_window(marker)
+        return InitialSyncOutcome(
+            receipts=published_receipts,
+            changed=changed,
+        )
+    finally:
+        if owns_runtime_transport and isinstance(runtime, McpToolService):
+            runtime.close()
 
 
 def _open_publication_window(

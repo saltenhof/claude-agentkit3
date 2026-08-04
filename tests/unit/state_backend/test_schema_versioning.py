@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -106,7 +107,7 @@ def test_sqlite_bootstrap_is_idempotent_and_side_by_side(
     monkeypatch.setattr(state_config, "SCHEMA_VERSION", "3.0.0")
     assert load_project_rows(tmp_path) == []
     first_path = sqlite_store.state_db_path_for(tmp_path)
-    with sqlite3.connect(first_path) as conn:
+    with closing(sqlite3.connect(first_path)) as conn, conn:
         conn.execute("INSERT INTO projects VALUES (?, ?, ?, ?, ?)", ("old", "Old", "OLD", "{}", None))
         conn.commit()
 

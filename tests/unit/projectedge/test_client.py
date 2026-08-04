@@ -544,6 +544,27 @@ def test_https_json_transport_returns_object(monkeypatch: pytest.MonkeyPatch) ->
     assert transport.send(method="GET", path="/healthz") == {"status": "ok"}
 
 
+def test_strategist_password_is_rejected_before_plain_http_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def unexpected_urlopen(*_args: object, **_kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr("urllib.request.urlopen", unexpected_urlopen)
+    transport = HttpsJsonTransport(base_url="http://attacker.invalid:9702")
+
+    with pytest.raises(ValueError, match="only be sent over HTTPS"):
+        transport.authenticate_strategist(
+            username="admin",
+            password="must-not-cross-plain-http",
+            project_key="tenant-a",
+        )
+    assert calls == 0
+
+
 def test_https_transport_strategist_login_reuses_cookie_csrf_and_project_scope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -562,7 +583,7 @@ def test_https_transport_strategist_login_reuses_cookie_csrf_and_project_scope(
     transport = HttpsJsonTransport(base_url="https://127.0.0.1:9702")
 
     authenticated = transport.authenticate_strategist(
-        username="strategist",
+        username="admin",
         password="secret",
         project_key="tenant-a",
     )

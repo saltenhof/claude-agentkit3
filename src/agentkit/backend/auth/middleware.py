@@ -9,7 +9,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from agentkit.backend.auth.errors import AuthFailedError, ProjectMismatchError
-from agentkit.backend.auth.sessions import InMemorySessionStore
+from agentkit.backend.auth.sessions import InMemorySessionStore, SessionStore
 from agentkit.backend.auth.tokens import validate_project_api_token
 
 if TYPE_CHECKING:
@@ -21,10 +21,11 @@ _CORRELATION_HEADER = "X-Correlation-Id"
 _SESSION_COOKIE = "ak3_session"
 _CSRF_HEADER = "X-CSRF-Token"
 _PROJECT_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)(?:/.*)?$")
-_UNAUTHENTICATED_PATHS = {"/healthz", "/v1/auth/login"}
-_PROJECT_TOKEN_MANAGEMENT = re.compile(
-    r"^/v1/projects/[^/]+/api-tokens(?:/[^/]+)?$",
-)
+_UNAUTHENTICATED_PATHS = {
+    "/healthz",
+    "/v1/auth/login",
+}
+_LOGOUT_PATH = "/v1/auth/logout"
 _OWNERSHIP_TRANSFER_PATH = re.compile(
     r"^/v1/project-edge/story-runs/[^/]+/ownership/"
     r"(?:takeover-(?:request|confirm|deny|reconcile-clear|reconcile-worktree)|recover)$",
@@ -62,7 +63,7 @@ class AuthMiddleware:
     def __init__(
         self,
         *,
-        session_store: InMemorySessionStore | None = None,
+        session_store: SessionStore | None = None,
         token_repository: ProjectApiTokenRepository | None = None,
     ) -> None:
         if token_repository is None:
@@ -75,7 +76,7 @@ class AuthMiddleware:
         self._token_repository = token_repository
 
     @property
-    def session_store(self) -> InMemorySessionStore:
+    def session_store(self) -> SessionStore:
         """Return the session store used by this middleware."""
 
         return self._session_store
@@ -96,10 +97,12 @@ class AuthMiddleware:
     ) -> AuthResult | AuthMiddlewareResponse:
         """Authorize a request or return an HTTP error response."""
 
+        headers = _normalized_headers(request_headers)
+        if route_path == _LOGOUT_PATH:
+            return self._authorize_logout(headers, correlation_id)
         if route_path in _UNAUTHENTICATED_PATHS:
             return AuthResult(auth_kind="none")
 
-        headers = _normalized_headers(request_headers)
         project_key = _project_key_from_path(route_path) or headers.get("x-project-key")
         bearer = _bearer_token(headers)
         if bearer is not None:
@@ -136,6 +139,28 @@ class AuthMiddleware:
             session_id=session.session_id,
         )
 
+    def _authorize_logout(
+        self,
+        headers: Mapping[str, str],
+        correlation_id: str,
+    ) -> AuthResult | AuthMiddlewareResponse:
+        """Permit absent-session replay while retaining CSRF for a live session."""
+        if _bearer_token(headers) is not None:
+            return _strategist_required_response(correlation_id)
+        session_id = _session_cookie(headers)
+        if session_id is None:
+            return AuthResult(auth_kind="none")
+        try:
+            session = self._session_store.validate(session_id)
+        except AuthFailedError:
+            return AuthResult(auth_kind="none")
+        if not _csrf_matches(headers, session.csrf_token):
+            return _forbidden_response(correlation_id)
+        return AuthResult(
+            auth_kind="strategist_session",
+            session_id=session.session_id,
+        )
+
     @staticmethod
     def session_cookie_name() -> str:
         """Return the strategist session cookie name."""
@@ -147,12 +172,6 @@ class AuthMiddleware:
         """Return the CSRF header name."""
 
         return _CSRF_HEADER
-
-
-def is_project_api_token_management_path(route_path: str) -> bool:
-    """Return whether a route path manages project API tokens."""
-
-    return _PROJECT_TOKEN_MANAGEMENT.match(route_path) is not None
 
 
 def is_ownership_transfer_path(route_path: str) -> bool:
@@ -233,6 +252,18 @@ def _forbidden_response(correlation_id: str) -> AuthMiddlewareResponse:
         {
             "error_code": "forbidden",
             "error": "Forbidden",
+            "correlation_id": correlation_id,
+        },
+        correlation_id=correlation_id,
+    )
+
+
+def _strategist_required_response(correlation_id: str) -> AuthMiddlewareResponse:
+    return _json_response(
+        HTTPStatus.FORBIDDEN,
+        {
+            "error_code": "strategist_session_required",
+            "error": "A strategist session is required for this operation",
             "correlation_id": correlation_id,
         },
         correlation_id=correlation_id,

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.auth.middleware import AuthMiddleware, AuthMiddlewareResponse
 from agentkit.backend.auth.sessions import InMemorySessionStore
-from agentkit.backend.auth.tokens import issue_project_api_token
+from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
 
 if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
@@ -27,8 +27,15 @@ class _InMemoryTokenRepository:
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [token for token in self.tokens.values() if token.project_key == project_key]
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
+        if token.token_id in self.tokens:
+            raise ValueError("duplicate token id")
         self.tokens[token.token_id] = token
+
+    def mark_used(self, token_id: str, *, used_at: object) -> None:
+        self.tokens[token_id] = self.tokens[token_id].model_copy(
+            update={"last_used_at": used_at},
+        )
 
     def revoke(self, project_key: str, token_id: str) -> None:
         token = self.tokens[token_id]
@@ -74,11 +81,11 @@ def test_middleware_accepts_cookie_session_with_csrf_for_mutation() -> None:
 
 def test_middleware_rejects_project_api_token_mismatch() -> None:
     repository = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="thin-client",
-        repository=repository,
     )
+    repository.insert(issued.record)
     middleware = AuthMiddleware(token_repository=repository)
 
     result = middleware.authorize(

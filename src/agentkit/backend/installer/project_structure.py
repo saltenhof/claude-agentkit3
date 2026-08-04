@@ -112,6 +112,10 @@ def _deploy_directory_structure(
 
 
 _LINK_BINDPOINT_GITIGNORE_ENTRIES: tuple[str, ...] = (".claude/skills/", ".codex/skills/")
+_PROJECT_SECRET_GITIGNORE_ENTRIES: tuple[str, ...] = (
+    "/.agentkit/credentials",
+    "/.agentkit/credentials.pending",
+)
 
 
 _PYTHON_CACHE_GITIGNORE_ENTRIES: tuple[str, ...] = ("__pycache__/", "*.py[cod]")
@@ -166,8 +170,8 @@ def _append_gitignore_block(existing: str, comment: str, entries: list[str]) -> 
 def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     """Idempotently git-ignore the harness link bind points in *root*.
 
-    Appends ``.claude/skills/`` and ``.codex/skills/`` plus Python cache
-    artefacts to ``{root}/.gitignore`` (creating the file if absent). Git and
+    Appends the harness bind points, the dedicated project credential file,
+    and Python cache artefacts to ``{root}/.gitignore`` (creating the file if absent). Git and
     backups follow a junction, so a bound bind point would otherwise commit the
     central bundle content into the project repo (FK-43 §43.4.1.1). Only the
     ``skills`` subdir is ignored — sibling harness config such as
@@ -183,7 +187,11 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     gitignore_path = root / ".gitignore"
     existing = _read_foreign_text(gitignore_path) if gitignore_path.is_file() else ""
     present = {_norm(line) for line in existing.splitlines()}
-    required = (*_LINK_BINDPOINT_GITIGNORE_ENTRIES, *_PYTHON_CACHE_GITIGNORE_ENTRIES)
+    required = (
+        *_LINK_BINDPOINT_GITIGNORE_ENTRIES,
+        *_PROJECT_SECRET_GITIGNORE_ENTRIES,
+        *_PYTHON_CACHE_GITIGNORE_ENTRIES,
+    )
     missing = [entry for entry in required if _norm(entry) not in present]
     if not missing:
         return None
@@ -192,7 +200,7 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
         gitignore_path,
         _append_gitignore_block(
             existing,
-            "# AgentKit skill bind points — links to central bundles (FK-43 §43.4.1.1)",
+            "# AgentKit local bindings and credentials",
             missing,
         ),
     )

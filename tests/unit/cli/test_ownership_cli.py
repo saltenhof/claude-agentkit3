@@ -51,7 +51,7 @@ def _args(tmp_path: Path, **updates: object) -> Namespace:
         "base_url": "http://127.0.0.1:9701",
         "project_root": str(tmp_path),
         "project": "tenant-a",
-        "username": "strategist",
+        "username": "admin",
         "story": "AG3-154",
         "run": "run-old",
         "session": "sess-new",

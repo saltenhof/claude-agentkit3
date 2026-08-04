@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from agentkit.backend.auth.entities import ProjectApiToken
 
 
@@ -20,8 +22,11 @@ class ProjectApiTokenRepository(Protocol):
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         """Return all tokens for a project."""
 
-    def save(self, token: ProjectApiToken) -> None:
-        """Insert or update a token."""
+    def insert(self, token: ProjectApiToken) -> None:
+        """Insert a never-before-used token id."""
+
+    def mark_used(self, token_id: str, *, used_at: datetime) -> None:
+        """Update only the last-use timestamp of an existing token."""
 
     def revoke(self, project_key: str, token_id: str) -> None:
         """Mark a token as revoked."""

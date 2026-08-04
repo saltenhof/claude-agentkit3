@@ -163,7 +163,9 @@ def test_missing_project_token_logs_named_escalation_degradation_and_continues(
     del postgres_isolated_schema
     event = _prepare_run(tmp_path, control_plane_base_url, PhaseStatus.IN_PROGRESS)
     _open_request("request-expired-no-token", expired=True)
-    monkeypatch.delenv("AGENTKIT_PROJECT_API_TOKEN")
+    from agentkit.harness_client.projectedge.credentials import project_credentials_path
+
+    project_credentials_path(tmp_path).unlink()
 
     with caplog.at_level(logging.WARNING, logger="agentkit.backend.governance.runner"):
         verdict = run_hook(

@@ -23,8 +23,10 @@ check-then-record path): the ``claimed`` placeholder row is written BEFORE the
 mutation. A crash between the mutation and ``finalize`` leaves the row
 ``claimed`` (never a silently-missing record), so a retry gets an in-flight
 rejection instead of re-executing -- there is no doubly-executable state. An
-orphaned claim is ended only by the AG3-138 startup reconciliation or an
-explicit ``admin_abort_inflight_operation`` (never by wall clock).
+orphaned claim is never ended by wall clock. It is ended only by AG3-138 startup
+reconciliation, explicit ``admin_abort_inflight_operation``, or route-specific
+recovery that proves the exact terminal result from authoritative domain state
+and finalizes the matching kind/body-hash row without re-executing the mutation.
 
 BC ownership: this port is owned by ``state_backend`` and speaks state-backend
 vocabulary (primitives only). Consumers depend ONLY on this module and never
@@ -149,6 +151,15 @@ class AbortedOutcome:
     op_id: str
 
 
+class CommittedMutationError(RuntimeError):
+    """A mutation published domain state before a later step failed.
+
+    The idempotency claim must remain in-flight so route-specific recovery can
+    prove and finish the published outcome. Releasing it would permit a second
+    execution after commit.
+    """
+
+
 #: The result of :meth:`InflightIdempotencyGuard.claim`. Exactly one variant.
 ClaimOutcome = (
     FreshClaim | ReplayOutcome | MismatchOutcome | InFlightOutcome | AbortedOutcome
@@ -205,6 +216,20 @@ class InflightIdempotencyGuard(Protocol):
         :class:`InFlightOutcome`). Used on a ``finalize`` CAS loss to decide the
         fail-closed outcome (the caller must NOT return its success response when
         the claim was lost/taken-over). Never returns :class:`FreshClaim`.
+        """
+        ...
+
+    def recover(
+        self,
+        request: IdempotencyRequest,
+        result_payload: dict[str, object],
+    ) -> bool:
+        """Finalize a matching claimed row after domain state proves its outcome.
+
+        This is not a time-based takeover.  It applies only while the existing
+        row still matches the same operation kind and body hash, and only after
+        the route-specific recovery function has reconstructed the committed
+        outcome from its authoritative domain state.
         """
         ...
 
@@ -363,6 +388,8 @@ class StateBackendInflightIdempotencyGuard:
             # concurrent release/abort). Fail-closed to in-flight: a retry
             # re-claims cleanly. Never silently re-run under a lost claim.
             return InFlightOutcome(op_id=request.op_id)
+        if existing.get("project_key") != request.project_key:
+            return MismatchOutcome(op_id=request.op_id)
         stored_hash = existing.get("request_body_hash")
         decision = classify_terminal_row(
             incoming_body_hash=request.body_hash,
@@ -413,6 +440,31 @@ class StateBackendInflightIdempotencyGuard:
         """See :meth:`InflightIdempotencyGuard.classify`."""
         return self._resolve_loser(request)
 
+    def recover(
+        self,
+        request: IdempotencyRequest,
+        result_payload: dict[str, object],
+    ) -> bool:
+        """Finalize an exact orphan claim from independently proven domain state."""
+        existing = load_inflight_operation_row_global(request.op_id)
+        if existing is None:
+            return False
+        stored_hash = existing.get("request_body_hash")
+        if (
+            existing.get("status") != _CLAIM_STATUS
+            or existing.get("project_key") != request.project_key
+            or stored_hash != request.body_hash
+            or existing.get("operation_kind") != request.operation_kind
+            or not isinstance(existing.get("claimed_by"), str)
+            or not isinstance(existing.get("claimed_at"), str)
+        ):
+            return False
+        claim = FreshClaim(
+            owner_token=str(existing["claimed_by"]),
+            claimed_at_iso=str(existing["claimed_at"]),
+        )
+        return self.finalize(request, claim, result_payload)
+
 
 # ---------------------------------------------------------------------------
 # In-memory implementation (first-class unit-test impl -- NOT a mock)
@@ -427,6 +479,7 @@ class _MemRow:
     owner_token: str
     claimed_at_iso: str
     operation_kind: str
+    project_key: str
 
 
 @dataclass
@@ -456,6 +509,7 @@ class InMemoryInflightIdempotencyGuard:
                 owner_token=owner_token,
                 claimed_at_iso=claimed_at_iso,
                 operation_kind=request.operation_kind,
+                project_key=request.project_key,
             )
             return FreshClaim(owner_token=owner_token, claimed_at_iso=claimed_at_iso)
         return self._classify_existing(request, existing)
@@ -464,6 +518,8 @@ class InMemoryInflightIdempotencyGuard:
         self, request: IdempotencyRequest, existing: _MemRow
     ) -> ClaimOutcome:
         """Classify an existing row through the shared :func:`classify_terminal_row`."""
+        if existing.project_key != request.project_key:
+            return MismatchOutcome(op_id=request.op_id)
         decision = classify_terminal_row(
             incoming_body_hash=request.body_hash,
             incoming_operation_kind=request.operation_kind,
@@ -511,6 +567,30 @@ class InMemoryInflightIdempotencyGuard:
         if existing is None:
             return InFlightOutcome(op_id=request.op_id)
         return self._classify_existing(request, existing)
+
+    def recover(
+        self,
+        request: IdempotencyRequest,
+        result_payload: dict[str, object],
+    ) -> bool:
+        """Finalize an exact in-memory orphan after domain-state recovery."""
+        existing = self._rows.get(request.op_id)
+        if (
+            existing is None
+            or existing.status != _CLAIM_STATUS
+            or existing.project_key != request.project_key
+            or existing.body_hash != request.body_hash
+            or existing.operation_kind != request.operation_kind
+        ):
+            return False
+        return self.finalize(
+            request,
+            FreshClaim(
+                owner_token=existing.owner_token,
+                claimed_at_iso=existing.claimed_at_iso,
+            ),
+            result_payload,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +671,7 @@ def run_route_idempotent[R: _RouteResponseLike](
     mutate: Callable[[], R],
     replay: Callable[[dict[str, object]], R],
     conflict: Callable[[str, str, dict[str, object]], R],
+    recover_inflight: Callable[[Callable[[R], bool]], R | None] | None = None,
 ) -> R:
     """Run one mutating HTTP route under the unified idempotency contract.
 
@@ -603,7 +684,9 @@ def run_route_idempotent[R: _RouteResponseLike](
       raise means NO committed side effect: the owner-scoped claim is RELEASED
       and the exception re-raised (a retry re-executes cleanly). A post-commit
       failure is a PROCESS crash, not a catchable exception here, and leaves the
-      ``claimed`` row -> fail-closed in-flight on retry (AC3), never released.
+      ``claimed`` row -> fail-closed in-flight on retry (AC3), never released,
+      unless this route supplies a domain-state proof that reconstructs the
+      exact committed result without re-executing the mutation.
     * A ``>= 500`` route response (the BC mapped an unexpected fault to 500) also
       releases the claim (pre-commit, retry-able).
     * If ``finalize`` returns ``False`` the claim was lost/taken-over (e.g. an
@@ -624,6 +707,24 @@ def run_route_idempotent[R: _RouteResponseLike](
         The BC route response (the mutation's, a replay, or a fail-closed 409).
     """
     outcome = guard.claim(request)
+    if isinstance(outcome, InFlightOutcome) and recover_inflight is not None:
+        def finalize_recovered(response: R) -> bool:
+            result_payload = {
+                "status_code": response.status_code,
+                "body": json.loads(response.body),
+            }
+            return guard.recover(request, result_payload)
+
+        recovered = recover_inflight(finalize_recovered)
+        if recovered is not None:
+            return recovered
+        resolved = _route_loser_response(
+            guard.classify(request),
+            replay=replay,
+            conflict=conflict,
+        )
+        if resolved is not None:
+            return resolved
     loser = _route_loser_response(outcome, replay=replay, conflict=conflict)
     if loser is not None:
         return loser
@@ -632,6 +733,11 @@ def run_route_idempotent[R: _RouteResponseLike](
     claim = outcome
     try:
         response = mutate()
+    except CommittedMutationError:
+        # At least one authoritative side effect is already durable. Preserve
+        # the claim for route-specific recovery; never make the op executable
+        # again merely because a later completion step failed.
+        raise
     except Exception:
         # Pre-outcome exception (durable write is atomic-and-last -> nothing
         # committed): release the claim so a retry re-executes cleanly.
@@ -666,6 +772,7 @@ def run_route_idempotent[R: _RouteResponseLike](
 __all__ = [
     "AbortedOutcome",
     "ClaimOutcome",
+    "CommittedMutationError",
     "FreshClaim",
     "IdempotencyRequest",
     "InFlightOutcome",

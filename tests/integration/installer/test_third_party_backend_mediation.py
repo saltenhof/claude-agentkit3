@@ -18,7 +18,6 @@ from tests.fixtures.third_party_preflight import FakeThirdPartyClientFactory
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.auth.middleware import AuthMiddleware
-from agentkit.backend.auth.tokens import issue_project_api_token
 from agentkit.backend.control_plane.third_party_models import BranchPluginSelfTestRequest
 from agentkit.backend.control_plane_http.app import ControlPlaneApplication, _build_handler
 from agentkit.backend.control_plane_http.routes_config import ControlPlaneApplicationRoutes
@@ -65,6 +64,7 @@ from agentkit.harness_client.projectedge.client import (
     LocalEdgePublisher,
     ProjectEdgeClient,
 )
+from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -88,8 +88,15 @@ class _TokenRepository:
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [row for row in self.rows.values() if row.project_key == project_key]
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
+        if token.token_id in self.rows:
+            raise ValueError("duplicate token id")
         self.rows[token.token_id] = token
+
+    def mark_used(self, token_id: str, *, used_at: object) -> None:
+        self.rows[token_id] = self.rows[token_id].model_copy(
+            update={"last_used_at": used_at},
+        )
 
     def revoke(self, project_key: str, token_id: str) -> None:
         del project_key
@@ -129,7 +136,8 @@ def mediated_control_plane(
     monkeypatch.setenv("SONAR_BACKEND_TOKEN", "backend-sonar-token")
     monkeypatch.setenv("JENKINS_BACKEND_TOKEN", "backend-jenkins-token")
     tokens = _TokenRepository()
-    issued = issue_project_api_token(project_key="tenant-a", label="ag3-132", repository=tokens)
+    issued = prepare_project_api_token(project_key="tenant-a", label="ag3-132")
+    tokens.insert(issued.record)
     guard = StateBackendInflightIdempotencyGuard()
     clients = FakeThirdPartyClientFactory()
     executor = BoundedThreadExecutor(max_workers=1, max_queued=1)

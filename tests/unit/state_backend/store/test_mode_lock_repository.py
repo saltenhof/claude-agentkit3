@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
@@ -46,7 +47,7 @@ def test_summary_divergence_fails_closed(tmp_path: Path) -> None:
     repo = ModeLockRepository(tmp_path)
     repo.acquire(_PROJECT, _STORY, _RUN, "standard")
     db = state_backend_dir(tmp_path) / versioned_sqlite_db_file()
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn, conn:
         conn.execute(
             "UPDATE project_mode_lock SET holder_count = 99 WHERE project_key = ?",
             (_PROJECT,),

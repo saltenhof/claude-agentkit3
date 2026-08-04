@@ -139,7 +139,10 @@ def main() -> int:
     except (RuntimeBindingError, VectorDbUnavailableError) as exc:
         print(json.dumps({"error": "composition_failed", "detail": str(exc)}))
         return 1
-    run_stdio_server(service)
+    try:
+        run_stdio_server(service)
+    finally:
+        service.close()
     return 0
 
 

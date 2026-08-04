@@ -100,6 +100,12 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
+| `/v1/auth/login` | `POST` | Strategenpasswort pruefen und kurzlebige Cookie-/CSRF-Session erzeugen. Auth-Handshake, keine kanonische Projektmutation; deshalb kein Operation-Ledger-`op_id`. |
+| `/v1/auth/logout` | `POST` | Aktuelle Strategen-Session widerrufen. Wiederholung ist auch bei bereits fehlender Session erfolgreich und erzeugt keine fachliche Zweitwirkung. |
+| `/v1/auth/password` | `POST` | Strategenpasswort im authentifizierten Projektkontext rotieren und alle Strategen-Sessions widerrufen. Client-beigestellte `op_id`, Body-Hash, In-Flight-Claim und gespeicherter Replay nach erneuter Anmeldung mit dem neuen Passwort sind Pflicht (Regel 5). |
+| `/v1/projects/{project_key}/api-tokens` | `GET` | Projekt-Token-Metadaten ohne Hash und Klartext auflisten; ausschliesslich Strategen-Session. |
+| `/v1/projects/{project_key}/api-tokens` | `POST` | Clientseitig vorbereitete Token-ID und Token-Hash insert-only registrieren; ausschliesslich Strategen-Session, Regel-5-Idempotenz. |
+| `/v1/projects/{project_key}/api-tokens/{token_id}` | `DELETE` | Benanntes Projekt-Token widerrufen; ausschliesslich Strategen-Session, Regel-5-Idempotenz. |
 | `/v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/start` | `POST` | Offiziellen Start einer Phase anfordern (projekt-skopiert seit AG3-090, FK-72 §72.8.1) |
 | `/v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/complete` | `POST` | Erfolgreichen Phasenabschluss melden |
 | `/v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/fail` | `POST` | Fehlerhaften Phasenabschluss melden |
@@ -107,7 +113,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/projects/{project_key}/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
-| `/v1/projects/{project_key}/installation/third-party-validation` | `POST` | Synchrone, read-only Dritt-System-Probes fuer Sonar, Jenkins und feature-gated ARE ueber den Backend-`ThirdPartyPreflightService`. Request traegt `op_id` und ausschliesslich `token_env`-Referenzen; Response traegt Gesamtentscheid sowie typisiertes Einzelresultat/`error_code` je System. Projekt-Token, Tenant-Scope, Versions-Handshake und Regel-5-Idempotenz sind Pflicht; eine unskopierte Variante existiert nicht. |
+| `/v1/projects/{project_key}/installation/third-party-validation` | `POST` | Synchrone, read-only Dritt-System-Probes fuer Sonar, Jenkins und feature-gated ARE ueber den Backend-`ThirdPartyPreflightService`. Request traegt `op_id` und ausschliesslich `token_env`-Referenzen; Response traegt Gesamtentscheid sowie typisiertes Einzelresultat/`error_code` je System. Tenant-Scope, Versions-Handshake und Regel-5-Idempotenz sind Pflicht; regulaer authentifiziert das Projekt-Token. Ausschliesslich waehrend `register-project` nach CP7 und vor Aktivierung der ersten Credential darf die bereits authentifizierte Strategen-Session desselben Projektkontexts diese Route verwenden. Eine unskopierte oder anonyme Variante existiert nicht. |
 | `/v1/projects/{project_key}/installation/branch-plugin-self-test` | `POST` | Explizite on-demand Annahme des schweren, mutierenden Branch-Plugin-Conformance-Self-Tests. Antwort `202` plus `op_id`; Lebenszyklus im `ControlPlaneOperationRecord`, Poll ueber `/v1/project-edge/operations/{op_id}`. Niemals implizit durch `register-project` oder `verify-project`. |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-request` | `POST` | Expliziten Ownership-Transfer (Takeover) fuer einen aktiven Story-Run anfragen (formal: `operating-modes.command.request-run-ownership-takeover`). Antwort ist nie der Vollzug, sondern eine von zwei Varianten: menschlich initiierte Requests (`human_cli`/UI via BFF) erhalten einen versionierten **Challenge** (`offered`: Eigentumslage inkl. `owner_session_id`, `ownership_epoch`, `binding_version`, Phasenstand, Anzeigedaten aus dem Owner-BC); agenteninitiierte Requests erhalten deterministisch **`pending_human_approval`** (Vollzug erfordert menschliche Frontend-Freigabe; Ausgang beobachtbar ueber `GET /v1/project-edge/operations/{op_id}`). Jede Anfrage traegt eine Begruendungspflicht (auditiert) |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm` | `POST` | Takeover per Referenz auf die gespeicherte Challenge vollziehen (formal: `operating-modes.command.confirm-run-ownership-takeover`; Klasse `admin_transition`, FK-55 §55.5). Payload: `challenge_id` (Selektor) + Audit-Metadaten (`op_id`, `reason`, `source_component`) — kein Challenge-Echo, keine Identitaets- oder Entscheidungsfelder im Body; der CAS laeuft serverseitig gegen die persistierte Challenge-Basis (`owner_session_id`/`ownership_epoch`/`binding_version`, FK-56 §56.13a). Antworten: Vollzug; **`challenge_reissued`** (Challenge-TTL abgelaufen, Approval gueltig, Eigentumslage unveraendert — frische Challenge in der Antwort, Vollzug erst per zweitem Confirm mit neuem `op_id`); Fehlerbild bei invalidiertem/veraltetem Challenge (zwischenzeitlicher Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt): deterministischer fail-closed Fehlschlag ohne Vollzug, Challenge terminal `invalidated` — erneuter Request gegen die aktuelle Eigentumslage noetig |
@@ -157,9 +163,12 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 
 **Normative Regeln:**
 
-1. Jeder mutierende Endpoint ist tenant-scoped und verlangt
+1. Jeder kanonisch mutierende Endpoint ist tenant-scoped und verlangt
    `project_key` explizit oder implizit aus dem authentisierten
-   Projektkontext.
+   Projektkontext. Login und Logout verwalten ausschliesslich kurzlebigen
+   Auth-Transportzustand und sind keine kanonischen Projektmutationen;
+   Passwortrotation und Tokenadministration sind dagegen vollstaendig
+   projekt-skopierte Sicherheitsmutationen.
 2. Die Control Plane exponiert mutierende Endpunkte nur ueber HTTPS;
    Plain-HTTP-Listener sind fachlich unzulaessig.
 3. Agents muessen ausschliesslich den offiziellen
@@ -177,7 +186,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    Mutation und erzeugen deshalb kein Edge-Materialisierungs-Bundle: ihr
    vollstaendiges Resultat ist der typisierte Validierungsentscheid bzw. der
    ueber `op_id` lesbare Operation-Record.
-5. Jeder mutierende Endpoint muss `op_id` als Idempotenzschluessel
+5. Jeder kanonisch mutierende Endpoint muss `op_id` als Idempotenzschluessel
    akzeptieren; Wiederholungen mit derselben `op_id` duerfen keine
    zweite Mutation erzeugen. Das `op_id` wird **vom Client
    beigestellt**; serverseitiges Minten ist unzulaessig, weil es
@@ -187,12 +196,21 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    Endpoints: ein Replay derselben `op_id` liefert das gespeicherte
    Ergebnis ohne zweite Mutation; gleiche `op_id` mit abweichendem
    Body ist fail-closed `409 idempotency_mismatch`
-   (Body-Hash-Pruefung); eine parallel laufende gleiche `op_id` wird
+   (Body-Hash-Pruefung). Der projektgebundene Zielkontext ist Bestandteil
+   dieser Request-Identitaet: dieselbe `op_id` und derselbe JSON-Body unter
+   einem anderen `project_key` sind ebenfalls ein Mismatch, niemals ein
+   Cross-Project-Replay. Eine parallel laufende gleiche `op_id` wird
    als in-flight abgewiesen bzw. serialisiert, nie doppelt
    ausgefuehrt (In-Flight-Schutz). Body-Hash-Pruefung und
    In-Flight-Schutz gelten ueberall — zwei getrennte Mechanismen mit
    unterschiedlicher Schutztiefe (Claim-Pfad mit In-Flight-Schutz
    neben einem Idempotenz-Schluessel-Pfad ohne) sind unzulaessig.
+   Fuer den Crash zwischen nachweislich abgeschlossenem Domain-Commit und
+   Finalisierung des Claims gilt kein freies Re-Execute und kein TTL-Takeover:
+   nur derselbe Request darf den passenden `claimed`-Record finalisieren, und
+   nur wenn der zustaendige Domain-Owner das exakte terminale Ergebnis aus
+   seiner autoritativen Persistenz belegt. Ohne diesen Beleg bleibt
+   `operation_in_flight` bestehen.
 6. Die API ist die fachlich autoritative Zielgrenze. CLI und
    `Project Edge Client` erzeugen keine zweite Befehls- oder
    Event-Semantik neben der API; sie sind ausschliesslich
@@ -211,7 +229,10 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    Story-Identitaet, -Status oder -Story-Attribute; sie duerfen
    hoechstens als read-only Anzeige gespiegelt werden.
 10. Jeder CLI-Befehl in §91.1 ist Adapter auf einen
-    Control-Plane-Endpoint. Eigenstaendige CLI-Implementierungen ohne
+    Control-Plane-Endpoint. Die einzige Ausnahme ist `agentkit auth bootstrap`:
+    dieser Erstzugang ist gemaess FK-15 §15.10.3 eine lokale, interaktive
+    Credential-Owner-Mutation auf der Core-Maschine und besitzt absichtlich
+    keinen HTTP-Endpunkt. Weitere eigenstaendige CLI-Implementierungen ohne
     API-Vertrag sind unzulaessig.
 11. **Versions-Handshake (dev↔central):** Jeder Dev→Control-Plane-Request
     fuehrt die Agent-Runtime-Version (Paketversion) und das gebundene
@@ -404,7 +425,8 @@ supersedet eine alte offene Generation vor Commissioning der neuen.
 ## 91.1 Operator-Recovery-CLI (agentkit)
 
 **Akteur:** Die CLI ist ausschliesslich ein menschlicher und
-administrativer Adapterpfad auf die Control-Plane-API (§91.1a).
+administrativer Pfad. Mit der genau benannten Erstzugangs-Ausnahme
+`agentkit auth bootstrap` ist sie Adapter auf die Control-Plane-API (§91.1a).
 Agents duerfen die CLI niemals direkt aufrufen; ihr Zugriff laeuft
 ueber den `Project Edge Client` gegen die REST-API. Die folgenden
 Befehle sind damit fachlich gleichbedeutend mit dem zugehoerigen
@@ -417,6 +439,11 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 
 | Befehl | Kapitel | Beschreibung |
 |--------|---------|-------------|
+| `agentkit auth bootstrap [--auth-config {path}]` | 15 | Einzige Nicht-API-Ausnahme: initialisiert das Strategenpasswort einmalig direkt beim lokalen Credential-Owner der Core-Maschine; interaktives Terminal und doppelte Passworteingabe sind Pflicht, eine anonyme HTTP-Entsprechung existiert nicht |
+| `agentkit auth login --project-key {project_key} --base-url {url}` | 15 | Duenner Adapter auf `POST /v1/auth/login`; prueft das Strategenpasswort und verwirft die kurzlebige Session nach dem Nachweis |
+| `agentkit auth rotate-password --project-key {project_key} --base-url {url} [--op-id {op_id}]` | 15 | Duenner Adapter auf Login und `POST /v1/auth/password`; zeigt die clientseitige `op_id` vor dem Request und nimmt sie nach Antwortverlust fuer den Regel-5-Replay wieder entgegen |
+| `agentkit auth issue-token --project-key {project_key} --project-root {path} --base-url {url}` | 15 | Duenner Adapter auf Login und `POST /v1/projects/{project_key}/api-tokens`; erzeugt und publiziert das Klartext-Token ausschliesslich im geschuetzten Edge-Credential-Speicher |
+| `agentkit auth revoke-token --project-key {project_key} --project-root {path} --token-id {token_id} --base-url {url} [--op-id {op_id}]` | 15 | Duenner Adapter auf Login und `DELETE /v1/projects/{project_key}/api-tokens/{token_id}`; zeigt die clientseitige `op_id` vor dem Request, akzeptiert sie beim Retry erneut und bindet die lokale Rotationsbestaetigung an denselben Regel-5-Uebergang |
 | `agentkit register-project --gh-owner {owner} --gh-repo {repo}` | 50 | Projekt registrieren bzw. idempotent erneut registrieren |
 | `agentkit register-project --gh-owner {owner} --gh-repo {repo} --dry-run` | 50 | Checkpoint-Vorschau ohne Mutation |
 | `agentkit verify-project` | 50 | Read-only Verifikation des Registrierungszustands |

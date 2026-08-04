@@ -31,8 +31,11 @@ class _InMemoryTokenRepository:
         del project_key
         return []
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
         del token
+
+    def mark_used(self, token_id: str, *, used_at: object) -> None:
+        del token_id, used_at
 
     def revoke(self, project_key: str, token_id: str) -> None:
         del project_key, token_id

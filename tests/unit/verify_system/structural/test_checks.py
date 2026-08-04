@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -113,7 +114,7 @@ class TestCheckContextValid:
     def test_corrupt_context_returns_finding(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         _save_context(story_dir)
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute("UPDATE story_contexts SET payload_json = 'not json'")
             conn.commit()
         finding = check_context_valid(story_dir)
@@ -235,7 +236,7 @@ class TestCheckNoCorruptState:
             story_dir,
             _phase_state(),
         )
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute("UPDATE phase_states SET payload_json = 'not json'")
             conn.commit()
         finding = check_no_corrupt_state(story_dir)

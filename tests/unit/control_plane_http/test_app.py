@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
-from agentkit.backend.auth.tokens import issue_project_api_token
 
 # AC1: compat re-export must resolve to the SAME class
 from agentkit.backend.control_plane.http import ControlPlaneApplication as CompatCPA
@@ -36,8 +35,11 @@ from agentkit.backend.control_plane_http.takeover_handlers import (
     dispatch_project_edge_takeover_post,
 )
 from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
+from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.backend.auth.entities import ProjectApiToken
     from agentkit.backend.control_plane.models import (
         AdminTakeoverReconcileClearRequest,
@@ -53,6 +55,23 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # AC1 — compat re-export identity
 # ---------------------------------------------------------------------------
+
+
+def test_production_profiles_share_the_file_backed_session_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from agentkit.backend.auth.sessions import FileSessionStore
+    from agentkit.backend.control_plane_http.app import _build_production_application
+
+    monkeypatch.setenv("AGENTKIT_AUTH_CONFIG", str(tmp_path / "auth.json"))
+    application = _build_production_application()
+
+    assert isinstance(application._auth_routes.session_store, FileSessionStore)  # noqa: SLF001
+    assert (  # noqa: SLF001
+        application._auth_routes.session_store  # noqa: SLF001
+        is application._auth_middleware.session_store  # noqa: SLF001
+    )
 
 
 def test_compat_reexport_is_same_class() -> None:
@@ -279,7 +298,13 @@ class _FakeTelemetryRoutes:
 
 
 class _FakeAuthRoutes:
-    def handle_get(self, route_path: str, correlation_id: str) -> None:
+    def handle_get(
+        self,
+        route_path: str,
+        correlation_id: str,
+        auth_result: object = None,
+    ) -> None:
+        del auth_result
         return None
 
     def handle_post(
@@ -288,12 +313,19 @@ class _FakeAuthRoutes:
         payload: object,
         correlation_id: str,
         request_headers: object = None,
+        auth_result: object = None,
     ) -> None:
+        del auth_result
         return None
 
     def handle_delete(
-        self, route_path: str, query: dict[str, list[str]], correlation_id: str
+        self,
+        route_path: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+        auth_result: object = None,
     ) -> None:
+        del auth_result
         return None
 
 
@@ -437,8 +469,15 @@ class _InMemoryTokenRepository:
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [token for token in self.tokens.values() if token.project_key == project_key]
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
+        if token.token_id in self.tokens:
+            raise ValueError("duplicate token id")
         self.tokens[token.token_id] = token
+
+    def mark_used(self, token_id: str, *, used_at: object) -> None:
+        self.tokens[token_id] = self.tokens[token_id].model_copy(
+            update={"last_used_at": used_at},
+        )
 
     def revoke(self, project_key: str, token_id: str) -> None:
         del project_key
@@ -571,11 +610,11 @@ def _header(response: HttpResponse, name: str) -> str | None:
 
 def test_token_agent_cannot_forge_human_takeover_confirm_and_writes_nothing() -> None:
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="agent",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
@@ -789,11 +828,11 @@ def test_spa_takeover_decisions_use_cookie_csrf_and_approval_project_attestation
 
 def test_token_takeover_request_derives_agent_principal_from_auth_not_body() -> None:
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="agent",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
@@ -970,11 +1009,11 @@ def test_cross_project_token_takeover_request_is_forbidden_before_runtime() -> N
     # without an attested project (401) or with a mismatched token project
     # (403); this fence still rejects a body-forged project_key before runtime.
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="agent",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
@@ -1069,11 +1108,11 @@ def test_cross_project_human_takeover_confirm_is_forbidden_before_runtime() -> N
 
 def test_token_agent_cannot_forge_human_takeover_deny_and_writes_nothing() -> None:
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="agent",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
@@ -1172,11 +1211,11 @@ def test_human_takeover_deny_rejects_body_identity_fields(
 
 def test_token_agent_cannot_forge_takeover_reconcile_clear_and_writes_nothing() -> None:
     tokens = _InMemoryTokenRepository()
-    issued = issue_project_api_token(
+    issued = prepare_project_api_token(
         project_key="tenant-a",
         label="agent",
-        repository=tokens,
     )
+    tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(

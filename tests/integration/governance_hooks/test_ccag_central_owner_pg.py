@@ -13,7 +13,6 @@ from tests.integration.governance.test_capability_pipeline import _publish_story
 from tests.integration.governance_hooks.conftest import write_control_plane_config
 
 from agentkit.backend.auth.middleware import AuthMiddleware
-from agentkit.backend.auth.tokens import issue_project_api_token
 from agentkit.backend.control_plane.models import (
     PermissionLeaseGrantRequest,
     PermissionRequestOpenRequest,
@@ -36,6 +35,12 @@ from agentkit.backend.state_backend.store.permission_request_repository import (
     StateBackendPermissionRequestRepository,
 )
 from agentkit.harness_client.projectedge.client import HttpsJsonTransport
+from agentkit.harness_client.projectedge.credentials import (
+    activate_project_credentials,
+    prepare_project_api_token,
+    project_credentials_path,
+    write_pending_project_credentials,
+)
 from agentkit.harness_client.projectedge.governance_client import GovernanceEdgeClient
 
 if TYPE_CHECKING:
@@ -64,13 +69,20 @@ class _TokenRepository:
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [row for row in self.rows.values() if row.project_key == project_key]
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
+        if token.token_id in self.rows:
+            raise ValueError("duplicate token id")
         self.rows[token.token_id] = token
+
+    def mark_used(self, token_id: str, *, used_at: datetime) -> None:
+        self.rows[token_id] = self.rows[token_id].model_copy(
+            update={"last_used_at": used_at},
+        )
 
     def revoke(self, project_key: str, token_id: str) -> None:
         row = self.rows[token_id]
         assert row.project_key == project_key
-        self.save(row.model_copy(update={"revoked_at": datetime.now(UTC)}))
+        self.rows[token_id] = row.model_copy(update={"revoked_at": datetime.now(UTC)})
 
 
 @contextmanager
@@ -115,7 +127,8 @@ def test_request_lease_lifecycle_is_server_mediated_on_real_postgres(
     """Open/read/approve/grant/consume uses HTTP plus canonical Postgres."""
     del postgres_isolated_schema
     tokens = _TokenRepository()
-    issued = issue_project_api_token(project_key=_PROJECT, label="hook", repository=tokens)
+    issued = prepare_project_api_token(project_key=_PROJECT, label="hook")
+    tokens.insert(issued.record)
     auth = AuthMiddleware(token_repository=tokens)
     app = ControlPlaneApplication(auth_middleware=auth)
     session = auth.session_store.create()
@@ -169,7 +182,8 @@ def test_hook_token_cannot_resolve_or_grant_before_mutation(
     """Project-token attempts are rejected before request/lease writes."""
     del postgres_isolated_schema
     tokens = _TokenRepository()
-    issued = issue_project_api_token(project_key=_PROJECT, label="hook", repository=tokens)
+    issued = prepare_project_api_token(project_key=_PROJECT, label="hook")
+    tokens.insert(issued.record)
     auth = AuthMiddleware(token_repository=tokens)
     app = ControlPlaneApplication(auth_middleware=auth)
     service = _service()
@@ -230,11 +244,19 @@ def test_real_hook_opens_request_through_http_and_postgres(
     """The real guard runner uses its REST seam and writes no local database."""
     del postgres_isolated_schema
     tokens = _TokenRepository()
-    issued = issue_project_api_token(project_key=_PROJECT, label="hook", repository=tokens)
+    issued = prepare_project_api_token(project_key=_PROJECT, label="hook")
+    tokens.insert(issued.record)
     app = ControlPlaneApplication(auth_middleware=AuthMiddleware(token_repository=tokens))
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
-    monkeypatch.setenv("AGENTKIT_PROJECT_API_TOKEN", issued.plaintext_token)
+    credential_path = project_credentials_path(tmp_path)
+    write_pending_project_credentials(
+        credential_path,
+        project_key=_PROJECT,
+        prepared_token=issued,
+        issuance_op_id="op-hook",
+    )
+    activate_project_credentials(credential_path)
     with _server(app) as base_url:
         write_control_plane_config(tmp_path, base_url)
         verdict = run_hook(
@@ -272,7 +294,15 @@ def test_real_hook_rest_failure_is_visibly_fail_closed(
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
     write_control_plane_config(tmp_path, unreachable_base_url)
-    monkeypatch.setenv("AGENTKIT_PROJECT_API_TOKEN", "unreachable-token")
+    issued = prepare_project_api_token(project_key=_PROJECT, label="unreachable")
+    credential_path = project_credentials_path(tmp_path)
+    write_pending_project_credentials(
+        credential_path,
+        project_key=_PROJECT,
+        prepared_token=issued,
+        issuance_op_id="op-unreachable",
+    )
+    activate_project_credentials(credential_path)
     verdict = run_hook(
         "ccag_gatekeeper",
         HookEvent.model_validate(

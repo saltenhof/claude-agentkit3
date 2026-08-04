@@ -526,7 +526,22 @@ def test_build_project_edge_client_uses_local_control_plane_config(
         "agentkit.harness_client.projectedge.runtime.load_project_config",
         lambda _root: SimpleNamespace(project_key="tenant-a"),
     )
-    monkeypatch.setenv("AGENTKIT_PROJECT_API_TOKEN", "ak3-test-token")
+    from agentkit.harness_client.projectedge.credentials import (
+        activate_project_credentials,
+        prepare_project_api_token,
+        project_credentials_path,
+        write_pending_project_credentials,
+    )
+
+    prepared = prepare_project_api_token(project_key="tenant-a", label="edge")
+    credential_path = project_credentials_path(tmp_path)
+    write_pending_project_credentials(
+        credential_path,
+        project_key="tenant-a",
+        prepared_token=prepared,
+        issuance_op_id="op-test",
+    )
+    activate_project_credentials(credential_path)
 
     client = build_project_edge_client(tmp_path)
 
@@ -536,8 +551,99 @@ def test_build_project_edge_client_uses_local_control_plane_config(
     publisher = client._publisher
     assert transport._base_url == "https://127.0.0.1:9443"
     assert transport._project_key == "tenant-a"
-    assert transport._bearer_token == "ak3-test-token"
+    assert transport._bearer_token == prepared.plaintext_token
     assert publisher._project_root == tmp_path
+
+
+def test_build_project_edge_client_rejects_unreconciled_pending_rotation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runtime must not use active plaintext while a different issuance is pending."""
+    config_dir = tmp_path / ".agentkit" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "control-plane.json").write_text(
+        json.dumps({"base_url": "https://127.0.0.1:9443", "ca_file": None}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "agentkit.harness_client.projectedge.runtime.load_project_config",
+        lambda _root: SimpleNamespace(project_key="tenant-a"),
+    )
+    from agentkit.harness_client.projectedge.credentials import (
+        CredentialStateError,
+        activate_project_credentials,
+        prepare_project_api_token,
+        project_credentials_path,
+        write_pending_project_credentials,
+    )
+
+    credential_path = project_credentials_path(tmp_path)
+    active_preparation = prepare_project_api_token(project_key="tenant-a", label="edge")
+    write_pending_project_credentials(
+        credential_path,
+        project_key="tenant-a",
+        prepared_token=active_preparation,
+        issuance_op_id="op-active",
+    )
+    active = activate_project_credentials(credential_path)
+    pending_preparation = prepare_project_api_token(project_key="tenant-a", label="edge")
+    write_pending_project_credentials(
+        credential_path,
+        project_key="tenant-a",
+        prepared_token=pending_preparation,
+        issuance_op_id="op-pending",
+        superseded_token_id=active.token_id,
+    )
+
+    with pytest.raises(CredentialStateError, match="different issuances"):
+        build_project_edge_client(tmp_path)
+
+
+def test_governance_edge_client_rejects_unreconciled_pending_rotation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentkit.harness_client.projectedge.credentials import (
+        CredentialStateError,
+        activate_project_credentials,
+        prepare_project_api_token,
+        project_credentials_path,
+        write_pending_project_credentials,
+    )
+    from agentkit.harness_client.projectedge.governance_client import (
+        build_governance_edge_client,
+    )
+
+    config_dir = tmp_path / ".agentkit" / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "control-plane.json").write_text(
+        json.dumps({"base_url": "https://127.0.0.1:9443", "ca_file": None}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.config.loader.load_project_config",
+        lambda _root: SimpleNamespace(project_key="tenant-a"),
+    )
+    credential_path = project_credentials_path(tmp_path)
+    active_preparation = prepare_project_api_token(project_key="tenant-a", label="edge")
+    write_pending_project_credentials(
+        credential_path,
+        project_key="tenant-a",
+        prepared_token=active_preparation,
+        issuance_op_id="op-active",
+    )
+    active = activate_project_credentials(credential_path)
+    write_pending_project_credentials(
+        credential_path,
+        project_key="tenant-a",
+        prepared_token=prepare_project_api_token(project_key="tenant-a", label="edge"),
+        issuance_op_id="op-pending",
+        superseded_token_id=active.token_id,
+    )
+
+    with pytest.raises(CredentialStateError, match="different issuances"):
+        build_governance_edge_client(tmp_path)
 
 
 # --- read_change_frame_freeze_state (FK-23 §23.4.3, AG3-047) ----------------

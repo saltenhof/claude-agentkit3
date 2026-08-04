@@ -1,5 +1,21 @@
 # Local Agent Instructions
 
+## VERBOT: die komplette Testsuite ausfuehren (PO-Anweisung 2026-08-04)
+
+**Fuer ALLE Agents strikt verboten** — Orchestrator wie Sub-Agents, ohne
+Ausnahme, auch nicht „einmal zum Abschluss".
+
+- Verboten: `pytest` ohne Pfadangabe, `pytest tests`, jede Variante mit oder
+  ohne `--cov`, die den gesamten Bestand sammelt.
+- Erlaubt: die von der Aenderung betroffene Teilmenge
+  (`guardrails/test-execution-efficiency.md` R2), `ruff`, `mypy`.
+- Der vollstaendige Nachweis entsteht **ausschliesslich im Jenkins-Job**, gegen
+  den tatsaechlichen Kandidaten-SHA.
+
+Ein lokaler Volllauf kostet zwoelf Minuten, blockiert den Arbeitsbaum,
+konkurriert mit parallelen Laeufen um dieselbe Datenbank — und beweist weniger
+als Jenkins, weil er auf dem falschen Betriebssystem laeuft.
+
 ## Lies zuerst CLAUDE.md — diese Datei ist nicht die ganze Ordnung
 
 `CLAUDE.md` im Repo-Root ist die **normative** Verhaltens- und Codeordnung

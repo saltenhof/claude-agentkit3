@@ -69,6 +69,46 @@ und steht mit dem Bestand im Widerspruch:
   Geheimnis, das „genau einmal angezeigt" wird, wird in einem Agenten- oder
   CI-Lauf genau einmal **protokolliert** — und liegt dann dauerhaft dort.
 
+## Rollenmodell — PO-Entscheidung 2026-08-03, nach Review R2
+
+Review R2 meldete als ERROR 1, der Erstzugang sei aus der Laptop-Cloud-Topologie
+nicht erreichbar. **Der Befund beruht auf einer falschen Annahme: er unterstellt
+eine Rolle, wo zwei sind.** Der PO hat das am selben Tag entschieden:
+
+| Rolle | Womit | Erstzugang |
+|---|---|---|
+| **Backend-Admin** | installiert den Kern (fertiges Image oder On-demand-Installation) und hat dabei **zwangslaeufig** eine Shell auf der Kernmaschine | legt den Admin-Account beim Provisionieren an — das ist Teil der Installation, kein eigenes Problem |
+| **Client-Bediener** | haengt einen Entwicklerrechner an, erreicht den Kern **nur** ueber HTTPS, hat **keine** Shell und ist **nicht** der Admin | bekommt vom Admin ein **Projekt-Token** ausgehaendigt und verbindet sich damit |
+
+**Damit ist der CLI-Bootstrap auf der Kernmaschine richtig** und AC 3 in seiner
+Bedingung („ist die Oberflaeche HTTP …") gegenstandslos, nicht verletzt.
+
+**Die verbleibende Luecke liegt woanders und ist gemessen:**
+`harness_client/projectedge/auth_operator.py:47` holt das Projekt-Token ueber
+`authenticate_strategist(username="admin", password=…)`. Der Client-Bediener
+muesste also das **Admin-Passwort** kennen, um seinen Rechner anzuhaengen. Die
+beiden Geheimnisklassen sind damit in der *Verwendung* getrennt (Review-Runde 1,
+E1: ein Projekt-Token darf nichts administrieren), aber nicht im **Erwerb**.
+
+`backend/cli/auth_commands.py:351` zeigt dieselbe Vermischung: `issue-token`
+meldet sich als Stratege an **und** schreibt die Credential-Datei nach
+`--project-root` — beides auf derselben Maschine, also unter der Annahme, Admin
+und Bediener seien dieselbe Person.
+
+**Der beschlossene Weg** — er braucht kein neues Konzept, FK-15 §15.10.4
+beschreibt ihn bereits („einmal bei Erstellung angezeigt, danach nie wieder"):
+
+1. Der **Admin** erzeugt das Projekt-Token kernseitig. Es wird **einmal**
+   ausgegeben und **nicht** lokal als Credential-Datei abgelegt.
+2. Die Uebergabe an den Bediener erfolgt **ausserhalb des Systems**.
+3. Der **Bediener** legt das Token auf seinem Rechner ab — ueber ein Verb, das
+   **keine Anmeldung** verlangt, weil das Token selbst der Nachweis ist.
+
+Ausdruecklich **nicht** beschlossen: ein Anforderungs-/Genehmigungsvorgang, bei
+dem der Bediener ein Token beantragt und der Admin es freigibt. Das waere eine
+eigene Faehigkeit mit Warteschlange, Zustand und Oberflaeche — eigene Story,
+nicht diese.
+
 ## Scope
 
 ### In Scope
@@ -106,13 +146,28 @@ und steht mit dem Bestand im Widerspruch:
 
 ## Akzeptanzkriterien
 
-1. **Ein frisch installiertes AK3 kommt ohne Handarbeit zu einem Projekt-Token.**
-   Nachgewiesen an einer Installation, bei der `~/.config/agentkit/auth.json`
-   (bzw. der Pfad aus `AGENTKIT_AUTH_CONFIG`) und alle Token vorher **nicht
-   existieren**. Im Ablauf kommt kein Python-Einzeiler, kein direkter
-   Dateieingriff und keine DB-Manipulation vor. Der Nachweis laeuft ueber die
-   Oberflaechen, die ein Bediener hat — nicht ueber `set_password()` aus einem
-   Testmodul.
+1. **Beide Rollen kommen ohne Handarbeit ans Ziel — getrennt nachgewiesen.**
+   Vorbedingung beider Nachweise: `~/.config/agentkit/auth.json` (bzw. der Pfad
+   aus `AGENTKIT_AUTH_CONFIG`) und alle Token existieren vorher **nicht**. In
+   keinem der beiden Ablaeufe kommt ein Python-Einzeiler, ein direkter
+   Dateieingriff oder eine DB-Manipulation vor; beide laufen ausschliesslich
+   ueber Oberflaechen, die die jeweilige Rolle tatsaechlich hat — nicht ueber
+   `set_password()` aus einem Testmodul.
+
+   **1a — Admin, kernseitig.** Mit Shell auf der Kernmaschine: Admin-Account
+   anlegen, anmelden, ein Projekt-Token erzeugen. Das Token wird **einmal**
+   ausgegeben und **nicht** als Credential-Datei auf der Kernmaschine abgelegt —
+   der Admin sitzt nicht am Rechner des Bedieners.
+
+   **1b — Client-Bediener, laptopseitig.** **Ohne** Shell auf dem Kern und
+   **ohne** Kenntnis des Admin-Passworts: das ausgehaendigte Token ablegen und
+   damit einen authentisierten Aufruf gegen den Kern fuehren. Nachgewiesen an
+   einem Ablauf, in dem das Strategenpasswort **nirgends vorkommt** — weder als
+   Eingabe, noch als Umgebungsvariable, noch als Datei.
+
+   Ein Nachweis, der 1a und 1b auf **derselben** Maschine und mit **denselben**
+   Rechten fuehrt, erfuellt dieses Kriterium nicht: er bildet genau die Trennung
+   nicht ab, um derentwillen es existiert.
 2. **Die beiden Geheimnisklassen sind getrennt normiert und im Code
    unterscheidbar.** FK-15 sagt danach fuer jede der beiden ausdruecklich:
    wer sie erzeugt, wo sie liegt, in welcher Form, mit welchen Rechten, wie
@@ -121,12 +176,20 @@ und steht mit dem Bestand im Widerspruch:
    einmalig angezeigt, clientseitig als Datei mit eingeschraenkten Rechten)
    ist damit aufgeloest — nicht durch Weglassen einer der beiden Aussagen.
 3. **Die Bootstrap-Oberflaeche ist autorisiert und ihre Trust Boundary ist
-   benannt.** Der Erstzugang ist nur ueber einen Weg erreichbar, der lokalen
-   Maschinenzugriff voraussetzt. Ist die Oberflaeche HTTP, bindet sie
-   ausschliesslich an Loopback (`127.0.0.1`, `::1`) und weist einen Aufruf mit
-   nicht-lokaler Herkunft **ab**, statt ihn zu protokollieren. Nachgewiesen an
-   einem Aufruf ueber eine Nicht-Loopback-Adresse derselben Maschine, der
-   fehlschlaegt.
+   benannt.** Der Erstzugang setzt Zugriff auf die **Kernmaschine** voraus —
+   das ist die Trust Boundary, und sie deckt sich mit der Rolle, die den Kern
+   ohnehin provisioniert (siehe Rollenmodell). Nachzuweisen ist deshalb die
+   **Abwesenheit** eines zweiten Weges: es existiert **keine** Netzoberflaeche,
+   ueber die sich ein Erstzugang ohne diesen Maschinenzugriff erzeugen laesst.
+   Nachgewiesen an einer repository-weiten Suche nach Bootstrap-Routen und an
+   einem Aufruf von aussen, der nicht auf eine abgeschaltete Route trifft,
+   sondern darauf, dass es sie nie gab.
+
+   **Der frueher hier verlangte Loopback-Nachweis entfaellt** — nicht weil er zu
+   schwer waere, sondern weil er einen HTTP-Bootstrap voraussetzt, den es nach
+   der PO-Entscheidung nicht geben soll. Ein Test, der einen Nicht-Loopback-Ruf
+   gegen eine **nicht existierende** Route schickt und `401` erwartet, bestuende
+   auch ohne jede Origin-Policy und belegt nichts (Review R2, ERROR 2).
 4. **Einmaligkeit haelt unter Nebenlaeufigkeit.** Zwei **gleichzeitig**
    gestartete Bootstrap-Aufrufe auf derselben leeren Instanz: genau einer
    liefert ein Geheimnis, der andere endet fail-closed mit benanntem Grund.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TCH003 — used at runtime by tmp_path fixture type
 from typing import TYPE_CHECKING
@@ -223,7 +224,7 @@ class TestPhaseStatePersistence:
         story_dir = _story_dir(tmp_path)
         _bootstrap_context(story_dir)
         save_phase_state(story_dir, _make_state())
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute("UPDATE phase_states SET payload_json = 'not json'")
             conn.commit()
         with pytest.raises(CorruptStateError, match="corrupt"):
@@ -233,7 +234,7 @@ class TestPhaseStatePersistence:
         story_dir = _story_dir(tmp_path)
         _bootstrap_context(story_dir)
         save_phase_state(story_dir, _make_state())
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute(
                 "UPDATE phase_states SET payload_json = ?",
                 ('{"wrong_field": "value"}',),
@@ -268,7 +269,7 @@ class TestStoryContextPersistence:
     def test_load_corrupt_returns_none(self, tmp_path: Path) -> None:
         story_dir = _story_dir(tmp_path)
         save_story_context(story_dir, _make_ctx())
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute("UPDATE story_contexts SET payload_json = 'not json'")
             conn.commit()
         with pytest.raises(CorruptStateError, match="invalid"):
@@ -390,7 +391,7 @@ class TestPhaseSnapshotPersistence:
         story_dir = _story_dir(tmp_path)
         db_path = state_db_path_for(story_dir)
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS phase_snapshots (
@@ -441,7 +442,7 @@ class TestPipelineRobustness:
         story_dir = _story_dir(tmp_path)
         _bootstrap_context(story_dir)
         save_phase_state(story_dir, _make_state())
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute("UPDATE phase_states SET payload_json = '{invalid json!!!'")
             conn.commit()
         with pytest.raises(CorruptStateError):
@@ -472,7 +473,7 @@ class TestPipelineRobustness:
         story_dir = _story_dir(tmp_path)
         _bootstrap_context(story_dir)
         save_phase_state(story_dir, _make_state())
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute(
                 "UPDATE phase_states SET payload_json = ?",
                 ('{"totally": "wrong", "fields": 123}',),
@@ -502,7 +503,7 @@ class TestPipelineRobustness:
         story_dir = _story_dir(tmp_path)
         _bootstrap_context(story_dir)
         save_phase_state(story_dir, _make_state())
-        with sqlite3.connect(state_db_path_for(story_dir)) as conn:
+        with closing(sqlite3.connect(state_db_path_for(story_dir))) as conn, conn:
             conn.execute("UPDATE phase_states SET payload_json = '[1, 2, 3]'")
             conn.commit()
         with pytest.raises(CorruptStateError, match="payload is invalid"):

@@ -134,6 +134,10 @@ class RecordingWeaviateClient:
             Path(self._recovery_directory.name) / "pending-commits"
         )
 
+    def close(self) -> None:
+        """Release the real temporary journal owned by this test double."""
+        self._recovery_directory.cleanup()
+
     # -- reads ------------------------------------------------------------- #
     def fetch_by_property(
         self,

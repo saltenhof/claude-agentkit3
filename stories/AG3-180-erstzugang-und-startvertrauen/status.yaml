@@ -2,10 +2,10 @@ story_id: AG3-180
 story_title_short: "erstzugang-und-startvertrauen"
 title: "Erstzugang ohne Handarbeit: autorisierte Bootstrap-Oberflaeche, Trust Boundary, atomare Einmaligkeit -- Strategenpasswort und Projekt-Token getrennt normiert."
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-08-02"
-updated: "2026-08-02"
+updated: "2026-08-03"
 size: L
 # Herkunft: erste echte Fremdinstallation am 2026-08-02 (Nachbarprojekt).
 # set_password wird ausschliesslich aus Tests aufgerufen; ein frisches AK3 kommt

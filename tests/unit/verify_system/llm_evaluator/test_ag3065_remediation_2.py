@@ -31,8 +31,10 @@ ERROR 4 — manager-present prompt-audit write rejection not surfaced.
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 import unittest.mock as mock
+from contextlib import closing
 from datetime import UTC, datetime
 from typing import Any
 
@@ -578,8 +580,6 @@ class TestError2RealSQLiteMultiRoleNoCollision:
         This test would FAIL (3 writes → 1 row due to UPSERT) if all roles used
         the same stage — proving the collision was real and the fix is correct.
         """
-        import sqlite3
-
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
 
@@ -626,7 +626,7 @@ class TestError2RealSQLiteMultiRoleNoCollision:
         # Query the REAL SQLite database directly to count rows.
         from agentkit.backend.state_backend.store.artifact_repository import _sqlite_db_path
         db_path = _sqlite_db_path(tmp_path)
-        with sqlite3.connect(str(db_path)) as conn:
+        with closing(sqlite3.connect(str(db_path))) as conn, conn:
             rows = conn.execute(
                 "SELECT stage, producer_name FROM artifact_envelopes "
                 "WHERE run_id=? AND artifact_class=?",

@@ -7,6 +7,9 @@ import sys
 from typing import TYPE_CHECKING
 
 from agentkit.backend.cli import (
+    auth_commands as _auth_commands,
+)
+from agentkit.backend.cli import (
     evidence_commands as _evidence_commands,
 )
 from agentkit.backend.cli import (
@@ -87,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+    _auth_commands.add_auth_parser(subparsers)
     _installer_commands.add_installer_parsers(subparsers)
     _story_commands.add_story_parsers(subparsers)
     _evidence_commands.add_evidence_parsers(subparsers)
@@ -152,6 +156,7 @@ def _dispatch_command(args: argparse.Namespace, cli_args: list[str]) -> tuple[bo
         "override-integrity": lambda: _operator_recovery_commands._cmd_override_integrity(args),
         "export-telemetry": lambda: _operator_recovery_commands._cmd_export_telemetry(args),
         "concept": lambda: _cmd_concept(args),
+        "auth": lambda: _auth_commands.dispatch_auth_command(args),
     }
     handler = handlers.get(str(args.command))
     if handler is not None:

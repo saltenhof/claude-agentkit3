@@ -16,10 +16,15 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.auth.middleware import AuthMiddleware
-from agentkit.backend.auth.tokens import issue_project_api_token
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     _build_handler,
+)
+from agentkit.harness_client.projectedge.credentials import (
+    activate_project_credentials,
+    prepare_project_api_token,
+    project_credentials_path,
+    write_pending_project_credentials,
 )
 
 if TYPE_CHECKING:
@@ -44,8 +49,15 @@ class _TokenRepository:
     def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
         return [row for row in self.rows.values() if row.project_key == project_key]
 
-    def save(self, token: ProjectApiToken) -> None:
+    def insert(self, token: ProjectApiToken) -> None:
+        if token.token_id in self.rows:
+            raise ValueError("duplicate token id")
         self.rows[token.token_id] = token
+
+    def mark_used(self, token_id: str, *, used_at: object) -> None:
+        self.rows[token_id] = self.rows[token_id].model_copy(
+            update={"last_used_at": used_at},
+        )
 
     def revoke(self, project_key: str, token_id: str) -> None:
         del project_key, token_id
@@ -53,7 +65,8 @@ class _TokenRepository:
 
 @pytest.fixture()
 def control_plane_base_url(
-    postgres_isolated_schema: str, monkeypatch: pytest.MonkeyPatch
+    postgres_isolated_schema: str,
+    tmp_path: Path,
 ) -> Iterator[str]:
     """Boot the real control-plane handler on a plain-HTTP localhost socket.
 
@@ -62,10 +75,16 @@ def control_plane_base_url(
     """
     _ = postgres_isolated_schema  # env (backend/url/schema) is set by the fixture
     auth = AuthMiddleware(token_repository=_TokenRepository())
-    issued = issue_project_api_token(
-        project_key="tenant-a", label="integration-hook", repository=auth.token_repository
+    issued = prepare_project_api_token(project_key="tenant-a", label="integration-hook")
+    auth.token_repository.insert(issued.record)
+    credential_path = project_credentials_path(tmp_path)
+    write_pending_project_credentials(
+        credential_path,
+        project_key="tenant-a",
+        prepared_token=issued,
+        issuance_op_id="op-integration-hook",
     )
-    monkeypatch.setenv("AGENTKIT_PROJECT_API_TOKEN", issued.plaintext_token)
+    activate_project_credentials(credential_path)
     app = ControlPlaneApplication(auth_middleware=auth)
     server = HTTPServer(("127.0.0.1", 0), _build_handler(app))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
