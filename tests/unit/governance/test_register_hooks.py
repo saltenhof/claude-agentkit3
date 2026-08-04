@@ -25,6 +25,7 @@ from agentkit.backend.governance.hook_registration import (
     HookId,
     RegistrationResult,
 )
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -175,6 +176,31 @@ def _claude_commands_for_matcher(
         for group_matcher, command in _claude_commands_for_event(settings, event_key)
         if group_matcher == matcher
     }
+
+
+def _definition(harness: str, phase: str, hook_id: str) -> str:
+    """Render the command a hook DEFINITION carries.
+
+    A definition is harness-neutral and stays the bare console-script name.
+    The absolute path only appears when the writer MATERIALISES it into a
+    settings file -- see :func:`_emitted`. Keeping the two apart is the point:
+    conflating them once let a relative name reach settings.json, which is the
+    PATH lookup AG3-189 removed.
+    """
+    return f"agentkit-hook-{harness} {phase} {hook_id}"
+
+
+def _emitted(harness: str, phase: str, hook_id: str) -> str:
+    """Render the command a hook definition MATERIALISES into settings.
+
+    A definition carries the bare wrapper name (``agentkit-hook-claude post
+    health_monitor``); since AG3-189 the writer materialises the ABSOLUTE
+    wrapper path beside the resolved AK3 interpreter, so a hook can never
+    resolve through PATH. These assertions therefore build their expectation
+    from the same production renderer instead of repeating a literal -- a
+    hard-coded relative name here would pin the defect the story removed.
+    """
+    return render_ak3_wrapper_command(f"agentkit-hook-{harness}", phase, hook_id)
 
 
 # ---------------------------------------------------------------------------
@@ -403,12 +429,12 @@ class TestRegisterHooksSettingsMaterialisation:
             (
                 HookEventName.POST_TOOL_USE,
                 "Bash",
-                "agentkit-hook-claude post health_monitor",
+                _definition("claude", "post", "health_monitor"),
             ),
             (
                 HookEventName.POST_TOOL_USE_FAILURE,
                 "Bash",
-                "agentkit-hook-claude post health_monitor",
+                _definition("claude", "post", "health_monitor"),
             ),
         }
 
@@ -421,12 +447,12 @@ class TestRegisterHooksSettingsMaterialisation:
             (tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8")
         )
         assert _claude_commands_for_matcher(claude, "PostToolUse", "Bash") == {
-            "agentkit-hook-claude post health_monitor",
-            "agentkit-hook-claude post commit_hook",
+            _emitted("claude", "post", "health_monitor"),
+            _emitted("claude", "post", "commit_hook"),
         }
         assert _claude_commands_for_matcher(claude, "PostToolUseFailure", "Bash") == {
-            "agentkit-hook-claude post health_monitor",
-            "agentkit-hook-claude post commit_hook",
+            _emitted("claude", "post", "health_monitor"),
+            _emitted("claude", "post", "commit_hook"),
         }
 
         codex_post = next(
@@ -436,8 +462,8 @@ class TestRegisterHooksSettingsMaterialisation:
             hook["command"]
             for hook in codex_post["hooks"]
         } == {
-            "agentkit-hook-codex post health_monitor",
-            "agentkit-hook-codex post commit_hook",
+            _emitted("codex", "post", "health_monitor"),
+            _emitted("codex", "post", "commit_hook"),
         }
         assert "PostToolUseFailure" not in codex["hooks"]
 
@@ -458,37 +484,37 @@ class TestRegisterHooksSettingsMaterialisation:
         assert (
             HookEventName.PRE_TOOL_USE,
             "WebFetch|WebSearch",
-            "agentkit-hook-claude pre budget",
+            _definition("claude", "pre", "budget"),
         ) in defns, "PreToolUse budget guard (WebCallBudgetGuard) must be bound"
         assert (
             HookEventName.POST_TOOL_USE,
             "WebFetch|WebSearch",
-            "agentkit-hook-claude post budget",
+            _definition("claude", "post", "budget"),
         ) in defns, "PostToolUse observational budget emitter must be bound"
         assert (
             HookEventName.PRE_TOOL_USE,
             "Bash",
-            "agentkit-hook-claude pre skill_usage_check",
+            _definition("claude", "pre", "skill_usage_check"),
         ) in defns, "PreToolUse skill_usage_check guard must be bound"
         assert (
             HookEventName.PRE_TOOL_USE,
             "Agent",
-            "agentkit-hook-claude pre prompt_integrity",
+            _definition("claude", "pre", "prompt_integrity"),
         ) in defns, "PreToolUse prompt_integrity guard must be bound on Agent spawns"
         assert (
             HookEventName.PRE_TOOL_USE,
             "Bash",
-            "agentkit-hook-claude pre commit_hook",
+            _definition("claude", "pre", "commit_hook"),
         ) in defns, "PreToolUse commit_hook snapshot must be bound on Bash"
         assert (
             HookEventName.POST_TOOL_USE,
             "Bash",
-            "agentkit-hook-claude post commit_hook",
+            _definition("claude", "post", "commit_hook"),
         ) in defns, "PostToolUse commit_hook HEAD-delta emitter must be bound on Bash"
         assert (
             HookEventName.POST_TOOL_USE_FAILURE,
             "Bash",
-            "agentkit-hook-claude post commit_hook",
+            _definition("claude", "post", "commit_hook"),
         ) in defns, (
             "PostToolUseFailure commit_hook HEAD-delta emitter must be bound on Bash"
         )
@@ -509,12 +535,12 @@ class TestRegisterHooksSettingsMaterialisation:
         )
         pre = _claude_commands_for_event(claude, "PreToolUse")
         post = _claude_commands_for_event(claude, "PostToolUse")
-        assert ("WebFetch|WebSearch", "agentkit-hook-claude pre budget") in pre
-        assert ("Bash", "agentkit-hook-claude pre skill_usage_check") in pre
-        assert ("Bash", "agentkit-hook-claude pre commit_hook") in pre
-        assert ("Agent", "agentkit-hook-claude pre prompt_integrity") in pre
-        assert ("WebFetch|WebSearch", "agentkit-hook-claude post budget") in post
-        assert ("Bash", "agentkit-hook-claude post commit_hook") in post
+        assert ("WebFetch|WebSearch", _emitted("claude", "pre", "budget")) in pre
+        assert ("Bash", _emitted("claude", "pre", "skill_usage_check")) in pre
+        assert ("Bash", _emitted("claude", "pre", "commit_hook")) in pre
+        assert ("Agent", _emitted("claude", "pre", "prompt_integrity")) in pre
+        assert ("WebFetch|WebSearch", _emitted("claude", "post", "budget")) in post
+        assert ("Bash", _emitted("claude", "post", "commit_hook")) in post
 
     def test_broken_settings_json_raises(self, tmp_path: Path) -> None:
         """Broken existing .claude/settings.json raises (fail-closed FK-30 §30.3.1 Z.339)."""
@@ -706,7 +732,7 @@ class TestRegisterHooksSharedMatcherGovernanceHole:
             "health_monitor",
             "ccag_gatekeeper",
         ):
-            assert f"agentkit-hook-claude pre {guard}" in commands, (
+            assert _emitted("claude", "pre", guard) in commands, (
                 f"{guard} must survive — shared-matcher collapse is the hole"
             )
         # Two distinct Bash entries, not one (collapse would leave one).
