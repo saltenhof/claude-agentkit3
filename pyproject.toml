@@ -13,7 +13,13 @@ authors = [
 ]
 dependencies = [
     "argon2-cffi>=23.1",
-    "pydantic>=2.0",
+    # >=2.12: the auth HTTP surface calls ValidationError.errors(include_input=,
+    # include_url=) so a secret can never reach an error response (AG3-180).
+    # `>=2.0` did not cover that keyword, so the declaration permitted a version
+    # on which the security fix raises TypeError instead of redacting. 2.12.0 is
+    # the lowest version verified to carry the keyword on the interpreter this
+    # project actually runs on; 2.1.0 has no wheel for Python 3.14 at all.
+    "pydantic>=2.12",
     "psycopg[binary]>=3.2",
     "psycopg-pool>=3.2",
     "pyyaml>=6.0",
