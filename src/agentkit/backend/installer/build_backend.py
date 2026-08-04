@@ -39,11 +39,8 @@ def _redirect_global_install(
             _SOURCE_ROOT,
             editable=editable,
         )
-        executable = environment.root / (
-            "Scripts/agentkit.exe"
-            if environment.interpreter.suffix == ".exe"
-            else "bin/agentkit"
-        )
+        executable_name = "Scripts/agentkit.exe" if environment.interpreter.suffix == ".exe" else "bin/agentkit"
+        executable = environment.root / executable_name
         raise RuntimeEnvironmentError(
             "Refused the global AgentKit installation after installing AgentKit "
             f"and its declared dependencies into the dedicated runtime {environment.root}. "

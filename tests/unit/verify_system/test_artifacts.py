@@ -10,6 +10,7 @@ Composition-Root.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -108,13 +109,21 @@ class TestArtifactConstants:
 
 class TestSerialization:
     def test_serialize_finding(self) -> None:
-        data = serialize_finding(_finding(severity=Severity.BLOCKING))
+        finding = _finding(severity=Severity.BLOCKING)
+        finding = replace(
+            finding,
+            finding_type="assertion_weakness",
+            addressed_part="happy path fixed",
+        )
+        data = serialize_finding(finding)
         assert data["layer"] == "structural"
         assert data["check"] == "context_exists"
         assert data["severity"] == "BLOCKING"
         assert data["trust_class"] == "A"
         assert data["file_path"] == "/tmp/example.json"
         assert data["suggestion"] == "Fix it"
+        assert data["finding_type"] == "assertion_weakness"
+        assert data["addressed_part"] == "happy path fixed"
 
     def test_serialize_layer_result(self) -> None:
         result = LayerResult(

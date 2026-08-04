@@ -24,6 +24,146 @@ if TYPE_CHECKING:
     from agentkit.backend.state_backend.scope import RuntimeStateScope
 
 
+def _validate_projection_artifact_envelopes(
+    conn: Any,
+    *,
+    story_id: str,
+    layer_payload_rows: list[dict[str, object]],
+) -> None:
+    """Prove that every projection row names one exact canonical envelope."""
+    for item in layer_payload_rows:
+        reference = cast("dict[str, object]", item["artifact_reference"])
+        artifact_attempt = item["artifact_attempt"]
+        if not isinstance(artifact_attempt, int):
+            raise CorruptStateError("QA projection artifact attempt must be an integer")
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS envelope_count
+            FROM artifact_envelopes
+            WHERE story_id = :story_id
+              AND run_id = :run_id
+              AND artifact_class = :artifact_class
+              AND producer_name = :producer_name
+              AND attempt = :artifact_attempt
+              AND (
+                story_id || '|' || run_id || '|' || stage || '|' ||
+                CAST(attempt AS TEXT) || '|' || artifact_class || '|' ||
+                producer_name
+              ) = :record_key
+            """,
+            {
+                **reference,
+                "story_id": story_id,
+                "producer_name": str(item["producer_component"]),
+                "artifact_attempt": artifact_attempt,
+            },
+        ).fetchone()
+        if row is None or int(row["envelope_count"]) != 1:
+            raise CorruptStateError(
+                f"Cannot persist FK-69 QA projections without the exact canonical artifact envelope: {reference!r}"
+            )
+
+
+def _rewrite_attempt_snapshot(
+    conn: Any,
+    *,
+    project_key: str,
+    run_id: str,
+    attempt_nr: int,
+) -> None:
+    """Remove the complete prior read-model snapshot for one QA attempt."""
+    snapshot_scope = (project_key, run_id, attempt_nr)
+    conn.execute(
+        "DELETE FROM qa_check_outcomes WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
+        snapshot_scope,
+    )
+    conn.execute(
+        "DELETE FROM qa_findings WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
+        snapshot_scope,
+    )
+    conn.execute(
+        "DELETE FROM qa_stage_results WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
+        snapshot_scope,
+    )
+
+
+def _persist_layer_projection(
+    conn: Any,
+    *,
+    item: dict[str, object],
+    story_dir: Path,
+    projection_dir: Path | None,
+) -> str | None:
+    """Persist one stage with its findings and optional JSON projection."""
+    layer = str(item["layer"])
+    artifact_name = item.get("artifact_name")
+    if artifact_name is not None:
+        payload = cast("_JsonRecord", item["payload"])
+        target_dir = projection_dir or story_dir
+        _write_projection(target_dir / str(artifact_name), payload)
+    stage_row = cast("dict[str, object] | None", item.get("stage_row"))
+    if stage_row is None:
+        raise CorruptStateError(
+            f"Cannot materialize FK-69 QA read models for result {layer!r} without a stage projection",
+        )
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO qa_stage_results (
+            project_key, story_id, run_id, attempt_no, stage_id, layer,
+            producer_component, status, blocking, total_checks,
+            failed_checks, warning_checks, artifact_id, recorded_at
+        ) VALUES (
+            :project_key, :story_id, :run_id, :attempt_no, :stage_id,
+            :layer, :producer_component, :status, :blocking,
+            :total_checks, :failed_checks, :warning_checks,
+            :artifact_id, :recorded_at
+        )
+        """,
+        stage_row,
+    )
+    finding_rows = cast("list[dict[str, object]]", item.get("finding_rows") or [])
+    for finding_row in finding_rows:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO qa_findings (
+                project_key, story_id, run_id, attempt_no, stage_id,
+                finding_id, check_id, status, severity, blocking,
+                source_component, artifact_id, occurred_at,
+                category, reason, description, detail, metadata_json
+            ) VALUES (
+                :project_key, :story_id, :run_id, :attempt_no, :stage_id,
+                :finding_id, :check_id, :status, :severity, :blocking,
+                :source_component, :artifact_id, :occurred_at,
+                :category, :reason, :description, :detail, :metadata_json
+            )
+            """,
+            finding_row,
+        )
+    return str(artifact_name) if artifact_name is not None else None
+
+
+def _persist_check_outcomes(
+    conn: Any,
+    check_outcome_rows: list[dict[str, object]],
+) -> None:
+    """Persist the complete executed-check projection for one attempt."""
+    for row in check_outcome_rows:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO qa_check_outcomes (
+                project_key, story_id, run_id, stage_id, attempt_no,
+                check_id, outcome, occurred_at, check_proposal_ref,
+                override_id
+            ) VALUES (
+                :project_key, :story_id, :run_id, :stage_id, :attempt_no,
+                :check_id, :outcome, :occurred_at, :check_proposal_ref,
+                :override_id
+            )
+            """,
+            row,
+        )
+
+
 def persist_layer_artifact_rows(
     story_dir: Path,
     *,
@@ -68,114 +208,27 @@ def persist_layer_artifact_rows(
     )
     produced: list[str] = []
     with _connect(story_dir) as conn:
-        for item in layer_payload_rows:
-            reference = cast("dict[str, object]", item["artifact_reference"])
-            artifact_attempt = item["artifact_attempt"]
-            if not isinstance(artifact_attempt, int):
-                raise CorruptStateError("QA projection artifact attempt must be an integer")
-            row = conn.execute(
-                """
-                SELECT COUNT(*) AS envelope_count
-                FROM artifact_envelopes
-                WHERE story_id = :story_id
-                  AND run_id = :run_id
-                  AND artifact_class = :artifact_class
-                  AND producer_name = :producer_name
-                  AND attempt = :artifact_attempt
-                  AND (
-                    story_id || '|' || run_id || '|' || stage || '|' ||
-                    CAST(attempt AS TEXT) || '|' || artifact_class || '|' ||
-                    producer_name
-                  ) = :record_key
-                """,
-                {
-                    **reference,
-                    "producer_name": str(item["producer_component"]),
-                    "artifact_attempt": artifact_attempt,
-                },
-            ).fetchone()
-            if row is None or int(row["envelope_count"]) != 1:
-                raise CorruptStateError(
-                    f"Cannot persist FK-69 QA projections without the exact canonical artifact envelope: {reference!r}"
-                )
-        snapshot_scope = (
-            str(flow_row["project_key"]),
-            str(flow_row["run_id"]),
-            attempt_nr,
+        _validate_projection_artifact_envelopes(
+            conn,
+            story_id=story_id,
+            layer_payload_rows=layer_payload_rows,
         )
-        conn.execute(
-            "DELETE FROM qa_check_outcomes WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
-            snapshot_scope,
-        )
-        conn.execute(
-            "DELETE FROM qa_findings WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
-            snapshot_scope,
-        )
-        conn.execute(
-            "DELETE FROM qa_stage_results WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
-            snapshot_scope,
+        _rewrite_attempt_snapshot(
+            conn,
+            project_key=str(flow_row["project_key"]),
+            run_id=str(flow_row["run_id"]),
+            attempt_nr=attempt_nr,
         )
         for item in layer_payload_rows:
-            layer = str(item["layer"])
-            artifact_name = item.get("artifact_name")
+            artifact_name = _persist_layer_projection(
+                conn,
+                item=item,
+                story_dir=story_dir,
+                projection_dir=projection_dir,
+            )
             if artifact_name is not None:
-                payload = cast("_JsonRecord", item["payload"])
-                target_dir = projection_dir or story_dir
-                _write_projection(target_dir / str(artifact_name), payload)
-                produced.append(str(artifact_name))
-            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
-            if stage_row is None:
-                raise CorruptStateError(
-                    f"Cannot materialize FK-69 QA read models for result {layer!r} without a stage projection",
-                )
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO qa_stage_results (
-                    project_key, story_id, run_id, attempt_no, stage_id, layer,
-                    producer_component, status, blocking, total_checks,
-                    failed_checks, warning_checks, artifact_id, recorded_at
-                ) VALUES (
-                    :project_key, :story_id, :run_id, :attempt_no, :stage_id,
-                    :layer, :producer_component, :status, :blocking,
-                    :total_checks, :failed_checks, :warning_checks,
-                    :artifact_id, :recorded_at
-                )
-                """,
-                stage_row,
-            )
-            finding_rows = cast("list[dict[str, object]]", item.get("finding_rows") or [])
-            for finding_row in finding_rows:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO qa_findings (
-                        project_key, story_id, run_id, attempt_no, stage_id,
-                        finding_id, check_id, status, severity, blocking,
-                        source_component, artifact_id, occurred_at,
-                        category, reason, description, detail, metadata_json
-                    ) VALUES (
-                        :project_key, :story_id, :run_id, :attempt_no, :stage_id,
-                        :finding_id, :check_id, :status, :severity, :blocking,
-                        :source_component, :artifact_id, :occurred_at,
-                        :category, :reason, :description, :detail, :metadata_json
-                    )
-                    """,
-                    finding_row,
-                )
-        for row in check_outcome_rows:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO qa_check_outcomes (
-                    project_key, story_id, run_id, stage_id, attempt_no,
-                    check_id, outcome, occurred_at, check_proposal_ref,
-                    override_id
-                ) VALUES (
-                    :project_key, :story_id, :run_id, :stage_id, :attempt_no,
-                    :check_id, :outcome, :occurred_at, :check_proposal_ref,
-                    :override_id
-                )
-                """,
-                row,
-            )
+                produced.append(artifact_name)
+        _persist_check_outcomes(conn, check_outcome_rows)
     return tuple(produced)
 
 

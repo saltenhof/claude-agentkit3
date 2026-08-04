@@ -32,6 +32,8 @@ def serialize_finding(finding: Finding) -> dict[str, object]:
         "file_path": finding.file_path,
         "line_number": finding.line_number,
         "suggestion": finding.suggestion,
+        "finding_type": finding.finding_type,
+        "addressed_part": finding.addressed_part,
     }
 
 

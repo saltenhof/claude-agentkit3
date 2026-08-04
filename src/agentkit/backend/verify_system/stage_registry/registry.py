@@ -19,6 +19,7 @@ are only active for the ``integration_stabilization`` contract. The
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from agentkit.backend.core_types.qa_artifact_names import STRUCTURAL_PRODUCER
@@ -71,25 +72,23 @@ def _build_stage_result_catalog(
 #: Result identities that aggregate several registered stages instead of
 #: corresponding to one ``StageDefinition``. They are explicit registry input,
 #: never an invitation to accept an unknown result name as canonical.
-DEFAULT_AGGREGATE_RESULT_STAGE_IDS: Mapping[str, str] = {
-    "structural": "structural",
-}
+DEFAULT_AGGREGATE_RESULT_STAGE_IDS: Mapping[str, str] = MappingProxyType({"structural": "structural"})
 
 #: Producer identities for aggregate results that can be materialized into the
 #: FK-69 stage/finding projections.
-DEFAULT_AGGREGATE_RESULT_PRODUCERS: Mapping[str, str] = {
-    "structural": STRUCTURAL_PRODUCER,
-}
+DEFAULT_AGGREGATE_RESULT_PRODUCERS: Mapping[str, str] = MappingProxyType({"structural": STRUCTURAL_PRODUCER})
 
-DEFAULT_STAGE_RESULT_STAGE_IDS, DEFAULT_STAGE_RESULT_PRODUCERS = _build_stage_result_catalog(ALL_STAGES)
+_DEFAULT_STAGE_RESULT_STAGE_IDS, _DEFAULT_STAGE_RESULT_PRODUCERS = _build_stage_result_catalog(ALL_STAGES)
+DEFAULT_STAGE_RESULT_STAGE_IDS: Mapping[str, str] = MappingProxyType(_DEFAULT_STAGE_RESULT_STAGE_IDS)
+DEFAULT_STAGE_RESULT_PRODUCERS: Mapping[str, str] = MappingProxyType(_DEFAULT_STAGE_RESULT_PRODUCERS)
 
 #: Additional stage coverage that a non-aggregate result may prove through its
 #: complete executed-check protocol. The stability gate actually executes the
 #: target-matrix stage; merely naming that stage in producer metadata is never
 #: sufficient.
-DEFAULT_RESULT_ADDITIONAL_STAGE_COVERAGE: Mapping[str, frozenset[str]] = {
-    "stability_gate": frozenset(("integration.integration_target_matrix_passed",)),
-}
+DEFAULT_RESULT_ADDITIONAL_STAGE_COVERAGE: Mapping[str, frozenset[str]] = MappingProxyType(
+    {"stability_gate": frozenset(("integration.integration_target_matrix_passed",))}
+)
 
 
 def is_integration_stabilization_stage(stage_id: str) -> bool:
@@ -152,6 +151,55 @@ class StageRegistry:
 
     def __post_init__(self) -> None:
         """Apply project overrides and validate fail-closed invariants."""
+        self._freeze_registry_inputs()
+        stages_by_id = self._validate_stage_definitions()
+        self._apply_stage_overrides(stages_by_id)
+        stage_result_stage_ids, stage_result_producers = self._derive_result_catalog()
+        self._validate_result_catalog_names(
+            stage_result_stage_ids=stage_result_stage_ids,
+            aggregate_result_stage_ids=self.aggregate_result_stage_ids,
+        )
+        self._validate_result_catalog_relations(
+            stage_result_stage_ids=stage_result_stage_ids,
+            stage_result_producers=stage_result_producers,
+        )
+        object.__setattr__(self, "stage_result_stage_ids", MappingProxyType(dict(stage_result_stage_ids)))
+        object.__setattr__(self, "stage_result_producers", MappingProxyType(dict(stage_result_producers)))
+        self._configure_result_coverage(stage_result_stage_ids)
+
+    def _freeze_registry_inputs(self) -> None:
+        """Detach and freeze every caller-supplied registry mapping."""
+        object.__setattr__(self, "stage_overrides", MappingProxyType(dict(self.stage_overrides)))
+        object.__setattr__(self, "native_check_origin_refs", MappingProxyType(dict(self.native_check_origin_refs)))
+        object.__setattr__(
+            self,
+            "aggregate_result_stage_ids",
+            MappingProxyType(dict(self.aggregate_result_stage_ids)),
+        )
+        object.__setattr__(
+            self,
+            "aggregate_result_producers",
+            MappingProxyType(dict(self.aggregate_result_producers)),
+        )
+        if self.aggregate_result_stage_coverage is not None:
+            object.__setattr__(
+                self,
+                "aggregate_result_stage_coverage",
+                MappingProxyType(
+                    {name: frozenset(stage_ids) for name, stage_ids in self.aggregate_result_stage_coverage.items()}
+                ),
+            )
+        if self.result_additional_stage_coverage is not None:
+            object.__setattr__(
+                self,
+                "result_additional_stage_coverage",
+                MappingProxyType(
+                    {name: frozenset(stage_ids) for name, stage_ids in self.result_additional_stage_coverage.items()}
+                ),
+            )
+
+    def _validate_stage_definitions(self) -> dict[str, StageDefinition]:
+        """Reject empty or colliding identities before applying overrides."""
         by_id: dict[str, StageDefinition] = {}
         for stage in self.stages:
             if not stage.stage_id.strip():
@@ -164,8 +212,11 @@ class StageRegistry:
                 msg = f"duplicate stage id in registry: {stage.stage_id!r}"
                 raise ValueError(msg)
             by_id[stage.stage_id] = stage
+        return by_id
 
-        unknown = set(self.stage_overrides) - set(by_id)
+    def _apply_stage_overrides(self, stages_by_id: Mapping[str, StageDefinition]) -> None:
+        """Apply permitted blocking overrides and enforce the Trust-C fence."""
+        unknown = set(self.stage_overrides) - set(stages_by_id)
         if unknown:
             msg = f"unknown stage override(s): {sorted(unknown)!r}"
             raise ValueError(msg)
@@ -183,30 +234,24 @@ class StageRegistry:
             stages.append(stage)
         object.__setattr__(self, "stages", tuple(stages))
 
+    def _derive_result_catalog(self) -> tuple[dict[str, str], dict[str, str]]:
+        """Use explicit result mappings or derive them from unambiguous stages."""
         derived_stage_result_stage_ids, derived_stage_result_producers = _build_stage_result_catalog(self.stages)
-
         stage_result_stage_ids = (
             dict(self.stage_result_stage_ids) if self.stage_result_stage_ids is not None else derived_stage_result_stage_ids
         )
         stage_result_producers = (
             dict(self.stage_result_producers) if self.stage_result_producers is not None else derived_stage_result_producers
         )
-        self._validate_result_catalog_names(
-            stage_result_stage_ids=stage_result_stage_ids,
-            aggregate_result_stage_ids=self.aggregate_result_stage_ids,
-        )
-        unknown_stage_result_producers = set(stage_result_producers) - set(stage_result_stage_ids)
-        if unknown_stage_result_producers:
-            msg = f"stage result producer(s) have no registered result identity: {sorted(unknown_stage_result_producers)!r}"
-            raise ValueError(msg)
-        object.__setattr__(self, "stage_result_stage_ids", stage_result_stage_ids)
-        object.__setattr__(self, "stage_result_producers", stage_result_producers)
+        return stage_result_stage_ids, stage_result_producers
 
-        unknown_aggregate_producers = set(self.aggregate_result_producers) - set(self.aggregate_result_stage_ids)
-        if unknown_aggregate_producers:
-            msg = f"aggregate result producer(s) have no registered result identity: {sorted(unknown_aggregate_producers)!r}"
-            raise ValueError(msg)
-
+    def _validate_result_catalog_relations(
+        self,
+        *,
+        stage_result_stage_ids: Mapping[str, str],
+        stage_result_producers: Mapping[str, str],
+    ) -> None:
+        """Reject producer or aggregate claims without one exact result owner."""
         result_claims: dict[str, list[str]] = {}
         for result_name, stage_id in stage_result_stage_ids.items():
             result_claims.setdefault(result_name, []).append(stage_id)
@@ -216,8 +261,58 @@ class StageRegistry:
         if ambiguous:
             msg = f"ambiguous LayerResult names in stage registry: {ambiguous!r}"
             raise ValueError(msg)
+        self._validate_unique_canonical_stage_owners(
+            stage_result_stage_ids,
+            self.aggregate_result_stage_ids,
+        )
+        self._validate_producer_catalog(
+            catalog_name="stage result",
+            result_stage_ids=stage_result_stage_ids,
+            result_producers=stage_result_producers,
+        )
+        self._validate_producer_catalog(
+            catalog_name="aggregate result",
+            result_stage_ids=self.aggregate_result_stage_ids,
+            result_producers=self.aggregate_result_producers,
+        )
 
-        self._configure_result_coverage(stage_result_stage_ids)
+    @staticmethod
+    def _validate_unique_canonical_stage_owners(
+        stage_result_stage_ids: Mapping[str, str],
+        aggregate_result_stage_ids: Mapping[str, str],
+    ) -> None:
+        """Require each canonical stage identity to have one result owner."""
+        owners_by_stage_id: dict[str, list[str]] = {}
+        for result_name, stage_id in (
+            *stage_result_stage_ids.items(),
+            *aggregate_result_stage_ids.items(),
+        ):
+            owners_by_stage_id.setdefault(stage_id, []).append(result_name)
+        ambiguous = {stage_id: owners for stage_id, owners in owners_by_stage_id.items() if len(owners) != 1}
+        if ambiguous:
+            raise ValueError(f"canonical stage ids have ambiguous LayerResult owners: {ambiguous!r}")
+
+    @staticmethod
+    def _validate_producer_catalog(
+        *,
+        catalog_name: str,
+        result_stage_ids: Mapping[str, str],
+        result_producers: Mapping[str, str],
+    ) -> None:
+        """Require an exact, nonblank producer for every result identity."""
+        result_names = set(result_stage_ids)
+        producer_names = set(result_producers)
+        unknown_producers = producer_names - result_names
+        if unknown_producers:
+            raise ValueError(
+                f"{catalog_name} producer(s) have no registered result identity: {sorted(unknown_producers)!r}"
+            )
+        missing_producers = result_names - producer_names
+        if missing_producers:
+            raise ValueError(f"{catalog_name}(s) have no registered producer: {sorted(missing_producers)!r}")
+        blank_producers = sorted(name for name, producer in result_producers.items() if not producer.strip())
+        if blank_producers:
+            raise ValueError(f"{catalog_name} producer(s) must not be empty: {blank_producers!r}")
 
     def _configure_result_coverage(
         self,
@@ -248,8 +343,16 @@ class StageRegistry:
             }
         else:
             additional_coverage = dict(self.result_additional_stage_coverage)
-        object.__setattr__(self, "aggregate_result_stage_coverage", aggregate_coverage)
-        object.__setattr__(self, "result_additional_stage_coverage", additional_coverage)
+        object.__setattr__(
+            self,
+            "aggregate_result_stage_coverage",
+            MappingProxyType({name: frozenset(stage_ids) for name, stage_ids in aggregate_coverage.items()}),
+        )
+        object.__setattr__(
+            self,
+            "result_additional_stage_coverage",
+            MappingProxyType({name: frozenset(stage_ids) for name, stage_ids in additional_coverage.items()}),
+        )
 
         unknown_aggregates = set(aggregate_coverage) - set(self.aggregate_result_stage_ids)
         if unknown_aggregates:
@@ -408,55 +511,89 @@ class StageRegistry:
         present, it must exactly mirror the coverage derived here; a result
         cannot claim a known stage owned by another result type.
         """
-        registered_stage_ids = {stage.stage_id for stage in self.stages}
-        if self.stage_result_stage_ids is not None:
-            registered_stage_ids.update(self.stage_result_stage_ids.values())
-        registered_stage_ids.update(self.aggregate_result_stage_ids.values())
+        registered_stage_ids = self._registered_stage_ids()
         unknown_expected = set(expected_stage_ids) - registered_stage_ids
         if unknown_expected:
             msg = f"execution plan references unknown stage id(s): {sorted(unknown_expected)!r}"
             raise ValueError(msg)
         produced: set[str] = set()
-        aggregate_coverage_by_result = self.aggregate_result_stage_coverage
-        if aggregate_coverage_by_result is None:
-            raise RuntimeError("registry aggregate result coverage was not configured")
-        additional_coverage_by_result = self.result_additional_stage_coverage
-        if additional_coverage_by_result is None:
-            raise RuntimeError("registry additional result coverage was not configured")
+        aggregate_coverage, additional_coverage = self._configured_result_coverage()
         for layer_result in layer_results:
             canonical_stage_id = self.canonical_stage_id_for_result_name(layer_result.layer)
             executed_check_ids = self._executed_check_ids_for_coverage(layer_result)
-            if layer_result.layer in self.aggregate_result_stage_ids:
-                allowed_coverage = aggregate_coverage_by_result.get(
-                    layer_result.layer,
-                    frozenset((canonical_stage_id,)),
-                )
-                result_coverage = set(allowed_coverage & expected_stage_ids)
-            else:
-                result_coverage = {canonical_stage_id} & expected_stage_ids
-                additional = additional_coverage_by_result.get(
-                    layer_result.layer,
-                    frozenset(),
-                )
-                result_coverage.update(additional & executed_check_ids & expected_stage_ids)
-
-            metadata_stage_ids = layer_result.metadata.get("stage_ids")
-            if metadata_stage_ids is not None:
-                if not isinstance(metadata_stage_ids, (list, tuple, set, frozenset)) or any(
-                    not isinstance(stage_id, str) for stage_id in metadata_stage_ids
-                ):
-                    msg = "LayerResult metadata['stage_ids'] must be a string sequence"
-                    raise ValueError(msg)
-                claimed_stage_ids = set(metadata_stage_ids)
-                if claimed_stage_ids != result_coverage:
-                    msg = (
-                        f"LayerResult {layer_result.layer!r} metadata stage coverage "
-                        f"does not match registry and execution plan: claimed="
-                        f"{sorted(claimed_stage_ids)!r}, expected={sorted(result_coverage)!r}"
-                    )
-                    raise ValueError(msg)
+            result_coverage = self._result_coverage_for(
+                layer_result=layer_result,
+                canonical_stage_id=canonical_stage_id,
+                executed_check_ids=executed_check_ids,
+                expected_stage_ids=expected_stage_ids,
+                aggregate_coverage=aggregate_coverage,
+                additional_coverage=additional_coverage,
+            )
+            self._validate_metadata_stage_coverage(layer_result, result_coverage)
             produced.update(result_coverage)
         return produced
+
+    def _registered_stage_ids(self) -> set[str]:
+        """Return every stage identity admitted by the configured catalogs."""
+        registered = {stage.stage_id for stage in self.stages}
+        if self.stage_result_stage_ids is not None:
+            registered.update(self.stage_result_stage_ids.values())
+        registered.update(self.aggregate_result_stage_ids.values())
+        return registered
+
+    def _configured_result_coverage(
+        self,
+    ) -> tuple[Mapping[str, frozenset[str]], Mapping[str, frozenset[str]]]:
+        """Return both configured coverage maps or fail closed."""
+        aggregate_coverage = self.aggregate_result_stage_coverage
+        if aggregate_coverage is None:
+            raise RuntimeError("registry aggregate result coverage was not configured")
+        additional_coverage = self.result_additional_stage_coverage
+        if additional_coverage is None:
+            raise RuntimeError("registry additional result coverage was not configured")
+        return aggregate_coverage, additional_coverage
+
+    def _result_coverage_for(
+        self,
+        *,
+        layer_result: LayerResult,
+        canonical_stage_id: str,
+        executed_check_ids: frozenset[str],
+        expected_stage_ids: frozenset[str],
+        aggregate_coverage: Mapping[str, frozenset[str]],
+        additional_coverage: Mapping[str, frozenset[str]],
+    ) -> set[str]:
+        """Derive stage coverage solely from registry and executed-check proof."""
+        if layer_result.layer in self.aggregate_result_stage_ids:
+            allowed = aggregate_coverage.get(layer_result.layer, frozenset((canonical_stage_id,)))
+            return set(allowed & expected_stage_ids)
+        coverage = {canonical_stage_id} & expected_stage_ids
+        additional = additional_coverage.get(layer_result.layer, frozenset())
+        coverage.update(additional & executed_check_ids & expected_stage_ids)
+        return coverage
+
+    @staticmethod
+    def _validate_metadata_stage_coverage(
+        layer_result: LayerResult,
+        result_coverage: set[str],
+    ) -> None:
+        """Require producer metadata to mirror registry-derived coverage exactly."""
+        metadata_stage_ids = layer_result.metadata.get("stage_ids")
+        if metadata_stage_ids is None:
+            return
+        if not isinstance(metadata_stage_ids, (list, tuple, set, frozenset)) or any(
+            not isinstance(stage_id, str) for stage_id in metadata_stage_ids
+        ):
+            msg = "LayerResult metadata['stage_ids'] must be a string sequence"
+            raise ValueError(msg)
+        claimed_stage_ids = set(metadata_stage_ids)
+        if claimed_stage_ids != result_coverage:
+            msg = (
+                f"LayerResult {layer_result.layer!r} metadata stage coverage "
+                f"does not match registry and execution plan: claimed="
+                f"{sorted(claimed_stage_ids)!r}, expected={sorted(result_coverage)!r}"
+            )
+            raise ValueError(msg)
 
     @staticmethod
     def _executed_check_ids_for_coverage(layer_result: LayerResult) -> frozenset[str]:

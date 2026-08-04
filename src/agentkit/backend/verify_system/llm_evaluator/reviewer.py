@@ -36,6 +36,15 @@ from typing import TYPE_CHECKING
 from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2InputMissingError, Layer2ReviewInput
 from agentkit.backend.verify_system.prompt_audit_support import PromptAuditMixin
 from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.stage_registry.check_origins import (
+    LAYER2_INPUT_MISSING_CHECK_ID,
+    QA_REVIEW_COVERAGE_UNKNOWN_CHECK_ID,
+    QA_REVIEW_EDGE_CASES_THIN_CHECK_ID,
+    QA_REVIEW_NO_TESTS_CHECK_ID,
+    SEMANTIC_DANGLING_CONCEPT_REF_CHECK_ID,
+    SEMANTIC_NAMING_VIOLATION_CHECK_ID,
+    SEMANTIC_TODO_IN_PRODUCTION_CHECK_ID,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -121,7 +130,7 @@ def _missing_input_finding(layer_name: str) -> Finding:
     """
     return Finding(
         layer=layer_name,
-        check="layer2_input.missing",
+        check=LAYER2_INPUT_MISSING_CHECK_ID,
         severity=Severity.MAJOR,
         message=(
             "Layer-2 review_input has no content (all fields empty). "
@@ -257,10 +266,10 @@ class QaReviewReviewer(PromptAuditMixin):
             findings=tuple(findings),
             metadata={
                 "executed_check_ids": (
-                    "layer2_input.missing",
-                    "qa_review.no_tests",
-                    "qa_review.coverage_unknown",
-                    "qa_review.edge_cases_thin",
+                    LAYER2_INPUT_MISSING_CHECK_ID,
+                    QA_REVIEW_NO_TESTS_CHECK_ID,
+                    QA_REVIEW_COVERAGE_UNKNOWN_CHECK_ID,
+                    QA_REVIEW_EDGE_CASES_THIN_CHECK_ID,
                 ),
                 "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
@@ -280,7 +289,7 @@ class QaReviewReviewer(PromptAuditMixin):
         return [
             Finding(
                 layer=self.name,
-                check="qa_review.no_tests",
+                check=QA_REVIEW_NO_TESTS_CHECK_ID,
                 severity=Severity.BLOCKING,
                 message=(
                     "diff_summary and handover do not mention any test files. "
@@ -298,7 +307,7 @@ class QaReviewReviewer(PromptAuditMixin):
         return [
             Finding(
                 layer=self.name,
-                check="qa_review.coverage_unknown",
+                check=QA_REVIEW_COVERAGE_UNKNOWN_CHECK_ID,
                 severity=Severity.MAJOR,
                 message=(
                     "handover does not contain a coverage percentage statement "
@@ -319,7 +328,7 @@ class QaReviewReviewer(PromptAuditMixin):
         return [
             Finding(
                 layer=self.name,
-                check="qa_review.edge_cases_thin",
+                check=QA_REVIEW_EDGE_CASES_THIN_CHECK_ID,
                 severity=Severity.MAJOR,
                 message=(
                     f"Only {len(unique_refs)} distinct test reference(s) found in "
@@ -338,7 +347,7 @@ class QaReviewReviewer(PromptAuditMixin):
         return [
             Finding(
                 layer=self.name,
-                check="qa_review.no_tests",
+                check=QA_REVIEW_NO_TESTS_CHECK_ID,
                 severity=Severity.BLOCKING,
                 message=(
                     f"No test files found under {story_dir}. "
@@ -357,7 +366,7 @@ class QaReviewReviewer(PromptAuditMixin):
         return [
             Finding(
                 layer=self.name,
-                check="qa_review.edge_cases_thin",
+                check=QA_REVIEW_EDGE_CASES_THIN_CHECK_ID,
                 severity=Severity.MAJOR,
                 message=(
                     f"Only {total_tests} test function(s) found. "
@@ -374,7 +383,7 @@ class QaReviewReviewer(PromptAuditMixin):
         return [
             Finding(
                 layer=self.name,
-                check="qa_review.coverage_unknown",
+                check=QA_REVIEW_COVERAGE_UNKNOWN_CHECK_ID,
                 severity=Severity.MAJOR,
                 message=coverage_msg,
                 trust_class=TrustClass.SYSTEM,
@@ -500,10 +509,10 @@ class SemanticReviewer(PromptAuditMixin):
             findings=tuple(findings),
             metadata={
                 "executed_check_ids": (
-                    "layer2_input.missing",
-                    "semantic.todo_in_production",
-                    "semantic.dangling_concept_ref",
-                    "semantic.naming_violation",
+                    LAYER2_INPUT_MISSING_CHECK_ID,
+                    SEMANTIC_TODO_IN_PRODUCTION_CHECK_ID,
+                    SEMANTIC_DANGLING_CONCEPT_REF_CHECK_ID,
+                    SEMANTIC_NAMING_VIOLATION_CHECK_ID,
                 ),
                 "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
@@ -525,7 +534,7 @@ class SemanticReviewer(PromptAuditMixin):
                 findings.append(
                     Finding(
                         layer=self.name,
-                        check="semantic.todo_in_production",
+                        check=SEMANTIC_TODO_IN_PRODUCTION_CHECK_ID,
                         severity=Severity.BLOCKING,
                         message=(
                             f"'{match.group()}' marker found in {field_name}. "
@@ -581,7 +590,7 @@ class SemanticReviewer(PromptAuditMixin):
             findings.append(
                 Finding(
                     layer=self.name,
-                    check="semantic.dangling_concept_ref",
+                    check=SEMANTIC_DANGLING_CONCEPT_REF_CHECK_ID,
                     severity=Severity.MAJOR,
                     message=(
                         f"Concept path '{ref}' referenced in "
@@ -624,7 +633,7 @@ class SemanticReviewer(PromptAuditMixin):
             findings.append(
                 Finding(
                     layer=self.name,
-                    check="semantic.todo_in_production",
+                    check=SEMANTIC_TODO_IN_PRODUCTION_CHECK_ID,
                     severity=Severity.BLOCKING,
                     message=(
                         f"'{match.group()}' marker found in {py_file.name}:{lineno}. "
@@ -659,7 +668,7 @@ class SemanticReviewer(PromptAuditMixin):
             return None
         return Finding(
             layer=self.name,
-            check="semantic.naming_violation",
+            check=SEMANTIC_NAMING_VIOLATION_CHECK_ID,
             severity=Severity.MAJOR,
             message=(
                 f"Function '{node.name}' in {py_file.name} "
@@ -676,7 +685,7 @@ class SemanticReviewer(PromptAuditMixin):
             return None
         return Finding(
             layer=self.name,
-            check="semantic.naming_violation",
+            check=SEMANTIC_NAMING_VIOLATION_CHECK_ID,
             severity=Severity.MAJOR,
             message=(
                 f"Class '{node.name}' in {py_file.name} "
@@ -800,7 +809,7 @@ class DocFidelityReviewer(PromptAuditMixin):
             findings=tuple(findings),
             metadata={
                 "executed_check_ids": (
-                    "layer2_input.missing",
+                    LAYER2_INPUT_MISSING_CHECK_ID,
                     "doc_fidelity.missing_docstring",
                     "doc_fidelity.no_concept_anchor",
                     "doc_fidelity.pydantic_config_missing",
@@ -1075,7 +1084,7 @@ def _dangling_refs_in_source(
         findings.append(
             Finding(
                 layer="semantic_review",
-                check="semantic.dangling_concept_ref",
+                check=SEMANTIC_DANGLING_CONCEPT_REF_CHECK_ID,
                 severity=Severity.MAJOR,
                 message=(
                     f"Concept path '{ref}' referenced in "

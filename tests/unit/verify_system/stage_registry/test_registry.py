@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from agentkit.backend.core_types import Severity
@@ -440,3 +442,66 @@ class TestResultNameRegistry:
 
         with pytest.raises(ValueError, match=r"shared_result.*stage_a.*stage_b"):
             StageRegistry(stages=(stage_a, stage_b))
+
+    def test_result_without_producer_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="have no registered producer"):
+            StageRegistry(
+                stages=(),
+                stage_result_stage_ids={"result_a": "stage_a"},
+                stage_result_producers={},
+                aggregate_result_stage_ids={},
+                aggregate_result_producers={},
+            )
+
+    def test_blank_result_producer_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="producer.*must not be empty"):
+            StageRegistry(
+                stages=(),
+                stage_result_stage_ids={"result_a": "stage_a"},
+                stage_result_producers={"result_a": "   "},
+                aggregate_result_stage_ids={},
+                aggregate_result_producers={},
+            )
+
+    def test_canonical_stage_id_cannot_have_multiple_result_owners(self) -> None:
+        with pytest.raises(ValueError, match="canonical stage ids.*ambiguous"):
+            StageRegistry(
+                stages=(),
+                stage_result_stage_ids={"result_a": "shared_stage"},
+                stage_result_producers={"result_a": "producer_a"},
+                aggregate_result_stage_ids={"result_b": "shared_stage"},
+                aggregate_result_producers={"result_b": "producer_b"},
+            )
+
+    def test_validated_catalogs_are_immutable(self) -> None:
+        registry = StageRegistry()
+
+        with pytest.raises(TypeError):
+            cast("dict[str, str]", registry.stage_result_producers)["qa_review"] = "   "
+        with pytest.raises(TypeError):
+            cast("dict[str, str]", registry.aggregate_result_stage_ids)["forged"] = "forged"
+
+    def test_registry_detaches_from_caller_mappings(self) -> None:
+        stage_ids = {"result_a": "stage_a"}
+        producers = {"result_a": "producer_a"}
+        registry = StageRegistry(
+            stages=(),
+            stage_result_stage_ids=stage_ids,
+            stage_result_producers=producers,
+            aggregate_result_stage_ids={},
+            aggregate_result_producers={},
+        )
+
+        stage_ids["result_a"] = "forged_stage"
+        producers["result_a"] = "forged_producer"
+
+        assert registry.canonical_stage_id_for_result_name("result_a") == "stage_a"
+        assert registry.producer_for_result_name("result_a") == "producer_a"
+
+    def test_registry_instances_do_not_share_mutable_catalogs(self) -> None:
+        first = StageRegistry()
+        second = StageRegistry()
+
+        with pytest.raises(TypeError):
+            cast("dict[str, str]", first.aggregate_result_producers)["structural"] = "forged"
+        assert second.aggregate_result_producers["structural"] == first.aggregate_result_producers["structural"]

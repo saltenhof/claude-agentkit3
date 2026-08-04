@@ -46,10 +46,10 @@ from agentkit.backend.verify_system.register import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.artifacts import ArtifactManager
+    from agentkit.backend.artifacts import ArtifactManager, ArtifactReference
     from agentkit.backend.pipeline_engine.phase_executor import PhaseState
     from agentkit.backend.verify_system.contract import VerifyContextBundle
-    from agentkit.backend.verify_system.protocols import LayerResult
+    from agentkit.backend.verify_system.protocols import Finding, LayerResult
 
 #: Sandbox root segment (AG3-044 §2.1.6 / FK-48 §48.1).
 ADVERSARIAL_SANDBOX_DIRNAME = "adversarial"
@@ -183,39 +183,67 @@ class AdversarialSpawner:
         """
         targets: list[AdversarialTarget] = []
         for layer_result in layer2_results:
-            reference = layer_result.artifact_reference
-            if reference is None or reference.artifact_class is not ArtifactClass.QA:
-                raise ValueError(f"Layer-2 result {layer_result.layer!r} lacks its canonical QA artifact reference")
+            reference = self._require_source_reference(layer_result)
             for finding_index, finding in enumerate(layer_result.findings):
-                if finding.finding_type != ASSERTION_WEAKNESS_FINDING_TYPE:
-                    continue
-                if not _is_concern_status(finding.severity):
-                    continue
-                if finding.layer != layer_result.layer:
-                    raise ValueError(
-                        "Layer-2 finding layer does not match its source result: "
-                        f"result={layer_result.layer!r}, finding={finding.layer!r}"
-                    )
-                finding_id = f"{finding.layer}.{finding.check}"
-                targets.append(
-                    AdversarialTarget(
-                        finding_id=finding_id,
-                        source_result_name=layer_result.layer,
-                        source_check_id=finding.check,
-                        source_artifact_record_key=reference.record_key,
-                        source_finding_index=finding_index,
-                        source=f"{finding.layer} round {remediation_round}",
-                        normative_ref=finding.message,
-                        addressed_part=finding.addressed_part,
-                        open_part=finding.suggestion or finding.message,
-                        mandatory=True,
-                        test_anchor=f"test_{finding.check}_{finding_index}.py",
-                    )
+                target = self._target_from_finding(
+                    layer_result=layer_result,
+                    reference=reference,
+                    finding=finding,
+                    finding_index=finding_index,
+                    remediation_round=remediation_round,
                 )
+                if target is not None:
+                    targets.append(target)
+        self._require_unique_target_ids(targets)
+        return targets
+
+    @staticmethod
+    def _require_source_reference(layer_result: LayerResult) -> ArtifactReference:
+        """Return the canonical QA envelope reference or fail closed."""
+        reference = layer_result.artifact_reference
+        if reference is None or reference.artifact_class is not ArtifactClass.QA:
+            raise ValueError(f"Layer-2 result {layer_result.layer!r} lacks its canonical QA artifact reference")
+        return reference
+
+    @staticmethod
+    def _target_from_finding(
+        *,
+        layer_result: LayerResult,
+        reference: ArtifactReference,
+        finding: Finding,
+        finding_index: int,
+        remediation_round: int,
+    ) -> AdversarialTarget | None:
+        """Map one eligible assertion weakness to its provenance-bound target."""
+        if finding.finding_type != ASSERTION_WEAKNESS_FINDING_TYPE:
+            return None
+        if not _is_concern_status(finding.severity):
+            return None
+        if finding.layer != layer_result.layer:
+            raise ValueError(
+                "Layer-2 finding layer does not match its source result: "
+                f"result={layer_result.layer!r}, finding={finding.layer!r}"
+            )
+        return AdversarialTarget(
+            finding_id=f"{finding.layer}.{finding.check}",
+            source_result_name=layer_result.layer,
+            source_check_id=finding.check,
+            source_artifact_record_key=reference.record_key,
+            source_finding_index=finding_index,
+            source=f"{finding.layer} round {remediation_round}",
+            normative_ref=finding.message,
+            addressed_part=finding.addressed_part,
+            open_part=finding.suggestion or finding.message,
+            mandatory=True,
+            test_anchor=f"test_{finding.check}_{finding_index}.py",
+        )
+
+    @staticmethod
+    def _require_unique_target_ids(targets: list[AdversarialTarget]) -> None:
+        """Reject ambiguous target identities across all Layer-2 results."""
         target_ids = [target.finding_id for target in targets]
         if len(set(target_ids)) != len(target_ids):
             raise ValueError("Layer-2 results produce duplicate adversarial target ids")
-        return targets
 
     def request_spawn(
         self,

@@ -95,6 +95,16 @@ _VERIFY_DECISION_PRODUCER: tuple[str, ProducerType] = (
 )
 
 
+def _layer_artifact_scope(layer_result_name: str) -> tuple[str, str]:
+    """Return the canonical envelope stage and producer for one QA result."""
+    try:
+        stage = _LAYER_TO_STAGE[layer_result_name]
+        producer_name, _producer_type = _LAYER_TO_PRODUCER[layer_result_name]
+    except KeyError as exc:
+        raise ValueError(f"unknown QA layer artifact result: {layer_result_name!r}") from exc
+    return stage, producer_name
+
+
 def write_layer_artifacts(
     *,
     manager: ArtifactManager,

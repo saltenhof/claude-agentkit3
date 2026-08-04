@@ -107,6 +107,25 @@ def test_runtime_minimum_is_derived_from_requires_python(tmp_path: Path) -> None
     assert declared_minimum_python(tmp_path) == (9, 8)
 
 
+def test_runtime_minimum_rejects_non_ascii_digits(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nrequires-python = ">=١.٢"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeEnvironmentError, match="unambiguous major/minor"):
+        declared_minimum_python(tmp_path)
+
+
+def test_runtime_minimum_preserves_unicode_whitespace_support(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nrequires-python = ">=\u00a09.8"\n',
+        encoding="utf-8",
+    )
+
+    assert declared_minimum_python(tmp_path) == (9, 8)
+
+
 def test_canonical_installer_funnel_rejects_isolation_before_dependencies(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

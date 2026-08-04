@@ -32,6 +32,14 @@ STORY_CREATION_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset(
     {"conflict_assessment"}
 )
 
+LAYER2_INPUT_MISSING_CHECK_ID: Final = "layer2_input.missing"
+QA_REVIEW_NO_TESTS_CHECK_ID: Final = "qa_review.no_tests"
+QA_REVIEW_COVERAGE_UNKNOWN_CHECK_ID: Final = "qa_review.coverage_unknown"
+QA_REVIEW_EDGE_CASES_THIN_CHECK_ID: Final = "qa_review.edge_cases_thin"
+SEMANTIC_TODO_IN_PRODUCTION_CHECK_ID: Final = "semantic.todo_in_production"
+SEMANTIC_DANGLING_CONCEPT_REF_CHECK_ID: Final = "semantic.dangling_concept_ref"
+SEMANTIC_NAMING_VIOLATION_CHECK_ID: Final = "semantic.naming_violation"
+
 PHASE_SNAPSHOT_CHECK_IDS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "setup": "phase_snapshots.setup",
@@ -58,18 +66,18 @@ _BUILTIN_NATIVE_CHECK_IDS: frozenset[str] = frozenset(
         "doc_fidelity.pydantic_config_missing",
         "fast_tests_green",
         "implementation_evidence.required_after_exploration",
-        "layer2_input.missing",
+        LAYER2_INPUT_MISSING_CHECK_ID,
         "layer2_llm.failure",
         "layer_execution",
         "no_corrupt_state",
         "no_test_executed",
         "proven_finding",
-        "qa_review.coverage_unknown",
-        "qa_review.edge_cases_thin",
-        "qa_review.no_tests",
-        "semantic.dangling_concept_ref",
-        "semantic.naming_violation",
-        "semantic.todo_in_production",
+        QA_REVIEW_COVERAGE_UNKNOWN_CHECK_ID,
+        QA_REVIEW_EDGE_CASES_THIN_CHECK_ID,
+        QA_REVIEW_NO_TESTS_CHECK_ID,
+        SEMANTIC_DANGLING_CONCEPT_REF_CHECK_ID,
+        SEMANTIC_NAMING_VIOLATION_CHECK_ID,
+        SEMANTIC_TODO_IN_PRODUCTION_CHECK_ID,
         "sonarqube_green_gate",
         "sparring_missing",
     }
@@ -80,14 +88,11 @@ _BUILTIN_NATIVE_CHECK_IDS: frozenset[str] = frozenset(
 #: outcome-emission boundary.
 NATIVE_CHECK_ORIGIN_REFS: Final[Mapping[str, str | None]] = (
     MappingProxyType(
-        {
-            check_id: None
-            for check_id in (
-                _BUILTIN_NATIVE_CHECK_IDS
-                | _ROLE_CHECK_IDS
-                | frozenset(PHASE_SNAPSHOT_CHECK_IDS.values())
-            )
-        }
+        dict.fromkeys(
+            _BUILTIN_NATIVE_CHECK_IDS
+            | _ROLE_CHECK_IDS
+            | frozenset(PHASE_SNAPSHOT_CHECK_IDS.values())
+        )
     )
 )
 
@@ -101,10 +106,17 @@ def phase_snapshot_check_id(phase: str) -> str:
 
 __all__ = [
     "DOC_FIDELITY_CHECK_IDS",
+    "LAYER2_INPUT_MISSING_CHECK_ID",
     "NATIVE_CHECK_ORIGIN_REFS",
     "PHASE_SNAPSHOT_CHECK_IDS",
+    "QA_REVIEW_COVERAGE_UNKNOWN_CHECK_ID",
     "QA_REVIEW_CHECK_IDS",
+    "QA_REVIEW_EDGE_CASES_THIN_CHECK_ID",
+    "QA_REVIEW_NO_TESTS_CHECK_ID",
+    "SEMANTIC_DANGLING_CONCEPT_REF_CHECK_ID",
+    "SEMANTIC_NAMING_VIOLATION_CHECK_ID",
     "SEMANTIC_REVIEW_CHECK_IDS",
+    "SEMANTIC_TODO_IN_PRODUCTION_CHECK_ID",
     "STORY_CREATION_REVIEW_CHECK_IDS",
     "phase_snapshot_check_id",
 ]

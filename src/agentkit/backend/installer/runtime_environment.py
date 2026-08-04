@@ -19,7 +19,9 @@ _PROBE_TIMEOUT_SECONDS = 30.0
 _INSTALL_TIMEOUT_SECONDS = 900.0
 _RUNTIME_CONFIG_KEY = "agentkit.runtime-venv"
 _SOURCE_ROOT = Path(__file__).resolve().parents[4]
-_MINIMUM_PYTHON_PATTERN = re.compile(r">=\s*(?P<major>[0-9]+)\.(?P<minor>[0-9]+)")
+_MINIMUM_PYTHON_PATTERN = re.compile(
+    r">=\s*(?P<major>(?a:\d+))\.(?P<minor>(?a:\d+))",
+)
 
 
 class RuntimeEnvironmentError(RuntimeError):
@@ -171,7 +173,7 @@ def _probe_environment(
         prefix = Path(str(payload["prefix"])).resolve()
         base_prefix = Path(str(payload["base_prefix"])).resolve()
         version = tuple(int(part) for part in payload["version"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeEnvironmentError(
             f"existing runtime {environment_root} is unusable: interpreter probe "
             f"returned invalid data; refusing to repair or replace it"

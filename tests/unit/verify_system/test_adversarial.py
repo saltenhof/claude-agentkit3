@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 from tests.qa_artifact_support import write_qa_layer_envelopes
 
@@ -21,7 +22,8 @@ from agentkit.backend.state_backend.story_lifecycle_store import save_story_cont
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
-from agentkit.backend.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import AdversarialResultReadError
+from agentkit.backend.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner, AdversarialTarget
 from agentkit.backend.verify_system.contract import VerifyContextBundle
 from agentkit.backend.verify_system.protocols import (
     ASSERTION_WEAKNESS_FINDING_TYPE,
@@ -35,8 +37,6 @@ from agentkit.backend.verify_system.stage_registry import StageRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def _wired_audit_deps(store_dir: Path) -> dict[str, object]:
@@ -411,3 +411,116 @@ class TestAdversarialChallenger:
 
         assert result.passed is False
         assert "exact Layer-2 result" in result.findings[0].message
+
+    def test_source_finding_validation_rejects_forged_target_derivation(self) -> None:
+        target = AdversarialTarget(
+            finding_id="qa_review.negative_case",
+            source_result_name="qa_review",
+            source_check_id="negative_case",
+            source_artifact_record_key="source-record",
+            source_finding_index=0,
+            source="qa_review round 1",
+            normative_ref="negative case is not covered",
+            addressed_part="happy path fixed",
+            open_part="exercise the negative case",
+            mandatory=True,
+            test_anchor="test_negative_case_0.py",
+        )
+        source_finding: dict[str, object] = {
+            "layer": "qa_review",
+            "check": "negative_case",
+            "severity": Severity.BLOCKING.value,
+            "message": "negative case is not covered",
+            "suggestion": "exercise the negative case",
+            "finding_type": ASSERTION_WEAKNESS_FINDING_TYPE,
+            "addressed_part": "happy path fixed",
+        }
+        metadata = {"executed_check_ids": ["negative_case"]}
+
+        AdversarialChallenger._validate_source_finding(
+            target,
+            source_finding,
+            metadata,
+            expected_spawn_attempt=1,
+        )
+
+        forged_cases = (
+            (target, {**source_finding, "finding_type": None}),
+            (target, {**source_finding, "severity": "INFO"}),
+            (target, {**source_finding, "addressed_part": "forged"}),
+            (target, {**source_finding, "suggestion": "forged"}),
+            (replace(target, finding_id="qa_review.forged"), source_finding),
+            (replace(target, source="qa_review round 9"), source_finding),
+            (replace(target, mandatory=False), source_finding),
+            (replace(target, test_anchor="test_forged.py"), source_finding),
+        )
+        for forged_target, forged_finding in forged_cases:
+            with pytest.raises(AdversarialResultReadError, match="exact executed Layer-2 member"):
+                AdversarialChallenger._validate_source_finding(
+                    forged_target,
+                    forged_finding,
+                    metadata,
+                    expected_spawn_attempt=1,
+                )
+
+        with pytest.raises(AdversarialResultReadError, match="exact executed Layer-2 member"):
+            AdversarialChallenger._validate_source_finding(
+                target,
+                source_finding,
+                {"executed_check_ids": []},
+                expected_spawn_attempt=1,
+            )
+
+    def test_source_artifact_scope_rejects_forged_record_key_dimensions(self) -> None:
+        canonical_key = "TEST-001|run-x|qa-layer-qa-review|1|qa|verify-system.layer-2-qa-review"
+        target = AdversarialTarget(
+            finding_id="qa_review.negative_case",
+            source_result_name="qa_review",
+            source_check_id="negative_case",
+            source_artifact_record_key=canonical_key,
+            source_finding_index=0,
+            source="qa_review round 1",
+            normative_ref="negative case is not covered",
+            addressed_part="",
+            open_part="negative case is not covered",
+            mandatory=True,
+            test_anchor="test_negative_case_0.py",
+        )
+
+        assert AdversarialChallenger._expected_source_artifact_scope(
+            target,
+            story_id="TEST-001",
+            run_id="run-x",
+            expected_spawn_attempt=1,
+        ) == ("qa-layer-qa-review", "verify-system.layer-2-qa-review")
+
+        forged_keys = (
+            canonical_key.replace("TEST-001", "TEST-999"),
+            canonical_key.replace("run-x", "run-forged"),
+            canonical_key.replace("|qa|", "|pipeline|"),
+            canonical_key.replace("verify-system.layer-2-qa-review", "forged-producer"),
+        )
+        for forged_key in forged_keys:
+            with pytest.raises(AdversarialResultReadError, match="exact canonical Layer-2 artifact"):
+                AdversarialChallenger._expected_source_artifact_scope(
+                    replace(target, source_artifact_record_key=forged_key),
+                    story_id="TEST-001",
+                    run_id="run-x",
+                    expected_spawn_attempt=1,
+                )
+
+        structural_target = replace(
+            target,
+            source_result_name="structural",
+            source_artifact_record_key=(
+                "TEST-001|run-x|qa-layer-structural|1|qa|"
+                "verify-system.layer-1-structural"
+            ),
+        )
+        with pytest.raises(AdversarialResultReadError, match="exact canonical Layer-2 artifact"):
+            AdversarialChallenger._expected_source_artifact_scope(
+                structural_target,
+                story_id="TEST-001",
+                run_id="run-x",
+                expected_spawn_attempt=1,
+            )

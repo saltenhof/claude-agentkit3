@@ -22,7 +22,7 @@ stays in that module.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.verify_system.prompt_audit_support import PromptAuditMixin
 from agentkit.backend.verify_system.protocols import (
@@ -35,7 +35,7 @@ from agentkit.backend.verify_system.protocols import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.artifacts import ArtifactManager
+    from agentkit.backend.artifacts import ArtifactEnvelope, ArtifactManager
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.telemetry.emitters import EventEmitter
     from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
@@ -54,6 +54,9 @@ _SANDBOX_DIRNAME = "adversarial"
 
 #: Project ``tests/`` root segment (promotion target, FK-48 §48.1.5).
 _TESTS_DIRNAME = "tests"
+
+_INVALID_SOURCE_FINDING_MESSAGE = "adversarial target source finding is not an exact executed Layer-2 member"
+_INVALID_SOURCE_ARTIFACT_MESSAGE = "adversarial target does not reference its exact canonical Layer-2 artifact"
 
 
 class AdversarialChallenger(PromptAuditMixin):
@@ -235,19 +238,38 @@ class AdversarialChallenger(PromptAuditMixin):
         current_attempt: int,
     ) -> tuple[tuple[AdversarialTarget, ...], Path]:
         """Load the preceding spawn envelope and prove its source findings."""
-        from agentkit.backend.artifacts import ArtifactNotFoundError, ArtifactReference
+        if current_attempt == 1:
+            return (), self._sandbox_dir(story_dir, story_id, current_attempt)
+        expected_spawn_attempt = current_attempt - 1
+        envelope, expected_sandbox_rel = self._read_preceding_spawn_envelope(
+            story_id=story_id,
+            run_id=run_id,
+            expected_spawn_attempt=expected_spawn_attempt,
+        )
+        targets = self._targets_from_spawn_payload(envelope.payload or {})
+        self._validate_target_sources(
+            targets,
+            story_id=story_id,
+            run_id=run_id,
+            expected_spawn_attempt=expected_spawn_attempt,
+        )
+        return targets, story_dir / expected_sandbox_rel
+
+    def _read_preceding_spawn_envelope(
+        self,
+        *,
+        story_id: str,
+        run_id: str,
+        expected_spawn_attempt: int,
+    ) -> tuple[ArtifactEnvelope, str]:
+        """Load the exact spawn snapshot immediately preceding remediation."""
+        from agentkit.backend.artifacts import ArtifactNotFoundError
         from agentkit.backend.core_types import ArtifactClass
         from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
             AdversarialResultReadError,
         )
-        from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
-            AdversarialTarget as _AdversarialTarget,
-        )
         from agentkit.backend.verify_system.register import ADVERSARIAL_SANDBOX_STAGE
 
-        if current_attempt == 1:
-            return (), self._sandbox_dir(story_dir, story_id, current_attempt)
-        expected_spawn_attempt = current_attempt - 1
         if self._artifact_manager is None:
             raise AdversarialResultReadError("adversarial spawn evidence cannot be loaded without an artifact manager")
         try:
@@ -264,10 +286,21 @@ class AdversarialChallenger(PromptAuditMixin):
                 "adversarial spawn envelope attempt does not precede the current "
                 f"remediation: expected={expected_spawn_attempt}, actual={envelope.attempt}"
             )
-        payload = envelope.payload or {}
         expected_sandbox_rel = f"_temp/{_SANDBOX_DIRNAME}/{story_id}/{expected_spawn_attempt}"
-        if payload.get("sandbox_path") != expected_sandbox_rel:
+        if (envelope.payload or {}).get("sandbox_path") != expected_sandbox_rel:
             raise AdversarialResultReadError("adversarial spawn envelope carries a non-canonical sandbox path")
+        return envelope, expected_sandbox_rel
+
+    @staticmethod
+    def _targets_from_spawn_payload(payload: dict[str, Any]) -> tuple[AdversarialTarget, ...]:
+        """Deserialize only a well-formed typed target collection."""
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+        from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
+            AdversarialTarget as _AdversarialTarget,
+        )
+
         raw_targets = payload.get("targets", ())
         if not isinstance(raw_targets, list):
             raise AdversarialResultReadError("adversarial sandbox envelope targets must be a list")
@@ -277,41 +310,223 @@ class AdversarialChallenger(PromptAuditMixin):
             targets = tuple(_AdversarialTarget(**raw_target) for raw_target in raw_targets)
         except (TypeError, ValueError) as exc:
             raise AdversarialResultReadError(f"adversarial sandbox envelope target mapping is invalid: {exc}") from exc
+        return targets
+
+    def _validate_target_sources(
+        self,
+        targets: tuple[AdversarialTarget, ...],
+        *,
+        story_id: str,
+        run_id: str,
+        expected_spawn_attempt: int,
+    ) -> None:
+        """Prove each target against its canonical executed Layer-2 finding."""
         for target in targets:
-            source_reference = ArtifactReference(
-                artifact_class=ArtifactClass.QA,
+            self._validate_target_source(
+                target,
                 story_id=story_id,
                 run_id=run_id,
-                record_key=target.source_artifact_record_key,
+                expected_spawn_attempt=expected_spawn_attempt,
             )
-            try:
-                source_envelope = self._artifact_manager.read(source_reference)
-            except ArtifactNotFoundError as exc:
-                raise AdversarialResultReadError("adversarial target references an absent canonical Layer-2 artifact") from exc
-            if source_envelope.attempt != expected_spawn_attempt:
-                raise AdversarialResultReadError("adversarial target source artifact belongs to the wrong attempt")
-            source_payload = source_envelope.payload or {}
-            findings = source_payload.get("findings")
-            metadata = source_payload.get("metadata")
-            if (
-                source_payload.get("layer") != target.source_result_name
-                or not isinstance(findings, list)
-                or target.source_finding_index >= len(findings)
-                or not isinstance(metadata, dict)
-            ):
-                raise AdversarialResultReadError("adversarial target source does not identify an exact Layer-2 result")
-            source_finding = findings[target.source_finding_index]
-            executed = metadata.get("executed_check_ids")
-            if (
-                not isinstance(source_finding, dict)
-                or source_finding.get("layer") != target.source_result_name
-                or source_finding.get("check") != target.source_check_id
-                or source_finding.get("message") != target.normative_ref
-                or not isinstance(executed, list)
-                or target.source_check_id not in executed
-            ):
-                raise AdversarialResultReadError("adversarial target source finding is not an exact executed Layer-2 member")
-        return targets, story_dir / expected_sandbox_rel
+
+    def _validate_target_source(
+        self,
+        target: AdversarialTarget,
+        *,
+        story_id: str,
+        run_id: str,
+        expected_spawn_attempt: int,
+    ) -> None:
+        """Validate one target's exact artifact, result, and finding provenance."""
+        from agentkit.backend.artifacts import ArtifactNotFoundError, ArtifactReference
+        from agentkit.backend.core_types import ArtifactClass
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+
+        if self._artifact_manager is None:
+            raise AdversarialResultReadError("adversarial spawn evidence cannot be loaded without an artifact manager")
+        expected_stage, expected_producer = self._expected_source_artifact_scope(
+            target,
+            story_id=story_id,
+            run_id=run_id,
+            expected_spawn_attempt=expected_spawn_attempt,
+        )
+        source_reference = ArtifactReference(
+            artifact_class=ArtifactClass.QA,
+            story_id=story_id,
+            run_id=run_id,
+            record_key=target.source_artifact_record_key,
+        )
+        try:
+            source_envelope = self._artifact_manager.read(source_reference)
+        except ArtifactNotFoundError as exc:
+            raise AdversarialResultReadError("adversarial target references an absent canonical Layer-2 artifact") from exc
+        self._validate_source_envelope_scope(
+            source_envelope,
+            story_id=story_id,
+            run_id=run_id,
+            expected_spawn_attempt=expected_spawn_attempt,
+            expected_stage=expected_stage,
+            expected_producer=expected_producer,
+        )
+        findings, metadata = self._validate_source_result_payload(target, source_envelope.payload or {})
+        self._validate_source_finding(
+            target,
+            findings[target.source_finding_index],
+            metadata,
+            expected_spawn_attempt=expected_spawn_attempt,
+        )
+
+    @staticmethod
+    def _expected_source_artifact_scope(
+        target: AdversarialTarget,
+        *,
+        story_id: str,
+        run_id: str,
+        expected_spawn_attempt: int,
+    ) -> tuple[str, str]:
+        """Bind a target record key to its registry-owned Layer-2 scope."""
+        from agentkit.backend.core_types import ArtifactClass
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+        from agentkit.backend.verify_system.artifacts import _layer_artifact_scope
+        from agentkit.backend.verify_system.stage_registry import StageRegistry
+
+        registry = StageRegistry()
+        if target.source_result_name not in registry.result_names_for_layer(2):
+            raise AdversarialResultReadError(_INVALID_SOURCE_ARTIFACT_MESSAGE)
+        try:
+            expected_stage, artifact_producer = _layer_artifact_scope(target.source_result_name)
+            registry_producer = registry.producer_for_result_name(target.source_result_name)
+        except ValueError as exc:
+            raise AdversarialResultReadError(_INVALID_SOURCE_ARTIFACT_MESSAGE) from exc
+        if artifact_producer != registry_producer:
+            raise AdversarialResultReadError(_INVALID_SOURCE_ARTIFACT_MESSAGE)
+        expected_record_key = (
+            f"{story_id}|{run_id}|{expected_stage}|{expected_spawn_attempt}|"
+            f"{ArtifactClass.QA}|{registry_producer}"
+        )
+        if target.source_artifact_record_key != expected_record_key:
+            raise AdversarialResultReadError(_INVALID_SOURCE_ARTIFACT_MESSAGE)
+        return expected_stage, registry_producer
+
+    @staticmethod
+    def _validate_source_envelope_scope(
+        source_envelope: ArtifactEnvelope,
+        *,
+        story_id: str,
+        run_id: str,
+        expected_spawn_attempt: int,
+        expected_stage: str,
+        expected_producer: str,
+    ) -> None:
+        """Require the loaded envelope itself to match the target's exact scope."""
+        from agentkit.backend.core_types import ArtifactClass
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+
+        if (
+            source_envelope.story_id != story_id
+            or source_envelope.run_id != run_id
+            or source_envelope.attempt != expected_spawn_attempt
+            or source_envelope.artifact_class is not ArtifactClass.QA
+            or source_envelope.stage != expected_stage
+            or source_envelope.producer.name != expected_producer
+        ):
+            raise AdversarialResultReadError(_INVALID_SOURCE_ARTIFACT_MESSAGE)
+
+    @staticmethod
+    def _validate_source_result_payload(
+        target: AdversarialTarget,
+        source_payload: dict[str, Any],
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """Require the target index to address an exact Layer-2 result payload."""
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+
+        findings = source_payload.get("findings")
+        metadata = source_payload.get("metadata")
+        if (
+            source_payload.get("layer") != target.source_result_name
+            or not isinstance(findings, list)
+            or target.source_finding_index >= len(findings)
+            or not isinstance(metadata, dict)
+        ):
+            raise AdversarialResultReadError("adversarial target source does not identify an exact Layer-2 result")
+        return findings, metadata
+
+    @staticmethod
+    def _validate_source_finding(
+        target: AdversarialTarget,
+        source_finding: Any,
+        metadata: dict[str, Any],
+        *,
+        expected_spawn_attempt: int,
+    ) -> None:
+        """Require exact finding membership plus executed-check membership."""
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+
+        if not isinstance(source_finding, dict):
+            raise AdversarialResultReadError(_INVALID_SOURCE_FINDING_MESSAGE)
+        AdversarialChallenger._validate_source_finding_identity(target, source_finding)
+        AdversarialChallenger._validate_target_derivation(
+            target,
+            source_finding,
+            expected_spawn_attempt=expected_spawn_attempt,
+        )
+        executed = metadata.get("executed_check_ids")
+        if not isinstance(executed, list) or target.source_check_id not in executed:
+            raise AdversarialResultReadError(_INVALID_SOURCE_FINDING_MESSAGE)
+
+    @staticmethod
+    def _validate_source_finding_identity(
+        target: AdversarialTarget,
+        source_finding: dict[str, Any],
+    ) -> None:
+        """Prove the target's stable identity against its canonical finding."""
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+
+        if (
+            source_finding.get("layer") != target.source_result_name
+            or source_finding.get("check") != target.source_check_id
+            or source_finding.get("message") != target.normative_ref
+            or target.finding_id != f"{target.source_result_name}.{target.source_check_id}"
+        ):
+            raise AdversarialResultReadError(_INVALID_SOURCE_FINDING_MESSAGE)
+
+    @staticmethod
+    def _validate_target_derivation(
+        target: AdversarialTarget,
+        source_finding: dict[str, Any],
+        *,
+        expected_spawn_attempt: int,
+    ) -> None:
+        """Prove every mandatory-target field derived from its source finding."""
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+        from agentkit.backend.verify_system.protocols import ASSERTION_WEAKNESS_FINDING_TYPE
+
+        expected_open_part = source_finding.get("suggestion") or source_finding.get("message")
+        concern_severities = {Severity.BLOCKING.value, Severity.MAJOR.value, Severity.MINOR.value}
+        if (
+            source_finding.get("finding_type") != ASSERTION_WEAKNESS_FINDING_TYPE
+            or source_finding.get("severity") not in concern_severities
+            or source_finding.get("addressed_part") != target.addressed_part
+            or expected_open_part != target.open_part
+            or target.source != f"{target.source_result_name} round {expected_spawn_attempt}"
+            or target.mandatory is not True
+            or target.test_anchor != f"test_{target.source_check_id}_{target.source_finding_index}.py"
+        ):
+            raise AdversarialResultReadError(_INVALID_SOURCE_FINDING_MESSAGE)
 
     def _fail_closed(
         self,
