@@ -1,0 +1,23 @@
+story_id: AG3-215
+story_title_short: "atomarer-schreibvorgang-hat-keinen-eigentuemer"
+title: "atomic_write_text benutzt einen festen Temp-Namen: zwei Schreiber auf denselben Zielpfad teilen sich die Zwischendatei, und der Cleanup entfernt die des anderen. Gemessen: 200 von 200 Iterationen fehlerhaft, eine korrupte Zieldatei."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-04"
+size: M
+# Herkunft: Nebenbefund bei der Reparatur des VectorDB-Recovery-Journals
+# (Commit 858ef1fe). Der Umsetzer hat ihn mandatstreu GEMELDET statt
+# eigenmaechtig behoben -- backend/utils/io.py war ausdruecklich ausgeschlossen,
+# weil die Funktion 35 produktive Aufrufer hat. Genau so soll der
+# Eskalationsweg funktionieren.
+#
+# Der Befund ist gemessen, nicht vermutet: zwei Schreiber auf denselben
+# Zielpfad, 200 Iterationen -> 200 fehlerhafte Iterationen, 201 Write-Fehler,
+# 1 ungueltiger Zielinhalt. Die letzte Zahl ist die teure: ein fehlgeschlagener
+# Schreibvorgang ist sichtbar, eine korrupte Zieldatei nicht.
+#
+# Belegte ungeschuetzte Aufrufer: LocalEdgePublisher (client.py:497),
+# permission_projection.py:43, freeze_repository.py:451.
+depends_on: []
+unblocks: []
