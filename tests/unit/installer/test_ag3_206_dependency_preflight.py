@@ -42,6 +42,9 @@ def _run_isolated_script(source: str) -> subprocess.CompletedProcess[str]:
         check=False,
         capture_output=True,
         text=True,
+        # Explicit: `text=True` alone decodes with the locale encoding, which
+        # CI rejects (PYTHONWARNDEFAULTENCODING=1 + -W error::EncodingWarning).
+        encoding="utf-8",
     )
 
 def test_installed_artifact_dependencies_are_importable() -> None:

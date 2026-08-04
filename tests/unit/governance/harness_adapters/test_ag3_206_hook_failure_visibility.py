@@ -313,6 +313,9 @@ def test_hook_entrypoint_imports_without_pydantic_and_blocks_fail_closed(
         check=False,
         capture_output=True,
         text=True,
+        # Explicit: `text=True` alone decodes with the locale encoding, which
+        # CI rejects (PYTHONWARNDEFAULTENCODING=1 + -W error::EncodingWarning).
+        encoding="utf-8",
     )
 
     assert result.returncode == 0, result.stderr
