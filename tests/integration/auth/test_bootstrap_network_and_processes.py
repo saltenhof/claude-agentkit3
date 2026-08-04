@@ -937,7 +937,6 @@ def test_runtime_cannot_reconcile_inside_an_operator_publication(
     assert credential.token_id == operator_result[1]
 
 
-@pytest.mark.requires_gh
 def test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d(
     tmp_path: Path,
     postgres_isolated_schema: str,
@@ -947,19 +946,18 @@ def test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d(
 ) -> None:
     """Prove the public handoff flow feeds CP 10d with the operator's token.
 
-    Marked ``requires_gh`` (2026-08-04): the flow runs the real
-    ``register-project`` installer, whose CP 2 probes the live GitHub repo
-    through ``gh``. The Jenkins agent has no ``gh`` binary, so the probe
-    reports ``exists=False`` and CP 2 fails closed with ``repo_unreachable`` --
-    correct behaviour of the checkpoint, but nothing this test is about.
-    Weakening CP 2 or injecting a fake probe through the CLI would create the
-    production bypass the checkpoint exists to prevent.
+    Needs a working ``gh``: the flow runs the real ``register-project``
+    installer, whose CP 2 probes the live GitHub repo. That is deliberate --
+    weakening CP 2 or injecting a fake probe through the CLI would create the
+    very production bypass the checkpoint exists to prevent.
 
-    **This is a named gap, not a green result.** The CP 10d credential path is
-    currently proven only where ``gh`` is installed and authenticated, never in
-    CI. Closing it means putting ``gh`` plus a token into the Jenkins image --
-    a procurement decision (CLAUDE.md "FEHLENDES BESCHAFFEN STATT UMGEHEN"),
-    not something to paper over here.
+    This test was briefly marked ``requires_gh`` on 2026-08-04 because the
+    Jenkins image carried no ``gh`` binary, which took the CP 10d credential
+    path out of CI entirely. The tool was procured instead of the proof being
+    weakened (CLAUDE.md "FEHLENDES BESCHAFFEN STATT UMGEHEN"): ``gh`` plus a
+    token now live in the shared CI image (``seu-ci-infrastructure``,
+    ``jenkins/Dockerfile``), so the marker is gone and the path is proven where
+    it counts.
     """
     del postgres_isolated_schema
     monkeypatch.chdir(tmp_path)

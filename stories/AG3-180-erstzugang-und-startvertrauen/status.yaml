@@ -9,17 +9,18 @@ updated: "2026-08-04"
 # 2026-08-04 abgeschlossen mit Commit 97db954e (zwei Reviewrunden, zwei
 # Remediationen). ZWEI BENANNTE LUECKEN, ausdruecklich nicht "gruen":
 #
-#  1) `test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d`
-#     traegt seit 2026-08-04 den Marker `requires_gh` und laeuft damit NICHT in
-#     CI. Grund: der Test faehrt den echten `register-project`-Installer, dessen
-#     CP 2 das GitHub-Repo ueber `gh` prueft; im Jenkins-Container gibt es kein
-#     `gh` (verifiziert: `docker exec seu-jenkins which gh` -> not found). CP 2
-#     scheitert dort korrekt fail-closed mit `repo_unreachable`. Der Build war
-#     deswegen seit #1222 rot. Weder CP 2 schwaechen noch eine Fake-Probe durch
-#     die CLI reichen -- beides waere genau der Produktions-Bypass, den der
-#     Checkpoint verhindern soll. Der CP-10d-Credential-Pfad ist damit nur dort
-#     bewiesen, wo `gh` installiert und authentifiziert ist. Schliessen heisst:
-#     `gh` plus Token ins Jenkins-Image -- Beschaffungsentscheidung des PO.
+#  1) GESCHLOSSEN am 2026-08-04. Der CP-10d-Test lief kurzzeitig mit dem Marker
+#     `requires_gh` nicht in CI, weil das Jenkins-Image kein `gh` enthielt und
+#     CP 2 dort korrekt fail-closed mit `repo_unreachable` scheiterte (Builds
+#     #1222/#1223 rot). Statt den Nachweis zu schwaechen wurde das Werkzeug
+#     beschafft (CLAUDE.md "FEHLENDES BESCHAFFEN STATT UMGEHEN"): `gh` 2.97.0
+#     ist im gemeinsamen CI-Image (`seu-ci-infrastructure`, Commit 2899510),
+#     der Token kommt zur Laufzeit aus der gitignorierten `jenkins/.env`.
+#     Verifiziert im Container: `gh repo view openai/openai-python --json name`
+#     -> {"name":"openai-python"}. Marker entfernt, der Pfad laeuft wieder in
+#     CI. PO-Entscheid zum Token: der persoenliche gh-Token wird verwendet;
+#     er traegt repo/workflow/project/gist/read:org, also vollen Schreibzugriff
+#     -- ein dedizierter read-only Token waere die engere Wahl.
 #  2) AC 1b hat keine echte Betriebssystemrechte-/Maschinentrennung im Nachweis
 #     (Befund aus Reviewrunde 2). Testschaerfe-Luecke, kein Codedefekt.
 #
