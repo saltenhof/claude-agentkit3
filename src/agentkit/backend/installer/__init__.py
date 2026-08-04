@@ -76,33 +76,39 @@ if TYPE_CHECKING:
         run_upgrade as run_upgrade,
     )
 
+_CHECKPOINT_ENGINE_MODULE = "agentkit.backend.installer.checkpoint_engine"
+_REGISTRATION_MODULE = "agentkit.backend.installer.registration"
+_REPO_PROBE_MODULE = "agentkit.backend.installer.repo_probe"
+_RUNNER_MODULE = "agentkit.backend.installer.runner"
+_UPGRADE_MODULE = "agentkit.backend.installer.upgrade"
+
 _EXPORT_MODULES = {
-    "CheckpointEngine": "agentkit.backend.installer.checkpoint_engine",
-    "CheckpointResult": "agentkit.backend.installer.registration",
-    "CheckpointStatus": "agentkit.backend.installer.registration",
-    "CustomizationFootprint": "agentkit.backend.installer.upgrade",
-    "ExecutionMode": "agentkit.backend.installer.checkpoint_engine",
-    "GhCliRepoExistenceProbe": "agentkit.backend.installer.repo_probe",
-    "InstallConfig": "agentkit.backend.installer.runner",
-    "InstallResult": "agentkit.backend.installer.runner",
-    "ProjectRegistration": "agentkit.backend.installer.registration",
+    "CheckpointEngine": _CHECKPOINT_ENGINE_MODULE,
+    "CheckpointResult": _REGISTRATION_MODULE,
+    "CheckpointStatus": _REGISTRATION_MODULE,
+    "CustomizationFootprint": _UPGRADE_MODULE,
+    "ExecutionMode": _CHECKPOINT_ENGINE_MODULE,
+    "GhCliRepoExistenceProbe": _REPO_PROBE_MODULE,
+    "InstallConfig": _RUNNER_MODULE,
+    "InstallResult": _RUNNER_MODULE,
+    "ProjectRegistration": _REGISTRATION_MODULE,
     "ProjectRegistrationRepository": "agentkit.backend.installer.repository",
-    "RepoExistenceProbe": "agentkit.backend.installer.repo_probe",
-    "RepoProbeResult": "agentkit.backend.installer.repo_probe",
-    "RuntimeProfile": "agentkit.backend.installer.registration",
-    "UpgradeResult": "agentkit.backend.installer.upgrade",
-    "UpgradeScenario": "agentkit.backend.installer.upgrade",
-    "build_installer_flow": "agentkit.backend.installer.checkpoint_engine",
-    "install_agentkit": "agentkit.backend.installer.runner",
-    "migrate_config": "agentkit.backend.installer.upgrade",
+    "RepoExistenceProbe": _REPO_PROBE_MODULE,
+    "RepoProbeResult": _REPO_PROBE_MODULE,
+    "RuntimeProfile": _REGISTRATION_MODULE,
+    "UpgradeResult": _UPGRADE_MODULE,
+    "UpgradeScenario": _UPGRADE_MODULE,
+    "build_installer_flow": _CHECKPOINT_ENGINE_MODULE,
+    "install_agentkit": _RUNNER_MODULE,
+    "migrate_config": _UPGRADE_MODULE,
     "run_checkpoint_install": "agentkit.backend.installer.bootstrap_checkpoints",
-    "run_cleanup": "agentkit.backend.installer.upgrade",
-    "run_upgrade": "agentkit.backend.installer.upgrade",
+    "run_cleanup": _UPGRADE_MODULE,
+    "run_upgrade": _UPGRADE_MODULE,
 }
 
 _PREFLIGHTED_EXPORT_MODULES = {
     "agentkit.backend.installer.bootstrap_checkpoints",
-    "agentkit.backend.installer.runner",
+    _RUNNER_MODULE,
 }
 
 __all__ = list(_EXPORT_MODULES)

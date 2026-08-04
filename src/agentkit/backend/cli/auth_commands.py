@@ -51,6 +51,7 @@ _INTERACTIVE_REQUIRED = (
     "Run it directly from an interactive terminal; redirected, agent, and CI "
     "invocations are refused."
 )
+_STRATEGIST_PASSWORD_PROMPT = "Strategist password: "
 
 
 class _DeferredProjectTokenTransport:
@@ -218,15 +219,12 @@ def prepare_installer_auth_context(args: argparse.Namespace) -> InstallerAuthCon
                 pending = load_pending_project_credentials(credential_path)
             except CredentialMissingError:
                 pending = None
-            if pending is not None and (
-                pending.project_key != project_key
-                or pending.status != "pending"
-                or pending.superseded_token_id is not None
-            ):
-                raise CredentialStateError(
-                    "Pending project credential cannot initialize this project",
-                ) from None
             if pending is not None:
+                is_initial_pending_state = pending.status == "pending" and pending.superseded_token_id is None
+                if pending.project_key != project_key or not is_initial_pending_state:
+                    raise CredentialStateError(
+                        "Pending project credential cannot initialize this project",
+                    ) from None
                 raise CredentialStateError(
                     "Pending project credential cannot replace the required handed-off active token",
                 ) from None
@@ -294,7 +292,7 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
 def _cmd_login(args: argparse.Namespace) -> int:
     if not _require_interactive_terminal():
         return 1
-    password = getpass.getpass("Strategist password: ")
+    password = getpass.getpass(_STRATEGIST_PASSWORD_PROMPT)
     try:
         authenticate_strategist(
             _build_transport(args.base_url, args.ca_file),
@@ -343,7 +341,7 @@ def _cmd_rotate_password(args: argparse.Namespace) -> int:
 def _cmd_issue_token(args: argparse.Namespace) -> int:
     if not _require_interactive_terminal():
         return 1
-    password = getpass.getpass("Strategist password: ")
+    password = getpass.getpass(_STRATEGIST_PASSWORD_PROMPT)
     operation_id = f"op-{uuid.uuid4().hex}"
     prepared = prepare_project_api_token(
         project_key=str(args.project_key),
@@ -429,7 +427,7 @@ def _cmd_store_token(args: argparse.Namespace) -> int:
 def _cmd_revoke_token(args: argparse.Namespace) -> int:
     if not _require_interactive_terminal():
         return 1
-    password = getpass.getpass("Strategist password: ")
+    password = getpass.getpass(_STRATEGIST_PASSWORD_PROMPT)
     operation_id = str(args.op_id) if args.op_id is not None else f"op-{uuid.uuid4().hex}"
     print(
         json.dumps(

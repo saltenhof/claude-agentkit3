@@ -36,14 +36,19 @@ if TYPE_CHECKING:
         to_neutral_event as to_neutral_event,
     )
 
+_DECISION_MAPPING_MODULE = (
+    "agentkit.harness_client.harness_adapters.codex.decision_mapping"
+)
+_EVENT_MAPPING_MODULE = "agentkit.harness_client.harness_adapters.codex.event_mapping"
+
 _EXPORT_MODULES = {
     "main": "agentkit.harness_client.harness_adapters.codex.cli",
-    "CodexHookOutput": "agentkit.harness_client.harness_adapters.codex.decision_mapping",
-    "codex_exit_code": "agentkit.harness_client.harness_adapters.codex.decision_mapping",
-    "to_codex_output": "agentkit.harness_client.harness_adapters.codex.decision_mapping",
-    "CodexHookEvent": "agentkit.harness_client.harness_adapters.codex.event_mapping",
-    "CodexPostToolEvent": "agentkit.harness_client.harness_adapters.codex.event_mapping",
-    "to_neutral_event": "agentkit.harness_client.harness_adapters.codex.event_mapping",
+    "CodexHookOutput": _DECISION_MAPPING_MODULE,
+    "codex_exit_code": _DECISION_MAPPING_MODULE,
+    "to_codex_output": _DECISION_MAPPING_MODULE,
+    "CodexHookEvent": _EVENT_MAPPING_MODULE,
+    "CodexPostToolEvent": _EVENT_MAPPING_MODULE,
+    "to_neutral_event": _EVENT_MAPPING_MODULE,
 }
 
 __all__ = [

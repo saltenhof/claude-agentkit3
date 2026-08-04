@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.credentials import StrategistCredentialStore
 
 _DEFAULT_TTL = timedelta(hours=24)
+_AUTHENTICATION_FAILED_MESSAGE = "Authentication failed"
 
 
 class SessionStore(Protocol):
@@ -68,7 +69,7 @@ class InMemorySessionStore:
             session = self._sessions.get(session_id)
             if session is None or session.expires_at <= current_time:
                 self._sessions.pop(session_id, None)
-                raise AuthFailedError("Authentication failed")
+                raise AuthFailedError(_AUTHENTICATION_FAILED_MESSAGE)
             refreshed = session.model_copy(
                 update={
                     "last_activity_at": current_time,
@@ -155,7 +156,7 @@ class FileSessionStore:
             ):
                 sessions.pop(session_id, None)
                 self._persist_sessions(sessions)
-                raise AuthFailedError("Authentication failed")
+                raise AuthFailedError(_AUTHENTICATION_FAILED_MESSAGE)
             session = persisted.session
             refreshed = session.model_copy(
                 update={
@@ -184,7 +185,7 @@ class FileSessionStore:
             return {}
         document = self._read_validated_sessions()
         if document is None:
-            raise AuthFailedError("Authentication failed")
+            raise AuthFailedError(_AUTHENTICATION_FAILED_MESSAGE)
         return {
             session_id: persisted
             for session_id, persisted in document.sessions.items()

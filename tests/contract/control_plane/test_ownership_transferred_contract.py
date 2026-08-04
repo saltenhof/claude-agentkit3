@@ -30,7 +30,7 @@ from agentkit.backend.control_plane.runtime import (
     _ownership_transferred_rejection,
     _rejection_result,
 )
-from agentkit.backend.control_plane_http.app import _mutation_result_response
+from agentkit.backend.control_plane_http.responses import _mutation_result_response
 
 if TYPE_CHECKING:
     from agentkit.backend.control_plane.models import ControlPlaneMutationResult

@@ -57,13 +57,15 @@ def dependency_preflight_checkpoint(
 
     if report is not None and report.passed:
         raise ValueError("dependency preflight failure result requires a failing report")
-    detail = (
-        f"AgentKit runtime dependency declaration is unavailable: {declaration_error}"
-        if declaration_error is not None
-        else format_dependency_failures(report)
-        if report is not None
-        else "AgentKit runtime dependency preflight produced no report."
-    )
+    if declaration_error is not None:
+        detail = (
+            "AgentKit runtime dependency declaration is unavailable: "
+            f"{declaration_error}"
+        )
+    elif report is not None:
+        detail = format_dependency_failures(report)
+    else:
+        detail = "AgentKit runtime dependency preflight produced no report."
     return make_result(
         nid.CP_01_PACKAGE_CHECK,
         status=CheckpointStatus.FAILED,

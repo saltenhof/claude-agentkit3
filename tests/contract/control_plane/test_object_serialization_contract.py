@@ -28,7 +28,7 @@ import pytest
 
 from agentkit.backend.control_plane import object_claims as oc
 from agentkit.backend.control_plane.runtime import _object_claim_busy_rejection
-from agentkit.backend.control_plane_http.app import _mutation_result_response
+from agentkit.backend.control_plane_http.responses import _mutation_result_response
 
 if TYPE_CHECKING:
     from agentkit.backend.control_plane.models import ControlPlaneMutationResult

@@ -95,34 +95,16 @@ def aggregate_hook_errors(
     with lines:
         for line_number, line in enumerate(lines, start=1):
             record = _parse_record(line, transcript=transcript, line_number=line_number)
-            if record.get("type") != "attachment":
-                continue
-            attachment = record.get("attachment")
-            if not isinstance(attachment, dict):
-                raise TranscriptFormatError(
-                    f"{transcript}:{line_number}: attachment must be an object"
-                )
-            attachment_type = attachment.get("type")
-            if not isinstance(attachment_type, str) or not attachment_type.strip():
-                raise TranscriptFormatError(
-                    f"{transcript}:{line_number}: attachment has no non-empty type"
-                )
-            if attachment_type != "hook_non_blocking_error":
-                continue
-            if not _within_bounds(
+            error = _extract_hook_error(
                 record,
                 since=since,
                 until=until,
                 transcript=transcript,
                 line_number=line_number,
-            ):
+            )
+            if error is None:
                 continue
-            hook = attachment.get("command")
-            if not isinstance(hook, str) or not hook.strip():
-                raise TranscriptFormatError(
-                    f"{transcript}:{line_number}: hook error has no non-empty command"
-                )
-            error_text = _error_text(attachment)
+            hook, error_text = error
             grouped[hook][error_text] += 1
             total += 1
     hooks = tuple(
@@ -144,6 +126,45 @@ def aggregate_hook_errors(
         total_errors=total,
         hooks=hooks,
     )
+
+
+def _extract_hook_error(
+    record: dict[str, object],
+    *,
+    since: datetime | None,
+    until: datetime | None,
+    transcript: Path,
+    line_number: int,
+) -> tuple[str, str] | None:
+    """Validate and return one in-window hook error, if the record is one."""
+    if record.get("type") != "attachment":
+        return None
+    attachment = record.get("attachment")
+    if not isinstance(attachment, dict):
+        raise TranscriptFormatError(
+            f"{transcript}:{line_number}: attachment must be an object"
+        )
+    attachment_type = attachment.get("type")
+    if not isinstance(attachment_type, str) or not attachment_type.strip():
+        raise TranscriptFormatError(
+            f"{transcript}:{line_number}: attachment has no non-empty type"
+        )
+    if attachment_type != "hook_non_blocking_error":
+        return None
+    if not _within_bounds(
+        record,
+        since=since,
+        until=until,
+        transcript=transcript,
+        line_number=line_number,
+    ):
+        return None
+    hook = attachment.get("command")
+    if not isinstance(hook, str) or not hook.strip():
+        raise TranscriptFormatError(
+            f"{transcript}:{line_number}: hook error has no non-empty command"
+        )
+    return hook, _error_text(attachment)
 
 
 def parse_timestamp_bound(value: str) -> datetime:

@@ -14,7 +14,7 @@ from agentkit.backend.control_plane.models import (
 from agentkit.backend.control_plane.runtime._ownership_transfer_support import (
     _takeover_rejection,
 )
-from agentkit.backend.control_plane_http.app import _mutation_result_response
+from agentkit.backend.control_plane_http.responses import _mutation_result_response
 from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.state_backend.store.freeze_repository import FreezeRecord
 

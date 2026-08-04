@@ -12,6 +12,7 @@ from agentkit.harness_client.projectedge.credentials import (
     CredentialMissingError,
     CredentialStateError,
     PreparedProjectApiToken,
+    ProjectCredentialFile,
     acknowledge_project_token_revocation,
     activate_project_credentials,
     load_active_project_credentials,
@@ -106,6 +107,60 @@ def _provision_project_credentials_locked(
     replace_active: bool,
 ) -> ProjectCredentialProvisionResult:
     """Execute one credential transition while holding its process lock."""
+    active, pending = _load_credential_transition(path, project_key=project_key)
+    pending, recovered_activation = _reconcile_credential_transition(
+        path,
+        active=active,
+        pending=pending,
+        replace_active=replace_active,
+    )
+    active_result = _active_provision_result(
+        path,
+        active=active,
+        replace_active=replace_active,
+        recovered_activation=recovered_activation,
+    )
+    if active_result is not None:
+        return active_result
+    if active is not None and active.superseded_token_id is not None:
+        raise CredentialStateError(
+            "Revoke the previously superseded token before issuing another token",
+        )
+
+    prepared, effective_label, effective_op_id = _prepare_credential_issuance(
+        path,
+        active=active,
+        pending=pending,
+        project_key=project_key,
+        label=label,
+        op_id=op_id,
+    )
+    response = transport.send(
+        method="POST",
+        path=f"/v1/projects/{project_key}/api-tokens",
+        payload={
+            "label": effective_label,
+            "op_id": effective_op_id,
+            "token_id": prepared.record.token_id,
+            "token_hash": prepared.record.token_hash,
+        },
+    )
+    token_payload = response.get("token")
+    if (
+        not isinstance(token_payload, dict)
+        or token_payload.get("token_id") != prepared.record.token_id
+    ):
+        raise RuntimeError("project token registration response is malformed")
+    activated = activate_project_credentials(path)
+    return _provision_result("active", path=path, credential=activated)
+
+
+def _load_credential_transition(
+    path: Path,
+    *,
+    project_key: str,
+) -> tuple[ProjectCredentialFile | None, ProjectCredentialFile | None]:
+    """Load the active and pending sides of one credential transition."""
     try:
         active = load_active_project_credentials(path, project_key=project_key)
     except CredentialMissingError:
@@ -114,7 +169,17 @@ def _provision_project_credentials_locked(
         pending = load_pending_project_credentials(path)
     except CredentialMissingError:
         pending = None
+    return active, pending
 
+
+def _reconcile_credential_transition(
+    path: Path,
+    *,
+    active: ProjectCredentialFile | None,
+    pending: ProjectCredentialFile | None,
+    replace_active: bool,
+) -> tuple[ProjectCredentialFile | None, bool]:
+    """Reconcile a crash boundary or validate an in-flight rotation."""
     recovered_activation = False
     if active is not None and pending is not None and pending.token_id == active.token_id:
         reconcile_activated_pending_credentials(path, active=active, pending=pending)
@@ -129,21 +194,36 @@ def _provision_project_credentials_locked(
             raise CredentialStateError(
                 "A pending token rotation must be resumed before using the active credential",
             )
+    return pending, recovered_activation
 
+
+def _active_provision_result(
+    path: Path,
+    *,
+    active: ProjectCredentialFile | None,
+    replace_active: bool,
+    recovered_activation: bool,
+) -> ProjectCredentialProvisionResult | None:
+    """Return the terminal active state when no issuance transition is needed."""
     if active is not None and (not replace_active or recovered_activation):
-        return ProjectCredentialProvisionResult(
-            status="already_active",
-            credential_path=path,
-            token_id=active.token_id,
-            project_api_token=active.project_api_token,
-            superseded_token_id=active.superseded_token_id,
+        return _provision_result(
+            "already_active",
+            path=path,
+            credential=active,
         )
-    if active is not None and active.superseded_token_id is not None:
-        raise CredentialStateError(
-            "Revoke the previously superseded token before issuing another token",
-        )
+    return None
 
-    effective_op_id: str | None
+
+def _prepare_credential_issuance(
+    path: Path,
+    *,
+    active: ProjectCredentialFile | None,
+    pending: ProjectCredentialFile | None,
+    project_key: str,
+    label: str,
+    op_id: str,
+) -> tuple[PreparedProjectApiToken, str, str]:
+    """Create a pending issuance or resume its exact persisted identity."""
     if pending is None:
         prepared = prepare_project_api_token(project_key=project_key, label=label)
         write_pending_project_credentials(
@@ -153,42 +233,35 @@ def _provision_project_credentials_locked(
             issuance_op_id=op_id,
             superseded_token_id=active.token_id if active is not None else None,
         )
-        effective_op_id = op_id
-    else:
-        if pending.project_key != project_key or pending.status != "pending":
-            raise CredentialStateError(
-                "Existing project credential cannot be resumed for this project",
-            )
-        if active is None and pending.superseded_token_id is not None:
-            raise CredentialStateError(
-                "Pending rotation has no matching active project credential",
-            )
-        prepared = prepared_token_from_credentials(pending)
-        label = pending.label
-        effective_op_id = pending.issuance_op_id
+        return prepared, label, op_id
+    if pending.project_key != project_key or pending.status != "pending":
+        raise CredentialStateError(
+            "Existing project credential cannot be resumed for this project",
+        )
+    if active is None and pending.superseded_token_id is not None:
+        raise CredentialStateError(
+            "Pending rotation has no matching active project credential",
+        )
+    prepared = prepared_token_from_credentials(pending)
+    effective_op_id = pending.issuance_op_id
     if effective_op_id is None:
         raise CredentialStateError("Pending project credential has no issuance identity")
+    return prepared, pending.label, effective_op_id
 
-    response = transport.send(
-        method="POST",
-        path=f"/v1/projects/{project_key}/api-tokens",
-        payload={
-            "label": label,
-            "op_id": effective_op_id,
-            "token_id": prepared.record.token_id,
-            "token_hash": prepared.record.token_hash,
-        },
-    )
-    token_payload = response.get("token")
-    if not isinstance(token_payload, dict) or token_payload.get("token_id") != prepared.record.token_id:
-        raise RuntimeError("project token registration response is malformed")
-    active = activate_project_credentials(path)
+
+def _provision_result(
+    status: str,
+    *,
+    path: Path,
+    credential: ProjectCredentialFile,
+) -> ProjectCredentialProvisionResult:
+    """Render one active credential state as a provisioning result."""
     return ProjectCredentialProvisionResult(
-        status="active",
+        status=status,
         credential_path=path,
-        token_id=active.token_id,
-        project_api_token=active.project_api_token,
-        superseded_token_id=active.superseded_token_id,
+        token_id=credential.token_id,
+        project_api_token=credential.project_api_token,
+        superseded_token_id=credential.superseded_token_id,
     )
 
 

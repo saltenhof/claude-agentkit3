@@ -13,36 +13,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPSServer
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
-from pydantic import ValidationError
-
 from agentkit.backend.auth.middleware import AuthMiddlewareResponse
 from agentkit.backend.config.defaults import CORE_LOOPBACK_HOST
 from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService
-from agentkit.backend.control_plane.models import (
-    AdminAbortRequest,
-    ClosureCompleteRequest,
-    EdgeCommandResultRequest,
-    PhaseMutationRequest,
-    ProjectEdgeSyncRequest,
-    op_id_validation_error,
-)
-from agentkit.backend.control_plane.runtime import (
-    ControlPlaneRuntimeService,
-    OperationNotAbortableError,
-    OperationNotFoundError,
-)
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
 from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
-from agentkit.backend.exceptions import ConfigError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
+    from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.story.service import StoryService
     from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
@@ -80,17 +65,14 @@ from agentkit.backend.control_plane_http.responses import (
 from agentkit.backend.control_plane_http.responses import (
     _auth_middleware_response_to_http_response,
     _auth_response_to_http_response,
-    _backend_requirement_response,
     _bc_response_to_http_response,
     _concept_response_to_http_response,
     _decode_json_body,
     _decode_optional_json_body,
-    _edge_command_result_response,
     _error_response,
     _has_header,
     _hub_response_to_http_response,
     _json_response,
-    _mutation_result_response,
     _planning_response_to_http_response,
     _project_response_to_http_response,
     _resolve_correlation_id,
@@ -99,6 +81,9 @@ from agentkit.backend.control_plane_http.responses import (
 )
 from agentkit.backend.control_plane_http.routes_config import (
     ControlPlaneApplicationRoutes as ControlPlaneApplicationRoutes,
+)
+from agentkit.backend.control_plane_http.runtime_mutation_handlers import (
+    _RuntimeMutationHandlers,
 )
 from agentkit.backend.control_plane_http.startup import run_pre_serve_startup
 from agentkit.backend.control_plane_http.takeover_dispatch import (
@@ -315,7 +300,10 @@ class _StoryDashboardHandlersMixin:
 
 
 class ControlPlaneApplication(
-    _StoryDashboardHandlersMixin, InstallerDispatchMixin, _GovernanceMediationHandlers
+    _StoryDashboardHandlersMixin,
+    InstallerDispatchMixin,
+    _GovernanceMediationHandlers,
+    _RuntimeMutationHandlers,
 ):
     """Route and validate HTTP requests for the control plane (FK-72 §72.8.2).
 
@@ -1052,301 +1040,6 @@ class ControlPlaneApplication(
             message=_NOT_FOUND_MESSAGE,
             correlation_id=correlation_id,
         )
-
-    # ------------------------------------------------------------------
-    # Private handler implementations
-    # ------------------------------------------------------------------
-
-    def _handle_post_phase_mutation(
-        self,
-        *,
-        payload: object,
-        run_id: str,
-        phase: str,
-        action: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        from agentkit.backend.story_context_manager.errors import (
-            IdempotencyMismatchError,
-        )
-
-        try:
-            request = PhaseMutationRequest.model_validate(payload)
-            if action == "start":
-                result = self._runtime_service.start_phase(
-                    run_id=run_id,
-                    phase=phase,
-                    request=request,
-                )
-            elif action == "complete":
-                result = self._runtime_service.complete_phase(
-                    run_id=run_id,
-                    phase=phase,
-                    request=request,
-                )
-            elif action == "fail":
-                result = self._runtime_service.fail_phase(
-                    run_id=run_id,
-                    phase=phase,
-                    request=request,
-                )
-            else:
-                # AG3-130: resume a PAUSED phase; the core drives the pipeline
-                # engine's resume path server-side (FK-45, FK-91 §91.1a).
-                result = self._runtime_service.resume_phase(
-                    run_id=run_id,
-                    phase=phase,
-                    request=request,
-                )
-        except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
-            # closed with 422, distinct from an ordinary 400 payload-shape defect.
-            return _error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
-                else HTTPStatus.BAD_REQUEST,
-                error_code="invalid_phase_mutation_payload",
-                message="Invalid phase mutation payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except IdempotencyMismatchError as exc:
-            # AG3-140 finding 3 (FK-91 §91.1a Rule 5): a terminal op_id replayed
-            # with a DIFFERENT phase/action/body is fail-closed 409, not a wrong
-            # replay of the stored result.
-            return _error_response(
-                HTTPStatus.CONFLICT,
-                error_code="idempotency_mismatch",
-                message=str(exc),
-                correlation_id=correlation_id,
-                detail=exc.detail,
-            )
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "phase_mutation_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Control-plane phase mutation unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="phase_mutation_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _mutation_result_response(result, correlation_id=correlation_id)
-
-    def _handle_post_closure_complete(
-        self,
-        *,
-        payload: object,
-        run_id: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        from agentkit.backend.story_context_manager.errors import (
-            IdempotencyMismatchError,
-        )
-
-        try:
-            request = ClosureCompleteRequest.model_validate(payload)
-            result = self._runtime_service.complete_closure(
-                run_id=run_id,
-                request=request,
-            )
-        except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
-            # closed with 422, distinct from an ordinary 400 payload-shape defect.
-            return _error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
-                else HTTPStatus.BAD_REQUEST,
-                error_code="invalid_closure_payload",
-                message="Invalid closure payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except IdempotencyMismatchError as exc:
-            # AG3-140 finding 3: a terminal op_id replayed with a different
-            # closure body is fail-closed 409 idempotency_mismatch.
-            return _error_response(
-                HTTPStatus.CONFLICT,
-                error_code="idempotency_mismatch",
-                message=str(exc),
-                correlation_id=correlation_id,
-                detail=exc.detail,
-            )
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "closure_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Control-plane closure unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="closure_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        #: AG3-138 AC10: a repair-locked (or otherwise ``rejected``) closure maps to
-        #: 409 -- identical wiring to the phase mutation entrypoint. Previously this
-        #: path returned 201 CREATED unconditionally, letting a rejected closure look
-        #: like a success (fail-closed violation).
-        return _mutation_result_response(result, correlation_id=correlation_id)
-
-    def _handle_post_project_edge_sync(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        try:
-            request = ProjectEdgeSyncRequest.model_validate(payload)
-            result = self._runtime_service.sync_project_edge(request)
-        except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
-            # closed with 422, distinct from an ordinary 400 payload-shape defect.
-            return _error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
-                else HTTPStatus.BAD_REQUEST,
-                error_code="invalid_project_edge_sync_payload",
-                message="Invalid project-edge sync payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "project_edge_sync_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Project-edge sync unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="project_edge_sync_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_post_command_result(
-        self,
-        *,
-        command_id: str,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        """``POST .../commands/{command_id}/result`` (FK-91 §91.1b, AG3-145 AC2/AC3)."""
-        try:
-            request = EdgeCommandResultRequest.model_validate(payload)
-            result = self._runtime_service.submit_command_result(command_id, request)
-        except ValidationError as exc:
-            # AG3-140-style contract (FK-91 §91.1a Rule 5): a missing/empty op_id
-            # fails closed with 422, distinct from an ordinary 400 shape defect.
-            return _error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
-                else HTTPStatus.BAD_REQUEST,
-                error_code="invalid_edge_command_result_payload",
-                message="Invalid edge-command result payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "edge_command_result_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Edge-command result unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="edge_command_result_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _edge_command_result_response(result, correlation_id=correlation_id)
-
-    def _handle_post_admin_abort(
-        self,
-        *,
-        op_id: str,
-        payload: object,
-        correlation_id: str,
-        auth_result: AuthResult | None,
-    ) -> HttpResponse:
-        """POST /v1/project-edge/operations/{op_id}/admin-abort (AG3-138).
-
-        FK-91 §91.1a ``admin_abort_inflight_operation`` (op-class
-        ``admin_transition``, FK-55 §55.5). Deterministic, fail-closed error
-        contract (AC6): an unknown ``op_id`` -> 404 ``operation_not_found``; a
-        target that is not a live in-flight claim (already terminal / resolved
-        concurrently) -> 409 ``operation_not_abortable``. On success the terminal
-        ``aborted`` / ``repair`` result (200) carries the audited ``admin_note``;
-        a partial write target goes to ``repair`` (IMPL-005) and mutation-locks its
-        story (AC10). With HTTP authentication enabled, only an attested strategist
-        session may cross this ``admin_transition`` boundary; project API tokens are
-        rejected before the target operation is loaded. The audited actor is derived
-        from that session, never trusted from the request body.
-        """
-        try:
-            if auth_result is not None and not auth_result.is_human_bff_session:
-                return _error_response(
-                    HTTPStatus.FORBIDDEN,
-                    error_code="admin_abort_forbidden",
-                    message="Administrative abort requires a human BFF session",
-                    correlation_id=correlation_id,
-                )
-            request = AdminAbortRequest.model_validate(payload)
-            if auth_result is not None and auth_result.session_id is not None:
-                request = request.model_copy(
-                    update={
-                        "session_id": auth_result.session_id,
-                        "principal_type": "human_cli",
-                    }
-                )
-            result = self._runtime_service.admin_abort_inflight_operation(op_id, request)
-        except ValidationError as exc:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_admin_abort_payload",
-                message="Invalid admin-abort payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except OperationNotFoundError:
-            return _error_response(
-                HTTPStatus.NOT_FOUND,
-                error_code="operation_not_found",
-                message=f"Operation {op_id!r} not found",
-                correlation_id=correlation_id,
-            )
-        except OperationNotAbortableError as exc:
-            return _error_response(
-                HTTPStatus.CONFLICT,
-                error_code="operation_not_abortable",
-                message=str(exc),
-                correlation_id=correlation_id,
-                detail={"current_status": exc.current_status},
-            )
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "admin_abort_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Admin-abort unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="admin_abort_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
 
 # ---------------------------------------------------------------------------
 # HTTP server entry point
