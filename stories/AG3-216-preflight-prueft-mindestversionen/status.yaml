@@ -1,0 +1,23 @@
+story_id: AG3-216
+story_title_short: "preflight-prueft-mindestversionen"
+title: "Der Runtime-Preflight prueft, ob deklarierte Pflichtpakete importierbar sind -- nicht, ob die installierte Version den deklarierten Bereich erfuellt. Eine Untergrenze, die niemand durchsetzt, ist eine Aussage ohne Wirkung."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-04"
+size: S
+# Herkunft: Nebenbefund der Sonar-Remediation am 2026-08-04. Der AG3-180-
+# Sicherheitsfix ruft ValidationError.errors(include_input=, include_url=) --
+# eine API, die `pydantic>=2.0` nicht zusagte. Unter einer zulaessigen, aber zu
+# alten Version haette der Fix einen TypeError geworfen statt zu redigieren.
+#
+# Der Einzelfall ist behoben (5db51bea, Untergrenze empirisch auf >=2.12). Die
+# Luecke, die ihn moeglich gemacht hat, nicht: AG3-206 hat festgeschrieben,
+# dass die Deklaration die einzige Paketwahrheit ist, und prueft nur
+# Importierbarkeit. Damit gilt der Satz nur halb.
+#
+# Beidseitig relevant: das Repo pinnt auch nach oben (mcp<2, weaviate-client
+# <5.0) und exakt (tokenizers==0.21.0, tomlkit==0.15.1). Ein Bereich, der nur
+# nach unten durchgesetzt wird, ist halb durchgesetzt.
+depends_on: ["AG3-206"]
+unblocks: []
