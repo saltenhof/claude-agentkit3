@@ -29,7 +29,6 @@ AC4 production wiring (overridden outcome via phase.py):
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -65,6 +64,7 @@ from integration.implementation_evidence_support import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from agentkit.backend.artifacts import ArtifactReference
@@ -83,11 +83,18 @@ _RUN_ID = "run-wiring-001"
 
 
 @pytest.fixture(autouse=True)
-def _sqlite_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _sqlite_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    from agentkit.backend.state_backend.persistence_test_support import (
+        reset_backend_cache_for_tests,
+    )
+
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    os.environ["AGENTKIT_STATE_BACKEND"] = "sqlite"
-    os.environ["AGENTKIT_ALLOW_SQLITE"] = "1"
+    reset_backend_cache_for_tests()
+    try:
+        yield
+    finally:
+        reset_backend_cache_for_tests()
 
 
 def _ctx() -> StoryContext:
