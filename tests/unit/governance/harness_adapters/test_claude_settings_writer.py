@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING
 
 from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.harness_client.harness_adapters.settings_writer import (
     ClaudeCodeSettingsWriter,
 )
@@ -19,6 +20,14 @@ def _hook(command: str, matcher: str = "Bash") -> HookDefinition:
         hook_event_name=HookEventName.PRE_TOOL_USE,
         matcher=matcher,
         command=command,
+    )
+
+
+def _emitted_command(phase: str, hook_id: str) -> str:
+    return render_ak3_wrapper_command(
+        "agentkit-hook-claude",
+        phase,
+        hook_id,
     )
 
 
@@ -39,8 +48,8 @@ def test_shared_matcher_commands_become_handlers_in_one_group(tmp_path: Path) ->
     bash = groups[0]
     assert "command" not in bash
     assert [handler["command"] for handler in bash["hooks"]] == [
-        "agentkit-hook-claude pre branch_guard",
-        "agentkit-hook-claude pre story_creation_guard",
+        _emitted_command("pre", "branch_guard"),
+        _emitted_command("pre", "story_creation_guard"),
     ]
 
 
@@ -77,7 +86,7 @@ def test_existing_foreign_group_and_handler_survive_merge(tmp_path: Path) -> Non
     assert data["permissions"] == {"allow": ["Bash"]}
     assert [handler["command"] for handler in group["hooks"]] == [
         "/opt/foreign.sh",
-        "agentkit-hook-claude pre branch_guard",
+        _emitted_command("pre", "branch_guard"),
     ]
 
 
@@ -114,5 +123,5 @@ def test_legacy_flat_entries_are_normalized_without_losing_foreign(
     assert group["matcher"] == "Bash"
     assert group["hooks"] == [
         {"command": "/opt/foreign.sh", "args": ["--audit"], "type": "command"},
-        {"type": "command", "command": "agentkit-hook-claude pre branch_guard"},
+        {"type": "command", "command": _emitted_command("pre", "branch_guard")},
     ]

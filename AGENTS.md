@@ -80,9 +80,20 @@ Auftraggeber iterieren.
   aus und ist **parametrisiert** (`agentkit_mode`, `sonar_project_key`,
   `sonar_branch`). Der CI-Loop startet mit
   `POST /job/claude-agentkit3/buildWithParameters?agentkit_mode=ci&sonar_project_key=claude-agentkit3&sonar_branch=main&delay=0sec`
-  (plus CSRF-Crumb aus `/crumbIssuer/api/json`). Jenkins laeuft mit
-  `SecurityRealm=None` + `AuthorizationStrategy=Unsecured`: kein Login, anonym
-  hat Vollzugriff; ein Jenkins-Token wird nicht benoetigt (nur der Crumb fuer POST).
+  (plus CSRF-Crumb aus `/crumbIssuer/api/json`).
+
+  **Jenkins ist authentifiziert** (Stand 2026-08-04, am laufenden Container
+  geprueft): `HudsonPrivateSecurityRealm` +
+  `FullControlOnceLoggedInAuthorizationStrategy`. Die frueher hier stehende
+  Angabe „SecurityRealm=None, anonym hat Vollzugriff" ist **falsch** und hat
+  mehrere Agents je eine Runde gekostet. Was tatsaechlich noetig ist:
+  - Basic-Auth **praeemptiv** setzen: `Authorization: Basic base64(admin:<token>)`.
+    Der API-Token liegt in `var/jenkins-api-token.txt` (gitignored).
+  - **Jenkins antwortet anonym mit `403`, nicht `401`.** Clients, die
+    Basic-Auth erst nach einer `401`-Challenge senden (PowerShells
+    `-Credential`, `Invoke-RestMethod`), schicken sie deshalb **nie**.
+  - Fuer POSTs zusaetzlich einen Crumb holen und **dieselbe Session**
+    (Cookie) weiterverwenden — Crumb ohne Session ist ebenfalls `403`.
 - Lokale Gate-Zugaenge liegen ausserhalb des Repos in
   `T:\seu\agentkit3-secrets.cmd` und werden von den Codex-Startern fuer
   CLI und App geladen. Die Datei setzt `SONAR_URL`, `SONAR_PROJECT_KEY`,

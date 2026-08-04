@@ -2,7 +2,7 @@ story_id: AG3-191
 story_title_short: "qa-policy-fallbacks-entfernen"
 title: "QA-/Policy-Fallbacks im verify_system entfernen: origin_check_ref-Fallback, Legacy-Result-Namen in Policy-Engine und Stage-Coverage-Mapping, Legacy-Schwellwertknopf."
 type: implementation
-status: in_progress
+status: in_progress  # Code gelandet (c64f1de1); done erst nach gruenem Jenkins + sauberer Reviewrunde
 phase: setup
 created: "2026-08-02"
 size: M

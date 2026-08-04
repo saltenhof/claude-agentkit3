@@ -26,6 +26,7 @@ import pytest
 
 from agentkit.backend.governance.errors import HookRegistrationError
 from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.harness_client.harness_adapters.settings_writer import (
     CodexSettingsWriter,
     map_claude_matcher,
@@ -70,6 +71,14 @@ def _read_hooks(tmp_path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _emitted_command(phase: str, hook_id: str) -> str:
+    return render_ak3_wrapper_command(
+        "agentkit-hook-codex",
+        phase,
+        hook_id,
+    )
+
+
 def _groups(data: dict[str, object], event: str) -> list[dict[str, object]]:
     hooks = data["hooks"]
     assert isinstance(hooks, dict)
@@ -102,13 +111,13 @@ class TestCommandRemap:
     def test_valid_command_remapped(self) -> None:
         assert (
             remap_command("agentkit-hook-claude pre branch_guard")
-            == "agentkit-hook-codex pre branch_guard"
+            == _emitted_command("pre", "branch_guard")
         )
 
     def test_valid_post_command_remapped(self) -> None:
         assert (
             remap_command("agentkit-hook-claude post telemetry")
-            == "agentkit-hook-codex post telemetry"
+            == _emitted_command("post", "telemetry")
         )
 
     @pytest.mark.parametrize(
@@ -129,7 +138,7 @@ class TestCommandRemap:
         CodexSettingsWriter(tmp_path).write([_pre("Bash", "branch_guard")])
         data = _read_hooks(tmp_path)
         assert _commands_for_matcher(data, "PreToolUse", "Bash") == [
-            "agentkit-hook-codex pre branch_guard"
+            _emitted_command("pre", "branch_guard")
         ]
 
     def test_write_with_invalid_command_raises(self, tmp_path: Path) -> None:
@@ -317,7 +326,7 @@ class TestThreeLevelShape:
         handlers = group["hooks"]
         assert isinstance(handlers, list)
         assert handlers == [
-            {"type": "command", "command": "agentkit-hook-codex pre branch_guard"}
+            {"type": "command", "command": _emitted_command("pre", "branch_guard")}
         ]
 
     def test_handler_has_command_type(self, tmp_path: Path) -> None:
@@ -357,8 +366,8 @@ class TestMergeIdempotency:
         assert len(groups) == 1, "shared matcher must collapse into one group"
         commands = _commands_for_matcher(data, "PreToolUse", "Bash")
         assert sorted(commands) == [
-            "agentkit-hook-codex pre branch_guard",
-            "agentkit-hook-codex pre story_creation_guard",
+            _emitted_command("pre", "branch_guard"),
+            _emitted_command("pre", "story_creation_guard"),
         ]
 
     def test_idempotent_rewrite(self, tmp_path: Path) -> None:
@@ -368,8 +377,8 @@ class TestMergeIdempotency:
         data = _read_hooks(tmp_path)
         commands = _commands_for_matcher(data, "PreToolUse", "Bash")
         assert sorted(commands) == [
-            "agentkit-hook-codex pre branch_guard",
-            "agentkit-hook-codex pre story_creation_guard",
+            _emitted_command("pre", "branch_guard"),
+            _emitted_command("pre", "story_creation_guard"),
         ], "re-registering an identical handler must be idempotent"
 
     def test_distinct_command_same_matcher_separate_entry(self, tmp_path: Path) -> None:
@@ -378,8 +387,8 @@ class TestMergeIdempotency:
         data = _read_hooks(tmp_path)
         commands = _commands_for_matcher(data, "PreToolUse", "Bash")
         assert sorted(commands) == [
-            "agentkit-hook-codex pre branch_guard",
-            "agentkit-hook-codex pre story_creation_guard",
+            _emitted_command("pre", "branch_guard"),
+            _emitted_command("pre", "story_creation_guard"),
         ]
 
     def test_foreign_hook_preserved(self, tmp_path: Path) -> None:
@@ -406,7 +415,7 @@ class TestMergeIdempotency:
         data = _read_hooks(tmp_path)
         commands = _commands_for_matcher(data, "PreToolUse", "Bash")
         assert "third-party-tool run" in commands
-        assert "agentkit-hook-codex pre branch_guard" in commands
+        assert _emitted_command("pre", "branch_guard") in commands
 
     def test_foreign_event_preserved(self, tmp_path: Path) -> None:
         path = tmp_path / ".codex" / "hooks.json"
@@ -430,7 +439,7 @@ class TestMergeIdempotency:
         data = _read_hooks(tmp_path)
         assert _commands_for_matcher(data, "SessionStart", "*") == ["boot.sh"]
         assert _commands_for_matcher(data, "PreToolUse", "Bash") == [
-            "agentkit-hook-codex pre branch_guard"
+            _emitted_command("pre", "branch_guard")
         ]
 
     def test_foreign_group_without_matcher_preserved_verbatim(
@@ -557,12 +566,12 @@ class TestRegisterHooksWritesCodex:
         data = _read_hooks(tmp_path)
         # PreToolUse Bash -> Bash, codex command.
         assert _commands_for_matcher(data, "PreToolUse", "Bash") == [
-            "agentkit-hook-codex pre branch_guard"
+            _emitted_command("pre", "branch_guard")
         ]
         # PostToolUse Agent|Bash|*_send -> Bash|^mcp__.*_send$ (Agent dropped).
         assert _commands_for_matcher(
             data, "PostToolUse", "Bash|^mcp__.*_send$"
-        ) == ["agentkit-hook-codex post telemetry"]
+        ) == [_emitted_command("post", "telemetry")]
 
     def test_register_hooks_also_writes_claude(self, tmp_path: Path) -> None:
         gov = self._make_governance(tmp_path)

@@ -20,6 +20,9 @@ from agentkit.backend.installer.lifecycle.detach import _is_ak3_hook_command
         'echo "agentkit-hook-codex" && ./foreign-quality-gate',
         "echo agentkit-hook-claude; ./foreign-gate",
         "./foreign-gate || agentkit-hook-claude",
+        # Pre-isolation console-script forms are no longer produced or owned.
+        "agentkit-hook-claude pre branch_guard",
+        "agentkit-hook-codex post commit",
         # Foreign paths that merely CONTAIN the AK3 directory names.
         "sh /opt/.agentkit/hooks-backup/quality.sh",
         "python /opt/.agentkit/cache/hooks/foreign.sh",
@@ -32,6 +35,15 @@ from agentkit.backend.installer.lifecycle.detach import _is_ak3_hook_command
         # executes the file.
         "python -c .agentkit/hooks/story_guard.py",
         "python -m .agentkit/hooks/story_guard.py",
+        # Direct module invocation is not an FK-30/FK-76 wrapper and is foreign.
+        (
+            "python -m agentkit.harness_client.harness_adapters.claude_code "
+            "pre branch_guard"
+        ),
+        (
+            "python -m agentkit.harness_client.harness_adapters.codex.cli "
+            "post commit_hook"
+        ),
         # `..` walks back out of the directory the path appears to name.
         "python .agentkit/hooks/../foreign.py",
         # Interpreters AK3 never registers a hook script through -- and whose
@@ -52,8 +64,8 @@ def test_foreign_hook_commands_are_not_claimed(command: str) -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        "agentkit-hook-claude pre branch_guard",
-        "agentkit-hook-codex post commit",
+        "/opt/agentkit/bin/agentkit-hook-claude pre branch_guard",
+        "T:/AgentKit/runtime/Scripts/agentkit-hook-codex.exe post commit_hook",
         # The form the bundled target-project settings actually register.
         "python .agentkit/hooks/pre_tool_use.py",
         "python /srv/project/.agentkit/hooks/story_guard.py",

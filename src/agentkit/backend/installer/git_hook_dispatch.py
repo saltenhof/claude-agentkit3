@@ -225,16 +225,13 @@ def _dispatch_interpreter() -> str:
     first commit of the installed project, as a missing third-party import, long
     after the installer had reported success.
 
-    This is the SAME defect the MCP registration carried, one level further out,
-    and it is resolved through the SAME owner: there is exactly one answer to
-    "which interpreter is AK3's", and it lives in :mod:`mcp_registration`.
-    Duplicating the resolution here would recreate the drift it removes.
+    This is the same defect the MCP registration carried, one level further out.
+    Both now consume the dedicated interpreter owner directly; no entrypoint
+    derives an interpreter from another entrypoint's implementation.
     """
-    from agentkit.backend.installer.mcp_registration import (
-        resolve_story_knowledge_base_command,
-    )
+    from agentkit.backend.installer.interpreter import resolve_ak3_interpreter
 
-    return resolve_story_knowledge_base_command()
+    return str(resolve_ak3_interpreter())
 
 
 def _render_chain(hook_name: str) -> str:

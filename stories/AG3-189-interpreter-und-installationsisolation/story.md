@@ -114,14 +114,18 @@ Start." Die Warnalternative ist unzulaessig:
 | `src/agentkit/bundles/target_project/` (Hook-Assets) | geaendert | Hooks rufen den aufgeloesten Interpreter, nie `python` vom PATH |
 | `concept/technical-design/10_runtime_deployment_speicher.md` | geaendert | Installationsgrenze und Interpreterbindung normativ |
 | `concept/technical-design/22_setup_preflight_worktree_guard_activation.md` | geaendert | Preflight-Checkpoint |
-| `concept/_meta/decisions/2026-XX-XX-installationsisolation.md` | neu | Decision Record mit Betroffenheitsmatrix |
-| `tests/integration/installer/` | neu | Installationsversuch ausserhalb venv schlaegt fehl; Hook-Test ohne PATH-Injektion |
+| `concept/_meta/decisions/2026-08-04-installationsisolation.md` | neu | Decision Record mit Betroffenheitsmatrix |
+| `tests/integration/installer/` | geaendert | Installationsversuch ausserhalb venv schlaegt fehl; Hook-Test ohne PATH-Injektion |
 
 ## Akzeptanzkriterien
 
-1. **Eine globale, nicht-venv Installation von AK3 schlaegt fehl** — editierbar
-   wie nicht-editierbar. Der Fehlschlag ist fail-closed und benennt den Grund
-   (Paketnamenskonflikt mit AK2) und den zulaessigen Weg. **Eine Warnung
+1. **Eine globale, nicht-venv Installation von AK3 ist nicht benutzbar.**
+   Regulaere und editierbare Source-Installationen schlagen fail-closed fehl und
+   hinterlassen die Installation nur in der dedizierten Umgebung. Bei einem
+   bereits gebauten Wheel kann pip keinen Paket-Hook vor der technischen
+   Installation aufrufen; dort verweigern die paketweite Importgrenze und alle
+   deklarierten Console-Entry-Points die Nutzung vor der ersten Fachlogik. Jede
+   Verweigerung benennt Isolationsgrund und zulaessigen Weg. **Eine Warnung
    erfuellt dieses Kriterium nicht.**
 
    **1a. Der Installer legt die venv selbst an** (PO-Entscheid 2026-08-04).
@@ -129,7 +133,9 @@ Start." Die Warnalternative ist unzulaessig:
    sondern ein Schritt, den der Installer ausfuehrt. Nachgewiesen an einer
    Maschine ohne vorbereitete Umgebung: ein einziger Installationsaufruf
    erzeugt die venv, installiert AK3 samt deklarierten Abhaengigkeiten hinein
-   und hinterlaesst im System-`site-packages` nichts. Existiert bereits eine
+   und hinterlaesst im System-`site-packages` nichts. Diese automatische
+   Provisionierung gilt fuer den Source-Einstieg; das Wheel-Protokoll besitzt
+   keinen entsprechenden Pre-Install-Hook. Existiert bereits eine
    brauchbare venv, wird sie benutzt statt ersetzt; eine unbrauchbare wird mit
    benanntem Grund abgelehnt, nicht stillschweigend repariert.
 
@@ -165,12 +171,70 @@ Start." Die Warnalternative ist unzulaessig:
 7. **Konzept nachgezogen** (FK-10, FK-22) mit Decision Record und
    Betroffenheitsmatrix; alle deterministischen Konzept-Gates gruen.
 
+### Reproduzierbarer Wegwerf-Interpreter-Nachweis (Windows)
+
+Der reale Nicht-venv-Test darf nie den System-Python der Maschine verwenden.
+Ein unabhaengiger Python 3.14 wird in einem neuen Pfad unter `var/` installiert;
+er ist keine venv (`sys.prefix == sys.base_prefix`) und darf deshalb durch einen
+Fehlfund kontaminiert werden. Beispiel mit dem offiziellen Python-Installer:
+
+```powershell
+$runtime = (New-Item -ItemType Directory -Path var/ag3-189-reality-20260804 -Force).FullName
+$installer = (Join-Path (Split-Path $runtime) python-3.14.3-amd64.exe)
+Invoke-WebRequest https://www.python.org/ftp/python/3.14.3/python-3.14.3-amd64.exe -OutFile $installer
+$arguments = @('/quiet', 'InstallAllUsers=0', 'PrependPath=0', 'Include_launcher=0', "TargetDir=$runtime")
+Start-Process -FilePath $installer -ArgumentList $arguments -Wait -NoNewWindow
+$env:AGENTKIT_TEST_NON_VENV_INTERPRETER = (Resolve-Path "$runtime/python.exe").Path
+$env:PYTHONWARNDEFAULTENCODING = '1'
+$env:PYTHONWARNINGS = 'error::EncodingWarning'
+.venv\Scripts\python -m pytest tests/integration/installer/test_installation_isolation.py -n0
+```
+
+Vor dem Test muessen die Probe `import sys; assert sys.prefix ==
+sys.base_prefix` ueber `python.exe -I -c` und ausserdem `python.exe -I -m pip
+--version` fuer genau diesen Pfad erfolgreich sein. Der vorhandene
+Nachweisinterpreter liegt unter
+`var/ag3-189-reality-20260804/python.exe`; der Test ueberspringt ohne die
+explizite Umgebungsvariable und weist den echten Base-Interpreter dieser
+Maschine zurueck.
+
+Der reale Fremdprojekt-Nachweis wurde mit der daraus erzeugten frischen Runtime
+`var/ag3-189-reality-20260804/foreign-runtime` gefuehrt. Im Projekt
+`var/ag3-189-foreign-commit-20260804` waren `core.hooksPath=tools/hooks/`, der
+Pre-Commit- und der Post-Commit-Hook aktiv; beide zeigen absolut auf den
+Interpreter dieser Runtime. Mit `poison-bin` vor dem PATH (ein nacktes `python`
+endet dort mit Exit 97) gelang der Commit
+`5d2756ff4eb1f9ba0a5093a22e60b3ae8c0e0c94`.
+
+### Vorbereitete, nicht freigegebene AC-2-Bereinigung
+
+Die aktuelle Kontamination ist weiterhin sichtbar unter dem Benutzer-
+`site-packages`: `agentkit-0.1.0.dist-info` und
+`_editable_impl_agentkit.pth`. Sie wird in AG3-189 nicht ohne die gesonderte
+PO-Freigabe veraendert. Nach der Freigabe ist der ausfuehrbare Ablauf:
+
+```powershell
+$globalPython = (Resolve-Path $env:AGENTKIT_GLOBAL_CLEANUP_INTERPRETER).Path
+& $globalPython -m pip show agentkit
+# Nur fortfahren, wenn "Editable project location" exakt dieses AK3-Repository nennt.
+& $globalPython -m pip uninstall --yes agentkit
+Test-Path "$env:APPDATA/Python/Python314/site-packages/_editable_impl_agentkit.pth"
+```
+
+Der abschliessende `Test-Path` muss `False` liefern. Die Vorpruefung ist
+fail-closed: Fehlt die explizite Interpretervariable, zeigt `pip show` nicht auf
+dieses Repository oder ist der Paketbestand nicht eindeutig, findet keine
+Bereinigung statt. Dieser Ablauf wurde in dieser Umsetzung bewusst **nicht**
+ausgefuehrt.
+
 ## Definition of Done
 
 - AC 1–7 erfuellt, jedes mit benanntem Beleg (Kommando, Ausgabe, Testname).
-- `.venv\Scripts\python -m pytest` gruen; `ruff check src tests` clean;
-  `mypy src --strict` gruen fuer `win32`, `linux` und `darwin`.
-- Coverage haelt die 85-%-Schwelle.
+- Die nach R2 betroffene pytest-Teilmenge ist lokal gruen; der Gesamtbestand
+  samt Coverage laeuft ausschliesslich im Jenkins-Job gegen den tatsaechlichen
+  Kandidaten-SHA.
+- `ruff check src tests` ist clean; `mypy src --strict` ist fuer `win32`,
+  `linux` und `darwin` gruen.
 - Alle deterministischen Konzept-Gates gruen; Decision Record im Diff oder
   gueltiger `Concept-Decision`-Trailer.
 - Unabhaengiges Codex-Review bis zum Abbruchkriterium aus `CLAUDE.md`.

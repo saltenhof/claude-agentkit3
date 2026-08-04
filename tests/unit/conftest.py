@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 @pytest.fixture(autouse=True)
 def _force_sqlite_for_unit_tests(
     monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Ueberschreibt etwaige session-globale Postgres-Setups fuer Unit-Tests."""
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")

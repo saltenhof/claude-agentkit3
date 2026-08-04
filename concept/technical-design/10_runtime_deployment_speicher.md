@@ -281,7 +281,7 @@ Qualifizierung meint immer **nur Ebene 3**.
 | # | Ebene | Was liegt dort | Installationsweg | Update | Uninstall |
 |---|-------|----------------|------------------|--------|-----------|
 | **1** | **Zentral (Core)** | AK3 Backend + Frontend + Postgres-State-Backend | **Eigene Bootstrap-Routine mit manuellen Anteilen** (kein Checkpoint-Installer), §10.2.5 | Ops-getrieben (§10.2.8) | Core-Decommission = State-Stilllegung (§10.2.9) |
-| **2** | **Entwicklermaschine** | systemweites `agentkit`-Paket (Hook-Code, Operator-Entry-Points, Project-Edge-Code) **+** immutable Skill-/Prompt-Bundle-Store | systemweite Paket- + Bundle-Installation, §10.2.6 | `agentkit update` zieht neue Paket-/Bundle-Version (§10.2.8) | Maschinen-Uninstall (§10.2.9) |
+| **2** | **Entwicklermaschine** | dedizierte, vom Installer erzeugte AK3-Python-Umgebung (Paket, deklarierte Abhaengigkeiten, Hook-/Operator-/Project-Edge-Code) **+** immutable Skill-/Prompt-Bundle-Store | isolierte Paket- + Bundle-Installation, §10.2.6 | `agentkit update` zieht neue Paket-/Bundle-Version (§10.2.8) | Maschinen-Uninstall (§10.2.9) |
 | **3** | **Projektraum** | dünne projektlokale Bindungen: config, Hook-Registrierung, Skill-Junctions, Project-Edge-Launcher | `agentkit register-project` (Checkpoint-Installer, FK-50), §10.2.1 | Re-Bind / Re-Run (FK-51) | Projekt-Detach (§10.2.9) |
 
 **Abhängigkeitsrichtung:** Ebene 3 setzt Ebene 2 voraus; Ebene 2 setzt
@@ -314,8 +314,8 @@ graph TB
 
 ### 10.2.1 Ebene 3 — Projektraum-Registrierung (Checkpoint-Installer)
 
-Dies ist **Ebene 3** der Dreifaltigkeit (§10.2.0). Das `agentkit`-Paket
-liegt zu diesem Zeitpunkt bereits systemweit vor (Ebene 2, §10.2.6); der
+Dies ist **Ebene 3** der Dreifaltigkeit (§10.2.0). Das `agentkit`-Paket liegt
+bereits in der dedizierten Maschinen-Umgebung vor (Ebene 2, §10.2.6); der
 Checkpoint-Installer (FK-50) registriert nun ein Zielprojekt **über das
 Backend** und schreibt projektlokal nur Konfiguration und Bindungen —
 keinen kanonischen State:
@@ -360,7 +360,7 @@ Ein Project-Token ist keine Vorbedingung seiner eigenen Ausstellung.
 
 | Abhängigkeit | Pflicht/Optional | Prüfung |
 |-------------|-----------------|---------|
-| Python 3.14 (Mindestanforderung) | Pflicht | Installer Checkpoint 1 |
+| Python gemaess `[project].requires-python` in `pyproject.toml` (alleinige numerische Quelle) | Pflicht | Installer liest die Deklaration und prueft sie vor Checkpoint 1 |
 | Git ≥ 2.30 | Pflicht | Installer Checkpoint 2 |
 | Provider-CLI-Werkzeuge (z. B. `gh` bei GitHub) — nur im Provider-Adapter-Rahmen (FK-12 §12.1); die beauftragte Git-Mechanik des Project Edge nutzt die `git` CLI | Optional (provider-abhaengig) | Installer Checkpoint 2 (nur wenn Provider-Adapter sie erfordert) |
 | AK3 Backend erreichbar (REST /v1) | Pflicht | Installer Checkpoint CP7 (State-Backend + Control-Plane erreichbar) |
@@ -413,6 +413,16 @@ einfach bleiben. Der Launcher ist **nur dünner Adapter** auf die
 Control-Plane-REST-API des Backends; er ist keine projektlokale Runtime
 und keine zweite Quelle für Zustand, Skills, Prompts, Fachlogik oder
 Befehlssemantik.
+
+Alle installierten AK3-Paket-Einsprungpunkte — CLI, Installer, Git-Hooks,
+MCP-Server und Harness-Hooks — verwenden denselben zentral aufgeloesten,
+absoluten Interpreter der dedizierten Umgebung. Ein nacktes `python`/`python3`
+aus `PATH` und eine eigene `sys.executable`-Ableitung an einem solchen
+Paket-Einsprungpunkt sind unzulaessig. Die Interpreter-Aufloesung prueft
+fail-closed, dass eine virtuelle Umgebung aktiv ist und deren `pyvenv.cfg`
+`include-system-site-packages = false` ausweist. Der duenne, projektlokale
+Project-Edge-Launcher aus dem unmittelbar vorhergehenden Absatz ist kein
+installierter Paket-Einsprungpunkt und behaelt dessen eigenen Launcher-Vertrag.
 
 Der kanonische AgentKit-Zustand liegt im zentralen **State-Backend**
 (PostgreSQL), das **ausschließlich vom AK3 Backend** beschrieben wird
@@ -590,11 +600,39 @@ dokumentierter manueller Betrieb.
 
 Pro Entwicklermaschine liegt **genau einmal physisch** vor:
 
-- das systemweite **`agentkit`-Paket** (`pip install agentkit`) — enthält
-  Hook-Code, Operator-Entry-Points und den Project-Edge-Launcher-Code;
+- eine dedizierte, vom AK3-Installer erzeugte **virtuelle Python-Umgebung** —
+  sie enthaelt das `agentkit`-Paket, dessen vollstaendige deklarierte
+  Abhaengigkeiten, Hook-Code, Operator-Entry-Points und den
+  Project-Edge-Launcher-Code;
 - der **Skill-/Prompt-Bundle-Store** — immutable, versioniert, mehrere
   Versionen nebeneinander (z. B. `…\bundles\<version>\<profile>\…`,
   FK-43).
+
+Eine Source-Paketinstallation, die von einem nicht-virtuellen Interpreter
+gestartet wird, darf weder AK3 noch eine `.pth`-/Metadaten-Datei noch eine seiner
+Abhaengigkeiten in System- oder Benutzer-`site-packages` schreiben. Stattdessen
+erzeugt der In-Tree-Build-/Install-Einstieg die dedizierte Umgebung, installiert
+AK3 samt deklarierten Abhaengigkeiten dorthin und beendet den urspruenglichen
+globalen Installationsaufruf anschliessend mit ERROR. Die Fehlermeldung nennt
+Isolationsgrund, Zielpfad und ausfuehrbare CLI.
+
+Bei der direkten Installation eines bereits gebauten Wheels wird ein
+PEP-517-Build-Backend protokollbedingt nicht aufgerufen; das Wheel kann den
+Schreibvorgang von Paket und Abhaengigkeiten daher nicht vor dessen Ausfuehrung
+verweigern. Die paketweite Importgrenze und alle deklarierten Console-
+Entry-Points verweigern danach jedoch jede AK3-Nutzung ausserhalb einer
+isolierten Umgebung mit demselben benannten Grund und zulaessigen Weg. Diese
+protokollbedingte Grenze und das absichtliche Umleitungsverhalten sind in
+`META-DEC-2026-08-04-INSTALLATIONSISOLATION` begruendet.
+
+Eine bereits vorhandene, brauchbare Umgebung wird wiederverwendet und nicht
+ersetzt. Fehlt sie, wird sie erzeugt. Ist sie vorhanden, aber unbrauchbar —
+insbesondere ohne `pyvenv.cfg`, ohne Interpreter/Pip, mit sichtbaren
+System-Site-Packages, falschem Prefix oder zu alter Python-Version — wird sie
+mit benanntem Grund fail-closed abgelehnt und weder repariert noch ersetzt.
+Die Isolation ist dauerhaft: auch nach der Aufloesung des AK2-Namenskonflikts
+duerfen AK3 und seine Drittbibliotheken die fremde Entwicklermaschine nicht
+kontaminieren.
 
 Sinn der „einmal pro Maschine"-Regel: Aktualisieren heißt **eine**
 physische Kopie pflegen, nicht N Projektkopien (§10.2.8). Projekte
@@ -673,7 +711,7 @@ eine niedrigere Ebene löscht niemals kanonischen Zustand einer höheren.**
 | Verb | Ebene | Entfernt | Bewahrt | Schutz |
 |------|-------|----------|---------|--------|
 | **Projekt-Detach** | 3 | Skill-Junctions, AK3-Hook-Registrierung (nur AK3-Blöcke), Project-Edge-Launcher, `.agentkit/`-Bindungen | Projektcode, fremde Hooks, **zentraler State des Projekts** | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, nie `rmtree` durch den Link (FK-43) |
-| **Maschinen-Uninstall** | 2 | `agentkit`-Paket, Bundle-Store, Shims | gebundene Projekte (Repos) | Vor Entfernen einer Bundle-Version: gepinnte Projekte als **orphaned** warnen |
+| **Maschinen-Uninstall** | 2 | dedizierte AK3-Python-Umgebung, Bundle-Store, Shims | gebundene Projekte (Repos), fremde System-/Benutzer-`site-packages` | Vor Entfernen einer Bundle-Version: gepinnte Projekte als **orphaned** warnen; ein fehlgeschlagener umgeleiteter globaler Installationsaufruf erzeugt keinen globalen Uninstall-Eintrag |
 | **Core-Decommission** | 1 | Backend-/Frontend-Dienste, ggf. DB | — | **Destruktiv**: nur nach expliziter Bestätigung **und Pflicht-Export** des State-Backends (Audit-Trail, Closure-Records, QA-Ergebnisse) |
 | **Projekt-Löschung** | 1 | kanonischer State eines Projekts (zentral) | — | **Destruktiv**: explizite Bestätigung **und Pflicht-Export** des projektbezogenen State (Audit/Closure/QA) vor der Löschung; nicht-destruktive Alternative bleibt **Archivierung** (DK-14) |
 

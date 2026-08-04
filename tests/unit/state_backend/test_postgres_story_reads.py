@@ -63,7 +63,7 @@ class _FakeConnection:
 
 
 @contextmanager
-def _fake_global(rows: list[Any]) -> Generator[_FakeConnection, None, None]:
+def _fake_global(rows: list[Any]) -> Generator[_FakeConnection]:
     yield _FakeConnection(rows)
 
 
@@ -79,7 +79,7 @@ def _seed_connect_global(monkeypatch: pytest.MonkeyPatch, rows: list[Any]) -> No
 @pytest.fixture(autouse=True)
 def _use_postgres_backend(
     monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Force postgres backend and clear the facade LRU cache for every test.
 
     The cache is also cleared on teardown so subsequent tests (which rely on

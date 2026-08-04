@@ -120,6 +120,11 @@ def __getattr__(name: str) -> object:
     if module_name is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     if module_name in _PREFLIGHTED_EXPORT_MODULES:
+        from agentkit.backend.installer.interpreter import (
+            resolve_ak3_interpreter,
+        )
+
+        resolve_ak3_interpreter()
         from agentkit.backend.installer.dependency_preflight import (
             require_runtime_dependencies,
         )

@@ -10,6 +10,7 @@ is the flow contract; this module only wires and runs the engine.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -196,10 +197,15 @@ def run_checkpoint_install(
     """
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         dependency_preflight_checkpoint,
+        runtime_isolation_checkpoint,
     )
     from agentkit.backend.installer.dependency_preflight import (
         DependencyDeclarationError,
         check_runtime_dependencies,
+    )
+    from agentkit.backend.installer.interpreter import (
+        InterpreterResolutionError,
+        resolve_ak3_interpreter,
     )
     from agentkit.backend.installer.runner import InstallResult
 
@@ -223,6 +229,22 @@ def run_checkpoint_install(
         )
     if root != config.project_root:
         config = replace(config, project_root=root)
+
+    isolation_start = time.monotonic()
+    try:
+        resolve_ak3_interpreter()
+    except InterpreterResolutionError as exc:
+        isolation_result = runtime_isolation_checkpoint(
+            detail=str(exc),
+            start=isolation_start,
+        )
+        return InstallResult(
+            success=False,
+            project_root=root,
+            created_files=(),
+            errors=(isolation_result.detail or "AgentKit runtime is not isolated.",),
+            checkpoint_results=(isolation_result,),
+        )
 
     # AG3-206: collect the declaration-owned environment result before the
     # VectorDB probe, bundle resolution or any installer mutation. A failed

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -62,9 +61,9 @@ _INTERPRETER_PROBE_TIMEOUT_SECONDS: float = 60.0
 def resolve_story_knowledge_base_command() -> str:
     """Return the ABSOLUTE interpreter path registered for the MCP server.
 
-    ``sys.executable`` is the interpreter currently running the installer, i.e.
-    the one AK3 is installed into. Registering it by absolute path removes the
-    harness process' ``PATH`` from the decision entirely.
+    The installer interpreter owner proves the dedicated environment and returns
+    its absolute interpreter path. Registering it removes the harness process'
+    ``PATH`` from the decision entirely.
 
     A bare ``"python"`` was registered until 2026-08-02. It let whatever
     interpreter happened to be first on the harness' ``PATH`` start the server —
@@ -76,21 +75,15 @@ def resolve_story_knowledge_base_command() -> str:
         McpServerRegistrationError: If the running interpreter cannot be
             resolved to a real file (fail-closed; never register a guess).
     """
-    raw = sys.executable
-    if not raw or not raw.strip():
-        raise McpServerRegistrationError(
-            "cannot resolve the AK3 interpreter: sys.executable is empty; the "
-            "MCP server command must be an absolute interpreter path "
-            "(fail-closed, no PATH lookup)."
-        )
-    interpreter = Path(raw).resolve()
-    if not interpreter.is_file():
-        raise McpServerRegistrationError(
-            f"cannot resolve the AK3 interpreter: {interpreter} is not a file; "
-            "the MCP server command must be an absolute interpreter path "
-            "(fail-closed, no PATH lookup)."
-        )
-    return str(interpreter)
+    from agentkit.backend.installer.interpreter import (
+        InterpreterResolutionError,
+        resolve_ak3_interpreter,
+    )
+
+    try:
+        return str(resolve_ak3_interpreter())
+    except InterpreterResolutionError as exc:
+        raise McpServerRegistrationError(str(exc)) from exc
 
 
 def verify_interpreter_serves_ak3(

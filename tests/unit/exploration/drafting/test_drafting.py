@@ -63,7 +63,7 @@ _RUN_ID = "55555555-5555-4555-8555-555555555555"
 @pytest.fixture(autouse=True)
 def sqlite_backend_env(
     monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()

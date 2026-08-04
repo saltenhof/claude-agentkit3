@@ -71,7 +71,7 @@ _SEED_NAMESPACE = uuid5(NAMESPACE_URL, "agentkit3-ag3120-setup-boundary")
 
 
 @pytest.fixture(autouse=True)
-def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)

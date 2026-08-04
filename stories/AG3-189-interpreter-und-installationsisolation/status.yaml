@@ -2,7 +2,7 @@ story_id: AG3-189
 story_title_short: "interpreter-und-installationsisolation"
 title: "AK3-Interpreter- und Installationsisolation: eine global editierbare Installation wird fail-closed verweigert -- AK2 und AK3 teilen den Paketnamen agentkit."
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-08-02"
 size: M

@@ -1546,12 +1546,16 @@ def test_real_hook_pair_replaces_legacy_secret_owner_and_chains_foreign_commands
     )
     os.chmod(fake_python, 0o755)
 
-    from agentkit.backend.installer import git_hook_dispatch
+    from agentkit.backend.installer import interpreter as interpreter_owner
 
     # The hook embeds the RESOLVED AK3 interpreter, so substitute it at the seam
     # rather than on PATH. PATH is then poisoned on purpose: a hook that still
     # looked there would run the failing stub and the test would go red.
-    monkeypatch.setattr(git_hook_dispatch, "_dispatch_interpreter", lambda: str(fake_python))
+    monkeypatch.setattr(
+        interpreter_owner,
+        "resolve_ak3_interpreter",
+        lambda: fake_python,
+    )
     migrate_git_hook_dispatch(tmp_path)
     poison = tmp_path / "poison-bin"
     poison.mkdir()
@@ -1631,12 +1635,16 @@ def test_foreign_pre_and_post_hooks_keep_their_real_interpreter(
     fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     os.chmod(fake_python, 0o755)
 
-    from agentkit.backend.installer import git_hook_dispatch
+    from agentkit.backend.installer import interpreter as interpreter_owner
 
     # The hook embeds the RESOLVED AK3 interpreter, so substitute it at the seam
     # rather than on PATH. PATH is then poisoned on purpose: a hook that still
     # looked there would run the failing stub and the test would go red.
-    monkeypatch.setattr(git_hook_dispatch, "_dispatch_interpreter", lambda: str(fake_python))
+    monkeypatch.setattr(
+        interpreter_owner,
+        "resolve_ak3_interpreter",
+        lambda: fake_python,
+    )
     migrate_git_hook_dispatch(tmp_path)
     poison = tmp_path / "poison-bin"
     poison.mkdir()

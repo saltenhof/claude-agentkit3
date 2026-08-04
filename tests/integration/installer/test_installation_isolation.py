@@ -97,6 +97,21 @@ def _install_attempt(
     if editable:
         command.append("--editable")
     command.append(str(repository_root))
+    return subprocess.run(
+        command,
+        cwd=repository_root,
+        env=_pip_environment(temporary_root),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=900,
+    )
+
+
+def _pip_environment(temporary_root: Path) -> dict[str, str]:
+    """Return an isolated pip environment without inherited warning controls."""
     environment = dict(os.environ)
     environment.update(
         {
@@ -114,17 +129,7 @@ def _install_attempt(
     # build backend instead of failing inside its own cache implementation.
     environment.pop("PYTHONWARNDEFAULTENCODING", None)
     environment.pop("PYTHONWARNINGS", None)
-    return subprocess.run(
-        command,
-        cwd=repository_root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-        timeout=900,
-    )
+    return environment
 
 
 @pytest.mark.integration
@@ -220,3 +225,72 @@ def test_unusable_existing_runtime_is_rejected_without_install_or_repair(
     )
     assert not (runtime_root / "Scripts" / "agentkit.exe").exists()
     assert not (runtime_root / "bin" / "agentkit").exists()
+
+
+@pytest.mark.integration
+def test_wheel_installed_for_non_venv_interpreter_is_not_usable(
+    tmp_path: Path,
+) -> None:
+    repository_root = Path(__file__).parents[3]
+    wheel_directory = tmp_path / "wheelhouse"
+    wheel_directory.mkdir()
+    built = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheel_directory),
+            str(repository_root),
+        ],
+        cwd=repository_root,
+        env=_pip_environment(tmp_path / "wheel-build"),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=900,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    wheels = tuple(wheel_directory.glob("agentkit-*.whl"))
+    assert len(wheels) == 1
+
+    target = tmp_path / "non-venv-wheel-target"
+    installed = subprocess.run(
+        [
+            str(_base_interpreter()),
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--target",
+            str(target),
+            str(wheels[0]),
+        ],
+        env=_pip_environment(tmp_path / "wheel-install"),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=900,
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+
+    source = f"import sys; sys.path.insert(0, {str(target)!r}); import agentkit"
+    probe = subprocess.run(
+        [str(_base_interpreter()), "-c", source],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+
+    assert probe.returncode != 0
+    assert "outside a virtual environment" in probe.stderr
+    assert "third-party dependencies" in probe.stderr
+    assert "dedicated virtual environment" in probe.stderr

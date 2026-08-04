@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.runner import InstallConfig, _register_default_governance_hooks
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
@@ -48,6 +49,14 @@ def _config(root: Path) -> InstallConfig:
         project_key="demo",
         project_name="Demo",
         project_root=root,
+    )
+
+
+def _claude_command(phase: str, hook_id: str) -> str:
+    return render_ak3_wrapper_command(
+        "agentkit-hook-claude",
+        phase,
+        hook_id,
     )
 
 
@@ -78,16 +87,16 @@ def test_default_install_lands_ag3_086_hooks_in_settings(tmp_path: Path) -> None
     post = _claude_commands_for_event(claude, "PostToolUse")
 
     # FK-30 §30.5.1a: the single blocking web-call budget owner (PreToolUse).
-    assert ("WebFetch|WebSearch", "agentkit-hook-claude pre budget") in pre
+    assert ("WebFetch|WebSearch", _claude_command("pre", "budget")) in pre
     # FK-30 §30.5.2: the observational web_call emitter (PostToolUse, never blocks).
-    assert ("WebFetch|WebSearch", "agentkit-hook-claude post budget") in post
+    assert ("WebFetch|WebSearch", _claude_command("post", "budget")) in post
     # FK-43 §43.6.2: the ad-hoc methodology guard (PreToolUse on Bash).
-    assert ("Bash", "agentkit-hook-claude pre skill_usage_check") in pre
+    assert ("Bash", _claude_command("pre", "skill_usage_check")) in pre
     # AG3-147: mechanical commit invalidation observes HEAD across Bash commands.
-    assert ("Bash", "agentkit-hook-claude pre commit_hook") in pre
-    assert ("Bash", "agentkit-hook-claude post commit_hook") in post
+    assert ("Bash", _claude_command("pre", "commit_hook")) in pre
+    assert ("Bash", _claude_command("post", "commit_hook")) in post
     # FK-31 §31.7: the permanently-active prompt-integrity guard (PreToolUse Agent).
-    assert ("Agent", "agentkit-hook-claude pre prompt_integrity") in pre
+    assert ("Agent", _claude_command("pre", "prompt_integrity")) in pre
 
 
 def test_default_install_is_idempotent_on_second_run(tmp_path: Path) -> None:
@@ -107,8 +116,8 @@ def test_default_install_is_idempotent_on_second_run(tmp_path: Path) -> None:
         }
 
     # The four AG3-086 hooks remain present and stable across re-install.
-    assert ("Agent", "agentkit-hook-claude pre prompt_integrity") in _pre(
+    assert ("Agent", _claude_command("pre", "prompt_integrity")) in _pre(
         first_content
     )
-    assert ("Bash", "agentkit-hook-claude pre commit_hook") in _pre(first_content)
+    assert ("Bash", _claude_command("pre", "commit_hook")) in _pre(first_content)
     assert _pre(first_content) == _pre(second_content)

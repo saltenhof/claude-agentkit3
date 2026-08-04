@@ -12,8 +12,8 @@ Deploy behaviour (idempotent):
 Hook registration (FK-42 §42.5.2):
 - For Claude Code: adds ``ccag_gatekeeper`` to ``.claude/settings.json``
   as the last ``PreToolUse`` hook.  The installer uses the canonical
-  wrapper path ``agentkit-hook-claude pre ccag_gatekeeper``.
-- For Codex: handled via the existing ``agentkit-hook-codex`` wrapper
+  interpreter-bound Claude adapter command.
+- For Codex: handled via the interpreter-bound Codex adapter command
   which already dispatches all pre-hooks including ``ccag_gatekeeper``.
 """
 
@@ -22,6 +22,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import yaml
+
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -88,7 +90,11 @@ DEFAULT_APPROVED_YAML: str = """\
 # ---------------------------------------------------------------------------
 
 CCAG_RULES_SUBDIR: str = ".agentkit/ccag/rules"
-CCAG_HOOK_COMMAND_CLAUDE: str = "agentkit-hook-claude pre ccag_gatekeeper"
+CCAG_HOOK_COMMAND_CLAUDE: str = render_ak3_wrapper_command(
+    "agentkit-hook-claude",
+    "pre",
+    "ccag_gatekeeper",
+)
 CCAG_HOOK_MATCHER: str = "Bash|Write|Edit|Read|Grep|Glob|Agent"
 
 

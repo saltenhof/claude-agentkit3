@@ -1,9 +1,9 @@
 """Installer edge for the project-local Codex configuration.
 
-The official AgentKit Codex hook entrypoint is the console script
-``agentkit-hook-codex``.  Target projects receive a project-local
-``.codex/config.toml`` so Codex can call that adapter without changing the
-Claude-Code hook path.
+The official AgentKit Codex hook entrypoint is the installed
+``agentkit-hook-codex`` wrapper, resolved beside the central interpreter.
+Target projects receive a project-local ``.codex/config.toml`` so Codex can
+call that wrapper without a PATH lookup.
 
 Split of responsibilities (AG3-175):
 
@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentkit.backend.exceptions import InstallationError
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.paths import CODEX_DIR, codex_config_path
 from agentkit.backend.utils.io import atomic_write_text
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.core_types.mcp_server_registration import DesiredMcpServer
 
-CODEX_HOOK_COMMAND = "agentkit-hook-codex"
+CODEX_HOOK_COMMAND = render_ak3_wrapper_command("agentkit-hook-codex")
 
 
 def assert_project_local_codex_config(project_root: Path) -> Path:

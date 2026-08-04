@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,7 @@ from tests.fixtures.vectordb_installer import (
 from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
 from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.backend.installer.runner import MANDATORY_SKILLS
@@ -89,6 +91,10 @@ def _claude_commands_for_matcher(settings: dict[str, object], event_key: str, ma
     }
 
 
+def _harness_command(wrapper_name: str, phase: str, hook_id: str) -> str:
+    return render_ak3_wrapper_command(wrapper_name, phase, hook_id)
+
+
 @pytest.mark.skipif(
     not _LINKS_AVAILABLE,
     reason="Filesystem supports neither symlinks nor directory junctions",
@@ -103,19 +109,48 @@ def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
     claude_settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
     codex_hooks = json.loads((tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     assert _claude_commands_for_matcher(claude_settings, "PostToolUse", "Bash") == {
-        "agentkit-hook-claude post health_monitor",
-        "agentkit-hook-claude post commit_hook",
+        _harness_command(
+            "agentkit-hook-claude",
+            "post",
+            "health_monitor",
+        ),
+        _harness_command(
+            "agentkit-hook-claude",
+            "post",
+            "commit_hook",
+        ),
     }
     assert _claude_commands_for_matcher(claude_settings, "PostToolUseFailure", "Bash") == {
-        "agentkit-hook-claude post health_monitor",
-        "agentkit-hook-claude post commit_hook",
+        _harness_command(
+            "agentkit-hook-claude",
+            "post",
+            "health_monitor",
+        ),
+        _harness_command(
+            "agentkit-hook-claude",
+            "post",
+            "commit_hook",
+        ),
     }
     codex_post_bash = next(entry for entry in codex_hooks["hooks"]["PostToolUse"] if entry["matcher"] == "Bash")
     assert {hook["command"] for hook in codex_post_bash["hooks"]} == {
-        "agentkit-hook-codex post health_monitor",
-        "agentkit-hook-codex post commit_hook",
+        _harness_command(
+            "agentkit-hook-codex",
+            "post",
+            "health_monitor",
+        ),
+        _harness_command(
+            "agentkit-hook-codex",
+            "post",
+            "commit_hook",
+        ),
     }
-    assert "agentkit-hook-codex" in (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
+    codex_config = tomllib.loads(
+        (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
+    )
+    assert codex_config["hooks"]["pre_tool_use"]["command"] == (
+        render_ak3_wrapper_command("agentkit-hook-codex")
+    )
 
 
 @pytest.mark.skipif(

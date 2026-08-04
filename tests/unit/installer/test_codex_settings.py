@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from typing import TYPE_CHECKING
 
 from agentkit.backend.installer.codex_settings import (
@@ -17,7 +18,9 @@ def test_build_codex_config_registers_hook_command() -> None:
     content = build_codex_config_toml()
 
     assert "[hooks.pre_tool_use]" in content
-    assert CODEX_HOOK_COMMAND in content
+    assert tomllib.loads(content)["hooks"]["pre_tool_use"]["command"] == (
+        CODEX_HOOK_COMMAND
+    )
 
 
 def test_write_codex_settings_is_idempotent(tmp_path: Path) -> None:

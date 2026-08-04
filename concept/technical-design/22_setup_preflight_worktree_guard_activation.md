@@ -128,6 +128,15 @@ kein "trotzdem versuchen".
 Die Setup-Phase ist vollständig deterministisch. Kein LLM ist
 beteiligt. Alles läuft als Python-Skript über den Phase Runner.
 
+**Laufzeit-Vorbedingung vor den zehn fachlichen Checks:** Der Phase Runner
+muss ueber den zentralen AK3-Interpreterbegriff (FK-10 §10.2.3/§10.2.6) an
+eine isolierte virtuelle Umgebung gebunden sein. Die Pruefung laeuft vor dem
+Abhaengigkeits- und Package-Preflight. Ein globaler Interpreter, sichtbare
+System-Site-Packages oder ein nicht aufloesbarer Interpreter ergeben
+`runtime_not_isolated` und stoppen den Einstieg fail-closed; sie werden nicht
+als einer der zehn fachlichen Setup-Checks gezaehlt und nicht durch deren
+Ergebnis ueberstimmt.
+
 ## 22.2 Ablauf
 
 ```mermaid

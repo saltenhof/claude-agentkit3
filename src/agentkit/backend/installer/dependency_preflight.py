@@ -279,7 +279,9 @@ def _failure(
 
 
 def _install_command(requirement: str) -> str:
-    arguments = [sys.executable, "-m", "pip", "install", requirement]
+    from agentkit.backend.installer.interpreter import ak3_python_command
+
+    arguments = [*ak3_python_command("pip"), "install", requirement]
     if sys.platform == "win32":
         return subprocess.list2cmdline(arguments)
     return shlex.join(arguments)

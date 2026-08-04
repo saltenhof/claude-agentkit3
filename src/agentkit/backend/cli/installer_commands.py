@@ -488,6 +488,16 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
 
 def _runtime_dependencies_ready() -> bool:
     """Run the declaration-owned dependency check before deeper CLI imports."""
+    from agentkit.backend.installer.interpreter import (
+        InterpreterResolutionError,
+        resolve_ak3_interpreter,
+    )
+
+    try:
+        resolve_ak3_interpreter()
+    except InterpreterResolutionError as exc:
+        print(f"AgentKit installation is not isolated: {exc}", file=sys.stderr)
+        return False
     from agentkit.backend.installer.dependency_preflight import (
         DependencyDeclarationError,
         check_runtime_dependencies,

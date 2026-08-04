@@ -120,6 +120,20 @@ PY
             }
         }
 
+        stage('Interpreter Entrypoints') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
+            steps {
+                dir('agentkit-src') {
+                    sh '''
+                        . .venv/bin/activate
+                        python scripts/ci/check_interpreter_entrypoints.py
+                    '''
+                }
+            }
+        }
+
         stage('Unit Tests + Coverage') {
             when {
                 expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }

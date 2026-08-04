@@ -59,7 +59,7 @@ _VALID_ROW = (
 
 
 @pytest.fixture(autouse=True)
-def sqlite_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def sqlite_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()

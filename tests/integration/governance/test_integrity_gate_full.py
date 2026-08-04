@@ -81,7 +81,7 @@ _STAGE_REGISTRY = StageRegistry.result_catalog_only()
 
 
 @pytest.fixture(autouse=True)
-def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)

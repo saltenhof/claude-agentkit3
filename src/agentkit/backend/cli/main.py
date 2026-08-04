@@ -123,6 +123,16 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code: 0 on success, 1 on failure.
     """
+    from agentkit.backend.installer.interpreter import (
+        InterpreterResolutionError,
+        resolve_ak3_interpreter,
+    )
+
+    try:
+        resolve_ak3_interpreter()
+    except InterpreterResolutionError as exc:
+        print(f"AgentKit CLI refused a non-isolated runtime: {exc}", file=sys.stderr)
+        return 1
     arguments = list(sys.argv[1:]) if argv is None else list(argv)
     if _is_installer_invocation(arguments) and not _installer_commands._runtime_dependencies_ready():
         return 1

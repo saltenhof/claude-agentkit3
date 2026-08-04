@@ -163,6 +163,15 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         0 on ALLOW, 2 on BLOCK or invalid arguments.
     """
+    from agentkit.backend.installer.interpreter import (
+        InterpreterResolutionError,
+        resolve_ak3_interpreter,
+    )
+
+    try:
+        resolve_ak3_interpreter()
+    except InterpreterResolutionError as exc:
+        return _emit_hook_runtime_failure(exc, guard="runtime_not_isolated")
     args = list(sys.argv[1:]) if argv is None else list(argv)
     try:
         from agentkit.backend.governance.runner import (

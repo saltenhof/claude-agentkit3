@@ -46,10 +46,18 @@ from agentkit.harness_client.harness_adapters.codex_config_toml import (
     render_without_ak3,
 )
 
-#: AK3 Claude hooks are emitted through this wrapper command (settings_writer).
+#: AK3 Claude hooks are emitted through this wrapper (settings_writer).
 AK3_CLAUDE_HOOK_WRAPPER = "agentkit-hook-claude"
-#: AK3 Codex hooks are emitted through this wrapper command (settings_writer).
+#: AK3 Codex hooks are emitted through this wrapper (settings_writer).
 AK3_CODEX_HOOK_WRAPPER = "agentkit-hook-codex"
+_AK3_HOOK_WRAPPER_EXECUTABLES = frozenset(
+    {
+        AK3_CLAUDE_HOOK_WRAPPER,
+        AK3_CODEX_HOOK_WRAPPER,
+        f"{AK3_CLAUDE_HOOK_WRAPPER}.exe",
+        f"{AK3_CODEX_HOOK_WRAPPER}.exe",
+    }
+)
 
 #: Structural keys of a hook matcher group. Any OTHER key is foreign-owned data
 #: that must survive even when the group's AK3 handler list is fully stripped
@@ -81,14 +89,18 @@ def _is_ak3_hook_command(command: object) -> bool:
     if any(token in {"&&", "||", ";", "|", "&"} for token in tokens):
         return False
     executed = tokens[0]
-    if executed in {AK3_CLAUDE_HOOK_WRAPPER, AK3_CODEX_HOOK_WRAPPER}:
+    executable_name = executed.rsplit("/", maxsplit=1)[-1].lower()
+    executable_is_absolute = executed.startswith("/") or (
+        len(executed) >= 3 and executed[1] == ":" and executed[2] == "/"
+    )
+    if executable_is_absolute and executable_name in _AK3_HOOK_WRAPPER_EXECUTABLES:
         return True
-    # The third producer is the bundled target-project settings, which register
-    # exactly `python .agentkit/hooks/<script>.py`. Only PYTHON is modelled: a
+    # The bundled target-project settings register the project-local script
+    # through the central interpreter. Only PYTHON is modelled: a
     # flag grammar shared across python, bash, node and pwsh does not exist
     # (`node -e` and `pwsh -Command` take code, not a path), and guessing one
     # made detach delete foreign hooks. What no producer writes is not claimed.
-    if executed.rsplit("/", maxsplit=1)[-1] not in _PYTHON_INTERPRETERS:
+    if executable_name not in _PYTHON_INTERPRETERS:
         return False
     script = _python_script_argument(tokens[1:])
     return script is not None and _is_ak3_hooks_path(script)

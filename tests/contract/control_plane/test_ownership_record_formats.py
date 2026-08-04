@@ -295,7 +295,7 @@ def test_transferred_status_is_restricted_to_atomic_recovery_writer() -> None:
 @pytest.fixture
 def sqlite_backend_env(
     monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()

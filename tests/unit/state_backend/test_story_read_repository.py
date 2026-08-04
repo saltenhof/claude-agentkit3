@@ -57,14 +57,14 @@ class _FakeConnection:
 
 
 @contextmanager
-def _fake_global(rows: list[Any]) -> Generator[_FakeConnection, None, None]:
+def _fake_global(rows: list[Any]) -> Generator[_FakeConnection]:
     yield _FakeConnection(rows)
 
 
 @pytest.fixture(autouse=True)
 def _use_postgres_backend(
     monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "postgres")
     reset_backend_cache_for_tests()
     yield

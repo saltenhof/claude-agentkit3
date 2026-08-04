@@ -72,7 +72,7 @@ def _all_hook_definitions() -> list[HookDefinition]:
 def sqlite_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> Generator[Path, None, None]:
+) -> Generator[Path]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     yield tmp_path
@@ -93,7 +93,7 @@ def _has_postgres_url() -> bool:
 
 
 @pytest.fixture()
-def postgres_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def postgres_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     if not _has_postgres_url():
         pytest.skip("AGENTKIT_STATE_DATABASE_URL not set — Postgres test skipped")
     monkeypatch.setenv(STATE_BACKEND_ENV, "postgres")
@@ -114,7 +114,7 @@ def postgres_repo(postgres_env: None) -> StateBackendHookRegistrationRepository:
 def repo(
     request: pytest.FixtureRequest,
     sqlite_repo: StateBackendHookRegistrationRepository,
-) -> Generator[StateBackendHookRegistrationRepository, None, None]:
+) -> Generator[StateBackendHookRegistrationRepository]:
     if request.param == "postgres":
         if not _has_postgres_url():
             pytest.skip("AGENTKIT_STATE_DATABASE_URL not set")

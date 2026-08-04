@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 
 #: Machine reason for a CP 1 failure (package not importable / no version).
 REASON_PACKAGE_UNAVAILABLE = "package_unavailable"
+#: Machine reason for a CP 1 failure outside the dedicated virtual environment.
+REASON_RUNTIME_NOT_ISOLATED = "runtime_not_isolated"
 #: Machine reason for a CP 2 failure (repo missing / gh unauthenticated / absent).
 REASON_REPO_UNREACHABLE = "repo_unreachable"
 #: Machine reason for a CP 2 failure (mandatory coordinates absent).
@@ -76,6 +78,21 @@ def dependency_preflight_checkpoint(
     )
 
 
+def runtime_isolation_checkpoint(
+    *,
+    detail: str,
+    start: float,
+) -> CheckpointResult:
+    """Build the CP 1 result for the pre-dependency runtime boundary."""
+    return make_result(
+        nid.CP_01_PACKAGE_CHECK,
+        status=CheckpointStatus.FAILED,
+        detail=detail,
+        reason=REASON_RUNTIME_NOT_ISOLATED,
+        start=start,
+    )
+
+
 def cp01_package_check(context: CheckpointContext) -> CheckpointResult:
     """CP 1 — verify AgentKit and its declared runtime set (read-only).
 
@@ -83,6 +100,18 @@ def cp01_package_check(context: CheckpointContext) -> CheckpointResult:
     mutates), so dry-run/verify produce the same PASS/FAILED as register.
     """
     start = time.monotonic()
+    from agentkit.backend.installer.interpreter import (
+        InterpreterResolutionError,
+        resolve_ak3_interpreter,
+    )
+
+    try:
+        interpreter = resolve_ak3_interpreter()
+    except InterpreterResolutionError as exc:
+        return runtime_isolation_checkpoint(
+            detail=str(exc),
+            start=start,
+        )
     dependency_report = context.run_state.dependency_preflight
     preflight_precedes_handler = dependency_report is not None
     if dependency_report is None:
@@ -135,8 +164,9 @@ def cp01_package_check(context: CheckpointContext) -> CheckpointResult:
         nid.CP_01_PACKAGE_CHECK,
         status=CheckpointStatus.PASS,
         detail=(
-            f"agentkit {version} and {dependency_report.declared_count} declared "
-            "runtime dependencies importable."
+            f"agentkit {version} is isolated at {interpreter}; "
+            f"{dependency_report.declared_count} declared runtime dependencies "
+            "are importable."
         ),
         start=start,
         prior_duration_ms=prior_duration_ms,

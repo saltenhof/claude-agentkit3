@@ -28,7 +28,7 @@ STORY_ID = "AG3-045"
 @pytest.fixture(autouse=True)
 def sqlite_backend_env(
     monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Bind the sqlite state backend for the review-result sink."""
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")

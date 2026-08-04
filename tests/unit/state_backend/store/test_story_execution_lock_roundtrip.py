@@ -64,7 +64,7 @@ def _has_postgres_url() -> bool:
 def sqlite_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     # AG3-094 jenkins-460 scope-correction: the story-execution-lock *_global

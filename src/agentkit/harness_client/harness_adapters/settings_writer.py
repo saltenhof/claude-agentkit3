@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.backend.governance.errors import HookRegistrationError
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.utils.io import read_json_object
 
 if TYPE_CHECKING:
@@ -106,7 +107,12 @@ class ClaudeCodeSettingsWriter:
 
         for defn in hook_definitions:
             event_key = defn.hook_event_name.value  # "PreToolUse" or "PostToolUse"
-            self._merge_handler(hooks_section, event_key, defn.matcher, defn.command)
+            command = _render_harness_hook_command(
+                defn.command,
+                wrapper_name="agentkit-hook-claude",
+                harness_name="Claude Code",
+            )
+            self._merge_handler(hooks_section, event_key, defn.matcher, command)
 
         settings["hooks"] = hooks_section
         self._write(settings)
@@ -419,25 +425,39 @@ def remap_command(command: str) -> str:
     """Remap a Claude hook command to the Codex wrapper command (Auflage 5).
 
     Parses the command as exactly ``agentkit-hook-claude {phase} {hook_id}``
-    and re-emits it as ``agentkit-hook-codex {phase} {hook_id}``.
+    and renders the Codex adapter through the centrally resolved interpreter.
 
     Args:
         command: The Claude hook command string.
 
     Returns:
-        The Codex hook command string.
+        The absolute, interpreter-bound Codex hook command string.
 
     Raises:
         HookRegistrationError: If the command does not match the expected
             ``agentkit-hook-claude {phase} {hook_id}`` form (FAIL CLOSED — no
             silent passthrough of an unrecognised command).
     """
-    match = _CLAUDE_COMMAND_RE.match(command)
+    return _render_harness_hook_command(
+        command,
+        wrapper_name="agentkit-hook-codex",
+        harness_name="Codex",
+    )
+
+
+def _render_harness_hook_command(
+    command: str,
+    *,
+    wrapper_name: str,
+    harness_name: str,
+) -> str:
+    """Validate a logical hook selector and bind it to the AK3 interpreter."""
+    match = _CLAUDE_COMMAND_RE.fullmatch(command)
     if match is None:
         raise HookRegistrationError(
             f"Unexpected hook command form {command!r}: expected exactly "
             "'agentkit-hook-claude {phase} {hook_id}'. Fail-closed: refusing to "
-            "pass an unrecognised command through to the Codex settings file.",
+            f"write an unrecognised command to the {harness_name} settings file.",
         )
     phase, hook_id = match["phase"], match["hook_id"]
     # Not just the SHAPE (regex) but the SEMANTICS: an unknown phase or hook_id
@@ -452,9 +472,9 @@ def remap_command(command: str) -> str:
         raise HookRegistrationError(
             f"Invalid hook selector in command {command!r}: "
             f"{verdict.message or 'unknown phase/hook_id'}. Fail-closed: refusing "
-            "to emit a Codex hook for an unregistered phase/hook_id.",
+            f"to emit a {harness_name} hook for an unregistered phase/hook_id.",
         )
-    return f"agentkit-hook-codex {phase} {hook_id}"
+    return render_ak3_wrapper_command(wrapper_name, phase, hook_id)
 
 
 class CodexSettingsWriter:
@@ -480,8 +500,9 @@ class CodexSettingsWriter:
 
     Each :class:`HookDefinition` is transformed (FK-76 §76.5.2):
 
-    - **Command** (Auflage 5): ``agentkit-hook-claude {phase} {hook_id}`` ->
-      ``agentkit-hook-codex {phase} {hook_id}``; deviating form raises.
+    - **Command** (Auflage 5): ``agentkit-hook-claude {phase} {hook_id}`` is
+      validated and emitted as the absolute ``agentkit-hook-codex`` wrapper
+      beside the central interpreter; deviating form raises.
     - **Matcher** (Auflage 2+3): mapped token-wise to real Codex matchers
       (``Bash`` -> ``Bash``; ``Write``/``Edit`` -> one ``apply_patch``;
       ``*_send`` -> ``^mcp__.*_send$``; ``Read``/``Grep``/``Glob``/``Agent``/

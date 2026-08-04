@@ -589,7 +589,31 @@ def _deploy_static_resource_files(
             continue
 
         target = target_root / rel
-        if _copy_file_if_changed(item, target):
+        if rel.as_posix() == ".claude/settings.json":
+            from agentkit.backend.installer.interpreter import (
+                render_ak3_interpreter_command,
+            )
+
+            source = item.read_text(encoding="utf-8")
+            placeholder = "__AK3_INTERPRETER__ .agentkit/hooks/pre_tool_use.py"
+            if source.count(placeholder) != 1:
+                raise InstallationError(
+                    "Bundled Claude hook settings do not contain exactly one "
+                    "AgentKit interpreter placeholder.",
+                    detail={"path": str(item)},
+                )
+            rendered = source.replace(
+                placeholder,
+                json.dumps(
+                    render_ak3_interpreter_command(
+                        ".agentkit/hooks/pre_tool_use.py"
+                    )
+                )[1:-1],
+            )
+            changed = _write_text_if_changed(target, rendered)
+        else:
+            changed = _copy_file_if_changed(item, target)
+        if changed:
             created.append(str(rel))
 
     return created

@@ -28,6 +28,7 @@ from agentkit.backend.installer.codex_settings import (
     CODEX_HOOK_COMMAND,
     build_codex_config_toml,
 )
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.skills import create_directory_link, is_directory_link
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
@@ -52,6 +53,22 @@ pytestmark = pytest.mark.skipif(
     not _LINKS_AVAILABLE,
     reason="Filesystem supports neither symlinks nor directory junctions",
 )
+
+
+def _claude_hook(phase: str, hook_id: str) -> str:
+    return render_ak3_wrapper_command(
+        "agentkit-hook-claude",
+        phase,
+        hook_id,
+    )
+
+
+def _codex_hook(phase: str, hook_id: str) -> str:
+    return render_ak3_wrapper_command(
+        "agentkit-hook-codex",
+        phase,
+        hook_id,
+    )
 
 
 def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
@@ -84,7 +101,7 @@ def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
                 {
                     "matcher": "Bash",
                     "hooks": [
-                        {"type": "command", "command": "agentkit-hook-claude pre branch_guard"},
+                        {"type": "command", "command": _claude_hook("pre", "branch_guard")},
                         {"type": "command", "command": "/opt/foreign/audit-hook.sh"},
                     ],
                 }
@@ -100,7 +117,7 @@ def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
                 {
                     "matcher": "Bash",
                     "hooks": [
-                        {"type": "command", "command": "agentkit-hook-codex pre branch_guard"},
+                        {"type": "command", "command": _codex_hook("pre", "branch_guard")},
                         {"type": "command", "command": "/opt/foreign/codex-audit.sh"},
                     ],
                 }
@@ -156,7 +173,7 @@ def test_detach_removes_only_ak3_hook_blocks_and_preserves_foreign(
     pre = settings["hooks"]["PreToolUse"]
     commands = [handler["command"] for handler in pre[0]["hooks"]]
     assert "/opt/foreign/audit-hook.sh" in commands  # foreign preserved
-    assert all(not c.startswith("agentkit-hook-claude") for c in commands)  # AK3 gone
+    assert _claude_hook("pre", "branch_guard") not in commands
     assert settings["permissions"] == {"allow": ["Bash"]}  # foreign key preserved
 
     # .codex/hooks.json survives with only the foreign handler.
@@ -165,7 +182,7 @@ def test_detach_removes_only_ak3_hook_blocks_and_preserves_foreign(
     codex_commands = [h["command"] for h in handlers]
     assert codex_commands == ["/opt/foreign/codex-audit.sh"]
 
-    assert "agentkit-hook-claude pre branch_guard" in result.removed_ak3_hooks
+    assert _claude_hook("pre", "branch_guard") in result.removed_ak3_hooks
     assert "/opt/foreign/audit-hook.sh" in result.preserved_foreign_hooks
 
 
@@ -219,7 +236,7 @@ def test_detach_preserves_foreign_hook_in_unexpected_shape(tmp_path: Path) -> No
                 {
                     "matcher": "Bash",
                     "hooks": [
-                        {"type": "command", "command": "agentkit-hook-claude pre branch_guard"},
+                        {"type": "command", "command": _claude_hook("pre", "branch_guard")},
                         {"type": "command", "command": "/opt/foreign/audit-hook.sh"},
                     ],
                 }
@@ -244,7 +261,7 @@ def test_detach_preserves_foreign_hook_in_unexpected_shape(tmp_path: Path) -> No
     pre_commands = [handler["command"] for handler in hooks["PreToolUse"][0]["hooks"]]
     assert pre_commands == ["/opt/foreign/audit-hook.sh"]
     assert surviving["permissions"] == {"allow": ["Bash"]}
-    assert "agentkit-hook-claude pre branch_guard" in result.removed_ak3_hooks
+    assert _claude_hook("pre", "branch_guard") in result.removed_ak3_hooks
 
 
 def test_detach_preserves_settings_with_malformed_top_level_hooks(
@@ -282,7 +299,7 @@ def test_detach_preserves_foreign_codex_group_in_unexpected_shape(
                 {
                     "matcher": "Bash",
                     "hooks": [
-                        {"type": "command", "command": "agentkit-hook-codex pre branch_guard"},
+                        {"type": "command", "command": _codex_hook("pre", "branch_guard")},
                         {"type": "command", "command": "/opt/foreign/codex-audit.sh"},
                     ],
                 },
@@ -392,7 +409,7 @@ def test_detach_preserves_foreign_sibling_key_in_emptied_codex_group(
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "agentkit-hook-codex pre branch_guard",
+                            "command": _codex_hook("pre", "branch_guard"),
                         }
                     ],
                     "note": "foreign-owned annotation",
@@ -413,7 +430,7 @@ def test_detach_preserves_foreign_sibling_key_in_emptied_codex_group(
     assert group["matcher"] == "Bash"
     assert "hooks" in group
     assert group["hooks"] == []
-    assert "agentkit-hook-codex pre branch_guard" in result.removed_ak3_hooks
+    assert _codex_hook("pre", "branch_guard") in result.removed_ak3_hooks
     # D2: the preserved group must pass the Codex settings-writer validation
     # (a popped ``hooks`` key would fail closed on a later registration/reinstall).
     from agentkit.harness_client.harness_adapters.settings_writer import (
@@ -440,7 +457,7 @@ def test_detach_drops_pure_ak3_codex_group_without_foreign_keys(
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "agentkit-hook-codex pre branch_guard",
+                            "command": _codex_hook("pre", "branch_guard"),
                         }
                     ],
                 }

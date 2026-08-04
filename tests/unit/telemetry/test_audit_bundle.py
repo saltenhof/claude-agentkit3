@@ -49,7 +49,7 @@ _RUN = "run-900"
 @pytest.fixture()
 def story_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Generator[Path, None, None]:
+) -> Generator[Path]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     reset_backend_cache_for_tests()

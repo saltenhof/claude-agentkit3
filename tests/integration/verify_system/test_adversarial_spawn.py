@@ -69,7 +69,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     reset_backend_cache_for_tests()

@@ -45,7 +45,10 @@ from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
 )
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.backend.installer.codex_settings import write_codex_settings
+from agentkit.backend.installer.codex_settings import (
+    CODEX_HOOK_COMMAND,
+    write_codex_settings,
+)
 from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.runner import (
     _deploy_static_resource_files,
@@ -144,7 +147,7 @@ def test_both_configs_registered_and_mcp_table_survives_a_second_run(
     codex = root / _CODEX_REL
     parsed = tomllib.loads(codex.read_text(encoding="utf-8"))
     assert STORY_KNOWLEDGE_BASE_SERVER in parsed["mcp_servers"]
-    assert parsed["hooks"]["pre_tool_use"]["command"] == "agentkit-hook-codex"
+    assert parsed["hooks"]["pre_tool_use"]["command"] == CODEX_HOOK_COMMAND
 
     # ---- run 2: the CP 8 region runs again, as in a real re-install ----
     _cp8_region(root)
@@ -153,7 +156,7 @@ def test_both_configs_registered_and_mcp_table_survives_a_second_run(
     assert STORY_KNOWLEDGE_BASE_SERVER in parsed_after["mcp_servers"], (
         "the MCP registration did not survive the second install run"
     )
-    assert parsed_after["hooks"]["pre_tool_use"]["command"] == "agentkit-hook-codex"
+    assert parsed_after["hooks"]["pre_tool_use"]["command"] == CODEX_HOOK_COMMAND
     # And CP 10 now converges to PASS rather than rewriting.
     assert cp10_mcp_registration(ctx).status is CheckpointStatus.PASS
 
@@ -346,7 +349,9 @@ def test_full_cp8_to_cp10_region_uses_the_real_derivation(
     result = cp10_mcp_registration(ctx)
 
     # The CP 8 region really ran: the hook entry is materialised.
-    assert "agentkit-hook-codex" in (root / _CODEX_REL).read_text(encoding="utf-8")
+    assert tomllib.loads((root / _CODEX_REL).read_text(encoding="utf-8"))["hooks"][
+        "pre_tool_use"
+    ]["command"] == CODEX_HOOK_COMMAND
     # The real derivation reached the probe with the production spec.
     assert len(observed) == 1, result
     probed = observed[0]

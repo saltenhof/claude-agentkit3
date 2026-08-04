@@ -10,6 +10,7 @@ from pathlib import Path
 
 from agentkit.backend.config.loader import load_project_config
 from agentkit.backend.exceptions import ConfigError
+from agentkit.backend.installer.interpreter import ak3_python_command
 
 
 def pre_commit_commands(
@@ -18,15 +19,11 @@ def pre_commit_commands(
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Return the exact secret-scan then staged-validation argv contract."""
     return (
-        (
-            sys.executable,
-            "-m",
+        ak3_python_command(
             "agentkit.backend.governance.guard_system.secret_scan",
             "--staged",
         ),
-        (
-            sys.executable,
-            "-m",
+        ak3_python_command(
             "agentkit.backend.vectordb.cli",
             "--concepts-dir",
             str(project_root / concepts_dir),
@@ -41,9 +38,7 @@ def post_commit_commands(
     concepts_dir: Path,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Return the exact build-before-incremental-sync argv contract."""
-    common = (
-        sys.executable,
-        "-m",
+    common = ak3_python_command(
         "agentkit.backend.vectordb.cli",
         "--concepts-dir",
         str(project_root / concepts_dir),
