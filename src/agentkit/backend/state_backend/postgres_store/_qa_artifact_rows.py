@@ -12,6 +12,9 @@ from agentkit.backend.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.backend.exceptions import (
     CorruptStateError,
 )
+from agentkit.backend.state_backend._qa_batch_validation import (
+    validate_qa_layer_batch_rows,
+)
 from agentkit.backend.state_backend.paths import (
     CLOSURE_REPORT_FILE,
 )
@@ -280,14 +283,10 @@ def load_override_record_rows(story_dir: Path) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def pg_execute_stage_upsert(conn: Any, row: dict[str, Any]) -> None:
+def _pg_execute_stage_upsert(conn: Any, row: dict[str, Any]) -> None:
     """Upsert a ``qa_stage_results`` row on an existing psycopg connection.
 
-    Driver-owned SQL (FK-69 §69.4). Callable both from the in-transaction
-    batch path (``persist_layer_artifact_rows``) and from the
-    ``boundary.state_backend_repository`` Facade repos (R -> T), so the SQL
-    lives exactly once in the driver (SSOT; AC010: the driver never imports a
-    repository).
+    Driver-owned SQL used only inside ``persist_layer_artifact_rows``.
 
     Args:
         conn: Open psycopg connection (driver transaction).
@@ -322,10 +321,10 @@ def pg_execute_stage_upsert(conn: Any, row: dict[str, Any]) -> None:
     )
 
 
-def pg_execute_finding_upsert(conn: Any, row: dict[str, Any]) -> None:
+def _pg_execute_finding_upsert(conn: Any, row: dict[str, Any]) -> None:
     """Upsert a ``qa_findings`` row on an existing psycopg connection.
 
-    Driver-owned SQL (FK-69 §69.4). See :func:`pg_execute_stage_upsert` for the
+    Driver-owned SQL (FK-69 §69.4). See :func:`_pg_execute_stage_upsert` for the
     SSOT / AC010 rationale.
 
     Args:
@@ -366,36 +365,7 @@ def pg_execute_finding_upsert(conn: Any, row: dict[str, Any]) -> None:
     )
 
 
-def pg_delete_findings_for_scope(
-    conn: Any,
-    *,
-    project_key: str,
-    run_id: str,
-    attempt_no: int,
-    stage_id: str,
-) -> None:
-    """Delete ``qa_findings`` for a scope on an existing psycopg connection.
-
-    Driver-owned SQL (FK-69). Removes stale findings before a batch re-write so
-    no outdated rows survive (idempotency invariant of the batch write).
-
-    Args:
-        conn: Open psycopg connection (driver transaction).
-        project_key: Project key.
-        run_id: Run ID.
-        attempt_no: Attempt number.
-        stage_id: Layer / stage ID.
-    """
-    conn.execute(
-        """
-        DELETE FROM qa_findings
-        WHERE project_key = %s AND run_id = %s AND attempt_no = %s AND stage_id = %s
-        """,
-        (project_key, run_id, attempt_no, stage_id),
-    )
-
-
-def pg_execute_check_outcome_upsert(conn: Any, row: dict[str, Any]) -> None:
+def _pg_execute_check_outcome_upsert(conn: Any, row: dict[str, Any]) -> None:
     """Upsert one ``qa_check_outcomes`` row on an existing connection."""
     conn.execute(
         """
@@ -436,14 +406,10 @@ def persist_layer_artifact_rows(
     Each element has keys: ``layer``, ``artifact_name``, ``producer_component``,
     ``payload``, ``passed``, ``recorded_at``, ``stage_row``, ``finding_rows``.
 
-    Finding D (AG3-035 remediation): FK-69 row persistence runs through the
-    driver-owned upsert/delete functions (``pg_execute_stage_upsert``,
-    ``pg_execute_finding_upsert``, ``pg_delete_findings_for_scope`` in this
-    module). The transaction stays in the driver (FAIL-CLOSED: stage, findings,
-    and check outcomes are atomic in ONE transaction). The accessor repos
-    (boundary.state_backend_repository) delegate their Postgres write path
-    to the same functions -- the SQL lives exactly once in the driver (SSOT;
-    AC010: the driver imports no repository).
+    FK-69 row persistence runs through private SQL helpers in this module.
+    The transaction stays in the driver (FAIL-CLOSED: stage, findings, and
+    check outcomes are atomic in ONE transaction); no repository exposes a
+    split writer.
 
     AG3-144 (FK-91 §91.1a Rule 15, no-lease-no-write): ``owner_session_id`` /
     ``expected_ownership_epoch`` are the caller's early-captured
@@ -468,6 +434,13 @@ def persist_layer_artifact_rows(
         raise CorruptStateError(
             "Cannot materialize FK-69 QA read models without flow execution scope in canonical Postgres backend",
         )
+    validate_qa_layer_batch_rows(
+        flow_row=flow_row,
+        canonical_story_id=story_id,
+        layer_payload_rows=layer_payload_rows,
+        check_outcome_rows=check_outcome_rows,
+        attempt_nr=attempt_nr,
+    )
     produced: list[str] = []
     with _connect(story_dir) as conn:
         # AG3-144: fence FIRST, before any file/row write -- a stale lease
@@ -479,6 +452,56 @@ def persist_layer_artifact_rows(
             run_id=str(flow_row["run_id"]),
             session_id=owner_session_id,
             expected_ownership_epoch=expected_ownership_epoch,
+        )
+        for item in layer_payload_rows:
+            reference = cast("dict[str, object]", item["artifact_reference"])
+            artifact_attempt = item["artifact_attempt"]
+            if not isinstance(artifact_attempt, int):
+                raise CorruptStateError("QA projection artifact attempt must be an integer")
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS envelope_count
+                FROM artifact_envelopes
+                WHERE story_id = %s
+                  AND run_id = %s
+                  AND artifact_class = %s
+                  AND producer_name = %s
+                  AND attempt = %s
+                  AND (
+                    story_id || '|' || run_id || '|' || stage || '|' ||
+                    attempt::text || '|' || artifact_class || '|' ||
+                    producer_name
+                  ) = %s
+                """,
+                (
+                    str(reference["story_id"]),
+                    str(reference["run_id"]),
+                    str(reference["artifact_class"]),
+                    str(item["producer_component"]),
+                    artifact_attempt,
+                    str(reference["record_key"]),
+                ),
+            ).fetchone()
+            if row is None or int(row["envelope_count"]) != 1:
+                raise CorruptStateError(
+                    f"Cannot persist FK-69 QA projections without the exact canonical artifact envelope: {reference!r}"
+                )
+        snapshot_params = (
+            str(flow_row["project_key"]),
+            str(flow_row["run_id"]),
+            attempt_nr,
+        )
+        conn.execute(
+            "DELETE FROM qa_check_outcomes WHERE project_key = %s AND run_id = %s AND attempt_no = %s",
+            snapshot_params,
+        )
+        conn.execute(
+            "DELETE FROM qa_findings WHERE project_key = %s AND run_id = %s AND attempt_no = %s",
+            snapshot_params,
+        )
+        conn.execute(
+            "DELETE FROM qa_stage_results WHERE project_key = %s AND run_id = %s AND attempt_no = %s",
+            snapshot_params,
         )
         for item in layer_payload_rows:
             layer = str(item["layer"])
@@ -493,53 +516,48 @@ def persist_layer_artifact_rows(
                 raise CorruptStateError(
                     f"Cannot materialize FK-69 QA read models for result {layer!r} without a stage projection",
                 )
-            canonical_stage_id = str(stage_row["stage_id"])
-            # FK-69: delete old findings under the same canonical registry ID
-            # used by the stage and finding projections.
-            pg_delete_findings_for_scope(
-                conn,
-                project_key=str(flow_row["project_key"]),
-                run_id=str(flow_row["run_id"]),
-                attempt_no=attempt_nr,
-                stage_id=canonical_stage_id,
-            )
             finding_rows = cast("list[dict[str, object]]", item.get("finding_rows") or [])
             updated_stage = dict(stage_row)
             updated_stage["artifact_id"] = artifact_id
-            pg_execute_stage_upsert(conn, updated_stage)
+            _pg_execute_stage_upsert(conn, updated_stage)
             for fr in finding_rows:
                 updated_fr = dict(fr)
                 updated_fr["artifact_id"] = artifact_id
-                pg_execute_finding_upsert(conn, updated_fr)
+                _pg_execute_finding_upsert(conn, updated_fr)
             if artifact_name is not None:
                 produced.append(str(artifact_name))
-        outcome_scopes = {
-            (str(row["project_key"]), str(row["run_id"]), int(str(row["attempt_no"])), str(row["stage_id"]))
-            for row in check_outcome_rows
-        }
-        for item in layer_payload_rows:
-            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
-            if stage_row is not None:
-                outcome_scopes.add(
-                    (
-                        str(stage_row["project_key"]),
-                        str(stage_row["run_id"]),
-                        int(str(stage_row["attempt_no"])),
-                        str(stage_row["stage_id"]),
-                    )
-                )
-        for project_key, run_id, attempt_no, stage_id in outcome_scopes:
-            conn.execute(
-                """
-                DELETE FROM qa_check_outcomes
-                WHERE project_key = %s AND run_id = %s
-                  AND attempt_no = %s AND stage_id = %s
-                """,
-                (project_key, run_id, attempt_no, stage_id),
-            )
         for outcome_row in check_outcome_rows:
-            pg_execute_check_outcome_upsert(conn, outcome_row)
+            _pg_execute_check_outcome_upsert(conn, outcome_row)
     return tuple(produced)
+
+
+def purge_qa_projection_rows(
+    story_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> dict[str, int]:
+    """Purge all QA projection families atomically for one run."""
+    params = (project_key, story_id, run_id)
+    with _connect(story_dir) as conn:
+        outcomes = conn.execute(
+            "DELETE FROM qa_check_outcomes WHERE project_key=%s AND story_id=%s AND run_id=%s",
+            params,
+        )
+        findings = conn.execute(
+            "DELETE FROM qa_findings WHERE project_key=%s AND story_id=%s AND run_id=%s",
+            params,
+        )
+        stages = conn.execute(
+            "DELETE FROM qa_stage_results WHERE project_key=%s AND story_id=%s AND run_id=%s",
+            params,
+        )
+    return {
+        "qa_check_outcomes": int(outcomes.rowcount),
+        "qa_findings": int(findings.rowcount),
+        "qa_stage_results": int(stages.rowcount),
+    }
 
 
 def persist_verify_decision_row(

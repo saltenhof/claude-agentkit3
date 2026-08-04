@@ -18,6 +18,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
+    QAPurgeCounts,
+)
 from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionKind,
@@ -33,6 +36,7 @@ def _make_repos(
     *,
     qa_stage_rows: int = 0,
     qa_finding_rows: int = 0,
+    qa_outcome_rows: int = 0,
     story_metrics_rows: int = 0,
     phase_state_rows: int = 0,
     fc_incidents_rows: int = 0,
@@ -43,6 +47,12 @@ def _make_repos(
     repos.qa_stage_results.purge_run.return_value = qa_stage_rows
     repos.qa_findings = MagicMock()
     repos.qa_findings.purge_run.return_value = qa_finding_rows
+    repos.qa_layer_batch = MagicMock()
+    repos.qa_layer_batch.purge_run.return_value = QAPurgeCounts(
+        stage_results=qa_stage_rows,
+        findings=qa_finding_rows,
+        check_outcomes=qa_outcome_rows,
+    )
     repos.story_metrics = MagicMock()
     repos.story_metrics.purge_run.return_value = story_metrics_rows
     repos.phase_state_projection = MagicMock()
@@ -57,8 +67,8 @@ def _make_repos(
 # ---------------------------------------------------------------------------
 
 
-def test_purge_run_calls_all_four_repos() -> None:
-    """purge_run leert alle 4 aktiven Tabellen fuer (project_key, story_id, run_id)."""
+def test_purge_run_calls_atomic_qa_batch_and_other_repos() -> None:
+    """purge_run delegates the three QA tables to their joint reset port."""
     repos = _make_repos(
         qa_stage_rows=3, qa_finding_rows=5, story_metrics_rows=1, phase_state_rows=2
     )
@@ -66,8 +76,11 @@ def test_purge_run_calls_all_four_repos() -> None:
 
     accessor.purge_run("proj-k", "STORY-001", "run-abc")
 
-    repos.qa_stage_results.purge_run.assert_called_once_with("proj-k", "STORY-001", "run-abc")
-    repos.qa_findings.purge_run.assert_called_once_with("proj-k", "STORY-001", "run-abc")
+    repos.qa_layer_batch.purge_run.assert_called_once_with(
+        project_key="proj-k", story_id="STORY-001", run_id="run-abc"
+    )
+    repos.qa_stage_results.purge_run.assert_not_called()
+    repos.qa_findings.purge_run.assert_not_called()
     repos.story_metrics.purge_run.assert_called_once_with("proj-k", "STORY-001", "run-abc")
     repos.phase_state_projection.purge_run.assert_called_once_with(
         "proj-k", "STORY-001", "run-abc"
@@ -77,7 +90,11 @@ def test_purge_run_calls_all_four_repos() -> None:
 def test_purge_run_result_counts_per_kind() -> None:
     """PurgeResult.purged_rows enthaelt korrekte Zaehlung pro Kind."""
     repos = _make_repos(
-        qa_stage_rows=3, qa_finding_rows=7, story_metrics_rows=1, phase_state_rows=4
+        qa_stage_rows=3,
+        qa_finding_rows=7,
+        qa_outcome_rows=5,
+        story_metrics_rows=1,
+        phase_state_rows=4,
     )
     accessor = ProjectionAccessor(repos)
 
@@ -86,6 +103,7 @@ def test_purge_run_result_counts_per_kind() -> None:
     assert isinstance(result, PurgeResult)
     assert result.purged_rows[ProjectionKind.QA_STAGE_RESULTS] == 3
     assert result.purged_rows[ProjectionKind.QA_FINDINGS] == 7
+    assert result.purged_rows[ProjectionKind.QA_CHECK_OUTCOMES] == 5
     assert result.purged_rows[ProjectionKind.STORY_METRICS] == 1
     assert result.purged_rows[ProjectionKind.PHASE_STATE_PROJECTION] == 4
     assert result.errors == []
@@ -113,8 +131,11 @@ def test_purge_run_scoped_to_run_id() -> None:
 
     accessor.purge_run("proj", "STORY-999", "run-SPECIFIC")
 
-    # Alle Repos bekommen run-SPECIFIC, nicht einen anderen run_id
-    for repo_attr in ["qa_stage_results", "qa_findings", "story_metrics", "phase_state_projection"]:
+    repos.qa_layer_batch.purge_run.assert_called_once_with(
+        project_key="proj", story_id="STORY-999", run_id="run-SPECIFIC"
+    )
+    # All remaining repositories receive the same run identity.
+    for repo_attr in ["story_metrics", "phase_state_projection"]:
         getattr(repos, repo_attr).purge_run.assert_called_once_with(
             "proj", "STORY-999", "run-SPECIFIC"
         )

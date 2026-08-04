@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from agentkit.backend.verify_system import _artifact_specs
@@ -115,16 +115,21 @@ def _run_data_layer_kind(
         pairs = [(result, spec) for spec in _kind_to_single_artifacts(kind)]
 
     for result, spec in pairs:
-        layer_results.append(result)
         # FK-48 §48.1.7 (AG3-079): when a layer materialised its own canonical QA
         # artefact (the Layer-3 runtime writes the rich ``adversarial.json`` schema
         # 3.1 via the ArtifactManager), the subflow MUST NOT overwrite it with the
         # generic LayerResult projection — that would discard the sparring proof /
         # mandatory_target_results (single source of truth, FIX THE MODEL).
         if result.metadata.get("artifact_materialized") is True:
+            if result.artifact_reference is None:
+                raise ValueError(
+                    f"LayerResult {result.layer!r} claims a materialized artifact "
+                    "without its canonical ArtifactReference"
+                )
+            layer_results.append(result)
             artifact_refs_written.append(spec.filename)
             continue
-        self._write_layer_envelope(
+        reference = self._write_layer_envelope(
             spec=spec,
             result=result,
             ctx=ctx,
@@ -132,6 +137,8 @@ def _run_data_layer_kind(
             now_str=now_str,
             qa_cycle_fields=qa_cycle_fields,
         )
+        result = replace(result, artifact_reference=reference)
+        layer_results.append(result)
         artifact_refs_written.append(spec.filename)
         # FIX-C (FK-27 §27.4.3 / §27.5.5): emit ``llm_call_complete`` ONLY
         # after the Layer-2 review artefact write above SUCCEEDED -- never on

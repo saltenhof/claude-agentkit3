@@ -18,6 +18,12 @@ from agentkit.backend.state_backend.store.telemetry_projection_repository_common
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from agentkit.backend.artifacts import ArtifactReference
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
+        QAPurgeCounts,
+    )
     from agentkit.backend.verify_system.protocols import LayerResult
     from agentkit.backend.verify_system.stage_registry.records import (
         QACheckOutcomeRecord,
@@ -28,7 +34,7 @@ if TYPE_CHECKING:
 
 
 class FacadeQAStageResultsRepository:
-    """Read/purge adapter for ``qa_stage_results``.
+    """Read adapter for ``qa_stage_results``.
 
     Writes exist only in the atomic three-projection QA-layer batch. This
     adapter intentionally exposes no single-row write method.
@@ -145,34 +151,9 @@ class FacadeQAStageResultsRepository:
         )
         return [mappers.qa_stage_result_row_to_record(row) for row in rows]
 
-    def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Delete all qa_stage_results for (project_key, story_id, run_id).
-
-        FK-69 §69.10.1 reset rule: active deletion, no query-filter trick.
-        """
-        if _is_postgres():
-            return self._pg_purge(project_key, story_id, run_id)
-        return self._sqlite_purge(project_key, story_id, run_id)
-
-    def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
-        with _sqlite_connect_qa(self._story_dir) as conn:
-            cursor = conn.execute(
-                "DELETE FROM qa_stage_results WHERE project_key=? AND story_id=? AND run_id=?",
-                (project_key, story_id, run_id),
-            )
-            return int(cursor.rowcount)
-
-    def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
-        with _postgres_connect() as conn:
-            cursor = conn.execute(
-                "DELETE FROM qa_stage_results WHERE project_key=%s AND story_id=%s AND run_id=%s",
-                (project_key, story_id, run_id),
-            )
-            return int(cursor.rowcount)
-
 
 class FacadeQAFindingsRepository:
-    """Read/purge adapter for ``qa_findings`` without a split writer.
+    """Read adapter for ``qa_findings`` without a split writer.
 
     Args:
         story_dir: Base directory for SQLite; ignored for Postgres.
@@ -290,31 +271,6 @@ class FacadeQAFindingsRepository:
         )
         return [mappers.qa_finding_row_to_record(row) for row in rows]
 
-    def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Delete all qa_findings for (project_key, story_id, run_id).
-
-        FK-69 §69.10.1 reset rule: active deletion, no query-filter trick.
-        """
-        if _is_postgres():
-            return self._pg_purge(project_key, story_id, run_id)
-        return self._sqlite_purge(project_key, story_id, run_id)
-
-    def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
-        with _sqlite_connect_qa(self._story_dir) as conn:
-            cursor = conn.execute(
-                "DELETE FROM qa_findings WHERE project_key=? AND story_id=? AND run_id=?",
-                (project_key, story_id, run_id),
-            )
-            return int(cursor.rowcount)
-
-    def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
-        with _postgres_connect() as conn:
-            cursor = conn.execute(
-                "DELETE FROM qa_findings WHERE project_key=%s AND story_id=%s AND run_id=%s",
-                (project_key, story_id, run_id),
-            )
-            return int(cursor.rowcount)
-
 
 class FacadeQALayerBatchWriter:
     """Atomic QA-layer batch adapter (FK-69 §69.4, AG3-035 #5).
@@ -325,12 +281,16 @@ class FacadeQALayerBatchWriter:
     ``agentkit.backend.telemetry`` delegates here without knowing the facade directly (AC#7).
     """
 
+    def __init__(self, story_dir: Path | None = None) -> None:
+        self._story_dir = story_dir or Path.cwd()
+
     def persist_layer_artifacts(
         self,
         story_dir: Path,
         *,
         layer_results: tuple[LayerResult, ...],
         check_outcomes: tuple[QACheckOutcomeRecord, ...],
+        artifact_references: Mapping[str, ArtifactReference],
         stage_registry: StageRegistry,
         attempt_nr: int,
         owner_session_id: str,
@@ -351,8 +311,9 @@ class FacadeQALayerBatchWriter:
             layer_results,
             attempt_nr=attempt_nr,
             stage_registry=stage_registry,
+            artifact_references=artifact_references,
         )
-        check_outcome_rows = [
+        check_outcome_rows: list[dict[str, object]] = [
             {
                 "project_key": record.project_key,
                 "story_id": record.story_id,
@@ -367,6 +328,19 @@ class FacadeQALayerBatchWriter:
             }
             for record in check_outcomes
         ]
+        from agentkit.backend.state_backend._qa_batch_validation import (
+            validate_qa_layer_batch_rows,
+        )
+
+        if flow_row is None:
+            raise ValueError("QA projection rows require a flow execution scope")
+        validate_qa_layer_batch_rows(
+            flow_row=flow_row,
+            canonical_story_id=str(flow_row["story_id"]),
+            layer_payload_rows=layer_payload_rows,
+            check_outcome_rows=check_outcome_rows,
+            attempt_nr=attempt_nr,
+        )
         return cast(
             "tuple[str, ...]",
             _backend_module().persist_layer_artifact_rows(
@@ -379,6 +353,33 @@ class FacadeQALayerBatchWriter:
                 expected_ownership_epoch=expected_ownership_epoch,
                 projection_dir=projection_dir,
             ),
+        )
+
+    def purge_run(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> QAPurgeCounts:
+        """Delete the complete QA projection set in one driver transaction."""
+        from agentkit.backend.state_backend.state_backend_connection_manager import (
+            _backend_module,
+        )
+        from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
+            QAPurgeCounts,
+        )
+
+        raw = _backend_module().purge_qa_projection_rows(
+            self._story_dir,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+        )
+        return QAPurgeCounts(
+            stage_results=int(raw["qa_stage_results"]),
+            findings=int(raw["qa_findings"]),
+            check_outcomes=int(raw["qa_check_outcomes"]),
         )
 
 
@@ -399,7 +400,7 @@ def _parse_occurred_at(
 
 
 class FacadeQACheckOutcomesRepository:
-    """Read/purge adapter for ``qa_check_outcomes`` (FK-69 §69.15).
+    """Read adapter for ``qa_check_outcomes`` (FK-69 §69.15).
 
     Outcome rows are written only with their stage and finding projections by
     ``ProjectionAccessor.record_qa_layer_artifacts``.
@@ -598,28 +599,3 @@ class FacadeQACheckOutcomesRepository:
             )
             for r in rows
         ]
-
-    def purge_run(self, project_key: str, story_id: str, run_id: str) -> int:
-        """Delete all qa_check_outcomes for (project_key, story_id, run_id).
-
-        FK-69 §69.10.1 reset rule: active deletion, no query-filter trick.
-        """
-        if _is_postgres():
-            return self._pg_purge(project_key, story_id, run_id)
-        return self._sqlite_purge(project_key, story_id, run_id)
-
-    def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
-        with _sqlite_connect_qa(self._story_dir) as conn:
-            cursor = conn.execute(
-                "DELETE FROM qa_check_outcomes WHERE project_key=? AND story_id=? AND run_id=?",
-                (project_key, story_id, run_id),
-            )
-            return int(cursor.rowcount)
-
-    def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
-        with _postgres_connect() as conn:
-            cursor = conn.execute(
-                "DELETE FROM qa_check_outcomes WHERE project_key=%s AND story_id=%s AND run_id=%s",
-                (project_key, story_id, run_id),
-            )
-            return int(cursor.rowcount)

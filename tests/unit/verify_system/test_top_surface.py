@@ -962,7 +962,10 @@ class TestImplementationEvidencePrecondition:
 
         assert outcome.verdict is PolicyVerdict.FAIL
         assert outcome.escalated is True
-        assert manager.written_envelopes == []
+        assert [envelope.stage for envelope in manager.written_envelopes] == [
+            "qa-layer-structural"
+        ]
+        assert outcome.decision.layer_results[0].artifact_reference is not None
         assert any(
             "StoryContext is missing" in finding.message
             for finding in outcome.decision.all_findings
@@ -989,7 +992,10 @@ class TestImplementationEvidencePrecondition:
 
         assert outcome.verdict is PolicyVerdict.FAIL
         assert outcome.escalated is True
-        assert manager.written_envelopes == []
+        assert [envelope.stage for envelope in manager.written_envelopes] == [
+            "qa-layer-structural"
+        ]
+        assert outcome.decision.layer_results[0].artifact_reference is not None
         assert port.calls == [tmp_path]
 
     def test_verify_rejects_exploration_only_bugfix_story(

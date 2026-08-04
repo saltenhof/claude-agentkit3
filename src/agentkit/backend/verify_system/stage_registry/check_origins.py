@@ -32,6 +32,15 @@ STORY_CREATION_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset(
     {"conflict_assessment"}
 )
 
+PHASE_SNAPSHOT_CHECK_IDS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "setup": "phase_snapshots.setup",
+        "exploration": "phase_snapshots.exploration",
+        "implementation": "phase_snapshots.implementation",
+        "closure": "phase_snapshots.closure",
+    }
+)
+
 _ROLE_CHECK_IDS = (
     QA_REVIEW_CHECK_IDS
     | SEMANTIC_REVIEW_CHECK_IDS
@@ -54,7 +63,6 @@ _BUILTIN_NATIVE_CHECK_IDS: frozenset[str] = frozenset(
         "layer_execution",
         "no_corrupt_state",
         "no_test_executed",
-        "phase_snapshots",
         "proven_finding",
         "qa_review.coverage_unknown",
         "qa_review.edge_cases_thin",
@@ -74,15 +82,29 @@ NATIVE_CHECK_ORIGIN_REFS: Final[Mapping[str, str | None]] = (
     MappingProxyType(
         {
             check_id: None
-            for check_id in _BUILTIN_NATIVE_CHECK_IDS | _ROLE_CHECK_IDS
+            for check_id in (
+                _BUILTIN_NATIVE_CHECK_IDS
+                | _ROLE_CHECK_IDS
+                | frozenset(PHASE_SNAPSHOT_CHECK_IDS.values())
+            )
         }
     )
 )
 
+
+def phase_snapshot_check_id(phase: str) -> str:
+    """Return the registered check identity for one canonical phase."""
+    try:
+        return PHASE_SNAPSHOT_CHECK_IDS[phase]
+    except KeyError as exc:
+        raise ValueError(f"unknown phase snapshot check phase: {phase!r}") from exc
+
 __all__ = [
     "DOC_FIDELITY_CHECK_IDS",
     "NATIVE_CHECK_ORIGIN_REFS",
+    "PHASE_SNAPSHOT_CHECK_IDS",
     "QA_REVIEW_CHECK_IDS",
     "SEMANTIC_REVIEW_CHECK_IDS",
     "STORY_CREATION_REVIEW_CHECK_IDS",
+    "phase_snapshot_check_id",
 ]

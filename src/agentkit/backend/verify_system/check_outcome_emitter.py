@@ -59,9 +59,9 @@ def validate_layer_result_execution_protocol(
 
     The producer must supply a sequence of string IDs. Findings cannot recover
     clean checks, so they are never used as an execution-protocol substitute.
-    Blank IDs and findings outside the protocol are corrupt input. Repeated IDs
-    remain repeated executions in the aggregate count; persistence upserts the
-    per-check outcome identity once.
+    Blank IDs and findings outside the protocol are corrupt input. Every
+    logical execution must have a distinct registered check ID because the
+    atomic batch rejects duplicate persisted outcome identities.
     """
     if "executed_check_ids" not in layer_result.metadata:
         raise ValueError(
@@ -234,47 +234,40 @@ def validate_qa_layer_artifact_batch(
     expected_outcomes: set[tuple[str, str]] = set()
     finding_checks: set[tuple[str, str]] = set()
     for layer_result in layer_results:
-        stage_id = stage_registry.canonical_stage_id_for_result_name(
-            layer_result.layer
-        )
+        stage_id = stage_registry.canonical_stage_id_for_result_name(layer_result.layer)
         executed_check_ids = validate_layer_result_execution_protocol(layer_result)
-        expected_outcomes.update(
-            (stage_id, check_id) for check_id in executed_check_ids
-        )
-        finding_checks.update(
-            (stage_id, finding.check)
-            for finding in layer_result.findings
-            if finding.check
-        )
+        expected_outcomes.update((stage_id, check_id) for check_id in executed_check_ids)
+        finding_checks.update((stage_id, finding.check) for finding in layer_result.findings if finding.check)
 
-    actual_outcomes = {
-        (record.stage_id, record.check_id) for record in check_outcomes
-    }
+    outcome_identities = tuple(
+        (
+            record.project_key,
+            record.story_id,
+            record.run_id,
+            record.attempt_no,
+            record.stage_id,
+            record.check_id,
+        )
+        for record in check_outcomes
+    )
+    if len(set(outcome_identities)) != len(outcome_identities):
+        duplicates = sorted({identity for identity in outcome_identities if outcome_identities.count(identity) > 1})
+        raise ValueError(f"QA layer batch contains duplicate outcome identities: {duplicates!r}")
+    actual_outcomes = {(record.stage_id, record.check_id) for record in check_outcomes}
     if actual_outcomes != expected_outcomes:
         missing = sorted(expected_outcomes - actual_outcomes)
         unexpected = sorted(actual_outcomes - expected_outcomes)
-        raise ValueError(
-            "QA layer batch outcome protocol mismatch: "
-            f"missing={missing!r}, unexpected={unexpected!r}"
-        )
-    wrong_attempts = sorted(
-        {record.attempt_no for record in check_outcomes if record.attempt_no != attempt_no}
-    )
+        raise ValueError(f"QA layer batch outcome protocol mismatch: missing={missing!r}, unexpected={unexpected!r}")
+    wrong_attempts = sorted({record.attempt_no for record in check_outcomes if record.attempt_no != attempt_no})
     if wrong_attempts:
-        raise ValueError(
-            f"QA layer batch contains outcome attempts outside attempt {attempt_no}: {wrong_attempts!r}"
-        )
+        raise ValueError(f"QA layer batch contains outcome attempts outside attempt {attempt_no}: {wrong_attempts!r}")
     triggered_without_finding = sorted(
         (record.stage_id, record.check_id)
         for record in check_outcomes
-        if record.outcome is CheckOutcome.TRIGGERED
-        and (record.stage_id, record.check_id) not in finding_checks
+        if record.outcome is CheckOutcome.TRIGGERED and (record.stage_id, record.check_id) not in finding_checks
     )
     if triggered_without_finding:
-        raise ValueError(
-            "triggered QA outcomes require a finding in the same atomic batch: "
-            f"{triggered_without_finding!r}"
-        )
+        raise ValueError(f"triggered QA outcomes require a finding in the same atomic batch: {triggered_without_finding!r}")
     findings_without_failed_outcome = sorted(
         (record.stage_id, record.check_id)
         for record in check_outcomes
@@ -283,10 +276,36 @@ def validate_qa_layer_artifact_batch(
     )
     if findings_without_failed_outcome:
         raise ValueError(
-            "QA findings require a triggered or overridden outcome in the "
-            "same atomic batch: "
-            f"{findings_without_failed_outcome!r}"
+            f"QA findings require a triggered or overridden outcome in the same atomic batch: {findings_without_failed_outcome!r}"
         )
+
+
+def _validated_adversarial_target_sources(
+    layer_result: LayerResult,
+) -> dict[str, str]:
+    """Validate and return the explicit Layer-3 target provenance mapping."""
+    if layer_result.layer != "adversarial":
+        return {}
+    from agentkit.backend.verify_system.adversarial_orchestrator.runtime.models import (
+        AdversarialTargetSource,
+    )
+
+    raw_sources = layer_result.metadata.get("adversarial_target_sources", ())
+    if not isinstance(raw_sources, (list, tuple)):
+        raise ValueError("adversarial_target_sources must be a typed sequence")
+    sources = tuple(AdversarialTargetSource.model_validate(raw_source) for raw_source in raw_sources)
+    target_ids = [source.target_id for source in sources]
+    if len(set(target_ids)) != len(target_ids):
+        raise ValueError("adversarial_target_sources contains duplicate target ids")
+    executed_target_ids = set(validate_layer_result_execution_protocol(layer_result))
+    resolved: dict[str, str] = {}
+    for source in sources:
+        if source.target_id not in executed_target_ids:
+            raise ValueError(f"adversarial target provenance names a target that was not executed: {source.target_id!r}")
+        if not source.source_artifact_record_key:
+            raise ValueError("adversarial target provenance lacks its canonical Layer-2 artifact")
+        resolved[source.target_id] = source.source_check_id
+    return resolved
 
 
 class CheckOutcomeEmitter:
@@ -304,11 +323,13 @@ class CheckOutcomeEmitter:
         """Build the complete outcome record set for one QA-layer batch."""
         records: list[QACheckOutcomeRecord] = []
         for layer_result in layer_results:
-            executed_check_ids = validate_layer_result_execution_protocol(
-                layer_result
+            executed_check_ids = validate_layer_result_execution_protocol(layer_result)
+            target_sources = _validated_adversarial_target_sources(
+                layer_result,
             )
             check_origin_refs = stage_registry.resolve_check_origin_refs(
-                list(executed_check_ids)
+                list(executed_check_ids),
+                adversarial_target_sources=target_sources,
             )
             records.extend(
                 self.build(

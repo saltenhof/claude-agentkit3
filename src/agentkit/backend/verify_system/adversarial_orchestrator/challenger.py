@@ -103,7 +103,7 @@ class AdversarialChallenger(PromptAuditMixin):
 
     def derive_adversarial_targets(
         self,
-        layer2_findings: list[Finding],
+        layer2_results: list[LayerResult],
         remediation_round: int = 1,
     ) -> list[AdversarialTarget]:
         """Derive mandatory adversarial targets from Layer-2 findings (FK-48 §48.2.2).
@@ -112,7 +112,7 @@ class AdversarialChallenger(PromptAuditMixin):
         when no spawner is wired or no ``assertion_weakness`` finding qualifies.
 
         Args:
-            layer2_findings: The Layer-2 findings of the current round.
+            layer2_results: The Layer-2 results of the current round.
             remediation_round: The current remediation round (1-based).
 
         Returns:
@@ -120,9 +120,7 @@ class AdversarialChallenger(PromptAuditMixin):
         """
         if self._spawner is None:
             return []
-        return self._spawner.extract_mandatory_targets(
-            layer2_findings, remediation_round
-        )
+        return self._spawner.extract_mandatory_targets(layer2_results, remediation_round)
 
     @property
     def name(self) -> str:
@@ -167,11 +165,7 @@ class AdversarialChallenger(PromptAuditMixin):
             ctx=ctx,
             story_dir=story_dir,
         )
-        if (
-            self._sparring_client is None
-            or self._telemetry_emitter is None
-            or self._artifact_manager is None
-        ):
+        if self._sparring_client is None or self._telemetry_emitter is None or self._artifact_manager is None:
             return self._fail_closed(
                 "adversarial runtime is not wired (no sparring transport / "
                 "telemetry emitter / artifact manager) — FAIL-CLOSED, no "
@@ -180,7 +174,6 @@ class AdversarialChallenger(PromptAuditMixin):
             )
 
         run_id, attempt = self._resolve_run_scope(story_dir)
-        sandbox_dir = self._sandbox_dir(story_dir, ctx.story_id, attempt)
         tests_root = self._tests_root(ctx)
 
         from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
@@ -191,6 +184,12 @@ class AdversarialChallenger(PromptAuditMixin):
         )
 
         try:
+            expected_targets, sandbox_dir = self._load_spawn_evidence(
+                story_dir=story_dir,
+                story_id=ctx.story_id,
+                run_id=run_id,
+                current_attempt=attempt,
+            )
             runtime_result = run_adversarial_runtime(
                 artifact_manager=self._artifact_manager,
                 emitter=self._telemetry_emitter,
@@ -201,6 +200,7 @@ class AdversarialChallenger(PromptAuditMixin):
                 run_id=run_id,
                 attempt=attempt,
                 resolver=self._sparring_resolver,
+                expected_targets=expected_targets,
             )
         except AdversarialResultReadError as exc:
             return self._fail_closed(str(exc), prompt_audit)
@@ -220,13 +220,98 @@ class AdversarialChallenger(PromptAuditMixin):
                 # adversarial-artefact write).
                 "artifact_materialized": True,
                 "resolution_feedback": {
-                    f"{layer}:{check}": status.value
-                    for (layer, check), status in (
-                        runtime_result.resolution_feedback.items()
-                    )
+                    f"{layer}:{check}": status.value for (layer, check), status in (runtime_result.resolution_feedback.items())
                 },
             },
+            artifact_reference=runtime_result.artifact_reference,
         )
+
+    def _load_spawn_evidence(
+        self,
+        *,
+        story_dir: Path,
+        story_id: str,
+        run_id: str,
+        current_attempt: int,
+    ) -> tuple[tuple[AdversarialTarget, ...], Path]:
+        """Load the preceding spawn envelope and prove its source findings."""
+        from agentkit.backend.artifacts import ArtifactNotFoundError, ArtifactReference
+        from agentkit.backend.core_types import ArtifactClass
+        from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
+            AdversarialResultReadError,
+        )
+        from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
+            AdversarialTarget as _AdversarialTarget,
+        )
+        from agentkit.backend.verify_system.register import ADVERSARIAL_SANDBOX_STAGE
+
+        if current_attempt == 1:
+            return (), self._sandbox_dir(story_dir, story_id, current_attempt)
+        expected_spawn_attempt = current_attempt - 1
+        if self._artifact_manager is None:
+            raise AdversarialResultReadError("adversarial spawn evidence cannot be loaded without an artifact manager")
+        try:
+            envelope = self._artifact_manager.read_latest(
+                story_id=story_id,
+                run_id=run_id,
+                artifact_class=ArtifactClass.ADVERSARIAL_TEST_SANDBOX,
+                stage=ADVERSARIAL_SANDBOX_STAGE,
+            )
+        except ArtifactNotFoundError:
+            raise AdversarialResultReadError("adversarial remediation has no preceding typed spawn envelope") from None
+        if envelope.attempt != expected_spawn_attempt:
+            raise AdversarialResultReadError(
+                "adversarial spawn envelope attempt does not precede the current "
+                f"remediation: expected={expected_spawn_attempt}, actual={envelope.attempt}"
+            )
+        payload = envelope.payload or {}
+        expected_sandbox_rel = f"_temp/{_SANDBOX_DIRNAME}/{story_id}/{expected_spawn_attempt}"
+        if payload.get("sandbox_path") != expected_sandbox_rel:
+            raise AdversarialResultReadError("adversarial spawn envelope carries a non-canonical sandbox path")
+        raw_targets = payload.get("targets", ())
+        if not isinstance(raw_targets, list):
+            raise AdversarialResultReadError("adversarial sandbox envelope targets must be a list")
+        if any(not isinstance(raw_target, dict) for raw_target in raw_targets):
+            raise AdversarialResultReadError("adversarial sandbox envelope contains a non-object target")
+        try:
+            targets = tuple(_AdversarialTarget(**raw_target) for raw_target in raw_targets)
+        except (TypeError, ValueError) as exc:
+            raise AdversarialResultReadError(f"adversarial sandbox envelope target mapping is invalid: {exc}") from exc
+        for target in targets:
+            source_reference = ArtifactReference(
+                artifact_class=ArtifactClass.QA,
+                story_id=story_id,
+                run_id=run_id,
+                record_key=target.source_artifact_record_key,
+            )
+            try:
+                source_envelope = self._artifact_manager.read(source_reference)
+            except ArtifactNotFoundError as exc:
+                raise AdversarialResultReadError("adversarial target references an absent canonical Layer-2 artifact") from exc
+            if source_envelope.attempt != expected_spawn_attempt:
+                raise AdversarialResultReadError("adversarial target source artifact belongs to the wrong attempt")
+            source_payload = source_envelope.payload or {}
+            findings = source_payload.get("findings")
+            metadata = source_payload.get("metadata")
+            if (
+                source_payload.get("layer") != target.source_result_name
+                or not isinstance(findings, list)
+                or target.source_finding_index >= len(findings)
+                or not isinstance(metadata, dict)
+            ):
+                raise AdversarialResultReadError("adversarial target source does not identify an exact Layer-2 result")
+            source_finding = findings[target.source_finding_index]
+            executed = metadata.get("executed_check_ids")
+            if (
+                not isinstance(source_finding, dict)
+                or source_finding.get("layer") != target.source_result_name
+                or source_finding.get("check") != target.source_check_id
+                or source_finding.get("message") != target.normative_ref
+                or not isinstance(executed, list)
+                or target.source_check_id not in executed
+            ):
+                raise AdversarialResultReadError("adversarial target source finding is not an exact executed Layer-2 member")
+        return targets, story_dir / expected_sandbox_rel
 
     def _fail_closed(
         self,

@@ -85,7 +85,8 @@ class TestStructuralChecker:
         assert result.passed is False
         checks_found = {finding.check for finding in result.findings}
         assert "context_exists" in checks_found
-        assert "phase_snapshots" in checks_found
+        assert "phase_snapshots.setup" in checks_found
+        assert "phase_snapshots.exploration" in checks_found
 
     def test_implements_qa_layer_protocol(self) -> None:
         assert isinstance(StructuralChecker(), QALayer)
@@ -110,6 +111,8 @@ class TestStructuralChecker:
         snapshot_findings = [
             finding
             for finding in result.findings
-            if finding.check == "phase_snapshots"
+            if finding.check.startswith("phase_snapshots.")
         ]
-        assert len(snapshot_findings) >= 1
+        assert [finding.check for finding in snapshot_findings] == [
+            "phase_snapshots.exploration"
+        ]

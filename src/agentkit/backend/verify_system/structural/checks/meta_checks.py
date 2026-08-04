@@ -33,6 +33,9 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     load_story_context,
 )
 from agentkit.backend.verify_system.protocols import Finding, Severity, TrustClass
+from agentkit.backend.verify_system.stage_registry.check_origins import (
+    phase_snapshot_check_id,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -86,6 +89,7 @@ def check_phase_snapshots(
 
     findings: list[Finding] = []
     for phase in required_phases:
+        check_id = phase_snapshot_check_id(phase)
         try:
             snapshot = load_phase_snapshot(story_dir, phase)
         except CorruptStateError:
@@ -94,7 +98,7 @@ def check_phase_snapshots(
             findings.append(
                 Finding(
                     layer="structural",
-                    check="phase_snapshots",
+                    check=check_id,
                     severity=Severity.BLOCKING,
                     trust_class=TrustClass.SYSTEM,
                     message=f"Canonical phase snapshot missing for phase '{phase}'",

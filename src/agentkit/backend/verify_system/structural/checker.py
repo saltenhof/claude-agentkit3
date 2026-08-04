@@ -26,6 +26,9 @@ from agentkit.backend.verify_system.protocols import (
     LayerResult,
     Severity,
 )
+from agentkit.backend.verify_system.stage_registry.check_origins import (
+    phase_snapshot_check_id,
+)
 from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 from agentkit.backend.verify_system.structural.checks import (
     ABSENT_BUGFIX_EVIDENCE_PORT,
@@ -369,9 +372,9 @@ class StructuralChecker:
         profile = get_profile(ctx.story_type)
         implementation_index = _phase_index(profile.phases, "implementation")
         required_prior = list(profile.phases[:implementation_index])
-        checks_run += len(required_prior)
-        # One "phase_snapshots" check ID per required phase (matches Finding.check).
-        check_ids_run.extend("phase_snapshots" for _ in required_prior)
+        phase_check_ids = [phase_snapshot_check_id(phase) for phase in required_prior]
+        checks_run += len(phase_check_ids)
+        check_ids_run.extend(phase_check_ids)
         findings.extend(check_phase_snapshots(story_dir, required_prior))
 
         checks_run += 1

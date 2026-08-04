@@ -275,6 +275,11 @@ class TestStandardStageTable:
         assert registry.canonical_stage_id_for_result_name("doc_fidelity") == "doc_fidelity_impl"
         assert registry.canonical_stage_id_for_result_name("qa_review") == "qa_review"
 
+    def test_layer2_result_names_are_derived_from_registry(self) -> None:
+        registry = StageRegistry()
+
+        assert {"qa_review", "semantic_review", "doc_fidelity"} <= set(registry.result_names_for_layer(2))
+
     def test_check_origin_resolution_requires_registry_evidence(self) -> None:
         proposal_stage = StageDefinition(
             stage_id="proposal.check",
@@ -298,8 +303,25 @@ class TestStandardStageTable:
             "artifact.protocol": None,
             "context_exists": None,
             "proposal.check": "CHK-0042",
-            "proposal_review.proposal.check": "CHK-0042",
         }
+        assert registry.resolve_check_origin_refs(
+            ["proposal_review.proposal.check"],
+            adversarial_target_sources={"proposal_review.proposal.check": "proposal.check"},
+        ) == {"proposal_review.proposal.check": "CHK-0042"}
+
+    def test_phase_snapshot_checks_are_registered_individually(self) -> None:
+        registry = StageRegistry()
+        check_ids = [
+            "phase_snapshots.setup",
+            "phase_snapshots.exploration",
+            "phase_snapshots.implementation",
+            "phase_snapshots.closure",
+        ]
+
+        assert registry.resolve_check_origin_refs(check_ids) == {
+            check_id: None for check_id in check_ids
+        }
+        assert registry.resolve_check_origin_refs(["phase_snapshots"]) == {}
 
     def test_bugfix_stages_apply_only_to_bugfix(self) -> None:
         registry = StageRegistry()

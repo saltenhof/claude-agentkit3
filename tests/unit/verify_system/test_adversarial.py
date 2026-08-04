@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
+from tests.qa_artifact_support import write_qa_layer_envelopes
 
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 from agentkit.backend.installer import InstallConfig, install_agentkit
@@ -19,7 +21,17 @@ from agentkit.backend.state_backend.story_lifecycle_store import save_story_cont
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
-from agentkit.backend.verify_system.protocols import QALayer
+from agentkit.backend.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner
+from agentkit.backend.verify_system.contract import VerifyContextBundle
+from agentkit.backend.verify_system.protocols import (
+    ASSERTION_WEAKNESS_FINDING_TYPE,
+    Finding,
+    LayerResult,
+    QALayer,
+    Severity,
+    TrustClass,
+)
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -205,18 +217,72 @@ class TestAdversarialChallenger:
         # The runtime owns the canonical adversarial.json write.
         assert result.metadata["artifact_materialized"] is True
 
-    def test_evaluate_resolves_sandbox_epoch_from_run_scope(self, tmp_path: Path) -> None:
-        """AC2: the challenger resolves the sandbox epoch via the run-scope port."""
+    def test_evaluate_consumes_preceding_spawn_with_exact_layer2_source(self, tmp_path: Path) -> None:
+        """I3: round N+1 consumes round N target and canonical source finding."""
         from agentkit.backend.telemetry.emitters import MemoryEmitter
         from agentkit.backend.verify_system.protocols import RunScope
 
         project_root = tmp_path / "project"
         story_dir = project_root / "stories" / "TEST-001"
-        # The run scope reports attempt=3 -> the sandbox epoch is "3".
-        sandbox = story_dir / "_temp" / "adversarial" / "TEST-001" / "3"
-        sandbox.mkdir(parents=True)
-        (sandbox / "result.json").write_text(
-            json.dumps({"story_id": "TEST-001", "status": "PASS", "tests_executed": 1, "tests": []}),
+        story_dir.mkdir(parents=True)
+        flow = FlowExecution(
+            project_key="test-project",
+            story_id="TEST-001",
+            run_id="run-x",
+            flow_id="implementation",
+            level="story",
+            owner="pipeline",
+            attempt_no=1,
+        )
+        save_flow_execution(story_dir, flow)
+        source_finding = Finding(
+            layer="qa_review",
+            check="negative_case",
+            severity=Severity.BLOCKING,
+            message="negative case is not covered",
+            trust_class=TrustClass.VERIFIED_LLM,
+            finding_type=ASSERTION_WEAKNESS_FINDING_TYPE,
+        )
+        source_result = LayerResult(
+            layer="qa_review",
+            passed=False,
+            findings=(source_finding,),
+            metadata={"executed_check_ids": ("negative_case",)},
+        )
+        manager = build_artifact_manager(story_dir)
+        source_reference = write_qa_layer_envelopes(
+            story_dir,
+            layer_results=(source_result,),
+            stage_registry=StageRegistry(),
+            attempt_nr=1,
+        )["qa_review"]
+        source_result = replace(
+            source_result,
+            artifact_reference=source_reference,
+        )
+        spawner = AdversarialSpawner(manager)
+        targets = spawner.extract_mandatory_targets([source_result], 1)
+        spawn_request = spawner.request_spawn(
+            VerifyContextBundle(run_id="run-x", story_dir=story_dir, attempt=1),
+            targets,
+            story_id="TEST-001",
+        )
+        (spawn_request.sandbox_path / "result.json").write_text(
+            json.dumps(
+                {
+                    "story_id": "TEST-001",
+                    "status": "PASS",
+                    "tests_executed": 1,
+                    "tests": [],
+                    "mandatory_target_results": [
+                        {
+                            "target_id": "qa_review.negative_case",
+                            "status": "UNRESOLVABLE",
+                            "reason": "external boundary cannot be reproduced",
+                        }
+                    ],
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -227,7 +293,7 @@ class TestAdversarialChallenger:
 
             def resolve_run_scope(self, story_dir: Path) -> RunScope:
                 del story_dir
-                return RunScope(run_id="run-x", story_id="TEST-001", attempt=3)
+                return RunScope(run_id="run-x", story_id="TEST-001", attempt=2)
 
         class _FakeSparringClient:
             def complete(self, *, role: str, prompt: str) -> str:
@@ -235,7 +301,7 @@ class TestAdversarialChallenger:
                 return "edge a"
 
         challenger = AdversarialChallenger(
-            artifact_manager=build_artifact_manager(project_root),
+            artifact_manager=manager,
             story_context_port=_Port(),
             sparring_client=_FakeSparringClient(),
             telemetry_emitter=MemoryEmitter(),
@@ -249,3 +315,99 @@ class TestAdversarialChallenger:
         )
         result = challenger.evaluate(ctx, story_dir)
         assert result.passed is True
+        assert result.metadata["adversarial_target_sources"] == (
+            {
+                "target_id": "qa_review.negative_case",
+                "source_result_name": "qa_review",
+                "source_check_id": "negative_case",
+                "source_artifact_record_key": source_reference.record_key,
+                "source_finding_index": 0,
+            },
+        )
+
+    def test_evaluate_rejects_spawn_target_outside_source_findings(self, tmp_path: Path) -> None:
+        """I3: a typed target still fails when its source membership is false."""
+        from agentkit.backend.telemetry.emitters import MemoryEmitter
+        from agentkit.backend.verify_system.protocols import RunScope
+
+        project_root = tmp_path / "project"
+        story_dir = project_root / "stories" / "TEST-001"
+        story_dir.mkdir(parents=True)
+        save_flow_execution(
+            story_dir,
+            FlowExecution(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-x",
+                flow_id="implementation",
+                level="story",
+                owner="pipeline",
+            ),
+        )
+        source_result = LayerResult(
+            layer="qa_review",
+            passed=False,
+            findings=(
+                Finding(
+                    layer="qa_review",
+                    check="negative_case",
+                    severity=Severity.BLOCKING,
+                    message="negative case is not covered",
+                    trust_class=TrustClass.VERIFIED_LLM,
+                    finding_type=ASSERTION_WEAKNESS_FINDING_TYPE,
+                ),
+            ),
+            metadata={"executed_check_ids": ("negative_case",)},
+        )
+        manager = build_artifact_manager(story_dir)
+        reference = write_qa_layer_envelopes(
+            story_dir,
+            layer_results=(source_result,),
+            stage_registry=StageRegistry(),
+            attempt_nr=1,
+        )["qa_review"]
+        source_result = replace(source_result, artifact_reference=reference)
+        spawner = AdversarialSpawner(manager)
+        target = replace(
+            spawner.extract_mandatory_targets([source_result], 1)[0],
+            source_finding_index=1,
+        )
+        spawner.request_spawn(
+            VerifyContextBundle(run_id="run-x", story_dir=story_dir, attempt=1),
+            [target],
+            story_id="TEST-001",
+        )
+
+        class _Port:
+            def load(self, story_dir: Path) -> None:
+                del story_dir
+                return None
+
+            def resolve_run_scope(self, story_dir: Path) -> RunScope:
+                del story_dir
+                return RunScope(run_id="run-x", story_id="TEST-001", attempt=2)
+
+        class _FakeSparringClient:
+            def complete(self, *, role: str, prompt: str) -> str:
+                del role, prompt
+                return "edge a"
+
+        challenger = AdversarialChallenger(
+            artifact_manager=manager,
+            story_context_port=_Port(),
+            sparring_client=_FakeSparringClient(),
+            telemetry_emitter=MemoryEmitter(),
+        )
+        result = challenger.evaluate(
+            StoryContext(
+                project_key="test-project",
+                story_id="TEST-001",
+                story_type=StoryType.IMPLEMENTATION,
+                execution_route=StoryMode.EXECUTION,
+                project_root=project_root,
+            ),
+            story_dir,
+        )
+
+        assert result.passed is False
+        assert "exact Layer-2 result" in result.findings[0].message

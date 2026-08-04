@@ -9,6 +9,9 @@ from ._common import cast_json_record, dump_json, load_json
 from ._runtime import flow_execution_row_to_record
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from agentkit.backend.artifacts import ArtifactReference
     from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
     from agentkit.backend.verify_system.protocols import LayerResult
     from agentkit.backend.verify_system.stage_registry.records import (
@@ -197,6 +200,7 @@ def build_qa_layer_payload_rows(
     *,
     attempt_nr: int,
     stage_registry: StageRegistry,
+    artifact_references: Mapping[str, ArtifactReference],
 ) -> list[dict[str, object]]:
     """Build serialized QA layer artifact rows for the backend batch writer."""
 
@@ -204,6 +208,8 @@ def build_qa_layer_payload_rows(
     from agentkit.backend.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
 
     layer_payload_rows: list[dict[str, object]] = []
+    from agentkit.backend.core_types import ArtifactClass
+
     for layer_result in layer_results:
         producer_component = stage_registry.producer_for_result_name(layer_result.layer)
         artifact_name = LAYER_ARTIFACT_FILES.get(layer_result.layer)
@@ -211,7 +217,26 @@ def build_qa_layer_payload_rows(
             layer_result,
             attempt_nr=attempt_nr,
         )
-        artifact_id = f"{layer_result.layer.replace('_', '-')}-attempt-{attempt_nr}"
+        try:
+            artifact_reference = artifact_references[layer_result.layer]
+        except KeyError as exc:
+            raise ValueError(
+                f"missing canonical ArtifactReference for LayerResult {layer_result.layer!r}"
+            ) from exc
+        flow = flow_execution_row_to_record(flow_row) if flow_row is not None else None
+        if flow is None:
+            raise ValueError("QA projection rows require a flow execution scope")
+        if (
+            artifact_reference.artifact_class is not ArtifactClass.QA
+            or artifact_reference.story_id != flow.story_id
+            or artifact_reference.run_id != flow.run_id
+        ):
+            raise ValueError(
+                "QA LayerResult ArtifactReference does not match the canonical "
+                f"flow scope: layer={layer_result.layer!r}, "
+                f"reference={artifact_reference!r}"
+            )
+        artifact_id = artifact_reference.record_key
         recorded_at = datetime.fromisoformat(now_iso())
 
         stage_row: dict[str, object] | None = None
@@ -239,6 +264,8 @@ def build_qa_layer_payload_rows(
                 "layer": layer_result.layer,
                 "artifact_name": artifact_name,
                 "artifact_id": artifact_id,
+                "artifact_reference": artifact_reference.model_dump(mode="json"),
+                "artifact_attempt": attempt_nr,
                 "producer_component": producer_component,
                 "payload": payload,
                 "passed": layer_result.passed,

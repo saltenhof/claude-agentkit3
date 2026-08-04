@@ -32,9 +32,11 @@ from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact im
     read_sandbox_result,
 )
 from agentkit.backend.verify_system.adversarial_orchestrator.runtime.feedback import (
+    fulfilled_mandatory_target_ids,
     mandatory_target_resolution_feedback,
 )
 from agentkit.backend.verify_system.adversarial_orchestrator.runtime.models import (
+    AdversarialTargetSource,
     AdversarialTelemetryCounts,
     SparringProof,
 )
@@ -56,13 +58,16 @@ from agentkit.backend.verify_system.protocols import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.artifacts import ArtifactManager
+    from agentkit.backend.artifacts import ArtifactManager, ArtifactReference
     from agentkit.backend.telemetry.emitters import EventEmitter
     from agentkit.backend.verify_system.adversarial_orchestrator.runtime.models import (
         AdversarialResultArtifact,
     )
     from agentkit.backend.verify_system.adversarial_orchestrator.runtime.promotion import (
         PromotionDecision,
+    )
+    from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
+        AdversarialTarget,
     )
     from agentkit.backend.verify_system.llm_evaluator.llm_client import (
         LlmClient,
@@ -102,6 +107,7 @@ class AdversarialRuntimeResult:
     artifact: AdversarialResultArtifact
     promotion_decisions: tuple[PromotionDecision, ...]
     resolution_feedback: dict[FindingKey, FindingResolutionStatus]
+    artifact_reference: ArtifactReference
 
 
 def run_adversarial_runtime(
@@ -114,6 +120,7 @@ def run_adversarial_runtime(
     story_id: str,
     run_id: str,
     attempt: int,
+    expected_targets: tuple[AdversarialTarget, ...],
     resolver: RolePoolResolver | None = None,
     sparring_prompt: str = _DEFAULT_SPARRING_PROMPT,
     phase: str | None = None,
@@ -205,9 +212,7 @@ def run_adversarial_runtime(
             adversarial_end=counter.count(EventType.ADVERSARIAL_END),
             adversarial_sparring=counter.count(EventType.ADVERSARIAL_SPARRING),
             adversarial_test_created=counter.count(EventType.ADVERSARIAL_TEST_CREATED),
-            adversarial_test_executed=counter.count(
-                EventType.ADVERSARIAL_TEST_EXECUTED
-            ),
+            adversarial_test_executed=counter.count(EventType.ADVERSARIAL_TEST_EXECUTED),
         )
 
         # AC5: materialise ``adversarial.json`` (schema 3.1) via the ArtifactManager.
@@ -217,25 +222,42 @@ def run_adversarial_runtime(
             sparring=sparring,
             promotion=promotion,
             telemetry=telemetry,
+            expected_targets=expected_targets,
         )
-        materialize_adversarial_artifact(
+        artifact_reference = materialize_adversarial_artifact(
             artifact_manager=artifact_manager,
             artifact=artifact,
             attempt=attempt,
         )
 
+        target_sources = tuple(
+            AdversarialTargetSource(
+                target_id=target.finding_id,
+                source_result_name=target.source_result_name,
+                source_check_id=target.source_check_id,
+                source_artifact_record_key=target.source_artifact_record_key,
+                source_finding_index=target.source_finding_index,
+            )
+            for target in expected_targets
+        )
+
         # AC8: Layer-3 -> Layer-2 mandatory-target feedback.
-        resolution_feedback = mandatory_target_resolution_feedback(artifact)
+        resolution_feedback = mandatory_target_resolution_feedback(
+            artifact,
+            target_sources=target_sources,
+        )
 
         layer_result = _derive_layer_result(
             artifact=artifact,
             sparring_failure=sparring_failed,
+            target_sources=target_sources,
         )
         return AdversarialRuntimeResult(
             layer_result=layer_result,
             artifact=artifact,
             promotion_decisions=decisions,
             resolution_feedback=resolution_feedback,
+            artifact_reference=artifact_reference,
         )
     finally:
         # Exactly-1 ``adversarial_end`` guarantee: a no-op when the happy path
@@ -247,6 +269,7 @@ def _derive_layer_result(
     *,
     artifact: AdversarialResultArtifact,
     sparring_failure: str | None,
+    target_sources: tuple[AdversarialTargetSource, ...],
 ) -> LayerResult:
     """Derive the Layer-3 verdict from real evidence (FK-48 §48.1.8 / §48.1.1).
 
@@ -262,8 +285,7 @@ def _derive_layer_result(
                 check="no_test_executed",
                 severity=Severity.BLOCKING,
                 message=(
-                    "Layer 3 (Adversarial) executed no test — the mandatory "
-                    ">= 1 executed-test duty was violated (FK-48 §48.1.8)."
+                    "Layer 3 (Adversarial) executed no test — the mandatory >= 1 executed-test duty was violated (FK-48 §48.1.8)."
                 ),
                 trust_class=TrustClass.SYSTEM,
                 suggestion="The adversarial agent must execute at least one test.",
@@ -275,10 +297,7 @@ def _derive_layer_result(
                 layer=_LAYER_NAME,
                 check="sparring_missing",
                 severity=Severity.BLOCKING,
-                message=(
-                    "Layer 3 (Adversarial) mandatory sparring did not run: "
-                    f"{sparring_failure}"
-                ),
+                message=(f"Layer 3 (Adversarial) mandatory sparring did not run: {sparring_failure}"),
                 trust_class=TrustClass.SYSTEM,
                 suggestion="The adversarial agent must complete one sparring call.",
             )
@@ -297,24 +316,19 @@ def _derive_layer_result(
                 suggestion="Fix the implementation so the quarantined test(s) pass.",
             )
         )
+    fulfilled_target_ids = fulfilled_mandatory_target_ids(artifact)
     for target in artifact.mandatory_target_results:
         status = target.status.upper()
-        if status == "TESTED" or (status == "UNRESOLVABLE" and target.reason):
+        if target.target_id in fulfilled_target_ids:
             continue
         findings.append(
             Finding(
                 layer=_LAYER_NAME,
                 check=target.target_id,
                 severity=Severity.BLOCKING,
-                message=(
-                    "Mandatory adversarial target not fulfilled: "
-                    f"{target.target_id} (status={status or 'MISSING'})."
-                ),
+                message=(f"Mandatory adversarial target not fulfilled: {target.target_id} (status={status or 'MISSING'})."),
                 trust_class=TrustClass.VERIFIED_LLM,
-                suggestion=(
-                    "Cover this mandatory adversarial target or mark it "
-                    "UNRESOLVABLE with evidence."
-                ),
+                suggestion=("Cover this mandatory adversarial target or mark it UNRESOLVABLE with evidence."),
             )
         )
     passed = not findings
@@ -333,6 +347,7 @@ def _derive_layer_result(
                 "proven_finding",
                 *(target.target_id for target in artifact.mandatory_target_results),
             ),
+            "adversarial_target_sources": tuple(source.model_dump(mode="json") for source in target_sources),
         },
     )
 
@@ -373,9 +388,7 @@ class _LifecycleEmitter:
         self._inner.emit(event)
         self._counts[event.event_type] = self._counts.get(event.event_type, 0) + 1
 
-    def query(
-        self, _story_id: str, _event_type: EventType | None = None
-    ) -> list[Event]:
+    def query(self, _story_id: str, _event_type: EventType | None = None) -> list[Event]:
         """Delegate queries to the wrapped emitter (protocol completeness)."""
         return self._inner.query(_story_id, _event_type)
 

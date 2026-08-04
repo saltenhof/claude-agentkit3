@@ -101,6 +101,28 @@ def _layer2_findings() -> list[Finding]:
     ]
 
 
+def _layer2_results(findings: list[Finding] | None = None) -> list[LayerResult]:
+    selected = findings if findings is not None else _layer2_findings()
+    results: list[LayerResult] = []
+    for layer in dict.fromkeys(finding.layer for finding in selected):
+        layer_findings = tuple(finding for finding in selected if finding.layer == layer)
+        results.append(
+            LayerResult(
+                layer=layer,
+                passed=False,
+                findings=layer_findings,
+                metadata={"executed_check_ids": tuple(finding.check for finding in layer_findings)},
+                artifact_reference=ArtifactReference(
+                    artifact_class=ArtifactClass.QA,
+                    story_id="AG3-044",
+                    run_id="run-1",
+                    record_key=f"AG3-044|run-1|qa-layer-{layer}|1|qa|{layer}",
+                ),
+            )
+        )
+    return results
+
+
 def _git(args: list[str], cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8")
 
@@ -128,7 +150,7 @@ def test_layer2_findings_to_agents_to_spawn(tmp_path: Path) -> None:
     # Challenger uses the spawner to derive mandatory targets (FK-48 §48.2).
     challenger = AdversarialChallenger(spawner=spawner)
 
-    targets = challenger.derive_adversarial_targets(_layer2_findings())
+    targets = challenger.derive_adversarial_targets(_layer2_results())
     assert len(targets) == 1  # only the BLOCKING finding becomes a target
     assert targets[0].finding_id == "qa_review.assertion_weakness"
 
@@ -141,9 +163,7 @@ def test_layer2_findings_to_agents_to_spawn(tmp_path: Path) -> None:
     assert is_adversarial_sandbox_path(rel)
 
     # agents_to_spawn is written into the PhaseState (FK-45 §45.3).
-    state = make_phase_state(
-        story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
-    )
+    state = make_phase_state(story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS)
     updated = request.apply_to_state(state)
     assert len(updated.agents_to_spawn) == 1
     assert updated.agents_to_spawn[0].kind is SpawnKind.ADVERSARIAL
@@ -156,7 +176,7 @@ def test_adversarial_sandbox_envelope_is_persisted(tmp_path: Path) -> None:
     story_dir.mkdir()
     manager = build_artifact_manager(tmp_path)
     spawner = AdversarialSpawner(manager)
-    targets = spawner.extract_mandatory_targets(_layer2_findings(), 1)
+    targets = spawner.extract_mandatory_targets(_layer2_results(), 1)
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
     request = spawner.request_spawn(ctx, targets)
 
@@ -206,7 +226,7 @@ def test_no_blocking_findings_no_spawn(tmp_path: Path) -> None:
             trust_class=TrustClass.VERIFIED_LLM,
         ),
     ]
-    targets = spawner.extract_mandatory_targets(findings, 1)
+    targets = spawner.extract_mandatory_targets(_layer2_results(findings), 1)
     assert targets == []
 
 
@@ -275,7 +295,7 @@ def test_real_qa_subflow_layer2_blocking_to_agents_to_spawn(tmp_path: Path) -> N
     story_dir = tmp_path / "AG3-044"
     _init_story_worktree(story_dir)
     manager = build_artifact_manager(tmp_path)
-    base_registry = StageRegistry.result_catalog_only()
+    base_registry = StageRegistry()
     registry = dataclasses.replace(
         base_registry,
         native_check_origin_refs={
@@ -293,9 +313,7 @@ def test_real_qa_subflow_layer2_blocking_to_agents_to_spawn(tmp_path: Path) -> N
         system,
         layer_2a=_BlockingQaReviewLayer(),
     )
-    system = bind_implementation_qa_preconditions(
-        system, story_dir, story_id="AG3-044", run_id="run-1"
-    )
+    system = bind_implementation_qa_preconditions(system, story_dir, story_id="AG3-044", run_id="run-1")
     assert system.adversarial_spawner is not None
 
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
@@ -323,9 +341,7 @@ def test_real_qa_subflow_layer2_blocking_to_agents_to_spawn(tmp_path: Path) -> N
     assert envelope.payload["sandbox_path"].startswith("_temp/adversarial/")
 
     # The spawn order writes into PhaseState.agents_to_spawn (FK-45 §45.3).
-    state = make_phase_state(
-        story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
-    )
+    state = make_phase_state(story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS)
     updated = state.model_copy(update={"agents_to_spawn": list(outcome.adversarial_spawn)})
     assert len(updated.agents_to_spawn) == 1
     assert updated.agents_to_spawn[0].kind is SpawnKind.ADVERSARIAL
@@ -356,12 +372,14 @@ class _PassingLayer:
         )
 
 
-def test_real_qa_subflow_impl_route_no_blocking_layer2_no_spawn(tmp_path: Path) -> None:
-    """REAL run_qa_subflow on the IMPL route: no BLOCKING Layer-2 -> no spawn.
+def test_real_qa_subflow_impl_route_spawns_exploration_without_targets(
+    tmp_path: Path,
+) -> None:
+    """The implementation route spawns exploratory Layer 3 without targets.
 
     Layer 3 IS routed (IMPLEMENTATION), but all three Layer-2 reviewers PASS, so
-    no mandatory adversarial target is derived -> ``adversarial_spawn`` is empty
-    (no spurious spawn on a clean Layer-2).
+    the typed target snapshot is empty while one generic adversarial worker
+    still executes FK-48's exploratory mandate.
     """
     story_dir = tmp_path / "AG3-044"
     _init_story_worktree(story_dir)
@@ -373,9 +391,7 @@ def test_real_qa_subflow_impl_route_no_blocking_layer2_no_spawn(tmp_path: Path) 
         layer_2b=_PassingLayer("semantic_review"),
         layer_2c=_PassingLayer("doc_fidelity"),
     )
-    system = bind_implementation_qa_preconditions(
-        system, story_dir, story_id="AG3-044", run_id="run-1"
-    )
+    system = bind_implementation_qa_preconditions(system, story_dir, story_id="AG3-044", run_id="run-1")
 
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
     outcome = system.run_qa_subflow(
@@ -385,7 +401,18 @@ def test_real_qa_subflow_impl_route_no_blocking_layer2_no_spawn(tmp_path: Path) 
         _impl_target(),
     )
 
-    assert outcome.adversarial_spawn == ()
+    assert len(outcome.adversarial_spawn) == 1
+    exploratory_spawn = outcome.adversarial_spawn[0]
+    assert exploratory_spawn.kind is SpawnKind.ADVERSARIAL
+    assert exploratory_spawn.target_id is None
+    assert exploratory_spawn.sandbox_path == "_temp/adversarial/AG3-044/1"
+    empty_snapshot = manager.read_latest(
+        story_id="AG3-044",
+        run_id="run-1",
+        artifact_class=ArtifactClass.ADVERSARIAL_TEST_SANDBOX,
+        stage="qa-adversarial",
+    )
+    assert empty_snapshot.payload["targets"] == []
 
 
 def test_real_qa_subflow_exploration_route_no_spawn(tmp_path: Path) -> None:
@@ -399,9 +426,7 @@ def test_real_qa_subflow_exploration_route_no_spawn(tmp_path: Path) -> None:
     _init_story_worktree(story_dir)
     manager = build_artifact_manager(tmp_path)
     system = VerifySystem.create_default(artifact_manager=manager)
-    system = bind_implementation_qa_preconditions(
-        system, story_dir, story_id="AG3-044", run_id="run-1"
-    )
+    system = bind_implementation_qa_preconditions(system, story_dir, story_id="AG3-044", run_id="run-1")
 
     ctx = VerifyContextBundle(run_id="run-1", story_dir=story_dir, attempt=1)
     outcome = system.run_qa_subflow(
@@ -449,9 +474,7 @@ def _bind_engine_story_dir(tmp_path: Path) -> Path:
     return story_dir
 
 
-def test_engine_persists_remediation_and_adversarial_spawn(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_engine_persists_remediation_and_adversarial_spawn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """REAL engine drives REAL handler: BOTH spawn orders + sandbox persisted.
 
     FIX-3 (FK-27 §27.6 / FK-48 §48.2 / FK-45 §45.3): instead of hand-copying
@@ -468,7 +491,13 @@ def test_engine_persists_remediation_and_adversarial_spawn(
     # The artifact manager is bound to the SAME store as the engine's state so
     # the sandbox envelope and the persisted PhaseState share one backend.
     manager = build_artifact_manager(story_dir)
-    base_registry = StageRegistry.result_catalog_only()
+    canonical_registry = StageRegistry()
+    base_registry = dataclasses.replace(
+        StageRegistry.result_catalog_only(),
+        stages=tuple(
+            stage for stage in canonical_registry.stages if stage.layer == 2
+        ),
+    )
     registry = dataclasses.replace(
         base_registry,
         native_check_origin_refs={
@@ -486,9 +515,7 @@ def test_engine_persists_remediation_and_adversarial_spawn(
         system,
         layer_2a=_BlockingQaReviewLayer(),
     )
-    system = bind_implementation_qa_preconditions(
-        system, story_dir, story_id="AG3-044", run_id="run-1"
-    )
+    system = bind_implementation_qa_preconditions(system, story_dir, story_id="AG3-044", run_id="run-1")
     assert system.adversarial_spawner is not None
 
     config = ImplementationConfig(
@@ -505,9 +532,7 @@ def test_engine_persists_remediation_and_adversarial_spawn(
     registry.register("implementation", ImplementationPhaseHandler(config))
     engine = PipelineEngine(IMPLEMENTATION_WORKFLOW, registry, story_dir)
 
-    state = make_phase_state(
-        story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS
-    )
+    state = make_phase_state(story_id="AG3-044", phase="implementation", status=PhaseStatus.IN_PROGRESS)
     envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
 
     result = engine.run_phase(_engine_ctx(), envelope)

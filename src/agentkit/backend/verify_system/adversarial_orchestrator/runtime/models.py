@@ -17,7 +17,7 @@ All models are frozen Pydantic v2 (ARCH-29). Wire keys are English (ARCH-55).
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 #: Canonical schema version of the materialised ``adversarial.json`` payload.
 #: FK-48 §48.2.4 bumps 3.0 -> 3.1 (additive ``mandatory_target_results``).
@@ -77,6 +77,30 @@ class MandatoryTargetResult(BaseModel):
     status: str
     test_file: str | None = None
     reason: str | None = None
+
+
+class AdversarialTargetSource(BaseModel):
+    """Exact source finding from which one adversarial target was generated."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    target_id: str
+    source_result_name: str
+    source_check_id: str
+    source_artifact_record_key: str
+    source_finding_index: int = Field(ge=0)
+
+    @field_validator(
+        "target_id",
+        "source_result_name",
+        "source_check_id",
+        "source_artifact_record_key",
+    )
+    @classmethod
+    def _non_empty_identity(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("adversarial target source identity must not be empty")
+        return value
 
 
 class SparringProof(BaseModel):

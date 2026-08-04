@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.artifacts import ArtifactReference
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
-from agentkit.backend.core_types import SpawnKind, SpawnReason
+from agentkit.backend.core_types import ArtifactClass, SpawnKind, SpawnReason
 from agentkit.backend.governance.guard_system.protected_paths import (
     is_adversarial_sandbox_path,
 )
@@ -21,6 +22,7 @@ from agentkit.backend.verify_system.contract import VerifyContextBundle
 from agentkit.backend.verify_system.protocols import (
     ASSERTION_WEAKNESS_FINDING_TYPE,
     Finding,
+    LayerResult,
     Severity,
     TrustClass,
 )
@@ -62,6 +64,21 @@ def _spawner(tmp_path: Path) -> AdversarialSpawner:
     return AdversarialSpawner(build_artifact_manager(tmp_path))
 
 
+def _result(*findings: Finding) -> LayerResult:
+    return LayerResult(
+        layer="qa_review",
+        passed=False,
+        findings=tuple(findings),
+        metadata={"executed_check_ids": tuple(finding.check for finding in findings)},
+        artifact_reference=ArtifactReference(
+            artifact_class=ArtifactClass.QA,
+            story_id="AG3-044",
+            run_id="run-1",
+            record_key="AG3-044|run-1|qa-layer-qa-review|1|qa|qa-layer-2-review",
+        ),
+    )
+
+
 def _ctx(story_dir: Path) -> VerifyContextBundle:
     return VerifyContextBundle(
         run_id="run-1",
@@ -75,13 +92,15 @@ def test_extract_targets_per_assertion_weakness_finding(tmp_path: Path) -> None:
     spawner = _spawner(tmp_path)
     targets = spawner.extract_mandatory_targets(
         [
-            _finding(
-                Severity.BLOCKING,
-                "neg_case_a",
-                addressed_part="fixed happy path A",
-            ),
-            _finding(Severity.MAJOR, "concern_b", addressed_part="fixed B"),
-            _finding(Severity.BLOCKING, "neg_case_c", addressed_part="fixed C"),
+            _result(
+                _finding(
+                    Severity.BLOCKING,
+                    "neg_case_a",
+                    addressed_part="fixed happy path A",
+                ),
+                _finding(Severity.MAJOR, "concern_b", addressed_part="fixed B"),
+                _finding(Severity.BLOCKING, "neg_case_c", addressed_part="fixed C"),
+            )
         ],
         2,
     )
@@ -105,7 +124,7 @@ def test_extract_targets_skips_blocking_without_assertion_weakness(
     """AC0: a plain BLOCKING finding WITHOUT assertion_weakness yields NO target."""
     spawner = _spawner(tmp_path)
     targets = spawner.extract_mandatory_targets(
-        [_finding(Severity.BLOCKING, "plain_blocking", finding_type=None)],
+        [_result(_finding(Severity.BLOCKING, "plain_blocking", finding_type=None))],
         1,
     )
     assert targets == []
@@ -124,7 +143,7 @@ def test_render_mandatory_targets_section_only_with_targets(tmp_path: Path) -> N
     assert render_mandatory_targets_section([]) == ""
     # With targets -> the section names each target + the UNRESOLVABLE escape.
     targets = spawner.extract_mandatory_targets(
-        [_finding(Severity.BLOCKING, "neg_case", addressed_part="fixed happy path")],
+        [_result(_finding(Severity.BLOCKING, "neg_case", addressed_part="fixed happy path"))],
         1,
     )
     section = render_mandatory_targets_section(targets)
@@ -139,7 +158,7 @@ def test_request_spawn_creates_protected_sandbox(tmp_path: Path) -> None:
     story_dir = tmp_path / "AG3-044"
     story_dir.mkdir()
     spawner = _spawner(tmp_path)
-    targets = spawner.extract_mandatory_targets([_finding(Severity.BLOCKING, "neg_case")], 1)
+    targets = spawner.extract_mandatory_targets([_result(_finding(Severity.BLOCKING, "neg_case"))], 1)
     request = spawner.request_spawn(_ctx(story_dir), targets)
 
     assert request.sandbox_path.is_dir()
@@ -157,16 +176,14 @@ def test_request_spawn_creates_protected_sandbox(tmp_path: Path) -> None:
     assert is_adversarial_sandbox_path(order.sandbox_path)
 
 
-def test_request_spawn_fails_closed_on_unprotected_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_request_spawn_fails_closed_on_unprotected_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A sandbox path that is not Protected fails closed (AG3-023)."""
     import agentkit.backend.verify_system.adversarial_orchestrator.spawn as spawn_mod
 
     story_dir = tmp_path / "AG3-044"
     story_dir.mkdir()
     spawner = _spawner(tmp_path)
-    targets = spawner.extract_mandatory_targets([_finding(Severity.BLOCKING)], 1)
+    targets = spawner.extract_mandatory_targets([_result(_finding(Severity.BLOCKING))], 1)
     # Force the protected-path check to reject (simulates a registry drift).
     monkeypatch.setattr(spawn_mod, "is_adversarial_sandbox_path", lambda _p: False)
     with pytest.raises(ValueError, match="not a Protected-Path"):
@@ -188,7 +205,7 @@ def test_apply_to_state_sets_agents_to_spawn(tmp_path: Path) -> None:
     story_dir = tmp_path / "AG3-044"
     story_dir.mkdir()
     spawner = _spawner(tmp_path)
-    targets = spawner.extract_mandatory_targets([_finding(Severity.BLOCKING)], 1)
+    targets = spawner.extract_mandatory_targets([_result(_finding(Severity.BLOCKING))], 1)
     request = spawner.request_spawn(_ctx(story_dir), targets)
     now = datetime.now(tz=UTC)
 

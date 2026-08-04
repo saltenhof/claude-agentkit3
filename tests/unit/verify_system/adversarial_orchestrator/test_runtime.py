@@ -35,6 +35,7 @@ from agentkit.backend.verify_system.adversarial_orchestrator.runtime.feedback im
     mandatory_target_resolution_feedback,
 )
 from agentkit.backend.verify_system.adversarial_orchestrator.runtime.models import (
+    AdversarialTargetSource,
     AdversarialTelemetryCounts,
     PromotionSummary,
     SandboxResult,
@@ -54,6 +55,9 @@ from agentkit.backend.verify_system.adversarial_orchestrator.runtime.sparring im
     AdversarialSparringError,
     run_mandatory_sparring,
 )
+from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
+    AdversarialTarget,
+)
 from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClientError
 from agentkit.backend.verify_system.remediation.finding_resolution import (
     FindingResolutionStatus,
@@ -71,6 +75,36 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     reset_backend_cache_for_tests()
     yield
     reset_backend_cache_for_tests()
+
+
+def _target(target_id: str) -> AdversarialTarget:
+    source_result_name, source_check_id = target_id.split(".", 1)
+    return AdversarialTarget(
+        finding_id=target_id,
+        source_result_name=source_result_name,
+        source_check_id=source_check_id,
+        source_artifact_record_key=f"source-artifact-{source_result_name}",
+        source_finding_index=0,
+        source=f"{source_result_name} round 1",
+        normative_ref="test target",
+        addressed_part="",
+        open_part="exercise the negative case",
+        mandatory=True,
+        test_anchor=f"test_{source_check_id}.py",
+    )
+
+
+def _target_sources(*target_ids: str) -> tuple[AdversarialTargetSource, ...]:
+    return tuple(
+        AdversarialTargetSource(
+            target_id=target.finding_id,
+            source_result_name=target.source_result_name,
+            source_check_id=target.source_check_id,
+            source_artifact_record_key=target.source_artifact_record_key,
+            source_finding_index=target.source_finding_index,
+        )
+        for target in (_target(target_id) for target_id in target_ids)
+    )
 
 
 # --- LLM/transport boundary doubles (the only allowed mock boundary) ---------
@@ -134,17 +168,13 @@ def test_promotion_pass_goes_to_suite(tmp_path: Path) -> None:
     """AC4 path 1: schema-valid + executable + non-duplicate + PASS -> tests/."""
     sandbox = tmp_path / "sandbox"
     tests_root = tmp_path / "tests"
-    _write_sandbox_test(
-        sandbox, "test_edge_pass.py", body="def test_edge_pass():\n    assert True\n"
-    )
+    _write_sandbox_test(sandbox, "test_edge_pass.py", body="def test_edge_pass():\n    assert True\n")
     test = SandboxTest(
         sandbox_relpath="test_edge_pass.py",
         qualified_name="test_edge_pass::test_edge_pass",
         outcome="PASS",
     )
-    decisions, summary = promote_sandbox_tests(
-        tests=[test], sandbox_dir=sandbox, tests_root=tests_root
-    )
+    decisions, summary = promote_sandbox_tests(tests=[test], sandbox_dir=sandbox, tests_root=tests_root)
     assert decisions[0].path is PromotionPath.SUITE
     assert summary.promoted_to_suite == 1
     assert (tests_root / "test_edge_pass.py").is_file()
@@ -155,17 +185,13 @@ def test_promotion_fail_goes_to_quarantine(tmp_path: Path) -> None:
     """AC4 path 2: schema-valid + executable + non-duplicate + FAIL -> quarantine."""
     sandbox = tmp_path / "sandbox"
     tests_root = tmp_path / "tests"
-    _write_sandbox_test(
-        sandbox, "test_edge_fail.py", body="def test_edge_fail():\n    assert False\n"
-    )
+    _write_sandbox_test(sandbox, "test_edge_fail.py", body="def test_edge_fail():\n    assert False\n")
     test = SandboxTest(
         sandbox_relpath="test_edge_fail.py",
         qualified_name="test_edge_fail::test_edge_fail",
         outcome="FAIL",
     )
-    decisions, summary = promote_sandbox_tests(
-        tests=[test], sandbox_dir=sandbox, tests_root=tests_root
-    )
+    decisions, summary = promote_sandbox_tests(tests=[test], sandbox_dir=sandbox, tests_root=tests_root)
     assert decisions[0].path is PromotionPath.QUARANTINE
     assert summary.promoted_to_quarantine == 1
     # The failing test lands in quarantine, NOT in the green suite.
@@ -177,17 +203,13 @@ def test_promotion_syntax_error_stays_ephemeral(tmp_path: Path) -> None:
     """AC4 path 3a: a dry-run (syntax) error -> stays ephemeral in the sandbox."""
     sandbox = tmp_path / "sandbox"
     tests_root = tmp_path / "tests"
-    _write_sandbox_test(
-        sandbox, "test_broken.py", body="def test_broken(:\n    assert True\n"
-    )
+    _write_sandbox_test(sandbox, "test_broken.py", body="def test_broken(:\n    assert True\n")
     test = SandboxTest(
         sandbox_relpath="test_broken.py",
         qualified_name="test_broken::test_broken",
         outcome="PASS",
     )
-    decisions, summary = promote_sandbox_tests(
-        tests=[test], sandbox_dir=sandbox, tests_root=tests_root
-    )
+    decisions, summary = promote_sandbox_tests(tests=[test], sandbox_dir=sandbox, tests_root=tests_root)
     assert decisions[0].path is PromotionPath.EPHEMERAL
     assert "dry-run-error" in decisions[0].reason
     assert summary.not_promoted == 1
@@ -200,20 +222,14 @@ def test_promotion_duplicate_stays_ephemeral(tmp_path: Path) -> None:
     tests_root = tmp_path / "tests"
     tests_root.mkdir()
     # An existing test under tests/ with the SAME module-qualified name.
-    (tests_root / "test_dup.py").write_text(
-        "def test_dup():\n    assert True\n", encoding="utf-8"
-    )
-    _write_sandbox_test(
-        sandbox, "test_dup.py", body="def test_dup():\n    assert True\n"
-    )
+    (tests_root / "test_dup.py").write_text("def test_dup():\n    assert True\n", encoding="utf-8")
+    _write_sandbox_test(sandbox, "test_dup.py", body="def test_dup():\n    assert True\n")
     test = SandboxTest(
         sandbox_relpath="test_dup.py",
         qualified_name="test_dup::test_dup",
         outcome="PASS",
     )
-    decisions, summary = promote_sandbox_tests(
-        tests=[test], sandbox_dir=sandbox, tests_root=tests_root
-    )
+    decisions, summary = promote_sandbox_tests(tests=[test], sandbox_dir=sandbox, tests_root=tests_root)
     assert decisions[0].path is PromotionPath.EPHEMERAL
     assert "duplicate" in decisions[0].reason
     assert summary.not_promoted == 1
@@ -233,21 +249,15 @@ def test_promotion_dedup_is_module_qualified_same_stem_different_module(
     tests_root = tmp_path / "tests"
     existing = tests_root / "unit" / "foo"
     existing.mkdir(parents=True)
-    (existing / "test_x.py").write_text(
-        "def test_a():\n    assert True\n", encoding="utf-8"
-    )
-    _write_sandbox_test(
-        sandbox, "test_x.py", body="def test_a():\n    assert True\n"
-    )
+    (existing / "test_x.py").write_text("def test_a():\n    assert True\n", encoding="utf-8")
+    _write_sandbox_test(sandbox, "test_x.py", body="def test_a():\n    assert True\n")
     # Same stem (test_x) + same function (test_a) but a DIFFERENT module path.
     test = SandboxTest(
         sandbox_relpath="test_x.py",
         qualified_name="integration.foo.test_x::test_a",
         outcome="PASS",
     )
-    decisions, summary = promote_sandbox_tests(
-        tests=[test], sandbox_dir=sandbox, tests_root=tests_root
-    )
+    decisions, summary = promote_sandbox_tests(tests=[test], sandbox_dir=sandbox, tests_root=tests_root)
     # NOT collapsed -> promoted into the suite.
     assert decisions[0].path is PromotionPath.SUITE
     assert summary.promoted_to_suite == 1
@@ -259,21 +269,15 @@ def test_promotion_dedup_detects_module_qualified_duplicate(tmp_path: Path) -> N
     tests_root = tmp_path / "tests"
     pkg = tests_root / "unit" / "foo"
     pkg.mkdir(parents=True)
-    (pkg / "test_x.py").write_text(
-        "def test_a():\n    assert True\n", encoding="utf-8"
-    )
-    _write_sandbox_test(
-        sandbox, "test_x.py", body="def test_a():\n    assert True\n"
-    )
+    (pkg / "test_x.py").write_text("def test_a():\n    assert True\n", encoding="utf-8")
+    _write_sandbox_test(sandbox, "test_x.py", body="def test_a():\n    assert True\n")
     # Identical module-qualified name as the existing unit/foo/test_x.py::test_a.
     test = SandboxTest(
         sandbox_relpath="test_x.py",
         qualified_name="unit.foo.test_x::test_a",
         outcome="PASS",
     )
-    decisions, summary = promote_sandbox_tests(
-        tests=[test], sandbox_dir=sandbox, tests_root=tests_root
-    )
+    decisions, summary = promote_sandbox_tests(tests=[test], sandbox_dir=sandbox, tests_root=tests_root)
     assert decisions[0].path is PromotionPath.EPHEMERAL
     assert "duplicate" in decisions[0].reason
     assert summary.not_promoted == 1
@@ -338,16 +342,16 @@ def test_feedback_unmet_target_partially_resolves_finding() -> None:
     artifact = build_result_artifact(
         sandbox_result=sandbox_result,
         run_id="run-1",
-        sparring=SparringProof(
-            pool="grok", adversarial_sparring_events=1, llm_call_sparring_events=1
-        ),
+        sparring=SparringProof(pool="grok", adversarial_sparring_events=1, llm_call_sparring_events=1),
         promotion=PromotionSummary(),
         telemetry=_telemetry(),
+        expected_targets=(_target("qa_review.neg_case"),),
     )
-    feedback = mandatory_target_resolution_feedback(artifact)
-    assert feedback == {
-        ("qa_review", "neg_case"): FindingResolutionStatus.PARTIALLY_RESOLVED
-    }
+    feedback = mandatory_target_resolution_feedback(
+        artifact,
+        target_sources=_target_sources("qa_review.neg_case"),
+    )
+    assert feedback == {("qa_review", "neg_case"): FindingResolutionStatus.PARTIALLY_RESOLVED}
 
 
 def test_feedback_fulfilled_target_does_not_reopen_finding() -> None:
@@ -375,13 +379,21 @@ def test_feedback_fulfilled_target_does_not_reopen_finding() -> None:
     artifact = build_result_artifact(
         sandbox_result=sandbox_result,
         run_id="run-1",
-        sparring=SparringProof(
-            pool="grok", adversarial_sparring_events=1, llm_call_sparring_events=1
-        ),
+        sparring=SparringProof(pool="grok", adversarial_sparring_events=1, llm_call_sparring_events=1),
         promotion=PromotionSummary(),
         telemetry=_telemetry(),
+        expected_targets=(
+            _target("qa_review.neg_a"),
+            _target("qa_review.neg_b"),
+        ),
     )
-    assert mandatory_target_resolution_feedback(artifact) == {}
+    assert (
+        mandatory_target_resolution_feedback(
+            artifact,
+            target_sources=_target_sources("qa_review.neg_a", "qa_review.neg_b"),
+        )
+        == {}
+    )
 
 
 def test_feedback_tested_but_failing_reopens_finding() -> None:
@@ -397,22 +409,20 @@ def test_feedback_tested_but_failing_reopens_finding() -> None:
                 target_id="qa_review.neg_a",
             ),
         ),
-        mandatory_target_results=(
-            {"target_id": "qa_review.neg_a", "status": "TESTED", "test_file": "test_a.py"},
-        ),
+        mandatory_target_results=({"target_id": "qa_review.neg_a", "status": "TESTED", "test_file": "test_a.py"},),
     )
     artifact = build_result_artifact(
         sandbox_result=sandbox_result,
         run_id="run-1",
-        sparring=SparringProof(
-            pool="grok", adversarial_sparring_events=1, llm_call_sparring_events=1
-        ),
+        sparring=SparringProof(pool="grok", adversarial_sparring_events=1, llm_call_sparring_events=1),
         promotion=PromotionSummary(),
         telemetry=_telemetry(),
+        expected_targets=(_target("qa_review.neg_a"),),
     )
-    assert mandatory_target_resolution_feedback(artifact) == {
-        ("qa_review", "neg_a"): FindingResolutionStatus.PARTIALLY_RESOLVED
-    }
+    assert mandatory_target_resolution_feedback(
+        artifact,
+        target_sources=_target_sources("qa_review.neg_a"),
+    ) == {("qa_review", "neg_a"): FindingResolutionStatus.PARTIALLY_RESOLVED}
 
 
 # --- Artifact read fail-closed ----------------------------------------------
@@ -438,9 +448,7 @@ def test_runtime_end_to_end_emits_five_events_and_materializes_artifact(
     """AC1/2/5/6: full runtime emits the five events + materialises adversarial.json."""
     sandbox = tmp_path / "_temp" / "adversarial" / "AG3-079" / "1"
     tests_root = tmp_path / "tests"
-    _write_sandbox_test(
-        sandbox, "test_edge.py", body="def test_edge():\n    assert True\n"
-    )
+    _write_sandbox_test(sandbox, "test_edge.py", body="def test_edge():\n    assert True\n")
     _write_sandbox_result(
         sandbox,
         {
@@ -467,6 +475,7 @@ def test_runtime_end_to_end_emits_five_events_and_materializes_artifact(
         story_id="AG3-079",
         run_id="run-1",
         attempt=1,
+        expected_targets=(),
         resolver=_FixedResolver(),
     )
     # AC1: real verdict (PASS with evidence), not a passthrough.
@@ -521,6 +530,7 @@ def test_runtime_fails_when_sparring_call_fails(tmp_path: Path) -> None:
         story_id="AG3-079",
         run_id="run-1",
         attempt=1,
+        expected_targets=(),
     )
     assert result.layer_result.passed is False
     assert any(f.check == "sparring_missing" for f in result.layer_result.findings)
@@ -568,9 +578,7 @@ def test_runtime_fails_on_unfulfilled_mandatory_target(tmp_path: Path) -> None:
             "status": "PASS",
             "tests_executed": 1,
             "tests": [],
-            "mandatory_target_results": [
-                {"target_id": "qa_review.neg_case", "status": "MISSING"}
-            ],
+            "mandatory_target_results": [{"target_id": "qa_review.neg_case", "status": "MISSING"}],
         },
     )
     manager = build_artifact_manager(tmp_path)
@@ -583,12 +591,44 @@ def test_runtime_fails_on_unfulfilled_mandatory_target(tmp_path: Path) -> None:
         story_id="AG3-079",
         run_id="run-1",
         attempt=1,
+        expected_targets=(_target("qa_review.neg_case"),),
     )
     assert result.layer_result.passed is False
     assert any(f.check == "qa_review.neg_case" for f in result.layer_result.findings)
-    assert result.resolution_feedback == {
-        ("qa_review", "neg_case"): FindingResolutionStatus.PARTIALLY_RESOLVED
-    }
+    assert result.resolution_feedback == {("qa_review", "neg_case"): FindingResolutionStatus.PARTIALLY_RESOLVED}
+
+
+def test_runtime_rejects_tested_target_without_correlated_test(
+    tmp_path: Path,
+) -> None:
+    """I3: a worker's TESTED claim is not evidence without a target test."""
+    sandbox = tmp_path / "_temp" / "adversarial" / "AG3-079" / "1"
+    _write_sandbox_result(
+        sandbox,
+        {
+            "story_id": "AG3-079",
+            "status": "PASS",
+            "tests_executed": 1,
+            "tests": [],
+            "mandatory_target_results": [{"target_id": "qa_review.neg_case", "status": "TESTED"}],
+        },
+    )
+
+    result = run_adversarial_runtime(
+        artifact_manager=build_artifact_manager(tmp_path),
+        emitter=MemoryEmitter(),
+        sparring_client=_FakeSparringClient(),
+        sandbox_dir=sandbox,
+        tests_root=tmp_path / "tests",
+        story_id="AG3-079",
+        run_id="run-1",
+        attempt=1,
+        expected_targets=(_target("qa_review.neg_case"),),
+    )
+
+    assert result.layer_result.passed is False
+    assert any(finding.check == "qa_review.neg_case" for finding in result.layer_result.findings)
+    assert result.resolution_feedback == {("qa_review", "neg_case"): FindingResolutionStatus.PARTIALLY_RESOLVED}
 
 
 def test_runtime_fails_when_no_test_executed(tmp_path: Path) -> None:
@@ -610,11 +650,10 @@ def test_runtime_fails_when_no_test_executed(tmp_path: Path) -> None:
         story_id="AG3-079",
         run_id="run-1",
         attempt=1,
+        expected_targets=(),
     )
     assert result.layer_result.passed is False
-    assert any(
-        f.check == "no_test_executed" for f in result.layer_result.findings
-    )
+    assert any(f.check == "no_test_executed" for f in result.layer_result.findings)
     # The five lifecycle events still bracket the run (start/end exactly once).
     assert len(emitter.query("AG3-079", EventType.ADVERSARIAL_START)) == 1
     assert len(emitter.query("AG3-079", EventType.ADVERSARIAL_END)) == 1
@@ -625,9 +664,7 @@ def test_runtime_fails_when_no_test_executed(tmp_path: Path) -> None:
 
 def _passing_sandbox(sandbox: Path, *, tests_executed: int = 1) -> None:
     """Write a conformant sandbox result with one PASS edge-case test."""
-    _write_sandbox_test(
-        sandbox, "test_edge.py", body="def test_edge():\n    assert True\n"
-    )
+    _write_sandbox_test(sandbox, "test_edge.py", body="def test_edge():\n    assert True\n")
     _write_sandbox_result(
         sandbox,
         {
@@ -666,33 +703,22 @@ def test_runtime_telemetry_counts_equal_really_emitted_events(tmp_path: Path) ->
         story_id="AG3-079",
         run_id="run-1",
         attempt=1,
+        expected_targets=(),
         resolver=_FixedResolver(),
     )
     telemetry = result.artifact.telemetry
     # The recorded counts EQUAL what the emitter genuinely observed (no +1).
-    assert telemetry.adversarial_start == len(
-        emitter.query("AG3-079", EventType.ADVERSARIAL_START)
-    )
-    assert telemetry.adversarial_end == len(
-        emitter.query("AG3-079", EventType.ADVERSARIAL_END)
-    )
-    assert telemetry.adversarial_sparring == len(
-        emitter.query("AG3-079", EventType.ADVERSARIAL_SPARRING)
-    )
-    assert telemetry.adversarial_test_created == len(
-        emitter.query("AG3-079", EventType.ADVERSARIAL_TEST_CREATED)
-    )
-    assert telemetry.adversarial_test_executed == len(
-        emitter.query("AG3-079", EventType.ADVERSARIAL_TEST_EXECUTED)
-    )
+    assert telemetry.adversarial_start == len(emitter.query("AG3-079", EventType.ADVERSARIAL_START))
+    assert telemetry.adversarial_end == len(emitter.query("AG3-079", EventType.ADVERSARIAL_END))
+    assert telemetry.adversarial_sparring == len(emitter.query("AG3-079", EventType.ADVERSARIAL_SPARRING))
+    assert telemetry.adversarial_test_created == len(emitter.query("AG3-079", EventType.ADVERSARIAL_TEST_CREATED))
+    assert telemetry.adversarial_test_executed == len(emitter.query("AG3-079", EventType.ADVERSARIAL_TEST_EXECUTED))
     # Exactly-1 end on the happy path (emitted before capture, finally is no-op).
     assert telemetry.adversarial_end == 1
     assert len(emitter.query("AG3-079", EventType.ADVERSARIAL_END)) == 1
 
 
-def test_runtime_records_zero_end_when_end_emission_suppressed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_runtime_records_zero_end_when_end_emission_suppressed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC7: a run whose end event is NOT really emitted records ``adversarial_end != 1``.
 
     The whole point of AC7: the gate must verify REAL emission. We suppress the
@@ -702,9 +728,7 @@ def test_runtime_records_zero_end_when_end_emission_suppressed(
     silent +1 prediction papers over the missing event.
     """
 
-    def _suppressed_end(
-        emitter: object, story_id: str, run_id: str, phase: object
-    ) -> None:
+    def _suppressed_end(emitter: object, story_id: str, run_id: str, phase: object) -> None:
         # The end event is never forwarded to the wrapped emitter -> never counted.
         del emitter, story_id, run_id, phase
 
@@ -723,6 +747,7 @@ def test_runtime_records_zero_end_when_end_emission_suppressed(
         story_id="AG3-079",
         run_id="run-1",
         attempt=1,
+        expected_targets=(),
         resolver=_FixedResolver(),
     )
     # No end event was really emitted -> the artifact records the REAL count: 0.
@@ -759,6 +784,7 @@ def test_runtime_emits_end_exactly_once_on_error_path(tmp_path: Path) -> None:
             story_id="AG3-079",
             run_id="run-1",
             attempt=1,
+            expected_targets=(),
             resolver=_FixedResolver(),
         )
     # Exactly-1 start AND exactly-1 end even though the body aborted early.
@@ -781,6 +807,7 @@ def test_runtime_emits_end_exactly_once_on_happy_path(tmp_path: Path) -> None:
         story_id="AG3-079",
         run_id="run-1",
         attempt=1,
+        expected_targets=(),
         resolver=_FixedResolver(),
     )
     # The happy-path emission + the finally re-call together yield EXACTLY one end.
@@ -807,9 +834,7 @@ def test_lifecycle_emitter_does_not_count_failed_forward() -> None:
                 raise RuntimeError("end event did not land")
             self.landed.append(evt_type)
 
-        def query(
-            self, _story_id: str, _event_type: EventType | None = None
-        ) -> list[object]:
+        def query(self, _story_id: str, _event_type: EventType | None = None) -> list[object]:
             return []
 
     inner = _RaisingOnEndEmitter()

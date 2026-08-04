@@ -7,6 +7,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from tests.qa_artifact_support import record_qa_layer_artifacts
 
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
@@ -147,6 +148,7 @@ class TestCheckPhaseSnapshots:
         result = check_phase_snapshots(story_dir, ["setup", "implementation"])
         assert len(result) == 1
         assert result[0].severity == Severity.BLOCKING
+        assert result[0].check == "phase_snapshots.implementation"
         assert "implementation" in result[0].message
 
     def test_all_missing_returns_finding_per_phase(self, tmp_path: Path) -> None:
@@ -157,6 +159,18 @@ class TestCheckPhaseSnapshots:
             ["setup", "exploration", "implementation"],
         )
         assert len(result) == 3
+        assert {finding.check for finding in result} == {
+            "phase_snapshots.setup",
+            "phase_snapshots.exploration",
+            "phase_snapshots.implementation",
+        }
+
+    def test_unknown_phase_is_rejected(self, tmp_path: Path) -> None:
+        story_dir = _story_dir(tmp_path)
+        _save_context(story_dir)
+
+        with pytest.raises(ValueError, match="unknown phase snapshot check phase"):
+            check_phase_snapshots(story_dir, ["unregistered"])
 
 
 class TestCheckArtifactsPresent:

@@ -52,6 +52,17 @@ nicht-leerer `check`-ID muss in diesem Protokoll enthalten sein; eine
 Diskrepanz bricht die Emission mit benanntem Fehler ab. Ein einzelner
 Origin-Wert fuer eine gesamte Schicht existiert nicht.
 
+Adversarial-Targets uebernehmen ihre Provenienz aus der beim Spawn erzeugten,
+typisierten Zuordnung von Target-ID zu kanonischem Quell-Artefakt, Quell-Result,
+Quell-Finding-Index und Quell-Check. Der Spawn validiert die exakte Mitgliedschaft
+des Findings und des ausgefuehrten Checks im kanonischen Layer-2-Artefakt seiner
+Erzeugungsrunde; die Folgerunde konsumiert genau diesen vorherigen Spawn-
+Envelope. Auch ein leerer Target-Snapshot wird dauerhaft geschrieben und fuehrt
+zum explorativen Layer-3-Spawn. Die Schreibweise `<result>.<check>` allein
+beweist keine Herkunft; Target-IDs duerfen von dieser Schreibweise abweichen.
+Die Zuordnung wird im typisierten Runtime-Datenfluss weitergegeben und aendert
+nicht das FK-48-eigene `adversarial.json`-Schema 3.1.
+
 ### 2.2 Stage-zu-Result-Namen gehoeren der Registry
 
 `StageDefinition.layer_result_name` ist die einzige Abbildung von Registry-
@@ -125,8 +136,25 @@ Check-Outcome-Projektionen in einem Transaktions-Batch geschrieben. Ein
 abgewiesener Lauf hinterlaesst keine Teilzeilen dieser Projektionen.
 `CheckOutcomeEmitter` baut Records und besitzt keinen Persistenzparameter. Der
 fruehere State-Backend-Writer fuer Stage/Findings mit leerer Outcome-Menge ist
-entfernt. Ersetzen und Loeschen erfolgen daher ebenfalls nur ueber den
-gemeinsamen `ProjectionAccessor.record_qa_layer_artifacts`-Batch.
+entfernt. Der Batch behandelt seinen Eingang als vollstaendigen Attempt-
+Snapshot: Er prueft zuerst fuer jedes Result die tatsaechlich existierende
+kanonische `artifact_envelopes`-Referenz, loescht dann alle drei
+Projektionsfamilien fuer den Attempt und schreibt den neuen Gesamtsatz in
+derselben Transaktion. Jede Outcome-Zeile muss exakt zum Project-, Story-,
+Run- und Attempt-Scope dieses Snapshots gehoeren; doppelte vollstaendige
+Outcome-Identitaeten werden vor der Mutation abgewiesen. Ein Run-Reset loescht die drei Familien ebenfalls in
+einer Transaktion ueber den gemeinsamen QA-Batch-Port. Oeffentliche
+Einzel-Purges und frei synthetisierte `artifact_id`-Werte entfallen.
+Legacy-Dateien sind keine Quelle dieser Projektionen; ein Import-, Backfill-,
+Migrations- oder Kompatibilitaetspfad existiert nicht.
+
+AG3-191 R8 schliesst den dadurch offengelegten produktiven Identitaetskonflikt
+ohne Schemaaenderung: Wiederholte fachliche Pruefungen innerhalb derselben
+Stage und desselben Attempts muessen je Ausfuehrung eine eigene registrierte
+`check_id` liefern. Die Structural-Phasenpruefungen und ihre Findings verwenden
+`phase_snapshots.<phase>`. Damit entsprechen `total_checks` und die Zahl der
+Outcome-Zeilen einander; `failed_checks` und `warning_checks` bleiben die nach
+Finding-Severity gebildeten Teilmengen derselben Check-Identitaeten.
 
 ### 2.8 Verify-Defaults besitzen einen typisierten Vertrag
 
@@ -155,6 +183,11 @@ entfernt; alle Aufrufer konstruieren das typisierte Optionsobjekt atomar.
 | L7 | `stage_registry/registry.py:316`; `policy_engine/engine.py:315` | Result-Abdeckung gehoert der Registry und dem aktiven Plan; fremde bekannte Producer-Claims werden im produktiven Policy-Aufruf abgewiesen. |
 | L7 | `stage_registry/stages.py:107,146` | Nur `None` bildet auf `stage_id` ab; leere und whitespace-only Stage-/Resultnamen scheitern bei Registry-Konstruktion. |
 | L8 | `verify_system/defaults.py:76`; `verify_system/system.py:245`; `bootstrap/composition_verify.py:111` | Freie `legacy keyword overrides` und Merge-Helfer entfernt; produktive Aufrufer liefern `VerifySystemDefaultOptions`. |
+| I1 | `telemetry/projection_accessor.py`; `state_backend/*/_qa_artifact_rows.py` | Drei separat committende QA-Purges entfernt; der gemeinsame Reset-Port loescht Stage-, Finding- und Outcome-Zeilen atomar. |
+| I2 | `state_backend/postgres_store/_qa_artifact_rows.py`; `sqlite_store/_qa_artifact_rows.py`; `check_outcome_emitter.py` | Stage-ID-begrenzter Rewrite entfernt; der Batch ersetzt den vollstaendigen Attempt-Snapshot und weist fremde Scopes sowie doppelte Outcome-Identitaeten vor der Mutation ab. |
+| I3 | `stage_registry/registry.py`; `adversarial_orchestrator/spawn.py`; `adversarial_orchestrator/challenger.py`; `adversarial_orchestrator/runtime` | Lexikalische Punkt-Aufloesung entfernt; nur der vorherige kanonische Spawn-Envelope mit exaktem Layer-2-Artefakt- und Finding-Bezug liefert Provenienz. Leere Target-Snapshots bleiben explizit und starten den explorativen Worker. |
+| I4 | `state_backend/persistence_mappers/_verify.py` | Synthetische `<result>-attempt-<n>`-ID entfernt; Stage und Findings tragen den geprueften kanonischen Envelope-`record_key`. |
+| R8 | `verify_system/structural/checker.py`; `structural/checks/meta_checks.py`; `stage_registry/check_origins.py` | Die pro Phase ausgefuehrte Snapshot-Pruefung und ihr Finding verwenden je eine registry-registrierte `phase_snapshots.<phase>`-Identitaet; Outcome-Zeilen und Zaehlung kollabieren nicht mehr. |
 
 ## 4. Impact-Sweep
 
@@ -166,10 +199,21 @@ Warning-Export sowie FK-71 fuer Artefaktklasse und Producer-Registry. FK-69
 ist Konsistenz-Owner der persistierten QA-Zeilen und wurde fuer den
 vorvalidierten gemeinsamen Drei-Projektions-Batch nachgezogen: Emitter-
 Einzelwrites und Stage-/Finding-Rewrites mit leerer Outcome-Menge sind
-ausgeschlossen. Seine bestehende Regel, dass `check_proposal_ref` pro
+ausgeschlossen. Die Abschlussrunde praezisiert denselben Anker fuer
+vollstaendige Attempt-Snapshots, atomare Drei-Projektions-Resets, den
+existenzgeprueften `artifact_envelopes`-Bezug sowie das Verbot von Legacy-
+Importen und Backfills. FK-48 §48.1 und §48.2.2-§48.2.5 wurden als Owner des
+Adversarial-Spawn-, Target- und Feedbackvertrags geprueft: Die Aenderung bindet
+die vorhandene Target-Ableitung an ihre kanonische Source-Evidenz und behaelt
+Schema 3.1 unveraendert. Die bestehende FK-69-Regel, dass `check_proposal_ref` pro
 ausgefuehrtem Check `CHK-NNNN | NULL` traegt, bleibt unveraendert und wird durch
 die fail-closed Aufloesung praeziser durchgesetzt. FK-10, FK-30 und FK-76
 erhalten keine neue Aussage und bleiben unveraendert.
+
+R8 detailliert denselben FK-69-Identitaetsanker fuer die mehrfach ausgefuehrte
+Structural-Phasenpruefung: Der bestehende Primaerschluessel bleibt
+unveraendert; die Ausfuehrungen erhalten eindeutige registry-registrierte
+Check-IDs, und Findings verwenden dieselben Identitaeten.
 
 Die Aenderung detailliert ausschliesslich vorhandene Anker. Sie verschiebt
 keine BC-Zustaendigkeit, aendert keine QA-Schwellwerte, eroeffnet keine neue
@@ -187,10 +231,11 @@ Konzeptdomaene und fuehrt keinen Migrations- oder Kompatibilitaetspfad ein.
 | FK-37 Glossar `context-sufficiency` | geaendert | Das Warning wird dem einzigen kanonischen Policy-Decision-Export `decision.json` zugeordnet. |
 | FK-20 §20.7.3 | geaendert | Der Recovery-Vertrag benennt den kanonischen Layer-4-Export `decision.json`. |
 | FK-71 §71.1.1 und §71.1.2 | geaendert | QA-Artefaktbeispiele und Producer-Zuordnung fuehren ausschliesslich `decision.json`. |
-| FK-69 §69.4, §69.11 und §69.15.5-§69.15.6 | geaendert | FK-69 normiert den vorvalidierten gemeinsamen Stage-/Finding-/Outcome-Batch als einzigen Writer; der Emitter baut nur Records, Split-Writes und getrennte Ersetzungsreihenfolgen sind ausgeschlossen. Der Zeilenvertrag `CHK-NNNN | NULL` bleibt unveraendert. |
+| FK-48 §48.1 und §48.2.2-§48.2.5 | geprueft, nicht geaendert | Der bestehende explorative Harness-Spawn und die Finding-abgeleiteten Mandatory Targets ankern den rundenuebergreifenden Spawn-Envelope. `adversarial.json` Schema 3.1 bleibt unveraendert. |
+| FK-69 §69.2, §69.4-§69.7, §69.10-§69.12 und §69.15.5-§69.15.6 | geaendert | FK-69 normiert den existenzgeprueften kanonischen Envelope-Bezug, den vollstaendigen Attempt-Snapshot und den atomaren Drei-Projektions-Reset. Der Emitter baut nur Records; Split-Writes, Split-Purges, stage-begrenzte Rewrite-Reste und Legacy-Import-/Backfill-Pfade sind ausgeschlossen. Wiederholte Checks derselben Stage und desselben Attempts erhalten je Ausfuehrung eine registrierte Identitaet (`phase_snapshots.<phase>`); der Primaerschluessel und der Zeilenvertrag `CHK-NNNN | NULL` bleiben unveraendert. |
 | FK-10, FK-30, FK-76 | geprueft, nicht geaendert | Runtime-, Project-Edge- und Observability-Zustaendigkeiten bleiben unberuehrt. |
 | `verify_system` Outcome-, Policy- und Coverage-Module | geaendert | Die drei ungenauen bzw. doppelten Urteilswege entfallen. |
-| State-Backend QA-Projection-Repository | geaendert | Der bestehende direkte Read wird als kanonischer Storage-Pfad ausgewiesen; die drei Repository-Protokolle sind read/purge-only und besitzen keinen Einzelwriter. |
+| State-Backend QA-Projection-Repository | geaendert | Der bestehende direkte Read bleibt kanonisch; die drei Repository-Protokolle sind read-only. Schreiben und Purgen laufen ausschliesslich ueber den gemeinsamen Batch-Port. |
 | Backend-Komposition und Implementation-Aufrufstellen | geaendert | Entfernte Signaturen werden nicht mehr verdrahtet; produktive Aufrufe liefern die praezisen Pflichtinputs. |
 | QA-Layer-Produzenten | geaendert | Jeder persistierbare `LayerResult` liefert das vollstaendige `executed_check_ids`-Protokoll; Fehlerpfade benennen ihren ausgefuehrten Fail-closed-Check. |
 | QA-Stage-, Finding- und Check-Outcome-Projektionen | geaendert | Alle persistieren die ueber dieselbe Registry-API rueckaufgeloeste kanonische Stage-ID. |

@@ -207,10 +207,9 @@ def _ensure_artifact_table_sqlite(conn: sqlite3.Connection) -> None:
     Uses CREATE TABLE IF NOT EXISTS and CREATE INDEX IF NOT EXISTS per
     FK-18 §18.9a idempotency requirement (AG3-023 §2.1.4.2).
 
-    Separate table from the legacy ``artifact_records`` table used by
-    ``sqlite_store.persist_layer_artifact_rows`` (old QA-persistence path).
-    The new ``artifact_envelopes`` table owns the typed Envelope-schema
-    (AG3-023 §2.1.4); the legacy table is untouched.
+    ``artifact_envelopes`` owns the typed Envelope schema (AG3-023 §2.1.4)
+    and supplies the canonical identities validated by the FK-69 QA projection
+    batch. No separate legacy QA artifact-record writer exists.
     """
     conn.executescript(
         """

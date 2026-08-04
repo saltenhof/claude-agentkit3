@@ -48,6 +48,9 @@ if TYPE_CHECKING:
     from agentkit.backend.verify_system.adversarial_orchestrator.runtime.models import (
         PromotionSummary,
     )
+    from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
+        AdversarialTarget,
+    )
 
 #: Envelope status of a derived-PASS Layer-3 result.
 _STATUS_PASS: str = "PASS"
@@ -105,6 +108,7 @@ def build_result_artifact(
     sparring: SparringProof,
     promotion: PromotionSummary,
     telemetry: AdversarialTelemetryCounts,
+    expected_targets: tuple[AdversarialTarget, ...],
 ) -> AdversarialResultArtifact:
     """Build the ``adversarial.json`` payload (schema 3.1) from the run evidence.
 
@@ -123,12 +127,32 @@ def build_result_artifact(
     Returns:
         The :class:`AdversarialResultArtifact` (schema_version ``3.1``).
     """
-    tests_failed = sum(
-        1 for t in sandbox_result.tests if t.outcome.upper() != _STATUS_PASS
+    expected_target_ids = {target.finding_id for target in expected_targets}
+    if len(expected_target_ids) != len(expected_targets):
+        raise AdversarialResultReadError("typed Layer-2 target set contains duplicate target ids")
+    reported_target_ids = {result.target_id for result in sandbox_result.mandatory_target_results}
+    if len(reported_target_ids) != len(sandbox_result.mandatory_target_results):
+        raise AdversarialResultReadError("adversarial sandbox result contains duplicate mandatory target ids")
+    if reported_target_ids != expected_target_ids:
+        raise AdversarialResultReadError(
+            "adversarial mandatory-target membership does not match the typed "
+            f"Layer-2 target set: expected={sorted(expected_target_ids)!r}, "
+            f"reported={sorted(reported_target_ids)!r}"
+        )
+    unknown_test_targets = sorted(
+        {
+            test.target_id
+            for test in sandbox_result.tests
+            if test.target_id is not None and test.target_id not in expected_target_ids
+        }
     )
-    tests_passed = sum(
-        1 for t in sandbox_result.tests if t.outcome.upper() == _STATUS_PASS
-    )
+    if unknown_test_targets:
+        raise AdversarialResultReadError(
+            f"adversarial tests reference targets outside the typed Layer-2 set: {unknown_test_targets!r}"
+        )
+
+    tests_failed = sum(1 for t in sandbox_result.tests if t.outcome.upper() != _STATUS_PASS)
+    tests_passed = sum(1 for t in sandbox_result.tests if t.outcome.upper() == _STATUS_PASS)
     has_evidence = sandbox_result.tests_executed >= 1
     derived_status = _STATUS_PASS if (has_evidence and tests_failed == 0) else "FAIL"
     return AdversarialResultArtifact(
@@ -170,9 +194,7 @@ def materialize_adversarial_artifact(
         The :class:`ArtifactReference` of the persisted envelope.
     """
     now = datetime.now(tz=UTC)
-    envelope_status = (
-        EnvelopeStatus.PASS if artifact.status == _STATUS_PASS else EnvelopeStatus.FAIL
-    )
+    envelope_status = EnvelopeStatus.PASS if artifact.status == _STATUS_PASS else EnvelopeStatus.FAIL
     envelope = ArtifactEnvelope(
         schema_version=ENVELOPE_SCHEMA_VERSION,
         story_id=artifact.story_id,

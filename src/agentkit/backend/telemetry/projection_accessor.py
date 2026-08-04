@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
+    from agentkit.backend.artifacts import ArtifactReference
     from agentkit.backend.failure_corpus.incident import IncidentDraft
     from agentkit.backend.failure_corpus.types import IncidentId
     from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
@@ -598,9 +599,10 @@ class ProjectionAccessor:
         producer stories (as long as those tables do not exist, there is nothing
         to purge there).
 
-        Purge covers the tables whose repos/write paths exist:
-        qa_stage_results, qa_findings, story_metrics, phase_state_projection,
-        fc_incidents.
+        Purge covers the tables whose repos/write paths exist. Stage results,
+        findings and check outcomes are deleted together through the atomic QA
+        reset port; story_metrics, phase_state_projection and fc_incidents use
+        their respective owners.
 
         AG3-081 (FK-61 §61.4.3 Trigger 4): a full Story-Reset additionally purges
         the story's ``guard_invocation_counters`` scratchpad through this ONE reset
@@ -626,10 +628,14 @@ class ProjectionAccessor:
         # NOT vanish in the blanket catch (FK-69 §69.10.1/§69.11.5: no FK-69
         # state after reset; no productive reset caller gates on errors==[]).
         # These errors escalate hard.
-        purged_rows[ProjectionKind.QA_STAGE_RESULTS] = self._repos.qa_stage_results.purge_run(project_key, story_id, run_id)
-        purged_rows[ProjectionKind.QA_FINDINGS] = self._repos.qa_findings.purge_run(project_key, story_id, run_id)
-        # AG3-108: qa_check_outcomes is a mandatory FK-69 table; purge on reset.
-        purged_rows[ProjectionKind.QA_CHECK_OUTCOMES] = self._repos.qa_check_outcomes.purge_run(project_key, story_id, run_id)
+        qa_purge = self._repos.qa_layer_batch.purge_run(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+        )
+        purged_rows[ProjectionKind.QA_STAGE_RESULTS] = qa_purge.stage_results
+        purged_rows[ProjectionKind.QA_FINDINGS] = qa_purge.findings
+        purged_rows[ProjectionKind.QA_CHECK_OUTCOMES] = qa_purge.check_outcomes
         purged_rows[ProjectionKind.STORY_METRICS] = self._repos.story_metrics.purge_run(project_key, story_id, run_id)
         purged_rows[ProjectionKind.FC_INCIDENTS] = self._repos.fc_incidents.purge_run(project_key, story_id, run_id)
         # AG3-037 (FK-68 §68.8): the run's risk-window rows are part of a full
@@ -688,15 +694,14 @@ class ProjectionAccessor:
         instead of the ``state_backend`` facade directly -- otherwise a second
         operative truth arises past the accessor (SINGLE SOURCE OF TRUTH, AG3-035 #5).
 
-        Atomicity: the transaction (qa_stage_results + qa_findings +
-        qa_check_outcomes +
-        artifact_records in ONE driver transaction incl. placeholder
-        artifact_id replacement) stays encapsulated in the driver (FK-69 §69.4,
-        finding D option i). The accessor delegates to the injected
+        Atomicity: the transaction replaces qa_stage_results + qa_findings +
+        qa_check_outcomes as one complete attempt snapshot after validating
+        the supplied canonical artifact_envelopes references (FK-69 §69.4).
+        The accessor delegates to the injected
         batch port (``ProjectionRepositories.qa_layer_batch``) and does not split
         the transaction. The port encapsulates the joint write of
-        FK-69 QA rows and source artifact -- the accessor itself knows no
-        ``artifact_records`` details (AC#7: no facade import in telemetry).
+        FK-69 QA rows; the accessor itself knows no driver details (AC#7: no
+        facade import in telemetry).
 
         Args:
             story_dir: Story working directory.
@@ -728,10 +733,16 @@ class ProjectionAccessor:
             stage_registry=stage_registry,
             attempt_no=attempt_nr,
         )
+        artifact_references: dict[str, ArtifactReference] = {}
+        for result in layer_results:
+            if result.artifact_reference is None:
+                raise ValueError(f"LayerResult {result.layer!r} has no canonical ArtifactReference")
+            artifact_references[result.layer] = result.artifact_reference
         return self._repos.qa_layer_batch.persist_layer_artifacts(
             story_dir,
             layer_results=layer_results,
             check_outcomes=check_outcomes,
+            artifact_references=artifact_references,
             stage_registry=stage_registry,
             attempt_nr=attempt_nr,
             owner_session_id=owner_session_id,

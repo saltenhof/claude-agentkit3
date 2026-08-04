@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from tests.phase_state_factory import make_phase_state
+from tests.qa_artifact_support import write_qa_layer_envelopes
 
 from agentkit.backend.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
@@ -443,19 +444,39 @@ class _RecordingVerifySystem:
         self.calls.append((ctx, story_id, qa_context, target))
         if self._verdict == PolicyVerdict.PASS:
             outcome = _make_pass_outcome(attempt_nr=ctx.attempt)
-            if self._result_layer_override is None:
-                return outcome
-            first_result, *remaining_results = outcome.decision.layer_results
-            decision = replace(
-                outcome.decision,
-                layer_results=(
-                    replace(first_result, layer=self._result_layer_override),
-                    *remaining_results,
-                ),
+            if self._result_layer_override is not None:
+                first_result, *remaining_results = outcome.decision.layer_results
+                decision = replace(
+                    outcome.decision,
+                    layer_results=(
+                        replace(first_result, layer=self._result_layer_override),
+                        *remaining_results,
+                    ),
+                )
+                outcome = outcome.model_copy(update={"decision": decision})
+        else:
+            escalated = ctx.attempt >= self._max_feedback_rounds
+            outcome = _make_fail_outcome(
+                attempt_nr=ctx.attempt,
+                escalated=escalated,
             )
-            return outcome.model_copy(update={"decision": decision})
-        escalated = ctx.attempt >= self._max_feedback_rounds
-        return _make_fail_outcome(attempt_nr=ctx.attempt, escalated=escalated)
+        references = write_qa_layer_envelopes(
+            ctx.story_dir,
+            layer_results=outcome.decision.layer_results,
+            stage_registry=StageRegistry(),
+            attempt_nr=ctx.attempt,
+        )
+        decision = replace(
+            outcome.decision,
+            layer_results=tuple(
+                replace(
+                    result,
+                    artifact_reference=references[result.layer],
+                )
+                for result in outcome.decision.layer_results
+            ),
+        )
+        return outcome.model_copy(update={"decision": decision})
 
 
 class _StaticChangeEvidencePort:

@@ -138,6 +138,9 @@ from ._qa_artifact_rows import (
 from ._qa_artifact_rows import (
     persist_verify_decision_row as persist_verify_decision_row,
 )
+from ._qa_artifact_rows import (
+    purge_qa_projection_rows as purge_qa_projection_rows,
+)
 from ._runtime_rows import (
     _CLAUSE_EVENT_TYPE as _CLAUSE_EVENT_TYPE,
 )
@@ -435,6 +438,7 @@ __all__: tuple[
         "persist_closure_report_row",
         "persist_layer_artifact_rows",
         "persist_verify_decision_row",
+        "purge_qa_projection_rows",
         "purge_attempts_row",
         "purge_decision_records_row",
         "purge_execution_events_row",

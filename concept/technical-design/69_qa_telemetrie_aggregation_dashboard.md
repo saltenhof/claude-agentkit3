@@ -163,8 +163,9 @@ FK-69 definiert **nicht**:
 4. **Read Models bleiben fachlich schmal.**
    Operative Read Models sind nicht die Analytics-Fact-Schicht.
 5. **Artefaktbezug erfolgt ueber Referenzen.**
-   Wenn ein QA-Ergebnis aus einer Datei materialisiert wurde, zeigt das
-   Read Model auf `artifact_records`, nicht umgekehrt.
+   Stage- und Finding-Projektionen tragen als `artifact_id` den kanonischen
+   `ArtifactReference.record_key` eines existierenden `artifact_envelopes`-
+   Satzes. Frei synthetisierte Bezeichner sind keine Artefaktreferenzen.
 6. **Vollstaendiger Story-Reset purgt alle abgeleiteten Read Models der
    korrupten Umsetzung.**
    FK-69-Tabellen duerfen keinen Zustand einer vollstaendig
@@ -219,8 +220,15 @@ Fuer die drei verify-system-eigenen QA-Projektionen ist
 Verify-Runner validiert zuerst die vollstaendige Menge aus Stage-Ergebnissen,
 Findings und Check-Outcomes und uebergibt sie danach gemeinsam. Der State-
 Backend-Treiber ersetzt und schreibt alle drei Projektionsarten in derselben
-Transaktion. Weder Stage-/Finding-Materialisierung mit leerer Outcome-Menge
-noch ein einzelner Outcome-Write ist ein zulaessiger Writer-Vertrag.
+Transaktion. Der eingehende Satz ist der vollstaendige Snapshot fuer
+`(project_key, run_id, attempt_no)`: Nach der Referenzpruefung loescht der
+Treiber alle drei Projektionsfamilien dieses Attempts und schreibt den neuen
+Gesamtsatz. Dadurch verschwinden auch Stages, Findings und Outcomes, die ein
+kleinerer Rewrite nicht mehr enthaelt. Weder Stage-/Finding-Materialisierung
+mit leerer Outcome-Menge noch ein einzelner Outcome-Write ist ein zulaessiger
+Writer-Vertrag. Auch ein Run-Reset loescht die drei QA-Projektionsfamilien nur
+ueber diesen gemeinsamen Port und in einer Transaktion; oeffentliche
+Einzel-Purges existieren nicht.
 
 ## 69.5 Abgrenzung zu anderen Schichten
 
@@ -233,12 +241,14 @@ eine Story-Umsetzung vollstaendig zurueckgesetzt, werden ihre
 `execution_events` und alle daraus abgeleiteten FK-69-Read-Models
 mitentfernt.
 
-### 69.5.2 Gegenueber `artifact_records`
+### 69.5.2 Gegenueber `artifact_envelopes`
 
-`artifact_records` verwalten Artefakte generisch mit Status,
-Provenienz und Speicherreferenz. FK-69 verwaltet daraus abgeleitete,
-fachlich querybare Sichten wie Findings, Stage-Ergebnisse oder
-Check-Wirksamkeit.
+`artifact_envelopes` verwalten kanonische Artefakte generisch mit Status und
+Provenienz. FK-69 verwaltet daraus abgeleitete, fachlich querybare Sichten wie
+Findings, Stage-Ergebnisse oder Check-Wirksamkeit. Der zusammengesetzte
+Envelope-Schluessel wird durch `ArtifactReference.record_key` repraesentiert;
+vor dem QA-Projektions-Batch muss die exakte referenzierte Envelope-Identitaet
+existieren.
 
 ### 69.5.3 Gegenueber FK-60 bis FK-63
 
@@ -278,8 +288,8 @@ bei verify-system (FK-33).
 
 - Pro `(project_key, run_id, attempt_no, stage_id)` gibt es genau ein
   aktuelles Stage-Ergebnis.
-- `artifact_id` verweist auf das materialisierte Stage-Artefakt
-  in `artifact_records`.
+- `artifact_id` ist der kanonische `ArtifactReference.record_key` des
+  existierenden Stage-Artefakts in `artifact_envelopes`.
 - `status` ist ein Stage-Gesamtstatus, nicht die Summe der Findings.
 - `attempt_no` folgt dem Verify-Loop aus `phase_state_projection`.
 - Ein vollstaendiger Story-Reset loescht alle `qa_stage_results` des
@@ -328,6 +338,8 @@ JSON-Artefakt parsen zu muessen. Schema-Verantwortung liegt bei verify-system
   genau einen aktuellen Finding-Record.
 - `finding_id` ist stage-lokal stabil und darf nicht aus Freitext
   abgeleitet werden.
+- `artifact_id` ist dieselbe kanonische Envelope-Referenz wie am zugehoerigen
+  Stage-Ergebnis.
 - Ein vollstaendiger Story-Reset loescht alle `qa_findings` des
   betroffenen `run_id`.
 
@@ -420,9 +432,8 @@ FK-69 darf Daten aus diesen Quellen materialisieren:
 - `execution_events`
 - `phase_state_projection`
 - `StoryContext`
-- `artifact_records`
+- `artifact_envelopes`
 - kanonische Failure-Corpus-Entitaeten
-- Legacy-Dateien nur in expliziten Import-/Backfill-Pfaden
 
 **Reset-Regel:** Wird ein `run_id` vollstaendig zurueckgesetzt, muessen
 alle FK-69-Projektionen dieses `run_id` aktiv entfernt oder aus den
@@ -444,8 +455,11 @@ Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
 
 ## 69.11 Konsistenzregeln
 
-1. Jedes `qa_stage_result` mit `artifact_id` muss auf einen
-   existierenden `artifact_record` zeigen.
+1. Jedes `qa_stage_result` und `qa_finding` muss ueber `artifact_id` auf den
+   kanonischen `ArtifactReference.record_key` eines existierenden
+   `artifact_envelopes`-Satzes zeigen. Die Referenz muss Story, Run,
+   Artefaktklasse und registrierten Producer exakt treffen und wird vor jeder
+   Mutation des QA-Batches geprueft.
 2. `qa_findings` duerfen nur zu existierenden Stage-Ergebnissen
    derselben Kombination aus `(project_key, run_id, attempt_no, stage_id)`
    existieren.
@@ -473,9 +487,17 @@ Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
     `CHK-NNNN` id. For native/built-in checks it MUST be NULL. Missing linkage
     for an FC-derived check is an emitter/schema violation (fail-closed).
 11. `qa_stage_results`, `qa_findings`, and `qa_check_outcomes` for one accepted
-    QA-layer attempt MUST be prevalidated and committed as one atomic batch.
-    No writer may materialize, replace, or delete any one of these projection
-    families independently of the other two.
+    QA-layer attempt MUST be prevalidated and committed as one atomic complete
+    attempt snapshot. A rewrite first deletes all three projection families for
+    `(project_key, run_id, attempt_no)` and then inserts the complete incoming
+    set in the same transaction. Every incoming Stage, Finding and Outcome row
+    MUST match the exact `(project_key, story_id, run_id, attempt_no)` snapshot
+    scope; Finding and Outcome rows MUST name a parent Stage in that set, and
+    duplicate complete row identities are rejected before mutation. A full run
+    reset likewise deletes all three
+    projection families in one transaction. No writer may materialize,
+    replace, or delete any one of these projection families independently of
+    the other two.
 
 ## 69.15 Tabelle `qa_check_outcomes`
 
@@ -557,7 +579,8 @@ an already persisted QA artifact and no earlier single-row write exists.
 `qa_check_outcomes` rows carry no `artifact_id` column. Traceability to the
 stage artifact is established via the parent `qa_stage_results` row for
 `(project_key, run_id, attempt_no, stage_id)` (§69.11 consistency rule 8),
-which is guaranteed to be committed in the same transaction.
+which is guaranteed to be committed in the same transaction and to carry the
+validated canonical `artifact_envelopes` reference.
 
 ### 69.15.6 Fachregeln
 
@@ -566,7 +589,12 @@ which is guaranteed to be committed in the same transaction.
    telemetry-and-events (via `ProjectionAccessor`).
 2. **Every executed check produces exactly one row per
    `(project_key, run_id, stage_id, attempt_no, check_id)`.** A clean
-   check produces `outcome=clean`, not silence.
+   check produces `outcome=clean`, not silence. Wiederholt ein Producer eine
+   fachliche Pruefung innerhalb derselben Stage und desselben Attempts, muss
+   jede Ausfuehrung eine eigene registry-registrierte `check_id` besitzen;
+   doppelte Outcome-Identitaeten werden nicht kollabiert, sondern vor dem
+   Batch-Write abgewiesen. Die Structural-Phasenpruefungen verwenden deshalb
+   `phase_snapshots.<phase>`.
 3. **`check_id` is the executed-check identifier**, as defined in
    `verify_system/stage_registry/data.py` (`stage_id` values e.g.
    `artifact.protocol`, `branch.story`) and
@@ -611,21 +639,20 @@ which is guaranteed to be committed in the same transaction.
     through the single atomic batch from §69.4. Direct Outcome writes and
     Stage-/Finding-only rewrites are forbidden.
 
-## 69.12 Backfill und Migration
+## 69.12 Keine Backfills oder Migrationen
 
-Backfill aus Legacy-Artefakten bleibt erlaubt, aber nur als
-Migrationspfad:
-
-- JSON/JSONL-Dateien koennen in die FK-69-Tabellen importiert werden
-- der Import muss `project_key` explizit setzen
-- nach erfolgreichem Import bleibt PostgreSQL die operative Wahrheit
+Legacy-Artefakte sind keine Eingangsquelle der FK-69-Projektionen. Es gibt
+keinen Import-, Backfill-, Migrations- oder Kompatibilitaetspfad aus JSON-,
+JSONL- oder anderen Legacy-Dateien in die FK-69-Tabellen. Projektionen werden
+ausschliesslich aus den kanonischen Quellen in §69.10.1 ueber die jeweils in
+diesem Konzept benannten Writer materialisiert.
 
 ## 69.13 Zusammenfassung
 
 FK-69 definiert die operative Mittelschicht zwischen:
 
 - kanonischem Laufzeitstate (`StoryContext`, `phase_state_projection`,
-  `execution_events`, `artifact_records`)
+  `execution_events`, `artifact_envelopes`)
 - und analytischen Rollups/Facts (FK-60 bis FK-63)
 
 Damit bleiben QA-, Story- und Failure-Corpus-Daten querybar, ohne

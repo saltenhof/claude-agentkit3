@@ -30,10 +30,12 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import write_qa_layer_envelopes
 
 from agentkit.backend.core_types import PolicyVerdict, QaContext
 from agentkit.backend.phase_state_store.models import FlowExecution
@@ -125,6 +127,16 @@ def _persist_qa_batch(
         override_records=override_records,
         stage_registry=stage_registry,
     )
+    artifact_references = write_qa_layer_envelopes(
+        story_dir,
+        layer_results=(layer_result,),
+        stage_registry=stage_registry,
+        attempt_nr=1,
+    )
+    layer_result = replace(
+        layer_result,
+        artifact_reference=artifact_references[layer_result.layer],
+    )
     accessor.record_qa_layer_artifacts(
         story_dir,
         layer_results=(layer_result,),
@@ -136,6 +148,41 @@ def _persist_qa_batch(
         projection_dir=story_dir,
     )
     return outcomes
+
+
+def _assert_structural_counts_match_persisted_rows(
+    accessor: ProjectionAccessor,
+) -> None:
+    """Assert that stage counts describe the persisted outcome/finding rows."""
+    projection_filter = ProjectionFilter(
+        project_key=_PROJECT_KEY,
+        run_id=_RUN_ID,
+    )
+    outcomes = accessor.read_projection(
+        ProjectionKind.QA_CHECK_OUTCOMES,
+        projection_filter,
+    )
+    stage_results = accessor.read_projection(
+        ProjectionKind.QA_STAGE_RESULTS,
+        projection_filter,
+    )
+    findings = accessor.read_projection(
+        ProjectionKind.QA_FINDINGS,
+        projection_filter,
+    )
+    structural = next(row for row in stage_results if row.stage_id == "structural")
+    structural_findings = [row for row in findings if row.stage_id == "structural"]
+
+    assert structural.total_checks == len(outcomes)
+    assert structural.failed_checks == sum(
+        1 for finding in structural_findings if finding.blocking
+    )
+    assert structural.warning_checks == sum(
+        1 for finding in structural_findings if not finding.blocking
+    )
+    assert {
+        row.check_id for row in outcomes if row.outcome is not CheckOutcome.CLEAN
+    } == {finding.check_id for finding in structural_findings}
 
 
 class _GreenTel:
@@ -270,8 +317,11 @@ def test_emitter_wiring_persists_clean_rows_for_passing_layer1(tmp_path: Path) -
     assert "executed_check_ids" in layer_result.metadata, (
         "StructuralChecker must populate executed_check_ids in metadata"
     )
-    executed = set(layer_result.metadata["executed_check_ids"])  # type: ignore[arg-type]
-    assert len(executed) > 0, "executed_check_ids must not be empty"
+    executed = tuple(layer_result.metadata["executed_check_ids"])  # type: ignore[arg-type]
+    assert executed, "executed_check_ids must not be empty"
+    assert len(executed) == len(set(executed))
+    assert "phase_snapshots.setup" in executed
+    assert "phase_snapshots.exploration" in executed
 
     emitted = _persist_qa_batch(
         story_dir,
@@ -281,8 +331,7 @@ def test_emitter_wiring_persists_clean_rows_for_passing_layer1(tmp_path: Path) -
         stage_registry=stage_registry,
     )
 
-    # At least some rows emitted.
-    assert len(emitted) > 0, "At least one outcome row must be emitted"
+    assert len(emitted) == len(executed)
 
     # Read back via the PUBLIC accessor.
     rows = accessor.read_projection(
@@ -292,11 +341,16 @@ def test_emitter_wiring_persists_clean_rows_for_passing_layer1(tmp_path: Path) -
             run_id=_RUN_ID,
         ),
     )
-    # The DB upserts on PK (project_key, run_id, stage_id, attempt_no, check_id),
-    # so duplicate check_ids in executed_check_ids (e.g. "phase_snapshots" per phase)
-    # produce one row in the DB per unique PK. Rows persisted >= 1.
-    assert len(rows) > 0, "At least one outcome row must be persisted"
-    assert len(emitted) > 0, "At least one outcome row must be emitted"
+    assert len(rows) == len(executed)
+    stage_rows = accessor.read_projection(
+        ProjectionKind.QA_STAGE_RESULTS,
+        ProjectionFilter(project_key=_PROJECT_KEY, run_id=_RUN_ID),
+    )
+    structural_row = next(row for row in stage_rows if row.stage_id == "structural")
+    assert structural_row.total_checks == len(rows)
+    assert structural_row.failed_checks == 0
+    assert structural_row.warning_checks == 0
+    _assert_structural_counts_match_persisted_rows(accessor)
 
     # All rows for a passing Layer-1 must be clean.
     assert layer_result.passed, "Test precondition: layer must pass for this test"
@@ -365,6 +419,7 @@ def test_emitter_wiring_persists_triggered_row_for_failed_check(tmp_path: Path) 
     assert "clean" in by_outcome, (
         "PASS checks must produce clean rows (core AC2 invariant)"
     )
+    _assert_structural_counts_match_persisted_rows(accessor)
 
 
 def test_emitter_wiring_persists_overridden_row(tmp_path: Path) -> None:
@@ -424,6 +479,7 @@ def test_emitter_wiring_persists_overridden_row(tmp_path: Path) -> None:
     assert len(overridden) == 1, f"Expected 1 overridden row; got {overridden!r}"
     assert overridden[0].check_id == "artifact.protocol"
     assert overridden[0].override_id == "ovr-wiring-001"
+    _assert_structural_counts_match_persisted_rows(accessor)
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +648,16 @@ class _PassVerifySystemWithOverridableCheck:
                 "executed_check_ids": [_OVERRIDE_CHECK_ID, "artifact.worker_manifest"],
             },
         )
+        references = write_qa_layer_envelopes(
+            ctx.story_dir,
+            layer_results=(layer_result,),
+            stage_registry=self.stage_registry,
+            attempt_nr=ctx.attempt,
+        )
+        layer_result = replace(
+            layer_result,
+            artifact_reference=references[layer_result.layer],
+        )
         decision = PolicyEngine().decide(
             [layer_result],
             story_type=StoryType.IMPLEMENTATION,
@@ -731,6 +797,16 @@ class _RealFailingStabilityGateVerifySystem:
             touched_paths=("feature.py",),
             story_id=story_id,
             project_key=_PROJECT_KEY_AC4,
+        )
+        references = write_qa_layer_envelopes(
+            ctx.story_dir,
+            layer_results=(layer_result,),
+            stage_registry=self._stage_registry,
+            attempt_nr=ctx.attempt,
+        )
+        layer_result = replace(
+            layer_result,
+            artifact_reference=references[layer_result.layer],
         )
         decision = PolicyEngine(stage_registry=self._stage_registry).decide(
             [layer_result],

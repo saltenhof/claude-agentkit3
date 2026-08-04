@@ -206,17 +206,23 @@ def test_qa_layer_batch_valid_lease_writes_all_projections(
     assert stages[0].status == "PASS"
 
 
-def test_qa_layer_batch_rewrite_replaces_findings_and_outcomes_by_canonical_stage_id(
+def test_qa_layer_batch_rewrite_removes_stage_omitted_from_smaller_snapshot(
     tmp_path: Path,
 ) -> None:
-    """A repeated Postgres attempt replaces findings under the registry ID."""
+    """I2: Postgres replaces the full attempt snapshot, not only named stages."""
     story_id = "AG3-191"
     run_id = "run-canonical-rewrite"
     story_dir = tmp_path / story_id
     story_dir.mkdir(parents=True)
     _seed_flow(story_dir, story_id=story_id, run_id=run_id)
     _seed_active_ownership(story_id=story_id, run_id=run_id)
-    first_result = LayerResult(
+    retained_result = LayerResult(
+        layer="structural",
+        passed=True,
+        findings=(),
+        metadata={"executed_check_ids": ()},
+    )
+    omitted_result = LayerResult(
         layer="doc_fidelity",
         passed=False,
         findings=(
@@ -224,31 +230,16 @@ def test_qa_layer_batch_rewrite_replaces_findings_and_outcomes_by_canonical_stag
                 layer="doc_fidelity",
                 check="doc_fidelity.missing_docstring",
                 severity=Severity.BLOCKING,
-                message="first-run finding",
+                message="finding from the larger snapshot",
                 trust_class=TrustClass.VERIFIED_LLM,
             ),
         ),
         metadata={"executed_check_ids": ("doc_fidelity.missing_docstring",)},
     )
-    second_result = LayerResult(
-        layer="doc_fidelity",
-        passed=False,
-        findings=(
-            Finding(
-                layer="doc_fidelity",
-                check="doc_fidelity.no_concept_anchor",
-                severity=Severity.BLOCKING,
-                message="second-run finding",
-                trust_class=TrustClass.VERIFIED_LLM,
-            ),
-        ),
-        metadata={"executed_check_ids": ("doc_fidelity.no_concept_anchor",)},
-    )
-
-    for result in (first_result, second_result):
+    for results in ((retained_result, omitted_result), (retained_result,)):
         record_qa_layer_artifacts(
             story_dir,
-            layer_results=(result,),
+            layer_results=results,
             attempt_nr=1,
             stage_registry=_STAGE_REGISTRY,
             owner_session_id="sess-A",
@@ -256,24 +247,115 @@ def test_qa_layer_batch_rewrite_replaces_findings_and_outcomes_by_canonical_stag
             projection_dir=story_dir,
         )
 
+    stages = load_qa_stage_results(
+        story_dir,
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        attempt_no=1,
+    )
     findings = load_qa_findings(
         story_dir,
         project_key=_PROJECT,
         story_id=story_id,
         run_id=run_id,
         attempt_no=1,
-        stage_id="doc_fidelity_impl",
     )
-    assert [finding.check_id for finding in findings] == [
-        "doc_fidelity.no_concept_anchor",
-    ]
     outcomes = build_projection_accessor(story_dir).read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
         ProjectionFilter(project_key=_PROJECT, run_id=run_id, attempt_no=1),
     )
-    assert [outcome.check_id for outcome in outcomes] == [
-        "doc_fidelity.no_concept_anchor",
-    ]
+    assert [stage.layer for stage in stages] == ["structural"]
+    assert findings == []
+    assert outcomes == []
+
+
+def test_qa_projection_reset_rolls_back_when_second_delete_fails(
+    tmp_path: Path,
+) -> None:
+    """I1: the Postgres reset rolls back its first delete on a later fault."""
+    story_id = "AG3-191"
+    run_id = "run-reset-second-delete-fault"
+    story_dir = tmp_path / story_id
+    story_dir.mkdir(parents=True)
+    _seed_flow(story_dir, story_id=story_id, run_id=run_id)
+    _seed_active_ownership(story_id=story_id, run_id=run_id)
+    record_qa_layer_artifacts(
+        story_dir,
+        layer_results=(
+            LayerResult(
+                layer="structural",
+                passed=False,
+                findings=(
+                    Finding(
+                        layer="structural",
+                        check="context_exists",
+                        severity=Severity.BLOCKING,
+                        message="missing context",
+                        trust_class=TrustClass.SYSTEM,
+                    ),
+                ),
+                metadata={"executed_check_ids": ("context_exists",)},
+            ),
+        ),
+        attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
+        owner_session_id="sess-A",
+        expected_ownership_epoch=1,
+    )
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- sanctioned test-only fault injection
+        conn.execute(
+            """
+            CREATE OR REPLACE FUNCTION agentkit_test_fail_qa_finding_delete()
+            RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                RAISE EXCEPTION 'injected second QA delete failure';
+            END;
+            $$
+            """
+        )
+        conn.execute(
+            """
+            CREATE TRIGGER agentkit_test_fail_qa_finding_delete_trigger
+            BEFORE DELETE ON qa_findings
+            FOR EACH ROW
+            WHEN (OLD.run_id = 'run-reset-second-delete-fault')
+            EXECUTE FUNCTION agentkit_test_fail_qa_finding_delete()
+            """
+        )
+    try:
+        with pytest.raises(psycopg.errors.RaiseException, match="second QA delete failure"):
+            build_projection_accessor(story_dir).purge_run(_PROJECT, story_id, run_id)
+
+        stages = load_qa_stage_results(
+            story_dir,
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            attempt_no=1,
+        )
+        findings = load_qa_findings(
+            story_dir,
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            attempt_no=1,
+        )
+        outcomes = build_projection_accessor(story_dir).read_projection(
+            ProjectionKind.QA_CHECK_OUTCOMES,
+            ProjectionFilter(project_key=_PROJECT, run_id=run_id, attempt_no=1),
+        )
+        assert len(stages) == 1
+        assert len(findings) == 1
+        assert len(outcomes) == 1
+    finally:
+        with postgres_store._connect_global() as conn:  # noqa: SLF001 -- sanctioned test-only cleanup
+            conn.execute(
+                "DROP TRIGGER IF EXISTS agentkit_test_fail_qa_finding_delete_trigger ON qa_findings"
+            )
+            conn.execute(
+                "DROP FUNCTION IF EXISTS agentkit_test_fail_qa_finding_delete()"
+            )
 
 
 def test_qa_layer_batch_lost_lease_rejects_and_writes_nothing(

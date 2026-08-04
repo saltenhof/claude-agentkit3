@@ -422,7 +422,7 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         qa_check_outcomes=FacadeQACheckOutcomesRepository(store_dir),
         story_metrics=FacadeStoryMetricsRepository(store_dir),
         phase_state_projection=FacadePhaseStateProjectionRepository(store_dir),
-        qa_layer_batch=FacadeQALayerBatchWriter(),
+        qa_layer_batch=FacadeQALayerBatchWriter(store_dir),
         fc_incidents=StateBackendFCIncidentsRepository(store_dir),
         risk_window=FacadeRiskWindowRepository(store_dir),
         tasks=StateBackendTaskRepository(store_dir),
@@ -430,4 +430,3 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         fc_patterns=StateBackendFcPatternRepository(store_dir),
         fc_check_proposals=StateBackendFcCheckProposalRepository(store_dir),
     )
-

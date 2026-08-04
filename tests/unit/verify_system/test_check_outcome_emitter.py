@@ -450,6 +450,7 @@ def test_check_outcome_emitter_returns_records() -> None:
     assert by_check["impl_fidelity"].outcome is CheckOutcome.TRIGGERED
     assert by_check["ac_fulfilled"].outcome is CheckOutcome.CLEAN
 
+
 # ---------------------------------------------------------------------------
 # Tests: origin_check_ref -> check_proposal_ref echo (FK-33 §33.2.1 /
 #        FK-69 §69.15.6 rule 4, AG3-078)
@@ -523,6 +524,87 @@ def test_emitter_propagates_precise_check_origin_ref() -> None:
 
     assert len(records) == 1
     assert records[0].check_proposal_ref == "CHK-0007"
+
+
+def test_adversarial_target_provenance_requires_canonical_source_evidence() -> None:
+    """A dotted target name alone cannot invent its check provenance."""
+    flow = _FakeFlow()
+    source = LayerResult(
+        layer="qa_review",
+        passed=False,
+        findings=(
+            Finding(
+                layer="qa_review",
+                check="ac_fulfilled",
+                severity=Severity.BLOCKING,
+                message="acceptance criterion not fulfilled",
+                trust_class=TrustClass.VERIFIED_LLM,
+            ),
+        ),
+        metadata={"executed_check_ids": ("ac_fulfilled",)},
+    )
+    target_id = "P3-INV-6"
+    adversarial = LayerResult(
+        layer="adversarial",
+        passed=False,
+        metadata={
+            "executed_check_ids": ("adversarial_runtime", target_id),
+            "adversarial_target_sources": (
+                {
+                    "target_id": target_id,
+                    "source_result_name": "qa_review",
+                    "source_check_id": "ac_fulfilled",
+                    "source_artifact_record_key": "qa-review-envelope",
+                    "source_finding_index": 0,
+                },
+            ),
+        },
+    )
+
+    records = CheckOutcomeEmitter().build_batch(
+        cast("FlowExecution", flow),
+        (source, adversarial),
+        attempt_no=1,
+        stage_registry=StageRegistry(),
+    )
+
+    target_record = next(record for record in records if record.check_id == target_id)
+    assert target_record.check_proposal_ref is None
+
+
+def test_adversarial_target_provenance_rejects_missing_source_artifact() -> None:
+    """Typed metadata cannot omit the canonical source-result identity."""
+    flow = _FakeFlow()
+    source = LayerResult(
+        layer="qa_review",
+        passed=True,
+        metadata={"executed_check_ids": ("scope_compliance",)},
+    )
+    target_id = "qa_review.ac_fulfilled"
+    adversarial = LayerResult(
+        layer="adversarial",
+        passed=False,
+        metadata={
+            "executed_check_ids": ("adversarial_runtime", target_id),
+            "adversarial_target_sources": (
+                {
+                    "target_id": target_id,
+                    "source_result_name": "qa_review",
+                    "source_check_id": "ac_fulfilled",
+                    "source_artifact_record_key": "",
+                    "source_finding_index": 0,
+                },
+            ),
+        },
+    )
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        CheckOutcomeEmitter().build_batch(
+            cast("FlowExecution", flow),
+            (source, adversarial),
+            attempt_no=1,
+            stage_registry=StageRegistry(),
+        )
 
 
 def test_missing_check_origin_refs_fails_closed_with_named_reason() -> None:

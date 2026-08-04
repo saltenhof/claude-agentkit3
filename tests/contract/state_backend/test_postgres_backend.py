@@ -286,7 +286,10 @@ def test_public_state_backend_contract_works_on_postgres(
     )
     assert len(findings) == 2
     assert findings[0].status == "REPORTED"
-    assert findings[0].artifact_id == "structural-attempt-1"
+    assert findings[0].artifact_id == (
+        "AG3-901|run-contract-001|qa-layer-structural|1|qa|"
+        "verify-system.layer-1-structural"
+    )
     assert {finding.severity for finding in findings} == {"BLOCKING", "MAJOR"}
 
     save_flow_execution(

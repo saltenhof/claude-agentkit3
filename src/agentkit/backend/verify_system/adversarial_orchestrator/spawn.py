@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from agentkit.backend.artifacts import ArtifactManager
     from agentkit.backend.pipeline_engine.phase_executor import PhaseState
     from agentkit.backend.verify_system.contract import VerifyContextBundle
-    from agentkit.backend.verify_system.protocols import Finding
+    from agentkit.backend.verify_system.protocols import LayerResult
 
 #: Sandbox root segment (AG3-044 §2.1.6 / FK-48 §48.1).
 ADVERSARIAL_SANDBOX_DIRNAME = "adversarial"
@@ -73,12 +73,33 @@ class AdversarialTarget:
     """
 
     finding_id: str
+    source_result_name: str
+    source_check_id: str
+    source_artifact_record_key: str
+    source_finding_index: int
     source: str
     normative_ref: str
     addressed_part: str
     open_part: str
     mandatory: bool
     test_anchor: str
+
+    def __post_init__(self) -> None:
+        """Reject incomplete source evidence at the typed target boundary."""
+        required = (
+            self.finding_id,
+            self.source_result_name,
+            self.source_check_id,
+            self.source_artifact_record_key,
+        )
+        if any(not isinstance(value, str) or not value.strip() for value in required):
+            raise ValueError("adversarial target source evidence must be complete")
+        if (
+            not isinstance(self.source_finding_index, int)
+            or isinstance(self.source_finding_index, bool)
+            or self.source_finding_index < 0
+        ):
+            raise ValueError("adversarial target source finding index must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -131,7 +152,7 @@ class AdversarialSpawner:
 
     def extract_mandatory_targets(
         self,
-        layer2_checks: list[Finding],
+        layer2_results: list[LayerResult],
         remediation_round: int,
     ) -> list[AdversarialTarget]:
         """Extract mandatory adversarial targets from Layer-2 findings (FK-48 §48.2.2).
@@ -151,8 +172,8 @@ class AdversarialSpawner:
         deterministic sandbox test anchor (AG3-044 AC8).
 
         Args:
-            layer2_checks: The Layer-2 findings of the current round (incl.
-                finding-resolution context).
+            layer2_results: The canonical Layer-2 results of the current round,
+                including their artifact references.
             remediation_round: The current remediation round (1-based), recorded
                 in the target ``source`` (FK-48 §48.2.2 ``qa_review round N``).
 
@@ -161,23 +182,39 @@ class AdversarialSpawner:
             a FAIL/PASS_WITH_CONCERNS status (empty list when none qualify).
         """
         targets: list[AdversarialTarget] = []
-        for index, finding in enumerate(layer2_checks):
-            if finding.finding_type != ASSERTION_WEAKNESS_FINDING_TYPE:
-                continue
-            if not _is_concern_status(finding.severity):
-                continue
-            finding_id = f"{finding.layer}.{finding.check}"
-            targets.append(
-                AdversarialTarget(
-                    finding_id=finding_id,
-                    source=f"{finding.layer} round {remediation_round}",
-                    normative_ref=finding.message,
-                    addressed_part=finding.addressed_part,
-                    open_part=finding.suggestion or finding.message,
-                    mandatory=True,
-                    test_anchor=f"test_{finding.check}_{index}.py",
+        for layer_result in layer2_results:
+            reference = layer_result.artifact_reference
+            if reference is None or reference.artifact_class is not ArtifactClass.QA:
+                raise ValueError(f"Layer-2 result {layer_result.layer!r} lacks its canonical QA artifact reference")
+            for finding_index, finding in enumerate(layer_result.findings):
+                if finding.finding_type != ASSERTION_WEAKNESS_FINDING_TYPE:
+                    continue
+                if not _is_concern_status(finding.severity):
+                    continue
+                if finding.layer != layer_result.layer:
+                    raise ValueError(
+                        "Layer-2 finding layer does not match its source result: "
+                        f"result={layer_result.layer!r}, finding={finding.layer!r}"
+                    )
+                finding_id = f"{finding.layer}.{finding.check}"
+                targets.append(
+                    AdversarialTarget(
+                        finding_id=finding_id,
+                        source_result_name=layer_result.layer,
+                        source_check_id=finding.check,
+                        source_artifact_record_key=reference.record_key,
+                        source_finding_index=finding_index,
+                        source=f"{finding.layer} round {remediation_round}",
+                        normative_ref=finding.message,
+                        addressed_part=finding.addressed_part,
+                        open_part=finding.suggestion or finding.message,
+                        mandatory=True,
+                        test_anchor=f"test_{finding.check}_{finding_index}.py",
+                    )
                 )
-            )
+        target_ids = [target.finding_id for target in targets]
+        if len(set(target_ids)) != len(target_ids):
+            raise ValueError("Layer-2 results produce duplicate adversarial target ids")
         return targets
 
     def request_spawn(
@@ -214,33 +251,34 @@ class AdversarialSpawner:
         """
         resolved_story_id = story_id if story_id is not None else _story_id_from_ctx(ctx)
         epoch = str(ctx.attempt)
-        sandbox_path = (
-            ctx.story_dir
-            / "_temp"
-            / ADVERSARIAL_SANDBOX_DIRNAME
-            / resolved_story_id
-            / epoch
-        )
-        sandbox_rel = (
-            f"_temp/{ADVERSARIAL_SANDBOX_DIRNAME}/{resolved_story_id}/{epoch}"
-        )
+        sandbox_path = ctx.story_dir / "_temp" / ADVERSARIAL_SANDBOX_DIRNAME / resolved_story_id / epoch
+        sandbox_rel = f"_temp/{ADVERSARIAL_SANDBOX_DIRNAME}/{resolved_story_id}/{epoch}"
         # FAIL-CLOSED (AG3-023): the sandbox MUST resolve as a Protected-Path so
         # ordinary workers cannot tamper with adversarial evidence.
         if not is_adversarial_sandbox_path(sandbox_rel):
             raise ValueError(
-                f"adversarial sandbox path {sandbox_rel!r} is not a "
-                "Protected-Path (AG3-023 / FK-48 §48.1)",
+                f"adversarial sandbox path {sandbox_rel!r} is not a Protected-Path (AG3-023 / FK-48 §48.1)",
             )
         sandbox_path.mkdir(parents=True, exist_ok=True)
 
-        spawn_orders = tuple(
-            SpawnRequest(
-                kind=SpawnKind.ADVERSARIAL,
-                spawn_reason=SpawnReason.REMEDIATION,
-                target_id=target.finding_id,
-                sandbox_path=f"{sandbox_rel}/{target.test_anchor}",
+        spawn_orders = (
+            tuple(
+                SpawnRequest(
+                    kind=SpawnKind.ADVERSARIAL,
+                    spawn_reason=SpawnReason.REMEDIATION,
+                    target_id=target.finding_id,
+                    sandbox_path=f"{sandbox_rel}/{target.test_anchor}",
+                )
+                for target in targets
             )
-            for target in targets
+            if targets
+            else (
+                SpawnRequest(
+                    kind=SpawnKind.ADVERSARIAL,
+                    spawn_reason=SpawnReason.REMEDIATION,
+                    sandbox_path=sandbox_rel,
+                ),
+            )
         )
         self._write_sandbox_envelope(ctx, resolved_story_id, sandbox_rel, targets)
         return AdversarialSpawnRequest(
@@ -290,6 +328,10 @@ class AdversarialSpawner:
                 "targets": [
                     {
                         "finding_id": t.finding_id,
+                        "source_result_name": t.source_result_name,
+                        "source_check_id": t.source_check_id,
+                        "source_artifact_record_key": t.source_artifact_record_key,
+                        "source_finding_index": t.source_finding_index,
                         "source": t.source,
                         "normative_ref": t.normative_ref,
                         "addressed_part": t.addressed_part,

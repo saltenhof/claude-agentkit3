@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
+    QAPurgeCounts,
+)
 from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
@@ -282,7 +285,7 @@ class _SpyBatchWriter:
     """Spy-Implementierung des QALayerBatchWriter-Ports (AG3-035 #5)."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[object, object, object, object, int, str, int, object]] = []
+        self.calls: list[tuple[object, ...]] = []
 
     def persist_layer_artifacts(
         self,
@@ -290,6 +293,7 @@ class _SpyBatchWriter:
         *,
         layer_results: object,
         check_outcomes: object,
+        artifact_references: object,
         stage_registry: object,
         attempt_nr: int,
         owner_session_id: str,
@@ -301,6 +305,7 @@ class _SpyBatchWriter:
                 story_dir,
                 layer_results,
                 check_outcomes,
+                artifact_references,
                 stage_registry,
                 attempt_nr,
                 owner_session_id,
@@ -309,6 +314,16 @@ class _SpyBatchWriter:
             )
         )
         return ("art-spy-001",)
+
+    def purge_run(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> QAPurgeCounts:
+        del project_key, story_id, run_id
+        return QAPurgeCounts(stage_results=0, findings=0, check_outcomes=0)
 
 
 def test_record_qa_layer_artifacts_delegates_to_batch_port(tmp_path: Path) -> None:
@@ -345,6 +360,7 @@ def test_record_qa_layer_artifacts_delegates_to_batch_port(tmp_path: Path) -> No
         story_dir,
         layer_results,
         check_outcomes,
+        artifact_references,
         stage_registry,
         attempt_nr,
         owner_session_id,
@@ -354,6 +370,7 @@ def test_record_qa_layer_artifacts_delegates_to_batch_port(tmp_path: Path) -> No
     assert story_dir == tmp_path
     assert layer_results == ()
     assert check_outcomes == ()
+    assert artifact_references == {}
     assert stage_registry is registry
     assert attempt_nr == 2
     assert owner_session_id == "sess-spy"
@@ -443,8 +460,8 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(tmp_path: Path, monkeyp
                 },
             ),
         )
-        # Quell-Artefakte (artifact_records) muessen vor der FK-69-Materialisierung
-        # existieren, damit der Driver-Batch die artifact_id aufloesen kann.
+        # Canonical envelopes must exist before FK-69 materialization so the
+        # driver can prove every artifact_id reference.
         write_layer_artifacts(
             manager=build_artifact_manager(story_dir),
             story_id="QA-700",
@@ -462,6 +479,21 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(tmp_path: Path, monkeyp
             layers,
             attempt_no=1,
             stage_registry=registry,
+        )
+        from tests.qa_artifact_support import write_qa_layer_envelopes
+
+        artifact_references = write_qa_layer_envelopes(
+            story_dir,
+            layer_results=layers,
+            stage_registry=registry,
+            attempt_nr=1,
+        )
+        layers = tuple(
+            dataclasses.replace(
+                result,
+                artifact_reference=artifact_references[result.layer],
+            )
+            for result in layers
         )
         produced = accessor.record_qa_layer_artifacts(
             story_dir,

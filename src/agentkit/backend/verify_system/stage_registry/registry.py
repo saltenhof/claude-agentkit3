@@ -186,14 +186,10 @@ class StageRegistry:
         derived_stage_result_stage_ids, derived_stage_result_producers = _build_stage_result_catalog(self.stages)
 
         stage_result_stage_ids = (
-            dict(self.stage_result_stage_ids)
-            if self.stage_result_stage_ids is not None
-            else derived_stage_result_stage_ids
+            dict(self.stage_result_stage_ids) if self.stage_result_stage_ids is not None else derived_stage_result_stage_ids
         )
         stage_result_producers = (
-            dict(self.stage_result_producers)
-            if self.stage_result_producers is not None
-            else derived_stage_result_producers
+            dict(self.stage_result_producers) if self.stage_result_producers is not None else derived_stage_result_producers
         )
         self._validate_result_catalog_names(
             stage_result_stage_ids=stage_result_stage_ids,
@@ -228,9 +224,7 @@ class StageRegistry:
         stage_result_stage_ids: Mapping[str, str],
     ) -> None:
         """Derive and validate registry-owned result coverage."""
-        registered_result_names = set(stage_result_stage_ids) | set(
-            self.aggregate_result_stage_ids
-        )
+        registered_result_names = set(stage_result_stage_ids) | set(self.aggregate_result_stage_ids)
         registered_stage_ids = {stage.stage_id for stage in self.stages}
         registered_stage_ids.update(stage_result_stage_ids.values())
         registered_stage_ids.update(self.aggregate_result_stage_ids.values())
@@ -238,9 +232,7 @@ class StageRegistry:
             aggregate_coverage = (
                 {
                     "structural": frozenset(
-                        stage.stage_id
-                        for stage in self.stages
-                        if stage.layer == 1 and stage.stage_id != "sonarqube_gate"
+                        stage.stage_id for stage in self.stages if stage.layer == 1 and stage.stage_id != "sonarqube_gate"
                     )
                 }
                 if "structural" in self.aggregate_result_stage_ids
@@ -252,39 +244,25 @@ class StageRegistry:
             additional_coverage = {
                 result_name: coverage
                 for result_name, coverage in DEFAULT_RESULT_ADDITIONAL_STAGE_COVERAGE.items()
-                if result_name in registered_result_names
-                and coverage.issubset(registered_stage_ids)
+                if result_name in registered_result_names and coverage.issubset(registered_stage_ids)
             }
         else:
             additional_coverage = dict(self.result_additional_stage_coverage)
         object.__setattr__(self, "aggregate_result_stage_coverage", aggregate_coverage)
         object.__setattr__(self, "result_additional_stage_coverage", additional_coverage)
 
-        unknown_aggregates = set(aggregate_coverage) - set(
-            self.aggregate_result_stage_ids
-        )
+        unknown_aggregates = set(aggregate_coverage) - set(self.aggregate_result_stage_ids)
         if unknown_aggregates:
-            raise ValueError(
-                "aggregate coverage has no registered result identity: "
-                f"{sorted(unknown_aggregates)!r}"
-            )
+            raise ValueError(f"aggregate coverage has no registered result identity: {sorted(unknown_aggregates)!r}")
         unknown_additional = set(additional_coverage) - registered_result_names
         if unknown_additional:
-            raise ValueError(
-                "additional coverage has no registered result identity: "
-                f"{sorted(unknown_additional)!r}"
-            )
+            raise ValueError(f"additional coverage has no registered result identity: {sorted(unknown_additional)!r}")
         coverage_stage_ids = {
-            stage_id
-            for coverage in (*aggregate_coverage.values(), *additional_coverage.values())
-            for stage_id in coverage
+            stage_id for coverage in (*aggregate_coverage.values(), *additional_coverage.values()) for stage_id in coverage
         }
         unknown_stage_ids = coverage_stage_ids - registered_stage_ids
         if unknown_stage_ids:
-            raise ValueError(
-                "result coverage references unknown stage id(s): "
-                f"{sorted(unknown_stage_ids)!r}"
-            )
+            raise ValueError(f"result coverage references unknown stage id(s): {sorted(unknown_stage_ids)!r}")
 
     @staticmethod
     def _validate_result_catalog_names(
@@ -300,9 +278,7 @@ class StageRegistry:
             if not result_name.strip():
                 raise ValueError("layer result name must not be empty or whitespace-only")
             if not stage_id.strip():
-                raise ValueError(
-                    f"canonical stage id for result {result_name!r} must not be empty or whitespace-only"
-                )
+                raise ValueError(f"canonical stage id for result {result_name!r} must not be empty or whitespace-only")
 
     def stages_for(
         self,
@@ -416,6 +392,10 @@ class StageRegistry:
         msg = f"LayerResult name {result_name!r} has no projectable producer"
         raise ValueError(msg)
 
+    def result_names_for_layer(self, layer: int) -> frozenset[str]:
+        """Return the registry-owned result identities for one QA layer."""
+        return frozenset(stage.result_name for stage in self.stages if stage.layer == layer)
+
     def produced_stage_ids(
         self,
         layer_results: tuple[LayerResult, ...],
@@ -458,9 +438,7 @@ class StageRegistry:
                     layer_result.layer,
                     frozenset(),
                 )
-                result_coverage.update(
-                    additional & executed_check_ids & expected_stage_ids
-                )
+                result_coverage.update(additional & executed_check_ids & expected_stage_ids)
 
             metadata_stage_ids = layer_result.metadata.get("stage_ids")
             if metadata_stage_ids is not None:
@@ -484,14 +462,17 @@ class StageRegistry:
     def _executed_check_ids_for_coverage(layer_result: LayerResult) -> frozenset[str]:
         """Return well-formed executed IDs used for registry-owned coverage."""
         raw_executed = layer_result.metadata.get("executed_check_ids", ())
-        if not isinstance(raw_executed, (list, tuple)) or any(
-            not isinstance(check_id, str) for check_id in raw_executed
-        ):
+        if not isinstance(raw_executed, (list, tuple)) or any(not isinstance(check_id, str) for check_id in raw_executed):
             msg = "LayerResult metadata['executed_check_ids'] must be a string list or tuple"
             raise ValueError(msg)
         return frozenset(raw_executed)
 
-    def resolve_check_origin_refs(self, executed_check_ids: tuple[str, ...] | list[str]) -> dict[str, str | None]:
+    def resolve_check_origin_refs(
+        self,
+        executed_check_ids: tuple[str, ...] | list[str],
+        *,
+        adversarial_target_sources: Mapping[str, str] | None = None,
+    ) -> dict[str, str | None]:
         """Resolve only registry-proven provenance for executed checks.
 
         Stage IDs resolve through their typed definitions. Built-in sub-checks
@@ -509,14 +490,14 @@ class StageRegistry:
         """
         check_origins: dict[str, str | None] = dict(self.native_check_origin_refs)
         check_origins.update({stage.stage_id: stage.origin_check_ref for stage in self.stages})
-        result_names = {stage.result_name for stage in self.stages}
+        target_sources = adversarial_target_sources or {}
         resolved: dict[str, str | None] = {}
         for check_id in executed_check_ids:
             if check_id in check_origins:
                 resolved[check_id] = check_origins[check_id]
                 continue
-            source_layer, separator, source_check_id = check_id.partition(".")
-            if separator and source_layer in result_names and source_check_id in check_origins:
+            source_check_id = target_sources.get(check_id)
+            if source_check_id is not None and source_check_id in check_origins:
                 resolved[check_id] = check_origins[source_check_id]
         return resolved
 

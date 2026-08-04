@@ -155,31 +155,6 @@ def test_upsert_replaces_on_pk_conflict(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# purge_run
-# ---------------------------------------------------------------------------
-
-
-def test_purge_run_deletes_target_rows(tmp_path: Path) -> None:
-    repo = FacadeQACheckOutcomesRepository(tmp_path)
-    seed_qa_check_outcome(tmp_path, _record(run_id="run-a", check_id="c1"))
-    seed_qa_check_outcome(tmp_path, _record(run_id="run-a", check_id="c2"))
-    seed_qa_check_outcome(tmp_path, _record(run_id="run-b", check_id="c1"))
-
-    count = repo.purge_run("proj-test", "AG3-108", "run-a")
-
-    assert count == 2
-    remaining = repo.read(project_key="proj-test")
-    assert len(remaining) == 1
-    assert remaining[0].run_id == "run-b"
-
-
-def test_purge_run_returns_0_when_nothing_to_delete(tmp_path: Path) -> None:
-    repo = FacadeQACheckOutcomesRepository(tmp_path)
-    count = repo.purge_run("proj-test", "AG3-108", "run-nonexistent")
-    assert count == 0
-
-
-# ---------------------------------------------------------------------------
 # check_id equality filter
 # ---------------------------------------------------------------------------
 

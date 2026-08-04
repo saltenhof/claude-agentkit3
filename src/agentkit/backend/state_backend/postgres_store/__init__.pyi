@@ -403,16 +403,7 @@ from ._qa_artifact_rows import (
     persist_verify_decision_row as persist_verify_decision_row,
 )
 from ._qa_artifact_rows import (
-    pg_delete_findings_for_scope as pg_delete_findings_for_scope,
-)
-from ._qa_artifact_rows import (
-    pg_execute_check_outcome_upsert as pg_execute_check_outcome_upsert,
-)
-from ._qa_artifact_rows import (
-    pg_execute_finding_upsert as pg_execute_finding_upsert,
-)
-from ._qa_artifact_rows import (
-    pg_execute_stage_upsert as pg_execute_stage_upsert,
+    purge_qa_projection_rows as purge_qa_projection_rows,
 )
 from ._qa_artifact_rows import (
     save_node_execution_ledger_row as save_node_execution_ledger_row,

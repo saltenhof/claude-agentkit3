@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from agentkit.backend.core_types import PolicyVerdict
@@ -89,14 +90,15 @@ def _run_fast_floor(
         },
     )
 
-    self._write_layer_envelope(
-            spec=_artifact_specs.LAYER_1_ARTIFACTS[0],
+    artifact_reference = self._write_layer_envelope(
+        spec=_artifact_specs.LAYER_1_ARTIFACTS[0],
         result=floor_result,
         ctx=ctx,
         story_id=story_id,
         now_str=now_str,
         qa_cycle_fields=qa_cycle_fields,
     )
+    floor_result = replace(floor_result, artifact_reference=artifact_reference)
 
     verdict = PolicyVerdict.PASS if floor_passed else PolicyVerdict.FAIL
     summary = (
@@ -123,7 +125,7 @@ def _run_fast_floor(
     return QaSubflowOutcome(
         verdict=verdict,
         decision=decision,
-            artifact_refs=(_artifact_specs.LAYER_1_ARTIFACTS[0].filename,),
+        artifact_refs=(_artifact_specs.LAYER_1_ARTIFACTS[0].filename,),
         attempt_nr=ctx.attempt,
         qa_cycle_round=cycle_state.round,
         feedback=None,

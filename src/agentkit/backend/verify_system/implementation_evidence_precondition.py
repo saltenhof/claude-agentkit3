@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from agentkit.backend.core_types import PolicyVerdict, QaContext
@@ -45,6 +46,7 @@ def _evaluate_implementation_terminality_precondition(
         return None
     if story_ctx is None:
         return _implementation_terminality_blocked_outcome(
+            system,
             ctx=ctx,
             story_id=story_id,
             reason=(
@@ -68,6 +70,7 @@ def _evaluate_implementation_terminality_precondition(
         or "Implementation-Evidence-Gate: implementation evidence is missing."
     )
     return _implementation_terminality_blocked_outcome(
+        system,
         ctx=ctx,
         story_id=story_id,
         reason=reason,
@@ -75,6 +78,7 @@ def _evaluate_implementation_terminality_precondition(
 
 
 def _implementation_terminality_blocked_outcome(
+    system: VerifySystem,
     *,
     ctx: VerifyContextBundle,
     story_id: str,
@@ -100,6 +104,18 @@ def _implementation_terminality_blocked_outcome(
             ),
         },
     )
+    from agentkit.backend.verify_system import _artifact_specs
+    from agentkit.backend.verify_system.qa_cycle import integration as _qa
+
+    reference = system._write_layer_envelope(
+        spec=_artifact_specs.LAYER_1_ARTIFACTS[0],
+        result=layer_result,
+        ctx=ctx,
+        story_id=story_id,
+        now_str=_qa.utc_now_iso(),
+        qa_cycle_fields={},
+    )
+    layer_result = replace(layer_result, artifact_reference=reference)
     decision = VerifyDecision(
         passed=False,
         verdict=PolicyVerdict.FAIL,
@@ -116,7 +132,7 @@ def _implementation_terminality_blocked_outcome(
     return QaSubflowOutcome(
         verdict=PolicyVerdict.FAIL,
         decision=decision,
-        artifact_refs=(),
+        artifact_refs=(_artifact_specs.LAYER_1_ARTIFACTS[0].filename,),
         attempt_nr=ctx.attempt,
         qa_cycle_round=0,
         escalated=True,

@@ -199,13 +199,17 @@ def _run_qa_subflow(
     # gate verdict the closure precondition reads. Gated on the IS contract so
     # standard stories are completely unaffected (CORE PRINCIPLE).
     if sonar_fail_decision is None:
-        _maybe_produce_is_stability_gate(
+        stability_filename = _maybe_produce_is_stability_gate(
             self,
             ctx=ctx,
             story_id=story_id,
             story_ctx=_story_ctx,
             layer_results=layer_results,
+            now_str=now_str,
+            qa_cycle_fields=qa_cycle_fields,
         )
+        if stability_filename is not None:
+            artifact_refs_written.append(stability_filename)
 
     # Step 5: Policy decision. On a Sonar fail-closed short-circuit the
     # gate's BLOCKING SYSTEM finding is authoritative (FK-33 §33.6.3): no

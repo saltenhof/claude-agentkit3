@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -57,10 +57,7 @@ from agentkit.backend.verify_system.sonarqube_gate.port import (
     ABSENT_SONAR_GATE_PORT,
     SonarGateInputPort,
 )
-from agentkit.backend.verify_system.sonarqube_gate.stage_runner import (
-    SonarStageResult,
-    run_sonarqube_gate_stage,
-)
+from agentkit.backend.verify_system.sonarqube_gate.stage_runner import run_sonarqube_gate_stage
 from agentkit.backend.verify_system.structural.system_evidence import (
     ABSENT_CHANGE_EVIDENCE_PORT,
     ChangeEvidencePort,
@@ -289,10 +286,10 @@ class VerifySystem:
         and produce the typed ``agents_to_spawn`` orders. This is the productive
         bridge that makes the spawn reachable on the real QA path (no dead path).
 
-        Returns an empty tuple when Layer 3 was not routed (Exploration / fast),
-        when no spawner is wired (unit fixtures), or when Layer 2 produced no
-        BLOCKING finding. Per FK-27 §27.6 the adversarial spawn fires only on the
-        real QA path when Layer-2 yields BLOCKING findings with test anchors.
+        Returns an empty tuple only when Layer 3 was not routed (Exploration /
+        fast) or no spawner is wired (unit fixtures). Without mandatory targets,
+        the spawner persists the typed empty target snapshot and requests one
+        exploratory adversarial worker for the canonical sandbox.
 
         Args:
             ctx: The run-time verify-context bundle (sandbox scope / run id).
@@ -315,14 +312,9 @@ class VerifySystem:
         # PASS_WITH_CONCERNS), NOT pauschal per BLOCKING finding. Pass the FULL
         # Layer-2 findings so the assertion_weakness filter decides; the
         # remediation round is the QA-subflow attempt (FK-48 §48.2.2 source).
-        # FK-27 §27.5 Layer-2 reviewer role names (qa_review / semantic_review /
-        # doc_fidelity). Used here to collect Layer-2 BLOCKING findings that the
-        # adversarial spawn derives mandatory targets from (FK-48 §48.2, AG3-044).
-        _layer2_roles: frozenset[str] = frozenset({"qa_review", "semantic_review", "doc_fidelity"})
-        layer2_checks = [finding for result in layer_results if result.layer in _layer2_roles for finding in result.findings]
-        targets = spawner.extract_mandatory_targets(layer2_checks, ctx.attempt)
-        if not targets:
-            return ()
+        layer2_result_names = self.stage_registry.result_names_for_layer(2)
+        layer2_results = [result for result in layer_results if result.layer in layer2_result_names]
+        targets = spawner.extract_mandatory_targets(layer2_results, ctx.attempt)
         request = spawner.request_spawn(ctx, targets, story_id=story_id)
         logger.info(
             "adversarial spawn requested (FK-27 §27.6): story_id=%s targets=%d",
@@ -440,7 +432,7 @@ class VerifySystem:
             return None
         gate_result = stage_result.layer_result
         for spec in _artifact_specs.SONARQUBE_GATE_ARTIFACTS:
-            self._write_layer_envelope(
+            reference = self._write_layer_envelope(
                 spec=spec,
                 result=gate_result,
                 ctx=ctx,
@@ -448,10 +440,11 @@ class VerifySystem:
                 now_str=now_str,
                 qa_cycle_fields=qa_cycle_fields,
             )
+            gate_result = replace(gate_result, artifact_reference=reference)
             artifact_refs_written.append(spec.filename)
         if stage_result.short_circuit_failed:
             return self._sonarqube_gate_failed_decision(
-                stage_result=stage_result,
+                gate_result=gate_result,
                 layer_results=layer_results,
                 story_id=story_id,
             )
@@ -486,7 +479,7 @@ class VerifySystem:
     def _sonarqube_gate_failed_decision(
         self,
         *,
-        stage_result: SonarStageResult,
+        gate_result: LayerResult,
         layer_results: list[LayerResult],
         story_id: str,
     ) -> VerifyDecision:
@@ -509,14 +502,14 @@ class VerifySystem:
         NOT bypass the loop.
 
         Args:
-            stage_result: The fail-closed ``SonarStageResult`` from the gate.
+            gate_result: The fail-closed gate result with its canonical
+                artifact reference.
             layer_results: Results of the layers executed before the gate.
             story_id: Story display-ID.
 
         Returns:
             A FAIL ``VerifyDecision`` reached without the policy engine.
         """
-        gate_result = stage_result.layer_result
         all_results = (*tuple(layer_results), gate_result)
         all_findings = tuple(f for lr in all_results for f in lr.findings)
         blocking = tuple(f for f in all_findings if f.severity == Severity.BLOCKING and f.trust_class == TrustClass.SYSTEM)
@@ -700,7 +693,7 @@ class VerifySystem:
         story_id: str,
         now_str: str,
         qa_cycle_fields: dict[str, object],
-    ) -> None:
+    ) -> ArtifactReference:
         """Write a single layer envelope via the ArtifactManager.
 
         AG3-026 §AK7: one ``ArtifactEnvelope`` per layer-artifact spec
@@ -732,7 +725,7 @@ class VerifySystem:
             artifact_class=ArtifactClass.QA,
             payload=payload,
         )
-        self.artifact_manager.write(envelope)
+        return self.artifact_manager.write(envelope)
 
     def _write_policy_artifact(
         self,

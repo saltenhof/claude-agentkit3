@@ -15,6 +15,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+# Runtime import is required because Pydantic resolves LayerResult when nested
+# in VerifyDecision models; a TYPE_CHECKING-only forward name fails at runtime.
+from agentkit.backend.artifacts import ArtifactReference  # noqa: TC001
 from agentkit.backend.core_types import Severity
 
 if TYPE_CHECKING:
@@ -250,6 +253,7 @@ class LayerResult:
     passed: bool
     findings: tuple[Finding, ...] = ()
     metadata: dict[str, object] = field(default_factory=dict)
+    artifact_reference: ArtifactReference | None = None
 
     @property
     def blocking_findings(self) -> tuple[Finding, ...]:

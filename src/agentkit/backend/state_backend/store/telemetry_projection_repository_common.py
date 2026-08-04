@@ -26,10 +26,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
     from datetime import datetime
     from pathlib import Path
 
+    from agentkit.backend.artifacts import ArtifactReference
     from agentkit.backend.closure import StoryMetricsRecord
     from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
         FcCheckProposalRepository,
@@ -69,7 +70,7 @@ _WHERE_STAGE_ID = "stage_id = ?"
 
 @runtime_checkable
 class QAStageResultsRepository(Protocol):
-    """Read/purge adapter for ``qa_stage_results`` (FK-69 §69.6).
+    """Read adapter for ``qa_stage_results`` (FK-69 §69.6).
 
     Schema owner: verify-system (FK-33).
     DB owner: telemetry-and-events via ProjectionAccessor.
@@ -87,23 +88,9 @@ class QAStageResultsRepository(Protocol):
         """Load QAStageResultRecords with optional filters."""
         ...
 
-    def purge_run(
-        self,
-        project_key: str,
-        story_id: str,
-        run_id: str,
-    ) -> int:
-        """Delete all qa_stage_results for (project_key, story_id, run_id).
-
-        FK-69 §69.10.1: a full reset removes all rows of the
-        affected run_id. Returns the number of deleted rows.
-        """
-        ...
-
-
 @runtime_checkable
 class QAFindingsRepository(Protocol):
-    """Read/purge adapter for ``qa_findings`` (FK-69 §69.7).
+    """Read adapter for ``qa_findings`` (FK-69 §69.7).
 
     Schema owner: verify-system (FK-33).
     DB owner: telemetry-and-events via ProjectionAccessor.
@@ -121,23 +108,9 @@ class QAFindingsRepository(Protocol):
         """Load QAFindingRecords with optional filters."""
         ...
 
-    def purge_run(
-        self,
-        project_key: str,
-        story_id: str,
-        run_id: str,
-    ) -> int:
-        """Delete all qa_findings for (project_key, story_id, run_id).
-
-        FK-69 §69.10.1: a full reset removes all rows of the
-        affected run_id. Returns the number of deleted rows.
-        """
-        ...
-
-
 @runtime_checkable
 class QACheckOutcomesRepository(Protocol):
-    """Read/purge adapter for ``qa_check_outcomes`` (FK-69 §69.15, AG3-108).
+    """Read adapter for ``qa_check_outcomes`` (FK-69 §69.15, AG3-108).
 
     Schema owner: verify-system.
     DB owner: telemetry-and-events via ProjectionAccessor.
@@ -173,20 +146,6 @@ class QACheckOutcomesRepository(Protocol):
                 ``datetime.now(UTC)`` when ``since_days`` is set.
         """
         ...
-
-    def purge_run(
-        self,
-        project_key: str,
-        story_id: str,
-        run_id: str,
-    ) -> int:
-        """Delete all qa_check_outcomes for (project_key, story_id, run_id).
-
-        FK-69 §69.10.1: a full reset removes all rows of the
-        affected run_id. Returns the number of deleted rows.
-        """
-        ...
-
 
 @runtime_checkable
 class StoryMetricsRepository(Protocol):
@@ -299,8 +258,9 @@ class GuardCounterPurgePort(Protocol):
 class QALayerBatchWriter(Protocol):
     """Atomic batch write path for QA-layer artifacts (FK-69 §69.4, AG3-035 #5).
 
-    The domain entry point for the QA-subflow: writes qa_stage_results +
-    qa_findings + the source artifact_records in ONE driver transaction. The
+    The domain entry point for the QA-subflow: replaces qa_stage_results +
+    qa_findings + qa_check_outcomes in ONE driver transaction after validating
+    their canonical artifact_envelopes references. The
     ``ProjectionAccessor`` delegates here (``record_qa_layer_artifacts``),
     without splitting the transaction (finding D option i: the transaction stays
     in the driver). The concrete impl encapsulates the facade/driver batch -- the
@@ -313,6 +273,7 @@ class QALayerBatchWriter(Protocol):
         *,
         layer_results: tuple[LayerResult, ...],
         check_outcomes: tuple[QACheckOutcomeRecord, ...],
+        artifact_references: Mapping[str, ArtifactReference],
         stage_registry: StageRegistry,
         attempt_nr: int,
         owner_session_id: str,
@@ -327,6 +288,25 @@ class QALayerBatchWriter(Protocol):
         AG3-142 fence, no-lease-no-write).
         """
         ...
+
+    def purge_run(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> QAPurgeCounts:
+        """Delete all three QA projection families in one transaction."""
+        ...
+
+
+@dataclass(frozen=True)
+class QAPurgeCounts:
+    """Deleted-row counts from one atomic QA projection reset."""
+
+    stage_results: int
+    findings: int
+    check_outcomes: int
 
 
 # ---------------------------------------------------------------------------

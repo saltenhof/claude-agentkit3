@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,9 @@ def _maybe_produce_is_stability_gate(
     story_id: str,
     story_ctx: object | None,
     layer_results: list[LayerResult],
-) -> None:
+    now_str: str,
+    qa_cycle_fields: dict[str, object],
+) -> str | None:
     """Produce the stability_gate Layer-4 result for IS stories (AG3-069, AC5/AC12).
 
     No-op for standard stories (the contract gate). For
@@ -45,11 +48,17 @@ def _maybe_produce_is_stability_gate(
         and story_ctx.implementation_contract
         is ImplementationContract.INTEGRATION_STABILIZATION
     ):
-        return
+        return None
 
+    from agentkit.backend.artifacts import ProducerType
+    from agentkit.backend.core_types.qa_artifact_names import (
+        STABILITY_GATE_PRODUCER,
+    )
     from agentkit.backend.integration_stabilization.stability_gate_producer import (
+        IS_STABILITY_GATE_FILE,
         produce_stability_gate_layer_result,
     )
+    from agentkit.backend.verify_system._artifact_specs import _LayerArtifactSpec
 
     evidence = system.implementation_change_evidence_port.collect(ctx.story_dir)
     touched_paths = tuple(evidence.changed_files) if evidence.available else ()
@@ -62,4 +71,18 @@ def _maybe_produce_is_stability_gate(
         story_id=story_id,
         project_key=story_ctx.project_key,
     )
-    layer_results.append(result)
+    reference = system._write_layer_envelope(
+        spec=_LayerArtifactSpec(
+            filename=IS_STABILITY_GATE_FILE,
+            stage="stability_gate",
+            producer_name=STABILITY_GATE_PRODUCER,
+            producer_type=ProducerType.DETERMINISTIC,
+        ),
+        result=result,
+        ctx=ctx,
+        story_id=story_id,
+        now_str=now_str,
+        qa_cycle_fields=qa_cycle_fields,
+    )
+    layer_results.append(replace(result, artifact_reference=reference))
+    return IS_STABILITY_GATE_FILE

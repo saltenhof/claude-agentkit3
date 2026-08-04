@@ -9,6 +9,9 @@ from agentkit.backend.boundary.shared.time import now_iso
 from agentkit.backend.core_types import ArtifactClass
 from agentkit.backend.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.state_backend._qa_batch_validation import (
+    validate_qa_layer_batch_rows,
+)
 from agentkit.backend.state_backend.paths import CLOSURE_REPORT_FILE
 
 from ._common import _cast_json_record, _dump_json, _JsonRecord, _write_projection, state_db_path_for
@@ -56,8 +59,62 @@ def persist_layer_artifact_rows(
         raise CorruptStateError(
             "Cannot materialize FK-69 QA read models without flow execution scope in canonical SQLite backend",
         )
+    validate_qa_layer_batch_rows(
+        flow_row=flow_row,
+        canonical_story_id=story_id,
+        layer_payload_rows=layer_payload_rows,
+        check_outcome_rows=check_outcome_rows,
+        attempt_nr=attempt_nr,
+    )
     produced: list[str] = []
     with _connect(story_dir) as conn:
+        for item in layer_payload_rows:
+            reference = cast("dict[str, object]", item["artifact_reference"])
+            artifact_attempt = item["artifact_attempt"]
+            if not isinstance(artifact_attempt, int):
+                raise CorruptStateError("QA projection artifact attempt must be an integer")
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS envelope_count
+                FROM artifact_envelopes
+                WHERE story_id = :story_id
+                  AND run_id = :run_id
+                  AND artifact_class = :artifact_class
+                  AND producer_name = :producer_name
+                  AND attempt = :artifact_attempt
+                  AND (
+                    story_id || '|' || run_id || '|' || stage || '|' ||
+                    CAST(attempt AS TEXT) || '|' || artifact_class || '|' ||
+                    producer_name
+                  ) = :record_key
+                """,
+                {
+                    **reference,
+                    "producer_name": str(item["producer_component"]),
+                    "artifact_attempt": artifact_attempt,
+                },
+            ).fetchone()
+            if row is None or int(row["envelope_count"]) != 1:
+                raise CorruptStateError(
+                    f"Cannot persist FK-69 QA projections without the exact canonical artifact envelope: {reference!r}"
+                )
+        snapshot_scope = (
+            str(flow_row["project_key"]),
+            str(flow_row["run_id"]),
+            attempt_nr,
+        )
+        conn.execute(
+            "DELETE FROM qa_check_outcomes WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
+            snapshot_scope,
+        )
+        conn.execute(
+            "DELETE FROM qa_findings WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
+            snapshot_scope,
+        )
+        conn.execute(
+            "DELETE FROM qa_stage_results WHERE project_key = ? AND run_id = ? AND attempt_no = ?",
+            snapshot_scope,
+        )
         for item in layer_payload_rows:
             layer = str(item["layer"])
             artifact_name = item.get("artifact_name")
@@ -71,20 +128,6 @@ def persist_layer_artifact_rows(
                 raise CorruptStateError(
                     f"Cannot materialize FK-69 QA read models for result {layer!r} without a stage projection",
                 )
-            canonical_stage_id = str(stage_row["stage_id"])
-            conn.execute(
-                """
-                DELETE FROM qa_findings
-                WHERE project_key = ? AND run_id = ?
-                  AND attempt_no = ? AND stage_id = ?
-                """,
-                (
-                    str(stage_row["project_key"]),
-                    str(stage_row["run_id"]),
-                    int(str(stage_row["attempt_no"])),
-                    canonical_stage_id,
-                ),
-            )
             conn.execute(
                 """
                 INSERT OR REPLACE INTO qa_stage_results (
@@ -118,30 +161,6 @@ def persist_layer_artifact_rows(
                     """,
                     finding_row,
                 )
-        outcome_scopes = {
-            (str(row["project_key"]), str(row["run_id"]), int(str(row["attempt_no"])), str(row["stage_id"]))
-            for row in check_outcome_rows
-        }
-        for item in layer_payload_rows:
-            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
-            if stage_row is not None:
-                outcome_scopes.add(
-                    (
-                        str(stage_row["project_key"]),
-                        str(stage_row["run_id"]),
-                        int(str(stage_row["attempt_no"])),
-                        str(stage_row["stage_id"]),
-                    )
-                )
-        for project_key, run_id, attempt_no, stage_id in outcome_scopes:
-            conn.execute(
-                """
-                DELETE FROM qa_check_outcomes
-                WHERE project_key = ? AND run_id = ?
-                  AND attempt_no = ? AND stage_id = ?
-                """,
-                (project_key, run_id, attempt_no, stage_id),
-            )
         for row in check_outcome_rows:
             conn.execute(
                 """
@@ -158,6 +177,38 @@ def persist_layer_artifact_rows(
                 row,
             )
     return tuple(produced)
+
+
+def purge_qa_projection_rows(
+    story_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> dict[str, int]:
+    """Purge all QA projection families atomically for one run."""
+    counts: dict[str, int] = {}
+    with _connect(story_dir) as conn:
+        params = (project_key, story_id, run_id)
+        counts["qa_check_outcomes"] = int(
+            conn.execute(
+                "DELETE FROM qa_check_outcomes WHERE project_key=? AND story_id=? AND run_id=?",
+                params,
+            ).rowcount
+        )
+        counts["qa_findings"] = int(
+            conn.execute(
+                "DELETE FROM qa_findings WHERE project_key=? AND story_id=? AND run_id=?",
+                params,
+            ).rowcount
+        )
+        counts["qa_stage_results"] = int(
+            conn.execute(
+                "DELETE FROM qa_stage_results WHERE project_key=? AND story_id=? AND run_id=?",
+                params,
+            ).rowcount
+        )
+    return counts
 
 
 def persist_verify_decision_row(

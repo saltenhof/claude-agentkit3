@@ -30,6 +30,15 @@ Approval-Wert ist niemals Ersatzinput derselben Bindungspruefung.
 
 ## Befund 2 (Datenmodell) — mehrfach ausgefuehrte Checks werden verschluckt
 
+**Geschlossen in AG3-191 R8 ueber Loesungsweg 1.**
+`StructuralChecker._run_pre_checks` protokolliert jede vorausgehende Phase mit
+der eigenen, in `verify_system/stage_registry/check_origins.py` registrierten
+ID `phase_snapshots.<phase>`; `check_phase_snapshots` verwendet dieselbe ID im
+Finding. Der produktive Persistenzbeleg
+`tests/integration/verify_system/test_check_outcome_emitter_wiring.py::test_emitter_wiring_persists_clean_rows_for_passing_layer1`
+weist fuer den Structural-Stage die Gleichheit von ausgefuehrten Check-IDs,
+emittierten Outcomes, persistierten Outcome-Zeilen und `total_checks` nach.
+
 **Locator:** `verify_system/structural/checker.py:369`,
 `verify_system/check_outcome_emitter.py:59`, `verify_system/qa_read_models.py:39`;
 festgeschrieben durch `tests/integration/verify_system/test_check_outcome_emitter_wiring.py:262`
@@ -44,20 +53,19 @@ Der Befund ist Bestand, wurde aber erst durch AG3-191 sichtbar: seit
 `executed_check_ids` das verbindliche Protokoll ist, gibt es eine Wahrheit, an
 der sich die Persistenz messen laesst.
 
-**Zwei Loesungswege, die Wahl ist eine Fachentscheidung und gehoert in die
-Umsetzung, nicht in diese Story:**
+**Vor R8 standen zwei Loesungswege zur Wahl:**
 
 - jede Phasenpruefung mit eigener registry-registrierter Check-ID protokollieren
   (`phase_snapshots.<phase>`), Findings angleichen — oder
 - den normativen **und** physischen Outcome-Schluessel um eine
   Ausfuehrungsidentitaet erweitern.
 
-Der zweite Weg ist eine Schemaaenderung an FK-69 mit Migrationsbedarf in beiden
-Stores; der erste bleibt im Registry-Vokabular. Wer umsetzt, legt die Wahl
-begruendet vor, bevor er baut.
+Der zweite Weg waere eine Schemaaenderung an FK-69 mit Migrationsbedarf in
+beiden Stores gewesen; R8 hat stattdessen den ersten Weg im Registry-Vokabular
+umgesetzt und den Outcome-Primaerschluessel unveraendert gelassen.
 
-Der Test, der die Kollision heute als erwartetes Verhalten festschreibt, ist zu
-korrigieren — nicht zu ergaenzen.
+Der Test, der die Kollision als erwartetes Verhalten festschrieb, wurde in R8
+korrigiert und beweist nun die vollstaendige persistierte Auditspur.
 
 ## Befund 3 (fail-closed) — korrupter Budgetzustand wird zu unverbrauchtem Budget
 
