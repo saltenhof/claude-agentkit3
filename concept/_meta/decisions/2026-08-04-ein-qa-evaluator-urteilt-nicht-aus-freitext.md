@@ -99,5 +99,5 @@ dasselbe Ergebnisformat liefert.
 | FK-11 §320 (dreistufige Auswertung) | zu aendern in AG3-212 | Stufe 3 entfaellt; die Beschreibung fuehrt danach nur noch die geltenden Stufen. |
 | `verify_system/llm_evaluator/structured_evaluator.py:507` | zu aendern in AG3-212 | Regex-Auswertung entfaellt; Schemafehler -> begrenzter Retry -> FAIL mit auffindbarer Ursache. |
 | FK-27, FK-33, FK-69, `concept/formal-spec/` | zu pruefen in AG3-212 | Weitere Stellen, die die dreistufige Auswertung oder den Regex-Fallback beschreiben, werden mitgezogen. Halb nachgezogen ist ZERO-DEBT-Verstoss. |
-| FK-11 §78.14-Bezug (LLM als Bewertungsfunktion) | geprueft, nicht geaendert | Die Entscheidung staerkt diese Aussage: eine Bewertungsfunktion mit unlesbarer Ausgabe liefert kein Urteil. |
+| FK-78 §78.14 (LLM nur als Bewertungsfunktion) | geprueft, nicht geaendert | Die Entscheidung staerkt diese Aussage: eine Bewertungsfunktion mit unlesbarer Ausgabe liefert kein Urteil. |
 | Tests, die den Regex-Pfad festschreiben | zu entfernen in AG3-212 | Ein Test, der den entfernten Pfad verlangt, ist Teil der Schicht (AG3-191 AC 5, hier sinngemaess). |

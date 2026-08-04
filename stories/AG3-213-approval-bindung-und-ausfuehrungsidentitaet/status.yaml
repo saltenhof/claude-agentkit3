@@ -1,0 +1,26 @@
+story_id: AG3-213
+story_title_short: "approval-bindung-und-ausfuehrungsidentitaet"
+title: "Die Approval-Bindung prueft sich gegen sich selbst, mehrfach ausgefuehrte Checks verschwinden in der Persistenz, und ein korruptes Budget wird zu unverbrauchtem Budget."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-04"
+size: M
+# Herkunft: unabhaengiges Codex-Review des AG3-191-Stands am 2026-08-04
+# (Runde 6). Acht ERRORs; fuenf lagen innerhalb der AG3-191-ACs und sind dort
+# behoben, diese drei liegen ausserhalb und haben je einen eigenen fachlichen
+# Kern.
+#
+# Befund 1 ist sicherheitsrelevant und der Grund fuer den Schnitt: faellt die
+# gebundene FlowExecution.run_id aus, nimmt _resolve_is_run_id die
+# approval.run_id als Ersatz -- die Bindungspruefung prueft danach gegen genau
+# den Wert, den sie absichern soll, und kann strukturell nie fehlschlagen.
+#
+# Befund 2 ist Bestand, wurde aber erst durch AG3-191 sichtbar: seit
+# executed_check_ids das verbindliche Protokoll ist, gibt es eine Wahrheit, an
+# der sich die Persistenz messen laesst. Die Loesungswahl (eigene Check-ID je
+# Phase vs. Ausfuehrungsidentitaet im Outcome-Schluessel) ist eine
+# Fachentscheidung mit moeglicher FK-69-Schemaaenderung und wird vor dem Bauen
+# begruendet vorgelegt.
+depends_on: ["AG3-191"]
+unblocks: []
