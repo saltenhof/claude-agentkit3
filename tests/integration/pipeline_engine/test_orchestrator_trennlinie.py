@@ -10,19 +10,13 @@ orchestrator spawns the worker.
 from __future__ import annotations
 
 import inspect
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.backend.core_types import (
-    PolicyVerdict,
-    SpawnKind,
-    SpawnReason,
-    SpawnRequest,
-)
-from agentkit.backend.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
+from agentkit.backend.bootstrap.composition_artifacts import build_artifact_manager
+from agentkit.backend.core_types import SpawnKind, SpawnReason, SpawnRequest
 from agentkit.backend.implementation.phase import (
     ImplementationConfig,
     ImplementationPhaseHandler,
@@ -45,18 +39,11 @@ from agentkit.backend.state_backend.pipeline_runtime_store import (
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
-from agentkit.backend.verify_system.contract import QaSubflowOutcome
-from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.backend.verify_system.protocols import (
-    Finding,
-    LayerResult,
-    Severity,
-    TrustClass,
-)
-from agentkit.backend.verify_system.remediation.feedback import build_feedback
-from agentkit.backend.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.defaults import VerifySystemDefaultOptions
+from agentkit.backend.verify_system.system import VerifySystem
 from integration.implementation_evidence_support import (
     ReadyEvidencePreparationCoordinator,
+    bind_implementation_qa_preconditions,
 )
 
 if TYPE_CHECKING:
@@ -64,9 +51,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-    from agentkit.backend.verify_system.contract import VerifyContextBundle
-
-
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
@@ -74,63 +58,6 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     reset_backend_cache_for_tests()
     yield
     reset_backend_cache_for_tests()
-
-
-def _fail_outcome(attempt_nr: int) -> QaSubflowOutcome:
-    """A FAIL outcome that is NOT escalated (round below the ceiling)."""
-    blocking = LayerResult(
-        layer="structural",
-        passed=False,
-        findings=(
-            Finding(
-                layer="structural",
-                check="context_exists",
-                severity=Severity.BLOCKING,
-                message="missing",
-                trust_class=TrustClass.SYSTEM,
-            ),
-        ),
-        metadata={"executed_check_ids": ("context_exists",)},
-    )
-    decision = PolicyEngine().decide(
-        [blocking],
-        story_type=StoryType.IMPLEMENTATION,
-        traversed_layers=frozenset({4}),
-    )
-    feedback = build_feedback(decision, "AG3-044", attempt_nr)
-    return QaSubflowOutcome(
-        verdict=PolicyVerdict.FAIL,
-        decision=decision,
-        artifact_refs=ALL_QA_ARTIFACT_FILES,
-        attempt_nr=attempt_nr,
-        qa_cycle_round=attempt_nr,
-        feedback=feedback,
-        escalated=False,
-        qa_cycle_id=f"{attempt_nr:012x}",
-        evidence_epoch=datetime(2026, 6, 7, tzinfo=UTC),
-        evidence_fingerprint="f" * 64,
-    )
-
-
-class _FailVerifySystem:
-    """VerifySystem double returning a non-escalated FAIL (CONTINUE_REMEDIATION)."""
-
-    @property
-    def stage_registry(self) -> StageRegistry:
-        """Return the registry that proves the test outcome's native check."""
-        return StageRegistry()
-
-    def run_qa_subflow(
-        self,
-        ctx: VerifyContextBundle,
-        story_id: str,
-        qa_context: object,
-        target: object,
-        *,
-        previous_findings: tuple[object, ...] = (),
-    ) -> QaSubflowOutcome:
-        del story_id, qa_context, target, previous_findings
-        return _fail_outcome(ctx.attempt)
 
 
 def _ctx() -> StoryContext:
@@ -161,6 +88,20 @@ def _story_dir(tmp_path: Path) -> Path:
     return story_dir
 
 
+def _real_failing_verify_system(story_dir: Path) -> VerifySystem:
+    """Build the real QA producer path with a below-ceiling fail-closed result."""
+    system = VerifySystem.create_default(
+        artifact_manager=build_artifact_manager(story_dir),
+        defaults=VerifySystemDefaultOptions(max_feedback_rounds=3),
+    )
+    return bind_implementation_qa_preconditions(
+        system,
+        story_dir,
+        story_id="AG3-044",
+        run_id="run-1",
+    )
+
+
 def test_no_inline_while_loop_in_handler() -> None:
     """Source pin: on_enter has NO ``while`` loop (orchestrator-trennlinie)."""
     source = inspect.getsource(ImplementationPhaseHandler.on_enter)
@@ -178,7 +119,7 @@ def test_qa_fail_below_ceiling_sets_remediation_spawn(
     config = ImplementationConfig(
         story_dir=story_dir,
         max_feedback_rounds=3,
-        verify_system=_FailVerifySystem(),  # type: ignore[arg-type]
+        verify_system=_real_failing_verify_system(story_dir),
         evidence_preparation=ReadyEvidencePreparationCoordinator(),  # type: ignore[arg-type]
     )
     monkeypatch.setattr(
@@ -197,9 +138,13 @@ def test_qa_fail_below_ceiling_sets_remediation_spawn(
     assert result.yield_status == "awaiting_remediation"
     assert result.updated_state is not None
     spawn = result.updated_state.agents_to_spawn
-    assert len(spawn) == 1
-    assert spawn[0].kind is SpawnKind.WORKER
-    assert spawn[0].spawn_reason is SpawnReason.REMEDIATION
+    remediation_spawns = [
+        request
+        for request in spawn
+        if request.kind is SpawnKind.WORKER
+        and request.spawn_reason is SpawnReason.REMEDIATION
+    ]
+    assert len(remediation_spawns) == 1
     # The QA cycle status reflects the remediation wait (FK-27 §27.2.2).
     payload = result.updated_state.payload
     assert payload is not None
