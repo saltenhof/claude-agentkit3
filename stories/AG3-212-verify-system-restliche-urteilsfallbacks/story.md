@@ -40,7 +40,28 @@ kein Robustheitsgewinn, sondern ein stilles Falschurteil.
 | 4 | `verify_system/defaults.py` — falls nach AG3-191 noch Reste bestehen | Zweiter Konfigurationsweg neben dem typisierten Optionsvertrag. **In AG3-191 als E6 bereits behoben**; hier nur als Pruefpunkt gefuehrt. |
 | 5 | `verify_system/sonarqube_gate/adapter.py:480`, `sonarqube_gate/stage.py:52`, `qa_cycle/fingerprint.py:71` | Aktuelles **plus altes Sonar-Response-Format**, eine testgeschuetzte Sonar-„Compatibility view", und **synthetische Fingerprint-Evidenz** fuer alte oder unverdrahtete Aufrufer. |
 
-## OFFENE PO-ENTSCHEIDUNG — blockiert Befund 3
+## PO-ENTSCHEID 2026-08-04 — Variante (a), Befund 3 ist entschieden
+
+> „Wenn der Evaluator ein JSON, also eine formal definierte Struktur, nicht
+> parsen kann, dann soll er auch nicht auf Regex zurueckfallen. Dann ist die
+> Struktur kaputt und dann muss man das Problem an der Wurzel packen."
+
+**FK-11 Stufe 3 faellt.** Bei gescheiterter Schemavalidierung gilt
+ausschliesslich der begrenzte Retry, danach FAIL. Der QA-Evaluator urteilt nie
+aus Freitext.
+
+Der Zusatz „an der Wurzel packen" ist Teil des Auftrags, nicht Rhetorik: ein
+FAIL, das nur „Schema verletzt" sagt, verschiebt das Problem lediglich vom
+Fallback in ein Protokoll, das niemand liest. Der Fehlerpfad muss die Ursache
+**auffindbar** machen — welcher Evaluator, welches Modell, welcher
+Prompt-/Response-Ausschnitt, welche Schemaverletzung. Kaputte Struktur ist ein
+Defekt am Prompt- oder Modellvertrag und wird dort behoben.
+
+Damit entfaellt der Blocker; die Story ist umsetzungsreif. Die verworfenen
+Varianten bleiben unten stehen, damit spaeter nachvollziehbar ist, was
+entschieden wurde und was nicht.
+
+## Verworfene Varianten zu Befund 3
 
 Befund 3 ist der einzige, bei dem **das Konzept selbst den Fallback anordnet**.
 FK-11 §320 beschreibt eine dreistufige Auswertung und nennt Stufe 3
@@ -54,16 +75,17 @@ Regeln aus `CLAUDE.md`:
 
 Nach der Prioritaetsordnung (`CLAUDE.md` §Mindset) gewinnt die Projektregel
 gegen das Fachkonzept — aber eine normative Konzeptaussage streicht man nicht
-nebenbei in einer Implementierungsstory. **Der PO entscheidet:**
+nebenbei in einer Implementierungsstory. Zur Wahl standen:
 
-- **(a)** FK-11 Stufe 3 faellt. Bei Schemafehler nur der begrenzte Retry, danach
-  FAIL. Der QA-Evaluator urteilt nie aus Freitext. FK-11 wird nachgezogen.
-- **(b)** Stufe 3 bleibt, aber ihr Ergebnis ist nicht mehr urteilsfaehig —
-  z. B. erzwungenes `FAIL`/`INCONCLUSIVE` statt eines regulaeren Verdikts.
-- **(c)** Stufe 3 bleibt unveraendert; der Befund wird als bewusste Ausnahme
-  mit Begruendung dokumentiert.
-
-Ohne diese Entscheidung ist Befund 3 nicht umsetzbar; die uebrigen vier sind es.
+- **(a) — GEWAEHLT.** FK-11 Stufe 3 faellt. Bei Schemafehler nur der begrenzte
+  Retry, danach FAIL. Der QA-Evaluator urteilt nie aus Freitext. FK-11 wird
+  nachgezogen.
+- **(b) — verworfen.** Stufe 3 bleibt, ihr Ergebnis wird aber nicht
+  urteilsfaehig. Haette den Regex-Pfad als toten Code konserviert und die Frage
+  „warum steht das da" der naechsten Story vererbt.
+- **(c) — verworfen.** Stufe 3 bleibt unveraendert als dokumentierte Ausnahme.
+  Waere die Ausnahme fuer genau die Bauart gewesen, gegen die AG3-191 und diese
+  Story antreten.
 
 ## Akzeptanzkriterien
 
@@ -82,8 +104,22 @@ Ohne diese Entscheidung ist Befund 3 nicht umsetzbar; die uebrigen vier sind es.
    `MissingFingerprintEvidenceSource` fail-closed. **Realitaetsnachweis gegen
    die laufende Sonar-Instanz** (`http://localhost:9901`, Zugang in `.env`) —
    gruene Unit-Tests sind Voraussetzung, nie Nachweis.
-4. **Befund 3 ist entlang der PO-Entscheidung erledigt**, inklusive
-   FK-11-Nachzug, falls (a) oder (b) gewaehlt wird.
+4. **Der Regex-Freitext-Pfad ist entfernt, und FK-11 ist korrigiert.** Beides
+   im selben Diff — das eine ohne das andere ist keine Erledigung.
+   - Code: nach gescheiterter Schemavalidierung ausschliesslich der begrenzte
+     Retry, danach FAIL. Kein Urteil aus Freitext, kein toter Regex-Rest.
+   - **Konzept: FK-11 §320 wird korrigiert, nicht kommentiert.** Die dreistufige
+     Auswertung verliert Stufe 3; die Beschreibung sagt danach, was gilt, nicht
+     was einmal galt. Ein Konzept, das etwas anderes schreibt als der Code, ist
+     an der Stelle nachzuziehen — ein „Hinweis, dass Stufe 3 nicht mehr
+     verwendet wird" erfuellt das nicht (PO-Praezisierung 2026-08-04).
+   - Der Fehlerpfad macht die **Ursache auffindbar**: welcher Evaluator,
+     welches Modell, welche Schemaverletzung, welcher Response-Ausschnitt. Ein
+     FAIL, das nur „Schema verletzt" sagt, verschiebt das Problem vom Fallback
+     in ein Protokoll, das niemand liest.
+   - Pruefe im selben Zug, ob weitere Konzeptstellen die dreistufige Auswertung
+     oder den Regex-Fallback beschreiben (FK-27, FK-33, FK-69 und die
+     formal-Specs), und zieh sie mit. Halb nachgezogen ist ZERO-DEBT-Verstoss.
 5. **Der Pruefpunkt aus AG3-191 haelt:** `resolve_default_options` und
    `**overrides` existieren nicht mehr.
 6. **Es gibt keinen weiteren unbenannten Urteils-Fallback.** Nachgewiesen durch
