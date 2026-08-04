@@ -1,0 +1,25 @@
+story_id: AG3-212
+story_title_short: "verify-system-restliche-urteilsfallbacks"
+title: "Die restlichen Urteils-Fallbacks im verify_system: fehlender StoryContext wird als IMPLEMENTATION erfunden, Layer 2 urteilt auf leerem Ersatz-Input, der Evaluator wertet Freitext per Regex, das Sonar-Gate traegt zwei Response-Formate und synthetische Fingerprint-Evidenz."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-04"
+size: L
+# Herkunft: unabhaengiges Codex-Review des AG3-191-Gesamtstands am 2026-08-04.
+# Zehn ERRORs; sechs betrafen die AG3-191-Arbeit selbst und sind dort behoben,
+# diese fuenf liegen ausserhalb der Locator-Tabelle und sind Bestand.
+#
+# Die eigentliche Erkenntnis: AG3-191 ging von sechs Fallbacks aus -- denen, die
+# sich im Code selbst "legacy" oder "fallback" nennen und deshalb per Textsuche
+# auffindbar waren. Es sind mindestens elf. Die fuenf hier nennen sich nicht so.
+#
+# BLOCKED: Befund 3 braucht eine PO-Entscheidung, weil FK-11 §320 den Fallback
+# NORMATIV vorschreibt ("Stufe 3: Regex-Fallback (letztes Mittel)"). Nach der
+# Prioritaetsordnung gewinnt die CLAUDE.md-Projektregel, aber eine normative
+# Konzeptaussage wird nicht nebenbei in einer Implementierungsstory gestrichen.
+# Drei Varianten stehen in story.md zur Wahl. Die uebrigen vier Befunde sind
+# ohne diese Entscheidung umsetzbar -- die Story kann auf `ready`, sobald der
+# PO entschieden hat.
+depends_on: ["AG3-191"]
+unblocks: []
