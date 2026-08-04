@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
+from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.harness_client.harness_adapters.settings_writer import (
     ClaudeCodeSettingsWriter,
 )
@@ -41,13 +42,22 @@ def test_claude_settings_shape_is_event_group_handlers(tmp_path: Path) -> None:
         {
             "matcher": "Bash",
             "hooks": [
+                # The SHAPE is what this contract pins (event -> group ->
+                # handlers). The command itself is the ABSOLUTE wrapper path
+                # since AG3-189, so a hook can never resolve through PATH --
+                # built from the production renderer rather than repeated as a
+                # literal, which would re-pin the defect that story removed.
                 {
                     "type": "command",
-                    "command": "agentkit-hook-claude pre branch_guard",
+                    "command": render_ak3_wrapper_command(
+                        "agentkit-hook-claude", "pre", "branch_guard"
+                    ),
                 },
                 {
                     "type": "command",
-                    "command": "agentkit-hook-claude pre story_creation_guard",
+                    "command": render_ak3_wrapper_command(
+                        "agentkit-hook-claude", "pre", "story_creation_guard"
+                    ),
                 },
             ],
         }
