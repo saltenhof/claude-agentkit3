@@ -67,6 +67,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    # Build-time requirement AND a dev requirement since AG3-189: the in-tree
+    # PEP-517 backend (`installer/build_backend.py`) imports it at module
+    # level, so `mypy src` needs it importable. pip provides build requirements
+    # only inside an isolated build environment, never in the project venv --
+    # locally it is present as a build leftover, in CI it is not. Without this
+    # line mypy passes on a developer machine and fails on Jenkins with
+    # `import-not-found` plus four cascading `no-any-return`.
+    "hatchling",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-asyncio>=0.23",
