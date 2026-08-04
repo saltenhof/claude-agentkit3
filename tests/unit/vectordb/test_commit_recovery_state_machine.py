@@ -12,7 +12,7 @@ from tests.unit.vectordb.corpus_doubles import (
 )
 
 from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
-from agentkit.backend.vectordb import completion_ledger
+from agentkit.backend.vectordb import commit_recovery, completion_ledger
 from agentkit.backend.vectordb.commit_recovery import (
     CommitRecoveryState,
     CompletionCommitJournalEntry,
@@ -312,3 +312,95 @@ def test_story_index_owns_durable_recovery_and_resolves_before_next_mutation(
     )
     assert len(client.upsert_calls) == 2
     assert journal.list_pending("AG3") == ()
+
+
+def test_journal_scan_ignores_its_atomic_write_temp_file(tmp_path: Path) -> None:
+    root = tmp_path / "journal"
+    root.mkdir()
+    (root / f"{'a' * 64}.json.tmp").write_text("incomplete", encoding="utf-8")
+
+    assert FileCommitRecoveryJournal(root).list_pending("AG3") == ()
+
+
+def test_journal_write_must_make_the_rename_directory_durable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "journal"
+    root.mkdir()
+    entry = CompletionCommitJournalEntry(
+        state=CommitRecoveryState.OUTCOME_UNKNOWN,
+        project_id="AG3",
+        run_id="a" * 64,
+        record_uuid="record-1",
+        properties={"run_id": "a" * 64},
+    )
+
+    def fail_directory_sync(_path: Path) -> None:
+        raise OSError("simulated directory sync failure")
+
+    monkeypatch.setattr(commit_recovery, "_sync_directory", fail_directory_sync)
+
+    with pytest.raises(OSError, match="directory sync failure"):
+        FileCommitRecoveryJournal(root).stage_unknown(entry)
+
+
+def test_first_journal_write_persists_each_created_directory_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / ".agentkit" / "receipts" / "vectordb" / "pending-commits"
+    entry = CompletionCommitJournalEntry(
+        state=CommitRecoveryState.OUTCOME_UNKNOWN,
+        project_id="AG3",
+        run_id="a" * 64,
+        record_uuid="record-1",
+        properties={"run_id": "a" * 64},
+    )
+    synced: list[Path] = []
+    monkeypatch.setattr(commit_recovery, "_sync_directory", synced.append)
+
+    FileCommitRecoveryJournal(root).stage_unknown(entry)
+
+    assert synced == [
+        tmp_path,
+        tmp_path / ".agentkit",
+        tmp_path / ".agentkit" / "receipts",
+        tmp_path / ".agentkit" / "receipts" / "vectordb",
+        root,
+    ]
+
+
+def test_journal_directory_creation_fails_at_an_unavailable_filesystem_anchor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(type(tmp_path), "exists", lambda _path: False)
+
+    with pytest.raises(OSError, match="filesystem anchor is unavailable"):
+        commit_recovery._create_directory_tree(tmp_path / "journal")
+
+
+@pytest.mark.parametrize(
+    "entry_name,as_directory",
+    [
+        pytest.param(f"{'a' * 64}.json.tmp", True, id="temp-directory"),
+        pytest.param("foreign.json.tmp", False, id="foreign-temp-name"),
+        pytest.param(f"{'a' * 64}.json.part", False, id="unknown-suffix"),
+    ],
+)
+def test_journal_scan_rejects_every_non_owned_entry(
+    tmp_path: Path,
+    entry_name: str,
+    as_directory: bool,
+) -> None:
+    root = tmp_path / "journal"
+    root.mkdir()
+    entry = root / entry_name
+    if as_directory:
+        entry.mkdir()
+    else:
+        entry.write_text("foreign", encoding="utf-8")
+
+    with pytest.raises(VectorDbWriteError, match="journal entry is invalid"):
+        FileCommitRecoveryJournal(root).list_pending("AG3")
