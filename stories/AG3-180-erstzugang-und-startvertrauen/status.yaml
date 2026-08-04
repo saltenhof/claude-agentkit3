@@ -2,10 +2,26 @@ story_id: AG3-180
 story_title_short: "erstzugang-und-startvertrauen"
 title: "Erstzugang ohne Handarbeit: autorisierte Bootstrap-Oberflaeche, Trust Boundary, atomare Einmaligkeit -- Strategenpasswort und Projekt-Token getrennt normiert."
 type: implementation
-status: in_progress
-phase: setup
+status: done
+phase: closure
 created: "2026-08-02"
-updated: "2026-08-03"
+updated: "2026-08-04"
+# 2026-08-04 abgeschlossen mit Commit 97db954e (zwei Reviewrunden, zwei
+# Remediationen). ZWEI BENANNTE LUECKEN, ausdruecklich nicht "gruen":
+#
+#  1) `test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d`
+#     traegt seit 2026-08-04 den Marker `requires_gh` und laeuft damit NICHT in
+#     CI. Grund: der Test faehrt den echten `register-project`-Installer, dessen
+#     CP 2 das GitHub-Repo ueber `gh` prueft; im Jenkins-Container gibt es kein
+#     `gh` (verifiziert: `docker exec seu-jenkins which gh` -> not found). CP 2
+#     scheitert dort korrekt fail-closed mit `repo_unreachable`. Der Build war
+#     deswegen seit #1222 rot. Weder CP 2 schwaechen noch eine Fake-Probe durch
+#     die CLI reichen -- beides waere genau der Produktions-Bypass, den der
+#     Checkpoint verhindern soll. Der CP-10d-Credential-Pfad ist damit nur dort
+#     bewiesen, wo `gh` installiert und authentifiziert ist. Schliessen heisst:
+#     `gh` plus Token ins Jenkins-Image -- Beschaffungsentscheidung des PO.
+#  2) AC 1b hat keine echte Betriebssystemrechte-/Maschinentrennung im Nachweis
+#     (Befund aus Reviewrunde 2). Testschaerfe-Luecke, kein Codedefekt.
 size: L
 # Herkunft: erste echte Fremdinstallation am 2026-08-02 (Nachbarprojekt).
 # set_password wird ausschliesslich aus Tests aufgerufen; ein frisches AK3 kommt
