@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
@@ -192,7 +193,9 @@ def _create_directory_tree(path: Path) -> tuple[Path, ...]:
 
 def _sync_directory(path: Path) -> None:
     """Make the journal rename durable before a remote commit may begin."""
-    if os.name == "nt":
+    # ``sys.platform``, not ``os.name``: mypy narrows on the former, so the
+    # WinAPI branch is not type-checked against POSIX stubs (and vice versa).
+    if sys.platform == "win32":
         _sync_windows_directory(path)
         return
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
@@ -204,7 +207,17 @@ def _sync_directory(path: Path) -> None:
 
 
 def _sync_windows_directory(path: Path) -> None:
-    """Flush a Windows directory handle opened for metadata writes."""
+    """Flush a Windows directory handle opened for metadata writes.
+
+    The ``ctypes`` Windows surface (``WinDLL``, ``wintypes``,
+    ``get_last_error``) does not exist on POSIX, and ``mypy`` type-checks every
+    supported platform (``win32``, ``linux``, ``darwin``) -- so the whole body
+    lives behind a ``sys.platform`` guard mypy narrows on. Without it the file
+    is clean on Windows and fails to type-check on Linux, which is exactly the
+    blindness this project keeps paying for.
+    """
+    if sys.platform != "win32":  # pragma: no cover - guarded by the caller
+        raise RuntimeError("directory flush via WinAPI requested off Windows")
     import ctypes
     from ctypes import wintypes
 
