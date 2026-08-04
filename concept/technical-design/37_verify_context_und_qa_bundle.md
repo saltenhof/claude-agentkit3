@@ -60,7 +60,7 @@ glossary:
         sufficient: alle Pflichtfelder vorhanden. reviewable_with_gaps: Felder
         vorhanden, aber Lücken (Trunkierung, nur Summary). partially_reviewable:
         wesentliche Pflichtfelder fehlen. Alle Stufen lassen Layer 2 laufen
-        (fail-open für Sufficiency); nur Warning in policy.json bei nicht-sufficient.
+        (fail-open für Sufficiency); nur Warning in decision.json bei nicht-sufficient.
       values: [sufficient, reviewable_with_gaps, partially_reviewable]
       see_also:
         - term: context-bundle

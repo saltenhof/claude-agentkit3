@@ -197,7 +197,6 @@ def _make_system(
     layer_2c: _RecordingLayer | None = None,
     layer_3: _RecordingLayer | AdversarialChallenger | None = None,
     manager: _RecordingArtifactManager | None = None,
-    max_major_findings: int = 0,
     story_context_port: _SpyStoryContextPort | None = None,
     implementation_change_evidence_port: object | None = None,
     review_completion_sink: object | None = None,
@@ -223,7 +222,7 @@ def _make_system(
         layer_2b=_l2b,
         layer_2c=_l2c,
         layer_3=layer_3 or _RecordingLayer("adversarial"),
-        policy_engine=PolicyEngine(max_major_findings=max_major_findings),
+        policy_engine=PolicyEngine(),
         artifact_manager=recording_manager,
         implementation_change_evidence_port=change_port,  # type: ignore[arg-type]
         **kwargs,  # type: ignore[arg-type]
@@ -695,7 +694,7 @@ class TestQaSubflowOutcomeCarriesDecision:
     """run_qa_subflow returns QaSubflowOutcome with full VerifyDecision.
 
     Verifies Befund-A fix: outcome.decision.layer_results contains all
-    layer results so FK-69 consumers can call record_layer_artifacts /
+    layer results so FK-69 consumers can call the atomic QA-layer batch /
     record_verify_decision without a second layer-execution cycle.
     """
 
@@ -1117,10 +1116,9 @@ class TestReviewCompletionEmission:
         """Failed Layer-2 reviewers do NOT emit any mandatory reviewer role.
 
         When the Layer-2 reviewers raise, ``_execute_layer`` writes a synthetic
-        BLOCKING result whose layer name is the generic kind (``llm_evaluator``),
-        not a mandatory role. The completion emissions therefore cover NONE of
-        the mandatory roles (qa_review / semantic_review / doc_fidelity), so the
-        run-scoped Gate-2 count stays at 0 per mandatory role and
+        BLOCKING ``layer_execution`` result under the registered reviewer name,
+        but does not emit a completion event. The run-scoped Gate-2 count
+        therefore stays at 0 per mandatory role and
         ``guard.multi_llm`` fails closed (FK-27 §27.4.3 / FK-37 §37.1.6).
         """
         from agentkit.backend.verify_system.review_completion import (

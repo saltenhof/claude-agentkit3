@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.phase_state_factory import make_phase_state
+from tests.qa_artifact_support import record_qa_layer_artifacts
 
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
@@ -50,7 +51,6 @@ from agentkit.backend.state_backend.telemetry_event_store import (
 from agentkit.backend.state_backend.verify_artifact_store import (
     load_latest_verify_decision,
     load_latest_verify_decision_for_scope,
-    record_layer_artifacts,
     record_verify_decision,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -62,6 +62,7 @@ from agentkit.backend.verify_system.artifacts import (
 )
 from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
 from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -70,6 +71,7 @@ pytest_plugins = ("tests.fixtures.postgres_backend",)
 
 _TEST_OWNER_SESSION_ID = "test-owner"
 _TEST_OWNERSHIP_EPOCH = 1
+_STAGE_REGISTRY = StageRegistry.result_catalog_only()
 
 
 def _seed_active_ownership(*, project_key: str, story_id: str, run_id: str) -> None:
@@ -77,7 +79,7 @@ def _seed_active_ownership(*, project_key: str, story_id: str, run_id: str) -> N
 
     This contract test does not exercise ownership semantics itself -- it
     only needs SOME matching active record so the AG3-142/144 lease fence
-    (now mandatory on ``record_layer_artifacts``/``record_verify_decision``)
+    (now mandatory on the QA-layer batch and ``record_verify_decision``)
     admits the write. Uses the sanctioned AG3-137 write surfaces: a plain
     INSERT for the story's first record, a direct ``run_id`` refresh
     thereafter (this test's flow executions toggle between two run ids under
@@ -216,7 +218,19 @@ def test_public_state_backend_contract_works_on_postgres(
                     line_number=10,
                 ),
             ),
-            metadata={"source": "contract", "total_checks": 7},
+            metadata={
+                "source": "contract",
+                "executed_check_ids": [
+                    "context_exists",
+                    "lint",
+                    "clean_1",
+                    "clean_2",
+                    "clean_3",
+                    "clean_4",
+                    "clean_5",
+                ],
+                "total_checks": 7,
+            },
         ),
     )
     _seed_active_ownership(
@@ -236,10 +250,11 @@ def test_public_state_backend_contract_works_on_postgres(
             layer_results=run1_layers,
             attempt_nr=1,
         )
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=run1_layers,
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id=_TEST_OWNER_SESSION_ID,
         expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
     )
@@ -289,7 +304,12 @@ def test_public_state_backend_contract_works_on_postgres(
     run2_scope = resolve_runtime_scope(story_dir)
     assert run2_scope.run_id == "run-contract-002"
     run2_layers = (
-        LayerResult(layer="structural", passed=True, findings=()),
+        LayerResult(
+            layer="structural",
+            passed=True,
+            findings=(),
+            metadata={"executed_check_ids": []},
+        ),
     )
     _seed_active_ownership(
         project_key="demo-project", story_id="AG3-901", run_id="run-contract-002"
@@ -308,10 +328,11 @@ def test_public_state_backend_contract_works_on_postgres(
             layer_results=run2_layers,
             attempt_nr=1,
         )
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=run2_layers,
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id=_TEST_OWNER_SESSION_ID,
         expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
     )
@@ -394,6 +415,7 @@ def test_public_state_backend_contract_works_on_postgres(
                     line_number=1,
                 ),
             ),
+            metadata={"executed_check_ids": ["context_exists"]},
         ),
     )
     _seed_active_ownership(
@@ -413,10 +435,11 @@ def test_public_state_backend_contract_works_on_postgres(
             layer_results=rerun_layers,
             attempt_nr=1,
         )
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=rerun_layers,
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id=_TEST_OWNER_SESSION_ID,
         expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
     )

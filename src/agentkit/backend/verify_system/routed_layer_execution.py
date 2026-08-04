@@ -139,8 +139,10 @@ def _run_data_layer_kind(
         # semantic_review / doc_fidelity), which is exactly the per-role
         # filter the ``guard.multi_llm`` Gate 2 counts (FK-37 §37.1.6). Only
         # Layer-2 reviews carry a mandatory reviewer role; structural /
-        # adversarial layers do not emit completion events.
-        if kind is QALayerKind.LLM_EVALUATOR:
+        # adversarial layers do not emit completion events. A fail-closed
+        # ``layer_execution`` result has a registered reviewer result name for
+        # persistence, but is not a completed review.
+        if kind is QALayerKind.LLM_EVALUATOR and "layer_execution_error" not in result.metadata:
             self.review_completion_sink.review_completed(
                 ReviewCompletionEvent(
                     story_id=story_id,

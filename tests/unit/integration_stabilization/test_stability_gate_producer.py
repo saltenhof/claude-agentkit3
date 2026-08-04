@@ -91,8 +91,8 @@ class TestStabilityGateProducer:
         )
         assert result.passed is False
         assert any(f.severity is Severity.BLOCKING for f in result.findings)
-        # The Layer-4 result marks the IS Layer-4 stages produced.
-        assert "stability_gate" in result.metadata["stage_ids"]
+        assert result.metadata["stage_ids"] == ("stability_gate",)
+        assert result.metadata["executed_check_ids"] == ("stability_gate",)
 
     def test_passes_when_targets_reached_and_surfaces_declared(
         self, tmp_path: Path
@@ -110,6 +110,14 @@ class TestStabilityGateProducer:
         )
         assert result.passed is True
         assert result.findings == ()
+        assert result.metadata["executed_check_ids"] == (
+            "integration.manifest_approval_required",
+            "integration.binding_integrity",
+            "integration.declared_surfaces_only",
+            "integration.stabilization_budget_not_exhausted",
+            "integration.integration_target_matrix_passed",
+            "stability_gate",
+        )
 
     def test_fails_on_undeclared_surface(self, tmp_path: Path) -> None:
         story_dir = _setup(tmp_path)
@@ -124,6 +132,9 @@ class TestStabilityGateProducer:
             project_key="PROJ",
         )
         assert result.passed is False
+        failed_checks = {finding.check for finding in result.findings}
+        assert "integration.declared_surfaces_only" in failed_checks
+        assert "stability_gate" in failed_checks
 
     def test_fails_on_unmet_targets(self, tmp_path: Path) -> None:
         story_dir = _setup(tmp_path, targets=("e2e_login", "e2e_checkout"))
@@ -138,6 +149,12 @@ class TestStabilityGateProducer:
             project_key="PROJ",
         )
         assert result.passed is False
+        assert "integration.integration_target_matrix_passed" in result.metadata[
+            "executed_check_ids"
+        ]
+        failed_checks = {finding.check for finding in result.findings}
+        assert "integration.integration_target_matrix_passed" in failed_checks
+        assert "stability_gate" in failed_checks
 
     def test_persists_gate_verdict_for_closure(self, tmp_path: Path) -> None:
         story_dir = _setup(tmp_path)

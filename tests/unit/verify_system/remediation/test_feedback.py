@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from agentkit.backend.story_context_manager.types import StoryType
 from agentkit.backend.verify_system.errors import MandatoryTargetReadError
 from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
@@ -32,12 +33,20 @@ def _finding(
     )
 
 
+def _decide(results: list[LayerResult]):
+    """Build a decision for isolated remediation-feedback inputs."""
+    return PolicyEngine().decide(
+        results,
+        story_type=StoryType.IMPLEMENTATION,
+        traversed_layers=frozenset({4}),
+    )
+
+
 class TestBuildFeedback:
     """build_feedback function tests."""
 
     def test_fail_decision_produces_feedback(self) -> None:
-        engine = PolicyEngine()
-        decision = engine.decide([
+        decision = _decide([
             LayerResult(
                 layer="structural",
                 passed=False,
@@ -52,16 +61,14 @@ class TestBuildFeedback:
         assert len(feedback.blocking_findings) == 1
 
     def test_pass_decision_returns_none(self) -> None:
-        engine = PolicyEngine()
-        decision = engine.decide([
+        decision = _decide([
             LayerResult(layer="structural", passed=True),
         ])
         feedback = build_feedback(decision, "TEST-001", round_nr=1)
         assert feedback is None
 
     def test_feedback_separates_blocking_and_advisory(self) -> None:
-        engine = PolicyEngine()
-        decision = engine.decide([
+        decision = _decide([
             LayerResult(
                 layer="structural",
                 passed=False,
@@ -228,7 +235,7 @@ class TestFindingResolutionInFeedback:
         result = LayerResult(
             layer="structural", passed=False, findings=(_finding(),)
         )
-        decision = PolicyEngine().decide([result])
+        decision = _decide([result])
         resolution = {("structural", "c1"): FindingResolutionStatus.NOT_RESOLVED}
         fb = build_feedback(decision, "TEST-001", 2, finding_resolution=resolution)
         assert fb is not None
@@ -272,7 +279,7 @@ class TestMandatoryTargetFeedback:
         assert findings == ()
 
     def test_extra_mandatory_target_findings_create_feedback_on_pass(self) -> None:
-        decision = PolicyEngine().decide([LayerResult(layer="policy", passed=True)])
+        decision = _decide([LayerResult(layer="policy", passed=True)])
         mandatory = mandatory_target_findings_from_adversarial(
             {
                 "mandatory_target_results": [

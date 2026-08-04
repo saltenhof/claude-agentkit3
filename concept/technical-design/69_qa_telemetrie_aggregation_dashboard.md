@@ -202,9 +202,9 @@ liegt bei den jeweiligen Owner-BCs wie oben angegeben.
 
 | Tabelle | Schema-Owner BC | Writer-Komponente | Fachliche Rolle |
 |---------|----------------|-------------------|-----------------|
-| `qa_stage_results` | verify-system | `verify_system.StageRegistry` / Verify-Runner | Ergebnis je Stage und Attempt |
-| `qa_findings` | verify-system | `verify_system.StageRegistry` / jeweiliger Stage-Adapter | Atomare Findings je Check |
-| `qa_check_outcomes` | verify-system | `verify_system.CheckOutcomeEmitter` / Verify-Runner | Per-Check-Outcome for every executed check (triggered/clean/overridden) |
+| `qa_stage_results` | verify-system | Verify-Runner via `ProjectionAccessor.record_qa_layer_artifacts` | Ergebnis je Stage und Attempt |
+| `qa_findings` | verify-system | Verify-Runner via `ProjectionAccessor.record_qa_layer_artifacts` | Findings je Check |
+| `qa_check_outcomes` | verify-system | `verify_system.CheckOutcomeEmitter` als Record-Builder; Verify-Runner via `ProjectionAccessor.record_qa_layer_artifacts` | Per-Check-Outcome for every executed check (triggered/clean/overridden) |
 | `story_metrics` | story-closure | `story_closure.PostMergeFinalization` | Story-nahe Abschlussmetriken |
 | `phase_state_projection` | pipeline-framework | `pipeline_engine.PhaseExecutor` | Laufzeitphasenstatus und Attempt-Zaehler |
 | `fc_incidents` | failure-corpus | `failure_corpus.FailureCorpus` | Laufende Incident-Erfassung |
@@ -213,6 +213,14 @@ liegt bei den jeweiligen Owner-BCs wie oben angegeben.
 
 **DB-Owner fuer alle Tabellen:** telemetry-and-events (`agentkit.backend.telemetry.projection_accessor`).
 Schema-Owner ist das jeweilige BC; FK-69 definiert nur die Zugriffsschicht und Konsistenzregeln.
+
+Fuer die drei verify-system-eigenen QA-Projektionen ist
+`ProjectionAccessor.record_qa_layer_artifacts` der einzige Schreibzugang. Der
+Verify-Runner validiert zuerst die vollstaendige Menge aus Stage-Ergebnissen,
+Findings und Check-Outcomes und uebergibt sie danach gemeinsam. Der State-
+Backend-Treiber ersetzt und schreibt alle drei Projektionsarten in derselben
+Transaktion. Weder Stage-/Finding-Materialisierung mit leerer Outcome-Menge
+noch ein einzelner Outcome-Write ist ein zulaessiger Writer-Vertrag.
 
 ## 69.5 Abgrenzung zu anderen Schichten
 
@@ -464,6 +472,10 @@ Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
     `check_proposal_ref` MUST be non-NULL and equal to that proposal's
     `CHK-NNNN` id. For native/built-in checks it MUST be NULL. Missing linkage
     for an FC-derived check is an emitter/schema violation (fail-closed).
+11. `qa_stage_results`, `qa_findings`, and `qa_check_outcomes` for one accepted
+    QA-layer attempt MUST be prevalidated and committed as one atomic batch.
+    No writer may materialize, replace, or delete any one of these projection
+    families independently of the other two.
 
 ## 69.15 Tabelle `qa_check_outcomes`
 
@@ -534,13 +546,18 @@ identity fields because:
 
 ### 69.15.5 Artifact Traceability
 
-`qa_check_outcomes` rows are emitted by `verify_system.CheckOutcomeEmitter`
-at check-execution time within the verify-runner flow. They are NOT
-materialized from a QA artifact after the fact (unlike `qa_stage_results`
-and `qa_findings`, which are materialized from a stage artifact). Therefore
+`verify_system.CheckOutcomeEmitter` builds the outcome records from each
+completed `LayerResult` and its complete `executed_check_ids` protocol. It has
+no persistence capability. Before any QA projection is written, the Verify-
+Runner validates the complete Stage/Finding/Outcome record set. The accepted
+set is then committed together through
+`ProjectionAccessor.record_qa_layer_artifacts`; no post-hoc reconstruction from
+an already persisted QA artifact and no earlier single-row write exists.
+
 `qa_check_outcomes` rows carry no `artifact_id` column. Traceability to the
 stage artifact is established via the parent `qa_stage_results` row for
-`(project_key, run_id, attempt_no, stage_id)` (§69.11 consistency rule 8).
+`(project_key, run_id, attempt_no, stage_id)` (§69.11 consistency rule 8),
+which is guaranteed to be committed in the same transaction.
 
 ### 69.15.6 Fachregeln
 
@@ -588,6 +605,11 @@ stage artifact is established via the parent `qa_stage_results` row for
     proposal id), NOT over the executed `check_id`; a missing
     `check_proposal_ref` filter capability would force an incorrect
     aggregation and is a contract gap.
+11. **Outcome construction and persistence are separate responsibilities.**
+    `CheckOutcomeEmitter` only builds validated records. The Verify-Runner
+    persists them exclusively with the corresponding Stage-Result and Findings
+    through the single atomic batch from §69.4. Direct Outcome writes and
+    Stage-/Finding-only rewrites are forbidden.
 
 ## 69.12 Backfill und Migration
 

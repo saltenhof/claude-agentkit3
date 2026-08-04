@@ -54,6 +54,7 @@ from agentkit.backend.verify_system.protocols import (
     TrustClass,
 )
 from agentkit.backend.verify_system.remediation.feedback import build_feedback
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 from integration.implementation_evidence_support import (
     ReadyEvidencePreparationCoordinator,
 )
@@ -89,8 +90,13 @@ def _fail_outcome(attempt_nr: int) -> QaSubflowOutcome:
                 trust_class=TrustClass.SYSTEM,
             ),
         ),
+        metadata={"executed_check_ids": ("context_exists",)},
     )
-    decision = PolicyEngine().decide([blocking])
+    decision = PolicyEngine().decide(
+        [blocking],
+        story_type=StoryType.IMPLEMENTATION,
+        traversed_layers=frozenset({4}),
+    )
     feedback = build_feedback(decision, "AG3-044", attempt_nr)
     return QaSubflowOutcome(
         verdict=PolicyVerdict.FAIL,
@@ -106,23 +112,13 @@ def _fail_outcome(attempt_nr: int) -> QaSubflowOutcome:
     )
 
 
-class _EmptyStageRegistry:
-    """Minimal stage-registry double exposing no stages (AG3-078).
-
-    phase.py builds a per-check check_proposal_ref origin map from
-    ``stage_registry.stages`` (FK-33 §33.2.1); this double carries no stages.
-    """
-
-    stages: tuple[object, ...] = ()
-
-
 class _FailVerifySystem:
     """VerifySystem double returning a non-escalated FAIL (CONTINUE_REMEDIATION)."""
 
     @property
-    def stage_registry(self) -> _EmptyStageRegistry:
-        """Empty stage registry (AG3-078: no FC-derived origin stages)."""
-        return _EmptyStageRegistry()
+    def stage_registry(self) -> StageRegistry:
+        """Return the registry that proves the test outcome's native check."""
+        return StageRegistry()
 
     def run_qa_subflow(
         self,

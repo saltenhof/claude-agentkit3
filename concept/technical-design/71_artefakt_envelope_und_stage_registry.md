@@ -90,7 +90,7 @@ klassifiziert ausschliesslich nach Erzeuger und typischen Beispielen.
 | Klasse | Erzeuger | Beispiele |
 |--------|----------|-----------|
 | **Worker-Artefakte** | Worker-Agent | `worker-manifest.json`, `protocol.md`, Quellcode |
-| **QA-Artefakte** | Pipeline-Skripte, QA-Agenten | kanonisch `artifact_envelopes`; optionale Exporte wie `structural.json`, `policy.json`, `semantic_review.json` |
+| **QA-Artefakte** | Pipeline-Skripte, QA-Agenten | kanonisch `artifact_envelopes`; materialisierte Exporte wie `structural.json`, `decision.json`, `semantic_review.json` |
 | **Pipeline-Artefakte** | Phase Runner, Preflight, Postflight | kanonisch `story_contexts`, `flow_executions`, `phase_states` (abgeschlossene Snapshots: `phase_snapshots`); materialisierte Exporte wie `phase-state.json`, `context.json` sind nur Projektionen |
 | **Telemetrie** | `telemetry_service` | `execution_events` (Laufzeit), Export-Bundle (Archiv) |
 | **Governance-Artefakte** | Guards, Integrity-Gate | `integrity-violations.log` |
@@ -180,7 +180,7 @@ illustrativ; daraus entsteht keine zweite Namenswahrheit.
 | Export-Artefakt | Erlaubter Producer |
 |-----------------|-------------------|
 | `structural.json` | `verify-system.layer-1-structural` |
-| `policy.json` / Legacy-Export `decision.json` | `verify-system.layer-4-policy` |
+| `decision.json` | `verify-system.layer-4-policy` |
 | `phase-state.json` | `run-phase` (Export der `phase_states`) |
 | `context.json` | `compute-story-context` (Export aus `StoryContext`) |
 | `qa_review.json` | `verify-system.layer-2-qa-review` |

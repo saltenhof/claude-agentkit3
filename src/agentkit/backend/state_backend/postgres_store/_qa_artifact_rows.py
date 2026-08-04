@@ -17,8 +17,6 @@ from agentkit.backend.state_backend.paths import (
 )
 
 if TYPE_CHECKING:
-
-
     from pathlib import Path
 
     from agentkit.backend.state_backend.scope import RuntimeStateScope
@@ -37,10 +35,7 @@ from ._json_projection import (
 )
 from ._mutation_commit_rows import _enforce_ownership_fence_row
 from ._runtime_rows import load_flow_execution_row
-from ._story_project_rows import (
-    _artifact_id_for,
-    _story_id_for,
-)
+from ._story_project_rows import _story_id_for
 
 
 def upsert_story_metrics_row(story_dir: Path, row: dict[str, Any]) -> None:
@@ -400,11 +395,36 @@ def pg_delete_findings_for_scope(
     )
 
 
+def pg_execute_check_outcome_upsert(conn: Any, row: dict[str, Any]) -> None:
+    """Upsert one ``qa_check_outcomes`` row on an existing connection."""
+    conn.execute(
+        """
+        INSERT INTO qa_check_outcomes (
+            project_key, story_id, run_id, stage_id, attempt_no, check_id,
+            outcome, occurred_at, check_proposal_ref, override_id
+        ) VALUES (
+            %(project_key)s, %(story_id)s, %(run_id)s, %(stage_id)s,
+            %(attempt_no)s, %(check_id)s, %(outcome)s, %(occurred_at)s,
+            %(check_proposal_ref)s, %(override_id)s
+        )
+        ON CONFLICT (project_key, run_id, stage_id, attempt_no, check_id)
+        DO UPDATE SET
+            story_id = EXCLUDED.story_id,
+            outcome = EXCLUDED.outcome,
+            occurred_at = EXCLUDED.occurred_at,
+            check_proposal_ref = EXCLUDED.check_proposal_ref,
+            override_id = EXCLUDED.override_id
+        """,
+        row,
+    )
+
+
 def persist_layer_artifact_rows(
     story_dir: Path,
     *,
     flow_row: dict[str, Any] | None,
     layer_payload_rows: list[dict[str, object]],
+    check_outcome_rows: list[dict[str, object]],
     attempt_nr: int,
     owner_session_id: str,
     expected_ownership_epoch: int,
@@ -419,8 +439,8 @@ def persist_layer_artifact_rows(
     Finding D (AG3-035 remediation): FK-69 row persistence runs through the
     driver-owned upsert/delete functions (``pg_execute_stage_upsert``,
     ``pg_execute_finding_upsert``, ``pg_delete_findings_for_scope`` in this
-    module). The transaction stays in the driver (FAIL-CLOSED: stage+findings+
-    artifact_records atomic in ONE transaction). The accessor repos
+    module). The transaction stays in the driver (FAIL-CLOSED: stage, findings,
+    and check outcomes are atomic in ONE transaction). The accessor repos
     (boundary.state_backend_repository) delegate their Postgres write path
     to the same functions -- the SQL lives exactly once in the driver (SSOT;
     AC010: the driver imports no repository).
@@ -462,31 +482,63 @@ def persist_layer_artifact_rows(
         )
         for item in layer_payload_rows:
             layer = str(item["layer"])
-            artifact_name = str(item["artifact_name"])
-            payload = cast("_JsonRecord", item["payload"])
-            target_dir = projection_dir or story_dir
-            _write_projection(target_dir / artifact_name, payload)
-            artifact_id = _artifact_id_for(layer, attempt_nr)
-            # FK-69: delete old findings for this scope + layer (driver-owned SQL)
+            artifact_name = item.get("artifact_name")
+            if artifact_name is not None:
+                payload = cast("_JsonRecord", item["payload"])
+                target_dir = projection_dir or story_dir
+                _write_projection(target_dir / str(artifact_name), payload)
+            artifact_id = str(item["artifact_id"])
+            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
+            if stage_row is None:
+                raise CorruptStateError(
+                    f"Cannot materialize FK-69 QA read models for result {layer!r} without a stage projection",
+                )
+            canonical_stage_id = str(stage_row["stage_id"])
+            # FK-69: delete old findings under the same canonical registry ID
+            # used by the stage and finding projections.
             pg_delete_findings_for_scope(
                 conn,
                 project_key=str(flow_row["project_key"]),
                 run_id=str(flow_row["run_id"]),
                 attempt_no=attempt_nr,
-                stage_id=layer,
+                stage_id=canonical_stage_id,
             )
-            # Rebuild stage_row and finding_rows with the real artifact_id
-            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
             finding_rows = cast("list[dict[str, object]]", item.get("finding_rows") or [])
-            if stage_row is not None:
-                updated_stage = dict(stage_row)
-                updated_stage["artifact_id"] = artifact_id
-                pg_execute_stage_upsert(conn, updated_stage)
+            updated_stage = dict(stage_row)
+            updated_stage["artifact_id"] = artifact_id
+            pg_execute_stage_upsert(conn, updated_stage)
             for fr in finding_rows:
                 updated_fr = dict(fr)
                 updated_fr["artifact_id"] = artifact_id
                 pg_execute_finding_upsert(conn, updated_fr)
-            produced.append(artifact_name)
+            if artifact_name is not None:
+                produced.append(str(artifact_name))
+        outcome_scopes = {
+            (str(row["project_key"]), str(row["run_id"]), int(str(row["attempt_no"])), str(row["stage_id"]))
+            for row in check_outcome_rows
+        }
+        for item in layer_payload_rows:
+            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
+            if stage_row is not None:
+                outcome_scopes.add(
+                    (
+                        str(stage_row["project_key"]),
+                        str(stage_row["run_id"]),
+                        int(str(stage_row["attempt_no"])),
+                        str(stage_row["stage_id"]),
+                    )
+                )
+        for project_key, run_id, attempt_no, stage_id in outcome_scopes:
+            conn.execute(
+                """
+                DELETE FROM qa_check_outcomes
+                WHERE project_key = %s AND run_id = %s
+                  AND attempt_no = %s AND stage_id = %s
+                """,
+                (project_key, run_id, attempt_no, stage_id),
+            )
+        for outcome_row in check_outcome_rows:
+            pg_execute_check_outcome_upsert(conn, outcome_row)
     return tuple(produced)
 
 

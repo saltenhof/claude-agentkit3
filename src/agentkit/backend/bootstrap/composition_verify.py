@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 def build_verify_system(
     store_dir: Path,
     *,
-    max_major_findings: int = 0,
     max_feedback_rounds: int | None = None,
     sonar_gate_port: verify_types.SonarGateInputPort | None = None,
     layer2_llm_client: verify_types.LlmClient | None = None,
@@ -64,8 +63,6 @@ def build_verify_system(
     Args:
         store_dir: Base directory of the state backend. Passed through to
             ``build_artifact_manager``.
-        max_major_findings: Threshold for the PolicyEngine (number of
-            tolerated MAJOR findings; 0 = every MAJOR blocks).
         max_feedback_rounds: Ceiling for the subflow-internal remediation loop
             (FK-03 §3.4.2 / FK-38, ``policy.max_feedback_rounds``). The caller
             (phase handler) resolves it from the pipeline config and passes it
@@ -105,6 +102,7 @@ def build_verify_system(
         StateBackendVerifyStoryContextAdapter,
     )
     from agentkit.backend.telemetry.storage import StateBackendEmitter
+    from agentkit.backend.verify_system.defaults import VerifySystemDefaultOptions
     from agentkit.backend.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
     from agentkit.backend.verify_system.structural.checker import FULL_STAGE_REGISTRY
     from agentkit.backend.verify_system.system import VerifySystem
@@ -112,52 +110,28 @@ def build_verify_system(
     manager = build_artifact_manager(store_dir)
     resolved_llm_client = layer2_llm_client or FailClosedLlmClient()
     return VerifySystem.create_default(
-        max_major_findings=max_major_findings,
-        max_feedback_rounds=max_feedback_rounds,
         artifact_manager=manager,
-        story_context_port=StateBackendVerifyStoryContextAdapter(),
-        sonar_gate_port=sonar_gate_port,
-        invalidation_sink=build_artifact_invalidation_sink(store_dir),
-        # FIX-C (FK-27 §27.4.3 / §27.5.5): after each Layer-2 review artefact
-        # write the QA-subflow emits a canonical ``llm_call_complete`` event
-        # (per reviewer role) so ``guard.multi_llm`` counts a COMPLETED review.
-        # Without this productive sink the count is always 0 and the gate is
-        # inert/over-blocking. The telemetry import lives here, not in the BC.
-        review_completion_sink=build_review_completion_sink(store_dir),
-        conformance_emitter=StateBackendEmitter(store_dir),
-        conformance_config=conformance_config,
-        layer2_bundle_token_limit=layer2_bundle_token_limit,
-        layer2_llm_client=resolved_llm_client,
-        fast_test_runner=fast_test_runner,
-        # AG3-042: the PRODUCTIVE path wires the full FK-27 §27.4 Layer-1 stage
-        # catalogue (StructuralChecker + PolicyEngine fail-closed check).
-        stage_registry=FULL_STAGE_REGISTRY,
-        # AG3-042: the FK-27 §27.4.3 recurring guards count canonical
-        # ``execution_events`` via a port so verify-system never imports
-        # ``state_backend.store`` directly (BC-topology, AG3-035).
-        structural_telemetry_port=_StateBackendTelemetryEventCountPort(),
-        # FIX-3 (FK-33 §33.5): the BLOCKING branch/commit/push/secrets/impact
-        # checks decide on INDEPENDENT system git evidence, wired here as the
-        # productive subprocess-git provider (verify-system stays free of
-        # subprocess; the import lives in this composition root). NEVER the
-        # worker manifest.
-        structural_change_evidence_port=build_change_evidence_port(
-            required_sync_point_id=structural_completion_sync_point_id
+        defaults=VerifySystemDefaultOptions(
+            max_feedback_rounds=max_feedback_rounds,
+            story_context_port=StateBackendVerifyStoryContextAdapter(),
+            sonar_gate_port=sonar_gate_port,
+            invalidation_sink=build_artifact_invalidation_sink(store_dir),
+            review_completion_sink=build_review_completion_sink(store_dir),
+            conformance_emitter=StateBackendEmitter(store_dir),
+            conformance_config=conformance_config,
+            layer2_bundle_token_limit=layer2_bundle_token_limit,
+            layer2_llm_client=resolved_llm_client,
+            fast_test_runner=fast_test_runner,
+            stage_registry=FULL_STAGE_REGISTRY,
+            structural_telemetry_port=_StateBackendTelemetryEventCountPort(),
+            structural_change_evidence_port=build_change_evidence_port(
+                required_sync_point_id=structural_completion_sync_point_id
+            ),
+            qa_cycle_push_barrier_gate=build_qa_cycle_push_barrier_gate(),
+            qa_cycle_fingerprint_source=_StateBackedQaCycleFingerprintSource(),
+            structural_build_test_port=structural_build_test_port,
+            structural_are_provider=structural_are_provider,
         ),
-        # AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push
-        # barrier gate, delegating to the control-plane two-stage barrier.
-        qa_cycle_push_barrier_gate=build_qa_cycle_push_barrier_gate(),
-        qa_cycle_fingerprint_source=_StateBackedQaCycleFingerprintSource(),
-        # FIX-1: the REAL build/test evidence port + the real ARE provider need
-        # per-run config (the project ``ci`` stanza / ``features.are``) the
-        # builder does not have, so the per-run caller (ImplementationPhaseHandler)
-        # resolves and injects them via :func:`build_structural_build_test_port`
-        # / :func:`build_structural_are_provider`. Absent here => the fail-closed
-        # default ports (build/test BLOCKING fail, ARE stage not planned), so a
-        # bare build_verify_system never over-blocks a story with a fabricated
-        # green NOR silently disables ARE.
-        structural_build_test_port=structural_build_test_port,
-        structural_are_provider=structural_are_provider,
     )
 
 
@@ -344,9 +318,7 @@ class _BarrierPushVerification:
         ctx = StateBackendStoryReadRepository().load_story_context(project_key, story_id)
         return tuple(ctx.participating_repos) if ctx is not None else ()
 
-    def _commission_sync_push_best_effort(
-        self, *, project_key: str, story_id: str, run_id: str, boundary_id: str
-    ) -> None:
+    def _commission_sync_push_best_effort(self, *, project_key: str, story_id: str, run_id: str, boundary_id: str) -> None:
         """Queue structural phase-completion ``sync_push`` evidence."""
         import logging
         from datetime import UTC, datetime
@@ -540,9 +512,7 @@ def build_change_evidence_port(
 ) -> ChangeEvidencePort:
     """Wire the sanctioned AG3-147 change-inventory read surface."""
     return _SubprocessGitChangeEvidenceProvider(
-        push_verification_port=build_push_verification_port(
-            required_sync_point_id=required_sync_point_id
-        )
+        push_verification_port=build_push_verification_port(required_sync_point_id=required_sync_point_id)
     )
 
 
@@ -688,6 +658,7 @@ class _TelemetryReviewCompletionSink:
                 },
             )
         )
+
 
 def build_github_code_backend_port(owner: str, repo: str, *, gh_timeout_seconds: int = 30) -> closure_types.CodeBackendPort:
     """Wire the productive GitHub adapter onto the AG3-146 code-backend port.
@@ -901,11 +872,14 @@ class _ControlPlaneQaCyclePushBarrierGate:
             now=datetime.now(tz=UTC),
         )
         if not aggregate.passed:
-            blocking = ", ".join(
-                f"{v.repo_id}:{v.block_code.value if v.block_code else 'unverified'}"
-                for v in aggregate.repo_verdicts
-                if not v.verified
-            ) or "no verdict rows"
+            blocking = (
+                ", ".join(
+                    f"{v.repo_id}:{v.block_code.value if v.block_code else 'unverified'}"
+                    for v in aggregate.repo_verdicts
+                    if not v.verified
+                )
+                or "no verdict rows"
+            )
             msg = (
                 "push_barrier_unverified: QA-cycle boundary blocked -- the story "
                 "branch is not server-verified-pushed in every repo (FK-10 "

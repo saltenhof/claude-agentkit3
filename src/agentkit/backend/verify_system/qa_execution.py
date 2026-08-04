@@ -29,10 +29,7 @@ from agentkit.backend.verify_system.routing import select_layers
 from agentkit.backend.verify_system.stability_gate_verdict import (
     _maybe_produce_is_stability_gate,
 )
-from agentkit.backend.verify_system.stage_coverage_mapping import (
-    _max_layer_reached,
-    _traversed_layers,
-)
+from agentkit.backend.verify_system.stage_coverage_mapping import _traversed_layers
 from agentkit.backend.verify_system.story_contract_resolution import (
     _effective_implementation_contract,
     _effective_story_type,
@@ -76,7 +73,7 @@ def _run_qa_subflow(
     Cross-BC callers (e.g. ``agentkit.backend.implementation``) MUST use
     ``outcome.verdict`` for the PASS/FAIL gate and feed
     ``outcome.decision`` into the FK-69 recording path
-    (``record_layer_artifacts`` / ``record_verify_decision``) -- no
+    (``ProjectionAccessor.record_qa_layer_artifacts`` / ``record_verify_decision``) -- no
     second layer-execution is needed.
 
     Args:
@@ -216,27 +213,19 @@ def _run_qa_subflow(
     if sonar_fail_decision is not None:
         decision = sonar_fail_decision
     else:
-        # FIX-A (FK-33 §33.7): the PRODUCTION path passes the EFFECTIVE
-        # story type (the SAME one the layers were executed under, see
-        # _execute_layer) + max_layer_reached + ARE activation so the
-        # registry-bound fail-closed missing-stage check ALWAYS runs and the
-        # FK-33 §33.7.3 per-story-type threshold is ALWAYS used. The scalar
-        # fallback (no missing-stage check) is unreachable on this path:
-        # _effective_story_type returns IMPLEMENTATION when no StoryContext
-        # resolved, exactly mirroring the layer-execution stub, so an
-        # unresolved context fails CLOSED through the registry path instead
-        # of silently downgrading to the scalar threshold (no two-truth
-        # threshold, no fail-open edge).
+        # FK-33 §33.7: policy receives the same effective story type used for
+        # layer execution, plus traversal and ARE inputs. This is the required
+        # registry path: it selects the explicit per-story-type threshold and
+        # always performs the fail-closed missing-stage check.
         decision = self.policy_engine.decide(
             layer_results,
             story_type=_effective_story_type(_story_ctx),
-            max_layer_reached=_max_layer_reached(layer_results),
-            # FIX-A: pass the EXACT executed-layer set so the fail-closed
+            # Pass the exact executed-layer set so the fail-closed
             # missing-stage check honours non-contiguous routes (FK-27 §27.3:
             # Exploration runs Layer 2 + Layer 4 and SKIPS Layer 1, so a
             # Layer-1 stage must NOT be reported missing there). Without this
             # the registry path would over-block the legitimate exploration
-            # route once the scalar fallback is removed.
+            # route under the mandatory per-story-type registry evaluation.
             traversed_layers=_traversed_layers(layer_kinds),
             are_enabled=self._structural_are_enabled(),
             context_sufficiency_artifact=context_sufficiency_artifact,

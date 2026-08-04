@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         QAFindingRecord,
         QAStageResultRecord,
     )
+    from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -68,15 +69,11 @@ _WHERE_STAGE_ID = "stage_id = ?"
 
 @runtime_checkable
 class QAStageResultsRepository(Protocol):
-    """Write/read/purge adapter for ``qa_stage_results`` (FK-69 §69.6).
+    """Read/purge adapter for ``qa_stage_results`` (FK-69 §69.6).
 
     Schema owner: verify-system (FK-33).
     DB owner: telemetry-and-events via ProjectionAccessor.
     """
-
-    def write(self, record: QAStageResultRecord) -> None:
-        """Persist a single QAStageResultRecord."""
-        ...
 
     def read(
         self,
@@ -106,15 +103,11 @@ class QAStageResultsRepository(Protocol):
 
 @runtime_checkable
 class QAFindingsRepository(Protocol):
-    """Write/read/purge adapter for ``qa_findings`` (FK-69 §69.7).
+    """Read/purge adapter for ``qa_findings`` (FK-69 §69.7).
 
     Schema owner: verify-system (FK-33).
     DB owner: telemetry-and-events via ProjectionAccessor.
     """
-
-    def write(self, record: QAFindingRecord) -> None:
-        """Persist a single QAFindingRecord."""
-        ...
 
     def read(
         self,
@@ -144,15 +137,11 @@ class QAFindingsRepository(Protocol):
 
 @runtime_checkable
 class QACheckOutcomesRepository(Protocol):
-    """Write/read/purge adapter for ``qa_check_outcomes`` (FK-69 §69.15, AG3-108).
+    """Read/purge adapter for ``qa_check_outcomes`` (FK-69 §69.15, AG3-108).
 
     Schema owner: verify-system.
     DB owner: telemetry-and-events via ProjectionAccessor.
     """
-
-    def write(self, record: QACheckOutcomeRecord) -> None:
-        """Persist a single QACheckOutcomeRecord."""
-        ...
 
     def read(
         self,
@@ -323,6 +312,8 @@ class QALayerBatchWriter(Protocol):
         story_dir: Path,
         *,
         layer_results: tuple[LayerResult, ...],
+        check_outcomes: tuple[QACheckOutcomeRecord, ...],
+        stage_registry: StageRegistry,
         attempt_nr: int,
         owner_session_id: str,
         expected_ownership_epoch: int,
@@ -401,8 +392,7 @@ def _assert_sqlite_allowed() -> None:
 
     if not sqlite_allowed():
         raise RuntimeError(
-            "SQLite backend is disabled for this path. "
-            f"Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
+            f"SQLite backend is disabled for this path. Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
         )
 
 
@@ -497,4 +487,3 @@ def _sqlite_connect_qa(store_dir: Path) -> Iterator[sqlite3.Connection]:
 # ---------------------------------------------------------------------------
 # Concrete implementations
 # ---------------------------------------------------------------------------
-

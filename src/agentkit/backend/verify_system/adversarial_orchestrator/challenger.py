@@ -246,7 +246,10 @@ class AdversarialChallenger(PromptAuditMixin):
                     trust_class=TrustClass.SYSTEM,
                 ),
             ),
-            metadata={"prompt_audit": prompt_audit},
+            metadata={
+                "prompt_audit": prompt_audit,
+                "executed_check_ids": ("adversarial_runtime",),
+            },
         )
 
     def _resolve_run_scope(self, story_dir: Path) -> tuple[str, int]:

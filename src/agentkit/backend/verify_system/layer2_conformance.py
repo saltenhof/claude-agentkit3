@@ -253,7 +253,11 @@ def _run_impl_conformance(
                 trust_class=TrustClass.SYSTEM,
             ),
         ),
-        metadata={"verdict": "FAIL", "reason": fidelity.reason},
+        metadata={
+            "verdict": "FAIL",
+            "reason": fidelity.reason,
+            "executed_check_ids": ("impl_fidelity",),
+        },
     )
 
 
@@ -276,6 +280,7 @@ def _layer_result_from_structured_doc_fidelity(
         "verdict": verdict.value,
         "raw_response_hash": raw_hash,
         "template_sha256": template_hash,
+        "executed_check_ids": ("impl_fidelity",),
     }
     if finding_resolutions:
         metadata[LLM_RESOLUTION_METADATA_KEY] = serialize_resolution_map(

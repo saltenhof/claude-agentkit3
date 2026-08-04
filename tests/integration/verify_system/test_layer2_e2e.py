@@ -54,7 +54,6 @@ _STRUCTURAL_STAGE_METADATA = {
             StoryType.IMPLEMENTATION, are_enabled=False
         )
     )
-    + ("sonarqube_gate",)
 }
 
 
@@ -168,7 +167,9 @@ def _make_system(
         layer_2b=_UnusedLayer("semantic_review"),
         layer_2c=_UnusedLayer("doc_fidelity"),
         layer_3=_PassingLayer("adversarial"),
-        policy_engine=PolicyEngine(max_major_findings=0),
+        policy_engine=PolicyEngine(
+            max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0}
+        ),
         artifact_manager=manager,
         layer2_runner=runner,
     )
@@ -311,7 +312,9 @@ def test_llm_transport_failure_is_failclosed_blocking(_git_worktree: Path) -> No
         layer_2b=_UnusedLayer("semantic_review"),
         layer_2c=_UnusedLayer("doc_fidelity"),
         layer_3=_PassingLayer("adversarial"),
-        policy_engine=PolicyEngine(max_major_findings=0),
+        policy_engine=PolicyEngine(
+            max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0}
+        ),
         artifact_manager=manager,
         layer2_runner=runner,
     )

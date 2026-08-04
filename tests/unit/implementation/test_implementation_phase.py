@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from tests.phase_state_factory import make_phase_state
@@ -38,6 +39,11 @@ from agentkit.backend.state_backend.pipeline_runtime_store import (
     save_flow_execution,
     save_phase_snapshot,
 )
+from agentkit.backend.state_backend.store.telemetry_projection_repository_qa import (
+    FacadeQACheckOutcomesRepository,
+    FacadeQAFindingsRepository,
+    FacadeQAStageResultsRepository,
+)
 from agentkit.backend.state_backend.store.verify_story_context_repository import (
     StateBackendVerifyStoryContextAdapter,
 )
@@ -47,6 +53,7 @@ from agentkit.backend.story_context_manager.types import StoryMode, StoryType, g
 from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.verify_system import VerifySystem
 from agentkit.backend.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
+from agentkit.backend.verify_system.defaults import VerifySystemDefaultOptions
 from agentkit.backend.verify_system.evidence.authority import AuthorityClass, BundleEntry
 from agentkit.backend.verify_system.evidence.bundle_manifest import BundleManifest
 from agentkit.backend.verify_system.evidence.edge_preparation import (
@@ -54,6 +61,7 @@ from agentkit.backend.verify_system.evidence.edge_preparation import (
 )
 from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.backend.verify_system.protocols import LayerResult
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
@@ -61,6 +69,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.verify_system.evidence.edge_preparation import (
+        VerifyEvidencePreparationCoordinator,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -273,14 +284,38 @@ def _make_pass_outcome(attempt_nr: int = 1) -> QaSubflowOutcome:
         A ``QaSubflowOutcome`` with PASS verdict and empty layer results.
     """
     all_pass_layers = [
-        LayerResult(layer="structural", passed=True),
-        LayerResult(layer="qa_review", passed=True),
-        LayerResult(layer="semantic_review", passed=True),
-        LayerResult(layer="doc_fidelity", passed=True),
-        LayerResult(layer="adversarial", passed=True),
+        LayerResult(
+            layer="structural",
+            passed=True,
+            metadata={"executed_check_ids": ("artifact.protocol",)},
+        ),
+        LayerResult(
+            layer="qa_review",
+            passed=True,
+            metadata={"executed_check_ids": ("qa_review",)},
+        ),
+        LayerResult(
+            layer="semantic_review",
+            passed=True,
+            metadata={"executed_check_ids": ("semantic_review",)},
+        ),
+        LayerResult(
+            layer="doc_fidelity",
+            passed=True,
+            metadata={"executed_check_ids": ("doc_fidelity_impl",)},
+        ),
+        LayerResult(
+            layer="adversarial",
+            passed=True,
+            metadata={"executed_check_ids": ("adversarial",)},
+        ),
     ]
     engine = PolicyEngine()
-    decision = engine.decide(all_pass_layers)
+    decision = engine.decide(
+        all_pass_layers,
+        story_type=StoryType.IMPLEMENTATION,
+        traversed_layers=frozenset({4}),
+    )
     return QaSubflowOutcome(
         verdict=PolicyVerdict.PASS,
         decision=decision,
@@ -292,9 +327,7 @@ def _make_pass_outcome(attempt_nr: int = 1) -> QaSubflowOutcome:
     )
 
 
-def _make_fail_outcome(
-    attempt_nr: int = 1, *, escalated: bool = False
-) -> QaSubflowOutcome:
+def _make_fail_outcome(attempt_nr: int = 1, *, escalated: bool = False) -> QaSubflowOutcome:
     """Build a deterministic FAIL QaSubflowOutcome for test doubles.
 
     Args:
@@ -315,15 +348,20 @@ def _make_fail_outcome(
         findings=(
             Finding(
                 layer="structural",
-                check="context_exists",
+                check="artifact.protocol",
                 severity=Severity.BLOCKING,
                 message="story dir missing",
                 trust_class=TrustClass.SYSTEM,
             ),
         ),
+        metadata={"executed_check_ids": ("artifact.protocol",)},
     )
     engine = PolicyEngine()
-    decision = engine.decide([blocking_result])
+    decision = engine.decide(
+        [blocking_result],
+        story_type=StoryType.IMPLEMENTATION,
+        traversed_layers=frozenset({4}),
+    )
     feedback = build_feedback(decision, "TEST-001", attempt_nr)
     return QaSubflowOutcome(
         verdict=PolicyVerdict.FAIL,
@@ -335,17 +373,6 @@ def _make_fail_outcome(
         escalated=escalated,
         **_cycle_identity(attempt_nr),  # type: ignore[arg-type]
     )
-
-
-class _EmptyStageRegistry:
-    """Minimal stage-registry double exposing no stages (AG3-078).
-
-    phase.py builds a per-check origin map from ``stage_registry.stages``
-    (FK-33 §33.2.1). This double carries no FC-derived stages, so the map is
-    empty and every emitted ``check_proposal_ref`` is None. No MagicMock.
-    """
-
-    stages: tuple[object, ...] = ()
 
 
 class _RecordingVerifySystem:
@@ -361,6 +388,8 @@ class _RecordingVerifySystem:
         *,
         verdict: PolicyVerdict = PolicyVerdict.PASS,
         max_feedback_rounds: int = 1,
+        stage_registry: StageRegistry | None = None,
+        result_layer_override: str | None = None,
     ) -> None:
         """Initialise the recording VerifySystem.
 
@@ -373,6 +402,8 @@ class _RecordingVerifySystem:
         """
         self._verdict = verdict
         self._max_feedback_rounds = max_feedback_rounds
+        self._stage_registry = stage_registry or StageRegistry()
+        self._result_layer_override = result_layer_override
         self.calls: list[tuple[VerifyContextBundle, str, QaContext, ArtifactReference]] = []
         self._recording_manager = _RecordingArtifactManager()
 
@@ -382,13 +413,9 @@ class _RecordingVerifySystem:
         return self._recording_manager
 
     @property
-    def stage_registry(self) -> _EmptyStageRegistry:
-        """Return an empty stage registry (AG3-078: no FC-derived origin stages).
-
-        phase.py reads ``stage_registry.stages`` to build the per-check
-        check_proposal_ref origin map; this double exposes no stages.
-        """
-        return _EmptyStageRegistry()
+    def stage_registry(self) -> StageRegistry:
+        """Return the registry used to prove per-check provenance."""
+        return self._stage_registry
 
     def run_qa_subflow(
         self,
@@ -415,7 +442,18 @@ class _RecordingVerifySystem:
         del previous_findings
         self.calls.append((ctx, story_id, qa_context, target))
         if self._verdict == PolicyVerdict.PASS:
-            return _make_pass_outcome(attempt_nr=ctx.attempt)
+            outcome = _make_pass_outcome(attempt_nr=ctx.attempt)
+            if self._result_layer_override is None:
+                return outcome
+            first_result, *remaining_results = outcome.decision.layer_results
+            decision = replace(
+                outcome.decision,
+                layer_results=(
+                    replace(first_result, layer=self._result_layer_override),
+                    *remaining_results,
+                ),
+            )
+            return outcome.model_copy(update={"decision": decision})
         escalated = ctx.attempt >= self._max_feedback_rounds
         return _make_fail_outcome(attempt_nr=ctx.attempt, escalated=escalated)
 
@@ -439,20 +477,16 @@ class _FakeSparringClient:
         return "missed: empty input\nmissed: boundary value"
 
 
-def _make_real_verify_system(
-    story_dir: Path, *, max_major_findings: int = 0, max_feedback_rounds: int | None = None
-) -> VerifySystem:
+def _make_real_verify_system(story_dir: Path, *, max_feedback_rounds: int | None = None) -> VerifySystem:
     return VerifySystem.create_default(
         artifact_manager=build_artifact_manager(story_dir),
-        max_major_findings=max_major_findings,
-        max_feedback_rounds=max_feedback_rounds,
-        story_context_port=StateBackendVerifyStoryContextAdapter(),
-        structural_change_evidence_port=_StaticChangeEvidencePort(),
-        # AG3-079 (FK-48 §48.1): the real Layer-3 runtime needs the sparring
-        # transport + a telemetry emitter; the harness sub-agent's sandbox
-        # evidence is seeded by ``_seed_adversarial_sandbox`` (the only mock).
-        adversarial_sparring_client=_FakeSparringClient(),
-        adversarial_telemetry_emitter=MemoryEmitter(),
+        defaults=VerifySystemDefaultOptions(
+            max_feedback_rounds=max_feedback_rounds,
+            story_context_port=StateBackendVerifyStoryContextAdapter(),
+            structural_change_evidence_port=_StaticChangeEvidencePort(),
+            adversarial_sparring_client=_FakeSparringClient(),
+            adversarial_telemetry_emitter=MemoryEmitter(),
+        ),
     )
 
 
@@ -537,9 +571,7 @@ def _init_git_worktree(path: Path) -> None:
     import subprocess
 
     def _git(*args: str) -> None:
-        subprocess.run(
-            ["git", *args], cwd=path, check=True, capture_output=True, text=True, encoding="utf-8"
-        )
+        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True, text=True, encoding="utf-8")
 
     _git("init", "-b", "main")
     _git("config", "user.email", "t@example.com")
@@ -664,9 +696,7 @@ def _write_required_worker_artifacts(story_dir: Path) -> None:
 class TestImplementationPhaseHandler:
     """ImplementationPhaseHandler tests."""
 
-    def test_verify_evidence_wait_yields_before_qa_subflow(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_verify_evidence_wait_yields_before_qa_subflow(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The productive phase boundary persists PAUSED before any QA write."""
         story_dir = _setup_complete_story_dir(tmp_path)
         verify_system = _RecordingVerifySystem(verdict=PolicyVerdict.PASS)
@@ -704,9 +734,7 @@ class TestImplementationPhaseHandler:
         assert result.updated_state.payload.verify_evidence_wait == cursor  # type: ignore[union-attr]
         assert verify_system.calls == []
 
-    def test_missing_evidence_coordinator_fails_before_qa_subflow(
-        self, tmp_path: Path
-    ) -> None:
+    def test_missing_evidence_coordinator_fails_before_qa_subflow(self, tmp_path: Path) -> None:
         """A missing edge coordinator is a named fail-closed configuration error."""
         story_dir = _setup_complete_story_dir(tmp_path)
         verify_system = _RecordingVerifySystem(verdict=PolicyVerdict.PASS)
@@ -720,9 +748,7 @@ class TestImplementationPhaseHandler:
         result = handler.on_enter(_make_context(), _make_envelope(_make_state()))
 
         assert result.status is PhaseStatus.FAILED
-        assert result.errors == (
-            "VERIFY_EVIDENCE_PREPARATION_UNAVAILABLE: no coordinator configured",
-        )
+        assert result.errors == ("VERIFY_EVIDENCE_PREPARATION_UNAVAILABLE: no coordinator configured",)
         assert verify_system.calls == []
 
     def test_complete_setup_returns_completed(self, tmp_path: Path) -> None:
@@ -750,6 +776,98 @@ class TestImplementationPhaseHandler:
             "decision.json",
         }
 
+    def test_unregistered_executed_check_fails_closed_at_phase_boundary(self, tmp_path: Path) -> None:
+        """Registry drift reaches the productive caller and aborts emission."""
+        story_dir = _setup_complete_story_dir(tmp_path)
+        verify_system = _RecordingVerifySystem(
+            verdict=PolicyVerdict.PASS,
+            stage_registry=StageRegistry(stages=()),
+        )
+        handler = ImplementationPhaseHandler(
+            ImplementationConfig(
+                story_dir=story_dir,
+                verify_system=cast("VerifySystem", verify_system),
+                evidence_preparation=cast(
+                    "VerifyEvidencePreparationCoordinator",
+                    _ReadyEvidenceCoordinator(),
+                ),
+            )
+        )
+
+        with pytest.raises(ValueError, match="no entry.*artifact.protocol"):
+            handler.on_enter(_make_context(), _make_envelope(_make_state()))
+
+        qa_dir = qa_story_dir(tmp_path, "TEST-001")
+        assert not any((qa_dir / name).exists() for name in ALL_QA_ARTIFACT_FILES)
+        assert (
+            FacadeQAStageResultsRepository(story_dir).read(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-implementation-001",
+            )
+            == []
+        )
+        assert (
+            FacadeQAFindingsRepository(story_dir).read(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-implementation-001",
+            )
+            == []
+        )
+        assert (
+            FacadeQACheckOutcomesRepository(story_dir).read(
+                project_key="test-project",
+                story_id="TEST-001",
+                run_id="run-implementation-001",
+            )
+            == []
+        )
+
+    def test_unknown_result_name_fails_closed_at_phase_boundary(self, tmp_path: Path) -> None:
+        story_dir = _setup_complete_story_dir(tmp_path)
+        verify_system = _RecordingVerifySystem(
+            verdict=PolicyVerdict.PASS,
+            result_layer_override="unregistered-result",
+        )
+        handler = ImplementationPhaseHandler(
+            ImplementationConfig(
+                story_dir=story_dir,
+                verify_system=cast("VerifySystem", verify_system),
+                evidence_preparation=cast(
+                    "VerifyEvidencePreparationCoordinator",
+                    _ReadyEvidenceCoordinator(),
+                ),
+            )
+        )
+
+        with pytest.raises(ValueError, match="unknown LayerResult name"):
+            handler.on_enter(_make_context(), _make_envelope(_make_state()))
+
+        qa_dir = qa_story_dir(tmp_path, "TEST-001")
+        assert not any((qa_dir / name).exists() for name in ALL_QA_ARTIFACT_FILES)
+        assert (
+            FacadeQAStageResultsRepository(story_dir).read(
+                project_key="test-project",
+                run_id="run-implementation-001",
+            )
+            == []
+        )
+        assert (
+            FacadeQAFindingsRepository(story_dir).read(
+                project_key="test-project",
+                run_id="run-implementation-001",
+            )
+            == []
+        )
+        assert (
+            FacadeQACheckOutcomesRepository(story_dir).read(
+                project_key="test-project",
+                run_id="run-implementation-001",
+            )
+            == []
+        )
+
     def test_missing_artifacts_returns_escalated(self, tmp_path: Path) -> None:
         """FAIL verdict from VerifySystem -> PhaseStatus.ESCALATED after max rounds."""
         story_dir = _story_dir(tmp_path)
@@ -772,9 +890,7 @@ class TestImplementationPhaseHandler:
         config = ImplementationConfig(
             story_dir=story_dir,
             max_feedback_rounds=1,
-            verify_system=_RecordingVerifySystem(
-                verdict=PolicyVerdict.FAIL, max_feedback_rounds=1
-            ),  # type: ignore[arg-type]
+            verify_system=_RecordingVerifySystem(verdict=PolicyVerdict.FAIL, max_feedback_rounds=1),  # type: ignore[arg-type]
             evidence_preparation=_ReadyEvidenceCoordinator(),  # type: ignore[arg-type]
         )
         handler = ImplementationPhaseHandler(config)
@@ -902,7 +1018,7 @@ class TestImplementationPhaseHandler:
         #
         # AG3-026 Pass-3 ERROR-5: Layer-2 reviewers now emit MAJOR
         # layer2_input.missing when review_input is empty (THEME-009 not yet
-        # wired). max_major_findings=3 tolerates all three MAJOR findings so
+        # wired). The canonical threshold of 3 tolerates all three MAJOR findings so
         # that the structural / filesystem checks remain the PASS gate.
         #
         # AG3-043 E6: build_verify_system now wires the productive Layer-2 LLM
@@ -917,7 +1033,7 @@ class TestImplementationPhaseHandler:
         # sub-agent is the only mock boundary) so the real adversarial runtime can
         # PASS with >= 1 executed test instead of failing closed.
         _seed_adversarial_sandbox(story_dir)
-        verify_system = _make_real_verify_system(story_dir, max_major_findings=3)
+        verify_system = _make_real_verify_system(story_dir)
         config = ImplementationConfig(
             story_dir=story_dir,
             verify_system=verify_system,
@@ -956,9 +1072,7 @@ class TestImplementationPhaseHandler:
             (layer for layer in data["layers"] if layer["layer"] == "semantic_review"),
             None,
         )
-        adversarial = next(
-            layer for layer in data["layers"] if layer["layer"] == "adversarial"
-        )
+        adversarial = next(layer for layer in data["layers"] if layer["layer"] == "adversarial")
         assert semantic_review is not None, "semantic_review layer expected in decision"
         assert semantic_review["metadata"]["prompt_audit"] == {
             "status": "skipped",
@@ -1015,9 +1129,7 @@ class TestImplementationPhaseHandler:
         qa_dir = qa_story_dir(tmp_path, "TEST-001")
         # FK-27 §27.7: decision.json (nicht verify-decision.json).
         decision_path = qa_dir / "decision.json"
-        assert decision_path.exists(), (
-            "decision.json must be written even on FAIL (FK-27 §27.7)"
-        )
+        assert decision_path.exists(), "decision.json must be written even on FAIL (FK-27 §27.7)"
         assert (qa_dir / "structural.json").exists()
         assert (qa_dir / "semantic_review.json").exists()
         assert (qa_dir / "adversarial.json").exists()

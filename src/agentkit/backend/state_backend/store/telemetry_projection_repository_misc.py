@@ -60,8 +60,7 @@ class FacadeStoryMetricsRepository:
     def _pg_write(self, row: dict[str, object]) -> None:
         """Fence-first (AG3-144 Codex round-3), then upsert in ONE transaction.
 
-        Mirrors ``FacadeQACheckOutcomesRepository._pg_write`` /
-        ``StateBackendArtifactRepository._pg_write``: the caller's ambient
+        Mirrors ``StateBackendArtifactRepository._pg_write``: the caller's ambient
         ``OwnershipFenceScope`` (bound by the owning phase handler, FK-91
         §91.1a Rule 15) is re-verified AT COMMIT TIME, in THIS SAME
         transaction, under ``SELECT ... FOR UPDATE``, BEFORE the
@@ -431,5 +430,4 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         fc_patterns=StateBackendFcPatternRepository(store_dir),
         fc_check_proposals=StateBackendFcCheckProposalRepository(store_dir),
     )
-
 

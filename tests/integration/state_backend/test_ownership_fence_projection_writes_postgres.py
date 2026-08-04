@@ -6,8 +6,9 @@ FK-91 §91.1a Rule 15 (no-lease-no-write) already fences the REGIME commits
 SAME fence, reused verbatim (never a second mechanism), now also guards the
 mutating story PROJECTION writes AG3-144 targets:
 
-* ``record_layer_artifacts`` -- ``qa_stage_results`` + ``qa_findings``
-  (batch delete+rebuild) + the projection file.
+* ``ProjectionAccessor.record_qa_layer_artifacts`` -- ``qa_stage_results`` +
+  ``qa_findings`` + ``qa_check_outcomes`` (batch delete+rebuild) and the
+  projection file.
 * ``record_verify_decision`` -- ``decision_records`` + the projection file.
 * ``record_closure_report`` -- the closure-report projection file (no DB row
   for this artifact; the fence transaction's sole purpose is to reject a lost
@@ -21,8 +22,8 @@ mutating story PROJECTION writes AG3-144 targets:
   (verify-system's QA-subflow, prompt-runtime materialization, the
   adversarial orchestrator, exploration drafting/review, the ARE-gate audit)
   produced the envelope.
-* ``qa_check_outcomes`` (Codex round-2 CRITICAL 3) -- the
-  ``FacadeQACheckOutcomesRepository`` Postgres write, fenced the same way.
+* ``qa_check_outcomes`` (Codex round-2 CRITICAL 3) -- materialized with stage
+  results and findings by the fenced atomic QA-layer batch.
 * ``story_metrics`` (Codex round-3 CRITICAL finding) -- the
   ``FacadeStoryMetricsRepository`` Postgres write (closure Step 5,
   ``ProjectionAccessor.write_projection(ProjectionKind.STORY_METRICS)``),
@@ -52,9 +53,11 @@ from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
+from tests.qa_artifact_support import record_qa_layer_artifacts
 
 from agentkit.backend.artifacts.envelope import ArtifactEnvelope
 from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 from agentkit.backend.closure.execution_report.records import ExecutionReport
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.control_plane.ownership import (
@@ -62,7 +65,7 @@ from agentkit.backend.control_plane.ownership import (
     OwnershipStatus,
 )
 from agentkit.backend.control_plane.records import RunOwnershipRecord
-from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus, PolicyVerdict
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus, PolicyVerdict, Severity
 from agentkit.backend.exceptions import CorruptStateError, OwnershipFenceViolationError
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.state_backend import postgres_store
@@ -79,9 +82,6 @@ from agentkit.backend.state_backend.store.artifact_repository import (
 from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     FacadeStoryMetricsRepository,
 )
-from agentkit.backend.state_backend.store.telemetry_projection_repository_qa import (
-    FacadeQACheckOutcomesRepository,
-)
 from agentkit.backend.state_backend.story_closure_store import record_closure_report
 from agentkit.backend.state_backend.story_lifecycle_store import (
     insert_run_ownership_record_global,
@@ -93,15 +93,12 @@ from agentkit.backend.state_backend.telemetry_event_store import (
 )
 from agentkit.backend.state_backend.verify_artifact_store import (
     load_latest_verify_decision,
-    record_layer_artifacts,
     record_verify_decision,
 )
+from agentkit.backend.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
 from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
-from agentkit.backend.verify_system.protocols import LayerResult
-from agentkit.backend.verify_system.stage_registry.records import (
-    CheckOutcome,
-    QACheckOutcomeRecord,
-)
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, TrustClass
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -110,6 +107,7 @@ pytestmark = pytest.mark.integration
 
 _NOW = datetime(2026, 7, 5, 10, 0, tzinfo=UTC)
 _PROJECT = "tenant-a"
+_STAGE_REGISTRY = StageRegistry.result_catalog_only()
 
 
 def _seed_flow(story_dir: Path, *, story_id: str, run_id: str) -> None:
@@ -167,11 +165,11 @@ def _hijack_ownership(*, story_id: str, new_owner: str, new_epoch: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# record_layer_artifacts -- qa_stage_results / qa_findings (batch)
+# atomic QA-layer batch -- stage results / findings / check outcomes
 # ---------------------------------------------------------------------------
 
 
-def test_record_layer_artifacts_valid_lease_writes_as_specified(
+def test_qa_layer_batch_valid_lease_writes_all_projections(
     tmp_path: Path,
 ) -> None:
     """AC3 positive: a matching lease snapshot writes the QA rows + projection."""
@@ -182,12 +180,18 @@ def test_record_layer_artifacts_valid_lease_writes_as_specified(
     _seed_flow(story_dir, story_id=story_id, run_id=run_id)
     _seed_active_ownership(story_id=story_id, run_id=run_id, owner_session_id="sess-A", epoch=1)
 
-    produced = record_layer_artifacts(
+    produced = record_qa_layer_artifacts(
         story_dir,
         layer_results=(
-            LayerResult(layer="structural", passed=True, findings=()),
+            LayerResult(
+                layer="structural",
+                passed=True,
+                findings=(),
+                metadata={"executed_check_ids": []},
+            ),
         ),
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id="sess-A",
         expected_ownership_epoch=1,
         projection_dir=story_dir,
@@ -202,7 +206,77 @@ def test_record_layer_artifacts_valid_lease_writes_as_specified(
     assert stages[0].status == "PASS"
 
 
-def test_record_layer_artifacts_lost_lease_rejects_and_writes_nothing(
+def test_qa_layer_batch_rewrite_replaces_findings_and_outcomes_by_canonical_stage_id(
+    tmp_path: Path,
+) -> None:
+    """A repeated Postgres attempt replaces findings under the registry ID."""
+    story_id = "AG3-191"
+    run_id = "run-canonical-rewrite"
+    story_dir = tmp_path / story_id
+    story_dir.mkdir(parents=True)
+    _seed_flow(story_dir, story_id=story_id, run_id=run_id)
+    _seed_active_ownership(story_id=story_id, run_id=run_id)
+    first_result = LayerResult(
+        layer="doc_fidelity",
+        passed=False,
+        findings=(
+            Finding(
+                layer="doc_fidelity",
+                check="doc_fidelity.missing_docstring",
+                severity=Severity.BLOCKING,
+                message="first-run finding",
+                trust_class=TrustClass.VERIFIED_LLM,
+            ),
+        ),
+        metadata={"executed_check_ids": ("doc_fidelity.missing_docstring",)},
+    )
+    second_result = LayerResult(
+        layer="doc_fidelity",
+        passed=False,
+        findings=(
+            Finding(
+                layer="doc_fidelity",
+                check="doc_fidelity.no_concept_anchor",
+                severity=Severity.BLOCKING,
+                message="second-run finding",
+                trust_class=TrustClass.VERIFIED_LLM,
+            ),
+        ),
+        metadata={"executed_check_ids": ("doc_fidelity.no_concept_anchor",)},
+    )
+
+    for result in (first_result, second_result):
+        record_qa_layer_artifacts(
+            story_dir,
+            layer_results=(result,),
+            attempt_nr=1,
+            stage_registry=_STAGE_REGISTRY,
+            owner_session_id="sess-A",
+            expected_ownership_epoch=1,
+            projection_dir=story_dir,
+        )
+
+    findings = load_qa_findings(
+        story_dir,
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        attempt_no=1,
+        stage_id="doc_fidelity_impl",
+    )
+    assert [finding.check_id for finding in findings] == [
+        "doc_fidelity.no_concept_anchor",
+    ]
+    outcomes = build_projection_accessor(story_dir).read_projection(
+        ProjectionKind.QA_CHECK_OUTCOMES,
+        ProjectionFilter(project_key=_PROJECT, run_id=run_id, attempt_no=1),
+    )
+    assert [outcome.check_id for outcome in outcomes] == [
+        "doc_fidelity.no_concept_anchor",
+    ]
+
+
+def test_qa_layer_batch_lost_lease_rejects_and_writes_nothing(
     tmp_path: Path,
 ) -> None:
     """AC2/AC4 (no TOCTOU): a stale snapshot rejects; the prior batch survives
@@ -216,12 +290,18 @@ def test_record_layer_artifacts_lost_lease_rejects_and_writes_nothing(
     _seed_active_ownership(story_id=story_id, run_id=run_id, owner_session_id="sess-A", epoch=1)
 
     # A genuine PRIOR batch, written under the SAME valid lease.
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=(
-            LayerResult(layer="structural", passed=False, findings=()),
+            LayerResult(
+                layer="structural",
+                passed=False,
+                findings=(),
+                metadata={"executed_check_ids": []},
+            ),
         ),
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id="sess-A",
         expected_ownership_epoch=1,
         projection_dir=story_dir,
@@ -240,12 +320,18 @@ def test_record_layer_artifacts_lost_lease_rejects_and_writes_nothing(
     # attempts to REBUILD the SAME scope with a DIFFERENT (passed=True) result
     # -- proving a successful commit would have been observably different.
     with pytest.raises(OwnershipFenceViolationError) as excinfo:
-        record_layer_artifacts(
+        record_qa_layer_artifacts(
             story_dir,
             layer_results=(
-                LayerResult(layer="structural", passed=True, findings=()),
+                LayerResult(
+                    layer="structural",
+                    passed=True,
+                    findings=(),
+                    metadata={"executed_check_ids": []},
+                ),
             ),
             attempt_nr=1,
+            stage_registry=_STAGE_REGISTRY,
             owner_session_id="sess-A",
             expected_ownership_epoch=1,
             projection_dir=story_dir,
@@ -263,7 +349,7 @@ def test_record_layer_artifacts_lost_lease_rejects_and_writes_nothing(
     assert (story_dir / "structural.json").read_bytes() == prior_projection
 
 
-def test_record_layer_artifacts_findings_batch_survives_rejected_rebuild(
+def test_qa_layer_batch_findings_survive_rejected_rebuild(
     tmp_path: Path,
 ) -> None:
     """AC2 (qa_findings batch delete+rebuild): a rejected write never deletes
@@ -288,12 +374,18 @@ def test_record_layer_artifacts_findings_batch_survives_rejected_rebuild(
         file_path="context.json",
         line_number=1,
     )
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=(
-            LayerResult(layer="structural", passed=False, findings=(prior_finding,)),
+            LayerResult(
+                layer="structural",
+                passed=False,
+                findings=(prior_finding,),
+                metadata={"executed_check_ids": ["context_exists"]},
+            ),
         ),
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id="sess-A",
         expected_ownership_epoch=1,
         projection_dir=story_dir,
@@ -306,12 +398,18 @@ def test_record_layer_artifacts_findings_batch_survives_rejected_rebuild(
     _hijack_ownership(story_id=story_id, new_owner="sess-HIJACK", new_epoch=2)
 
     with pytest.raises(OwnershipFenceViolationError):
-        record_layer_artifacts(
+        record_qa_layer_artifacts(
             story_dir,
             layer_results=(
-                LayerResult(layer="structural", passed=True, findings=()),
+                LayerResult(
+                    layer="structural",
+                    passed=True,
+                    findings=(),
+                    metadata={"executed_check_ids": []},
+                ),
             ),
             attempt_nr=1,
+            stage_registry=_STAGE_REGISTRY,
             owner_session_id="sess-A",
             expected_ownership_epoch=1,
             projection_dir=story_dir,
@@ -706,90 +804,6 @@ def test_require_ownership_fence_scope_rejects_cross_story_reuse(tmp_path: Path)
         expected_ownership_epoch=1,
     ), pytest.raises(CorruptStateError, match="story_id mismatch"):
         require_ownership_fence_scope(story_id="AG3-923-B")
-
-
-# ---------------------------------------------------------------------------
-# qa_check_outcomes (Codex round-2 CRITICAL 3) -- OwnershipFenceScope
-# ContextVar binding (same mechanism as artifact_envelopes).
-# ---------------------------------------------------------------------------
-
-
-def _check_outcome_record(
-    *, story_id: str, run_id: str, check_id: str = "structural.check"
-) -> QACheckOutcomeRecord:
-    return QACheckOutcomeRecord(
-        project_key=_PROJECT,
-        story_id=story_id,
-        run_id=run_id,
-        stage_id="structural",
-        attempt_no=1,
-        check_id=check_id,
-        outcome=CheckOutcome.CLEAN,
-        occurred_at=_NOW,
-        check_proposal_ref=None,
-        override_id=None,
-    )
-
-
-def test_qa_check_outcomes_valid_lease_writes_as_specified(tmp_path: Path) -> None:
-    """AC3 positive: a bound, matching lease scope writes the check-outcome row."""
-    story_id = "AG3-924"
-    run_id = "run-924"
-    story_dir = tmp_path / story_id
-    story_dir.mkdir(parents=True)
-    _seed_active_ownership(story_id=story_id, run_id=run_id, owner_session_id="sess-A", epoch=1)
-    repo = FacadeQACheckOutcomesRepository(story_dir)
-
-    with bind_ownership_fence_scope(
-        project_key=_PROJECT,
-        story_id=story_id,
-        run_id=run_id,
-        owner_session_id="sess-A",
-        expected_ownership_epoch=1,
-    ):
-        repo.write(_check_outcome_record(story_id=story_id, run_id=run_id))
-
-    rows = repo.read(project_key=_PROJECT, story_id=story_id, run_id=run_id)
-    assert len(rows) == 1
-    assert rows[0].outcome is CheckOutcome.CLEAN
-
-
-def test_qa_check_outcomes_transfer_before_emitter_loop_rejects_and_writes_nothing(
-    tmp_path: Path,
-) -> None:
-    """AC2 (Rule 18): an ownership transfer BEFORE the CheckOutcomeEmitter loop
-    starts -- the exact AG3-108/AG3-144 scenario -- rejects every row in the
-    loop; ``qa_check_outcomes`` ends up with NOTHING written.
-    """
-    story_id = "AG3-925"
-    run_id = "run-925"
-    story_dir = tmp_path / story_id
-    story_dir.mkdir(parents=True)
-    _seed_active_ownership(story_id=story_id, run_id=run_id, owner_session_id="sess-A", epoch=1)
-    repo = FacadeQACheckOutcomesRepository(story_dir)
-
-    # The transfer happens BEFORE the (simulated) CheckOutcomeEmitter loop --
-    # this caller's bound scope below still presents the now-STALE snapshot it
-    # captured at the top of its own on_enter() call.
-    _hijack_ownership(story_id=story_id, new_owner="sess-HIJACK", new_epoch=2)
-
-    with pytest.raises(OwnershipFenceViolationError) as excinfo, bind_ownership_fence_scope(
-        project_key=_PROJECT,
-        story_id=story_id,
-        run_id=run_id,
-        owner_session_id="sess-A",
-        expected_ownership_epoch=1,
-    ):
-        for check_id in ("check.one", "check.two", "check.three"):
-            repo.write(
-                _check_outcome_record(
-                    story_id=story_id, run_id=run_id, check_id=check_id
-                )
-            )
-
-    assert excinfo.value.detail["current_owner_session_id"] == "sess-HIJACK"
-    rows = repo.read(project_key=_PROJECT, story_id=story_id, run_id=run_id)
-    assert rows == [], "qa_check_outcomes must have NOTHING written after the rejection"
 
 
 # ---------------------------------------------------------------------------

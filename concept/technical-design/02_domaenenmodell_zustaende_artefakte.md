@@ -306,7 +306,7 @@ Bedarf JSON-Exporte erzeugt werden:
 | 2 | `ArtifactRecord(kind="qa_review")` | `qa_review.json` | `qa-llm-review` |
 | 2 | `ArtifactRecord(kind="semantic_review")` | `semantic_review.json` | `qa-semantic-review` |
 | 3 | `ArtifactRecord(kind="adversarial")` | `adversarial.json` | `qa-adversarial` |
-| 4 | Policy-/Verify-Decision-Record | `policy.json` / Legacy-Export `decision.json` | `qa-policy-engine` |
+| 4 | Policy-/Verify-Decision-Record | `decision.json` | `qa-policy-engine` |
 
 ### 2.2.4 Abweichende Abläufe nach Story-Typ
 

@@ -6,6 +6,9 @@ from collections import defaultdict
 from hashlib import sha1
 from typing import TYPE_CHECKING
 
+from agentkit.backend.verify_system.check_outcome_emitter import (
+    validate_layer_result_execution_protocol,
+)
 from agentkit.backend.verify_system.protocols import Severity
 from agentkit.backend.verify_system.stage_registry.records import QAFindingRecord, QAStageResultRecord
 
@@ -14,20 +17,12 @@ if TYPE_CHECKING:
 
     from agentkit.backend.phase_state_store.models import FlowExecution
     from agentkit.backend.verify_system.protocols import Finding, LayerResult
+    from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 
-def producer_component_for_layer(layer: str) -> str:
+def producer_component_for_layer(layer: str, stage_registry: StageRegistry) -> str:
     """Return the canonical producer component for a QA layer."""
-
-    producers = {
-        "structural": "qa-structural-check",
-        # Layer-2 sub-reviewers (FK-27 §27.7):
-        "qa_review": "qa-review",
-        "semantic_review": "qa-semantic-review",
-        "doc_fidelity": "qa-doc-fidelity",
-        "adversarial": "qa-adversarial",
-    }
-    return producers.get(layer, "qa-layer")
+    return stage_registry.producer_for_result_name(layer)
 
 
 def build_qa_stage_result(
@@ -37,35 +32,26 @@ def build_qa_stage_result(
     attempt_no: int,
     artifact_id: str,
     recorded_at: datetime,
+    stage_registry: StageRegistry,
 ) -> QAStageResultRecord:
     """Project one layer result into the FK-69 stage-result read model."""
-
-    total_checks = _count_from_metadata(
-        layer_result.metadata,
-        "total_checks",
-        fallback=len(layer_result.findings),
-    )
-    failed_checks = _count_from_metadata(
-        layer_result.metadata,
-        "failed_checks",
-        fallback=len(layer_result.blocking_findings),
-    )
-    warning_checks = _count_from_metadata(
-        layer_result.metadata,
-        "warning_checks",
-        fallback=sum(
-            1 for finding in layer_result.findings if not _finding_blocks(finding)
-        ),
-    )
+    stage_id = stage_registry.canonical_stage_id_for_result_name(layer_result.layer)
+    executed_check_ids = validate_layer_result_execution_protocol(layer_result)
+    failed_checks = sum(1 for finding in layer_result.findings if _finding_blocks(finding))
+    warning_checks = sum(1 for finding in layer_result.findings if not _finding_blocks(finding))
+    total_checks = len(executed_check_ids)
+    _validate_explicit_count(layer_result.metadata, "total_checks", total_checks)
+    _validate_explicit_count(layer_result.metadata, "failed_checks", failed_checks)
+    _validate_explicit_count(layer_result.metadata, "warning_checks", warning_checks)
 
     return QAStageResultRecord(
         project_key=flow.project_key,
         story_id=flow.story_id,
         run_id=flow.run_id,
         attempt_no=attempt_no,
-        stage_id=layer_result.layer,
+        stage_id=stage_id,
         layer=layer_result.layer,
-        producer_component=producer_component_for_layer(layer_result.layer),
+        producer_component=producer_component_for_layer(layer_result.layer, stage_registry),
         status="PASS" if layer_result.passed else "FAIL",
         blocking=bool(layer_result.blocking_findings),
         total_checks=total_checks,
@@ -83,10 +69,13 @@ def build_qa_findings(
     attempt_no: int,
     artifact_id: str,
     recorded_at: datetime,
+    stage_registry: StageRegistry,
 ) -> list[QAFindingRecord]:
     """Project one layer result into FK-69 finding records."""
 
-    producer_component = producer_component_for_layer(layer_result.layer)
+    validate_layer_result_execution_protocol(layer_result)
+    producer_component = producer_component_for_layer(layer_result.layer, stage_registry)
+    stage_id = stage_registry.canonical_stage_id_for_result_name(layer_result.layer)
     records: list[QAFindingRecord] = []
     seen_per_key: defaultdict[tuple[str, str, int | None, str, str], int]
     seen_per_key = defaultdict(int)
@@ -100,7 +89,7 @@ def build_qa_findings(
                 story_id=flow.story_id,
                 run_id=flow.run_id,
                 attempt_no=attempt_no,
-                stage_id=layer_result.layer,
+                stage_id=stage_id,
                 finding_id=_finding_id(identity_key, seen_per_key[identity_key]),
                 check_id=finding.check,
                 status="REPORTED",
@@ -118,16 +107,19 @@ def build_qa_findings(
     return records
 
 
-def _count_from_metadata(
+def _validate_explicit_count(
     metadata: dict[str, object],
     key: str,
-    *,
-    fallback: int,
-) -> int:
-    raw = metadata.get(key)
-    if isinstance(raw, int) and raw >= 0:
-        return raw
-    return fallback
+    derived_count: int,
+) -> None:
+    """Reject an explicit count that disagrees with the canonical protocol."""
+    if key not in metadata:
+        return
+    raw = metadata[key]
+    if type(raw) is not int or raw != derived_count:
+        raise ValueError(
+            f"LayerResult metadata[{key!r}]={raw!r} disagrees with canonical executed-check projection count {derived_count}"
+        )
 
 
 def _finding_blocks(finding: Finding) -> bool:

@@ -7,6 +7,8 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tests.qa_artifact_support import record_qa_layer_artifacts
+
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor.models import (
@@ -23,11 +25,11 @@ from agentkit.backend.state_backend.pipeline_runtime_store import (
 )
 from agentkit.backend.state_backend.sqlite_store import state_db_path_for
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
-from agentkit.backend.state_backend.verify_artifact_store import record_layer_artifacts
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.verify_system.artifacts import write_layer_artifacts
 from agentkit.backend.verify_system.protocols import LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 from agentkit.backend.verify_system.structural.checks import (
     check_artifacts_present,
     check_context_exists,
@@ -35,6 +37,8 @@ from agentkit.backend.verify_system.structural.checks import (
     check_no_corrupt_state,
     check_phase_snapshots,
 )
+
+_STAGE_REGISTRY = StageRegistry.result_catalog_only()
 
 
 def _story_dir(root: object, story_id: str = "TEST-001") -> Path:
@@ -191,10 +195,17 @@ class TestCheckArtifactsPresent:
             attempt_nr=1,
         )
         # Schreibpfad 2: FK-69 + Projection via state_backend (Orchestrator-Aufgabe).
-        record_layer_artifacts(
+        record_qa_layer_artifacts(
             story_dir,
-            layer_results=(LayerResult(layer="structural", passed=True),),
+            layer_results=(
+                LayerResult(
+                    layer="structural",
+                    passed=True,
+                    metadata={"executed_check_ids": []},
+                ),
+            ),
             attempt_nr=1,
+            stage_registry=_STAGE_REGISTRY,
             # AG3-144: this module runs on the narrow SQLite unit-test path
             # (tests/unit/conftest.py forces sqlite) -- no fence mirroring
             # there, so these values are accepted but ignored by the driver.

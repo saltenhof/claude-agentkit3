@@ -290,7 +290,7 @@ class QaSubflowOutcome(BaseModel):
 
     * read the PASS/FAIL verdict without parsing the decision details,
     * feed ``decision.layer_results`` into FK-69
-      (``record_layer_artifacts``, ``record_verify_decision``) without
+      (``ProjectionAccessor.record_qa_layer_artifacts``, ``record_verify_decision``) without
       re-running any layers,
     * log or surface structured remediation feedback.
 
@@ -300,7 +300,7 @@ class QaSubflowOutcome(BaseModel):
     Normative references:
     - AG3-026 Pass-2 finding A (outcome model).
     - FK-27 §27.3 / §27.7 (QA-Subflow-Top, Artefakt-Filenamen).
-    - FK-69 (record_layer_artifacts / record_verify_decision).
+    - FK-69 (atomic QA-layer batch / record_verify_decision).
     - ``concept/_meta/bc-cut-decisions.md §BC 2 verify-system``.
 
     Attributes:

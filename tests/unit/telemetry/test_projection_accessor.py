@@ -1,7 +1,7 @@
 """Unit-Tests fuer ProjectionAccessor.
 
 Testet:
-- write_projection: jedes ProjectionKind leitet in das richtige Repository
+- write_projection: QA-Split-Writes werden abgewiesen
 - read_projection: Filter werden korrekt durchgereicht
 - Discriminated-Union-Validierung: falscher Record-Typ -> ProjectionRecordTypeMismatchError
 """
@@ -17,6 +17,7 @@ from agentkit.backend.closure.post_merge_finalization.records import StoryMetric
 from agentkit.backend.telemetry.errors import (
     ProjectionKindNotAccessorOwnedError,
     ProjectionRecordTypeMismatchError,
+    QALayerArtifactWriteViaDedicatedMethodError,
 )
 from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
@@ -155,28 +156,30 @@ def _make_repos() -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_write_qa_stage_results_calls_repo() -> None:
-    """write_projection(QA_STAGE_RESULTS, QAStageResultRecord) -> qa_stage_results.write."""
+def test_write_qa_stage_results_requires_atomic_batch() -> None:
+    """write_projection cannot persist a QA stage row by itself."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     record = _make_qa_stage_result()
 
-    accessor.write_projection(ProjectionKind.QA_STAGE_RESULTS, record)
+    with pytest.raises(QALayerArtifactWriteViaDedicatedMethodError):
+        accessor.write_projection(ProjectionKind.QA_STAGE_RESULTS, record)
 
-    repos.qa_stage_results.write.assert_called_once_with(record)
+    repos.qa_stage_results.write.assert_not_called()
     repos.qa_findings.write.assert_not_called()
     repos.story_metrics.write.assert_not_called()
 
 
-def test_write_qa_findings_calls_repo() -> None:
-    """write_projection(QA_FINDINGS, QAFindingRecord) -> qa_findings.write."""
+def test_write_qa_findings_requires_atomic_batch() -> None:
+    """write_projection cannot persist a QA finding row by itself."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     record = _make_qa_finding()
 
-    accessor.write_projection(ProjectionKind.QA_FINDINGS, record)
+    with pytest.raises(QALayerArtifactWriteViaDedicatedMethodError):
+        accessor.write_projection(ProjectionKind.QA_FINDINGS, record)
 
-    repos.qa_findings.write.assert_called_once_with(record)
+    repos.qa_findings.write.assert_not_called()
     repos.qa_stage_results.write.assert_not_called()
     repos.story_metrics.write.assert_not_called()
 
@@ -199,29 +202,25 @@ def test_write_story_metrics_calls_repo() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_wrong_record_type_for_qa_stage_results_raises() -> None:
-    """QA_STAGE_RESULTS mit QAFindingRecord -> ProjectionRecordTypeMismatchError."""
+def test_wrong_record_type_cannot_bypass_qa_stage_batch() -> None:
+    """The dedicated QA batch error precedes generic type dispatch."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     wrong_record = _make_qa_finding()  # falscher Typ
 
-    with pytest.raises(ProjectionRecordTypeMismatchError) as exc_info:
+    with pytest.raises(QALayerArtifactWriteViaDedicatedMethodError):
         accessor.write_projection(ProjectionKind.QA_STAGE_RESULTS, wrong_record)
 
-    err = exc_info.value
-    assert err.kind == ProjectionKind.QA_STAGE_RESULTS
-    assert err.expected == QAStageResultRecord
-    assert err.received == QAFindingRecord
     repos.qa_stage_results.write.assert_not_called()
 
 
-def test_wrong_record_type_for_qa_findings_raises() -> None:
-    """QA_FINDINGS mit StoryMetricsRecord -> ProjectionRecordTypeMismatchError."""
+def test_wrong_record_type_cannot_bypass_qa_finding_batch() -> None:
+    """A malformed QA finding split write is still rejected as a split write."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     wrong_record = _make_story_metrics()
 
-    with pytest.raises(ProjectionRecordTypeMismatchError):
+    with pytest.raises(QALayerArtifactWriteViaDedicatedMethodError):
         accessor.write_projection(ProjectionKind.QA_FINDINGS, wrong_record)
 
     repos.qa_findings.write.assert_not_called()

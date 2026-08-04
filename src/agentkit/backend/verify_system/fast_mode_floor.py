@@ -71,6 +71,12 @@ def _run_fast_floor(
         else structural.findings
     )
     floor_passed = structural.passed and tests_finding is None
+    structural_check_ids = structural.metadata.get("executed_check_ids")
+    executed_check_ids = (
+        (*structural_check_ids, "fast_tests_green")
+        if isinstance(structural_check_ids, (list, tuple))
+        else structural_check_ids
+    )
     floor_result = LayerResult(
         layer=self.layer_1.name,
         passed=floor_passed,
@@ -79,6 +85,7 @@ def _run_fast_floor(
             **structural.metadata,
             "fast_mode": True,
             "tests_green": tests_finding is None,
+            "executed_check_ids": executed_check_ids,
         },
     )
 

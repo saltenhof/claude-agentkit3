@@ -1,11 +1,10 @@
 """Schema roundtrip tests for qa_check_outcomes (AG3-108, FK-69 §69.15).
 
 Covers:
-- Insert/read roundtrip via FacadeQACheckOutcomesRepository (SQLite)
+- Read roundtrip via FacadeQACheckOutcomesRepository after test-local SQL seed
 - All three outcomes: triggered / clean / overridden
 - Optional fields: check_proposal_ref, override_id
-- Fail-closed: empty project_key raises ValueError
-- Fail-closed: empty check_id raises ValueError
+- The repository exposes no split-write method
 - purge_run removes exactly the target rows; other runs untouched
 - check_id equality filter
 - since_days UTC window including boundary
@@ -20,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import seed_qa_check_outcome
 
 from agentkit.backend.state_backend.store.telemetry_projection_repository_qa import (
     FacadeQACheckOutcomesRepository,
@@ -82,7 +82,7 @@ def _record(
 def test_roundtrip_clean(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
     rec = _record(outcome=CheckOutcome.CLEAN)
-    repo.write(rec)
+    seed_qa_check_outcome(tmp_path, rec)
 
     rows = repo.read(project_key="proj-test", run_id="run-1")
     assert len(rows) == 1
@@ -97,7 +97,7 @@ def test_roundtrip_triggered(tmp_path: Path) -> None:
         check_id="impl_fidelity",
         outcome=CheckOutcome.TRIGGERED,
     )
-    repo.write(rec)
+    seed_qa_check_outcome(tmp_path, rec)
 
     rows = repo.read(project_key="proj-test", run_id="run-1")
     assert len(rows) == 1
@@ -111,7 +111,7 @@ def test_roundtrip_overridden_with_override_id(tmp_path: Path) -> None:
         outcome=CheckOutcome.OVERRIDDEN,
         override_id="ovr-42",
     )
-    repo.write(rec)
+    seed_qa_check_outcome(tmp_path, rec)
 
     rows = repo.read(project_key="proj-test", run_id="run-1")
     assert len(rows) == 1
@@ -122,7 +122,7 @@ def test_roundtrip_overridden_with_override_id(tmp_path: Path) -> None:
 def test_roundtrip_optional_check_proposal_ref(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
     rec = _record(check_proposal_ref="CHK-0042")
-    repo.write(rec)
+    seed_qa_check_outcome(tmp_path, rec)
 
     rows = repo.read(project_key="proj-test", run_id="run-1")
     assert rows[0].check_proposal_ref == "CHK-0042"
@@ -133,16 +133,9 @@ def test_roundtrip_optional_check_proposal_ref(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_write_rejects_empty_project_key(tmp_path: Path) -> None:
+def test_repository_exposes_no_split_write(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
-    with pytest.raises(ValueError, match="project_key"):
-        repo.write(_record(project_key=""))
-
-
-def test_write_rejects_empty_check_id(tmp_path: Path) -> None:
-    repo = FacadeQACheckOutcomesRepository(tmp_path)
-    with pytest.raises(ValueError, match="check_id"):
-        repo.write(_record(check_id=""))
+    assert not hasattr(repo, "write")
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +146,8 @@ def test_write_rejects_empty_check_id(tmp_path: Path) -> None:
 def test_upsert_replaces_on_pk_conflict(tmp_path: Path) -> None:
     """Second write on same PK replaces the outcome (upsert)."""
     repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(outcome=CheckOutcome.CLEAN))
-    repo.write(_record(outcome=CheckOutcome.TRIGGERED))
+    seed_qa_check_outcome(tmp_path, _record(outcome=CheckOutcome.CLEAN))
+    seed_qa_check_outcome(tmp_path, _record(outcome=CheckOutcome.TRIGGERED))
 
     rows = repo.read(project_key="proj-test", run_id="run-1")
     assert len(rows) == 1
@@ -168,9 +161,9 @@ def test_upsert_replaces_on_pk_conflict(tmp_path: Path) -> None:
 
 def test_purge_run_deletes_target_rows(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(run_id="run-a", check_id="c1"))
-    repo.write(_record(run_id="run-a", check_id="c2"))
-    repo.write(_record(run_id="run-b", check_id="c1"))
+    seed_qa_check_outcome(tmp_path, _record(run_id="run-a", check_id="c1"))
+    seed_qa_check_outcome(tmp_path, _record(run_id="run-a", check_id="c2"))
+    seed_qa_check_outcome(tmp_path, _record(run_id="run-b", check_id="c1"))
 
     count = repo.purge_run("proj-test", "AG3-108", "run-a")
 
@@ -193,9 +186,9 @@ def test_purge_run_returns_0_when_nothing_to_delete(tmp_path: Path) -> None:
 
 def test_read_filter_check_id_equality(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(check_id="artifact.protocol"))
-    repo.write(_record(check_id="branch.story"))
-    repo.write(_record(check_id="impl_fidelity"))
+    seed_qa_check_outcome(tmp_path, _record(check_id="artifact.protocol"))
+    seed_qa_check_outcome(tmp_path, _record(check_id="branch.story"))
+    seed_qa_check_outcome(tmp_path, _record(check_id="impl_fidelity"))
 
     rows = repo.read(project_key="proj-test", check_id="branch.story")
     assert len(rows) == 1
@@ -204,7 +197,7 @@ def test_read_filter_check_id_equality(tmp_path: Path) -> None:
 
 def test_read_filter_check_id_no_match(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(check_id="artifact.protocol"))
+    seed_qa_check_outcome(tmp_path, _record(check_id="artifact.protocol"))
 
     rows = repo.read(project_key="proj-test", check_id="nonexistent")
     assert rows == []
@@ -224,7 +217,7 @@ def test_since_days_includes_recent_row(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
     # 3 days ago
     recent_ts = _now_dt() - timedelta(days=3)
-    repo.write(_record(occurred_at=recent_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=recent_ts))
 
     rows = repo.read(
         project_key="proj-test",
@@ -239,7 +232,7 @@ def test_since_days_excludes_old_row(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
     # 10 days ago — outside the 7-day window
     old_ts = _now_dt() - timedelta(days=10)
-    repo.write(_record(occurred_at=old_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=old_ts))
 
     rows = repo.read(
         project_key="proj-test",
@@ -253,7 +246,7 @@ def test_since_days_boundary_exactly_at_cutoff(tmp_path: Path) -> None:
     """Row exactly at the cutoff (occurred_at == now - since_days) is included."""
     repo = FacadeQACheckOutcomesRepository(tmp_path)
     cutoff_ts = _now_dt() - timedelta(days=7)
-    repo.write(_record(occurred_at=cutoff_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=cutoff_ts))
 
     rows = repo.read(
         project_key="proj-test",
@@ -267,7 +260,7 @@ def test_since_days_zero_returns_all_from_now(tmp_path: Path) -> None:
     """since_days=0 uses a cutoff of now — only rows at or after now pass."""
     repo = FacadeQACheckOutcomesRepository(tmp_path)
     old_ts = _now_dt() - timedelta(seconds=1)
-    repo.write(_record(occurred_at=old_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=old_ts))
 
     rows = repo.read(
         project_key="proj-test",
@@ -282,7 +275,7 @@ def test_since_days_negative_treated_as_zero(tmp_path: Path) -> None:
     """Negative since_days is clamped to 0 (same as since_days=0)."""
     repo = FacadeQACheckOutcomesRepository(tmp_path)
     old_ts = _now_dt() - timedelta(hours=1)
-    repo.write(_record(occurred_at=old_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=old_ts))
 
     rows = repo.read(
         project_key="proj-test",
@@ -299,8 +292,8 @@ def test_since_days_negative_treated_as_zero(tmp_path: Path) -> None:
 
 def test_read_is_project_scoped(tmp_path: Path) -> None:
     repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(project_key="proj-a", check_id="c1"))
-    repo.write(_record(project_key="proj-b", check_id="c1"))
+    seed_qa_check_outcome(tmp_path, _record(project_key="proj-a", check_id="c1"))
+    seed_qa_check_outcome(tmp_path, _record(project_key="proj-b", check_id="c1"))
 
     rows_a = repo.read(project_key="proj-a")
     rows_b = repo.read(project_key="proj-b")
@@ -328,9 +321,7 @@ def test_since_days_via_public_accessor_includes_recent(tmp_path: Path) -> None:
     now = _now_dt()
     recent_ts = now - timedelta(days=2)
 
-    # Write directly via the repo so we can control occurred_at.
-    repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(occurred_at=recent_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=recent_ts))
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
@@ -349,8 +340,7 @@ def test_since_days_via_public_accessor_excludes_old(tmp_path: Path) -> None:
     now = _now_dt()
     old_ts = now - timedelta(days=30)
 
-    repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(occurred_at=old_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=old_ts))
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
@@ -368,8 +358,7 @@ def test_since_days_boundary_via_public_accessor(tmp_path: Path) -> None:
     now = _now_dt()
     cutoff_ts = now - timedelta(days=7)
 
-    repo = FacadeQACheckOutcomesRepository(tmp_path)
-    repo.write(_record(occurred_at=cutoff_ts))
+    seed_qa_check_outcome(tmp_path, _record(occurred_at=cutoff_ts))
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,

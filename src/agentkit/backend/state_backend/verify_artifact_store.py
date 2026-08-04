@@ -19,40 +19,6 @@ if TYPE_CHECKING:
 
     from agentkit.backend.state_backend.scope import RuntimeStateScope
     from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
-    from agentkit.backend.verify_system.protocols import LayerResult
-
-
-def record_layer_artifacts(
-    story_dir: Path,
-    *,
-    layer_results: tuple[LayerResult, ...],
-    attempt_nr: int,
-    owner_session_id: str,
-    expected_ownership_epoch: int,
-    projection_dir: Path | None = None,
-) -> tuple[str, ...]:
-    """Serialize QA layer artifacts and persist them through the active backend."""
-    from agentkit.backend.state_backend import persistence_mappers as mappers
-
-    flow_row = _backend_module().load_flow_execution_row(story_dir)
-    layer_payload_rows = mappers.build_qa_layer_payload_rows(
-        flow_row,
-        layer_results,
-        attempt_nr=attempt_nr,
-    )
-
-    return cast(
-        "tuple[str, ...]",
-        _backend_module().persist_layer_artifact_rows(
-            story_dir,
-            flow_row=flow_row,
-            layer_payload_rows=layer_payload_rows,
-            attempt_nr=attempt_nr,
-            owner_session_id=owner_session_id,
-            expected_ownership_epoch=expected_ownership_epoch,
-            projection_dir=projection_dir,
-        ),
-    )
 
 
 def record_verify_decision(
@@ -176,7 +142,6 @@ def purge_decision_records(story_dir: Path, story_id: str) -> int:
 
 
 __all__ = [
-    "record_layer_artifacts",
     "record_verify_decision",
     "load_latest_verify_decision",
     "load_latest_verify_decision_for_scope",

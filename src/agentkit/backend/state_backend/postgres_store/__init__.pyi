@@ -406,6 +406,9 @@ from ._qa_artifact_rows import (
     pg_delete_findings_for_scope as pg_delete_findings_for_scope,
 )
 from ._qa_artifact_rows import (
+    pg_execute_check_outcome_upsert as pg_execute_check_outcome_upsert,
+)
+from ._qa_artifact_rows import (
     pg_execute_finding_upsert as pg_execute_finding_upsert,
 )
 from ._qa_artifact_rows import (

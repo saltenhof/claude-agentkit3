@@ -46,6 +46,7 @@ from agentkit.backend.verify_system.adversarial_orchestrator.challenger import (
 )
 from agentkit.backend.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner
 from agentkit.backend.verify_system.contract import VerifyContextBundle
+from agentkit.backend.verify_system.defaults import VerifySystemDefaultOptions
 from agentkit.backend.verify_system.protocols import (
     ASSERTION_WEAKNESS_FINDING_TYPE,
     Finding,
@@ -53,6 +54,7 @@ from agentkit.backend.verify_system.protocols import (
     Severity,
     TrustClass,
 )
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 from agentkit.backend.verify_system.system import VerifySystem
 from integration.implementation_evidence_support import (
     ReadyEvidencePreparationCoordinator,
@@ -248,6 +250,7 @@ class _BlockingQaReviewLayer:
                     addressed_part="fixed the happy-path assertion",
                 ),
             ),
+            metadata={"executed_check_ids": ("assertion_weakness",)},
         )
 
 
@@ -272,10 +275,24 @@ def test_real_qa_subflow_layer2_blocking_to_agents_to_spawn(tmp_path: Path) -> N
     story_dir = tmp_path / "AG3-044"
     _init_story_worktree(story_dir)
     manager = build_artifact_manager(tmp_path)
-    system = VerifySystem.create_default(artifact_manager=manager)
+    base_registry = StageRegistry.result_catalog_only()
+    registry = dataclasses.replace(
+        base_registry,
+        native_check_origin_refs={
+            **base_registry.native_check_origin_refs,
+            "assertion_weakness": None,
+        },
+    )
+    system = VerifySystem.create_default(
+        artifact_manager=manager,
+        defaults=VerifySystemDefaultOptions(stage_registry=registry),
+    )
     # Replace ONLY the qa_review Layer-2 reviewer with a blocking double; the
     # adversarial spawner stays the real one create_default wired.
-    system = dataclasses.replace(system, layer_2a=_BlockingQaReviewLayer())
+    system = dataclasses.replace(
+        system,
+        layer_2a=_BlockingQaReviewLayer(),
+    )
     system = bind_implementation_qa_preconditions(
         system, story_dir, story_id="AG3-044", run_id="run-1"
     )
@@ -332,7 +349,11 @@ class _PassingLayer:
         review_input: Layer2ReviewInput | None = None,
     ) -> LayerResult:
         del ctx, story_dir, review_input
-        return LayerResult(layer=self._name, passed=True)
+        return LayerResult(
+            layer=self._name,
+            passed=True,
+            metadata={"executed_check_ids": (self._name,)},
+        )
 
 
 def test_real_qa_subflow_impl_route_no_blocking_layer2_no_spawn(tmp_path: Path) -> None:
@@ -447,10 +468,24 @@ def test_engine_persists_remediation_and_adversarial_spawn(
     # The artifact manager is bound to the SAME store as the engine's state so
     # the sandbox envelope and the persisted PhaseState share one backend.
     manager = build_artifact_manager(story_dir)
-    system = VerifySystem.create_default(artifact_manager=manager)
+    base_registry = StageRegistry.result_catalog_only()
+    registry = dataclasses.replace(
+        base_registry,
+        native_check_origin_refs={
+            **base_registry.native_check_origin_refs,
+            "assertion_weakness": None,
+        },
+    )
+    system = VerifySystem.create_default(
+        artifact_manager=manager,
+        defaults=VerifySystemDefaultOptions(stage_registry=registry),
+    )
     # Replace ONLY the qa_review Layer-2 reviewer with a blocking double; the
     # adversarial spawner stays the real one create_default wired.
-    system = dataclasses.replace(system, layer_2a=_BlockingQaReviewLayer())
+    system = dataclasses.replace(
+        system,
+        layer_2a=_BlockingQaReviewLayer(),
+    )
     system = bind_implementation_qa_preconditions(
         system, story_dir, story_id="AG3-044", run_id="run-1"
     )

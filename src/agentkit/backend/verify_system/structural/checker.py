@@ -306,7 +306,7 @@ class StructuralChecker:
                 if stage.escalated and finding.severity == Severity.BLOCKING:
                     escalated = True
 
-        # AG3-108: populate executed_check_ids so CheckOutcomeEmitter can emit
+        # AG3-108: populate executed_check_ids so CheckOutcomeEmitter can build
         # clean rows for PASS checks (not just triggered from findings).
         # Includes both pre-check IDs and stage IDs (full executed set).
         executed_check_ids: list[str] = pre_check_ids + stage_ids_run
@@ -324,7 +324,7 @@ class StructuralChecker:
                 )
             },
             # FK-69 §69.15: full set of executed check identifiers so the
-            # CheckOutcomeEmitter can emit clean rows for PASS checks.
+            # CheckOutcomeEmitter can build clean rows for PASS checks.
             "executed_check_ids": tuple(executed_check_ids),
         }
         if escalated:

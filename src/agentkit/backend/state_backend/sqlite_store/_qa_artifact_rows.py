@@ -20,11 +20,13 @@ if TYPE_CHECKING:
 
     from agentkit.backend.state_backend.scope import RuntimeStateScope
 
+
 def persist_layer_artifact_rows(
     story_dir: Path,
     *,
     flow_row: dict[str, Any] | None,
     layer_payload_rows: list[dict[str, object]],
+    check_outcome_rows: list[dict[str, object]],
     attempt_nr: int,
     owner_session_id: str,
     expected_ownership_epoch: int,
@@ -35,16 +37,14 @@ def persist_layer_artifact_rows(
     ``layer_payload_rows`` contains pre-serialized dicts from the mapper layer.
     Each element has keys: ``layer``, ``artifact_name``, ``producer_component``,
     ``payload``, ``passed``, ``recorded_at``.
-    ``flow_row`` and FK-69 fields (``stage_row``, ``finding_rows``) are
-    ignored on SQLite (FK-69 read models are Postgres-only).
-    artifact_records removed in 3.4.0 — projection file is the only SQLite output.
+    ``flow_row`` and FK-69 fields (``stage_row``, ``finding_rows``) use the
+    same productive batch contract as Postgres. File materialization is
+    optional per registered result and does not control QA-row projection.
 
     AG3-144 (K5 Postgres-only): the narrow SQLite unit-test path receives BUT
     does not mirror the AG3-142 ownership-lease fence -- explicit, not a
     silent skip (the fence lives only in ``postgres_store.py``).
     """
-    del flow_row
-    del attempt_nr
     del owner_session_id
     del expected_ownership_epoch
     story_id = _story_id_for(story_dir)
@@ -52,13 +52,111 @@ def persist_layer_artifact_rows(
         raise CorruptStateError(
             "Cannot persist QA layer artifacts without story context in canonical backend",
         )
+    if flow_row is None:
+        raise CorruptStateError(
+            "Cannot materialize FK-69 QA read models without flow execution scope in canonical SQLite backend",
+        )
     produced: list[str] = []
-    for item in layer_payload_rows:
-        artifact_name = str(item["artifact_name"])
-        payload = cast("_JsonRecord", item["payload"])
-        target_dir = projection_dir or story_dir
-        _write_projection(target_dir / artifact_name, payload)
-        produced.append(artifact_name)
+    with _connect(story_dir) as conn:
+        for item in layer_payload_rows:
+            layer = str(item["layer"])
+            artifact_name = item.get("artifact_name")
+            if artifact_name is not None:
+                payload = cast("_JsonRecord", item["payload"])
+                target_dir = projection_dir or story_dir
+                _write_projection(target_dir / str(artifact_name), payload)
+                produced.append(str(artifact_name))
+            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
+            if stage_row is None:
+                raise CorruptStateError(
+                    f"Cannot materialize FK-69 QA read models for result {layer!r} without a stage projection",
+                )
+            canonical_stage_id = str(stage_row["stage_id"])
+            conn.execute(
+                """
+                DELETE FROM qa_findings
+                WHERE project_key = ? AND run_id = ?
+                  AND attempt_no = ? AND stage_id = ?
+                """,
+                (
+                    str(stage_row["project_key"]),
+                    str(stage_row["run_id"]),
+                    int(str(stage_row["attempt_no"])),
+                    canonical_stage_id,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO qa_stage_results (
+                    project_key, story_id, run_id, attempt_no, stage_id, layer,
+                    producer_component, status, blocking, total_checks,
+                    failed_checks, warning_checks, artifact_id, recorded_at
+                ) VALUES (
+                    :project_key, :story_id, :run_id, :attempt_no, :stage_id,
+                    :layer, :producer_component, :status, :blocking,
+                    :total_checks, :failed_checks, :warning_checks,
+                    :artifact_id, :recorded_at
+                )
+                """,
+                stage_row,
+            )
+            finding_rows = cast("list[dict[str, object]]", item.get("finding_rows") or [])
+            for finding_row in finding_rows:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO qa_findings (
+                        project_key, story_id, run_id, attempt_no, stage_id,
+                        finding_id, check_id, status, severity, blocking,
+                        source_component, artifact_id, occurred_at,
+                        category, reason, description, detail, metadata_json
+                    ) VALUES (
+                        :project_key, :story_id, :run_id, :attempt_no, :stage_id,
+                        :finding_id, :check_id, :status, :severity, :blocking,
+                        :source_component, :artifact_id, :occurred_at,
+                        :category, :reason, :description, :detail, :metadata_json
+                    )
+                    """,
+                    finding_row,
+                )
+        outcome_scopes = {
+            (str(row["project_key"]), str(row["run_id"]), int(str(row["attempt_no"])), str(row["stage_id"]))
+            for row in check_outcome_rows
+        }
+        for item in layer_payload_rows:
+            stage_row = cast("dict[str, object] | None", item.get("stage_row"))
+            if stage_row is not None:
+                outcome_scopes.add(
+                    (
+                        str(stage_row["project_key"]),
+                        str(stage_row["run_id"]),
+                        int(str(stage_row["attempt_no"])),
+                        str(stage_row["stage_id"]),
+                    )
+                )
+        for project_key, run_id, attempt_no, stage_id in outcome_scopes:
+            conn.execute(
+                """
+                DELETE FROM qa_check_outcomes
+                WHERE project_key = ? AND run_id = ?
+                  AND attempt_no = ? AND stage_id = ?
+                """,
+                (project_key, run_id, attempt_no, stage_id),
+            )
+        for row in check_outcome_rows:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO qa_check_outcomes (
+                    project_key, story_id, run_id, stage_id, attempt_no,
+                    check_id, outcome, occurred_at, check_proposal_ref,
+                    override_id
+                ) VALUES (
+                    :project_key, :story_id, :run_id, :stage_id, :attempt_no,
+                    :check_id, :outcome, :occurred_at, :check_proposal_ref,
+                    :override_id
+                )
+                """,
+                row,
+            )
     return tuple(produced)
 
 

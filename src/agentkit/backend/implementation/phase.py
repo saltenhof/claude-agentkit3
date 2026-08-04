@@ -201,9 +201,7 @@ class ImplementationPhaseHandler:
         # mirroring there) -- the placeholder values are explicitly ignored
         # by the sqlite_store driver functions.
         ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
-        owner_session_id, expected_ownership_epoch = (
-            ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
-        )
+        owner_session_id, expected_ownership_epoch = ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
         # AG3-026 Re-Review: VerifySystem.create_default() requires an
         # ArtifactManager (mandatory arg, fail-closed). Build via the
         # Composition-Root which already wires the manager to the story DB.
@@ -308,7 +306,7 @@ class ImplementationPhaseHandler:
         # for the ENTIRE mutating QA-subflow execution -- every artifact_envelopes
         # write reachable from run_qa_subflow (verify_system's layer/policy
         # envelopes, prompt-runtime materialization, the adversarial sandbox +
-        # adversarial.json, the ARE-gate audit) and the qa_check_outcomes writes
+        # adversarial.json, the ARE-gate audit) and the atomic QA-layer batch
         # below are fenced against THIS bound scope at their own Postgres commit,
         # regardless of how many BC-internal layers separate them from this
         # handler (no per-call parameter threading through those unrelated
@@ -358,41 +356,37 @@ class ImplementationPhaseHandler:
             from agentkit.backend.verify_system.check_outcome_emitter import CheckOutcomeEmitter
 
             accessor = build_projection_accessor(s_dir)
-            accessor.record_qa_layer_artifacts(
-                s_dir,
-                layer_results=decision.layer_results,
-                attempt_nr=attempt_nr,
-                owner_session_id=owner_session_id,
-                expected_ownership_epoch=expected_ownership_epoch,
-                projection_dir=projection_dir,
-            )
-            # AG3-108 AC2/AC4: wire CheckOutcomeEmitter into the real QA persistence path.
-            # Emits one qa_check_outcomes row per executed check per layer (triggered /
-            # clean / overridden). The emitter is a verify-system BC producer; the
+            # AG3-108 AC2/AC4: build one outcome record per executed check per
+            # layer (triggered / clean / overridden). The emitter is a pure
+            # verify-system record builder; the
             # accessor is the DB owner (FK-69 §69.15).
             # AC4: load persisted OverrideRecords once (fail-closed: load_override_records
             # raises on backend errors — no silent swallow) and pass them into every
             # per-layer emit call so the emitter can mark `overridden` for any check_id
             # that matches an active override (FK-69 §69.11 rule 3 / §69.15.6 rule 5).
-            # AG3-078 ERROR 1: build per-check check_id -> origin_check_ref mapping from
-            # the stage registry (FK-33 §33.2.1). FC-derived stages carry CHK-NNNN in
-            # StageDefinition.origin_check_ref; native stages carry None. A single layer
-            # may mix both, so the mapping must be per-check_id (not per-layer).
-            _stage_origin_map: dict[str, str | None] = {
-                stage.stage_id: stage.origin_check_ref
-                for stage in verify_system.stage_registry.stages
-            }
             _override_records = load_override_records(s_dir)
             _emitter = CheckOutcomeEmitter()
-            for layer_result in decision.layer_results:
-                _emitter.emit(
-                    flow,
-                    layer_result,
-                    attempt_no=attempt_nr,
-                    override_records=_override_records,
-                    projection_accessor=accessor,
-                    check_origin_refs=_stage_origin_map,
-                )
+            check_outcomes = _emitter.build_batch(
+                flow,
+                decision.layer_results,
+                attempt_no=attempt_nr,
+                override_records=_override_records,
+                stage_registry=verify_system.stage_registry,
+            )
+            # All layer protocols, result names, provenance mappings, and
+            # explicit aggregate counts have now been validated. Persist the
+            # three FK-69 QA projections and their source artifacts through the
+            # one batch boundary; no validation error can leave partial rows.
+            accessor.record_qa_layer_artifacts(
+                s_dir,
+                layer_results=decision.layer_results,
+                check_outcomes=check_outcomes,
+                stage_registry=verify_system.stage_registry,
+                attempt_nr=attempt_nr,
+                owner_session_id=owner_session_id,
+                expected_ownership_epoch=expected_ownership_epoch,
+                projection_dir=projection_dir,
+            )
             record_verify_decision(
                 s_dir,
                 decision=decision,
@@ -439,9 +433,7 @@ class ImplementationPhaseHandler:
                 escalated_state = evolve_phase_state(
                     escalated_state,
                     status=PhaseStatus.ESCALATED,
-                    escalation_reason=(
-                        EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION
-                    ),
+                    escalation_reason=(EscalationReason.IMPLEMENTATION_REQUIRED_AFTER_EXPLORATION),
                 )
             logger.warning(
                 "QA-subflow escalated for %s after %d rounds",
@@ -547,9 +539,7 @@ class ImplementationPhaseHandler:
                 owner_session_id=owner_session_id,
                 expected_ownership_epoch=ownership_epoch,
             ):
-                preparation = coordinator.advance(
-                    inputs, _verify_evidence_wait_cursor(state)
-                )
+                preparation = coordinator.advance(inputs, _verify_evidence_wait_cursor(state))
         except (EvidenceAssemblyError, PreflightReviewSenderError, ValueError) as exc:
             return _evidence_failure(
                 state,
@@ -641,14 +631,8 @@ class ImplementationPhaseHandler:
         # AG3-044 AC6 (FK-26 §26.11.2): the structured blocker details live in
         # the TYPED ``suggested_reaction`` field; ``errors`` carries only a plain
         # human summary (no structured JSON smuggled through errors[0]).
-        category = (
-            manifest.blocking_category.value
-            if manifest.blocking_category is not None
-            else "unknown"
-        )
-        human_summary = (
-            f"Worker BLOCKED ({category}): {manifest.blocking_issue}"
-        )
+        category = manifest.blocking_category.value if manifest.blocking_category is not None else "unknown"
+        human_summary = f"Worker BLOCKED ({category}): {manifest.blocking_issue}"
         return HandlerResult(
             status=PhaseStatus.ESCALATED,
             errors=(human_summary,),
@@ -662,9 +646,7 @@ class ImplementationPhaseHandler:
         )
 
 
-def _resolve_sonar_gate_port(
-    ctx: StoryContext, story_dir: Path
-) -> SonarGateInputPort | None:
+def _resolve_sonar_gate_port(ctx: StoryContext, story_dir: Path) -> SonarGateInputPort | None:
     """Resolve the productive ``sonarqube_gate`` port for this run (AG3-052 E1).
 
     Loads the project's ``sonarqube`` config from ``ctx.project_root`` and
@@ -719,9 +701,7 @@ def _resolve_sonar_gate_port(
     # code-producing project) MUST propagate and stop the QA-subflow, never
     # silently become an inert absent skip (FK-33 §33.6.5).
     project_config = load_project_config(ctx.project_root)
-    return build_sonar_gate_port_for_run(
-        project_config.pipeline.sonarqube, ctx, story_dir
-    )
+    return build_sonar_gate_port_for_run(project_config.pipeline.sonarqube, ctx, story_dir)
 
 
 def _resolve_fast_test_runner(
@@ -806,9 +786,7 @@ def _resolve_structural_evidence_ports(
     build_test_port = build_structural_build_test_port(ci_config, story_dir)
     are_client = build_are_client_from_project_config(project_config)
     are_provider = (
-        build_structural_are_provider(are_client, pipeline, store_dir=ctx.project_root)
-        if pipeline is not None
-        else None
+        build_structural_are_provider(are_client, pipeline, store_dir=ctx.project_root) if pipeline is not None else None
     )
     return (build_test_port, are_provider)
 
@@ -955,8 +933,7 @@ def _read_worker_manifest(story_dir: Path) -> WorkerManifest | None:
         return WorkerManifest.model_validate(raw)
     except ValueError as exc:
         raise CorruptStateError(
-            f"{_WORKER_MANIFEST_FILENAME} is not a valid WorkerManifest "
-            "(FK-26 §26.8.2)",
+            f"{_WORKER_MANIFEST_FILENAME} is not a valid WorkerManifest (FK-26 §26.8.2)",
             detail={"story_dir": str(story_dir), "error": str(exc)},
         ) from exc
 
@@ -976,16 +953,9 @@ def _blocked_suggested_reaction(manifest: WorkerManifest) -> str:
         A serialized ``suggested_reaction`` JSON string (FK-26 §26.11.2 shape).
     """
     payload = {
-        "action": (
-            "Worker blocked by external constraint. Review blocker details "
-            "and resolve before re-running."
-        ),
+        "action": ("Worker blocked by external constraint. Review blocker details and resolve before re-running."),
         "blocking_issue": manifest.blocking_issue,
-        "blocking_category": (
-            manifest.blocking_category.value
-            if manifest.blocking_category is not None
-            else None
-        ),
+        "blocking_category": (manifest.blocking_category.value if manifest.blocking_category is not None else None),
         "recommended_next_action": manifest.recommended_next_action,
     }
     return json.dumps(payload, sort_keys=True, ensure_ascii=False)
@@ -1010,10 +980,7 @@ def _feedback_errors(outcome: _QaSubflowOutcome) -> list[str]:
 
 def _is_implementation_required_after_exploration(outcome: _QaSubflowOutcome) -> bool:
     """Whether the QA-subflow failed at the FK-24 terminality precondition."""
-    return any(
-        finding.check == "implementation_evidence.required_after_exploration"
-        for finding in outcome.decision.all_findings
-    )
+    return any(finding.check == "implementation_evidence.required_after_exploration" for finding in outcome.decision.all_findings)
 
 
 def _implementation_completed_context(ctx: StoryContext) -> StoryContext:
@@ -1101,13 +1068,7 @@ def _clear_verify_evidence_wait(state: PhaseState) -> PhaseState:
     """Clear only the small wait cursor after fenced result application."""
     if not isinstance(state.payload, ImplementationPayload):
         return state
-    return state.model_copy(
-        update={
-            "payload": state.payload.model_copy(
-                update={"verify_evidence_wait": None}
-            )
-        }
-    )
+    return state.model_copy(update={"payload": state.payload.model_copy(update={"verify_evidence_wait": None})})
 
 
 def _retained_verify_evidence_wait(
@@ -1129,9 +1090,7 @@ def _verify_evidence_wait_cursor(
     return None
 
 
-def _evidence_failure(
-    state: PhaseState, qa_rounds: int, message: str
-) -> _EvidencePhasePreparation:
+def _evidence_failure(state: PhaseState, qa_rounds: int, message: str) -> _EvidencePhasePreparation:
     return _EvidencePhasePreparation(
         state=state,
         failure=HandlerResult(
@@ -1167,24 +1126,16 @@ def _verify_evidence_inputs(
     repositories: list[VerifyEvidenceRepository] = []
     repository_paths: dict[str, Path] = {}
     for repo_id in ctx.participating_repos:
-        freshness = load_push_freshness_record_global(
-            ctx.project_key, ctx.story_id, run_id, repo_id
-        )
+        freshness = load_push_freshness_record_global(ctx.project_key, ctx.story_id, run_id, repo_id)
         head = None if freshness is None else freshness.last_pushed_head_sha
         if not head:
-            raise ValueError(
-                f"EDGE_CANDIDATE_UNAVAILABLE: no pushed head for {repo_id!r}"
-            )
-        repositories.append(
-            VerifyEvidenceRepository(repo_id=repo_id, expected_head_sha=head)
-        )
+            raise ValueError(f"EDGE_CANDIDATE_UNAVAILABLE: no pushed head for {repo_id!r}")
+        repositories.append(VerifyEvidenceRepository(repo_id=repo_id, expected_head_sha=head))
         repo_path = ctx.worktree_map.get(repo_id)
         if repo_path is None and len(ctx.participating_repos) == 1:
             repo_path = ctx.worktree_path
         if repo_path is None:
-            raise ValueError(
-                f"EDGE_CANDIDATE_UNAVAILABLE: no worktree coordinate for {repo_id!r}"
-            )
+            raise ValueError(f"EDGE_CANDIDATE_UNAVAILABLE: no worktree coordinate for {repo_id!r}")
         repository_paths[repo_id] = repo_path
     if not repositories:
         raise ValueError("EDGE_CANDIDATE_UNAVAILABLE: no participating repositories")
@@ -1269,8 +1220,7 @@ def _check_is_implementation_approval(
     if not binding.binding_valid:
         return _is_spawn_block(
             state,
-            "manifest-approval binding integrity failed: "
-            f"{binding.reason} (FK-05 §5.5.4, AC2, invariant: binding_integrity).",
+            f"manifest-approval binding integrity failed: {binding.reason} (FK-05 §5.5.4, AC2, invariant: binding_integrity).",
         )
     return None
 

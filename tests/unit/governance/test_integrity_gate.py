@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import record_qa_layer_artifacts
 
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 from agentkit.backend.core_types import PolicyVerdict
@@ -41,7 +42,6 @@ from agentkit.backend.state_backend.store.integrity_gate_repository import (
 )
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.state_backend.verify_artifact_store import (
-    record_layer_artifacts,
     record_verify_decision,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -59,6 +59,7 @@ from agentkit.backend.verify_system.protocols import (
     TrustClass,
 )
 from agentkit.backend.verify_system.sonarqube_gate import SonarApplicability
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -74,6 +75,7 @@ _NONCODE_PHASES = ("setup", "closure")
 # by the signature but ignored by the driver.
 _UNFENCED_SQLITE_OWNER = "sqlite-unfenced"
 _UNFENCED_SQLITE_EPOCH = 0
+_STAGE_REGISTRY = StageRegistry.result_catalog_only()
 
 
 @pytest.fixture(autouse=True)
@@ -225,15 +227,33 @@ def _structural_result(*, passed: bool = True) -> LayerResult:
         layer="structural",
         passed=passed,
         findings=findings,
-        metadata={"total_checks": 6},
+        metadata={
+            "executed_check_ids": [
+                *(finding.check for finding in findings),
+                "clean_check_0",
+                "clean_check_1",
+                "clean_check_2",
+            ],
+            "total_checks": 6,
+        },
     )
 
 
 def _full_layers(*, passed: bool = True) -> tuple[LayerResult, ...]:
     return (
         _structural_result(passed=passed),
-        LayerResult(layer="qa_review", passed=passed, findings=()),
-        LayerResult(layer="semantic_review", passed=passed, findings=()),
+        LayerResult(
+            layer="qa_review",
+            passed=passed,
+            findings=(),
+            metadata={"executed_check_ids": []},
+        ),
+        LayerResult(
+            layer="semantic_review",
+            passed=passed,
+            findings=(),
+            metadata={"executed_check_ids": []},
+        ),
         LayerResult(
             layer="adversarial",
             passed=passed,
@@ -241,6 +261,7 @@ def _full_layers(*, passed: bool = True) -> tuple[LayerResult, ...]:
             # AG3-079 (FK-48 §48.1.6/§48.1.8): a conformant adversarial run mirrors
             # the mandatory sparring telemetry proof Dim 6 verifies.
             metadata={
+                "executed_check_ids": ["adversarial.test.1", "adversarial.test.2"],
                 "summary": "adversarial; " + ("edge probe " * 25),
                 "tests_executed": 2,
                 "sparring": {
@@ -291,10 +312,11 @@ def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
         decision=decision_obj,
         attempt_nr=1,
     )
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=layers,
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id=_UNFENCED_SQLITE_OWNER,
         expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
     )
@@ -360,10 +382,11 @@ class TestIntegrityGateAllPassing:
             manager=manager, story_id="AG3-001", run_id=_RUN,
             layer_results=(_structural_result(),), attempt_nr=1,
         )
-        record_layer_artifacts(
+        record_qa_layer_artifacts(
             story_dir,
             layer_results=(_structural_result(),),
             attempt_nr=1,
+            stage_registry=_STAGE_REGISTRY,
             owner_session_id=_UNFENCED_SQLITE_OWNER,
             expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
         )
@@ -380,10 +403,11 @@ class TestIntegrityGateAllPassing:
             manager=manager, story_id="AG3-001", run_id=_RUN,
             layer_results=(_structural_result(),), attempt_nr=1,
         )
-        record_layer_artifacts(
+        record_qa_layer_artifacts(
             story_dir,
             layer_results=(_structural_result(),),
             attempt_nr=1,
+            stage_registry=_STAGE_REGISTRY,
             owner_session_id=_UNFENCED_SQLITE_OWNER,
             expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
         )
@@ -633,10 +657,11 @@ class TestIntegrityGateResearchFewerDimensions:
             manager=manager, story_id="AG3-001", run_id=_RUN,
             layer_results=(_structural_result(),), attempt_nr=1,
         )
-        record_layer_artifacts(
+        record_qa_layer_artifacts(
             story_dir,
             layer_results=(_structural_result(),),
             attempt_nr=1,
+            stage_registry=_STAGE_REGISTRY,
             owner_session_id=_UNFENCED_SQLITE_OWNER,
             expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
         )

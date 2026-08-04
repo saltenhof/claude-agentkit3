@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import seed_qa_finding, seed_qa_stage_result
 
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
@@ -84,7 +85,9 @@ def _accessor(story_dir: Path) -> ProjectionAccessor:
     return ProjectionAccessor(build_projection_repositories(story_dir))
 
 
-def _seed_completed_run(accessor: ProjectionAccessor, emitter: StateBackendEmitter) -> None:
+def _seed_completed_run(
+    story_dir: Path, accessor: ProjectionAccessor, emitter: StateBackendEmitter
+) -> None:
     accessor.write_projection(
         ProjectionKind.STORY_METRICS,
         StoryMetricsRecord(
@@ -101,8 +104,12 @@ def _seed_completed_run(accessor: ProjectionAccessor, emitter: StateBackendEmitt
             completed_at="2026-05-25T10:00:00+00:00",
         ),
     )
-    accessor.write_projection(
-        ProjectionKind.QA_STAGE_RESULTS,
+    # QA rows are seeded below the business boundary: the three QA projections
+    # may only be written together via ``record_qa_layer_artifacts`` (FK-69
+    # §69.4). This test needs an exportable dataset, not a QA run, so it seeds
+    # the rows directly instead of staging a whole layer batch.
+    seed_qa_stage_result(
+        story_dir,
         QAStageResultRecord(
             project_key=_PROJECT,
             story_id=_STORY,
@@ -120,8 +127,8 @@ def _seed_completed_run(accessor: ProjectionAccessor, emitter: StateBackendEmitt
             recorded_at=datetime(2026, 5, 25, 10, 0, tzinfo=UTC),
         ),
     )
-    accessor.write_projection(
-        ProjectionKind.QA_FINDINGS,
+    seed_qa_finding(
+        story_dir,
         QAFindingRecord(
             project_key=_PROJECT,
             story_id=_STORY,
@@ -161,7 +168,7 @@ def _seed_completed_run(accessor: ProjectionAccessor, emitter: StateBackendEmitt
 def test_export_produces_six_files_and_manifest(story_dir: Path) -> None:
     accessor = _accessor(story_dir)
     emitter = StateBackendEmitter(story_dir, default_project_key=_PROJECT)
-    _seed_completed_run(accessor, emitter)
+    _seed_completed_run(story_dir, accessor, emitter)
 
     out_dir = story_dir / "audit-bundle"
     bundle = AuditBundleExporter(accessor, emitter).export(_STORY, _RUN, out_dir)
@@ -182,7 +189,7 @@ def test_export_produces_six_files_and_manifest(story_dir: Path) -> None:
 def test_manifest_hashes_match_file_content(story_dir: Path) -> None:
     accessor = _accessor(story_dir)
     emitter = StateBackendEmitter(story_dir, default_project_key=_PROJECT)
-    _seed_completed_run(accessor, emitter)
+    _seed_completed_run(story_dir, accessor, emitter)
 
     out_dir = story_dir / "audit-bundle"
     bundle = AuditBundleExporter(accessor, emitter).export(_STORY, _RUN, out_dir)
@@ -197,7 +204,7 @@ def test_manifest_hashes_match_file_content(story_dir: Path) -> None:
 def test_events_jsonl_roundtrip(story_dir: Path) -> None:
     accessor = _accessor(story_dir)
     emitter = StateBackendEmitter(story_dir, default_project_key=_PROJECT)
-    _seed_completed_run(accessor, emitter)
+    _seed_completed_run(story_dir, accessor, emitter)
 
     out_dir = story_dir / "audit-bundle"
     AuditBundleExporter(accessor, emitter).export(_STORY, _RUN, out_dir)
@@ -217,7 +224,7 @@ def test_events_jsonl_roundtrip(story_dir: Path) -> None:
 def test_story_metrics_single_record_roundtrip(story_dir: Path) -> None:
     accessor = _accessor(story_dir)
     emitter = StateBackendEmitter(story_dir, default_project_key=_PROJECT)
-    _seed_completed_run(accessor, emitter)
+    _seed_completed_run(story_dir, accessor, emitter)
 
     out_dir = story_dir / "audit-bundle"
     AuditBundleExporter(accessor, emitter).export(_STORY, _RUN, out_dir)

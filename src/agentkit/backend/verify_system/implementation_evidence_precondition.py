@@ -93,7 +93,12 @@ def _implementation_terminality_blocked_outcome(
         layer="structural",
         passed=False,
         findings=(finding,),
-        metadata={"terminality_precondition": "implementation_evidence"},
+        metadata={
+            "terminality_precondition": "implementation_evidence",
+            "executed_check_ids": (
+                "implementation_evidence.required_after_exploration",
+            ),
+        },
     )
     decision = VerifyDecision(
         passed=False,

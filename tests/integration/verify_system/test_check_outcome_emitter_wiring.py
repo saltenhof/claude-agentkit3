@@ -8,8 +8,8 @@ actually runs and writes to the state backend.
 Wiring under test:
   StructuralChecker.evaluate()
   -> LayerResult (with executed_check_ids populated in metadata)
-  -> CheckOutcomeEmitter.emit(accessor=ProjectionAccessor)
-  -> FacadeQACheckOutcomesRepository.write()
+  -> CheckOutcomeEmitter.build_batch()
+  -> ProjectionAccessor.record_qa_layer_artifacts()
   -> SQLite qa_check_outcomes table
 
 Also covers the end-to-end:
@@ -21,8 +21,8 @@ AC4 production wiring (overridden outcome via phase.py):
   save_override_record(story_dir, OverrideRecord(check_id=...))
   -> ImplementationPhaseHandler.on_enter (real phase.py code path)
      -> load_override_records(s_dir)
-     -> CheckOutcomeEmitter.emit(..., override_records=<loaded>)
-     -> FacadeQACheckOutcomesRepository.write()
+     -> CheckOutcomeEmitter.build_batch(..., override_records=<loaded>)
+     -> ProjectionAccessor.record_qa_layer_artifacts()
      -> SQLite qa_check_outcomes row with outcome=overridden
 """
 
@@ -35,15 +35,25 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.core_types import PolicyVerdict, QaContext
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor import PhaseSnapshot, PhaseStatus
-from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_snapshot
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    save_flow_execution,
+    save_phase_snapshot,
+)
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import ChangeImpact
-from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.backend.story_context_manager.types import (
+    ImplementationContract,
+    StoryMode,
+    StoryType,
+    get_profile,
+)
 from agentkit.backend.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
 from agentkit.backend.verify_system.check_outcome_emitter import CheckOutcomeEmitter
+from agentkit.backend.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
 from agentkit.backend.verify_system.stage_registry import StageRegistry
 from agentkit.backend.verify_system.stage_registry.records import CheckOutcome
 from agentkit.backend.verify_system.structural.checks import BuildTestEvidence
@@ -54,6 +64,14 @@ from integration.implementation_evidence_support import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentkit.backend.artifacts import ArtifactReference
+    from agentkit.backend.phase_state_store.models import OverrideRecord
+    from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
+    from agentkit.backend.verify_system.protocols import LayerResult
+    from agentkit.backend.verify_system.stage_registry.records import (
+        QACheckOutcomeRecord,
+    )
 
 pytestmark = pytest.mark.integration
 
@@ -88,6 +106,36 @@ def _flow() -> FlowExecution:
         level="story",
         owner="test",
     )
+
+
+def _persist_qa_batch(
+    story_dir: Path,
+    flow: FlowExecution,
+    layer_result: LayerResult,
+    *,
+    accessor: ProjectionAccessor,
+    stage_registry: StageRegistry,
+    override_records: list[OverrideRecord] | None = None,
+) -> tuple[QACheckOutcomeRecord, ...]:
+    """Build outcomes and persist all three QA projections in one batch."""
+    outcomes = CheckOutcomeEmitter().build_batch(
+        flow,
+        (layer_result,),
+        attempt_no=1,
+        override_records=override_records,
+        stage_registry=stage_registry,
+    )
+    accessor.record_qa_layer_artifacts(
+        story_dir,
+        layer_results=(layer_result,),
+        check_outcomes=outcomes,
+        stage_registry=stage_registry,
+        attempt_nr=1,
+        owner_session_id="sqlite-test",
+        expected_ownership_epoch=1,
+        projection_dir=story_dir,
+    )
+    return outcomes
 
 
 class _GreenTel:
@@ -153,6 +201,7 @@ def _prepare_story_dir(tmp_path: Path) -> Path:
     story_dir.mkdir(parents=True, exist_ok=True)
     ctx = _ctx()
     save_story_context(story_dir, ctx)
+    save_flow_execution(story_dir, _flow())
     for phase in get_profile(ctx.story_type).phases:
         if phase == "implementation":
             break
@@ -196,11 +245,9 @@ def _prepare_story_dir(tmp_path: Path) -> Path:
 def test_emitter_wiring_persists_clean_rows_for_passing_layer1(tmp_path: Path) -> None:
     """A passing Layer-1 run produces clean qa_check_outcomes rows via the real wiring.
 
-    AG3-108 AC2 (make-or-break): the CheckOutcomeEmitter is NOT dead in
-    production.  After a real StructuralChecker run the executor calls
-    CheckOutcomeEmitter.emit(..., projection_accessor=accessor) which persists
-    rows to the SQLite qa_check_outcomes table.  We then read them back through
-    the PUBLIC ProjectionAccessor.read_projection to confirm end-to-end wiring.
+    After a real StructuralChecker run, records are built and passed with the
+    stage and finding projections to the productive atomic batch. They are then
+    read back through the public accessor.
     """
     from agentkit.backend.bootstrap.composition_root import build_projection_accessor
     from agentkit.backend.verify_system.structural.checker import StructuralChecker
@@ -210,8 +257,9 @@ def test_emitter_wiring_persists_clean_rows_for_passing_layer1(tmp_path: Path) -
     flow = _flow()
     accessor = build_projection_accessor(story_dir)
 
+    stage_registry = StageRegistry()
     checker = StructuralChecker(
-        registry=StageRegistry(),
+        registry=stage_registry,
         telemetry=_GreenTel(),
         build_test_port=_GreenBt(),
         change_evidence_port=_GreenEv(),
@@ -225,13 +273,12 @@ def test_emitter_wiring_persists_clean_rows_for_passing_layer1(tmp_path: Path) -
     executed = set(layer_result.metadata["executed_check_ids"])  # type: ignore[arg-type]
     assert len(executed) > 0, "executed_check_ids must not be empty"
 
-    # Wire: emit check outcomes via the real emitter + accessor.
-    emitter = CheckOutcomeEmitter()
-    emitted = emitter.emit(
-        flow,  # type: ignore[arg-type]
+    emitted = _persist_qa_batch(
+        story_dir,
+        flow,
         layer_result,
-        attempt_no=1,
-        projection_accessor=accessor,
+        accessor=accessor,
+        stage_registry=stage_registry,
     )
 
     # At least some rows emitted.
@@ -280,8 +327,9 @@ def test_emitter_wiring_persists_triggered_row_for_failed_check(tmp_path: Path) 
     # Break protocol.md so artifact.protocol fires (TRIGGERED).
     (story_dir / "protocol.md").unlink()
 
+    stage_registry = StageRegistry()
     checker = StructuralChecker(
-        registry=StageRegistry(),
+        registry=stage_registry,
         telemetry=_GreenTel(),
         build_test_port=_GreenBt(),
         change_evidence_port=_GreenEv(),
@@ -291,12 +339,12 @@ def test_emitter_wiring_persists_triggered_row_for_failed_check(tmp_path: Path) 
     assert not layer_result.passed, "Test precondition: layer must fail"
     assert "executed_check_ids" in layer_result.metadata
 
-    emitter = CheckOutcomeEmitter()
-    emitter.emit(
-        flow,  # type: ignore[arg-type]
+    _persist_qa_batch(
+        story_dir,
+        flow,
         layer_result,
-        attempt_no=1,
-        projection_accessor=accessor,
+        accessor=accessor,
+        stage_registry=stage_registry,
     )
 
     rows = accessor.read_projection(
@@ -334,8 +382,9 @@ def test_emitter_wiring_persists_overridden_row(tmp_path: Path) -> None:
     # Break protocol.md so artifact.protocol fires.
     (story_dir / "protocol.md").unlink()
 
+    stage_registry = StageRegistry()
     checker = StructuralChecker(
-        registry=StageRegistry(),
+        registry=stage_registry,
         telemetry=_GreenTel(),
         build_test_port=_GreenBt(),
         change_evidence_port=_GreenEv(),
@@ -358,13 +407,13 @@ def test_emitter_wiring_persists_overridden_row(tmp_path: Path) -> None:
         check_id="artifact.protocol",
     )
 
-    emitter = CheckOutcomeEmitter()
-    emitter.emit(
-        flow,  # type: ignore[arg-type]
+    _persist_qa_batch(
+        story_dir,
+        flow,
         layer_result,
-        attempt_no=1,
         override_records=[override],
-        projection_accessor=accessor,
+        accessor=accessor,
+        stage_registry=stage_registry,
     )
 
     rows = accessor.read_projection(
@@ -380,15 +429,15 @@ def test_emitter_wiring_persists_overridden_row(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # AC4: overridden outcome via the REAL implementation-phase production wiring
 # ---------------------------------------------------------------------------
-# The tests above call CheckOutcomeEmitter.emit() DIRECTLY with hand-built
-# override_records=[...] — that only proves the emitter logic, not the
+# The tests above use the atomic batch with hand-built override records. They
+# prove the batch contract, not the phase.py load->pass wiring. The test below
 # phase.py load->pass wiring.  The test below drives the REAL
 # ImplementationPhaseHandler.on_enter path (the code in phase.py lines
 # ~294-310 after the AC4 fix):
 #
 #   load_override_records(s_dir)          <- new, loads from store
-#   -> _emitter.emit(..., override_records=<loaded>)  <- new param
-#   -> FacadeQACheckOutcomesRepository.write()
+#   -> _emitter.build_batch(..., override_records=<loaded>)
+#   -> ProjectionAccessor.record_qa_layer_artifacts()
 #   -> SQLite qa_check_outcomes row with outcome=overridden
 #
 # This is the exact gap Codex flagged in round-1 review.
@@ -508,29 +557,23 @@ class _PassVerifySystemWithOverridableCheck:
     persisted OverrideRecord loaded by phase.py the outcome is ``overridden``.
 
     This double proves that the override is loaded from the store (not
-    injected by the test) and threaded through the real emit() call.
+    injected by the test) and threaded through the real batch builder.
     """
 
     @property
     def stage_registry(self) -> StageRegistry:
-        """Return an empty registry (no FC-derived stages in this test double).
-
-        AG3-078 ERROR 1: phase.py calls verify_system.stage_registry.stages to
-        build the per-check origin_check_ref mapping. Test double must satisfy
-        this interface with an empty tuple so all check_ids get NULL
-        check_proposal_ref (no FC-derived checks in this stub's layer result).
-        """
-        return StageRegistry(stages=())
+        """Return registry evidence for the test's native check IDs."""
+        return StageRegistry()
 
     def run_qa_subflow(
         self,
-        ctx: object,
+        ctx: VerifyContextBundle,
         story_id: str,
-        qa_context: object,
-        target: object,
+        qa_context: QaContext,
+        target: ArtifactReference,
         *,
         previous_findings: tuple[object, ...] = (),
-    ) -> object:
+    ) -> QaSubflowOutcome:
         from agentkit.backend.core_types import PolicyVerdict
         from agentkit.backend.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
         from agentkit.backend.verify_system.contract import QaSubflowOutcome
@@ -549,7 +592,11 @@ class _PassVerifySystemWithOverridableCheck:
                 "executed_check_ids": [_OVERRIDE_CHECK_ID, "artifact.worker_manifest"],
             },
         )
-        decision = PolicyEngine().decide([layer_result])
+        decision = PolicyEngine().decide(
+            [layer_result],
+            story_type=StoryType.IMPLEMENTATION,
+            traversed_layers=frozenset({4}),
+        )
         attempt = getattr(ctx, "attempt", 1)
         return QaSubflowOutcome(
             verdict=PolicyVerdict.PASS,
@@ -577,12 +624,12 @@ def test_phase_wiring_emits_overridden_outcome_via_production_path(
 
     Production wiring under test (phase.py ~294-310 after the AC4 fix):
       load_override_records(s_dir)
-      -> _emitter.emit(flow, layer_result, ..., override_records=<loaded>, accessor=accessor)
-      -> FacadeQACheckOutcomesRepository.write()
+      -> _emitter.build_batch(flow, layer_results, ..., override_records=<loaded>)
+      -> ProjectionAccessor.record_qa_layer_artifacts()
       -> SQLite qa_check_outcomes row outcome=overridden
 
-    This is NOT a direct CheckOutcomeEmitter.emit() call with hand-built
-    override_records — it is the real phase.py code path that Codex flagged
+    This is the real phase.py batch path, including the persisted override load,
+    rather than a direct outcome-builder test. It covers the gap Codex flagged
     as the gap in round-1 review.
     """
     from agentkit.backend.bootstrap.composition_root import build_projection_accessor
@@ -650,5 +697,148 @@ def test_phase_wiring_emits_overridden_outcome_via_production_path(
         "artifact.worker_manifest must be clean (not overridden, not triggered); "
         f"clean rows: {[(r.check_id, r.outcome) for r in clean_rows]!r}"
     )
+
+
+class _RealFailingStabilityGateVerifySystem:
+    """Return a real stability-gate result to the productive phase batch."""
+
+    def __init__(self) -> None:
+        self._stage_registry = StageRegistry()
+
+    @property
+    def stage_registry(self) -> StageRegistry:
+        return self._stage_registry
+
+    def run_qa_subflow(
+        self,
+        ctx: object,
+        story_id: str,
+        qa_context: object,
+        target: object,
+        *,
+        previous_findings: tuple[object, ...] = (),
+    ) -> object:
+        from agentkit.backend.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
+        from agentkit.backend.integration_stabilization.stability_gate_producer import (
+            produce_stability_gate_layer_result,
+        )
+        from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+
+        del qa_context, target, previous_findings
+        layer_result = produce_stability_gate_layer_result(
+            story_dir=ctx.story_dir,
+            run_id=ctx.run_id,
+            touched_paths=("feature.py",),
+            story_id=story_id,
+            project_key=_PROJECT_KEY_AC4,
+        )
+        decision = PolicyEngine(stage_registry=self._stage_registry).decide(
+            [layer_result],
+            story_type=StoryType.IMPLEMENTATION,
+            traversed_layers=frozenset({4}),
+            implementation_contract=ImplementationContract.INTEGRATION_STABILIZATION,
+        )
+        return QaSubflowOutcome(
+            verdict=PolicyVerdict.FAIL,
+            decision=decision,
+            artifact_refs=ALL_QA_ARTIFACT_FILES,
+            attempt_nr=ctx.attempt,
+            qa_cycle_round=ctx.attempt,
+            feedback=None,
+            escalated=True,
+            qa_cycle_id=f"{ctx.attempt:012x}",
+            evidence_epoch=datetime(2026, 8, 4, tzinfo=UTC),
+            evidence_fingerprint="b" * 64,
+        )
+
+
+def test_real_stability_gate_failure_reaches_implementation_phase_atomic_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G1: real producer subchecks persist through phase.py as one QA batch."""
+    from tests.phase_state_factory import make_phase_state
+
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.implementation.phase import ImplementationConfig, ImplementationPhaseHandler
+    from agentkit.backend.integration_stabilization.models import (
+        IntegrationScopeManifest,
+        ManifestApprovalRecord,
+        StabilizationBudgetCaps,
+    )
+    from agentkit.backend.integration_stabilization.state import (
+        save_integration_manifest,
+        save_manifest_approval,
+    )
+    from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+
+    reset_backend_cache_for_tests()
+    story_dir = _prepare_story_dir_ac4(tmp_path)
+    story_context = _ctx_ac4().model_copy(
+        update={
+            "implementation_contract": ImplementationContract.INTEGRATION_STABILIZATION,
+        }
+    )
+    save_story_context(story_dir, story_context)
+    manifest = IntegrationScopeManifest(
+        version=1,
+        project_key=_PROJECT_KEY_AC4,
+        story_id=_STORY_ID_AC4,
+        implementation_contract="integration_stabilization",
+        target_seams=("feature.py",),
+        allowed_repos_paths=("feature.py",),
+        integration_targets=("required-live-target",),
+        allowed_contract_changes=(),
+        stabilization_budget=StabilizationBudgetCaps(
+            max_loops=3,
+            max_new_surfaces=2,
+            max_contract_changes=1,
+            max_regressions_per_cycle=1,
+        ),
+    )
+    save_integration_manifest(story_dir, manifest)
+    save_manifest_approval(
+        story_dir,
+        ManifestApprovalRecord(
+            project_key=_PROJECT_KEY_AC4,
+            story_id=_STORY_ID_AC4,
+            run_id=_RUN_ID_AC4,
+            manifest_version=manifest.version,
+            manifest_hash=manifest.content_hash,
+        ),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.implementation.phase._verify_evidence_inputs",
+        lambda *args, **kwargs: object(),
+    )
+    handler = ImplementationPhaseHandler(
+        ImplementationConfig(
+            story_dir=story_dir,
+            verify_system=_RealFailingStabilityGateVerifySystem(),  # type: ignore[arg-type]
+            evidence_preparation=ReadyEvidencePreparationCoordinator(),  # type: ignore[arg-type]
+        )
+    )
+    state = make_phase_state(
+        story_id=_STORY_ID_AC4,
+        phase="implementation",
+        status=PhaseStatus.IN_PROGRESS,
+    )
+
+    result = handler.on_enter(
+        story_context,
+        PhaseEnvelopeStore.make_fresh_envelope(state),
+    )
+
+    assert result.status is PhaseStatus.ESCALATED
+    rows = build_projection_accessor(story_dir).read_projection(
+        ProjectionKind.QA_CHECK_OUTCOMES,
+        ProjectionFilter(project_key=_PROJECT_KEY_AC4, run_id=_RUN_ID_AC4),
+    )
+    by_check = {row.check_id: row.outcome for row in rows}
+    assert by_check["integration.integration_target_matrix_passed"] is CheckOutcome.TRIGGERED
+    assert by_check["stability_gate"] is CheckOutcome.TRIGGERED
+    assert by_check["integration.manifest_approval_required"] is CheckOutcome.CLEAN
+    assert by_check["integration.binding_integrity"] is CheckOutcome.CLEAN
 
     reset_backend_cache_for_tests()

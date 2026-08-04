@@ -276,6 +276,7 @@ def _make_standard_stages() -> tuple[StageDefinition, ...]:
             kind=StageKind.LLM_EVALUATION,
             trust_class=TrustClass.VERIFIED_LLM,
             producer=DOC_FIDELITY_PRODUCER,
+            layer_result_name="doc_fidelity",
         ),
         StageDefinition(
             stage_id="context_sufficiency",

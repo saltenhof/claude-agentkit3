@@ -7,14 +7,15 @@ Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR,
 from __future__ import annotations
 
 from agentkit.backend.core_types import PolicyVerdict
-from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine, VerifyDecision
 from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 
 def _finding(
     severity: Severity = Severity.MINOR,
     trust: TrustClass = TrustClass.SYSTEM,
-    layer: str = "test",
+    layer: str = "structural",
     check: str = "test_check",
 ) -> Finding:
     """Helper to build a Finding with defaults."""
@@ -27,14 +28,26 @@ def _finding(
     )
 
 
+def _decide(engine: PolicyEngine, results: list[LayerResult]) -> VerifyDecision:
+    """Evaluate isolated findings without declaring any traversed stages."""
+    return engine.decide(
+        results,
+        story_type=StoryType.IMPLEMENTATION,
+        traversed_layers=frozenset({4}),
+    )
+
+
 class TestPolicyEngine:
     """PolicyEngine decision tests."""
 
     def test_no_findings_returns_pass(self) -> None:
         engine = PolicyEngine()
-        result = engine.decide([
-            LayerResult(layer="structural", passed=True),
-        ])
+        result = _decide(
+            engine,
+            [
+                LayerResult(layer="structural", passed=True),
+            ],
+        )
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
         assert result.status == "PASS"
@@ -43,28 +56,32 @@ class TestPolicyEngine:
     def test_only_minor_findings_returns_pass(self) -> None:
         """MINOR-only findings produzieren PASS — kein PASS_WITH_WARNINGS."""
         engine = PolicyEngine()
-        result = engine.decide([
-            LayerResult(
-                layer="structural",
-                passed=True,
-                findings=(_finding(Severity.MINOR),),
-            ),
-        ])
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=True,
+                    findings=(_finding(Severity.MINOR),),
+                ),
+            ],
+        )
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
         assert result.status == "PASS"
 
     def test_blocking_system_finding_returns_fail(self) -> None:
         engine = PolicyEngine()
-        result = engine.decide([
-            LayerResult(
-                layer="structural",
-                passed=False,
-                findings=(
-                    _finding(Severity.BLOCKING, TrustClass.SYSTEM),
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=False,
+                    findings=(_finding(Severity.BLOCKING, TrustClass.SYSTEM),),
                 ),
-            ),
-        ])
+            ],
+        )
         assert result.passed is False
         assert result.verdict is PolicyVerdict.FAIL
         assert result.status == "FAIL"
@@ -72,62 +89,74 @@ class TestPolicyEngine:
 
     def test_major_system_finding_returns_fail_at_threshold_zero(self) -> None:
         """Mit max_major=0 wird jeder MAJOR-Befund blockend."""
-        engine = PolicyEngine(max_major_findings=0)
-        result = engine.decide([
-            LayerResult(
-                layer="structural",
-                passed=False,
-                findings=(
-                    _finding(Severity.MAJOR, TrustClass.SYSTEM),
+        engine = PolicyEngine(max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0})
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=False,
+                    findings=(_finding(Severity.MAJOR, TrustClass.SYSTEM),),
                 ),
-            ),
-        ])
+            ],
+        )
         assert result.passed is False
         assert result.verdict is PolicyVerdict.FAIL
 
     def test_multiple_minor_findings_returns_pass(self) -> None:
         engine = PolicyEngine()
         findings = tuple(_finding(Severity.MINOR) for _ in range(5))
-        result = engine.decide([
-            LayerResult(layer="structural", passed=True, findings=findings),
-        ])
+        result = _decide(
+            engine,
+            [
+                LayerResult(layer="structural", passed=True, findings=findings),
+            ],
+        )
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
 
     def test_empty_layer_list_returns_pass(self) -> None:
         engine = PolicyEngine()
-        result = engine.decide([])
+        result = _decide(engine, [])
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
 
     def test_mixed_layers_one_fail_one_pass(self) -> None:
         engine = PolicyEngine()
-        result = engine.decide([
-            LayerResult(layer="structural", passed=True),
-            LayerResult(
-                layer="semantic",
-                passed=False,
-                findings=(
-                    _finding(Severity.BLOCKING, TrustClass.SYSTEM, layer="semantic"),
+        result = _decide(
+            engine,
+            [
+                LayerResult(layer="structural", passed=True),
+                LayerResult(
+                    layer="semantic_review",
+                    passed=False,
+                    findings=(
+                        _finding(
+                            Severity.BLOCKING,
+                            TrustClass.SYSTEM,
+                            layer="semantic_review",
+                        ),
+                    ),
                 ),
-            ),
-        ])
+            ],
+        )
         assert result.passed is False
         assert result.verdict is PolicyVerdict.FAIL
         assert len(result.blocking_findings) == 1
 
     def test_major_system_findings_exceed_threshold_fail(self) -> None:
         """When max_major_findings=0, even one MAJOR SYSTEM finding blocks."""
-        engine = PolicyEngine(max_major_findings=0)
-        result = engine.decide([
-            LayerResult(
-                layer="test",
-                passed=False,
-                findings=(
-                    _finding(Severity.MAJOR, TrustClass.SYSTEM),
+        engine = PolicyEngine(max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0})
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=False,
+                    findings=(_finding(Severity.MAJOR, TrustClass.SYSTEM),),
                 ),
-            ),
-        ])
+            ],
+        )
         assert result.passed is False
         assert result.verdict is PolicyVerdict.FAIL
 
@@ -140,16 +169,17 @@ class TestPolicyEngine:
         ``WORKER_ASSERTION`` is filtered out before the MAJOR-threshold rule and
         cannot drive a FAIL. Only SYSTEM/VERIFIED_LLM MAJOR findings count.
         """
-        engine = PolicyEngine(max_major_findings=0)
-        result = engine.decide([
-            LayerResult(
-                layer="test",
-                passed=True,
-                findings=(
-                    _finding(Severity.MAJOR, TrustClass.WORKER_ASSERTION),
+        engine = PolicyEngine(max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0})
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=True,
+                    findings=(_finding(Severity.MAJOR, TrustClass.WORKER_ASSERTION),),
                 ),
-            ),
-        ])
+            ],
+        )
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
         assert result.blocking_findings == ()
@@ -164,15 +194,16 @@ class TestPolicyEngine:
         blocked *any* BLOCKING finding regardless of trust class.
         """
         engine = PolicyEngine()
-        result = engine.decide([
-            LayerResult(
-                layer="test",
-                passed=True,
-                findings=(
-                    _finding(Severity.BLOCKING, TrustClass.WORKER_ASSERTION),
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=True,
+                    findings=(_finding(Severity.BLOCKING, TrustClass.WORKER_ASSERTION),),
                 ),
-            ),
-        ])
+            ],
+        )
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
         assert result.blocking_findings == ()
@@ -186,21 +217,24 @@ class TestPolicyEngine:
         the engine MUST FAIL regardless of ``max_major_findings``. Before the
         E1 fix the FAIL was a threshold-gated MAJOR and would have passed here.
         """
-        engine = PolicyEngine(max_major_findings=5)
-        result = engine.decide([
-            LayerResult(
-                layer="qa_review",
-                passed=False,
-                findings=(
-                    _finding(
-                        Severity.BLOCKING,
-                        TrustClass.VERIFIED_LLM,
-                        layer="qa_review",
-                        check="ac_fulfilled",
+        engine = PolicyEngine(max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 5})
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="qa_review",
+                    passed=False,
+                    findings=(
+                        _finding(
+                            Severity.BLOCKING,
+                            TrustClass.VERIFIED_LLM,
+                            layer="qa_review",
+                            check="ac_fulfilled",
+                        ),
                     ),
                 ),
-            ),
-        ])
+            ],
+        )
         assert result.passed is False
         assert result.verdict is PolicyVerdict.FAIL
         assert len(result.blocking_findings) == 1
@@ -208,55 +242,62 @@ class TestPolicyEngine:
 
     def test_major_system_within_threshold_passes(self) -> None:
         """When max_major_findings=2, one MAJOR SYSTEM finding is not blocking."""
-        engine = PolicyEngine(max_major_findings=2)
-        result = engine.decide([
-            LayerResult(
-                layer="test",
-                passed=True,
-                findings=(
-                    _finding(Severity.MAJOR, TrustClass.SYSTEM),
+        engine = PolicyEngine(max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 2})
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=True,
+                    findings=(_finding(Severity.MAJOR, TrustClass.SYSTEM),),
                 ),
-            ),
-        ])
+            ],
+        )
         # MAJOR from a blocking-eligible trust, count (1) <= max_major (2)
         # -> not blocking. A BLOCKING-severity finding would still block.
         assert result.passed is True
         assert result.verdict is PolicyVerdict.PASS
 
     def test_summary_contains_counts(self) -> None:
-        engine = PolicyEngine()
-        result = engine.decide([
-            LayerResult(
-                layer="test",
-                passed=False,
-                findings=(
-                    _finding(Severity.BLOCKING, TrustClass.SYSTEM),
-                    _finding(Severity.MAJOR, TrustClass.SYSTEM),
+        engine = PolicyEngine(max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0})
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="structural",
+                    passed=False,
+                    findings=(
+                        _finding(Severity.BLOCKING, TrustClass.SYSTEM),
+                        _finding(Severity.MAJOR, TrustClass.SYSTEM),
+                    ),
                 ),
-            ),
-        ])
+            ],
+        )
         assert "1 blocking" in result.summary
         assert "1 major" in result.summary
 
     def test_all_findings_flattened_across_layers(self) -> None:
         engine = PolicyEngine()
-        result = engine.decide([
-            LayerResult(
-                layer="a",
-                passed=True,
-                findings=(_finding(Severity.MINOR, layer="a"),),
-            ),
-            LayerResult(
-                layer="b",
-                passed=True,
-                findings=(_finding(Severity.MINOR, layer="b"),),
-            ),
-        ])
+        result = _decide(
+            engine,
+            [
+                LayerResult(
+                    layer="qa_review",
+                    passed=True,
+                    findings=(_finding(Severity.MINOR, layer="qa_review"),),
+                ),
+                LayerResult(
+                    layer="semantic_review",
+                    passed=True,
+                    findings=(_finding(Severity.MINOR, layer="semantic_review"),),
+                ),
+            ],
+        )
         assert len(result.all_findings) == 2
 
     def test_verify_decision_is_frozen(self) -> None:
         engine = PolicyEngine()
-        result = engine.decide([])
+        result = _decide(engine, [])
         import pytest
 
         with pytest.raises(AttributeError):
@@ -271,9 +312,14 @@ class TestPolicyEngine:
             (_finding(Severity.MAJOR, TrustClass.WORKER_ASSERTION),),
             (_finding(Severity.BLOCKING, TrustClass.SYSTEM),),
         ):
-            decision = engine.decide([
-                LayerResult(
-                    layer="x", passed=not findings, findings=findings,
-                ),
-            ])
+            decision = _decide(
+                engine,
+                [
+                    LayerResult(
+                        layer="structural",
+                        passed=not findings,
+                        findings=findings,
+                    ),
+                ],
+            )
             assert decision.verdict in {PolicyVerdict.PASS, PolicyVerdict.FAIL}

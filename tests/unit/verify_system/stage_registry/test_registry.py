@@ -56,12 +56,8 @@ class TestStagesFor:
 
     def test_concept_and_research_get_aggregate_stages(self) -> None:
         registry = StageRegistry()
-        assert [s.stage_id for s in registry.stages_for(StoryType.CONCEPT)] == [
-            "concept_feedback"
-        ]
-        assert [s.stage_id for s in registry.stages_for(StoryType.RESEARCH)] == [
-            "research_quality"
-        ]
+        assert [s.stage_id for s in registry.stages_for(StoryType.CONCEPT)] == ["concept_feedback"]
+        assert [s.stage_id for s in registry.stages_for(StoryType.RESEARCH)] == ["research_quality"]
 
     def test_filters_by_applies_to(self) -> None:
         registry = StageRegistry(
@@ -94,32 +90,17 @@ class TestLayer1StagesFor:
                 _stage("l2", 2, {StoryType.IMPLEMENTATION}),
             )
         )
-        ids = [
-            s.stage_id
-            for s in registry.layer1_stages_for(
-                StoryType.IMPLEMENTATION, are_enabled=False
-            )
-        ]
+        ids = [s.stage_id for s in registry.layer1_stages_for(StoryType.IMPLEMENTATION, are_enabled=False)]
         assert ids == ["l1"]
 
     def test_are_stage_excluded_when_disabled(self) -> None:
         registry = StageRegistry()
-        off = {
-            s.stage_id
-            for s in registry.layer1_stages_for(
-                StoryType.IMPLEMENTATION, are_enabled=False
-            )
-        }
+        off = {s.stage_id for s in registry.layer1_stages_for(StoryType.IMPLEMENTATION, are_enabled=False)}
         assert "are.gate" not in off
 
     def test_are_stage_included_when_enabled(self) -> None:
         registry = StageRegistry()
-        on = {
-            s.stage_id
-            for s in registry.layer1_stages_for(
-                StoryType.IMPLEMENTATION, are_enabled=True
-            )
-        }
+        on = {s.stage_id for s in registry.layer1_stages_for(StoryType.IMPLEMENTATION, are_enabled=True)}
         assert "are.gate" in on
 
 
@@ -140,66 +121,129 @@ def _row(
 
 EXPECTED_STAGES = {
     "qa_review": _row(
-        2, StageKind.LLM_EVALUATION, TrustClass.VERIFIED_LLM,
-        QA_REVIEW_PRODUCER, True, StageOverridePolicy.BLOCKING_ONLY, _CODE_TYPES,
+        2,
+        StageKind.LLM_EVALUATION,
+        TrustClass.VERIFIED_LLM,
+        QA_REVIEW_PRODUCER,
+        True,
+        StageOverridePolicy.BLOCKING_ONLY,
+        _CODE_TYPES,
     ),
     "semantic_review": _row(
-        2, StageKind.LLM_EVALUATION, TrustClass.VERIFIED_LLM,
-        SEMANTIC_REVIEW_PRODUCER, True, StageOverridePolicy.BLOCKING_ONLY, _CODE_TYPES,
+        2,
+        StageKind.LLM_EVALUATION,
+        TrustClass.VERIFIED_LLM,
+        SEMANTIC_REVIEW_PRODUCER,
+        True,
+        StageOverridePolicy.BLOCKING_ONLY,
+        _CODE_TYPES,
     ),
     "doc_fidelity_impl": _row(
-        2, StageKind.LLM_EVALUATION, TrustClass.VERIFIED_LLM,
-        DOC_FIDELITY_PRODUCER, True, StageOverridePolicy.BLOCKING_ONLY, _CODE_TYPES,
+        2,
+        StageKind.LLM_EVALUATION,
+        TrustClass.VERIFIED_LLM,
+        DOC_FIDELITY_PRODUCER,
+        True,
+        StageOverridePolicy.BLOCKING_ONLY,
+        _CODE_TYPES,
     ),
     "context_sufficiency": _row(
-        2, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        CONTEXT_SUFFICIENCY_PRODUCER, False, StageOverridePolicy.NONE, _CODE_TYPES,
+        2,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        CONTEXT_SUFFICIENCY_PRODUCER,
+        False,
+        StageOverridePolicy.NONE,
+        _CODE_TYPES,
     ),
     "adversarial": _row(
-        3, StageKind.AGENT, TrustClass.VERIFIED_LLM,
-        ADVERSARIAL_PRODUCER, True, StageOverridePolicy.BLOCKING_ONLY, _CODE_TYPES,
+        3,
+        StageKind.AGENT,
+        TrustClass.VERIFIED_LLM,
+        ADVERSARIAL_PRODUCER,
+        True,
+        StageOverridePolicy.BLOCKING_ONLY,
+        _CODE_TYPES,
     ),
     "sonarqube_gate": _row(
-        1, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        SONARQUBE_GATE_PRODUCER, True, StageOverridePolicy.BLOCKING_ONLY, _CODE_TYPES,
+        1,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        SONARQUBE_GATE_PRODUCER,
+        True,
+        StageOverridePolicy.BLOCKING_ONLY,
+        _CODE_TYPES,
     ),
     "policy": _row(
-        4, StageKind.POLICY, TrustClass.SYSTEM,
-        POLICY_PRODUCER, True, StageOverridePolicy.NONE, _CODE_TYPES,
+        4,
+        StageKind.POLICY,
+        TrustClass.SYSTEM,
+        POLICY_PRODUCER,
+        True,
+        StageOverridePolicy.NONE,
+        _CODE_TYPES,
     ),
     "concept_feedback": _row(
-        2, StageKind.LLM_EVALUATION, TrustClass.VERIFIED_LLM,
-        CONCEPT_FEEDBACK_PRODUCER, True, StageOverridePolicy.BLOCKING_ONLY,
+        2,
+        StageKind.LLM_EVALUATION,
+        TrustClass.VERIFIED_LLM,
+        CONCEPT_FEEDBACK_PRODUCER,
+        True,
+        StageOverridePolicy.BLOCKING_ONLY,
         {StoryType.CONCEPT},
     ),
     "research_quality": _row(
-        1, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        RESEARCH_QUALITY_PRODUCER, False, StageOverridePolicy.BLOCKING_ONLY,
+        1,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        RESEARCH_QUALITY_PRODUCER,
+        False,
+        StageOverridePolicy.BLOCKING_ONLY,
         {StoryType.RESEARCH},
     ),
     "bugfix.reproducer_manifest": _row(
-        1, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        BUGFIX_REPRODUCER_MANIFEST_PRODUCER, True, StageOverridePolicy.NONE,
+        1,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        BUGFIX_REPRODUCER_MANIFEST_PRODUCER,
+        True,
+        StageOverridePolicy.NONE,
         {StoryType.BUGFIX},
     ),
     "bugfix.red_evidence": _row(
-        1, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        BUGFIX_RED_EVIDENCE_PRODUCER, True, StageOverridePolicy.NONE,
+        1,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        BUGFIX_RED_EVIDENCE_PRODUCER,
+        True,
+        StageOverridePolicy.NONE,
         {StoryType.BUGFIX},
     ),
     "bugfix.green_evidence": _row(
-        1, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        BUGFIX_GREEN_EVIDENCE_PRODUCER, True, StageOverridePolicy.NONE,
+        1,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        BUGFIX_GREEN_EVIDENCE_PRODUCER,
+        True,
+        StageOverridePolicy.NONE,
         {StoryType.BUGFIX},
     ),
     "bugfix.suite_evidence": _row(
-        1, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        BUGFIX_SUITE_EVIDENCE_PRODUCER, True, StageOverridePolicy.NONE,
+        1,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        BUGFIX_SUITE_EVIDENCE_PRODUCER,
+        True,
+        StageOverridePolicy.NONE,
         {StoryType.BUGFIX},
     ),
     "bugfix.red_green_consistency": _row(
-        1, StageKind.DETERMINISTIC, TrustClass.SYSTEM,
-        BUGFIX_RED_GREEN_CONSISTENCY_PRODUCER, True, StageOverridePolicy.NONE,
+        1,
+        StageKind.DETERMINISTIC,
+        TrustClass.SYSTEM,
+        BUGFIX_RED_GREEN_CONSISTENCY_PRODUCER,
+        True,
+        StageOverridePolicy.NONE,
         {StoryType.BUGFIX},
     ),
 }
@@ -225,6 +269,38 @@ class TestStandardStageTable:
         for stage in StageRegistry().stages:
             assert stage.default_blocking is (stage.severity is Severity.BLOCKING)
 
+    def test_result_name_resolves_to_canonical_stage_id(self) -> None:
+        registry = StageRegistry()
+
+        assert registry.canonical_stage_id_for_result_name("doc_fidelity") == "doc_fidelity_impl"
+        assert registry.canonical_stage_id_for_result_name("qa_review") == "qa_review"
+
+    def test_check_origin_resolution_requires_registry_evidence(self) -> None:
+        proposal_stage = StageDefinition(
+            stage_id="proposal.check",
+            layer=2,
+            severity=Severity.BLOCKING,
+            applies_to=frozenset((StoryType.IMPLEMENTATION,)),
+            origin_check_ref="CHK-0042",
+            layer_result_name="proposal_review",
+        )
+        registry = StageRegistry(stages=(*StageRegistry().stages, proposal_stage))
+
+        assert registry.resolve_check_origin_refs(
+            [
+                "artifact.protocol",
+                "context_exists",
+                "proposal.check",
+                "proposal_review.proposal.check",
+                "unknown.check",
+            ]
+        ) == {
+            "artifact.protocol": None,
+            "context_exists": None,
+            "proposal.check": "CHK-0042",
+            "proposal_review.proposal.check": "CHK-0042",
+        }
+
     def test_bugfix_stages_apply_only_to_bugfix(self) -> None:
         registry = StageRegistry()
         bugfix_ids = {
@@ -232,12 +308,7 @@ class TestStandardStageTable:
             for stage in registry.layer1_stages_for(StoryType.BUGFIX, are_enabled=False)
             if stage.stage_id.startswith("bugfix.")
         }
-        impl_ids = {
-            stage.stage_id
-            for stage in registry.layer1_stages_for(
-                StoryType.IMPLEMENTATION, are_enabled=False
-            )
-        }
+        impl_ids = {stage.stage_id for stage in registry.layer1_stages_for(StoryType.IMPLEMENTATION, are_enabled=False)}
         assert bugfix_ids == {
             "bugfix.reproducer_manifest",
             "bugfix.red_evidence",
@@ -278,3 +349,72 @@ class TestStandardStageTable:
             StageRegistry(stage_overrides={"does.not.exist": False})
         with pytest.raises(ValueError, match="does not allow"):
             StageRegistry(stage_overrides={"policy": False})
+
+
+class TestResultNameRegistry:
+    """Result-name resolution is explicit and fail-closed."""
+
+    def test_unknown_result_name_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="unknown LayerResult name"):
+            StageRegistry().canonical_stage_id_for_result_name("unregistered")
+
+    @pytest.mark.parametrize("stage_id", ["", "   "])
+    def test_empty_or_whitespace_stage_id_is_rejected_at_construction(
+        self,
+        stage_id: str,
+    ) -> None:
+        with pytest.raises(ValueError, match="stage id must not be empty"):
+            StageRegistry(
+                stages=(
+                    StageDefinition(
+                        stage_id=stage_id,
+                        layer=1,
+                        severity=Severity.BLOCKING,
+                        applies_to=frozenset((StoryType.IMPLEMENTATION,)),
+                    ),
+                )
+            )
+
+    @pytest.mark.parametrize("result_name", ["", "   "])
+    def test_empty_or_whitespace_layer_result_name_is_rejected_at_construction(
+        self,
+        result_name: str,
+    ) -> None:
+        with pytest.raises(ValueError, match="layer result name.*must not be empty"):
+            StageRegistry(
+                stages=(
+                    StageDefinition(
+                        stage_id="configured_stage",
+                        layer=1,
+                        severity=Severity.BLOCKING,
+                        applies_to=frozenset((StoryType.IMPLEMENTATION,)),
+                        layer_result_name=result_name,
+                    ),
+                )
+            )
+
+    def test_aggregate_and_stage_claim_cannot_be_ambiguous(self) -> None:
+        with pytest.raises(ValueError, match="ambiguous LayerResult names"):
+            StageRegistry(
+                aggregate_result_stage_ids={"qa_review": "aggregate.qa_review"},
+                aggregate_result_producers={},
+            )
+
+    def test_two_stage_definitions_cannot_claim_the_same_result_name(self) -> None:
+        stage_a = StageDefinition(
+            stage_id="stage_a",
+            layer=2,
+            severity=Severity.BLOCKING,
+            applies_to=frozenset((StoryType.IMPLEMENTATION,)),
+            layer_result_name="shared_result",
+        )
+        stage_b = StageDefinition(
+            stage_id="stage_b",
+            layer=2,
+            severity=Severity.BLOCKING,
+            applies_to=frozenset((StoryType.IMPLEMENTATION,)),
+            layer_result_name="shared_result",
+        )
+
+        with pytest.raises(ValueError, match=r"shared_result.*stage_a.*stage_b"):
+            StageRegistry(stages=(stage_a, stage_b))

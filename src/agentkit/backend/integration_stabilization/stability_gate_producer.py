@@ -34,6 +34,7 @@ from agentkit.backend.core_types import Severity
 from agentkit.backend.core_types.qa_artifact_names import STABILITY_GATE_PRODUCER
 from agentkit.backend.integration_stabilization.fk37_checks import (
     FK37CheckName,
+    StabilityGateResult,
     check_fk37_stability_gate,
 )
 from agentkit.backend.integration_stabilization.models import StabilizationBudget
@@ -67,8 +68,8 @@ IS_TARGETS_FILE: str = "integration_targets.json"
 #: Canonical filename for the persisted stability_gate result (closure reads it).
 IS_STABILITY_GATE_FILE: str = "integration_stability_gate.json"
 
-#: The Layer-4 result name produced by the stability_gate (matches the registered
-#: ``stability_gate`` stage id, so ``_produced_stage_ids`` records it as produced).
+#: The Layer-4 result name produced by the stability_gate. The bound stage
+#: registry resolves it to the canonical ``stability_gate`` stage id.
 _STABILITY_GATE_LAYER: str = "stability_gate"
 
 #: Exact registered stage ids for the two IS Layer-4 stages (ERROR C fix).
@@ -80,6 +81,13 @@ _IS_LAYER4_STAGE_IDS: tuple[str, str] = (
     "stability_gate",
     "integration.integration_target_matrix_passed",
 )
+
+_MANIFEST_APPROVAL_CHECK_ID = f"integration.{FK37CheckName.MANIFEST_APPROVAL_REQUIRED}"
+_BINDING_INTEGRITY_CHECK_ID = f"integration.{FK37CheckName.BINDING_INTEGRITY}"
+_DECLARED_SURFACES_CHECK_ID = f"integration.{FK37CheckName.DECLARED_SURFACES_ONLY}"
+_BUDGET_CHECK_ID = f"integration.{FK37CheckName.STABILIZATION_BUDGET_NOT_EXHAUSTED}"
+_TARGET_MATRIX_CHECK_ID = f"integration.{FK37CheckName.INTEGRATION_TARGET_MATRIX_PASSED}"
+_STABILITY_GATE_CHECK_ID = FK37CheckName.STABILITY_GATE
 
 
 def _load_budget(story_dir: Path, manifest_caps: object) -> StabilizationBudget:
@@ -160,12 +168,10 @@ def produce_stability_gate_layer_result(
     # Use exact registered stage ids (ERROR C fix: FK37CheckName values carry the
     # short wire keys; the registry uses ``integration.`` prefix for the matrix
     # check).  _IS_LAYER4_STAGE_IDS matches data.py verbatim.
-    stage_ids = _IS_LAYER4_STAGE_IDS
-
     if manifest is None:
         finding = Finding(
             layer=_STABILITY_GATE_LAYER,
-            check=FK37CheckName.STABILITY_GATE,
+            check=_STABILITY_GATE_CHECK_ID,
             severity=Severity.BLOCKING,
             message=(
                 "No approved IntegrationScopeManifest found; the stability_gate "
@@ -184,7 +190,11 @@ def produce_stability_gate_layer_result(
             layer=_STABILITY_GATE_LAYER,
             passed=False,
             findings=(finding,),
-            metadata={"stage_ids": stage_ids, "producer": STABILITY_GATE_PRODUCER},
+            metadata={
+                "stage_ids": (_STABILITY_GATE_CHECK_ID,),
+                "producer": STABILITY_GATE_PRODUCER,
+                "executed_check_ids": (_STABILITY_GATE_CHECK_ID,),
+            },
         )
 
     budget = _load_budget(story_dir, manifest.stabilization_budget)
@@ -201,20 +211,16 @@ def produce_stability_gate_layer_result(
         seam_allowlist=seam_allowlist,
     )
 
-    findings: tuple[Finding, ...] = ()
-    if not gate.passed:
-        findings = (
-            Finding(
-                layer=_STABILITY_GATE_LAYER,
-                check=FK37CheckName.STABILITY_GATE,
-                severity=Severity.BLOCKING,
-                message=(
-                    "stability_gate FAILED (FK-37 §37.1.3, AC5/AC12): "
-                    + "; ".join(gate.block_reasons)
-                ),
-                trust_class=TrustClass.SYSTEM,
-            ),
-        )
+    executed_check_ids = [
+        _MANIFEST_APPROVAL_CHECK_ID,
+        _DECLARED_SURFACES_CHECK_ID,
+        _BUDGET_CHECK_ID,
+        _TARGET_MATRIX_CHECK_ID,
+        _STABILITY_GATE_CHECK_ID,
+    ]
+    if gate.binding_result is not None:
+        executed_check_ids.insert(1, _BINDING_INTEGRITY_CHECK_ID)
+    findings = _build_gate_findings(gate)
 
     _persist_gate_result(
         story_dir,
@@ -241,8 +247,59 @@ def produce_stability_gate_layer_result(
         layer=_STABILITY_GATE_LAYER,
         passed=gate.passed,
         findings=findings,
-        metadata={"stage_ids": stage_ids, "producer": STABILITY_GATE_PRODUCER},
+        metadata={
+            "stage_ids": _IS_LAYER4_STAGE_IDS,
+            "producer": STABILITY_GATE_PRODUCER,
+            "executed_check_ids": tuple(executed_check_ids),
+        },
     )
+
+
+def _build_gate_findings(gate: StabilityGateResult) -> tuple[Finding, ...]:
+    """Build one triggered finding for every failed executed subcheck."""
+    findings: list[Finding] = []
+
+    def add(check_id: str, message: str) -> None:
+        findings.append(
+            Finding(
+                layer=_STABILITY_GATE_LAYER,
+                check=check_id,
+                severity=Severity.BLOCKING,
+                message=message,
+                trust_class=TrustClass.SYSTEM,
+            )
+        )
+
+    if gate.approval_result is not None and not gate.approval_result.approved:
+        add(
+            _MANIFEST_APPROVAL_CHECK_ID,
+            f"manifest approval required: {gate.approval_result.reason}",
+        )
+    if gate.binding_result is not None and not gate.binding_result.binding_valid:
+        add(
+            _BINDING_INTEGRITY_CHECK_ID,
+            f"manifest binding integrity failed: {gate.binding_result.reason}",
+        )
+    if gate.declared_surfaces_result is not None and not gate.declared_surfaces_result.passed:
+        for declared_finding in gate.declared_surfaces_result.findings:
+            add(_DECLARED_SURFACES_CHECK_ID, declared_finding.message)
+    if gate.budget_result is not None and not gate.budget_result.within_budget:
+        add(
+            _BUDGET_CHECK_ID,
+            f"stabilization budget exhausted: {list(gate.budget_result.exhausted_caps)!r}",
+        )
+    if gate.target_matrix_result is not None and not gate.target_matrix_result.passed:
+        add(
+            _TARGET_MATRIX_CHECK_ID,
+            f"integration targets unmet: {list(gate.target_matrix_result.unmet_targets)!r}",
+        )
+    if not gate.passed:
+        add(
+            _STABILITY_GATE_CHECK_ID,
+            "stability_gate FAILED (FK-37 §37.1.3, AC5/AC12): "
+            + "; ".join(gate.block_reasons),
+        )
+    return tuple(findings)
 
 
 def _persist_gate_result(

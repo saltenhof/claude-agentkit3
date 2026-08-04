@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import seed_qa_finding
 
 from agentkit.backend.bootstrap.story_reset_adapters import (
     AnalyticsPurgeAdapter,
@@ -197,10 +198,8 @@ def _seed_real_state(store_dir: Path, story_id: str) -> None:
             ended_at=_NOW,
         ),
     )
-    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
-
-    accessor = build_projection_accessor(store_dir)
-    accessor._repos.qa_findings.write(  # noqa: SLF001 — seed via the real repo
+    seed_qa_finding(
+        store_dir,
         QAFindingRecord(
             project_key=_PROJECT,
             story_id=story_id,
@@ -215,7 +214,7 @@ def _seed_real_state(store_dir: Path, story_id: str) -> None:
             source_component="structural",
             artifact_id="a-1",
             occurred_at=_NOW,
-        )
+        ),
     )
 
 

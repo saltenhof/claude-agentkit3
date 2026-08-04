@@ -104,6 +104,10 @@ class StageDefinition:
             verbatim into ``qa_check_outcomes.check_proposal_ref`` via the
             :class:`~agentkit.backend.verify_system.check_outcome_emitter.CheckOutcomeEmitter`;
             no FC-semantic interpretation inside verify-system.
+        layer_result_name: Canonical ``LayerResult.layer`` name emitted for
+            this stage. ``None`` means the result uses ``stage_id``. This field
+            is the sole Stage-to-Result-name mapping; it models a distinct
+            evaluator role name, not an alternative stage identity.
     """
 
     stage_id: str
@@ -118,6 +122,7 @@ class StageDefinition:
     escalated: bool = False
     feature_gated_are: bool = False
     origin_check_ref: str | None = None
+    layer_result_name: str | None = None
     _blocking_override: bool | None = None
 
     @property
@@ -136,3 +141,10 @@ class StageDefinition:
         if self._blocking_override is not None:
             return self._blocking_override
         return self.default_blocking
+
+    @property
+    def result_name(self) -> str:
+        """Return the canonical ``LayerResult.layer`` name for this stage."""
+        if self.layer_result_name is None:
+            return self.stage_id
+        return self.layer_result_name

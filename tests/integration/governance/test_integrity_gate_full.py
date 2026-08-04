@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import record_qa_layer_artifacts
 
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager, build_integrity_gate
 from agentkit.backend.core_types import PolicyVerdict
@@ -45,7 +46,6 @@ from agentkit.backend.state_backend.pipeline_runtime_store import (
 )
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.state_backend.verify_artifact_store import (
-    record_layer_artifacts,
     record_verify_decision,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -62,6 +62,7 @@ from agentkit.backend.verify_system.protocols import (
     Severity,
     TrustClass,
 )
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -76,6 +77,7 @@ _NONCODE_PHASES = ("setup", "closure")
 # the fence params are required by the signature but ignored by the driver.
 _UNFENCED_SQLITE_OWNER = "sqlite-unfenced"
 _UNFENCED_SQLITE_EPOCH = 0
+_STAGE_REGISTRY = StageRegistry.result_catalog_only()
 
 
 @pytest.fixture(autouse=True)
@@ -253,7 +255,15 @@ def _structural_result() -> LayerResult:
         layer="structural",
         passed=True,
         findings=findings,
-        metadata={"total_checks": 6},
+        metadata={
+            "executed_check_ids": [
+                *(finding.check for finding in findings),
+                "clean_check_0",
+                "clean_check_1",
+                "clean_check_2",
+            ],
+            "total_checks": 6,
+        },
     )
 
 
@@ -261,13 +271,24 @@ def _full_layer_results() -> tuple[LayerResult, ...]:
     """Structural + both Layer-2 reviews + adversarial (all passing, FK-35)."""
     return (
         _structural_result(),
-        LayerResult(layer="qa_review", passed=True, findings=()),
-        LayerResult(layer="semantic_review", passed=True, findings=()),
+        LayerResult(
+            layer="qa_review",
+            passed=True,
+            findings=(),
+            metadata={"executed_check_ids": []},
+        ),
+        LayerResult(
+            layer="semantic_review",
+            passed=True,
+            findings=(),
+            metadata={"executed_check_ids": []},
+        ),
         LayerResult(
             layer="adversarial",
             passed=True,
             findings=(),
             metadata={
+                "executed_check_ids": ["adversarial.test.1", "adversarial.test.2"],
                 "summary": "adversarial sparring run; " + ("edge probe " * 25),
                 # AG3-079 (FK-48 §48.1.6/§48.1.8): mirror the mandatory sparring
                 # telemetry proof Dim 6 verifies (a conformant run stays green).
@@ -312,10 +333,11 @@ def _write_full_qa(story_dir: Path) -> None:
         manager=manager, story_id=_STORY, run_id=_RUN,
         decision=decision, attempt_nr=1,
     )
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=layers,
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id=_UNFENCED_SQLITE_OWNER,
         expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
     )
@@ -336,10 +358,11 @@ def _create_structural_only(story_dir: Path) -> None:
         manager=manager, story_id=_STORY, run_id=_RUN,
         layer_results=(structural,), attempt_nr=1,
     )
-    record_layer_artifacts(
+    record_qa_layer_artifacts(
         story_dir,
         layer_results=(structural,),
         attempt_nr=1,
+        stage_registry=_STAGE_REGISTRY,
         owner_session_id=_UNFENCED_SQLITE_OWNER,
         expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
     )

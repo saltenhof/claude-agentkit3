@@ -26,10 +26,7 @@ from agentkit.backend.verify_system.contract import (
     VerifyContextBundle,
     VerifyTarget,
 )
-from agentkit.backend.verify_system.defaults import (
-    VerifySystemDefaultOptions,
-    resolve_default_options,
-)
+from agentkit.backend.verify_system.defaults import VerifySystemDefaultOptions
 from agentkit.backend.verify_system.errors import (
     LayerExecutionError,
     VerifySystemError,
@@ -169,9 +166,7 @@ class VerifySystem:
     layer_3: QALayer
     policy_engine: PolicyEngine
     artifact_manager: ArtifactManager
-    story_context_port: StoryContextQueryPort = field(
-        default_factory=_NullStoryContextPort
-    )
+    story_context_port: StoryContextQueryPort = field(default_factory=_NullStoryContextPort)
     sonar_gate_port: SonarGateInputPort = ABSENT_SONAR_GATE_PORT
     layer2_runner: ParallelEvalRunner | None = None
     layer2_llm_client: LlmClient | None = None
@@ -189,12 +184,8 @@ class VerifySystem:
     #: QA-subflow FAILS CLOSED (a fast story without a confirmed test result must
     #: not pass the floor; NO ERROR BYPASSING).
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None
-    qa_cycle_lifecycle: _qa.QaCycleLifecycle = field(
-        default_factory=_qa.QaCycleLifecycle
-    )
-    remediation_loop_controller: _qa.RemediationLoopController = field(
-        default_factory=_qa.RemediationLoopController
-    )
+    qa_cycle_lifecycle: _qa.QaCycleLifecycle = field(default_factory=_qa.QaCycleLifecycle)
+    remediation_loop_controller: _qa.RemediationLoopController = field(default_factory=_qa.RemediationLoopController)
     #: Layer-2 review-completion sink (FK-27 §27.4.3 / §27.5.5). After each
     #: Layer-2 review envelope write succeeds, the QA-subflow emits an
     #: ``llm_call_complete`` fact (per reviewer role) through this sink so the
@@ -207,9 +198,7 @@ class VerifySystem:
     #: emission leaves the per-role count at 0 -> BLOCKING FAIL (fail-closed).
     #: The productive telemetry adapter is wired via
     #: ``composition_root.build_verify_system``.
-    review_completion_sink: ReviewCompletionSink = field(
-        default_factory=NullReviewCompletionSink
-    )
+    review_completion_sink: ReviewCompletionSink = field(default_factory=NullReviewCompletionSink)
     #: Layer-3 adversarial spawner (FK-27 §27.6 / FK-48 §48.2, AG3-044). After
     #: Layer 2 yields BLOCKING findings, ``run_qa_subflow`` derives mandatory
     #: :class:`AdversarialTarget` from them, materialises the protected sandbox +
@@ -223,9 +212,7 @@ class VerifySystem:
     #: Independent System/Trust-B change evidence used by the FK-24
     #: implementation terminality precondition. This is the same port type the
     #: structural Layer-1 checks use; production wires the git-backed provider.
-    implementation_change_evidence_port: ChangeEvidencePort = (
-        ABSENT_CHANGE_EVIDENCE_PORT
-    )
+    implementation_change_evidence_port: ChangeEvidencePort = ABSENT_CHANGE_EVIDENCE_PORT
 
     @property
     def stage_registry(self) -> StageRegistry:
@@ -248,13 +235,12 @@ class VerifySystem:
         *,
         artifact_manager: ArtifactManager,
         defaults: VerifySystemDefaultOptions | None = None,
-        **overrides: object,
     ) -> VerifySystem:
-        """Construct a ``VerifySystem`` with default sub-components."""
+        """Construct a ``VerifySystem`` from one typed options contract."""
         return _create_default(
             cls,
             artifact_manager=artifact_manager,
-            defaults=resolve_default_options(defaults, overrides),
+            defaults=defaults or VerifySystemDefaultOptions(),
         )
 
     # ------------------------------------------------------------------
@@ -332,15 +318,8 @@ class VerifySystem:
         # FK-27 §27.5 Layer-2 reviewer role names (qa_review / semantic_review /
         # doc_fidelity). Used here to collect Layer-2 BLOCKING findings that the
         # adversarial spawn derives mandatory targets from (FK-48 §48.2, AG3-044).
-        _layer2_roles: frozenset[str] = frozenset(
-            {"qa_review", "semantic_review", "doc_fidelity"}
-        )
-        layer2_checks = [
-            finding
-            for result in layer_results
-            if result.layer in _layer2_roles
-            for finding in result.findings
-        ]
+        _layer2_roles: frozenset[str] = frozenset({"qa_review", "semantic_review", "doc_fidelity"})
+        layer2_checks = [finding for result in layer_results if result.layer in _layer2_roles for finding in result.findings]
         targets = spawner.extract_mandatory_targets(layer2_checks, ctx.attempt)
         if not targets:
             return ()
@@ -455,9 +434,7 @@ class VerifySystem:
             The fail-closed ``VerifyDecision`` for an APPLICABLE gate FAIL, or
             ``None`` when the run should continue (dropped / SKIP / PASS).
         """
-        stage_result = run_sonarqube_gate_stage(
-            self.sonar_gate_port, story_id, ctx.story_dir
-        )
+        stage_result = run_sonarqube_gate_stage(self.sonar_gate_port, story_id, ctx.story_dir)
         if stage_result is None:
             # NOT_APPLICABLE_FAST: drop the stage entirely.
             return None
@@ -542,11 +519,7 @@ class VerifySystem:
         gate_result = stage_result.layer_result
         all_results = (*tuple(layer_results), gate_result)
         all_findings = tuple(f for lr in all_results for f in lr.findings)
-        blocking = tuple(
-            f
-            for f in all_findings
-            if f.severity == Severity.BLOCKING and f.trust_class == TrustClass.SYSTEM
-        )
+        blocking = tuple(f for f in all_findings if f.severity == Severity.BLOCKING and f.trust_class == TrustClass.SYSTEM)
         logger.info(
             "run_qa_subflow sonarqube_gate fail-closed (direct failed, no "
             "policy; routed into remediation loop): story=%s reason=%s",
@@ -585,7 +558,7 @@ class VerifySystem:
 
     def _layer2_pairs(
         self,
-) -> tuple[tuple[QALayer, _artifact_specs._LayerArtifactSpec], ...]:
+    ) -> tuple[tuple[QALayer, _artifact_specs._LayerArtifactSpec], ...]:
         """Return (reviewer, spec) pairs for the three Layer-2 reviewers.
 
         Returns:
@@ -614,17 +587,10 @@ class VerifySystem:
             VerifyTargetUnknownError: If the artifact_class has no known
                 mapping to ``VerifyTargetType``.
         """
-        target_type = _artifact_specs.ARTIFACT_CLASS_TO_TARGET_TYPE.get(
-            target.artifact_class
-        )
+        target_type = _artifact_specs.ARTIFACT_CLASS_TO_TARGET_TYPE.get(target.artifact_class)
         if target_type is None:
-            known = ", ".join(
-                str(c) for c in _artifact_specs.ARTIFACT_CLASS_TO_TARGET_TYPE
-            )
-            msg = (
-                "Cannot resolve VerifyTargetType for "
-                f"artifact_class={target.artifact_class!r}. Known classes: {known}"
-            )
+            known = ", ".join(str(c) for c in _artifact_specs.ARTIFACT_CLASS_TO_TARGET_TYPE)
+            msg = f"Cannot resolve VerifyTargetType for artifact_class={target.artifact_class!r}. Known classes: {known}"
             raise VerifyTargetUnknownError(msg)
 
         return VerifyTarget(
@@ -709,17 +675,20 @@ class VerifySystem:
             wrapped = LayerExecutionError(error_msg)
             wrapped.__cause__ = exc
             blocking_finding = Finding(
-                layer=kind.value,
+                layer=layer.name,
                 check="layer_execution",
                 severity=Severity.BLOCKING,
                 message=error_msg,
                 trust_class=TrustClass.SYSTEM,
             )
             return LayerResult(
-                layer=kind.value,
+                layer=layer.name,
                 passed=False,
                 findings=(blocking_finding,),
-                metadata={"layer_execution_error": str(wrapped)},
+                metadata={
+                    "layer_execution_error": str(wrapped),
+                    "executed_check_ids": ("layer_execution",),
+                },
             )
 
     def _write_layer_envelope(
@@ -755,9 +724,7 @@ class VerifySystem:
             producer=Producer(
                 type=spec.producer_type,
                 name=spec.producer_name,
-                id=ProducerId(
-                    f"{spec.producer_name}-{ctx.run_id}-{ctx.attempt}"
-                ),
+                id=ProducerId(f"{spec.producer_name}-{ctx.run_id}-{ctx.attempt}"),
             ),
             started_at=datetime.fromisoformat(now_str),
             finished_at=datetime.fromisoformat(now_str),
@@ -801,10 +768,7 @@ class VerifySystem:
             producer=Producer(
                 type=_artifact_specs.POLICY_ARTIFACT_SPEC.producer_type,
                 name=_artifact_specs.POLICY_ARTIFACT_SPEC.producer_name,
-                id=ProducerId(
-                    f"{_artifact_specs.POLICY_ARTIFACT_SPEC.producer_name}-"
-                    f"{ctx.run_id}-{ctx.attempt}"
-                ),
+                id=ProducerId(f"{_artifact_specs.POLICY_ARTIFACT_SPEC.producer_name}-{ctx.run_id}-{ctx.attempt}"),
             ),
             started_at=datetime.fromisoformat(now_str),
             finished_at=datetime.fromisoformat(now_str),
@@ -833,15 +797,9 @@ class VerifySystem:
         )
         from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
 
-        effective_input = (
-            review_input
-            if isinstance(review_input, Layer2ReviewInput)
-            else Layer2ReviewInput()
-        )
+        effective_input = review_input if isinstance(review_input, Layer2ReviewInput) else Layer2ReviewInput()
         worktree_root = (
-            story_ctx.project_root
-            if isinstance(story_ctx, StoryContext) and story_ctx.project_root is not None
-            else None
+            story_ctx.project_root if isinstance(story_ctx, StoryContext) and story_ctx.project_root is not None else None
         )
         builder = ContextSufficiencyBuilder.from_story_dir(
             story_id=story_id,
@@ -852,9 +810,7 @@ class VerifySystem:
             effective_input,
             caller_diff_summary=builder.caller_diff_summary(),
             caller_evidence_manifest=(
-                ctx.evidence_manifest
-                if ctx.evidence_manifest is not None
-                else builder.caller_evidence_manifest()
+                ctx.evidence_manifest if ctx.evidence_manifest is not None else builder.caller_evidence_manifest()
             ),
         )
         payload = result.artifact.model_dump(mode="json")
@@ -873,11 +829,7 @@ class VerifySystem:
             ),
             started_at=datetime.fromisoformat(now_str),
             finished_at=datetime.fromisoformat(now_str),
-            status=(
-                EnvelopeStatus.PASS
-                if result.sufficiency is SufficiencyLevel.SUFFICIENT
-                else EnvelopeStatus.WARN
-            ),
+            status=(EnvelopeStatus.PASS if result.sufficiency is SufficiencyLevel.SUFFICIENT else EnvelopeStatus.WARN),
             artifact_class=ArtifactClass.QA,
             payload=payload,
         )
@@ -939,9 +891,6 @@ def _create_default(
             **Mandatory**. Callers that need a test stub
             supply a recording test double; productive callers
             use ``bootstrap.composition_root.build_verify_system``.
-        max_major_findings: Threshold for the policy engine. Mirrors
-            :class:`PolicyEngine` -- MAJOR findings beyond this count
-            turn into blocking findings (FK-27 §27.4.2 / §27.7.2).
         max_feedback_rounds: Ceiling for the subflow-internal remediation
             loop (FK-03 §3.4.2 / FK-38; resolved from the pipeline config by
             ``build_verify_system``). ``None`` => the controller's default
@@ -1018,9 +967,7 @@ def _create_default(
     # policy engine demands no Layer-1 stages. The productive root injects
     # the full FK-27 §27.4 catalogue.
     resolved_registry: StageRegistry = (
-        defaults.stage_registry
-        if defaults.stage_registry is not None
-        else _StageRegistry(stages=())
+        defaults.stage_registry if defaults.stage_registry is not None else _StageRegistry.result_catalog_only()
     )
     structural_checker = StructuralChecker(
         registry=resolved_registry,
@@ -1078,10 +1025,7 @@ def _create_default(
             ),
             sparring_resolver=defaults.adversarial_sparring_resolver,
         ),
-        policy_engine=PolicyEngine(
-            max_major_findings=defaults.max_major_findings,
-            stage_registry=resolved_registry,
-        ),
+        policy_engine=PolicyEngine(stage_registry=resolved_registry),
         artifact_manager=artifact_manager,
         story_context_port=resolved_port,
         sonar_gate_port=resolved_sonar_port,
@@ -1091,17 +1035,13 @@ def _create_default(
         layer2_bundle_token_limit=defaults.layer2_bundle_token_limit,
         fast_test_runner=defaults.fast_test_runner,
         remediation_loop_controller=(
-            _qa.RemediationLoopController(
-                max_feedback_rounds=defaults.max_feedback_rounds
-            )
+            _qa.RemediationLoopController(max_feedback_rounds=defaults.max_feedback_rounds)
             if defaults.max_feedback_rounds is not None
             else _qa.RemediationLoopController()
         ),
         qa_cycle_lifecycle=_build_qa_cycle_lifecycle(defaults),
         review_completion_sink=(
-            defaults.review_completion_sink
-            if defaults.review_completion_sink is not None
-            else NullReviewCompletionSink()
+            defaults.review_completion_sink if defaults.review_completion_sink is not None else NullReviewCompletionSink()
         ),
         adversarial_spawner=adversarial_spawner,
         implementation_change_evidence_port=(

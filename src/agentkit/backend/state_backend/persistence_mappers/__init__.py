@@ -95,7 +95,6 @@ from ._verify import (
     build_qa_layer_payload_rows as build_qa_layer_payload_rows,
     build_qa_stage_result_row as build_qa_stage_result_row,
     build_verify_decision_dict as build_verify_decision_dict,
-    get_producer_component_for_layer as get_producer_component_for_layer,
     qa_finding_row_to_record as qa_finding_row_to_record,
     qa_stage_result_row_to_record as qa_stage_result_row_to_record,
     serialize_layer_result_to_dict as serialize_layer_result_to_dict,

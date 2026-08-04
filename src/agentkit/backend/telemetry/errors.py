@@ -7,6 +7,7 @@ from __future__ import annotations
 
 __all__ = (
     "FCIncidentWriteViaDedicatedMethodError",
+    "QALayerArtifactWriteViaDedicatedMethodError",
     "ProjectionKindNotAccessorOwnedError",
     "ProjectionRecordTypeMismatchError",
 )
@@ -60,6 +61,17 @@ class FCIncidentWriteViaDedicatedMethodError(TypeError):
             "ProjectionAccessor.record_fc_incident(draft) -> IncidentId, not "
             "write_projection: FK-41 §41.3.1 allocates the FC-YYYY-NNNN id in the "
             "write transaction and the id must be returned to the caller."
+        )
+
+
+class QALayerArtifactWriteViaDedicatedMethodError(TypeError):
+    """Raised for a split write of one QA projection through the generic API."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "QA_STAGE_RESULTS, QA_FINDINGS, and QA_CHECK_OUTCOMES must be "
+            "written together via ProjectionAccessor.record_qa_layer_artifacts; "
+            "the generic write_projection path is not atomic (FK-69 §69.4)."
         )
 
 

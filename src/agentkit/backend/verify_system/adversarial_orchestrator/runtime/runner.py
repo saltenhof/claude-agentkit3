@@ -327,6 +327,12 @@ def _derive_layer_result(
             "tests_executed": artifact.tests_executed,
             "tests_failed": artifact.tests_failed,
             "sparring_pool": artifact.sparring.pool,
+            "executed_check_ids": (
+                "no_test_executed",
+                "sparring_missing",
+                "proven_finding",
+                *(target.target_id for target in artifact.mandatory_target_results),
+            ),
         },
     )
 

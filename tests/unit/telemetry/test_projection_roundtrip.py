@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import seed_qa_stage_result
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -24,6 +25,9 @@ if TYPE_CHECKING:
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
+)
+from agentkit.backend.telemetry.errors import (
+    QALayerArtifactWriteViaDedicatedMethodError,
 )
 from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
@@ -34,6 +38,7 @@ from agentkit.backend.verify_system.stage_registry.records import (
     QAFindingRecord,
     QAStageResultRecord,
 )
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,9 +46,7 @@ from agentkit.backend.verify_system.stage_registry.records import (
 
 
 @pytest.fixture()
-def sqlite_accessor(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> ProjectionAccessor:
+def sqlite_accessor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProjectionAccessor:
     """Erzeugt ProjectionAccessor gegen echtes SQLite via tmp_path."""
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
@@ -60,8 +63,8 @@ def sqlite_accessor(
 # ---------------------------------------------------------------------------
 
 
-def test_qa_stage_result_write_read_roundtrip(sqlite_accessor: ProjectionAccessor) -> None:
-    """write_projection(QA_STAGE_RESULTS) -> read_projection liefert denselben Record."""
+def test_qa_stage_result_split_write_is_rejected(sqlite_accessor: ProjectionAccessor) -> None:
+    """QA stage rows cannot bypass the productive atomic batch."""
     record = QAStageResultRecord(
         project_key="int-proj",
         story_id="INT-001",
@@ -79,28 +82,8 @@ def test_qa_stage_result_write_read_roundtrip(sqlite_accessor: ProjectionAccesso
         recorded_at=datetime(2026, 5, 25, 10, 0, 0, tzinfo=UTC),
     )
 
-    sqlite_accessor.write_projection(ProjectionKind.QA_STAGE_RESULTS, record)
-
-    results = sqlite_accessor.read_projection(
-        ProjectionKind.QA_STAGE_RESULTS,
-        ProjectionFilter(
-            project_key="int-proj",
-            story_id="INT-001",
-            run_id="run-integration",
-        ),
-    )
-
-    assert len(results) == 1
-    r = results[0]
-    assert isinstance(r, QAStageResultRecord)
-    assert r.project_key == "int-proj"
-    assert r.story_id == "INT-001"
-    assert r.run_id == "run-integration"
-    assert r.attempt_no == 1
-    assert r.stage_id == "structural"
-    assert r.status == "PASS"
-    assert r.total_checks == 10
-    assert r.blocking is False
+    with pytest.raises(QALayerArtifactWriteViaDedicatedMethodError):
+        sqlite_accessor.write_projection(ProjectionKind.QA_STAGE_RESULTS, record)
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +91,8 @@ def test_qa_stage_result_write_read_roundtrip(sqlite_accessor: ProjectionAccesso
 # ---------------------------------------------------------------------------
 
 
-def test_qa_finding_write_read_roundtrip(sqlite_accessor: ProjectionAccessor) -> None:
-    """write_projection(QA_FINDINGS) -> read_projection liefert denselben Record."""
+def test_qa_finding_split_write_is_rejected(sqlite_accessor: ProjectionAccessor) -> None:
+    """QA finding rows cannot bypass the productive atomic batch."""
     record = QAFindingRecord(
         project_key="int-proj",
         story_id="INT-002",
@@ -129,20 +112,8 @@ def test_qa_finding_write_read_roundtrip(sqlite_accessor: ProjectionAccessor) ->
         metadata={"trust_class": "SYSTEM"},
     )
 
-    sqlite_accessor.write_projection(ProjectionKind.QA_FINDINGS, record)
-
-    results = sqlite_accessor.read_projection(
-        ProjectionKind.QA_FINDINGS,
-        ProjectionFilter(story_id="INT-002", run_id="run-integration"),
-    )
-
-    assert len(results) == 1
-    r = results[0]
-    assert isinstance(r, QAFindingRecord)
-    assert r.finding_id == "structural-abc001"
-    assert r.check_id == "mypy_error"
-    assert r.blocking is True
-    assert r.description == "Type error in module X"
+    with pytest.raises(QALayerArtifactWriteViaDedicatedMethodError):
+        sqlite_accessor.write_projection(ProjectionKind.QA_FINDINGS, record)
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +233,10 @@ def test_purge_run_does_not_affect_other_runs(sqlite_accessor: ProjectionAccesso
     assert len(after_b) == 1
 
 
-def test_purge_run_removes_qa_stage_results(sqlite_accessor: ProjectionAccessor) -> None:
+def test_purge_run_removes_qa_stage_results(
+    sqlite_accessor: ProjectionAccessor,
+    tmp_path: Path,
+) -> None:
     """purge_run entfernt qa_stage_results aus SQLite."""
     record = QAStageResultRecord(
         project_key="int-proj",
@@ -280,7 +254,7 @@ def test_purge_run_removes_qa_stage_results(sqlite_accessor: ProjectionAccessor)
         artifact_id="art-006",
         recorded_at=datetime(2026, 5, 25, 12, 0, 0, tzinfo=UTC),
     )
-    sqlite_accessor.write_projection(ProjectionKind.QA_STAGE_RESULTS, record)
+    seed_qa_stage_result(tmp_path, record)
 
     before = sqlite_accessor.read_projection(
         ProjectionKind.QA_STAGE_RESULTS,
@@ -308,13 +282,15 @@ class _SpyBatchWriter:
     """Spy-Implementierung des QALayerBatchWriter-Ports (AG3-035 #5)."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[object, object, int, str, int, object]] = []
+        self.calls: list[tuple[object, object, object, object, int, str, int, object]] = []
 
     def persist_layer_artifacts(
         self,
         story_dir: object,
         *,
         layer_results: object,
+        check_outcomes: object,
+        stage_registry: object,
         attempt_nr: int,
         owner_session_id: str,
         expected_ownership_epoch: int,
@@ -324,6 +300,8 @@ class _SpyBatchWriter:
             (
                 story_dir,
                 layer_results,
+                check_outcomes,
+                stage_registry,
                 attempt_nr,
                 owner_session_id,
                 expected_ownership_epoch,
@@ -349,9 +327,12 @@ def test_record_qa_layer_artifacts_delegates_to_batch_port(tmp_path: Path) -> No
     accessor = ProjectionAccessor(repos)
 
     proj_dir = tmp_path / "proj"
+    registry = StageRegistry()
     result = accessor.record_qa_layer_artifacts(
         tmp_path,
         layer_results=(),
+        check_outcomes=(),
+        stage_registry=registry,
         attempt_nr=2,
         owner_session_id="sess-spy",
         expected_ownership_epoch=1,
@@ -363,6 +344,8 @@ def test_record_qa_layer_artifacts_delegates_to_batch_port(tmp_path: Path) -> No
     (
         story_dir,
         layer_results,
+        check_outcomes,
+        stage_registry,
         attempt_nr,
         owner_session_id,
         expected_ownership_epoch,
@@ -370,18 +353,18 @@ def test_record_qa_layer_artifacts_delegates_to_batch_port(tmp_path: Path) -> No
     ) = spy.calls[0]
     assert story_dir == tmp_path
     assert layer_results == ()
+    assert check_outcomes == ()
+    assert stage_registry is registry
     assert attempt_nr == 2
     assert owner_session_id == "sess-spy"
     assert expected_ownership_epoch == 1
     assert projection_dir == proj_dir
 
 
-def test_record_qa_layer_artifacts_runs_real_batch_chain(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_record_qa_layer_artifacts_runs_real_batch_chain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Echter Pfad-Beweis (#5/#7): produktiver Accessor-Schreibpfad ohne Spy.
 
-    Die echte ``FacadeQALayerBatchWriter`` -> ``facade.record_layer_artifacts``
+    Der echte ``ProjectionAccessor`` -> ``FacadeQALayerBatchWriter``
     -> Driver-Batch wird durchlaufen (kein Mock) und gibt das Driver-Ergebnis
     zurueck (FK-69 §69.4, AG3-035 #5). Die qa_stage_results-Materialisierung an
     der Persistenzgrenze ist zusaetzlich im Postgres-Contract-Test
@@ -395,11 +378,17 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(
     from agentkit.backend.state_backend.persistence_test_support import (
         reset_backend_cache_for_tests,
     )
-    from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
+    from agentkit.backend.state_backend.pipeline_runtime_store import (
+        load_flow_execution,
+        save_flow_execution,
+    )
     from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.types import StoryMode, StoryType
     from agentkit.backend.verify_system.artifacts import write_layer_artifacts
+    from agentkit.backend.verify_system.check_outcome_emitter import (
+        CheckOutcomeEmitter,
+    )
     from agentkit.backend.verify_system.protocols import (
         Finding,
         LayerResult,
@@ -446,7 +435,12 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(
                         trust_class=TrustClass.SYSTEM,
                     ),
                 ),
-                metadata={"total_checks": 4},
+                metadata={
+                    "executed_check_ids": ("context_exists",),
+                    "total_checks": 1,
+                    "failed_checks": 1,
+                    "warning_checks": 0,
+                },
             ),
         )
         # Quell-Artefakte (artifact_records) muessen vor der FK-69-Materialisierung
@@ -460,9 +454,20 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(
         )
 
         accessor = ProjectionAccessor(build_projection_repositories(story_dir))
+        registry = StageRegistry()
+        flow = load_flow_execution(story_dir)
+        assert flow is not None
+        check_outcomes = CheckOutcomeEmitter().build_batch(
+            flow,
+            layers,
+            attempt_no=1,
+            stage_registry=registry,
+        )
         produced = accessor.record_qa_layer_artifacts(
             story_dir,
             layer_results=layers,
+            check_outcomes=check_outcomes,
+            stage_registry=registry,
             attempt_nr=1,
             # AG3-144: sqlite backend (forced above) -- no fence mirroring
             # there, so these values are accepted but ignored by the driver.

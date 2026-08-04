@@ -1,7 +1,7 @@
 """ProjectionAccessor roundtrip for qa_check_outcomes (AG3-108, FK-69 §69.15).
 
 Covers:
-- write_projection(QA_CHECK_OUTCOMES, record) -> persisted
+- generic split writes are rejected in favor of the atomic QA-layer batch
 - read_projection(QA_CHECK_OUTCOMES, filter) -> correct rows back
 - ProjectionFilter.check_id equality filter
 - ProjectionFilter.since_days UTC window
@@ -17,9 +17,13 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.qa_artifact_support import seed_qa_check_outcome
 
 from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
+)
+from agentkit.backend.telemetry.errors import (
+    QALayerArtifactWriteViaDedicatedMethodError,
 )
 from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
@@ -79,6 +83,12 @@ def _record(
     )
 
 
+def _seed_outcome(accessor: ProjectionAccessor, record: QACheckOutcomeRecord) -> None:
+    """Seed a row below the business boundary for read/filter/purge tests."""
+    repository = accessor._repos.qa_check_outcomes  # noqa: SLF001 -- test setup locates the configured SQLite store
+    seed_qa_check_outcome(repository._story_dir, record)  # noqa: SLF001 -- test-only DB seed, not a production writer
+
+
 # ---------------------------------------------------------------------------
 # ProjectionKind registration
 # ---------------------------------------------------------------------------
@@ -91,14 +101,21 @@ def test_qa_check_outcomes_kind_exists() -> None:
 
 
 # ---------------------------------------------------------------------------
-# write_projection / read_projection roundtrip
+# Split-write rejection and repository read semantics
 # ---------------------------------------------------------------------------
 
 
-def test_roundtrip_write_read(accessor: ProjectionAccessor) -> None:
-    """write_projection + read_projection returns the same record."""
+def test_check_outcome_split_write_is_rejected(accessor: ProjectionAccessor) -> None:
+    """A check outcome cannot be written apart from stage and finding rows."""
     rec = _record(check_id="artifact.protocol", outcome=CheckOutcome.TRIGGERED)
-    accessor.write_projection(ProjectionKind.QA_CHECK_OUTCOMES, rec)
+    with pytest.raises(QALayerArtifactWriteViaDedicatedMethodError):
+        accessor.write_projection(ProjectionKind.QA_CHECK_OUTCOMES, rec)
+
+
+def test_repository_read_returns_seeded_outcome(accessor: ProjectionAccessor) -> None:
+    """The accessor reads canonical rows materialized by the batch repository."""
+    rec = _record(check_id="artifact.protocol", outcome=CheckOutcome.TRIGGERED)
+    _seed_outcome(accessor, rec)
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
@@ -123,7 +140,7 @@ def test_roundtrip_overridden_outcome(accessor: ProjectionAccessor) -> None:
         outcome=CheckOutcome.OVERRIDDEN,
         override_id="ovr-007",
     )
-    accessor.write_projection(ProjectionKind.QA_CHECK_OUTCOMES, rec)
+    _seed_outcome(accessor, rec)
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
@@ -141,10 +158,7 @@ def test_multiple_checks_same_run(accessor: ProjectionAccessor) -> None:
         ("branch.story", CheckOutcome.TRIGGERED),
         ("impl_fidelity", CheckOutcome.OVERRIDDEN),
     ]:
-        accessor.write_projection(
-            ProjectionKind.QA_CHECK_OUTCOMES,
-            _record(check_id=check_id, outcome=outcome),
-        )
+        _seed_outcome(accessor, _record(check_id=check_id, outcome=outcome))
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
@@ -164,12 +178,8 @@ def test_multiple_checks_same_run(accessor: ProjectionAccessor) -> None:
 
 def test_filter_by_check_id(accessor: ProjectionAccessor) -> None:
     """ProjectionFilter.check_id filters to the matching check only."""
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES, _record(check_id="c1")
-    )
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES, _record(check_id="c2")
-    )
+    _seed_outcome(accessor, _record(check_id="c1"))
+    _seed_outcome(accessor, _record(check_id="c2"))
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
@@ -180,9 +190,7 @@ def test_filter_by_check_id(accessor: ProjectionAccessor) -> None:
 
 
 def test_filter_by_check_id_no_match(accessor: ProjectionAccessor) -> None:
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES, _record(check_id="c1")
-    )
+    _seed_outcome(accessor, _record(check_id="c1"))
 
     rows = accessor.read_projection(
         ProjectionKind.QA_CHECK_OUTCOMES,
@@ -202,9 +210,7 @@ def _now_dt() -> datetime:
 
 def test_since_days_window_includes_recent(accessor: ProjectionAccessor) -> None:
     recent_ts = _now_dt() - timedelta(days=2)
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES, _record(occurred_at=recent_ts)
-    )
+    _seed_outcome(accessor, _record(occurred_at=recent_ts))
 
     # Directly call FacadeQACheckOutcomesRepository since ProjectionFilter
     # does not yet have a _now injection path; use the repo directly.
@@ -221,9 +227,7 @@ def test_since_days_window_includes_recent(accessor: ProjectionAccessor) -> None
 
 def test_since_days_window_excludes_old(accessor: ProjectionAccessor) -> None:
     old_ts = _now_dt() - timedelta(days=30)
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES, _record(occurred_at=old_ts)
-    )
+    _seed_outcome(accessor, _record(occurred_at=old_ts))
 
     from agentkit.backend.state_backend.store.telemetry_projection_repository_qa import (
         FacadeQACheckOutcomesRepository,
@@ -238,9 +242,7 @@ def test_since_days_window_excludes_old(accessor: ProjectionAccessor) -> None:
 
 def test_since_days_boundary_at_cutoff_included(accessor: ProjectionAccessor) -> None:
     cutoff_ts = _now_dt() - timedelta(days=7)
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES, _record(occurred_at=cutoff_ts)
-    )
+    _seed_outcome(accessor, _record(occurred_at=cutoff_ts))
 
 
     repo = accessor._repos.qa_check_outcomes  # type: ignore[attr-defined]
@@ -251,9 +253,7 @@ def test_since_days_boundary_at_cutoff_included(accessor: ProjectionAccessor) ->
 def test_since_days_zero(accessor: ProjectionAccessor) -> None:
     """since_days=0 excludes rows strictly before now."""
     old_ts = _now_dt() - timedelta(seconds=5)
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES, _record(occurred_at=old_ts)
-    )
+    _seed_outcome(accessor, _record(occurred_at=old_ts))
 
 
     repo = accessor._repos.qa_check_outcomes  # type: ignore[attr-defined]
@@ -282,14 +282,8 @@ def test_read_without_project_key_raises(accessor: ProjectionAccessor) -> None:
 
 def test_purge_run_removes_qa_check_outcomes(accessor: ProjectionAccessor) -> None:
     """purge_run removes qa_check_outcomes for the purged run."""
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES,
-        _record(run_id="run-1", check_id="c1"),
-    )
-    accessor.write_projection(
-        ProjectionKind.QA_CHECK_OUTCOMES,
-        _record(run_id="run-2", check_id="c1"),
-    )
+    _seed_outcome(accessor, _record(run_id="run-1", check_id="c1"))
+    _seed_outcome(accessor, _record(run_id="run-2", check_id="c1"))
 
     result = accessor.purge_run("proj-test", "AG3-108", "run-1")
 

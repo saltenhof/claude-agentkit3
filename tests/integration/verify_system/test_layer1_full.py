@@ -205,7 +205,7 @@ def test_clean_story_layer1_pass_and_policy_pass(tmp_path: Path) -> None:
     decision = PolicyEngine().decide(
         [layer1, _sonarqube_gate_pass()],
         story_type=ctx.story_type,
-        max_layer_reached=1,
+        traversed_layers=frozenset({1, 4}),
     )
     assert decision.verdict is PolicyVerdict.PASS
 
@@ -221,7 +221,7 @@ def test_broken_blocking_stage_drives_policy_fail(tmp_path: Path) -> None:
     decision = PolicyEngine().decide(
         [layer1, _sonarqube_gate_pass()],
         story_type=ctx.story_type,
-        max_layer_reached=1,
+        traversed_layers=frozenset({1, 4}),
     )
     assert decision.verdict is PolicyVerdict.FAIL
     assert any(f.check == "artifact.protocol" for f in decision.blocking_findings)
@@ -238,7 +238,7 @@ def test_impact_violation_escalates(tmp_path: Path) -> None:
     decision = PolicyEngine().decide(
         [layer1, _sonarqube_gate_pass()],
         story_type=ctx.story_type,
-        max_layer_reached=1,
+        traversed_layers=frozenset({1, 4}),
     )
     assert decision.verdict is PolicyVerdict.FAIL
 
@@ -288,6 +288,6 @@ def test_policy_fail_closed_when_layer1_result_absent(tmp_path: Path) -> None:
     """FK-33 §33.7: layer-1 traversed but no result reaches policy -> FAIL."""
     ctx = _ctx()
     decision = PolicyEngine().decide(
-        [], story_type=ctx.story_type, max_layer_reached=1
+        [], story_type=ctx.story_type, traversed_layers=frozenset({1, 4})
     )
     assert decision.verdict is PolicyVerdict.FAIL

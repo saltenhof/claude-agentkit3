@@ -6,6 +6,12 @@ from enum import StrEnum
 from typing import Final
 
 from agentkit.backend.verify_system.protocols import Severity
+from agentkit.backend.verify_system.stage_registry.check_origins import (
+    DOC_FIDELITY_CHECK_IDS,
+    QA_REVIEW_CHECK_IDS,
+    SEMANTIC_REVIEW_CHECK_IDS,
+    STORY_CREATION_REVIEW_CHECK_IDS,
+)
 
 
 class LlmVerdict(StrEnum):
@@ -31,27 +37,6 @@ class ReviewerRole(StrEnum):
     DOC_FIDELITY = "doc_fidelity"
     STORY_CREATION_REVIEW = "story_creation_review"
 
-
-QA_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({
-    "ac_fulfilled",
-    "impl_fidelity",
-    "scope_compliance",
-    "impact_violation",
-    "arch_conformity",
-    "proportionality",
-    "error_handling",
-    "authz_logic",
-    "silent_data_loss",
-    "backward_compat",
-    "observability",
-    "doc_impact",
-})
-
-SEMANTIC_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({"systemic_adequacy"})
-DOC_FIDELITY_CHECK_IDS: Final[frozenset[str]] = frozenset({"impl_fidelity"})
-#: Single conflict-assessment check for the story-creation reconciliation
-#: (FK-11 §11.5.1 / FK-21 §21.4.1: 1 check, duplicate / overlap).
-STORY_CREATION_REVIEW_CHECK_IDS: Final[frozenset[str]] = frozenset({"conflict_assessment"})
 
 ROLE_CHECK_IDS: Final[dict[ReviewerRole, frozenset[str]]] = {
     ReviewerRole.QA_REVIEW: QA_REVIEW_CHECK_IDS,

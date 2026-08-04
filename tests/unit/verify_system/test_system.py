@@ -11,6 +11,11 @@ Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR und
 
 from __future__ import annotations
 
+from inspect import Parameter, signature
+
+import pytest
+
+from agentkit.backend.story_context_manager.types import StoryType
 from agentkit.backend.verify_system import VerifySystem
 from agentkit.backend.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
@@ -36,50 +41,20 @@ class TestVerifySystemFacade:
             verify_system.layer_3, AdversarialChallenger
         )
 
-    def test_create_default_propagates_max_major_findings(self) -> None:
-        verify_system = make_test_verify_system(max_major_findings=2)
-        # Two MAJOR findings remain non-blocking, three flip to blocking.
-        non_blocking = LayerResult(
-            layer="probe",
-            passed=True,
-            findings=(
-                Finding(
-                    layer="probe",
-                    check="c1",
-                    severity=Severity.MAJOR,
-                    message="m1",
-                    trust_class=TrustClass.VERIFIED_LLM,
-                ),
-                Finding(
-                    layer="probe",
-                    check="c2",
-                    severity=Severity.MAJOR,
-                    message="m2",
-                    trust_class=TrustClass.VERIFIED_LLM,
-                ),
-            ),
-        )
-        decision_non_blocking = verify_system.policy_engine.decide([non_blocking])
-        assert decision_non_blocking.passed is True
-        assert decision_non_blocking.blocking_findings == ()
+    def test_create_default_uses_canonical_story_type_threshold(self) -> None:
+        verify_system = make_test_verify_system()
 
-        blocking = LayerResult(
-            layer="probe",
-            passed=True,
-            findings=(
-                *non_blocking.findings,
-                Finding(
-                    layer="probe",
-                    check="c3",
-                    severity=Severity.MAJOR,
-                    message="m3",
-                    trust_class=TrustClass.VERIFIED_LLM,
-                ),
-            ),
-        )
-        decision_blocking = verify_system.policy_engine.decide([blocking])
-        assert decision_blocking.passed is False
-        assert len(decision_blocking.blocking_findings) == 3
+        assert verify_system.policy_engine.threshold_for(StoryType.IMPLEMENTATION) == 3
+
+    def test_create_default_has_no_keyword_override_channel(self) -> None:
+        parameters = signature(VerifySystem.create_default).parameters.values()
+        assert all(parameter.kind is not Parameter.VAR_KEYWORD for parameter in parameters)
+
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            VerifySystem.create_default(
+                artifact_manager=_RecordingArtifactManagerForTests(),
+                max_major_findings=1,
+            )
 
     def test_facade_is_frozen_dataclass(self) -> None:
         """The facade must be immutable (FrozenInstanceError on assignment)."""
@@ -97,7 +72,9 @@ class TestVerifySystemFacade:
     def test_policy_engine_decide_pass_without_findings(self) -> None:
         verify_system = make_test_verify_system()
         decision = verify_system.policy_engine.decide(
-            [LayerResult(layer="probe", passed=True, findings=())],
+            [LayerResult(layer="structural", passed=True, findings=())],
+            story_type=StoryType.IMPLEMENTATION,
+            traversed_layers=frozenset({4}),
         )
         assert decision.passed is True
         assert decision.status == "PASS"
@@ -118,7 +95,11 @@ class TestVerifySystemFacade:
                 ),
             ),
         )
-        decision = verify_system.policy_engine.decide([result])
+        decision = verify_system.policy_engine.decide(
+            [result],
+            story_type=StoryType.IMPLEMENTATION,
+            traversed_layers=frozenset({4}),
+        )
         assert decision.passed is False
         assert decision.status == "FAIL"
         assert len(decision.blocking_findings) == 1
@@ -166,9 +147,8 @@ class _RecordingArtifactManagerForTests(_AGAManager):
         )
 
 
-def make_test_verify_system(*, max_major_findings: int = 0) -> VerifySystem:
+def make_test_verify_system() -> VerifySystem:
     """Build a VerifySystem wired with a recording ArtifactManager."""
     return VerifySystem.create_default(
-        max_major_findings=max_major_findings,
         artifact_manager=_RecordingArtifactManagerForTests(),
     )

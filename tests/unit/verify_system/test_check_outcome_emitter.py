@@ -6,13 +6,16 @@ Covers:
 - Override -> check_id correlation
 - Blank/whitespace check_id in executed_check_ids raises ValueError (fail-closed)
 - Missing project_key raises ValueError (fail-closed)
-- Fallback when metadata["executed_check_ids"] absent (finding-derived set)
+- Missing or malformed executed_check_ids fails closed
+- Missing per-check origin mapping fails closed
+- Registry-owned Result-name to Stage-ID persistence
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -22,6 +25,10 @@ from agentkit.backend.verify_system.check_outcome_emitter import (
 )
 from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 from agentkit.backend.verify_system.stage_registry.records import CheckOutcome
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
+
+if TYPE_CHECKING:
+    from agentkit.backend.phase_state_store.models import FlowExecution, OverrideRecord
 
 # ---------------------------------------------------------------------------
 # Minimal stand-ins for FlowExecution and OverrideRecord
@@ -42,6 +49,7 @@ class _FakeOverride:
 
 
 _TS = datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)
+_STAGE_REGISTRY = StageRegistry.result_catalog_only()
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +84,14 @@ def _layer_result(
     )
 
 
+def _origin_refs(result: LayerResult) -> dict[str, str | None]:
+    """Build explicit native-check provenance for a unit-test result."""
+    raw_ids = result.metadata["executed_check_ids"]
+    assert isinstance(raw_ids, (list, tuple))
+    check_ids = [str(check_id) for check_id in raw_ids]
+    return {check_id: None for check_id in check_ids}
+
+
 # ---------------------------------------------------------------------------
 # Tests: triggered outcome
 # ---------------------------------------------------------------------------
@@ -89,7 +105,14 @@ def test_triggered_outcome() -> None:
         executed_check_ids=["artifact.protocol", "branch.story"],
     )
 
-    records = build_check_outcomes(flow, result, attempt_no=1, occurred_at=_TS)
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
+    )
 
     triggered = [r for r in records if r.check_id == "artifact.protocol"]
     assert len(triggered) == 1
@@ -119,7 +142,14 @@ def test_clean_outcome() -> None:
         executed_check_ids=["branch.story", "artifact.protocol"],
     )
 
-    records = build_check_outcomes(flow, result, attempt_no=1, occurred_at=_TS)
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
+    )
 
     assert len(records) == 2
     for rec in records:
@@ -134,7 +164,14 @@ def test_clean_and_triggered_mixed() -> None:
         executed_check_ids=["artifact.protocol", "branch.story", "impl_fidelity"],
     )
 
-    records = build_check_outcomes(flow, result, attempt_no=1, occurred_at=_TS)
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
+    )
 
     by_check = {r.check_id: r for r in records}
     assert by_check["artifact.protocol"].outcome is CheckOutcome.TRIGGERED
@@ -157,7 +194,13 @@ def test_overridden_outcome() -> None:
     override = _FakeOverride(override_id="ovr-001", check_id="artifact.protocol")
 
     records = build_check_outcomes(
-        flow, result, attempt_no=1, occurred_at=_TS, override_records=[override]  # type: ignore[arg-type]
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        override_records=[cast("OverrideRecord", override)],
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
     )
 
     by_check = {r.check_id: r for r in records}
@@ -178,7 +221,13 @@ def test_override_correlation_via_override_id() -> None:
     override = _FakeOverride(override_id="ovr-xyz", check_id="qa_review")
 
     records = build_check_outcomes(
-        flow, result, attempt_no=2, occurred_at=_TS, override_records=[override]  # type: ignore[arg-type]
+        flow,
+        result,
+        attempt_no=2,
+        occurred_at=_TS,
+        override_records=[cast("OverrideRecord", override)],
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
     )
 
     assert len(records) == 1
@@ -196,7 +245,13 @@ def test_override_without_check_id_does_not_match() -> None:
     override = _FakeOverride(override_id="ovr-002", check_id=None)
 
     records = build_check_outcomes(
-        flow, result, attempt_no=1, occurred_at=_TS, override_records=[override]  # type: ignore[arg-type]
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        override_records=[cast("OverrideRecord", override)],
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
     )
 
     assert records[0].outcome is CheckOutcome.CLEAN
@@ -222,7 +277,14 @@ def test_blank_check_id_in_executed_raises() -> None:
             executed_check_ids=["valid.check", bad_id],
         )
         with pytest.raises(ValueError, match="blank or whitespace"):
-            build_check_outcomes(flow, result, attempt_no=1, occurred_at=_TS)
+            build_check_outcomes(
+                flow,
+                result,
+                attempt_no=1,
+                occurred_at=_TS,
+                check_origin_refs=_origin_refs(result),
+                stage_registry=_STAGE_REGISTRY,
+            )
 
 
 def test_all_emitted_rows_have_nonempty_check_id() -> None:
@@ -233,7 +295,14 @@ def test_all_emitted_rows_have_nonempty_check_id() -> None:
         executed_check_ids=["c1", "c2", "c3"],
     )
 
-    records = build_check_outcomes(flow, result, attempt_no=1, occurred_at=_TS)
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
+    )
 
     for rec in records:
         assert rec.check_id, f"Empty check_id in record: {rec!r}"
@@ -245,40 +314,86 @@ def test_fail_closed_empty_project_key() -> None:
     result = _layer_result([], executed_check_ids=["c1"])
 
     with pytest.raises(ValueError, match="project_key"):
-        build_check_outcomes(flow, result, attempt_no=1)
+        build_check_outcomes(
+            flow,
+            result,
+            attempt_no=1,
+            check_origin_refs=_origin_refs(result),
+            stage_registry=_STAGE_REGISTRY,
+        )
 
 
 # ---------------------------------------------------------------------------
-# Tests: fallback when executed_check_ids absent from metadata
+# Tests: required executed_check_ids protocol
 # ---------------------------------------------------------------------------
 
 
-def test_fallback_without_executed_check_ids_metadata() -> None:
-    """When metadata has no executed_check_ids, derive check_ids from findings."""
+def test_missing_executed_check_ids_fails_closed_with_named_reason() -> None:
+    """Findings cannot substitute for the complete execution protocol."""
     flow = _FakeFlow()
     result = _layer_result(
         [_finding("artifact.protocol"), _finding("branch.story")],
-        executed_check_ids=None,  # no metadata key
+        executed_check_ids=None,
     )
 
-    records = build_check_outcomes(flow, result, attempt_no=1, occurred_at=_TS)
+    with pytest.raises(ValueError, match="executed_check_ids.*required"):
+        build_check_outcomes(
+            flow,
+            result,
+            attempt_no=1,
+            occurred_at=_TS,
+            check_origin_refs={
+                "artifact.protocol": None,
+                "branch.story": None,
+            },
+            stage_registry=_STAGE_REGISTRY,
+        )
 
-    # Should emit one triggered row per finding-derived check_id
-    check_ids = {r.check_id for r in records}
-    assert "artifact.protocol" in check_ids
-    assert "branch.story" in check_ids
-    for rec in records:
-        assert rec.outcome is CheckOutcome.TRIGGERED
 
-
-def test_fallback_no_findings_no_metadata_emits_empty() -> None:
-    """No findings + no metadata -> no rows emitted (nothing to derive)."""
+@pytest.mark.parametrize(
+    "malformed_ids",
+    ["artifact.protocol", {"artifact.protocol": None}, ["artifact.protocol", 7]],
+)
+def test_malformed_executed_check_ids_fails_closed_with_named_reason(
+    malformed_ids: object,
+) -> None:
+    """The execution protocol accepts only a list or tuple of strings."""
     flow = _FakeFlow()
-    result = _layer_result([], executed_check_ids=None)
+    result = LayerResult(
+        layer="structural",
+        passed=True,
+        findings=(),
+        metadata={"executed_check_ids": malformed_ids},
+    )
 
-    records = build_check_outcomes(flow, result, attempt_no=1, occurred_at=_TS)
+    with pytest.raises(ValueError, match="list or tuple of strings"):
+        build_check_outcomes(
+            flow,
+            result,
+            attempt_no=1,
+            occurred_at=_TS,
+            check_origin_refs={"artifact.protocol": None},
+            stage_registry=_STAGE_REGISTRY,
+        )
 
-    assert records == []
+
+def test_finding_check_missing_from_execution_protocol_fails_closed() -> None:
+    """A finding cannot exist outside the complete executed-check protocol."""
+    flow = _FakeFlow()
+    result = _layer_result(
+        [_finding("artifact.protocol")],
+        executed_check_ids=[],
+    )
+
+    with pytest.raises(ValueError, match="findings reference.*artifact.protocol"):
+        build_check_outcomes(
+            flow,
+            result,
+            attempt_no=1,
+            occurred_at=_TS,
+            check_origin_refs={},
+            stage_registry=_STAGE_REGISTRY,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +407,13 @@ def test_default_occurred_at_is_utc() -> None:
     result = _layer_result([], executed_check_ids=["c1"])
 
     before = datetime.now(UTC)
-    records = build_check_outcomes(flow, result, attempt_no=1)
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
+    )
     after = datetime.now(UTC)
 
     assert len(records) == 1
@@ -307,7 +428,7 @@ def test_default_occurred_at_is_utc() -> None:
 
 
 def test_check_outcome_emitter_returns_records() -> None:
-    """CheckOutcomeEmitter.emit returns the same records as build_check_outcomes."""
+    """CheckOutcomeEmitter.build returns the same records as the pure builder."""
     flow = _FakeFlow()
     result = _layer_result(
         [_finding("impl_fidelity")],
@@ -315,50 +436,19 @@ def test_check_outcome_emitter_returns_records() -> None:
     )
     emitter = CheckOutcomeEmitter()
 
-    records = emitter.emit(flow, result, attempt_no=1, occurred_at=_TS)  # type: ignore[arg-type]
+    records = emitter.build(
+        cast("FlowExecution", flow),
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        check_origin_refs=_origin_refs(result),
+        stage_registry=_STAGE_REGISTRY,
+    )
 
     assert len(records) == 2
     by_check = {r.check_id: r for r in records}
     assert by_check["impl_fidelity"].outcome is CheckOutcome.TRIGGERED
     assert by_check["ac_fulfilled"].outcome is CheckOutcome.CLEAN
-
-
-def test_check_outcome_emitter_calls_write_projection() -> None:
-    """CheckOutcomeEmitter.emit calls write_projection on the accessor."""
-    flow = _FakeFlow()
-    result = _layer_result(
-        [],
-        executed_check_ids=["c1", "c2"],
-    )
-
-    calls: list[tuple[object, object]] = []
-
-    class _FakeAccessor:
-        def write_projection(self, kind: object, record: object) -> None:
-            calls.append((kind, record))
-
-    emitter = CheckOutcomeEmitter()
-    emitter.emit(
-        flow,  # type: ignore[arg-type]
-        result,
-        attempt_no=1,
-        occurred_at=_TS,
-        projection_accessor=_FakeAccessor(),
-    )
-
-    assert len(calls) == 2
-
-
-def test_check_outcome_emitter_no_accessor_no_writes() -> None:
-    """CheckOutcomeEmitter.emit with projection_accessor=None returns records only."""
-    flow = _FakeFlow()
-    result = _layer_result([], executed_check_ids=["c1"])
-    emitter = CheckOutcomeEmitter()
-
-    records = emitter.emit(flow, result, attempt_no=1, projection_accessor=None)  # type: ignore[arg-type]
-
-    assert len(records) == 1
-
 
 # ---------------------------------------------------------------------------
 # Tests: origin_check_ref -> check_proposal_ref echo (FK-33 §33.2.1 /
@@ -366,14 +456,8 @@ def test_check_outcome_emitter_no_accessor_no_writes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_origin_check_ref_echoed_into_check_proposal_ref() -> None:
-    """A StageDefinition with origin_check_ref=CHK-NNNN produces rows with
-    check_proposal_ref=CHK-NNNN (FK-33 §33.2.1 / FK-69 §69.15.6 rule 4).
-
-    verify-system echoes origin_check_ref verbatim; no FC interpretation.
-    """
-    from agentkit.backend.verify_system.check_outcome_emitter import build_check_outcomes
-
+def test_per_check_origin_refs_are_echoed_without_layer_wide_fallback() -> None:
+    """Each check receives only its exact registry-derived provenance."""
     flow = _FakeFlow()
     result = _layer_result(
         [_finding("fc.mycheck")],
@@ -385,14 +469,14 @@ def test_origin_check_ref_echoed_into_check_proposal_ref() -> None:
         result,
         attempt_no=1,
         occurred_at=_TS,
-        origin_check_ref="CHK-0042",
+        check_origin_refs={"fc.mycheck": "CHK-0042", "fc.other": "CHK-0043"},
+        stage_registry=_STAGE_REGISTRY,
     )
 
     assert len(records) == 2
-    for rec in records:
-        assert rec.check_proposal_ref == "CHK-0042", (
-            f"Expected check_proposal_ref='CHK-0042'; got {rec.check_proposal_ref!r}"
-        )
+    by_check = {record.check_id: record for record in records}
+    assert by_check["fc.mycheck"].check_proposal_ref == "CHK-0042"
+    assert by_check["fc.other"].check_proposal_ref == "CHK-0043"
 
 
 def test_native_stage_produces_null_check_proposal_ref() -> None:
@@ -400,8 +484,6 @@ def test_native_stage_produces_null_check_proposal_ref() -> None:
 
     FK-33 §33.2.1: origin_check_ref is None for native checks (not FC-derived).
     """
-    from agentkit.backend.verify_system.check_outcome_emitter import build_check_outcomes
-
     flow = _FakeFlow()
     result = _layer_result(
         [],
@@ -413,7 +495,8 @@ def test_native_stage_produces_null_check_proposal_ref() -> None:
         result,
         attempt_no=1,
         occurred_at=_TS,
-        origin_check_ref=None,
+        check_origin_refs={"artifact.protocol": None, "branch.story": None},
+        stage_registry=_STAGE_REGISTRY,
     )
 
     assert len(records) == 2
@@ -423,19 +506,70 @@ def test_native_stage_produces_null_check_proposal_ref() -> None:
         )
 
 
-def test_emitter_origin_check_ref_propagated_via_emit() -> None:
-    """CheckOutcomeEmitter.emit propagates origin_check_ref to check_proposal_ref."""
+def test_emitter_propagates_precise_check_origin_ref() -> None:
+    """CheckOutcomeEmitter propagates the per-check registry origin."""
     flow = _FakeFlow()
     result = _layer_result([], executed_check_ids=["fc.structural"])
     emitter = CheckOutcomeEmitter()
 
-    records = emitter.emit(
-        flow,  # type: ignore[arg-type]
+    records = emitter.build(
+        cast("FlowExecution", flow),
         result,
         attempt_no=1,
         occurred_at=_TS,
-        origin_check_ref="CHK-0007",
+        check_origin_refs={"fc.structural": "CHK-0007"},
+        stage_registry=_STAGE_REGISTRY,
     )
 
     assert len(records) == 1
     assert records[0].check_proposal_ref == "CHK-0007"
+
+
+def test_missing_check_origin_refs_fails_closed_with_named_reason() -> None:
+    """AC3: absent precise provenance never falls back to a layer-wide value."""
+    flow = _FakeFlow()
+    result = _layer_result([], executed_check_ids=["artifact.protocol"])
+
+    with pytest.raises(ValueError, match="check_origin_refs is required"):
+        build_check_outcomes(
+            flow,
+            result,
+            attempt_no=1,
+            check_origin_refs=None,
+            stage_registry=_STAGE_REGISTRY,
+        )
+
+
+def test_missing_check_origin_ref_member_fails_closed_with_named_reason() -> None:
+    """Absent membership is not equivalent to explicit native provenance."""
+    flow = _FakeFlow()
+    result = _layer_result([], executed_check_ids=["artifact.protocol"])
+
+    with pytest.raises(ValueError, match="no entry.*artifact.protocol"):
+        build_check_outcomes(
+            flow,
+            result,
+            attempt_no=1,
+            check_origin_refs={},
+            stage_registry=_STAGE_REGISTRY,
+        )
+
+
+def test_doc_fidelity_outcome_uses_canonical_stage_id() -> None:
+    """The registry maps the evaluator role to its canonical persisted stage."""
+    flow = _FakeFlow()
+    result = _layer_result(
+        [],
+        executed_check_ids=["impl_fidelity"],
+        layer="doc_fidelity",
+    )
+
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        check_origin_refs={"impl_fidelity": None},
+        stage_registry=_STAGE_REGISTRY,
+    )
+
+    assert records[0].stage_id == "doc_fidelity_impl"

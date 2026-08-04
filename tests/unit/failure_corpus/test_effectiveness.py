@@ -11,7 +11,10 @@ Tests cover:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from tests.qa_artifact_support import seed_qa_check_outcome
 
 from agentkit.backend.failure_corpus.sonar_signal import SonarAcceptFrequencySignal, check_accept_frequency
 
@@ -161,7 +164,6 @@ class TestCheckEffectivenessTracker:
         )
         from agentkit.backend.telemetry.projection_accessor import (
             ProjectionAccessor,
-            ProjectionKind,
         )
         from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
@@ -229,7 +231,7 @@ class TestCheckEffectivenessTracker:
                     outcome=CheckOutcome.OVERRIDDEN,
                     occurred_at=now,
                 )
-                accessor.write_projection(ProjectionKind.QA_CHECK_OUTCOMES, outcome_record)
+                seed_qa_check_outcome(Path(str(tmp_path)), outcome_record)
 
             tracker = CheckEffectivenessTracker(
                 accessor=accessor,
@@ -271,7 +273,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
-        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
         from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
             QACheckOutcomeRecord,
@@ -331,7 +333,7 @@ class TestCheckEffectivenessTracker:
                     outcome=CheckOutcome.OVERRIDDEN,
                     occurred_at=now,
                 )
-                accessor.write_projection(ProjectionKind.QA_CHECK_OUTCOMES, outcome_record)
+                seed_qa_check_outcome(Path(str(tmp_path)), outcome_record)
 
             tracker = CheckEffectivenessTracker(
                 accessor=accessor,
@@ -371,7 +373,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
-        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
         from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
             QACheckOutcomeRecord,
@@ -419,8 +421,8 @@ class TestCheckEffectivenessTracker:
 
             now = datetime.now(UTC)
             # 1 TRIGGERED (tp=1) and 4 OVERRIDDEN (fp=4) -> tp>0, so NOT deactivated
-            accessor.write_projection(
-                ProjectionKind.QA_CHECK_OUTCOMES,
+            seed_qa_check_outcome(
+                Path(str(tmp_path)),
                 QACheckOutcomeRecord(
                     project_key="proj-tp-fp",
                     story_id="AG3-TP",
@@ -434,8 +436,8 @@ class TestCheckEffectivenessTracker:
                 ),
             )
             for i in range(4):
-                accessor.write_projection(
-                    ProjectionKind.QA_CHECK_OUTCOMES,
+                seed_qa_check_outcome(
+                    Path(str(tmp_path)),
                     QACheckOutcomeRecord(
                         project_key="proj-tp-fp",
                         story_id=f"AG3-FP-{i:03d}",
@@ -487,7 +489,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
-        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
         from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
             QACheckOutcomeRecord,
@@ -537,8 +539,8 @@ class TestCheckEffectivenessTracker:
             now = datetime.now(UTC)
             # tp==0 AND fp>3 — normally would deactivate but CRITICAL is exempt
             for i in range(5):
-                accessor.write_projection(
-                    ProjectionKind.QA_CHECK_OUTCOMES,
+                seed_qa_check_outcome(
+                    Path(str(tmp_path)),
                     QACheckOutcomeRecord(
                         project_key="proj-critical",
                         story_id=f"AG3-CRIT-{i:03d}",

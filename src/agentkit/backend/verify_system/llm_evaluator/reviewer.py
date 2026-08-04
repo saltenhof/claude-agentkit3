@@ -256,6 +256,12 @@ class QaReviewReviewer(PromptAuditMixin):
             passed=passed,
             findings=tuple(findings),
             metadata={
+                "executed_check_ids": (
+                    "layer2_input.missing",
+                    "qa_review.no_tests",
+                    "qa_review.coverage_unknown",
+                    "qa_review.edge_cases_thin",
+                ),
                 "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
                     template_name="qa-review",
@@ -493,6 +499,12 @@ class SemanticReviewer(PromptAuditMixin):
             passed=passed,
             findings=tuple(findings),
             metadata={
+                "executed_check_ids": (
+                    "layer2_input.missing",
+                    "semantic.todo_in_production",
+                    "semantic.dangling_concept_ref",
+                    "semantic.naming_violation",
+                ),
                 "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
                     template_name="qa-semantic-review",
@@ -787,6 +799,12 @@ class DocFidelityReviewer(PromptAuditMixin):
             passed=passed,
             findings=tuple(findings),
             metadata={
+                "executed_check_ids": (
+                    "layer2_input.missing",
+                    "doc_fidelity.missing_docstring",
+                    "doc_fidelity.no_concept_anchor",
+                    "doc_fidelity.pydantic_config_missing",
+                ),
                 "prompt_audit": self._materialize_prompt_audit(
                     layer_name=self.name,
                     template_name="qa-doc-fidelity",

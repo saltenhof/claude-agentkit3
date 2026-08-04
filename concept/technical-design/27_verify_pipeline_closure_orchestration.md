@@ -756,6 +756,23 @@ Einstimmigkeitsregel) ist formal im dedizierten Kontext
 `formal.sonar-accept-application.*` (Kommandos `apply`/`approve`/`reject`,
 State-Machine, Invarianten) normiert.
 
+Die produktive Komposition konstruiert die `VerifySystem`-Capability
+ausschliesslich ueber das typisierte `VerifySystemDefaultOptions`-Objekt.
+Freie Keyword-Overrides, ein nachgelagerter Merge oder ein zweiter
+Default-Konfigurationspfad sind kein Bestandteil des Konstruktionsvertrags.
+
+Vor der ersten QA-Projektionsschreibung validiert die Implementation-Phase
+alle `LayerResult`s als Gesamtmenge: Result-Name, vollstaendiges
+`executed_check_ids`-Protokoll und Check-Provenienz muessen durch dieselbe an
+das `VerifySystem` gebundene StageRegistry aufloesbar sein. Erst danach werden
+Stage-, Finding- und Check-Outcome-Projektionen in einem gemeinsamen
+Transaktions-Batch materialisiert. Scheitert eine Validierung, entstehen aus
+dem abgewiesenen QA-Lauf keine dieser drei Projektionsarten.
+Der Outcome-Emitter baut dabei ausschliesslich Records. Er besitzt keinen
+eigenen Write-Port; ebenso existiert kein Stage-/Finding-Writer mit implizit
+leerer Outcome-Menge. Ersetzen oder Loeschen der drei Projektionsfamilien ist
+nur als gemeinsamer Batch zulaessig (FK-69 §69.4 und §69.11).
+
 ## 27.7 Schicht 4: Policy-Evaluation
 
 ### 27.7.1 Aggregation
@@ -764,12 +781,16 @@ Die Policy-Engine (FK-33 §33.7.1) aggregiert die Ergebnisse aller
 vorherigen Schichten:
 
 ```python
-def evaluate_policy(story_id: str, story_type: str, config: PipelineConfig) -> PolicyResult:
-    """story_type: "implementation" | "bugfix" | "concept" | "research" (steuert aktive Stages)."""
+def evaluate_policy(story_id: str, story_type: str,
+                    traversed_layers: frozenset[int],
+                    config: PipelineConfig) -> PolicyResult:
+    """Story type and exact traversed-layer set are mandatory policy inputs."""
     registry = load_stage_registry()
     results = []
 
     for stage in registry.stages_for(story_type):
+        if stage.layer not in traversed_layers:
+            continue
         # StageResult.severity: Literal["BLOCKING", "MAJOR", "MINOR"]
         # BLOCKING → severity="BLOCKING" (zählt in blocking_failures bei FAIL)
         # MAJOR    → severity="MAJOR"    (zählt in major_failures bei FAIL)
@@ -790,7 +811,9 @@ def evaluate_policy(story_id: str, story_type: str, config: PipelineConfig) -> P
     blocking_failures = sum(1 for r in results if r.severity == "BLOCKING" and r.status == "FAIL")
     major_failures = sum(1 for r in results if r.severity == "MAJOR" and r.status == "FAIL")
     minor_failures = sum(1 for r in results if r.severity == "MINOR" and r.status == "FAIL")
-    major_threshold = config.policy.get("major_threshold", 3)
+    major_threshold = policy_engine.threshold_for(story_type)
+    # threshold_for bricht mit benanntem Konfigurationsfehler ab, wenn der
+    # Typ keinen Eintrag in der kanonischen Tabelle besitzt.
 
     # §27.7.2: Entscheidungsregel
     if blocking_failures > 0 or major_failures > major_threshold:
@@ -813,9 +836,23 @@ def evaluate_policy(story_id: str, story_type: str, config: PipelineConfig) -> P
 
 | Bedingung | Ergebnis |
 |-----------|---------|
-| Kein blocking FAIL UND `major_failures <= policy.major_threshold` | PASS → weiter zu Closure |
+| Kein blocking FAIL UND `major_failures <= major_threshold(story_type)` | PASS → weiter zu Closure |
 | Mindestens 1 blocking FAIL | FAIL → Feedback an Worker |
-| `major_failures > policy.major_threshold` (Default: 3) | FAIL (auch ohne blocking FAIL) |
+| `major_failures > major_threshold(story_type)` (Default: 3) | FAIL (auch ohne blocking FAIL) |
+
+Die Policy-Evaluation besitzt keinen typenlosen Entscheidungsweg. `story_type`
+ist verpflichtend, und die zugehoerige Schwellwerttabelle muss genau fuer
+diesen Typ einen Eintrag liefern. Fehlt der Eintrag, endet die Evaluation mit
+einem benannten Konfigurationsfehler, bevor ein PASS/FAIL entsteht. Die
+Standardtabelle traegt weiterhin den unveraenderten Wert 3 fuer jeden
+Story-Typ.
+
+Auch `traversed_layers` ist Pflichtinput. Die QA-Route uebergibt ihre exakte,
+gegebenenfalls nicht zusammenhaengende Schichtmenge. Die Policy-Engine leitet
+sie weder aus vorhandenen Ergebnissen noch aus einer hoechsten erreichten
+Schicht ab. Die Menge darf nur die bekannten QA-Schichten 1 bis 4 enthalten,
+muss nicht leer sein und muss die entscheidende Schicht 4 enthalten. Eine
+Verletzung erzeugt kein Urteil.
 
 ### 27.7.3 Ergebnis-Artefakt
 

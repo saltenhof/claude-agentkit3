@@ -61,7 +61,6 @@ _STRUCTURAL_STAGE_METADATA = {
             StoryType.IMPLEMENTATION, are_enabled=False
         )
     )
-    + ("sonarqube_gate",)
 }
 
 
@@ -218,7 +217,9 @@ def _build_system(*, fail: bool, sink: RecordingArtifactInvalidationSink) -> Ver
         layer_2b=_ConfigurableLayer("semantic_review", fail=False),
         layer_2c=_ConfigurableLayer("doc_fidelity", fail=False),
         layer_3=_ConfigurableLayer("adversarial", fail=False),
-        policy_engine=PolicyEngine(max_major_findings=0),
+        policy_engine=PolicyEngine(
+            max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0}
+        ),
         artifact_manager=manager,
         qa_cycle_lifecycle=QaCycleLifecycle(
             invalidation_sink=sink,
@@ -243,7 +244,9 @@ def _build_system_with_layer1(
         layer_2b=_ConfigurableLayer("semantic_review", fail=False),
         layer_2c=_ConfigurableLayer("doc_fidelity", fail=False),
         layer_3=_ConfigurableLayer("adversarial", fail=False),
-        policy_engine=PolicyEngine(max_major_findings=0),
+        policy_engine=PolicyEngine(
+            max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0}
+        ),
         artifact_manager=manager,
         qa_cycle_lifecycle=QaCycleLifecycle(
             invalidation_sink=sink,

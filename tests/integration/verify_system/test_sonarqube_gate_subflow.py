@@ -220,7 +220,9 @@ def _system(port: object, manager: _RecordingArtifactManager) -> VerifySystem:
         layer_2b=_RecordingLayer("semantic_review"),
         layer_2c=_RecordingLayer("doc_fidelity"),
         layer_3=_RecordingLayer("adversarial"),
-        policy_engine=PolicyEngine(max_major_findings=0),
+        policy_engine=PolicyEngine(
+            max_major_findings_per_story_type={StoryType.IMPLEMENTATION: 0}
+        ),
         artifact_manager=manager,
         sonar_gate_port=port,  # type: ignore[arg-type]
     )

@@ -1,8 +1,9 @@
 """Per-check outcome emitter for verify-system (FK-69 §69.15, AG3-108).
 
-This module is the canonical producer of ``qa_check_outcomes`` rows.
+This module is the canonical record builder for ``qa_check_outcomes`` rows.
 verify-system calls :func:`build_check_outcomes` after every QA layer execution
-to persist a row for EVERY executed check — not just findings.
+to prepare a row for EVERY executed check — not just findings. Persistence is
+owned exclusively by the joint QA-layer batch.
 
 Three outcome paths:
 - **triggered**: a non-PASS finding exists for this check_id (finding produced).
@@ -10,13 +11,14 @@ Three outcome paths:
 - **overridden**: the check outcome was suppressed by an explicit override.
 
 Schema-Owner: verify-system.
-DB-Owner: telemetry-and-events via ProjectionAccessor / FacadeQACheckOutcomesRepository.
+DB-Owner: telemetry-and-events via
+ProjectionAccessor.record_qa_layer_artifacts.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from agentkit.backend.verify_system.stage_registry.records import (
     CheckOutcome,
@@ -24,13 +26,18 @@ from agentkit.backend.verify_system.stage_registry.records import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from agentkit.backend.phase_state_store.models import FlowExecution, OverrideRecord
     from agentkit.backend.verify_system.protocols import LayerResult
+    from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 
 __all__ = [
     "CheckOutcomeEmitter",
     "build_check_outcomes",
+    "validate_qa_layer_artifact_batch",
+    "validate_layer_result_execution_protocol",
 ]
 
 
@@ -45,17 +52,44 @@ def _build_override_index(
     return index
 
 
-def _resolve_executed_check_ids(layer_result: LayerResult) -> list[str]:
-    """Return the executed check ids from layer metadata, else derive from findings.
+def validate_layer_result_execution_protocol(
+    layer_result: LayerResult,
+) -> tuple[str, ...]:
+    """Validate and return the complete executed-check protocol.
 
-    Blank strings are NOT filtered here — the fail-closed check in
-    :func:`build_check_outcomes` rejects them.
+    The producer must supply a sequence of string IDs. Findings cannot recover
+    clean checks, so they are never used as an execution-protocol substitute.
+    Blank IDs and findings outside the protocol are corrupt input. Repeated IDs
+    remain repeated executions in the aggregate count; persistence upserts the
+    per-check outcome identity once.
     """
-    raw_executed: object = layer_result.metadata.get("executed_check_ids")
-    if isinstance(raw_executed, (list, tuple, set, frozenset)):
-        return [str(cid) for cid in raw_executed]
-    # Fall back: derive from findings (covers at least the triggered set).
-    return list({f.check for f in layer_result.findings if f.check})
+    if "executed_check_ids" not in layer_result.metadata:
+        raise ValueError(
+            "layer_result.metadata['executed_check_ids'] is required for the "
+            "complete QA execution protocol (FK-69 §69.15 fail-closed)"
+        )
+    raw_executed = layer_result.metadata["executed_check_ids"]
+    if not isinstance(raw_executed, (list, tuple)) or any(not isinstance(check_id, str) for check_id in raw_executed):
+        raise ValueError(
+            "layer_result.metadata['executed_check_ids'] must be a list or tuple of strings (FK-69 §69.15 fail-closed)"
+        )
+    executed_check_ids = tuple(raw_executed)
+    blank_check_ids = [check_id for check_id in executed_check_ids if not check_id.strip()]
+    if blank_check_ids:
+        raise ValueError(
+            f"blank or whitespace-only check_id in executed_check_ids — corrupt input, fail-closed: {blank_check_ids[0]!r}"
+        )
+    executed_check_id_set = set(executed_check_ids)
+    missing_finding_check_ids = sorted(
+        {finding.check for finding in layer_result.findings if finding.check and finding.check not in executed_check_id_set}
+    )
+    if missing_finding_check_ids:
+        raise ValueError(
+            "layer_result findings reference check_id(s) absent from "
+            "metadata['executed_check_ids']: "
+            f"{missing_finding_check_ids!r} (FK-69 §69.15 fail-closed)"
+        )
+    return executed_check_ids
 
 
 def _classify_check_outcome(
@@ -82,16 +116,16 @@ def build_check_outcomes(
     attempt_no: int,
     occurred_at: datetime | None = None,
     override_records: list[OverrideRecord] | None = None,
-    origin_check_ref: str | None = None,
-    check_origin_refs: dict[str, str | None] | None = None,
+    check_origin_refs: Mapping[str, str | None] | None,
+    stage_registry: StageRegistry,
 ) -> list[QACheckOutcomeRecord]:
     """Build per-check outcome rows from a completed QA layer result.
 
     Emits exactly one row per executed check_id.  The full set of executed
-    check IDs is taken from ``layer_result.metadata["executed_check_ids"]``
-    when present; otherwise it is derived as the union of all finding check_ids
-    (gives at least the ``triggered`` set, no ``clean`` rows for checks not in
-    findings).
+    check IDs is taken exclusively from
+    ``layer_result.metadata["executed_check_ids"]``. Missing or malformed
+    metadata fails closed because findings only identify triggered checks and
+    cannot reconstruct the complete execution protocol.
 
     The ``overridden`` outcome is applied when an ``OverrideRecord`` with
     a matching ``check_id`` exists in ``override_records``.  The first
@@ -102,12 +136,15 @@ def build_check_outcomes(
 
     FK-33 §33.2.1 / FK-69 §69.15.6 rule 4 / AG3-078 ERROR 1:
     ``check_origin_refs`` is the per-check mapping ``check_id -> origin_check_ref``
-    (``CHK-NNNN | None``) built from the stage registry. When provided, each row's
+    (``CHK-NNNN | None``) built from the stage registry. Each row's
     ``check_proposal_ref`` is resolved individually — FC-derived check_ids carry
     their CHK-NNNN, native check_ids get NULL. This is the correct granularity:
     a single layer may contain both FC-derived and native checks.
-    The legacy ``origin_check_ref`` single value is used as a fallback when
-    ``check_origin_refs`` is not provided (backward-compatible).
+    ``check_origin_refs`` is mandatory and contains one explicit member for
+    every executed check. Registry entries resolve their exact origin; native
+    checks are represented by an explicit ``None`` value. A missing mapping or
+    member fails closed instead of silently classifying incomplete provenance
+    as native.
 
     Args:
         flow: The currently executing ``FlowExecution`` (provides identity
@@ -120,24 +157,23 @@ def build_check_outcomes(
             may suppress individual checks.  A record is correlated when
             ``override_record.check_id`` matches the executed check's
             ``check_id``.  ``None`` / empty list means no overrides.
-        origin_check_ref: Optional single-value originating ``fc_check_proposals.check_id``
-            (``CHK-NNNN``) applied to ALL rows in the layer.  Used for backward
-            compatibility when ``check_origin_refs`` is not provided.
-            ``None`` for native (non-FC-derived) layers (FK-33 §33.2.1).
-        check_origin_refs: Optional per-check mapping ``check_id -> CHK-NNNN | None``
-            built from the stage registry (AG3-078 ERROR 1). When provided, takes
-            priority over ``origin_check_ref``. Each row's ``check_proposal_ref``
-            is resolved from this mapping individually (FC-derived -> CHK-NNNN;
-            native -> NULL). Build with
-            ``{s.stage_id: s.origin_check_ref for s in registry.stages}``.
+        check_origin_refs: Required per-check mapping
+            ``check_id -> CHK-NNNN | None`` built from the stage registry
+            (AG3-078 ERROR 1). Each row's ``check_proposal_ref`` is resolved
+            individually (FC-derived -> CHK-NNNN; native -> NULL). The caller
+            materializes one explicit member for every executed check from the
+            registry origin table and the layer's native-check contract.
+        stage_registry: Bound registry that owns Result-name to Stage-ID
+            resolution.
 
     Returns:
         A list of :class:`~agentkit.backend.verify_system.stage_registry.records.QACheckOutcomeRecord`,
         one per executed check.
 
     Raises:
-        ValueError: If ``flow.project_key`` is empty (FK-69 §69.15.6 rule 7,
-            FAIL-CLOSED).
+        ValueError: If ``flow.project_key`` is empty, the execution protocol is
+            incomplete, or the per-check origin mapping is incomplete
+            (FAIL-CLOSED).
     """
     if not flow.project_key:
         raise ValueError(
@@ -145,40 +181,31 @@ def build_check_outcomes(
             "fa-check-outcomes emission requires a valid project_key "
             "(FK-69 §69.15.6 rule 7 fail-closed)"
         )
+    if check_origin_refs is None:
+        raise ValueError("check_origin_refs is required for precise per-check QA provenance (FK-33 §33.2.1 fail-closed)")
 
     ts: datetime = occurred_at if occurred_at is not None else datetime.now(UTC)
     override_index = _build_override_index(override_records)
-    executed_check_ids = _resolve_executed_check_ids(layer_result)
+    executed_check_ids = validate_layer_result_execution_protocol(layer_result)
+    canonical_stage_id = stage_registry.canonical_stage_id_for_result_name(layer_result.layer)
     # Triggered set: check_ids that produced a finding.
     triggered_check_ids: set[str] = {f.check for f in layer_result.findings if f.check}
 
     records: list[QACheckOutcomeRecord] = []
     for check_id in executed_check_ids:
-        if not check_id or not check_id.strip():
-            # FK-69 §69.11 rule 6 / AG3-108 ERROR 5: blank/whitespace-only
-            # check_id is corrupt input — fail-closed (raise, do not silently
-            # drop the row). The caller must ensure executed_check_ids
-            # contains only valid, non-blank identifiers.
+        if check_id not in check_origin_refs:
             raise ValueError(
-                f"blank or whitespace-only check_id in executed_check_ids — "
-                f"corrupt input, fail-closed (FK-69 §69.11 rule 6): {check_id!r}"
+                f"check_origin_refs has no entry for executed check_id {check_id!r} (FK-69 §69.11 rule 10 fail-closed)"
             )
+        resolved_origin = check_origin_refs[check_id]
 
-        # AG3-078 ERROR 1: resolve per-check origin_check_ref from mapping when provided.
-        # check_origin_refs gives per-check FK-33 §33.2.1 CHK-NNNN resolution:
-        # FC-derived check_ids have CHK-NNNN; native check_ids get NULL.
-        # Falls back to the legacy single origin_check_ref when mapping not provided.
-        resolved_origin = check_origin_refs.get(check_id) if check_origin_refs is not None else origin_check_ref
-
-        outcome, override_id = _classify_check_outcome(
-            check_id, override_index, triggered_check_ids
-        )
+        outcome, override_id = _classify_check_outcome(check_id, override_index, triggered_check_ids)
         records.append(
             QACheckOutcomeRecord(
                 project_key=flow.project_key,
                 story_id=flow.story_id,
                 run_id=flow.run_id,
-                stage_id=layer_result.layer,
+                stage_id=canonical_stage_id,
                 attempt_no=attempt_no,
                 check_id=check_id,
                 outcome=outcome,
@@ -191,18 +218,111 @@ def build_check_outcomes(
     return records
 
 
-class CheckOutcomeEmitter:
-    """Stateless helper that builds and persists per-check outcome rows.
+def validate_qa_layer_artifact_batch(
+    layer_results: tuple[LayerResult, ...],
+    check_outcomes: tuple[QACheckOutcomeRecord, ...],
+    *,
+    stage_registry: StageRegistry,
+    attempt_no: int,
+) -> None:
+    """Validate the complete Stage/Finding/Outcome batch before persistence.
 
-    Wraps :func:`build_check_outcomes` and calls
-    ``projection_accessor.write_projection`` for each emitted record.
-
-    This class is the verify-system-internal production entry point.
-    Tests can call :func:`build_check_outcomes` directly without a
-    ``ProjectionAccessor`` dependency.
+    Every executed check must have an outcome under the same canonical stage,
+    and no outcome may exist without a corresponding executed check. This is
+    the verify-system precondition for the single atomic FK-69 batch writer.
     """
+    expected_outcomes: set[tuple[str, str]] = set()
+    finding_checks: set[tuple[str, str]] = set()
+    for layer_result in layer_results:
+        stage_id = stage_registry.canonical_stage_id_for_result_name(
+            layer_result.layer
+        )
+        executed_check_ids = validate_layer_result_execution_protocol(layer_result)
+        expected_outcomes.update(
+            (stage_id, check_id) for check_id in executed_check_ids
+        )
+        finding_checks.update(
+            (stage_id, finding.check)
+            for finding in layer_result.findings
+            if finding.check
+        )
 
-    def emit(
+    actual_outcomes = {
+        (record.stage_id, record.check_id) for record in check_outcomes
+    }
+    if actual_outcomes != expected_outcomes:
+        missing = sorted(expected_outcomes - actual_outcomes)
+        unexpected = sorted(actual_outcomes - expected_outcomes)
+        raise ValueError(
+            "QA layer batch outcome protocol mismatch: "
+            f"missing={missing!r}, unexpected={unexpected!r}"
+        )
+    wrong_attempts = sorted(
+        {record.attempt_no for record in check_outcomes if record.attempt_no != attempt_no}
+    )
+    if wrong_attempts:
+        raise ValueError(
+            f"QA layer batch contains outcome attempts outside attempt {attempt_no}: {wrong_attempts!r}"
+        )
+    triggered_without_finding = sorted(
+        (record.stage_id, record.check_id)
+        for record in check_outcomes
+        if record.outcome is CheckOutcome.TRIGGERED
+        and (record.stage_id, record.check_id) not in finding_checks
+    )
+    if triggered_without_finding:
+        raise ValueError(
+            "triggered QA outcomes require a finding in the same atomic batch: "
+            f"{triggered_without_finding!r}"
+        )
+    findings_without_failed_outcome = sorted(
+        (record.stage_id, record.check_id)
+        for record in check_outcomes
+        if (record.stage_id, record.check_id) in finding_checks
+        and record.outcome not in {CheckOutcome.TRIGGERED, CheckOutcome.OVERRIDDEN}
+    )
+    if findings_without_failed_outcome:
+        raise ValueError(
+            "QA findings require a triggered or overridden outcome in the "
+            "same atomic batch: "
+            f"{findings_without_failed_outcome!r}"
+        )
+
+
+class CheckOutcomeEmitter:
+    """Stateless verify-system builder for per-check outcome records."""
+
+    def build_batch(
+        self,
+        flow: FlowExecution,
+        layer_results: tuple[LayerResult, ...],
+        *,
+        attempt_no: int,
+        override_records: list[OverrideRecord] | None = None,
+        stage_registry: StageRegistry,
+    ) -> tuple[QACheckOutcomeRecord, ...]:
+        """Build the complete outcome record set for one QA-layer batch."""
+        records: list[QACheckOutcomeRecord] = []
+        for layer_result in layer_results:
+            executed_check_ids = validate_layer_result_execution_protocol(
+                layer_result
+            )
+            check_origin_refs = stage_registry.resolve_check_origin_refs(
+                list(executed_check_ids)
+            )
+            records.extend(
+                self.build(
+                    flow,
+                    layer_result,
+                    attempt_no=attempt_no,
+                    override_records=override_records,
+                    check_origin_refs=check_origin_refs,
+                    stage_registry=stage_registry,
+                )
+            )
+        return tuple(records)
+
+    def build(
         self,
         flow: FlowExecution,
         layer_result: LayerResult,
@@ -210,11 +330,10 @@ class CheckOutcomeEmitter:
         attempt_no: int,
         occurred_at: datetime | None = None,
         override_records: list[OverrideRecord] | None = None,
-        projection_accessor: Any | None = None,
-        origin_check_ref: str | None = None,
-        check_origin_refs: dict[str, str | None] | None = None,
+        check_origin_refs: Mapping[str, str | None] | None,
+        stage_registry: StageRegistry,
     ) -> list[QACheckOutcomeRecord]:
-        """Build and persist per-check outcome rows for one layer result.
+        """Build per-check outcome records for one layer result.
 
         Args:
             flow: The currently executing ``FlowExecution``.
@@ -222,36 +341,22 @@ class CheckOutcomeEmitter:
             attempt_no: 1-based remediation attempt number.
             occurred_at: Optional explicit UTC timestamp.
             override_records: Optional override records for override correlation.
-            projection_accessor: Optional ``ProjectionAccessor`` to persist
-                records.  When ``None``, records are returned but not written.
-                Typed as ``Any`` to avoid a circular import from verify-system
-                -> telemetry; the caller is responsible for passing a valid
-                ``ProjectionAccessor`` instance.
-            origin_check_ref: Optional single-value originating ``fc_check_proposals.check_id``
-                (``CHK-NNNN``) applied to ALL rows in the layer (backward-compat).
-                ``None`` for native layers (FK-33 §33.2.1).
-            check_origin_refs: Optional per-check mapping ``check_id -> CHK-NNNN | None``
-                built from the stage registry (AG3-078 ERROR 1). When provided,
-                takes priority over ``origin_check_ref`` for per-check resolution.
+            check_origin_refs: Required per-check mapping
+                ``check_id -> CHK-NNNN | None`` built from the stage registry
+                (AG3-078 ERROR 1).
+            stage_registry: Bound registry that owns Result-name to Stage-ID
+                resolution.
 
         Returns:
             List of :class:`~agentkit.backend.verify_system.stage_registry.records.QACheckOutcomeRecord`
-            that were (or would be) persisted.
+            prepared for the caller's atomic QA-layer batch.
         """
-        from agentkit.backend.telemetry.projection_accessor import ProjectionKind
-
-        records = build_check_outcomes(
+        return build_check_outcomes(
             flow,
             layer_result,
             attempt_no=attempt_no,
             occurred_at=occurred_at,
             override_records=override_records,
-            origin_check_ref=origin_check_ref,
             check_origin_refs=check_origin_refs,
+            stage_registry=stage_registry,
         )
-        if projection_accessor is not None:
-            for record in records:
-                projection_accessor.write_projection(
-                    ProjectionKind.QA_CHECK_OUTCOMES, record
-                )
-        return records

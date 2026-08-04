@@ -18,18 +18,12 @@ if TYPE_CHECKING:
 def _effective_story_type(story_ctx: object | None) -> StoryType:
     """Return the EFFECTIVE ``StoryType`` driving both layer execution and policy.
 
-    FIX-A (fail-closed): the production path must never re-enter the policy
-    engine's scalar fallback (which runs NO registry-bound missing-stage check,
-    FK-33 §33.7 -- a fail-open edge). The effective story type is the SAME one
-    ``_execute_layer`` commits to: the resolved ``StoryContext.story_type`` when
-    a context resolved, otherwise the ``IMPLEMENTATION`` stub used for the layer
-    run itself. Returning a concrete type unconditionally guarantees
-    ``PolicyEngine.decide`` always takes the registry path (per-story-type
-    threshold FK-33 §33.7.3 + fail-closed missing-stage check), consistent with
-    the type the layers were evaluated under. There is no genuinely-unknown
-    story type on this path: layer execution already chose IMPLEMENTATION when
-    unresolved, so the policy decision uses the identical effective type rather
-    than silently downgrading to the scalar threshold.
+    The resolved ``StoryContext.story_type`` drives both layer execution and
+    the mandatory registry-backed policy decision. When no context resolved,
+    both boundaries use the same ``IMPLEMENTATION`` execution stub. Returning
+    that concrete type preserves one routing contract: the policy engine always
+    resolves the explicit per-story-type threshold and performs its fail-closed
+    missing-stage check for the exact type under which the layers ran.
     """
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.types import StoryType

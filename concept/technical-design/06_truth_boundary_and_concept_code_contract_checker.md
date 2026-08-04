@@ -70,7 +70,6 @@ Dateien wie:
 - `qa_review.json`
 - `semantic_review.json`
 - `adversarial.json`
-- `policy.json`
 - `decision.json`
 - `verify-decision.json`
 - `closure.json`

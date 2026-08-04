@@ -20,7 +20,7 @@ Functions:
 The FK-69 materialization (qa_stage_results, qa_findings,
 decision_records) and the projection file are **not** the task of this
 module; they run in the orchestrator (implementation/phase.py) via
-``state_backend.record_layer_artifacts`` / ``record_verify_decision``.
+``ProjectionAccessor.record_qa_layer_artifacts`` / ``record_verify_decision``.
 Both paths are idempotent (UPSERT into artifact_envelopes; UPSERT into
 the FK-69 tables), so that a re-run produces no divergent truth.
 """

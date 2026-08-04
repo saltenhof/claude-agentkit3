@@ -65,7 +65,11 @@ def _stability_gate_result() -> LayerResult:
             "stage_ids": (
                 "stability_gate",
                 "integration.integration_target_matrix_passed",
-            )
+            ),
+            "executed_check_ids": (
+                "integration.integration_target_matrix_passed",
+                "stability_gate",
+            ),
         },
     )
 

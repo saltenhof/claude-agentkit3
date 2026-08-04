@@ -40,7 +40,7 @@ glossary:
       definition: >
         Finales Ergebnis der Policy-Engine-Evaluation: PASS oder FAIL.
         FAIL tritt auf bei mindestens 1 blocking FAIL, oder wenn
-        major_failures > policy.major_threshold (Default: 3), oder bei fehlendem
+        major_failures > major_threshold(story_type) (Default: 3), oder bei fehlendem
         Artefakt einer durchlaufenen Schicht.
       values: [PASS, FAIL]
       see_also:
@@ -157,6 +157,9 @@ class StageDefinition:
     producer: str               # Erlaubter Producer-Name
     execution_policy: str       # DSL-Policy des Stage-Aufrufs
     override_policy: str        # normativer Override-Rahmen fuer diese Stage
+    layer_result_name: str | None = None
+        # Kanonischer LayerResult.layer-Name, falls der ausführende Evaluator
+        # eine fachlich eigene Rollen-ID führt; NULL bedeutet stage_id.
     origin_check_ref: str | None = None
         # Originating fc_check_proposals.check_id (CHK-NNNN) for a registry
         # entry that represents exactly ONE FC-derived executed check.
@@ -168,6 +171,31 @@ class StageDefinition:
         # stage: if a stage groups multiple executed checks, the linkage is
         # carried per executed check, never inferred from the stage.
 ```
+
+Die Zuordnung eines ausgefuehrten Checks zu `origin_check_ref` erfolgt pro
+`check_id` ueber die Registry-Herkunftstabelle. Sie vereint die Herkunft der
+einzelnen Stage-Definitionen mit einer expliziten Tabelle der eingebauten
+Sub- und Meta-Checks; die Registry stellt dafuer eine gemeinsame
+Aufloesungs-API bereit. Ein vorhandener Eintrag liefert `CHK-NNNN`; ein
+ausdruecklicher Eintrag mit `NULL` bezeichnet einen Check ohne FC-Herkunft.
+Die Tabelle enthaelt fuer jede ausgefuehrte `check_id` einen Eintrag. Fehlt die
+Mapping-Struktur oder die Mitgliedschaft eines ausgefuehrten Checks, bricht die
+Outcome-Erzeugung mit benanntem Fehler ab. Das vollstaendige
+`LayerResult.metadata.executed_check_ids`-Protokoll ist ebenfalls Pflicht und
+wird nie aus Findings abgeleitet. Jedes Finding mit nicht-leerer `check`-ID
+muss Mitglied dieses Protokolls sein; andernfalls ist das Protokoll
+nachweislich unvollstaendig und die Outcome-Erzeugung bricht mit benanntem
+Fehler ab. Ein einzelner Origin-Wert fuer eine gesamte Schicht ist verboten,
+weil eine Schicht native und FC-abgeleitete Checks mischen kann.
+
+Die Kennzahlen eines Stage-Resultats haben dieselbe Quelle: `total_checks` ist
+die Anzahl der Eintraege im vollstaendigen `executed_check_ids`-Protokoll,
+`failed_checks` und `warning_checks` werden aus den Findings nach ihrer
+Severity-Klasse gezaehlt. Findings sind keine Ersatzquelle fuer ausgefuehrte,
+aber saubere Checks. Falls ein Producer diese drei Kennzahlen zusaetzlich in
+Metadaten liefert, muessen sie den abgeleiteten Werten exakt entsprechen;
+fehlende, missgebildete oder abweichende Werte werden nicht als Rueckfall
+interpretiert.
 
 ### 33.2.2 Standard-Stages
 
@@ -203,32 +231,62 @@ class StageDefinition:
 > materialisiert — Begruendung und Sequenz: §33.6.3 und §33.8.3. Die Menge der
 > QS-Layer bleibt unveraendert; es kommt nur ein neuer Abfolge-Schritt hinzu.
 
-### 33.2.3 Einheitliche Namenskonvention: Stage-ID = Dateiname
+### 33.2.3 Stage-Identitaet, Result-Name und Materialisierung
 
-Die Stage-ID bestimmt den Standardnamen eines materialisierten
-Ergebnis-Artefakts. Kanonisch referenziert die Pipeline die Artefakte
-ueber `artifact_records`; Dateipfade sind nur Export-/Arbeitskonvention:
+Die Stage-ID ist die kanonische Identitaet eines Ergebnisses. Wo ein
+ausfuehrender Evaluator eine eigene fachliche Rollen-ID als
+`LayerResult.layer` fuehrt, steht die Zuordnung ausschliesslich im
+`StageDefinition.layer_result_name`; bei `NULL` gilt identisch `stage_id`.
+Nur `NULL` ist dieses Identitaetssignal. Leere oder nur aus Leerzeichen
+bestehende Stage-IDs und Resultnamen sind missgebildete Registry-Konfiguration
+und werden bereits bei der Registry-Konstruktion abgewiesen.
+Konkret ist `doc_fidelity_impl -> doc_fidelity` die einzige abweichende
+Standardzuordnung, weil `doc_fidelity` die Evaluatorrolle und
+`doc_fidelity_impl` deren implementation-spezifische Registry-Stage bezeichnet.
+Policy-Auswertung und QA-Projektionen konsumieren dieses Registry-Feld; sie
+schneiden keine Namenssuffixe ab und fuehren keine eigene Abbildung.
+Die Registry besitzt auch die Rueckaufloesung auf die kanonische Stage-ID.
+Zulaessige Stage-Resultnamen und fachliche Aggregat-Resultnamen sind explizit
+im gebundenen Registry-Katalog registriert. Unbekannte Namen und mehrdeutige
+Zuordnungen brechen die Konstruktion beziehungsweise Aufloesung ab. Stage-
+Result-, Finding- und Check-Outcome-Projektion erhalten dieselbe gebundene
+Registry-Instanz und verwenden deren eine API;
+insbesondere persistiert ein `LayerResult.layer = doc_fidelity` die Stage-ID
+`doc_fidelity_impl`.
+
+Die Registry besitzt ausserdem die zulaessige Stage-Abdeckung jedes Stage- und
+Aggregat-Results. Die Policy schneidet diese Abdeckung mit dem aktiven
+Ausfuehrungsplan aus Story-Typ, Contract, Route und Feature-Gates. Zusaetzliche
+Stage-Abdeckung entsteht nur, wenn die Registry sie fuer diesen Resulttyp
+ausdruecklich zulaesst und das vollstaendige `executed_check_ids`-Protokoll die
+Ausfuehrung belegt. `LayerResult.metadata.stage_ids` ist keine Autoritaet; wenn
+ein Producer den Spiegelwert mitliefert, muss er exakt der registry- und
+plangebundenen Abdeckung entsprechen. Ein bekannter Stage-Name eines anderen
+Resulttyps kann dadurch keine fehlende blocking Stage als produziert markieren.
+
+Kanonisch referenziert die Pipeline die Artefakte ueber `artifact_records`;
+Dateipfade sind davon getrennte Export-/Arbeitskonvention:
 
 | Stage-ID | Artefakt-Datei |
 |----------|---------------|
 | `structural` | `_temp/qa/{story_id}/structural.json` |
 | `qa_review` | `_temp/qa/{story_id}/qa_review.json` |
 | `semantic_review` | `_temp/qa/{story_id}/semantic_review.json` |
-| `doc_fidelity_impl` | `_temp/qa/{story_id}/doc_fidelity_impl.json` |
+| `doc_fidelity_impl` | `_temp/qa/{story_id}/doc_fidelity.json` |
 | `adversarial` | `_temp/qa/{story_id}/adversarial.json` |
 | `context_sufficiency` | `_temp/qa/{story_id}/context_sufficiency.json` |
-| `policy` | `_temp/qa/{story_id}/policy.json` |
+| `policy` | `_temp/qa/{story_id}/decision.json` |
 
 Die Policy-Engine lädt Artefakte fachlich ueber `ArtifactRecord`
-(`artifact_kind = stage.id`). Falls ein Dateiexport materialisiert
-wird, gilt `_temp/qa/{story_id}/{stage.id}.json` als Standardpfad —
-kein separates Mapping nötig.
+(`artifact_kind = stage.id`). Falls ein Dateiexport materialisiert wird, gilt
+der Pfad aus der Tabelle. Der Dateiname wird weder als Stage-ID noch als
+`LayerResult.layer` zurueckinterpretiert.
 
-**Export-Kompatibilität:** Abweichende Export-Namen wie `qa_review.json`,
-`semantic_review.json` oder `decision.json` koennen als Legacy-Exporte
-koexistieren, sind aber nie die kanonische Referenz. Die Pipeline
-arbeitet fachlich gegen `artifact_records(kind = stage.id)`; Exportnamen
-sind nur Materialisierungskonvention.
+Exportnamen wie `qa_review.json`, `semantic_review.json`, `doc_fidelity.json`
+und `decision.json` sind die kanonische Materialisierung der jeweiligen
+Artefaktklasse. Sie sind keine alternative Stage- oder Result-Identitaet und
+werden von Policy-Auswertung oder QA-Projektionen nicht als solche
+interpretiert.
 
 ### 33.2.4 Projekt-Overrides
 
@@ -758,18 +816,14 @@ und fällt die finale Entscheidung: Verify PASS oder FAIL.
 
 ```python
 def evaluate_policy(story_id: str, story_type: str,
+                    traversed_layers: frozenset[int],
                     config: PipelineConfig) -> PolicyResult:
     registry = load_stage_registry(config)
     results = []
 
-    # Nur Stages evaluieren, deren Schicht tatsächlich durchlaufen wurde.
-    # Wenn Schicht 1 FAIL → Schicht 2/3 wurden nie gestartet → deren
-    # fehlende Artefakte sind kein Fehler, sondern erwartetes Verhalten.
-    max_layer_reached = determine_max_layer_reached(story_id)
-
     for stage in registry.stages_for(story_type):
-        if stage.layer > max_layer_reached:
-            # Diese Schicht wurde nie erreicht — nicht bewerten
+        if stage.layer not in traversed_layers:
+            # Diese Schicht gehoert nicht zur ausgefuehrten Route.
             continue
 
         artifact = artifact_client.get_artifact_record(
@@ -813,8 +867,12 @@ def evaluate_policy(story_id: str, story_type: str,
     blocking_failures = sum(1 for r in results if r.blocking and r.status == "FAIL")
     major_failures = sum(1 for r in results if not r.blocking and r.status == "FAIL")
 
+    major_threshold = resolve_story_type_major_threshold(story_type)
+    # Die Aufloesung bricht mit benanntem Konfigurationsfehler ab, wenn der
+    # Typ keinen Eintrag in der kanonischen Tabelle besitzt.
+
     status = "FAIL" if blocking_failures > 0 else "PASS"
-    if major_failures > config.policy.major_threshold:
+    if major_failures > major_threshold:
         status = "FAIL"  # Auch ohne blocking: zu viele Major-Failures
 
     return PolicyResult(
@@ -826,15 +884,30 @@ def evaluate_policy(story_id: str, story_type: str,
     )
 ```
 
+`traversed_layers` ist ein Pflichtinput aus der tatsaechlich ausgefuehrten
+QA-Route. Die Menge darf nicht aus vorhandenen `LayerResult`s oder einer
+hoechsten erreichten Schicht abgeleitet werden: Nicht zusammenhaengende Routen
+wie `{2, 4}` sind fachlich gueltig. Die Menge enthaelt ausschliesslich Werte
+aus `{1, 2, 3, 4}`, ist nicht leer und enthaelt immer Schicht 4. Unbekannte
+Schichten, eine leere Menge oder fehlende Schicht 4 erlauben kein
+Policy-Urteil.
+
 ### 33.7.3 Entscheidungsregeln
 
 | Bedingung | Ergebnis |
 |-----------|---------|
 | Kein blocking FAIL | PASS |
 | Mindestens 1 blocking FAIL | FAIL |
-| major_failures > `policy.major_threshold` (Default: 3) | FAIL (auch ohne blocking) |
+| major_failures > `major_threshold(story_type)` (Default: 3) | FAIL (auch ohne blocking) |
 | Fehlendes Artefakt | FAIL (fail-closed) |
 | Falscher Producer | FAIL (immer blocking — Manipulationsversuch) |
+
+`story_type` ist ein Pflichtinput der Policy-Engine. Die Schwellwerttabelle
+muss fuer diesen Typ einen expliziten Eintrag enthalten; ein fehlender Eintrag
+ist ein Konfigurationsfehler und erzeugt kein Urteil. Es gibt weder einen
+typenlosen Skalarpfad noch einen Default-Rueckfall waehrend der Evaluation.
+Der Defaultwert 3 bleibt als vollstaendig materialisierte Standardtabelle fuer
+alle Story-Typen erhalten; die Politik selbst aendert sich dadurch nicht.
 
 ### 33.7.4 Context-Sufficiency-Input (FK-33-110)
 
@@ -870,14 +943,13 @@ eigenständiger Layer. Fehlende oder unvollständige Evidenz ist ein
 Hinweis, kein Blocker — die LLM-Bewertungen in Schicht 2 können
 trotzdem sinnvoll arbeiten, wenn auch mit eingeschränkter
 Kontextbasis. Die Warnings fließen in den kanonischen
-Policy-/Verify-Decision-Record ein; optionale Exporte wie
-`policy.json` oder `decision.json` bilden das nur materialisiert ab.
+Policy-/Verify-Decision-Record `decision.json` ein. Der Dateiname ist die
+kanonische Materialisierung und keine alternative Stage-Identitaet.
 
 ### 33.7.5 Ergebnis-Artefakt
 
-Kanonischer Policy-/Verify-Decision-Record (optional materialisiert als
-`_temp/qa/{story_id}/policy.json`, Legacy-Export `decision.json`,
-Producer `qa-policy-engine`):
+Kanonischer Policy-/Verify-Decision-Record (materialisiert als
+`_temp/qa/{story_id}/decision.json`, Producer `qa-policy-engine`):
 
 ```json
 {

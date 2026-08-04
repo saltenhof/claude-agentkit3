@@ -24,13 +24,14 @@ if TYPE_CHECKING:
         QAFindingRecord,
         QAStageResultRecord,
     )
+    from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
+
 
 class FacadeQAStageResultsRepository:
-    """Thin adapter for qa_stage_results.
+    """Read/purge adapter for ``qa_stage_results``.
 
-    Write and purge: direct SQL (no existing facade single-insert path;
-    the main batch path stays ``ProjectionAccessor.record_qa_layer_artifacts``).
-    Read: delegates to the facade for backward compatibility.
+    Writes exist only in the atomic three-projection QA-layer batch. This
+    adapter intentionally exposes no single-row write method.
 
     Args:
         story_dir: Base directory for SQLite; ignored for Postgres.
@@ -38,72 +39,6 @@ class FacadeQAStageResultsRepository:
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
-
-    def write(self, record: QAStageResultRecord) -> None:
-        """Persist a single QAStageResultRecord.
-
-        Note: the main write path for qa_stage_results runs
-        transactionally via ``ProjectionAccessor.record_qa_layer_artifacts``
-        (batch insert incl. artifact_records). This write path is intended for
-        direct single inserts from the ProjectionAccessor.
-        """
-        row: dict[str, Any] = {
-            "project_key": record.project_key,
-            "story_id": record.story_id,
-            "run_id": record.run_id,
-            "attempt_no": record.attempt_no,
-            "stage_id": record.stage_id,
-            "layer": record.layer,
-            "producer_component": record.producer_component,
-            "status": record.status,
-            "blocking": 1 if record.blocking else 0,
-            "total_checks": record.total_checks,
-            "failed_checks": record.failed_checks,
-            "warning_checks": record.warning_checks,
-            "artifact_id": record.artifact_id,
-            "recorded_at": record.recorded_at.isoformat(),
-        }
-        if _is_postgres():
-            self._pg_write(row)
-        else:
-            self._sqlite_write(row)
-
-    def _sqlite_write(self, row: dict[str, Any]) -> None:
-        with _sqlite_connect_qa(self._story_dir) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO qa_stage_results (
-                    project_key, story_id, run_id, attempt_no, stage_id, layer,
-                    producer_component, status, blocking, total_checks,
-                    failed_checks, warning_checks, artifact_id, recorded_at
-                ) VALUES (
-                    :project_key, :story_id, :run_id, :attempt_no, :stage_id,
-                    :layer, :producer_component, :status, :blocking,
-                    :total_checks, :failed_checks, :warning_checks,
-                    :artifact_id, :recorded_at
-                )
-                """,
-                row,
-            )
-
-    def _pg_write(self, row: dict[str, Any]) -> None:
-        with _postgres_connect() as conn:
-            self._pg_execute_stage_upsert(conn, row)
-
-    def _pg_execute_stage_upsert(self, conn: Any, row: dict[str, Any]) -> None:
-        """Execute the qa_stage_results upsert on an existing connection.
-
-        Finding D (AG3-035 remediation): batch write path via the accessor repos.
-        Can be called by the driver (persist_layer_artifact_rows) with its own
-        transaction without opening a new connection (SINGLE SOURCE OF TRUTH).
-
-        Args:
-            conn: Existing psycopg connection (driver transaction).
-            row: Fully serialized qa_stage_results row (dict).
-        """
-        from agentkit.backend.state_backend import postgres_store
-
-        postgres_store.pg_execute_stage_upsert(conn, row)
 
     def read(
         self,
@@ -222,8 +157,7 @@ class FacadeQAStageResultsRepository:
     def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _sqlite_connect_qa(self._story_dir) as conn:
             cursor = conn.execute(
-                "DELETE FROM qa_stage_results "
-                "WHERE project_key=? AND story_id=? AND run_id=?",
+                "DELETE FROM qa_stage_results WHERE project_key=? AND story_id=? AND run_id=?",
                 (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
@@ -231,15 +165,14 @@ class FacadeQAStageResultsRepository:
     def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _postgres_connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM qa_stage_results "
-                "WHERE project_key=%s AND story_id=%s AND run_id=%s",
+                "DELETE FROM qa_stage_results WHERE project_key=%s AND story_id=%s AND run_id=%s",
                 (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
 
 
 class FacadeQAFindingsRepository:
-    """Thin adapter for qa_findings.
+    """Read/purge adapter for ``qa_findings`` without a split writer.
 
     Args:
         story_dir: Base directory for SQLite; ignored for Postgres.
@@ -247,102 +180,6 @@ class FacadeQAFindingsRepository:
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
-
-    def write(self, record: QAFindingRecord) -> None:
-        """Persist a QAFindingRecord."""
-        row: dict[str, Any] = {
-            "project_key": record.project_key,
-            "story_id": record.story_id,
-            "run_id": record.run_id,
-            "attempt_no": record.attempt_no,
-            "stage_id": record.stage_id,
-            "finding_id": record.finding_id,
-            "check_id": record.check_id,
-            "status": record.status,
-            "severity": record.severity,
-            "blocking": 1 if record.blocking else 0,
-            "source_component": record.source_component,
-            "artifact_id": record.artifact_id,
-            "occurred_at": record.occurred_at.isoformat(),
-            "category": record.category,
-            "reason": record.reason,
-            "description": record.description,
-            "detail": record.detail,
-            "metadata_json": json.dumps(record.metadata, sort_keys=True),
-        }
-        if _is_postgres():
-            self._pg_write(row)
-        else:
-            self._sqlite_write(row)
-
-    def _sqlite_write(self, row: dict[str, Any]) -> None:
-        with _sqlite_connect_qa(self._story_dir) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO qa_findings (
-                    project_key, story_id, run_id, attempt_no, stage_id,
-                    finding_id, check_id, status, severity, blocking,
-                    source_component, artifact_id, occurred_at,
-                    category, reason, description, detail, metadata_json
-                ) VALUES (
-                    :project_key, :story_id, :run_id, :attempt_no, :stage_id,
-                    :finding_id, :check_id, :status, :severity, :blocking,
-                    :source_component, :artifact_id, :occurred_at,
-                    :category, :reason, :description, :detail, :metadata_json
-                )
-                """,
-                row,
-            )
-
-    def _pg_write(self, row: dict[str, Any]) -> None:
-        with _postgres_connect() as conn:
-            self._pg_execute_finding_upsert(conn, row)
-
-    def _pg_execute_finding_upsert(self, conn: Any, row: dict[str, Any]) -> None:
-        """Execute the qa_findings upsert on an existing connection.
-
-        Finding D (AG3-035 remediation): batch write path via the accessor repos.
-        Can be called by the driver (persist_layer_artifact_rows) with its own
-        transaction without opening a new connection (SINGLE SOURCE OF TRUTH).
-
-        Args:
-            conn: Existing psycopg connection (driver transaction).
-            row: Fully serialized qa_findings row (dict).
-        """
-        from agentkit.backend.state_backend import postgres_store
-
-        postgres_store.pg_execute_finding_upsert(conn, row)
-
-    def _pg_delete_findings_for_scope(
-        self,
-        conn: Any,
-        project_key: str,
-        run_id: str,
-        attempt_no: int,
-        stage_id: str,
-    ) -> None:
-        """Delete old qa_findings for (project_key, run_id, attempt_no, stage_id).
-
-        Finding D: helper method for the atomic batch write path in the driver.
-        Deletes old findings before re-writing so no stale
-        entries remain (the idempotency invariant of the batch write).
-
-        Args:
-            conn: Existing psycopg connection (driver transaction).
-            project_key: Project key.
-            run_id: Run id.
-            attempt_no: Attempt number.
-            stage_id: Layer/stage id.
-        """
-        from agentkit.backend.state_backend import postgres_store
-
-        postgres_store.pg_delete_findings_for_scope(
-            conn,
-            project_key=project_key,
-            run_id=run_id,
-            attempt_no=attempt_no,
-            stage_id=stage_id,
-        )
 
     def read(
         self,
@@ -424,9 +261,7 @@ class FacadeQAFindingsRepository:
                 occurred_at=datetime.fromisoformat(str(r["occurred_at"])),
                 category=str(r["category"]) if r["category"] is not None else None,
                 reason=str(r["reason"]) if r["reason"] is not None else None,
-                description=(
-                    str(r["description"]) if r["description"] is not None else None
-                ),
+                description=(str(r["description"]) if r["description"] is not None else None),
                 detail=str(r["detail"]) if r["detail"] is not None else None,
                 metadata=json.loads(str(r["metadata_json"])) if r["metadata_json"] else {},
             )
@@ -467,8 +302,7 @@ class FacadeQAFindingsRepository:
     def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _sqlite_connect_qa(self._story_dir) as conn:
             cursor = conn.execute(
-                "DELETE FROM qa_findings "
-                "WHERE project_key=? AND story_id=? AND run_id=?",
+                "DELETE FROM qa_findings WHERE project_key=? AND story_id=? AND run_id=?",
                 (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
@@ -476,8 +310,7 @@ class FacadeQAFindingsRepository:
     def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _postgres_connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM qa_findings "
-                "WHERE project_key=%s AND story_id=%s AND run_id=%s",
+                "DELETE FROM qa_findings WHERE project_key=%s AND story_id=%s AND run_id=%s",
                 (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
@@ -487,7 +320,7 @@ class FacadeQALayerBatchWriter:
     """Atomic QA-layer batch adapter (FK-69 §69.4, AG3-035 #5).
 
     Encapsulates the existing atomic
-    driver batch (qa_stage_results + qa_findings + artifact_records in ONE
+    driver batch (qa_stage_results + qa_findings + qa_check_outcomes in ONE
     transaction). Lives in the DB layer; the ``ProjectionAccessor`` in
     ``agentkit.backend.telemetry`` delegates here without knowing the facade directly (AC#7).
     """
@@ -497,6 +330,8 @@ class FacadeQALayerBatchWriter:
         story_dir: Path,
         *,
         layer_results: tuple[LayerResult, ...],
+        check_outcomes: tuple[QACheckOutcomeRecord, ...],
+        stage_registry: StageRegistry,
         attempt_nr: int,
         owner_session_id: str,
         expected_ownership_epoch: int,
@@ -515,13 +350,30 @@ class FacadeQALayerBatchWriter:
             flow_row,
             layer_results,
             attempt_nr=attempt_nr,
+            stage_registry=stage_registry,
         )
+        check_outcome_rows = [
+            {
+                "project_key": record.project_key,
+                "story_id": record.story_id,
+                "run_id": record.run_id,
+                "stage_id": record.stage_id,
+                "attempt_no": record.attempt_no,
+                "check_id": record.check_id,
+                "outcome": str(record.outcome),
+                "occurred_at": record.occurred_at.isoformat(),
+                "check_proposal_ref": record.check_proposal_ref,
+                "override_id": record.override_id,
+            }
+            for record in check_outcomes
+        ]
         return cast(
             "tuple[str, ...]",
             _backend_module().persist_layer_artifact_rows(
                 story_dir,
                 flow_row=flow_row,
                 layer_payload_rows=layer_payload_rows,
+                check_outcome_rows=check_outcome_rows,
                 attempt_nr=attempt_nr,
                 owner_session_id=owner_session_id,
                 expected_ownership_epoch=expected_ownership_epoch,
@@ -547,7 +399,10 @@ def _parse_occurred_at(
 
 
 class FacadeQACheckOutcomesRepository:
-    """Thin adapter for ``qa_check_outcomes`` (FK-69 §69.15, AG3-108).
+    """Read/purge adapter for ``qa_check_outcomes`` (FK-69 §69.15).
+
+    Outcome rows are written only with their stage and finding projections by
+    ``ProjectionAccessor.record_qa_layer_artifacts``.
 
     Args:
         story_dir: Base directory for SQLite; ignored for Postgres.
@@ -555,118 +410,6 @@ class FacadeQACheckOutcomesRepository:
 
     def __init__(self, story_dir: Path | None = None) -> None:
         self._story_dir: Path = story_dir or Path.cwd()
-
-    def write(self, record: QACheckOutcomeRecord) -> None:
-        """Persist a QACheckOutcomeRecord (upsert on PK conflict)."""
-        from datetime import datetime
-
-        from agentkit.backend.verify_system.stage_registry.records import (
-            QACheckOutcomeRecord as _QACheckOutcomeRecord,
-        )
-
-        if not isinstance(record, _QACheckOutcomeRecord):
-            raise TypeError(f"Expected QACheckOutcomeRecord, got {type(record)!r}")
-        if not record.project_key:
-            raise ValueError(
-                "QACheckOutcomeRecord.project_key must not be empty "
-                "(FK-69 §69.15.6 rule 7 fail-closed)"
-            )
-        if not record.check_id or not record.check_id.strip():
-            raise ValueError(
-                "QACheckOutcomeRecord.check_id must not be blank or whitespace-only "
-                "(FK-69 §69.11 rule 6 / §69.15.6 fail-closed)"
-            )
-        row: dict[str, object] = {
-            "project_key": record.project_key,
-            "story_id": record.story_id,
-            "run_id": record.run_id,
-            "stage_id": record.stage_id,
-            "attempt_no": record.attempt_no,
-            "check_id": record.check_id,
-            "outcome": str(record.outcome),
-            "occurred_at": (
-                record.occurred_at.isoformat()
-                if isinstance(record.occurred_at, datetime)
-                else str(record.occurred_at)
-            ),
-            "check_proposal_ref": record.check_proposal_ref,
-            "override_id": record.override_id,
-        }
-        if _is_postgres():
-            self._pg_write(row)
-        else:
-            self._sqlite_write(row)
-
-    def _sqlite_write(self, row: dict[str, object]) -> None:
-        with _sqlite_connect_qa(self._story_dir) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO qa_check_outcomes (
-                    project_key, story_id, run_id, stage_id, attempt_no, check_id,
-                    outcome, occurred_at, check_proposal_ref, override_id
-                ) VALUES (
-                    :project_key, :story_id, :run_id, :stage_id, :attempt_no,
-                    :check_id, :outcome, :occurred_at, :check_proposal_ref,
-                    :override_id
-                )
-                """,
-                row,
-            )
-
-    def _pg_write(self, row: dict[str, object]) -> None:
-        """Fence-first (AG3-144 Codex round-2), then upsert in ONE transaction.
-
-        Mirrors ``StateBackendArtifactRepository._pg_write``: the caller's
-        ambient ``OwnershipFenceScope`` (bound by the owning phase handler,
-        FK-91 §91.1a Rule 15) is re-verified AT COMMIT TIME, in THIS SAME
-        transaction, under ``SELECT ... FOR UPDATE``, BEFORE the
-        ``qa_check_outcomes`` upsert. No scope bound at all is a hard,
-        fail-closed error -- never a silent unfenced write.
-
-        Raises:
-            CorruptStateError: When no ``OwnershipFenceScope`` is bound for
-                this call, or it belongs to a different story.
-            OwnershipFenceViolationError: When the story's active ownership
-                record no longer admits the bound scope's snapshot at commit
-                time -- nothing written.
-        """
-        from agentkit.backend.state_backend import postgres_store
-        from agentkit.backend.state_backend.governance_runtime_store import (
-            require_ownership_fence_scope,
-        )
-
-        scope = require_ownership_fence_scope(story_id=str(row["story_id"]))
-        with _postgres_connect() as conn:
-            # Sanctioned StateBackendRepository -> StateBackendDrivers edge
-            # (same BC): the AG3-142 fence predicate is re-localized in
-            # postgres_store.py and reused verbatim here.
-            postgres_store._enforce_ownership_fence_row(
-                postgres_store._CompatConnection(conn),
-                project_key=scope.project_key,
-                story_id=str(row["story_id"]),
-                run_id=scope.run_id,
-                session_id=scope.owner_session_id,
-                expected_ownership_epoch=scope.expected_ownership_epoch,
-            )
-            conn.execute(
-                """
-                INSERT INTO qa_check_outcomes (
-                    project_key, story_id, run_id, stage_id, attempt_no, check_id,
-                    outcome, occurred_at, check_proposal_ref, override_id
-                ) VALUES (
-                    %(project_key)s, %(story_id)s, %(run_id)s, %(stage_id)s,
-                    %(attempt_no)s, %(check_id)s, %(outcome)s, %(occurred_at)s,
-                    %(check_proposal_ref)s, %(override_id)s
-                )
-                ON CONFLICT (project_key, run_id, stage_id, attempt_no, check_id)
-                DO UPDATE SET
-                    outcome = EXCLUDED.outcome,
-                    occurred_at = EXCLUDED.occurred_at,
-                    check_proposal_ref = EXCLUDED.check_proposal_ref,
-                    override_id = EXCLUDED.override_id
-                """,
-                row,
-            )
 
     def read(
         self,
@@ -707,9 +450,7 @@ class FacadeQACheckOutcomesRepository:
         )
 
     @staticmethod
-    def _build_since_cutoff(
-        since_days: int | None, _now: Any
-    ) -> str | None:
+    def _build_since_cutoff(since_days: int | None, _now: Any) -> str | None:
         """Compute the ISO-8601 cutoff for a since_days window."""
         from datetime import UTC, datetime, timedelta
 
@@ -783,14 +524,8 @@ class FacadeQACheckOutcomesRepository:
                 check_id=str(r["check_id"]),
                 outcome=_CheckOutcome(str(r["outcome"])),
                 occurred_at=_parse_occurred_at(str(r["occurred_at"]), UTC, datetime),
-                check_proposal_ref=(
-                    str(r["check_proposal_ref"])
-                    if r["check_proposal_ref"] is not None
-                    else None
-                ),
-                override_id=(
-                    str(r["override_id"]) if r["override_id"] is not None else None
-                ),
+                check_proposal_ref=(str(r["check_proposal_ref"]) if r["check_proposal_ref"] is not None else None),
+                override_id=(str(r["override_id"]) if r["override_id"] is not None else None),
             )
             for r in rows
         ]
@@ -876,8 +611,7 @@ class FacadeQACheckOutcomesRepository:
     def _sqlite_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _sqlite_connect_qa(self._story_dir) as conn:
             cursor = conn.execute(
-                "DELETE FROM qa_check_outcomes "
-                "WHERE project_key=? AND story_id=? AND run_id=?",
+                "DELETE FROM qa_check_outcomes WHERE project_key=? AND story_id=? AND run_id=?",
                 (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
@@ -885,10 +619,7 @@ class FacadeQACheckOutcomesRepository:
     def _pg_purge(self, project_key: str, story_id: str, run_id: str) -> int:
         with _postgres_connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM qa_check_outcomes "
-                "WHERE project_key=%s AND story_id=%s AND run_id=%s",
+                "DELETE FROM qa_check_outcomes WHERE project_key=%s AND story_id=%s AND run_id=%s",
                 (project_key, story_id, run_id),
             )
             return int(cursor.rowcount)
-
-

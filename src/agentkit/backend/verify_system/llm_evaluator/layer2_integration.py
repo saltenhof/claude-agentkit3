@@ -227,7 +227,10 @@ def _blocking_result(layer_name: str, message: str) -> LayerResult:
                 trust_class=TrustClass.SYSTEM,
             ),
         ),
-        metadata={"layer2_llm_error": message},
+        metadata={
+            "layer2_llm_error": message,
+            "executed_check_ids": ("layer2_llm.failure",),
+        },
     )
 
 
@@ -250,7 +253,7 @@ def _to_layer_result(
     passed = result.verdict is not LlmVerdict.FAIL
     # AG3-108: executed_check_ids = the base role check-id set (ROLE_CHECK_IDS[role]).
     # These are the checks the LLM evaluated; PASS checks are not in findings but
-    # must be present here so CheckOutcomeEmitter can emit clean rows for them.
+    # must be present here so CheckOutcomeEmitter can build clean rows for them.
     # Resolution pseudo-check-ids (finding_resolution_*) are excluded — they are
     # not real executed checks in the FK-69 sense.
     from agentkit.backend.verify_system.llm_evaluator.roles import ROLE_CHECK_IDS

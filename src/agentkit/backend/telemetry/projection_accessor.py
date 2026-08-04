@@ -29,6 +29,7 @@ from agentkit.backend.telemetry.errors import (
     FCIncidentWriteViaDedicatedMethodError,
     ProjectionKindNotAccessorOwnedError,
     ProjectionRecordTypeMismatchError,
+    QALayerArtifactWriteViaDedicatedMethodError,
 )
 from agentkit.backend.verify_system.stage_registry.records import (
     QACheckOutcomeRecord,
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     from agentkit.backend.telemetry.projection_records import ProjectionRecord
     from agentkit.backend.telemetry.risk_window.normalized_event import NormalizedEvent
     from agentkit.backend.verify_system.protocols import LayerResult
+    from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +315,13 @@ class ProjectionAccessor:
         if projection_kind is ProjectionKind.FC_INCIDENTS:
             raise FCIncidentWriteViaDedicatedMethodError
 
+        if projection_kind in {
+            ProjectionKind.QA_STAGE_RESULTS,
+            ProjectionKind.QA_FINDINGS,
+            ProjectionKind.QA_CHECK_OUTCOMES,
+        }:
+            raise QALayerArtifactWriteViaDedicatedMethodError
+
         kind_map = _get_kind_to_record_type()
         expected_type = kind_map[projection_kind]
 
@@ -323,16 +332,7 @@ class ProjectionAccessor:
                 received=type(record),
             )
 
-        if projection_kind is ProjectionKind.QA_STAGE_RESULTS:
-            assert isinstance(record, QAStageResultRecord)
-            self._repos.qa_stage_results.write(record)
-        elif projection_kind is ProjectionKind.QA_FINDINGS:
-            assert isinstance(record, QAFindingRecord)
-            self._repos.qa_findings.write(record)
-        elif projection_kind is ProjectionKind.QA_CHECK_OUTCOMES:
-            assert isinstance(record, QACheckOutcomeRecord)
-            self._repos.qa_check_outcomes.write(record)
-        elif projection_kind is ProjectionKind.STORY_METRICS:
+        if projection_kind is ProjectionKind.STORY_METRICS:
             # StoryMetricsRecord is runtime-lazy loaded (anti-circular-import).
             # The isinstance check ran above via _get_kind_to_record_type();
             # the Any-cast sidesteps mypy narrowing without requiring a runtime import.
@@ -672,6 +672,8 @@ class ProjectionAccessor:
         story_dir: Path,
         *,
         layer_results: tuple[LayerResult, ...],
+        check_outcomes: tuple[QACheckOutcomeRecord, ...],
+        stage_registry: StageRegistry,
         attempt_nr: int,
         owner_session_id: str,
         expected_ownership_epoch: int,
@@ -680,12 +682,14 @@ class ProjectionAccessor:
         """Business write entry point for the QA-layer batch (FK-69 §69.4, AK4).
 
         The ProjectionAccessor is the ONE business write boundary for the
-        FK-69 QA read models (``qa_stage_results``, ``qa_findings``). The
+        FK-69 QA read models (``qa_stage_results``, ``qa_findings``, and
+        ``qa_check_outcomes``). The
         productive QA subflow (implementation/verify) MUST call this method
         instead of the ``state_backend`` facade directly -- otherwise a second
         operative truth arises past the accessor (SINGLE SOURCE OF TRUTH, AG3-035 #5).
 
         Atomicity: the transaction (qa_stage_results + qa_findings +
+        qa_check_outcomes +
         artifact_records in ONE driver transaction incl. placeholder
         artifact_id replacement) stays encapsulated in the driver (FK-69 §69.4,
         finding D option i). The accessor delegates to the injected
@@ -714,9 +718,21 @@ class ProjectionAccessor:
                 active ownership record no longer admits this exact snapshot
                 at commit time -- nothing written.
         """
+        from agentkit.backend.verify_system.check_outcome_emitter import (
+            validate_qa_layer_artifact_batch,
+        )
+
+        validate_qa_layer_artifact_batch(
+            layer_results,
+            check_outcomes,
+            stage_registry=stage_registry,
+            attempt_no=attempt_nr,
+        )
         return self._repos.qa_layer_batch.persist_layer_artifacts(
             story_dir,
             layer_results=layer_results,
+            check_outcomes=check_outcomes,
+            stage_registry=stage_registry,
             attempt_nr=attempt_nr,
             owner_session_id=owner_session_id,
             expected_ownership_epoch=expected_ownership_epoch,

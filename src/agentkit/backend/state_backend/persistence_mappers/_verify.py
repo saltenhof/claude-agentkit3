@@ -1,6 +1,5 @@
 """Verify-system row mappers and QA read-model projections."""
 
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,11 +15,11 @@ if TYPE_CHECKING:
         QAFindingRecord,
         QAStageResultRecord,
     )
+    from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
 
 
 def qa_stage_result_row_to_record(row: dict[str, Any]) -> QAStageResultRecord:
     """Convert a DB row dict to a ``QAStageResultRecord``."""
-
 
     from agentkit.backend.verify_system.stage_registry.records import (
         QAStageResultRecord as _QAStageResultRecord,
@@ -47,7 +46,6 @@ def qa_stage_result_row_to_record(row: dict[str, Any]) -> QAStageResultRecord:
 def qa_finding_row_to_record(row: dict[str, Any]) -> QAFindingRecord:
     """Convert a DB row dict to a ``QAFindingRecord``."""
 
-
     from agentkit.backend.verify_system.stage_registry.records import (
         QAFindingRecord as _QAFindingRecord,
     )
@@ -68,9 +66,7 @@ def qa_finding_row_to_record(row: dict[str, Any]) -> QAFindingRecord:
         occurred_at=datetime.fromisoformat(str(row["occurred_at"])),
         category=str(row["category"]) if row["category"] is not None else None,
         reason=str(row["reason"]) if row["reason"] is not None else None,
-        description=(
-            str(row["description"]) if row["description"] is not None else None
-        ),
+        description=(str(row["description"]) if row["description"] is not None else None),
         detail=str(row["detail"]) if row["detail"] is not None else None,
         metadata=cast_json_record(load_json(str(row["metadata_json"]), {})),
     )
@@ -104,16 +100,6 @@ def build_verify_decision_dict(
     return _build_verify_decision_artifact(decision, attempt_nr=attempt_nr)
 
 
-def get_producer_component_for_layer(layer: str) -> str:
-    """Return the canonical producer component name for a QA layer."""
-
-    from agentkit.backend.verify_system.qa_read_models import (
-        producer_component_for_layer as _producer_component_for_layer,
-    )
-
-    return _producer_component_for_layer(layer)
-
-
 def build_qa_stage_result_row(
     flow_row: dict[str, Any],
     layer_result: LayerResult,
@@ -121,13 +107,13 @@ def build_qa_stage_result_row(
     attempt_no: int,
     artifact_id: str,
     recorded_at: datetime,
+    stage_registry: StageRegistry,
 ) -> dict[str, Any]:
     """Build a ``qa_stage_results`` insert-row from a flow row and layer result."""
 
     from agentkit.backend.verify_system.qa_read_models import (
         build_qa_stage_result as _build_qa_stage_result,
     )
-
 
     flow = flow_execution_row_to_record(flow_row)
     stage_record = _build_qa_stage_result(
@@ -136,6 +122,7 @@ def build_qa_stage_result_row(
         attempt_no=attempt_no,
         artifact_id=artifact_id,
         recorded_at=recorded_at,
+        stage_registry=stage_registry,
     )
     return {
         "project_key": stage_record.project_key,
@@ -162,6 +149,7 @@ def build_qa_finding_rows(
     attempt_no: int,
     artifact_id: str,
     recorded_at: datetime,
+    stage_registry: StageRegistry,
 ) -> list[dict[str, Any]]:
     """Build ``qa_findings`` insert-rows from a flow row and layer result."""
 
@@ -176,6 +164,7 @@ def build_qa_finding_rows(
         attempt_no=attempt_no,
         artifact_id=artifact_id,
         recorded_at=recorded_at,
+        stage_registry=stage_registry,
     )
     return [
         {
@@ -207,6 +196,7 @@ def build_qa_layer_payload_rows(
     layer_results: tuple[LayerResult, ...],
     *,
     attempt_nr: int,
+    stage_registry: StageRegistry,
 ) -> list[dict[str, object]]:
     """Build serialized QA layer artifact rows for the backend batch writer."""
 
@@ -215,16 +205,13 @@ def build_qa_layer_payload_rows(
 
     layer_payload_rows: list[dict[str, object]] = []
     for layer_result in layer_results:
+        producer_component = stage_registry.producer_for_result_name(layer_result.layer)
         artifact_name = LAYER_ARTIFACT_FILES.get(layer_result.layer)
-        if artifact_name is None:
-            continue
         payload = serialize_layer_result_to_dict(
             layer_result,
             attempt_nr=attempt_nr,
         )
-        producer_component = get_producer_component_for_layer(
-            layer_result.layer,
-        )
+        artifact_id = f"{layer_result.layer.replace('_', '-')}-attempt-{attempt_nr}"
         recorded_at = datetime.fromisoformat(now_iso())
 
         stage_row: dict[str, object] | None = None
@@ -234,21 +221,24 @@ def build_qa_layer_payload_rows(
                 flow_row,
                 layer_result,
                 attempt_no=attempt_nr,
-                artifact_id="",
+                artifact_id=artifact_id,
                 recorded_at=recorded_at,
+                stage_registry=stage_registry,
             )
             finding_rows = build_qa_finding_rows(
                 flow_row,
                 layer_result,
                 attempt_no=attempt_nr,
-                artifact_id="",
+                artifact_id=artifact_id,
                 recorded_at=recorded_at,
+                stage_registry=stage_registry,
             )
 
         layer_payload_rows.append(
             {
                 "layer": layer_result.layer,
                 "artifact_name": artifact_name,
+                "artifact_id": artifact_id,
                 "producer_component": producer_component,
                 "payload": payload,
                 "passed": layer_result.passed,
