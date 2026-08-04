@@ -22,6 +22,20 @@ updated: "2026-08-04"
 #     `gh` plus Token ins Jenkins-Image -- Beschaffungsentscheidung des PO.
 #  2) AC 1b hat keine echte Betriebssystemrechte-/Maschinentrennung im Nachweis
 #     (Befund aus Reviewrunde 2). Testschaerfe-Luecke, kein Codedefekt.
+#
+# NACHTRAG 2026-08-04: Es gab einen DRITTEN offenen Punkt aus Reviewrunde 2 --
+# einen FK-10/FK-91-Widerspruch ausserhalb des damaligen Mandats. Der
+# Orchestrator hat ihn nie hier festgehalten; er ging mit dem Kontext verloren.
+# Neu ermittelt in einer eigenen Befundrunde (job-fab88661) und geschnitten als
+# AG3-214: FK-10 verlangt zwei schreibende Backend-Prozesse, FK-91 genau einen
+# Writer -- der zweite kann Claims des lebenden ersten als verwaist
+# reconcilieren. Vier weitere FK-10/FK-91-Abweichungen aus dem AG3-180-Umfeld
+# kommen dazu, darunter nicht instanzgebundene Auth-Claims und ein
+# Contract-Test, der den veralteten FK-91-CLI-Katalog einfriert.
+#
+# Die Lektion gehoert hierher, nicht nur nach AG3-214: ein Befund, der nur im
+# Kontext des Orchestrators existiert, ist keiner. Offene Punkte gehoeren beim
+# Auftreten in die status.yaml der Story, die sie erzeugt hat.
 size: L
 # Herkunft: erste echte Fremdinstallation am 2026-08-02 (Nachbarprojekt).
 # set_password wird ausschliesslich aus Tests aufgerufen; ein frisches AK3 kommt

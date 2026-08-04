@@ -1,0 +1,40 @@
+story_id: AG3-214
+story_title_short: "single-writer-und-fk10-fk91-konsistenz"
+title: "FK-10 verlangt zwei schreibende Backend-Prozesse, FK-91 genau einen Writer -- der zweite Prozess kann Claims des lebenden ersten als verwaist reconcilieren. Dazu vier weitere FK-10/FK-91-Abweichungen aus dem AG3-180-Umfeld."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-04"
+size: L
+# Herkunft: Befundrunde 2026-08-04. Bei AG3-180 hatte eine Reviewrunde einen
+# FK-10/FK-91-Widerspruch gemeldet, der ausserhalb des damaligen Mandats lag.
+# Er wurde nie in status.yaml festgehalten und ging verloren -- ein
+# Orchestrator-Fehler, der genau die Lektion aus ZERO DEBT wiederholt: ein
+# Befund, der nur im Kopf existiert, ist keiner.
+#
+# Die Neuermittlung (read-only, job-fab88661) fand fuenf ERRORs und ein
+# WARNING. Ob der urspruengliche darunter ist, laesst sich nicht beweisen; alle
+# sind unabhaengig davon aus dem heutigen Bestand belegbar. Befund 1 und 2 sind
+# vom Orchestrator an ihren Locatoren selbst nachgeprueft.
+#
+# PO-ENTSCHEIDE 2026-08-04, beide Blocker aufgehoben:
+#
+#  Befund 1 -> Variante (a): ein Prozess, zwei Listener. UI-BFF und
+#  Project-API leben in derselben Laufzeit und Boot-Identitaet; FK-91s
+#  Single-Writer-Vertrag bleibt unangetastet. MITENTSCHIEDEN und
+#  nachzuziehen: die Prozessgrenze zwischen beiden Profilen hatte
+#  Sicherheitsbedeutung und faellt. FK-15 darf danach keine Trennung mehr
+#  behaupten, die es nicht mehr gibt -- ein Sicherheitskonzept, das eine
+#  nicht existierende Grenze beschreibt, ist schlimmer als keines.
+#
+#  Befund 2 -> der Absender gehoert auf JEDEN Claim ("fuer mich klingt es
+#  sinnvoll den absender immer dazu zu packen"). Damit ist es ein Codedefekt,
+#  keine Konzeptpraezisierung: der generische Guard persistiert
+#  Backend-Identitaet, Inkarnation und Fencing-Epoch. Fachlich die robustere
+#  Seite -- ein Claim ohne Absender ist grundsaetzlich nicht automatisch
+#  aufloesbar, und der bestehende Zaun (op_id-PK + claimed-Status) beantwortet
+#  nie die Frage "lebt der Halter noch". Der Umsetzer prueft die urspruengliche
+#  Begruendung (AG3-137/AG3-138) und meldet einen belegten Gegengrund, statt
+#  ihn zu umgehen.
+depends_on: []
+unblocks: []
