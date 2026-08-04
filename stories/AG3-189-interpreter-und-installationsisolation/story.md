@@ -53,8 +53,27 @@ Start." Die Warnalternative ist unzulaessig:
 > Hook-Fehler. Aus AG3-206 hierher gewandert ist auch deren offene Frage:
 > **legt AK3 die venv selbst an, oder verlangt es eine vorhandene und
 > verweigert sonst den Dienst?** Beides erfuellt den Decision Record; die Wahl
-> bestimmt, ob der Installer Umgebungen erzeugt oder nur prueft. Dem PO bei
-> Umsetzungsbeginn vorzulegen.
+> bestimmt, ob der Installer Umgebungen erzeugt oder nur prueft.
+
+> **PO-ENTSCHEID 2026-08-04 — beide offenen Fragen sind beantwortet.**
+>
+> **(a) AK3 legt die venv selbst an.** Der Installer erzeugt sie, er prueft sie
+> nicht nur. Die Alternative wuerde verlangen, dass der Nutzer weiss, was AK3
+> alles braucht, und es von Hand installiert — das ist genau die Aufgabe, fuer
+> die ein Installer existiert. Eine vorhandene venv vorauszusetzen und sonst
+> den Dienst zu verweigern ist damit **ausgeschlossen**, nicht nur nachrangig.
+>
+> **(b) Die Isolation bleibt dauerhaft, ueber AG3-209 hinaus.** Die Annahme,
+> AG3-208/AG3-209 wuerden diese Story gegenstandslos machen, ist falsch: sie
+> loesen den *Paketnamenskonflikt* mit AK2, nicht das *Isolationsproblem*. AK3
+> bringt Drittbibliotheken mit. Werden die systemweit sichtbar gemacht,
+> kollidieren sie mit dem, was auf der fremden Maschine ohnehin installiert
+> ist. Die Maschine, auf der der Client ProjectEdge betreibt, gehoert uns
+> nicht — wir kontaminieren sie nicht, weder mit unseren Abhaengigkeiten noch
+> mit AK3 selbst. Die Isolation ist also kein Provisorium bis AG3-209, sondern
+> die dauerhafte Betriebsform. Die durchgestrichene Out-of-Scope-Praemisse
+> unten bleibt sachlich richtig (der Namenskonflikt stirbt), aendert aber an
+> dieser Story nichts.
 
 ### In Scope
 
@@ -104,6 +123,22 @@ Start." Die Warnalternative ist unzulaessig:
    wie nicht-editierbar. Der Fehlschlag ist fail-closed und benennt den Grund
    (Paketnamenskonflikt mit AK2) und den zulaessigen Weg. **Eine Warnung
    erfuellt dieses Kriterium nicht.**
+
+   **1a. Der Installer legt die venv selbst an** (PO-Entscheid 2026-08-04).
+   Der zulaessige Weg aus AC 1 ist keine Anleitung, die der Nutzer befolgt,
+   sondern ein Schritt, den der Installer ausfuehrt. Nachgewiesen an einer
+   Maschine ohne vorbereitete Umgebung: ein einziger Installationsaufruf
+   erzeugt die venv, installiert AK3 samt deklarierten Abhaengigkeiten hinein
+   und hinterlaesst im System-`site-packages` nichts. Existiert bereits eine
+   brauchbare venv, wird sie benutzt statt ersetzt; eine unbrauchbare wird mit
+   benanntem Grund abgelehnt, nicht stillschweigend repariert.
+
+   **1b. Die Isolation ist die dauerhafte Betriebsform, kein Provisorium**
+   (PO-Entscheid 2026-08-04). Sie schuetzt nicht nur AK2 vor dem geteilten
+   Paketnamen, sondern die fremde Maschine vor den Drittbibliotheken, die AK3
+   mitbringt. Begruendung und Verweigerung duerfen deshalb **nicht** allein auf
+   den AK2-Namenskonflikt abstellen — sonst wird die Regel mit AG3-209
+   gegenstandslos, obwohl der Grund fortbesteht.
 2. **Die heute vorhandene globale editierbare Installation ist beseitigt** und
    der Weg dorthin ist dokumentiert und ausfuehrbar. Nachgewiesen daran, dass
    `_editable_impl_agentkit.pth` im Benutzer-`site-packages` danach nicht mehr

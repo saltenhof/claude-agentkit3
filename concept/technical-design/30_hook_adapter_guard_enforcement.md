@@ -73,7 +73,10 @@ glossary:
         Plattformseitiger Mechanismus, der jeden Tool-Call eines Agenten
         abfaengt. Konkret: PreToolUse/PostToolUse-aequivalente Hooks pro
         unterstuetztem Harness (Claude Code, Codex; siehe FK-76 §76.4). Exit 0
-        erlaubt, Exit 2 blockiert, jeder Crash ist fail-closed blockiert.
+        erlaubt, Exit 2 blockiert. **Fail-closed ist eine Pflicht des
+        AK3-Adapters, keine Zusage der Plattform:** ein Hook, der mit einem
+        anderen Code endet, wird nicht blockiert (siehe FK-76 §76.4a), also
+        muss der Adapter jeden Fehlerpfad selbst in Exit 2 ueberfuehren.
         Hooks sind Teil der Plattform-Infrastruktur — Agenten koennen sie
         nicht umgehen. Diese Nicht-Umgehbarkeit gilt fuer den Hook selbst
         und fuer direkte, klassifizierbare Tool-Operationen (Stufe 1+2);
@@ -218,11 +221,33 @@ siehe FK-76 §76.4): Claude Code sendet dem Hook-Prozess ein JSON-Objekt über s
 |-----------|----------|--------|
 | 0 | Erlaubt | Ignoriert |
 | 2 | Blockiert | Wird als Fehlermeldung an den Agent angezeigt |
-| Andere (1, Crash) | Blockiert (fail-closed) | Agent sieht generischen Fehler |
+| Andere (1, Crash) | **Nicht blockiert**, Fehler wird still persistiert | Agent sieht nichts |
 
-**Fail-closed:** Ein crashender Hook (exit 1, Timeout, Exception)
-blockiert das Tool. Das ist Absicht — ein kaputtes Sicherheits-
-system soll nicht durchlassen.
+**Fail-closed ist eine Pflicht des Adapters, keine Eigenschaft der
+Plattform.** Ein crashender Hook (exit 1, Timeout, unbehandelte Exception)
+blockiert das Tool **nicht**. Der Harness protokolliert den Fehler als
+nicht-blockierendes Ereignis und faehrt fort; der Agent erfaehrt davon
+nichts. Die harness-spezifische Mechanik steht in FK-76 §76.4a.
+
+Daraus folgt der normative Auftrag an jeden AK3-Hook-Adapter:
+
+- **Jeder Fehlerpfad endet in Exit 2**, einschliesslich der Pfade vor der
+  ersten Zeile Fachlogik — fehlende Abhaengigkeit, kaputte Konfiguration,
+  nicht aufloesbarer Interpreter. Ein Import auf Modulebene, der scheitern
+  kann, ist ein Guard, der schweigend ausfaellt.
+- **Ein ausgefallener Guard darf nicht wie ein bestandener aussehen.** Genau
+  das ist am 2026-08-03 passiert: 164 Hook-Crashes an einem Tag in einer
+  Fremdinstallation, jeder einzelne nicht-blockierend und unsichtbar, waehrend
+  saemtliche Guards als aktiv galten. Ursache war eine fehlende
+  Pflicht-Abhaengigkeit (`tomlkit`); die Guards starben am Top-Level-Import.
+- **Die Fehlerklasse muss auswertbar bleiben.** Persistierte Hook-Fehler
+  werden nach Hook-Kommando gruppiert und nach Text dedupliziert auswertbar
+  gemacht (AG3-206, Verb `hook-errors`), damit ein stiller Dauerausfall
+  ueberhaupt auffindbar ist.
+
+Ein `|| true`, ein `2>/dev/null` oder ein sonstiger Bypass in einer
+Hook-Registrierung ist damit ein Fehler und keine Absicherung: er verwandelt
+einen ohnehin nicht blockierenden Ausfall zusaetzlich in einen unauffindbaren.
 
 **Prompt-Regel fuer aktive Runs:** Im `story_execution`-Modus darf ein
 Hook niemals auf einen harness-nativen Permission-Dialog (Claude Code

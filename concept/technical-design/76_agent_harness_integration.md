@@ -178,6 +178,33 @@ Der Adapter ist **AT** im Sinne der Bluttypen-Methodik (`software-blutgruppen.md
 §4.2): Mediation zwischen fachlicher Domaene (`guard_evaluation`) und
 harness-spezifischer Mechanik. Die Guard-Regeln selbst liegen NICHT im Adapter.
 
+### 76.4a Transportsemantik nicht-normaler Exit-Codes
+
+Die harness-native Behandlung eines Hooks, der **weder 0 noch 2** zurueckgibt,
+ist Transportsemantik und damit Eigentum von FK-76. Gemessener Befund:
+
+| Harness | Exit ausser 0/2 | Wirkung auf den Tool-Call | Sichtbarkeit fuer den Agenten |
+|---|---|---|---|
+| Claude Code | 1, Timeout, unbehandelte Exception | **keine** — der Call laeuft weiter | keine; der Fehler wird als `hook_non_blocking_error`-Attachment im Transcript persistiert |
+
+**Konsequenz fuer den Adapter-Vertrag.** Pflicht 2 (Ausgangs-Mapping) ist damit
+nicht auf den Entscheidungspfad beschraenkt: Der Adapter muss **jeden**
+Fehlerpfad in Exit 2 ueberfuehren, auch die Pfade vor dem ersten Mapping.
+Fachimporte gehoeren deshalb hinter die Fehlergrenze und nicht auf Modulebene —
+ein Adapter, der beim Import stirbt, gibt Exit 1 zurueck und laesst den
+Tool-Call durch, ohne dass jemand es merkt.
+
+Das ist keine Policy-Umdeutung im Sinne von §76.2: der Adapter deutet keinen
+Exit-Code in `allow`/`deny` um, sondern stellt sicher, dass die von FK-30
+geforderte fail-closed-Wirkung ueber diesen Transport ueberhaupt transportabel
+ist. FK-30 §30.2.4 traegt die Pflicht, FK-76 §76.4a die Begruendung, warum sie
+noetig ist.
+
+**Belegter Anlassfall (2026-08-03).** In einer Fremdinstallation starben alle
+Hooks am Top-Level-Import einer fehlenden Pflicht-Abhaengigkeit. 164
+Hook-Crashes an einem Tag, kein einziger blockierend, keiner sichtbar — die
+Guards galten die ganze Zeit als aktiv. Behoben in AG3-206.
+
 ## 76.5 Harness-Settings-Schemas (alleiniger Owner)
 
 FK-76 ist der **einzige normative Owner** der harness-spezifischen Settings-

@@ -57,17 +57,17 @@ unresolved_references:
     reason: Runtime-created quarantine location, absent until an adversarial failure occurs.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/30_hook_adapter_guard_enforcement.md
-    line: 613
+    line: 638
     reference: tools/hooks/pre-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/30_hook_adapter_guard_enforcement.md
-    line: 637
+    line: 662
     reference: tools/hooks/post-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/30_hook_adapter_guard_enforcement.md
-    line: 672
+    line: 697
     reference: tools/hooks
     reason: Materialized target-project hook directory, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
@@ -113,12 +113,12 @@ unresolved_references:
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/76_agent_harness_integration.md
-    line: 383
+    line: 410
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/76_agent_harness_integration.md
-    line: 385
+    line: 412
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
