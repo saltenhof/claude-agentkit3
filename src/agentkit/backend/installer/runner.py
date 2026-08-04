@@ -20,7 +20,6 @@ from agentkit.backend.config.defaults import (
 )
 from agentkit.backend.config.models import SUPPORTED_CONFIG_VERSION
 from agentkit.backend.exceptions import InstallationError, ProjectError
-from agentkit.backend.installer.codex_settings import write_codex_settings
 from agentkit.backend.installer.file_ops import (
     atomic_write_text,
     atomic_write_yaml,
@@ -1210,6 +1209,8 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
     control_plane_config = _write_control_plane_config(root, config)
     if control_plane_config is not None:
         created.append(control_plane_config)
+    from agentkit.backend.installer.codex_settings import write_codex_settings
+
     codex_settings = write_codex_settings(root)
     if codex_settings is not None and codex_settings not in created:
         created.append(codex_settings)

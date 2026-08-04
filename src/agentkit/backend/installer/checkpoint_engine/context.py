@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from agentkit.backend.config.models import ProjectConfig
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.backend.installer.config_boundary import ConfigBeforeImage
+    from agentkit.backend.installer.dependency_preflight import (
+        DependencyPreflightReport,
+    )
     from agentkit.backend.installer.registration import RuntimeProfile
     from agentkit.backend.installer.runner import InstallConfig
 
@@ -50,6 +53,8 @@ class CheckpointRunState:
             runs only). Reported on the final :class:`InstallResult`.
         project_yaml: The ``project.yaml`` mapping produced by CP 5 and consumed
             by CP 7 (digest) and CP 10c (ARE-scope map). ``None`` until CP 5.
+        dependency_preflight: The passing declaration-owned report produced at
+            the stdlib-only installer boundary and consumed by CP 1.
         resolved_profile: The :class:`RuntimeProfile` resolved by CP 6 and
             consumed by CP 7. ``None`` until CP 6.
         skills: The resolved agent-skills top-surface (CP 8 preflight), shared
@@ -63,6 +68,7 @@ class CheckpointRunState:
     project_yaml: dict[str, object] | None = None
     project_config: ProjectConfig | None = None
     config_before_image: ConfigBeforeImage | None = None
+    dependency_preflight: DependencyPreflightReport | None = None
     resolved_profile: RuntimeProfile | None = None
     skills: object | None = None
     resolved_skill_bundles: list[tuple[str, object]] = field(default_factory=list)

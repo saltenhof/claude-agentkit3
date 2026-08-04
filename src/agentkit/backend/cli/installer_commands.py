@@ -322,6 +322,8 @@ def _print_checkpoint_results(result: object) -> None:
 
 def _cmd_register_project(args: argparse.Namespace) -> int:
     """Handle ``agentkit register-project`` (FK-50 §50.2)."""
+    if not _runtime_dependencies_ready():
+        return 1
     # S5713: ``InstallationError`` derives from ``ProjectError`` (exceptions.py),
     # so catching ``ProjectError`` already covers it — the redundant subclass is
     # dropped from the import and the except clause (handling is shared).
@@ -366,6 +368,8 @@ def _cmd_register_project(args: argparse.Namespace) -> int:
 
 def _cmd_verify_project(args: argparse.Namespace) -> int:
     """Handle ``agentkit verify-project`` (FK-50 §50.2, read-only)."""
+    if not _runtime_dependencies_ready():
+        return 1
     # S5713: ``InstallationError`` derives from ``ProjectError``; catching the
     # parent already covers the subclass (shared handling), so the redundant
     # subclass is removed from the import and the except clause.
@@ -431,6 +435,8 @@ def _add_upgrade_parser(
 
 def _cmd_upgrade_project(args: argparse.Namespace) -> int:
     """Handle ``agentkit upgrade-project`` (FK-51, AG3-089)."""
+    if not _runtime_dependencies_ready():
+        return 1
     # S5713: ``CustomizationPreservationError`` -> ``InstallationError`` ->
     # ``ProjectError``. The specific ``CustomizationPreservationError`` keeps its
     # OWN earlier except clause (distinct F-51-023 handling); the generic clause
@@ -478,3 +484,25 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
     label = "planned" if args.dry_run else "upgraded"
     print(f"Project {label} ({mode.value}) at {args.project_root}: scenario {result.scenario.scenario.value!r}; {result.detail}")
     return 0
+
+
+def _runtime_dependencies_ready() -> bool:
+    """Run the declaration-owned dependency check before deeper CLI imports."""
+    from agentkit.backend.installer.dependency_preflight import (
+        DependencyDeclarationError,
+        check_runtime_dependencies,
+        format_dependency_failures,
+    )
+
+    try:
+        report = check_runtime_dependencies()
+    except DependencyDeclarationError as exc:
+        print(
+            f"AgentKit runtime dependency declaration is unavailable: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    if report.passed:
+        return True
+    print(format_dependency_failures(report), file=sys.stderr)
+    return False

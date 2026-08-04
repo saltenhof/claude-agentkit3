@@ -20,6 +20,7 @@ from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.installer.checkpoint_engine import node_ids as nid
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_RESERVED,
+    REASON_RUNTIME_DEPENDENCY_UNAVAILABLE,
 )
 from agentkit.backend.installer.checkpoint_engine.result_builder import (
     is_dry_run,
@@ -30,6 +31,9 @@ from agentkit.backend.installer.registration import CheckpointStatus
 
 if TYPE_CHECKING:
     from agentkit.backend.installer.checkpoint_engine.context import CheckpointContext
+    from agentkit.backend.installer.dependency_preflight import (
+        DependencyPreflightReport,
+    )
     from agentkit.backend.installer.registration import CheckpointResult
 
 #: Machine reason for a CP 1 failure (package not importable / no version).
@@ -40,13 +44,69 @@ REASON_REPO_UNREACHABLE = "repo_unreachable"
 REASON_MISSING_COORDINATES = "missing_github_coordinates"
 
 
+def dependency_preflight_checkpoint(
+    *,
+    report: DependencyPreflightReport | None,
+    declaration_error: str | None,
+    preflight_duration_ms: int,
+) -> CheckpointResult:
+    """Build the sole CP 1 result for an incomplete runtime environment."""
+    from agentkit.backend.installer.dependency_preflight import (
+        format_dependency_failures,
+    )
+
+    if report is not None and report.passed:
+        raise ValueError("dependency preflight failure result requires a failing report")
+    detail = (
+        f"AgentKit runtime dependency declaration is unavailable: {declaration_error}"
+        if declaration_error is not None
+        else format_dependency_failures(report)
+        if report is not None
+        else "AgentKit runtime dependency preflight produced no report."
+    )
+    return make_result(
+        nid.CP_01_PACKAGE_CHECK,
+        status=CheckpointStatus.FAILED,
+        detail=detail,
+        reason=REASON_RUNTIME_DEPENDENCY_UNAVAILABLE,
+        start=time.monotonic(),
+        prior_duration_ms=preflight_duration_ms,
+    )
+
+
 def cp01_package_check(context: CheckpointContext) -> CheckpointResult:
-    """CP 1 — verify the ``agentkit`` Python package is importable (read-only).
+    """CP 1 — verify AgentKit and its declared runtime set (read-only).
 
     Pure check, no action (FK-50 §50.3 CP 1). Identical in every mode (never
     mutates), so dry-run/verify produce the same PASS/FAILED as register.
     """
     start = time.monotonic()
+    dependency_report = context.run_state.dependency_preflight
+    preflight_precedes_handler = dependency_report is not None
+    if dependency_report is None:
+        from agentkit.backend.installer.dependency_preflight import (
+            DependencyDeclarationError,
+            check_runtime_dependencies,
+        )
+
+        try:
+            dependency_report = check_runtime_dependencies()
+        except DependencyDeclarationError as exc:
+            return dependency_preflight_checkpoint(
+                report=None,
+                declaration_error=str(exc),
+                preflight_duration_ms=exc.duration_ms,
+            )
+        context.run_state.dependency_preflight = dependency_report
+    if not dependency_report.passed:
+        return dependency_preflight_checkpoint(
+            report=dependency_report,
+            declaration_error=None,
+            preflight_duration_ms=dependency_report.duration_ms,
+        )
+    prior_duration_ms = (
+        dependency_report.duration_ms if preflight_precedes_handler else 0
+    )
     try:
         import agentkit
 
@@ -58,6 +118,7 @@ def cp01_package_check(context: CheckpointContext) -> CheckpointResult:
             detail=f"agentkit package is not importable: {exc}",
             reason=REASON_PACKAGE_UNAVAILABLE,
             start=start,
+            prior_duration_ms=prior_duration_ms,
         )
     if not version:
         return make_result(
@@ -66,12 +127,17 @@ def cp01_package_check(context: CheckpointContext) -> CheckpointResult:
             detail="agentkit.__version__ is empty; package metadata missing.",
             reason=REASON_PACKAGE_UNAVAILABLE,
             start=start,
+            prior_duration_ms=prior_duration_ms,
         )
     return make_result(
         nid.CP_01_PACKAGE_CHECK,
         status=CheckpointStatus.PASS,
-        detail=f"agentkit {version} importable.",
+        detail=(
+            f"agentkit {version} and {dependency_report.declared_count} declared "
+            "runtime dependencies importable."
+        ),
         start=start,
+        prior_duration_ms=prior_duration_ms,
     )
 
 
@@ -326,4 +392,5 @@ __all__ = [
     "cp04_reserved",
     "cp05_pipeline_config",
     "cp06_profile_resolution",
+    "dependency_preflight_checkpoint",
 ]

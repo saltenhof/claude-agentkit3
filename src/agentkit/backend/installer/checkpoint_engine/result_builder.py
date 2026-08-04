@@ -35,6 +35,7 @@ def make_result(
     detail: str | None = None,
     reason: str | None = None,
     start: float,
+    prior_duration_ms: int = 0,
 ) -> CheckpointResult:
     """Build a :class:`CheckpointResult` with a measured duration.
 
@@ -44,6 +45,8 @@ def make_result(
         detail: Human-readable description.
         reason: Machine-readable reason (mandatory for SKIPPED/FAILED).
         start: ``time.monotonic()`` captured at handler entry.
+        prior_duration_ms: Measured work belonging to this checkpoint that ran
+            before handler entry.
 
     Returns:
         The constructed result.
@@ -53,7 +56,7 @@ def make_result(
         status=status,
         detail=detail,
         reason=reason,
-        duration_ms=elapsed_ms(start),
+        duration_ms=prior_duration_ms + elapsed_ms(start),
     )
 
 

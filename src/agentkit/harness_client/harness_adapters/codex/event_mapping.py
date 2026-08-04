@@ -7,17 +7,15 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from agentkit.backend.governance.guard_evaluation import (
-    HookEvent,
-    Operation,
-    PrincipalKind,
-)
 from agentkit.harness_client.harness_adapters.post_tool_outcome import (
     map_post_tool_outcome,
 )
 
 if TYPE_CHECKING:
+    from agentkit.backend.governance.guard_evaluation import HookEvent, Operation
     from agentkit.harness_client.projectedge.runtime import FreshnessClass
+
+PrincipalKind = Literal["main", "subagent"]
 
 CodexToolName = Literal[
     "shell_command",
@@ -191,6 +189,8 @@ class CodexPostToolEvent(BaseModel):
 
 def to_neutral_event(codex_event: CodexHookEvent | CodexPostToolEvent) -> HookEvent:
     """Map a Codex hook payload to the harness-neutral event model."""
+    from agentkit.backend.governance.guard_evaluation import HookEvent
+
     operation, freshness_class, operation_args = _classify_tool(
         codex_event.tool_name,
         codex_event.tool_input,

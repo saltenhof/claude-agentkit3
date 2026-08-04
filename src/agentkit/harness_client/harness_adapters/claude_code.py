@@ -14,24 +14,18 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    ValidationError,
-    field_validator,
-    model_validator,
-)
-
-from agentkit.backend.governance.guard_evaluation import (
-    HookEvent,
-    PrincipalKind,
-)
-from agentkit.backend.governance.runner import Governance, parse_hook_wrapper_args
 from agentkit.harness_client.harness_adapters.post_tool_outcome import (
     map_post_tool_outcome,
 )
+
+if TYPE_CHECKING:
+    from agentkit.backend.governance.guard_evaluation import HookEvent
+    from agentkit.harness_client.harness_adapters.claude_code_models import (
+        ClaudeCodeHookEvent,
+        ClaudeCodePostToolEvent,
+    )
 
 _READ_ONLY_TOOLS = frozenset({"Glob", "Grep", "Read"})
 
@@ -42,112 +36,13 @@ _READ_ONLY_TOOLS = frozenset({"Glob", "Grep", "Read"})
 _AGENT_TOOL = "Agent"
 
 
-class ClaudeCodeHookEvent(BaseModel):
-    """Claude Code pre-tool hook payload.
-
-    ``extra="ignore"``, like :class:`ClaudeCodePostToolEvent` below. Fail-closed
-    is right for AK3's OWN inputs -- guard ids, configuration, rule sets. It
-    inverts against a foreign harness payload: Claude Code adds fields without
-    announcing them (``transcript_path``, ``tool_use_id``, ``permission_mode``,
-    ``prompt_id``, ``effort`` appeared this way), and with ``extra="forbid"``
-    each new field made the hook exit 2 -- which this interface reads as BLOCK.
-    Every Bash call in every AK3-installed project was refused, and no guard
-    logic ran at all. Rejecting the payload does not protect anything; it makes
-    AK3 depend on a release cadence it has no say in.
-    """
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    tool_name: str
-    tool_input: dict[str, object] = {}
-    cwd: str = ""
-    session_id: str | None = None
-    is_subagent: bool = False
-
-    @model_validator(mode="before")
-    @classmethod
-    def _apply_defaults(cls, value: object) -> object:
-        if isinstance(value, dict) and "cwd" not in value:
-            updated = dict(value)
-            updated["cwd"] = str(Path.cwd())
-            return updated
-        return value
-
-    @field_validator("tool_name")
-    @classmethod
-    def _validate_tool_name(cls, value: str) -> str:
-        if not value:
-            raise ValueError("tool_name must be a non-empty string")
-        return value
-
-    @field_validator("cwd", mode="before")
-    @classmethod
-    def _default_cwd(cls, value: object) -> str:
-        if isinstance(value, str) and value:
-            return value
-        return str(Path.cwd())
-
-    @field_validator("session_id", mode="before")
-    @classmethod
-    def _coerce_session_id(cls, value: object) -> str | None:
-        return value if isinstance(value, str) else None
-
-
-class ClaudeCodePostToolEvent(BaseModel):
-    """Claude Code post-tool hook payload."""
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    hook_event_name: Literal["PostToolUse", "PostToolUseFailure"]
-    tool_name: str
-    tool_input: dict[str, object] = {}
-    cwd: str = ""
-    session_id: str | None = None
-    is_subagent: bool = False
-    tool_response: object = None
-    error: object = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _apply_defaults(cls, value: object) -> object:
-        if isinstance(value, dict) and "cwd" not in value:
-            updated = dict(value)
-            updated["cwd"] = str(Path.cwd())
-            return updated
-        return value
-
-    @field_validator("tool_name")
-    @classmethod
-    def _validate_tool_name(cls, value: str) -> str:
-        if not value:
-            raise ValueError("tool_name must be a non-empty string")
-        return value
-
-    @field_validator("tool_input", mode="before")
-    @classmethod
-    def _validate_tool_input(cls, value: object) -> dict[str, object]:
-        if isinstance(value, dict):
-            return value
-        raise ValueError("tool_input must be a JSON object")
-
-    @field_validator("cwd", mode="before")
-    @classmethod
-    def _default_cwd(cls, value: object) -> str:
-        if isinstance(value, str) and value:
-            return value
-        return str(Path.cwd())
-
-    @field_validator("session_id", mode="before")
-    @classmethod
-    def _coerce_session_id(cls, value: object) -> str | None:
-        return value if isinstance(value, str) else None
-
-
 def to_neutral_event(
     claude_event: ClaudeCodeHookEvent | ClaudeCodePostToolEvent,
 ) -> HookEvent:
     """Map a Claude Code hook payload to the harness-neutral event model."""
-    principal_kind: PrincipalKind = "subagent" if claude_event.is_subagent else "main"
+    from agentkit.backend.governance.guard_evaluation import HookEvent
+
+    principal_kind = "subagent" if claude_event.is_subagent else "main"
     post_tool_outcome = _post_tool_outcome(claude_event)
     if claude_event.tool_name == "Bash":
         return HookEvent(
@@ -245,6 +140,10 @@ def to_neutral_event(
 def _post_tool_outcome(
     claude_event: ClaudeCodeHookEvent | ClaudeCodePostToolEvent,
 ) -> dict[str, object] | None:
+    from agentkit.harness_client.harness_adapters.claude_code_models import (
+        ClaudeCodePostToolEvent,
+    )
+
     if not isinstance(claude_event, ClaudeCodePostToolEvent):
         return None
     return map_post_tool_outcome(
@@ -266,6 +165,13 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = list(sys.argv[1:]) if argv is None else list(argv)
     try:
+        from agentkit.backend.governance.runner import (
+            Governance,
+            parse_hook_wrapper_args,
+        )
+    except Exception as exc:  # noqa: BLE001 - import failure must block the tool
+        return _emit_hook_runtime_failure(exc, guard="governance_runtime")
+    try:
         selector = parse_hook_wrapper_args(args, command_name="agentkit-hook-claude")
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -277,9 +183,11 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    except Exception as exc:  # noqa: BLE001 - model import failure must block
+        return _emit_hook_runtime_failure(exc, guard="governance_runtime")
 
-    event = to_neutral_event(claude_event)
     try:
+        event = to_neutral_event(claude_event)
         decision = Governance.run_hook(
             selector.hook_id,
             event,
@@ -290,18 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         # AG3-032 ERROR 6 / FK-55 §55.10.5 / FK-31 §31.2.7: a governance hook
         # must NEVER let an evaluation fault escape and silently allow the tool
         # call. Any escaping exception is mapped to a fail-closed BLOCK (exit 2).
-        print(
-            json.dumps(
-                {
-                    "decision": "block",
-                    "guard": "principal_capability",
-                    "message": f"governance hook failed fail-closed: {exc}",
-                    "detail": {"fault_class": type(exc).__name__},
-                },
-                sort_keys=True,
-            )
-        )
-        return 2
+        return _emit_hook_runtime_failure(exc, guard="principal_capability")
     if not decision.allowed:
         payload = {
             "decision": "block",
@@ -372,24 +269,15 @@ def main_project_edge(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-
-    from agentkit.backend.governance.guard_evaluation import evaluate_pre_tool_use
+    except Exception as exc:  # noqa: BLE001 - model import failure must block
+        return _emit_hook_runtime_failure(exc, guard="governance_runtime")
 
     try:
+        from agentkit.backend.governance.guard_evaluation import evaluate_pre_tool_use
+
         decision = evaluate_pre_tool_use(to_neutral_event(claude_event), project_root=Path.cwd())
     except Exception as exc:  # noqa: BLE001 — outermost fail-closed safety net.
-        print(
-            json.dumps(
-                {
-                    "decision": "block",
-                    "guard": "guard_evaluation",
-                    "message": f"project-edge hook failed fail-closed: {exc}",
-                    "detail": {"fault_class": type(exc).__name__},
-                },
-                sort_keys=True,
-            )
-        )
-        return 2
+        return _emit_hook_runtime_failure(exc, guard="guard_evaluation")
 
     if not decision.allowed:
         print(
@@ -407,11 +295,34 @@ def main_project_edge(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _emit_hook_runtime_failure(exc: Exception, *, guard: str) -> int:
+    """Emit a blocking hook response for import and evaluation failures."""
+    print(
+        json.dumps(
+            {
+                "decision": "block",
+                "guard": guard,
+                "message": f"governance hook failed fail-closed: {exc}",
+                "detail": {"fault_class": type(exc).__name__},
+            },
+            sort_keys=True,
+        )
+    )
+    return 2
+
+
 def _parse_hook_event(
     raw: str,
     *,
     phase: str = "pre",
 ) -> ClaudeCodeHookEvent | ClaudeCodePostToolEvent:
+    from pydantic import ValidationError
+
+    from agentkit.harness_client.harness_adapters.claude_code_models import (
+        ClaudeCodeHookEvent,
+        ClaudeCodePostToolEvent,
+    )
+
     try:
         if phase == "post":
             return ClaudeCodePostToolEvent.model_validate_json(raw)
@@ -423,6 +334,17 @@ def _parse_hook_event(
         if "Input should be an object" in message:
             raise RuntimeError("Hook payload must be a JSON object") from exc
         raise RuntimeError(str(exc)) from exc
+
+
+def __getattr__(name: str) -> object:
+    """Load public payload models without making the hook entry point depend on them."""
+    if name not in {"ClaudeCodeHookEvent", "ClaudeCodePostToolEvent"}:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from agentkit.harness_client.harness_adapters import claude_code_models
+
+    value = getattr(claude_code_models, name)
+    globals()[name] = value
+    return value
 
 
 __all__ = [

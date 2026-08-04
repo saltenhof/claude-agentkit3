@@ -29,6 +29,8 @@ REASON_ALREADY_SATISFIED: Final = "already_satisfied"
 #: mutation (FK-50 §50.2 dry-run result contract, story §2.1.3). Lets a consumer
 #: tell "planned, not executed" from a real mutation result.
 REASON_PLANNED_NO_MUTATION: Final = "planned_no_mutation"
+#: CP 1 cannot proceed because a declared runtime dependency is unavailable.
+REASON_RUNTIME_DEPENDENCY_UNAVAILABLE: Final = "runtime_dependency_unavailable"
 
 # CP 10 MCP conformance failures (AG3-164 / FK-50 §50.3 CP 10). Configured but
 # non-runnable servers are FAILED (not SKIPPED); SKIPPED remains only for
@@ -90,5 +92,6 @@ __all__ = [
     "REASON_PLANNED_NO_MUTATION",
     "REASON_REGISTRATION_INCOMPLETE",
     "REASON_RESERVED",
+    "REASON_RUNTIME_DEPENDENCY_UNAVAILABLE",
     "REASON_VECTORDB_REQUIRED",
 ]

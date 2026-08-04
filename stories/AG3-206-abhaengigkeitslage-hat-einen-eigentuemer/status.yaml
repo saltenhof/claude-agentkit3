@@ -2,8 +2,15 @@ story_id: AG3-206
 story_title_short: "abhaengigkeitslage-hat-einen-eigentuemer"
 title: "AK3 setzt die venv-Politik durch: Preflight prueft deklarierte gegen importierbare Abhaengigkeiten fail-closed, und Hook-Fehlschlaege werden sichtbar statt verschluckt."
 type: implementation
-status: ready
-phase: setup
+status: done
+phase: closure
+# 2026-08-04 abgeschlossen. Umsetzung job-56890fb9 (5 ERRORs), Remediation +
+# unabhaengiges Review job-60bbf9f7 ("keine substanziellen Findings mehr").
+# AC 3 real nachgewiesen gegen die Original-Transcripte der Fremdinstallation
+# (Orchestrator, ausserhalb des Umsetzer-Mandats) -- siehe report.md.
+# Zwei ERRORs bleiben ausserhalb des Story-Mandats offen und brauchen eine
+# PO-Entscheidung: der FK-30/FK-76-Widerspruch und die vier externen Hooks
+# mit `2>/dev/null || true` in der Benutzer-settings.json.
 created: "2026-08-03"
 size: M
 # NEU 2026-08-03 aus einer Fremdinstallation (intima): 164 Hook-Fehler an einem

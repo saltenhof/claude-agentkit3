@@ -151,7 +151,7 @@ werden dort dokumentiert. Beispiel-Aufrufe gehoeren nicht zum Installer-Vertrag.
 
 ```mermaid
 flowchart TD
-    CP1["CP 1: Python-Paket<br/>agentkit installiert?"] --> CP2
+    CP1["CP 1: Python-Paket +<br/>Runtime vollstaendig?"] --> CP2
     CP2["CP 2: GitHub-Repo<br/>existiert?"] --> CP3
     CP3["CP 3: (entfaellt)"] --> CP4
     CP4["CP 4: (entfaellt)"] --> CP5
@@ -221,12 +221,12 @@ herstellen.
 
 ### CP 1: Python-Paket
 
-Prüft ob `agentkit` als Python-Paket verfügbar ist:
+Prueft `agentkit` und jede in `Requires-Dist` deklarierte Pflicht-Abhaengigkeit
+des ausgefuehrten Artefakts auf installierte und importierbare Top-Level-Pakete.
 
-```python
-import agentkit
-assert agentkit.__version__
-```
+Der Nachweis liegt an der stdlib-only Installer-Eingangsgrenze und laeuft
+vor tieferen Drittpaket-Importen; bei `FAILED` ist CP 1 das einzige Ergebnis,
+kein weiterer Checkpoint und keine Installer-Wirkung beginnt.
 
 **Idempotenz:** Nur Prüfung, keine Aktion.
 
@@ -917,10 +917,38 @@ aktualisiert (BC 10, FK-44).
 scheitert die Projektregistrierung. Ein partiell gebundenes Profil ist
 nicht zulaessig.
 
+### 50.5.1 Deklarationsgetriebene CP-1-Eingangsgrenze
+
+Die installierte Distribution liest ihren Pflichtsatz direkt aus
+`Requires-Dist`; eine explizite Quellpruefung liest `project.dependencies` aus
+`pyproject.toml`. Beide sind Projektionen derselben Paketdeklaration. Eine
+separat gepflegte Liste von Distributionen oder Importnamen ist verboten.
+Extra-gebundene optionale Abhaengigkeiten gehoeren nicht zum Pflichtsatz.
+
+Fuer jede Pflicht-Abhaengigkeit werden die Distribution und ihre aus den
+Distributionsmetadaten abgeleiteten oeffentlichen Top-Level-Importe geprueft.
+Die stdlib-only Grenze schuetzt auch den oeffentlichen Importpfad
+`from agentkit.backend.installer import run_checkpoint_install` sowie die
+Runner-gebundenen Exporte `InstallConfig`, `InstallResult` und
+`install_agentkit`; erst nach einem PASS werden Checkpoint-Orchestrator oder
+Runner geladen.
+
+Ein fehlendes Paket, ein fehlerhafter Import oder eine unlesbare Deklaration
+ist `FAILED`: CP 1 ist das einzige Ergebnis, keine Fremdsystem-Probe,
+Bundle-Zugriff oder Zielprojekt-Schreibvorgang beginnt. Ein
+abhaengigkeitsspezifischer Befund nennt Distribution, Ursache und ein
+Installationskommando fuer genau den Interpreter aus `sys.executable`; ein
+Deklarationsbefund nennt die nicht lesbare Deklarationsquelle und Ursache,
+weil ohne auswertbare Deklaration weder Distribution noch Installationskommando
+ableitbar sind. Ob dieser Interpreter global oder Teil einer venv ist,
+entscheidet der Check nicht; diese Durchsetzung gehoert AG3-189.
+
 ## 50.6 Fehlerbehandlung
 
 | Fehler | Checkpoint | Reaktion |
 |--------|-----------|---------|
+| Deklarierte Runtime-Abhaengigkeit fehlt oder ist nicht importierbar | stdlib-only Eingangsgrenze / CP 1 | `FAILED`; kein tiefer Installer-Import und keine weitere Installer-Wirkung. Diagnose mit Distribution, Ursache und Interpreter-genauem Installationskommando |
+| Runtime-Abhaengigkeitsdeklaration fehlt oder ist unlesbar | stdlib-only Eingangsgrenze / CP 1 | `FAILED`; kein tiefer Installer-Import und keine weitere Installer-Wirkung. Diagnose mit Deklarationsquelle und Ursache; ohne auswertbare Deklaration wird keine Distribution oder Installationsanweisung erfunden |
 | `gh` nicht installiert | CP 2 | FAILED, Installation abbrechen |
 | `gh` nicht authentifiziert | CP 2 | FAILED, Hinweis auf `gh auth login` |
 | Repo nicht gefunden | CP 2 | FAILED |

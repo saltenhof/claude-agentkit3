@@ -43,6 +43,9 @@ from agentkit.backend.installer.vectordb_preflight import HttpVectorDbPreflight
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.backend.installer.dependency_preflight import (
+        DependencyPreflightReport,
+    )
     from agentkit.backend.installer.registration import CheckpointResult
     from agentkit.backend.installer.runner import InstallConfig, InstallResult
 
@@ -69,6 +72,7 @@ def build_checkpoint_context(
     project_config: ProjectConfig | None = None,
     project_yaml: dict[str, object] | None = None,
     config_before_image: ConfigBeforeImage | None = None,
+    dependency_preflight: DependencyPreflightReport | None = None,
     scope_interaction_mode: str = ScopeInteractionMode.AGENTIC,
 ) -> CheckpointContext:
     """Build the immutable per-run :class:`CheckpointContext`."""
@@ -102,6 +106,7 @@ def build_checkpoint_context(
         project_config=project_config,
         project_yaml=project_yaml,
         config_before_image=config_before_image,
+        dependency_preflight=dependency_preflight,
     )
     return CheckpointContext(
         config=config,
@@ -189,6 +194,13 @@ def run_checkpoint_install(
         ProjectError: When the project root does not exist (fail-closed; no
             checkpoint can run against a missing root).
     """
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
+        dependency_preflight_checkpoint,
+    )
+    from agentkit.backend.installer.dependency_preflight import (
+        DependencyDeclarationError,
+        check_runtime_dependencies,
+    )
     from agentkit.backend.installer.runner import InstallResult
 
     # AG3-123 (single canonical resolution point): canonicalize the install
@@ -211,6 +223,34 @@ def run_checkpoint_install(
         )
     if root != config.project_root:
         config = replace(config, project_root=root)
+
+    # AG3-206: collect the declaration-owned environment result before the
+    # VectorDB probe, bundle resolution or any installer mutation. A failed
+    # report returns the real CP 1 result immediately; no later checkpoint runs.
+    declaration_error: str | None
+    try:
+        checked_dependencies = check_runtime_dependencies()
+    except DependencyDeclarationError as exc:
+        dependency_preflight = None
+        declaration_error = str(exc)
+        dependency_preflight_duration_ms = exc.duration_ms
+    else:
+        dependency_preflight = checked_dependencies
+        declaration_error = None
+        dependency_preflight_duration_ms = checked_dependencies.duration_ms
+    if dependency_preflight is None or not dependency_preflight.passed:
+        dependency_result = dependency_preflight_checkpoint(
+            report=dependency_preflight,
+            declaration_error=declaration_error,
+            preflight_duration_ms=dependency_preflight_duration_ms,
+        )
+        return InstallResult(
+            success=False,
+            project_root=root,
+            created_files=(),
+            errors=(dependency_result.detail or "Runtime dependency preflight failed.",),
+            checkpoint_results=(dependency_result,),
+        )
 
     # AC1/AC2: resolve one strict candidate and prove the mandatory external
     # dependency BEFORE bundle resolution, context construction or any checkpoint
@@ -240,6 +280,7 @@ def run_checkpoint_install(
         project_config=project_config,
         project_yaml=project_yaml,
         config_before_image=config_before_image,
+        dependency_preflight=dependency_preflight,
         scope_interaction_mode=scope_interaction_mode,
     )
     engine = build_checkpoint_engine()
