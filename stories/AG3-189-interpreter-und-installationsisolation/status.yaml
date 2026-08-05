@@ -13,3 +13,24 @@ size: M
 # das bricht eine PO-Grundregel aus CLAUDE.md und die Severity-Semantik.
 depends_on: []
 unblocks: ["AG3-187"]
+
+
+# PO-ENTSCHEID 2026-08-05: Die Story raeumt VOLLSTAENDIG auf -- so viele
+# Runden wie noetig. Kein Schnitt, keine Folgestory fuer die Bestandsschuld.
+#
+# Anlass der Frage: Das neue Interpreter-Gate deckt systematisch Altlasten auf,
+# die seit jeher unsichtbar waren. Bisher drei produktiv gebundene
+# Skill-Bundles mit nackten `python`-Aufrufen (create-userstory-core,
+# execute-userstory-core, concept-incubation-core), davon zwei mit Aufrufen
+# auf Module, die es gar nicht gibt. Dazu mehrere Konzeptstellen, die
+# weiterhin normieren, was diese Story verbietet. Jede Gate-Erweiterung fand
+# die naechste Fundstelle -- ein Ende war nicht absehbar.
+#
+# Vorgelegt wurden zwei Wege: schneiden (Gate landen, Rest als eigene Story
+# mit Inventur) oder weitermachen. Der PO hat "weitermachen" gewaehlt.
+#
+# Unabhaengig davon gilt: Ein Gate, das faelschlich gruen meldet, landet nicht.
+# Der Befund K1 (ausfuehrbare Befehle in einem `text`-Fence entgehen der
+# Pruefung, waehrend das Gate "alle Kommandos auditiert" behauptet) ist die
+# schwerste Klasse in diesem Projekt -- ein rotes Gate kostet eine Runde, ein
+# falsch-gruenes entwertet jede Aussage, die es je gemacht hat.
