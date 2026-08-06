@@ -161,3 +161,150 @@ def test_unresolvable_base_is_incomplete(tmp_path: Path) -> None:
     result = run(repo, "no-such-revision")
     assert result.complete is False
     assert result.incomplete_reason is not None
+
+
+def write_normative_doc(repo: Path, relative: str, concept_id: str) -> None:
+    """Write a brand-new normative concept document without staging it."""
+    write_doc(repo, relative, concept_doc(concept_id, body="Das System MUSS dieses Verhalten erzwingen.\n"))
+
+
+def test_untracked_concept_document_is_seen_and_does_not_short_circuit(tmp_path: Path) -> None:
+    """AC 2: a never-staged normative document is the change class this gate exists for."""
+    repo = init_repo(tmp_path)
+    write_normative_doc(repo, "concept/technical-design/11_brand_new.md", "FK-11")
+
+    result = run(repo, "HEAD")
+
+    assert result.summary != "no concept documents changed"
+    assert any(finding.check_id == "decision-gate.missing-record" for finding in result.findings)
+    assert any(finding.path == "concept/technical-design/11_brand_new.md" for finding in result.findings)
+
+
+def test_new_unstaged_document_is_scoped_exactly_as_after_staging(tmp_path: Path) -> None:
+    """AC 1, direction 'new but unstaged'."""
+    repo = init_repo(tmp_path)
+    write_normative_doc(repo, "concept/technical-design/11_brand_new.md", "FK-11")
+    unstaged = run(repo, "HEAD")
+    git(repo, "add", "concept/technical-design/11_brand_new.md")
+    staged = run(repo, "HEAD")
+
+    assert unstaged.summary == staged.summary
+    assert [finding.check_id for finding in unstaged.findings] == [finding.check_id for finding in staged.findings]
+    assert unstaged.summary == "1 changed concept document(s) evaluated"
+
+
+def test_deleted_unstaged_document_is_scoped_exactly_as_after_staging(tmp_path: Path) -> None:
+    """AC 1, direction 'deleted but unstaged'."""
+    repo = init_repo(tmp_path)
+    base = git(repo, "rev-parse", "HEAD").strip()
+
+    (repo / "concept/technical-design/10_sample.md").unlink()
+    unstaged = run(repo, base)
+    git(repo, "add", "-A")
+    staged = run(repo, base)
+
+    assert unstaged.summary == staged.summary
+    assert unstaged.summary == "1 changed concept document(s) evaluated"
+
+
+def test_ignored_markdown_is_not_a_concept_change(tmp_path: Path) -> None:
+    """AC 5: ``--exclude-standard`` keeps generated Markdown out of the change set."""
+    repo = init_repo(tmp_path)
+    (repo / ".gitignore").write_text("concept/technical-design/99_generated.md\n", encoding="utf-8", newline="\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "ignore generated output")
+    write_normative_doc(repo, "concept/technical-design/99_generated.md", "FK-99")
+
+    result = run(repo, "HEAD")
+
+    assert result.summary == "no concept documents changed"
+    assert result.findings == []
+
+
+def test_uncommitted_record_does_not_satisfy_a_commit_trailer(tmp_path: Path) -> None:
+    """AC 3: a commit's own justification must exist in the commit graph.
+
+    Before the fix this run was entirely green: ``is_file()`` accepted a
+    record that no commit contains, and the untracked record was invisible
+    to the diff, so nothing else objected either. Now the unverifiable claim
+    is an ERROR. The record still counts as an in-flight addition -- it is a
+    real working-tree change -- so ``missing-record`` is deliberately absent;
+    what closed is the trailer's free pass, not the change set.
+    """
+    repo = init_repo(tmp_path)
+    append_normative_sentence(repo)
+    git(repo, "add", "concept/technical-design/10_sample.md")
+    git(repo, "commit", "-q", "-m", "change\n\nConcept-Decision: 2026-08-06-uncommitted")
+    write_doc(repo, "concept/_meta/decisions/2026-08-06-uncommitted.md", RECORD_TEXT)
+
+    result = run(repo, "HEAD~1")
+
+    dead = [finding for finding in result.findings if finding.check_id == "decision-gate.dead-reference"]
+    assert len(dead) == 1
+    assert "does not resolve to a record committed at HEAD" in dead[0].message
+    assert result.findings != []
+
+
+def test_commit_trailer_for_an_absent_record_is_not_green(tmp_path: Path) -> None:
+    """AC 3, the pure case: nothing on disk, nothing in history, nothing green."""
+    repo = init_repo(tmp_path)
+    append_normative_sentence(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "change\n\nConcept-Decision: 2026-08-06-never-written")
+
+    result = run(repo, "HEAD~1")
+
+    ids = {finding.check_id for finding in result.findings}
+    assert ids == {"decision-gate.dead-reference", "decision-gate.missing-record"}
+
+
+def test_committed_record_still_satisfies_a_commit_trailer(tmp_path: Path) -> None:
+    """The legitimate case stays green: the record is in the commit graph."""
+    repo = init_repo(tmp_path)
+    write_doc(repo, "concept/_meta/decisions/2026-08-06-committed.md", RECORD_TEXT)
+    append_normative_sentence(repo)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "change\n\nConcept-Decision: 2026-08-06-committed")
+
+    assert run(repo, "HEAD~1").findings == []
+
+
+def test_cli_trailer_accepts_a_never_staged_record(tmp_path: Path) -> None:
+    """A ``--trailer`` names work in preparation, so the working tree may vouch."""
+    repo = init_repo(tmp_path)
+    append_normative_sentence(repo)
+    write_doc(repo, "concept/_meta/decisions/2026-08-06-in-flight.md", RECORD_TEXT)
+
+    assert run(repo, "HEAD", trailers=["2026-08-06-in-flight"]).findings == []
+
+
+def test_cli_trailer_rejects_an_ignored_record(tmp_path: Path) -> None:
+    """AC 5: an ignored file is not versionable content and vouches for nothing."""
+    repo = init_repo(tmp_path)
+    (repo / ".gitignore").write_text("concept/_meta/decisions/\n", encoding="utf-8", newline="\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "ignore local decision scratch")
+    append_normative_sentence(repo)
+    write_doc(repo, "concept/_meta/decisions/2026-08-06-local-only.md", RECORD_TEXT)
+
+    result = run(repo, "HEAD", trailers=["2026-08-06-local-only"])
+
+    dead = [finding for finding in result.findings if finding.check_id == "decision-gate.dead-reference"]
+    assert len(dead) == 1
+    assert "does not name versionable repository content" in dead[0].message
+
+
+def test_cli_trailer_rejects_a_deleted_but_still_indexed_record(tmp_path: Path) -> None:
+    """AC 5: known to git is not enough; the record must be there now."""
+    repo = init_repo(tmp_path)
+    write_doc(repo, "concept/_meta/decisions/2026-08-06-vanished.md", RECORD_TEXT)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "add record")
+    append_normative_sentence(repo)
+    (repo / "concept/_meta/decisions/2026-08-06-vanished.md").unlink()
+
+    result = run(repo, "HEAD", trailers=["2026-08-06-vanished"])
+
+    dead = [finding for finding in result.findings if finding.check_id == "decision-gate.dead-reference"]
+    assert len(dead) == 1
+    assert "is known to git but absent from the working tree" in dead[0].message

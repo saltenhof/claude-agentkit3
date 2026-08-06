@@ -1,21 +1,54 @@
-"""Unit tests for the reference-integrity check with baseline support."""
+"""Unit tests for the reference-integrity check with baseline support.
+
+``green_corpus`` is a real ``git init`` repository. That is a precondition,
+not scenery: the check resolves a backticked repo-relative path against the
+set of versionable repository content that only git can name, conjunctively
+with a working-tree probe, and it has no filesystem fallback to slip into.
+"""
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING
 
+import pytest
 from concept_toolchain.config import load_governance_config
 from concept_toolchain.reference_check import run_reference_check
-from tests.unit.concept_toolchain.conftest import concept_doc, write_doc
+from tests.unit.concept_toolchain.conftest import concept_doc, write_doc, write_governance_config
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from concept_toolchain.findings import CheckResult
 
+NOT_KNOWN = "repo-relative path is neither tracked by git nor an unignored working-tree file"
+ABSENT = "repo-relative path is known to git but absent from the working tree"
+
 
 def run(project_root: Path) -> CheckResult:
     return run_reference_check(project_root, load_governance_config(project_root))
+
+
+def git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def name_path(project_root: Path, reference: str) -> None:
+    """Let one concept document mention ``reference`` as a backticked path."""
+    write_doc(
+        project_root,
+        "concept/domain-design/02-names.md",
+        concept_doc("DK-02", body=f"It names `{reference}`.\n"),
+    )
+
+
+def repo_path_messages(project_root: Path, reference: str) -> tuple[str, ...]:
+    result = run(project_root)
+    return tuple(
+        finding.message.removeprefix(f"{reference} - ")
+        for finding in result.findings
+        if finding.check_id == "UNRESOLVED_REPO_PATH" and finding.message.startswith(f"{reference} - ")
+    )
 
 
 def line_of(project_root: Path, relative: str, needle: str) -> int:
@@ -157,3 +190,135 @@ def test_ignore_region_suppresses_findings_and_requires_reason(green_corpus: Pat
     result = run(green_corpus)
     assert not any(finding.check_id == "UNRESOLVED_DOCUMENT" for finding in result.findings)
     assert any(finding.check_id == "INVALID_IGNORE_DIRECTIVE" for finding in result.findings)
+
+
+def commit(project_root: Path, message: str) -> None:
+    git(project_root, "add", "-A")
+    git(
+        project_root,
+        "-c",
+        "user.email=toolchain-test@example.com",
+        "-c",
+        "user.name=Toolchain Test",
+        "commit",
+        "-q",
+        "-m",
+        message,
+    )
+
+
+def seed_payload(project_root: Path) -> None:
+    """Give the repository a second top-level root to reference into."""
+    payload = project_root / "payload"
+    payload.mkdir(exist_ok=True)
+    (payload / "anchor.md").write_text("anchor\n", encoding="utf-8", newline="\n")
+
+
+def test_new_unstaged_file_resolves_exactly_as_after_staging(green_corpus: Path) -> None:
+    """AC 1, direction 'new but unstaged': the check follows the working tree."""
+    seed_payload(green_corpus)
+    name_path(green_corpus, "payload/added.md")
+    absent = repo_path_messages(green_corpus, "payload/added.md")
+
+    (green_corpus / "payload" / "added.md").write_text("added\n", encoding="utf-8", newline="\n")
+    unstaged = repo_path_messages(green_corpus, "payload/added.md")
+    git(green_corpus, "add", "payload/added.md")
+    staged = repo_path_messages(green_corpus, "payload/added.md")
+
+    assert absent == (NOT_KNOWN,)
+    assert unstaged == ()
+    assert unstaged == staged
+
+
+def test_deleted_unstaged_file_fails_exactly_as_after_staging(green_corpus: Path) -> None:
+    """AC 1, direction 'deleted but unstaged': the check follows the working tree."""
+    seed_payload(green_corpus)
+    (green_corpus / "payload" / "doomed.md").write_text("doomed\n", encoding="utf-8", newline="\n")
+    name_path(green_corpus, "payload/doomed.md")
+    commit(green_corpus, "seed")
+    present = repo_path_messages(green_corpus, "payload/doomed.md")
+
+    (green_corpus / "payload" / "doomed.md").unlink()
+    unstaged = repo_path_messages(green_corpus, "payload/doomed.md")
+    git(green_corpus, "add", "-A")
+    staged = repo_path_messages(green_corpus, "payload/doomed.md")
+
+    assert present == ()
+    assert unstaged == (ABSENT,)
+    # Staging the deletion drops the path from git entirely, so the message
+    # names the other unmet condition; the verdict the author sees is the same.
+    assert staged == (NOT_KNOWN,)
+
+
+def test_gitignored_working_tree_file_is_not_a_valid_reference(green_corpus: Path) -> None:
+    """AC 5: ``.gitignore`` still keeps generated artefacts unreferenceable."""
+    seed_payload(green_corpus)
+    (green_corpus / ".gitignore").write_text("payload/generated.md\n", encoding="utf-8", newline="\n")
+    (green_corpus / "payload" / "generated.md").write_text("generated\n", encoding="utf-8", newline="\n")
+    name_path(green_corpus, "payload/generated.md")
+
+    assert repo_path_messages(green_corpus, "payload/generated.md") == (NOT_KNOWN,)
+
+
+def test_unresolved_repo_path_in_a_clean_tree_is_still_an_error(green_corpus: Path) -> None:
+    """AC 5: a genuinely dead repository path is still rejected."""
+    seed_payload(green_corpus)
+    name_path(green_corpus, "payload/never_existed.md")
+    commit(green_corpus, "name a dead path")
+    git(green_corpus, "diff", "--quiet", "HEAD")
+
+    assert repo_path_messages(green_corpus, "payload/never_existed.md") == (NOT_KNOWN,)
+
+
+def test_case_variant_of_a_present_file_is_still_an_error(green_corpus: Path) -> None:
+    """AC 5: membership stays case-sensitive on a case-insensitive filesystem."""
+    seed_payload(green_corpus)
+    (green_corpus / "payload" / "exact.md").write_text("exact\n", encoding="utf-8", newline="\n")
+    name_path(green_corpus, "payload/Exact.md")
+
+    assert repo_path_messages(green_corpus, "payload/Exact.md") == (NOT_KNOWN,)
+
+
+def test_failing_git_call_is_incomplete_not_a_different_predicate(tmp_path: Path) -> None:
+    """AC 4: without git the check declares itself INCOMPLETE and measures nothing.
+
+    ``tmp_path`` is deliberately not a repository, so ``git ls-files`` really
+    fails. There is no fallback left that would answer the same question with
+    a different predicate under the same wording.
+    """
+    write_governance_config(tmp_path)
+    write_doc(tmp_path, "concept/domain-design/01-sample.md", concept_doc("DK-01"))
+
+    result = run(tmp_path)
+
+    assert result.complete is False
+    assert result.incomplete_reason is not None
+    assert "could not be discovered" in result.incomplete_reason
+    assert result.findings == []
+
+
+def test_symlink_with_a_missing_target_is_present_in_the_working_tree(green_corpus: Path) -> None:
+    """AG3-234 F5: the presence probe measures the entry, not its target.
+
+    A symlink is repository content in its own right. ``Path.exists`` follows
+    it and would report "absent from the working tree" about an entry that is
+    demonstrably there, so the message would state a predicate the code never
+    evaluated.
+    """
+    seed_payload(green_corpus)
+    link = green_corpus / "payload" / "dangling.md"
+    try:
+        link.symlink_to("no-such-target.md")
+    except (OSError, NotImplementedError) as exc:  # pragma: no cover - platform-gated
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    name_path(green_corpus, "payload/dangling.md")
+
+    assert repo_path_messages(green_corpus, "payload/dangling.md") == ()
+
+
+def test_reference_to_a_missing_symlink_is_still_an_error(green_corpus: Path) -> None:
+    """AC 5: measuring the entry does not make a truly absent entry resolve."""
+    seed_payload(green_corpus)
+    name_path(green_corpus, "payload/no-link-here.md")
+
+    assert repo_path_messages(green_corpus, "payload/no-link-here.md") == (NOT_KNOWN,)

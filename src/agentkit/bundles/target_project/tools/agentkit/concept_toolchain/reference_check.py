@@ -4,7 +4,11 @@ Checks per FK-78 section 78.14:
 
 * concept-id mentions in document bodies (grammars from the governance
   configuration) must resolve to existing documents,
-* backticked repo-relative paths must exist below the project root,
+* backticked repo-relative paths must be versionable repository content
+  (tracked by git or untracked but unignored) AND present in the working
+  tree; the two conditions are conjunctive and the finding names the one
+  that failed. Git is a prerequisite: when it cannot be consulted the
+  check declares itself INCOMPLETE rather than measuring something else,
 * ``formal.`` object ids must exist in the formal corpus,
 * ``<path>#<anchor>`` references must resolve to an anchor in the target
   document,
@@ -21,6 +25,7 @@ comments; a directive without a reason is an ERROR.
 
 from __future__ import annotations
 
+import os.path
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -57,6 +62,10 @@ class _Baseline:
     document_cycles: frozenset[tuple[str, ...]]
 
 
+class _RepoPathDiscoveryError(Exception):
+    """Raised when git cannot enumerate the versionable repository content."""
+
+
 @dataclass(frozen=True)
 class _ScanContext:
     known_ids: frozenset[str]
@@ -64,13 +73,27 @@ class _ScanContext:
     mention_patterns: tuple[re.Pattern[str], ...]
     formal_pattern: re.Pattern[str]
     top_level: frozenset[str]
-    tracked: frozenset[str] | None
+    known_paths: frozenset[str]
 
-    def path_exists(self, project_root: Path, candidate: str) -> bool:
-        """Check candidate existence against tracked paths or the filesystem."""
-        if self.tracked is not None:
-            return candidate in self.tracked
-        return (project_root / candidate).exists()
+    def repo_path_message(self, project_root: Path, candidate: str) -> str | None:
+        """Return why ``candidate`` does not resolve, or ``None`` when it does.
+
+        ``known_paths`` is the case-sensitive, platform-independent universe
+        of versionable repository content; the working-tree probe decides
+        whether a member of that universe is actually present right now.
+
+        The probe is ``os.path.lexists`` and not ``Path.exists``: a symlink
+        is itself repository content, and ``exists`` follows it, so a link
+        whose target is missing would be reported as "absent from the
+        working tree" although the entry is demonstrably there. ``exists``
+        also answers ``False`` for a permission or I/O error -- a third
+        thing again, and the message would name none of them.
+        """
+        if candidate not in self.known_paths:
+            return "repo-relative path is neither tracked by git nor an unignored working-tree file"
+        if not os.path.lexists(project_root / candidate):
+            return "repo-relative path is known to git but absent from the working tree"
+        return None
 
 
 @dataclass
@@ -83,17 +106,22 @@ class _ProseState:
 def run_reference_check(project_root: Path, config: GovernanceConfig) -> CheckResult:
     """Run reference integrity across all configured concept roots."""
     result = CheckResult(check_id=CHECK_ID)
+    try:
+        known_paths, top_level = _known_repo_paths(project_root)
+    except _RepoPathDiscoveryError as exc:
+        result.complete = False
+        result.incomplete_reason = f"versionable repository paths could not be discovered: {exc}"
+        return result
     documents = scan_documents(project_root, config.concept_roots)
     known_ids = frozenset(doc.concept_id for doc in documents if doc.concept_id)
     formal_ids = _collect_formal_object_ids(documents, config)
-    tracked, top_level = _discover_repo_paths(project_root)
     scan_context = _ScanContext(
         known_ids=known_ids,
         formal_ids=formal_ids,
         mention_patterns=_mention_patterns(config),
         formal_pattern=_debounded(config.id_grammars["formal_object"].pattern),
         top_level=top_level,
-        tracked=tracked,
+        known_paths=known_paths,
     )
     raw: list[_RefFinding] = []
     for doc in documents:
@@ -263,10 +291,9 @@ def _scan_backticks(project_root: Path, doc: ConceptDocument, number: int, line:
         candidate = _repo_path_candidate(path_part, context)
         if candidate is None:
             continue
-        if not context.path_exists(project_root, candidate):
-            findings.append(
-                _RefFinding(doc.rel_path, number, "UNRESOLVED_REPO_PATH", candidate, "repo-relative path does not exist")
-            )
+        unresolved = context.repo_path_message(project_root, candidate)
+        if unresolved is not None:
+            findings.append(_RefFinding(doc.rel_path, number, "UNRESOLVED_REPO_PATH", candidate, unresolved))
             continue
         target = project_root / candidate
         if anchor and not _LINE_ANCHOR_RE.match(anchor) and candidate.endswith(".md") and target.is_file():
@@ -299,10 +326,6 @@ def _repo_path_candidate(token: str, context: _ScanContext) -> str | None:
     forbidden_parts = ("", ".", "..")
     if any(part in forbidden_parts for part in candidate.rstrip("/").split("/")):
         return None
-    if context.tracked is None and any(re.fullmatch(r"\.+", part) for part in candidate.split("/")):
-        # Filesystem fallback: Windows path normalization would strip
-        # dots-only components and turn missing paths into false hits.
-        return None
     return candidate.rstrip("/")
 
 
@@ -311,29 +334,59 @@ def _is_web_url(value: str) -> bool:
     return bool(separator) and scheme.casefold() in {"http", "https"}
 
 
-def _discover_repo_paths(project_root: Path) -> tuple[frozenset[str] | None, frozenset[str]]:
-    """Discover checkable paths: git-tracked when available, else filesystem."""
-    import subprocess
+def _known_repo_paths(project_root: Path) -> tuple[frozenset[str], frozenset[str]]:
+    """Collect every repo-relative path that git regards as versionable content.
 
-    completed = subprocess.run(
-        ["git", "-C", str(project_root), "ls-files", "-z"],
-        check=False,
-        capture_output=True,
-    )
-    if completed.returncode != 0:
-        top_level = frozenset(entry.name.casefold() for entry in project_root.iterdir() if not entry.name.startswith("."))
-        return None, top_level
-    tracked: set[str] = set()
+    The universe is the union of the index (``git ls-files``) and the
+    untracked but unignored working-tree files (``git ls-files --others
+    --exclude-standard``). Two properties follow from that union and neither
+    is obtainable from the working tree alone:
+
+    * ``.gitignore`` stays the filter that keeps generated artefacts out of
+      the resolvable universe, so a reference to build output is never a
+      valid repository path.
+    * Membership is case-sensitive and free of platform path quirks, so a
+      case variant or a Windows-collapsing token is rejected on every
+      operating system.
+
+    What the union deliberately does *not* decide is presence; that is
+    probed separately against the working tree by
+    :meth:`_ScanContext.repo_path_message`.
+
+    Raises:
+        _RepoPathDiscoveryError: When git could not be consulted. There is
+            no filesystem fallback: a fallback would keep the wording of
+            the finding while silently changing its meaning, so the same
+            message would state two different predicates depending on the
+            environment.
+    """
+    index = _git_ls_files(project_root, ())
+    others = _git_ls_files(project_root, ("--others", "--exclude-standard"))
+    known: set[str] = set()
     top_names: set[str] = set()
-    for raw_path in completed.stdout.decode("utf-8", errors="replace").split("\0"):
+    for raw_path in (*index.split("\0"), *others.split("\0")):
         if not raw_path:
             continue
         normalized = raw_path.replace("\\", "/").strip("/")
         parts = normalized.split("/")
-        tracked.add(normalized)
-        tracked.update("/".join(parts[:index]) for index in range(1, len(parts)))
+        known.add(normalized)
+        known.update("/".join(parts[:index_end]) for index_end in range(1, len(parts)))
         top_names.add(parts[0].casefold())
-    return frozenset(tracked), frozenset(top_names)
+    return frozenset(known), frozenset(top_names)
+
+
+def _git_ls_files(project_root: Path, options: tuple[str, ...]) -> str:
+    import subprocess
+
+    # ``--full-name`` pins the output to repository-root-relative paths, which
+    # is the base the backticked references in the corpus are written in.
+    argv = ["git", "-C", str(project_root), "ls-files", "--full-name", "-z", *options]
+    completed = subprocess.run(argv, check=False, capture_output=True)
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        command = " ".join(("git", "ls-files", *options))
+        raise _RepoPathDiscoveryError(detail or f"{command} exited {completed.returncode}")
+    return completed.stdout.decode("utf-8", errors="replace")
 
 
 def _collect_defers_edges(documents: Sequence[ConceptDocument]) -> dict[str, tuple[str, ...]]:

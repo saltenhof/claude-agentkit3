@@ -9,6 +9,7 @@ top-level package.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -268,9 +269,23 @@ def write_formal_context(
     )
 
 
+def init_repo(project_root: Path) -> None:
+    """Turn a project root into a real git repository.
+
+    Not decoration: the reference check resolves repo-relative paths against
+    the set of versionable repository content that only git can name, and it
+    declares itself INCOMPLETE when git cannot be consulted. A fixture that
+    is not a repository would exercise a predicate the tool no longer has.
+    Nothing is committed on purpose -- untracked but unignored files are
+    versionable content, and the fixture proves the tool treats them so.
+    """
+    subprocess.run(["git", "-C", str(project_root), "init", "-q"], check=True, capture_output=True)
+
+
 @pytest.fixture
 def green_corpus(tmp_path: Path) -> Path:
     """A minimal corpus that passes frontmatter, references, formal, projection."""
+    init_repo(tmp_path)
     write_governance_config(tmp_path)
     (tmp_path / "concept" / "_meta" / "projection-manifest.json").write_text(
         json.dumps({"schema_version": "1.0.0", "entries": []}, indent=2),

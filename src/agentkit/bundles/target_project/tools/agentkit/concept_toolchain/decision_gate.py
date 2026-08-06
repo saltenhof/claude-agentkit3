@@ -1,12 +1,21 @@
 """W4 decision-record gate (concept governance section 5 W4, FK-78 78.14).
 
-Determines changed Markdown files below the concept roots via
-``git diff --name-only <base>`` (base against the working tree). The
-obligation is satisfied when (a) the same diff adds or changes a
-schema-conform named record below ``<meta-root>/decisions/`` or (b) a
-``Concept-Decision: <slug>`` trailer (commit message or ``--trailer``)
-references an existing schema-conform record. Dead or misnamed references
-are ERROR.
+Determines changed Markdown files below the concept roots as the union of
+``git diff --name-only <base>`` (tracked changes against ``base``) and
+``git ls-files --others --exclude-standard`` (untracked but unignored
+working-tree files). A brand-new concept document is a change even before
+it is staged, and no diff can report it. The obligation is satisfied when
+(a) that change set adds or changes a schema-conform named record below
+``<meta-root>/decisions/`` or (b) a ``Concept-Decision: <slug>`` trailer
+references a schema-conform record. Dead or misnamed references are ERROR.
+
+A trailer is resolved against the state its own provenance can vouch for.
+A trailer read from a commit message is a claim made by a commit, so its
+record must exist as a committed blob at ``HEAD``; a file lying in the
+working tree proves nothing about a commit. A ``--trailer`` names work
+that is being prepared and is therefore resolved against the working
+tree, conjunctively: the record must be versionable content known to git
+(tracked or untracked-unignored) and present on disk.
 
 A non-empty ``Concept-Format-Only: <reason>`` trailer exempts only
 non-normative diffs. Simplified fail-closed heuristic: whitespace-only,
@@ -65,7 +74,12 @@ class _FileChange:
 
 
 def run_decision_gate(project_root: Path, config: GovernanceConfig, base: str, trailers: Sequence[str]) -> CheckResult:
-    """Run the W4 gate against ``base`` and the current working tree."""
+    """Run the W4 gate against ``base`` and the current working tree.
+
+    "Working tree" is meant literally: untracked but unignored documents
+    count as changes, so the gate sees the state the author has in front of
+    them rather than the state that happens to be staged.
+    """
     result = CheckResult(check_id=CHECK_ID)
     try:
         _git(project_root, "rev-parse", "--verify", f"{base}^{{commit}}")
@@ -90,7 +104,12 @@ def run_decision_gate(project_root: Path, config: GovernanceConfig, base: str, t
         return result
     reasons = _format_only_reasons(messages)
     _report_empty_reasons(reasons, concept_changes, result)
-    trailer_satisfied = _evaluate_trailers(project_root, config, messages, trailers, decisions_prefix, result)
+    try:
+        trailer_satisfied = _evaluate_trailers(project_root, config, messages, trailers, decisions_prefix, result)
+    except _GitError as exc:
+        result.complete = False
+        result.incomplete_reason = f"decision-record resolution failed: {exc}"
+        return result
     allow_ambiguous = any(reason.strip() for reason in reasons)
     requiring = _record_requiring_changes(project_root, base, concept_changes, allow_ambiguous)
     if requiring and not (record_in_diff or trailer_satisfied):
@@ -134,22 +153,50 @@ def _evaluate_trailers(
     result: CheckResult,
 ) -> bool:
     grammar = config.id_grammars["decision_record"]
-    values = list(_trailer_values(messages, "Concept-Decision:"))
-    values.extend(cli_trailers)
+    committed = tuple((value, _committed_record_unmet) for value in _trailer_values(messages, "Concept-Decision:"))
+    prepared = tuple((value, _prepared_record_unmet) for value in cli_trailers)
     satisfied = False
-    for value in values:
+    for value, unmet_condition in (*committed, *prepared):
         stem = value.removesuffix(".md")
         record_path = f"{decisions_prefix}{stem}.md"
         if not stem or grammar.fullmatch(stem) is None:
             message = f"Concept-Decision reference {value!r} violates the configured grammar"
             result.findings.append(error(f"{CHECK_ID}.record-name", record_path, "trailer", message))
             continue
-        if not (project_root / record_path).is_file():
-            message = f"Concept-Decision reference {value!r} does not resolve to an existing record"
+        unmet = unmet_condition(project_root, record_path)
+        if unmet is not None:
+            message = f"Concept-Decision reference {value!r} {unmet}"
             result.findings.append(error(f"{CHECK_ID}.dead-reference", record_path, "trailer", message))
             continue
         satisfied = True
     return satisfied
+
+
+def _committed_record_unmet(project_root: Path, record_path: str) -> str | None:
+    """Return why a commit-borne trailer does not resolve at ``HEAD``."""
+    try:
+        _git(project_root, "cat-file", "-e", f"HEAD:{record_path}")
+    except _GitError:
+        return "does not resolve to a record committed at HEAD"
+    return None
+
+
+def _prepared_record_unmet(project_root: Path, record_path: str) -> str | None:
+    """Return why a prepared trailer does not resolve in the working tree.
+
+    Two conjunctive conditions, and the message names the one that failed.
+    Git decides whether the record is versionable content at all -- an
+    ignored file below ``decisions/`` is not, and a bare ``is_file()`` would
+    have accepted it. The working tree decides whether it is there now.
+    """
+    listed = _git(
+        project_root, "ls-files", "--full-name", "--cached", "--others", "--exclude-standard", "-z", "--", record_path
+    )
+    if not any(part for part in listed.split("\0")):
+        return "does not name versionable repository content"
+    if not (project_root / record_path).is_file():
+        return "is known to git but absent from the working tree"
+    return None
 
 
 def _format_only_reasons(messages: Sequence[str]) -> tuple[str, ...]:
@@ -290,8 +337,23 @@ def _remove_matching_spans(
 
 
 def _changed_paths(project_root: Path, base: str) -> tuple[str, ...]:
-    output = _git(project_root, "diff", "--name-only", "-z", base)
-    return tuple(part.replace("\\", "/") for part in output.split("\0") if part)
+    """Return every versionable path that differs from ``base`` right now.
+
+    Two sources, unioned, because neither alone answers the question. ``git
+    diff`` reports paths git already knows -- committed, staged and unstaged
+    -- and cannot report a file git has never seen, which is exactly what a
+    brand-new concept document is. ``git ls-files --others
+    --exclude-standard`` supplies that remainder, and ``--exclude-standard``
+    keeps generated artefacts out, so an ignored file is not smuggled in as
+    a concept change.
+    """
+    tracked = _git(project_root, "diff", "--name-only", "-z", base)
+    # ``--full-name`` keeps both halves in the same path base: ``git ls-files``
+    # reports relative to the current directory, ``git diff`` relative to the
+    # repository root.
+    untracked = _git(project_root, "ls-files", "--full-name", "--others", "--exclude-standard", "-z")
+    parts = (*tracked.split("\0"), *untracked.split("\0"))
+    return tuple(sorted({part.replace("\\", "/") for part in parts if part}))
 
 
 def _commit_messages(project_root: Path, base: str) -> tuple[str, ...]:

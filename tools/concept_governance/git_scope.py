@@ -16,7 +16,17 @@ class GitScopeError(ValueError):
 
 
 def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> frozenset[str]:
-    """Return committed and working-tree Markdown changes for pre-merge review."""
+    """Return every Markdown change pre-merge review must cover.
+
+    Three sources, unioned. ``git diff base...HEAD`` and ``git diff HEAD``
+    cover what git already knows: committed, staged and unstaged changes to
+    tracked documents. Neither can report a document git has never seen --
+    ``--diff-filter=A`` means "added in the index", not "new on disk" -- so
+    a freshly written concept document would fall out of the pre-merge
+    scope entirely. ``git ls-files --others --exclude-standard`` supplies
+    that remainder; ``--exclude-standard`` keeps ignored files out, so the
+    result stays the set of versionable working-tree Markdown.
+    """
     try:
         concept_relative = concept_root.resolve().relative_to(repo_root.resolve()).as_posix()
     except ValueError as exc:
@@ -24,10 +34,8 @@ def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> froz
     prefix = concept_relative.rstrip("/") + "/"
     changed: set[str] = set()
     for range_args in ((f"{base}...HEAD",), ("HEAD",)):
-        command = [
-            "git",
-            "-C",
-            str(repo_root),
+        stdout = _git(
+            repo_root,
             "diff",
             "--name-status",
             "-z",
@@ -36,22 +44,36 @@ def changed_concept_docs(repo_root: Path, concept_root: Path, base: str) -> froz
             *range_args,
             "--",
             concept_relative,
-        ]
-        # One call, two contracts: the concept corpus is AK3-owned and must be
-        # UTF-8, so a path that is not decodable is a protocol violation and
-        # fails closed here -- carrying it on losslessly only moves the crash
-        # into the JSON transport, where it arrives without a cause. stderr is
-        # diagnosis; it is flattened so a bad byte cannot hide the real error.
-        completed = subprocess.run(command, check=False, capture_output=True)
-        if completed.returncode != 0:
-            detail = completed.stderr.decode("utf-8", errors="replace").strip()
-            raise GitScopeError(detail or f"git diff exited {completed.returncode}")
-        try:
-            stdout = completed.stdout.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise GitScopeError(f"concept path is not UTF-8: {exc}") from exc
+        )
         changed.update(_parse_changed_paths(stdout, prefix))
+    # ``--full-name`` is not decoration: ``git ls-files`` reports relative to
+    # the current directory while ``git diff`` reports relative to the
+    # repository root, so without it the two halves of the union would be
+    # expressed in different path bases whenever ``repo_root`` is a subdirectory.
+    untracked = _git(
+        repo_root, "ls-files", "--full-name", "--others", "--exclude-standard", "-z", "--", concept_relative
+    )
+    changed.update(path[len(prefix) :] for path in untracked.split("\0") if path.startswith(prefix) and path.endswith(".md"))
     return frozenset(changed)
+
+
+def _git(repo_root: Path, *args: str) -> str:
+    """Run one read-only git command and return its decoded stdout.
+
+    One call, two contracts: the concept corpus is AK3-owned and must be
+    UTF-8, so a path that is not decodable is a protocol violation and fails
+    closed here -- carrying it on losslessly only moves the crash into the
+    JSON transport, where it arrives without a cause. stderr is diagnosis;
+    it is flattened so a bad byte cannot hide the real error.
+    """
+    completed = subprocess.run(["git", "-C", str(repo_root), *args], check=False, capture_output=True)
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise GitScopeError(detail or f"git {args[0]} exited {completed.returncode}")
+    try:
+        return completed.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GitScopeError(f"concept path is not UTF-8: {exc}") from exc
 
 
 def _parse_changed_paths(raw: str, prefix: str) -> frozenset[str]:
