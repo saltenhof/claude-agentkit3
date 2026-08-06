@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from concept_compiler.compiler import compile_formal_specs
@@ -68,6 +69,110 @@ def test_case_variant_tracked_root_dead_path_is_error_while_exact_existing_path_
 
     assert [finding.code for finding in result.findings] == ["UNRESOLVED_REPO_PATH"]
     assert result.findings[0].reference == "Compile_ok/missing.yml"
+
+
+def _git(repo: Path, *argv: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *argv], check=True, capture_output=True)
+
+
+def _commit(repo: Path, message: str) -> None:
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "user.email=gate@example.invalid", "-c", "user.name=Gate", "commit", "-q", "-m", message)
+
+
+def _seed_repo(tmp_path: Path) -> Path:
+    """Create a real git repository with a tracked concept doc and payload tree."""
+    repo = tmp_path / "repo"
+    (repo / "concept").mkdir(parents=True)
+    (repo / "payload").mkdir()
+    (repo / "concept" / "baseline.yaml").write_text(
+        "version: 1\nunresolved_references: []\ndocument_cycles: []\n", encoding="utf-8"
+    )
+    (repo / "payload" / "anchor.md").write_text("anchor\n", encoding="utf-8")
+    (repo / "concept" / "source.md").write_text("# Source\n", encoding="utf-8")
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, "seed")
+    return repo
+
+
+def _name(repo: Path, reference: str) -> None:
+    (repo / "concept" / "source.md").write_text(f"# Source\n\nIt names `{reference}`.\n", encoding="utf-8")
+
+
+def _repo_path_findings(repo: Path, reference: str) -> tuple[tuple[str, str], ...]:
+    result = audit_reference_integrity(repo, repo / "concept", COMPILED, repo / "concept" / "baseline.yaml")
+    return tuple((item.code, item.message) for item in result.findings if item.reference == reference)
+
+
+def test_new_unstaged_file_resolves_exactly_as_after_staging(tmp_path: Path) -> None:
+    """AC 1, direction 'new but unstaged': the gate follows the working tree."""
+    repo = _seed_repo(tmp_path)
+    _name(repo, "payload/added.md")
+    absent = _repo_path_findings(repo, "payload/added.md")
+
+    (repo / "payload" / "added.md").write_text("added\n", encoding="utf-8")
+    unstaged = _repo_path_findings(repo, "payload/added.md")
+    _git(repo, "add", "payload/added.md")
+    staged = _repo_path_findings(repo, "payload/added.md")
+
+    assert absent == (
+        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
+    )
+    assert unstaged == ()
+    assert unstaged == staged
+
+
+def test_deleted_unstaged_file_fails_exactly_as_after_staging(tmp_path: Path) -> None:
+    """AC 1, direction 'deleted but unstaged': the gate follows the working tree."""
+    repo = _seed_repo(tmp_path)
+    (repo / "payload" / "doomed.md").write_text("doomed\n", encoding="utf-8")
+    _name(repo, "payload/doomed.md")
+    _commit(repo, "add doomed")
+    present = _repo_path_findings(repo, "payload/doomed.md")
+
+    (repo / "payload" / "doomed.md").unlink()
+    unstaged = _repo_path_findings(repo, "payload/doomed.md")
+    _git(repo, "add", "-A")
+    staged = _repo_path_findings(repo, "payload/doomed.md")
+
+    assert present == ()
+    assert unstaged == (
+        ("UNRESOLVED_REPO_PATH", "repo-relative path is known to git but absent from the working tree"),
+    )
+    # Staging the deletion drops the path from git entirely, so the message names
+    # the other unmet condition; the verdict the developer sees is identical.
+    assert [code for code, _ in staged] == [code for code, _ in unstaged]
+    assert staged == (
+        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
+    )
+
+
+def test_unresolved_repo_path_in_a_clean_tree_is_still_an_error(tmp_path: Path) -> None:
+    """AC 3: the gate keeps rejecting a genuinely unresolvable repository path."""
+    repo = _seed_repo(tmp_path)
+    _name(repo, "payload/never_existed.md")
+    _commit(repo, "name a dead path")
+
+    # ``diff --quiet`` exits non-zero on any change, so ``check=True`` asserts a
+    # fully clean tree: nothing here is an artefact of staging state.
+    _git(repo, "diff", "--quiet", "HEAD")
+    assert _repo_path_findings(repo, "payload/never_existed.md") == (
+        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
+    )
+
+
+def test_gitignored_working_tree_file_is_not_a_valid_reference(tmp_path: Path) -> None:
+    """The ignore filter survives: generated artefacts never resolve as content."""
+    repo = _seed_repo(tmp_path)
+    (repo / ".gitignore").write_text("payload/generated.md\n", encoding="utf-8")
+    _name(repo, "payload/generated.md")
+    _commit(repo, "ignore generated payload")
+    (repo / "payload" / "generated.md").write_text("generated\n", encoding="utf-8")
+
+    assert (repo / "payload" / "generated.md").exists()
+    assert _repo_path_findings(repo, "payload/generated.md") == (
+        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
+    )
 
 
 def test_same_scope_cycle_is_error_with_both_reasons() -> None:

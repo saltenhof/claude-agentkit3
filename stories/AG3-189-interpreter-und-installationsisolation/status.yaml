@@ -2,7 +2,25 @@ story_id: AG3-189
 story_title_short: "interpreter-und-installationsisolation"
 title: "AK3-Interpreter- und Installationsisolation: eine global editierbare Installation wird fail-closed verweigert -- AK2 und AK3 teilen den Paketnamen agentkit."
 type: implementation
-status: in_progress
+status: parked
+# PO-ENTSCHEID 2026-08-06, woertlich: "189 fasst du nicht mehr an! Die holen wir
+# erst wieder aus der Versenke, wenn wir an anderer Stelle auch Fehler stossen."
+#
+# NICHT ANFASSEN. Kein Auftrag, keine Review, keine Nacharbeit. Die Story wird
+# ausschliesslich dann wieder geoeffnet, wenn ein Befund AN ANDERER STELLE auf
+# sie zurueckfuehrt.
+#
+# Stand bei der Parkung: Die Arbeit ist gelandet und laeuft gruen. Jenkins #1249
+# gegen 56c170e5 meldet 11.661 Tests, 0 Fehlschlaege, Quality Gate OK. Der
+# Interpreterbegriff hat einen Ort, das Gate meldet OK, die Eigentums-Policy hat
+# einen Eigentuemer und entscheidet ueber das Command-Sentinel; die vier Zusagen
+# (fremder Interpreter, fehlender Snapshot-Owner, Symlink-Vorfahr, Junction)
+# sind auf Linux gegengeprueft.
+#
+# OFFEN GEBLIEBEN und bewusst nicht nachgeholt: eine unabhaengige
+# Abschlussreview auf den Stand NACH der Policy-Zentralisierung. Die Story wird
+# deshalb nicht `done` genannt -- `done` waere eine Behauptung, die kein Review
+# traegt. `parked` sagt, was zutrifft.
 # 2026-08-06: `done` war falsch und ist zurueckgenommen. Jenkins #1241 gegen
 # 3fd866e2 meldet 13 Fehlschlaege, davon SIEBEN in dieser Story. Ursache: die
 # neuen Eigentums-Tests uebergeben hartcodierte Windows-Pfadliterale

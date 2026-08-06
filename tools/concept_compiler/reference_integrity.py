@@ -87,10 +87,10 @@ def audit_reference_integrity(
 ) -> ReferenceIntegrityResult:
     """Audit all concept references and scope-qualified delegation cycles."""
     paths = tuple(sorted(concept_root.rglob("*.md")))
-    tracked_paths, tracked_top_level_casefold, tracked_findings = _tracked_repo_paths(repo_root)
+    known_paths, known_top_level_casefold, discovery_findings = _known_repo_paths(repo_root)
     documents, headings, edges, load_findings = _load_documents(repo_root, paths)
     baseline, baseline_findings = _load_baseline(repo_root, baseline_path)
-    raw_findings: list[ReferenceFinding] = [*tracked_findings, *load_findings, *baseline_findings]
+    raw_findings: list[ReferenceFinding] = [*discovery_findings, *load_findings, *baseline_findings]
     for path in paths:
         raw_findings.extend(
             _scan_document(
@@ -100,8 +100,8 @@ def audit_reference_integrity(
                 headings,
                 compiled.declared_ids,
                 frozenset(document.doc_id for document in compiled.documents),
-                tracked_paths,
-                tracked_top_level_casefold,
+                known_paths,
+                known_top_level_casefold,
             )
         )
     raw_findings.extend(_scope_cycle_findings(edges))
@@ -201,8 +201,8 @@ def _scan_document(
     headings: dict[str, frozenset[str]],
     declared_ids: frozenset[str],
     formal_document_ids: frozenset[str],
-    tracked_paths: frozenset[str],
-    tracked_top_level_casefold: frozenset[str],
+    known_paths: frozenset[str],
+    known_top_level_casefold: frozenset[str],
 ) -> tuple[ReferenceFinding, ...]:
     relative = path.relative_to(repo_root).as_posix()
     text = path.read_text(encoding="utf-8")
@@ -241,12 +241,28 @@ def _scan_document(
                     _finding(relative, line_number, "UNRESOLVED_FORMAL_ID", match.group(), "formal item id is not declared")
                 )
         for match in BACKTICK_RE.finditer(line):
-            candidate = _repo_path_candidate(match.group(1), tracked_top_level_casefold)
-            if candidate is not None and candidate not in tracked_paths:
-                findings.append(
-                    _finding(relative, line_number, "UNRESOLVED_REPO_PATH", candidate, "repo-relative path does not exist")
-                )
+            candidate = _repo_path_candidate(match.group(1), known_top_level_casefold)
+            if candidate is None:
+                continue
+            message = _repo_path_message(repo_root, candidate, known_paths)
+            if message is not None:
+                findings.append(_finding(relative, line_number, "UNRESOLVED_REPO_PATH", candidate, message))
     return tuple(findings)
+
+
+def _repo_path_message(repo_root: Path, candidate: str, known_paths: frozenset[str]) -> str | None:
+    """Return why ``candidate`` does not resolve, or ``None`` when it resolves.
+
+    Resolution has two conjunctive conditions, and the message names the one
+    that failed. ``known_paths`` is the case-sensitive, platform-independent
+    universe of versionable repository content; the working-tree probe decides
+    whether a member of that universe is actually present right now.
+    """
+    if candidate not in known_paths:
+        return "repo-relative path is neither tracked by git nor an unignored working-tree file"
+    if not (repo_root / candidate).exists():
+        return "repo-relative path is known to git but absent from the working tree"
+    return None
 
 
 def _prose_lines(text: str) -> tuple[tuple[int, str], ...]:
@@ -400,7 +416,7 @@ def _canonical_section(section: str) -> str:
     return ".".join(str(int(part)) if part.isdigit() else part for part in section.split("."))
 
 
-def _repo_path_candidate(token: str, tracked_top_level_casefold: frozenset[str]) -> str | None:
+def _repo_path_candidate(token: str, known_top_level_casefold: frozenset[str]) -> str | None:
     candidate = token.strip().replace("\\", "/")
     candidate = re.sub(r":\d+(?:-\d+)?$", "", candidate)
     if not candidate or any(character.isspace() for character in candidate) or candidate.startswith(("/", "http://", "https://")):
@@ -408,43 +424,70 @@ def _repo_path_candidate(token: str, tracked_top_level_casefold: frozenset[str])
     if any(character in candidate for character in "*{}<>"):
         return None
     first = candidate.split("/", 1)[0]
-    if first.casefold() not in tracked_top_level_casefold:
+    if first.casefold() not in known_top_level_casefold:
         return None
     if any(part in {"", ".", ".."} for part in candidate.rstrip("/").split("/")):
         return None
     return candidate.rstrip("/")
 
 
-def _tracked_repo_paths(
+def _known_repo_paths(
     repo_root: Path,
 ) -> tuple[frozenset[str], frozenset[str], tuple[ReferenceFinding, ...]]:
-    import subprocess
+    """Collect every repo-relative path that git regards as versionable content.
 
-    completed = subprocess.run(
-        ["git", "-C", str(repo_root), "ls-files", "-z"],
-        check=False,
-        capture_output=True,
-    )
-    if completed.returncode != 0:
-        finding = _finding(
-            "concept",
-            0,
-            "TRACKED_PATH_DISCOVERY_FAILED",
-            "git ls-files",
-            "tracked repository paths could not be discovered",
-        )
-        return frozenset(), frozenset(), (finding,)
-    tracked: set[str] = set()
+    The universe is the union of the index (``git ls-files``) and the untracked
+    but unignored working-tree files (``git ls-files --others
+    --exclude-standard``). Two properties follow from that union and neither is
+    obtainable from the working tree alone:
+
+    * ``.gitignore`` stays the filter that keeps generated artefacts out of the
+      resolvable universe — ``var/``, ``.venv/``, ``__pycache__/``, ``build/``,
+      ``node_modules/``, ``_temp/``. Without it the gate would start accepting
+      references to build output as valid repository paths.
+    * Membership is case-sensitive and free of platform path quirks, so a
+      case-variant or a Windows-collapsing token (``dir/...``) is rejected on
+      every operating system.
+
+    What the union deliberately does *not* decide is presence: whether a member
+    is on disk right now is probed separately against the working tree, so the
+    gate measures the state the developer has in front of them rather than the
+    state that happens to be staged.
+    """
+    index_output, index_findings = _git_ls_files(repo_root, ())
+    if index_findings:
+        return frozenset(), frozenset(), index_findings
+    others_output, others_findings = _git_ls_files(repo_root, ("--others", "--exclude-standard"))
+    if others_findings:
+        return frozenset(), frozenset(), others_findings
+    known: set[str] = set()
     top_level: set[str] = set()
-    for raw_path in completed.stdout.decode("utf-8").split("\0"):
+    for raw_path in (*index_output.split("\0"), *others_output.split("\0")):
         if not raw_path:
             continue
         normalized = raw_path.replace("\\", "/").strip("/")
         parts = normalized.split("/")
-        tracked.add(normalized)
-        tracked.update("/".join(parts[:index]) for index in range(1, len(parts)))
+        known.add(normalized)
+        known.update("/".join(parts[:index]) for index in range(1, len(parts)))
         top_level.add(parts[0].casefold())
-    return frozenset(tracked), frozenset(top_level), ()
+    return frozenset(known), frozenset(top_level), ()
+
+
+def _git_ls_files(repo_root: Path, options: tuple[str, ...]) -> tuple[str, tuple[ReferenceFinding, ...]]:
+    import subprocess
+
+    argv = ["git", "-C", str(repo_root), "ls-files", "-z", *options]
+    completed = subprocess.run(argv, check=False, capture_output=True)
+    if completed.returncode != 0:
+        finding = _finding(
+            "concept",
+            0,
+            "REPO_PATH_DISCOVERY_FAILED",
+            " ".join(("git", "ls-files", *options)),
+            "known repository paths could not be discovered",
+        )
+        return "", (finding,)
+    return completed.stdout.decode("utf-8"), ()
 
 
 def _load_baseline(repo_root: Path, path: Path) -> tuple[_Baseline, list[ReferenceFinding]]:
