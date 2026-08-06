@@ -8,9 +8,46 @@ from pathlib import Path
 import pytest
 
 from agentkit.backend.boundary.filesystem import (
+    AK3_OWNER_POLICIES,
     is_filesystem_link,
+    matches_resolved_interpreter_owner,
     matches_resolved_path_owner,
 )
+from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_INTERPRETER_COMMAND,
+    AK3_WRAPPER_COMMAND,
+    Ak3ServerShape,
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (AK3_INTERPRETER_COMMAND, matches_resolved_interpreter_owner),
+        (AK3_WRAPPER_COMMAND, matches_resolved_path_owner),
+        # Fail-closed default: a sentinel this method has never been taught
+        # about gets the STRICTER policy, not the wider one and not an error
+        # that would push the choice back onto the caller.
+        ("<some-future-absolute-command>", matches_resolved_path_owner),
+        ("/usr/bin/literal-command", matches_resolved_path_owner),
+    ],
+)
+def test_owner_matcher_selects_the_policy_from_the_command_sentinel(
+    command: str,
+    expected: object,
+) -> None:
+    """The single decision point maps sentinel -> link policy, strict by default."""
+    shape = Ak3ServerShape(command=command, args=(), env_keys=frozenset())
+
+    assert shape.owner_matcher(AK3_OWNER_POLICIES) is expected
+
+
+def test_owner_policies_expose_exactly_the_two_boundary_link_policies() -> None:
+    """The wiring exists once and binds the boundary's own implementations."""
+    assert AK3_OWNER_POLICIES.link_free is matches_resolved_path_owner
+    assert AK3_OWNER_POLICIES.posix_venv_interpreter is (
+        matches_resolved_interpreter_owner
+    )
 
 
 def test_link_primitive_recognises_a_simulated_windows_junction(

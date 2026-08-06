@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.backend.boundary.filesystem import (
-    matches_resolved_interpreter_owner,
+    AK3_OWNER_POLICIES,
     matches_resolved_path_owner,
 )
 from agentkit.backend.core_types.mcp_server_registration import (
@@ -649,11 +649,7 @@ def _remove_owned_mcp_servers(
         if not shape.matches_command(
             entry.get("command"),
             resolved_owner_command=resolved_owner,
-            path_owner_matcher=(
-                matches_resolved_interpreter_owner
-                if name == STORY_KNOWLEDGE_BASE_SERVER
-                else matches_resolved_path_owner
-            ),
+            owner_policies=AK3_OWNER_POLICIES,
         ) or not isinstance(args, list):
             continue
         if tuple(args) != shape.args:

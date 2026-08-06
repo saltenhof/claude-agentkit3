@@ -33,10 +33,42 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+
+    #: Filesystem-boundary predicate "is this candidate the resolved owner?".
+    type OwnerMatcher = Callable[[object, str | None], bool]
+
+
+class PathOwnerPolicies(Protocol):
+    """The link policies the filesystem boundary implements for ownership.
+
+    Declared structurally rather than imported: ``core_types`` is a leaf
+    foundation that imports only stdlib (architecture boundary
+    ``architecture-conformance.boundary.core_types``), so it states the
+    capability it needs and the filesystem boundary supplies the one instance
+    that implements it. That keeps :meth:`Ak3ServerShape.owner_matcher` — the
+    single place that decides WHICH policy governs a shape — inside the
+    contract that owns the shapes, without giving this module filesystem I/O.
+
+    Attributes:
+        link_free: Rejects every symbolic link and Windows junction in either
+            spelling. The strict default policy.
+        posix_venv_interpreter: Additionally admits the exact terminal symlink
+            a POSIX virtual environment publishes as its interpreter.
+    """
+
+    @property
+    def link_free(self) -> OwnerMatcher:
+        """Return the strict, link-free ownership predicate."""
+        ...
+
+    @property
+    def posix_venv_interpreter(self) -> OwnerMatcher:
+        """Return the predicate that admits the terminal venv symlink."""
+        ...
 
 #: MCP server key of the FK-13 story-knowledge-base server (FK-50 §50.3 CP 10).
 STORY_KNOWLEDGE_BASE_SERVER: str = "story-knowledge-base"
@@ -112,32 +144,62 @@ class Ak3ServerShape:
     args: tuple[str, ...]
     env_keys: frozenset[str]
 
+    def owner_matcher(self, policies: PathOwnerPolicies) -> OwnerMatcher:
+        """Return the link policy that governs THIS shape's absolute command.
+
+        SINGLE SOURCE OF TRUTH for the question "which link policy applies to
+        which registration?". Every consumer that classifies an existing entry
+        — the ``.mcp.json`` detach, the Codex ownership classification and the
+        hook-command proof — asks here instead of restating the rule. The rule
+        existed three times before AG3-189 R24 and drifted: a repair that
+        reached two copies left the third asserting a policy AK3 never applied.
+
+        Keyed on the COMMAND SENTINEL, not on the server name: the name is a
+        label, the sentinel is the thing being classified.
+
+        Fail-closed by construction: only :data:`AK3_INTERPRETER_COMMAND` earns
+        the relaxed policy. Every other command — the wrapper sentinel, and any
+        future sentinel nobody has taught this method about yet — falls back to
+        the strict link-free comparison, never to the wider one and never to an
+        exception that would leave the caller guessing.
+
+        Args:
+            policies: The link policies supplied by the filesystem boundary.
+
+        Returns:
+            The predicate that decides ownership for this shape's command.
+        """
+        if self.command == AK3_INTERPRETER_COMMAND:
+            return policies.posix_venv_interpreter
+        return policies.link_free
+
     def matches_command(
         self,
         candidate: object,
         *,
         resolved_owner_command: str | None = None,
-        path_owner_matcher: Callable[[object, str | None], bool] | None = None,
+        owner_policies: PathOwnerPolicies | None = None,
     ) -> bool:
         """Return whether ``candidate`` is a command AK3 itself would register.
 
         For absolute-command shapes the concrete value is a machine-specific
         interpreter or wrapper path, so it cannot be compared to a literal. The
-        candidate must be accepted by the filesystem boundary's injected owner
-        matcher against the concrete command already proved by the central owner
-        for this operation. Keeping filesystem I/O outside this leaf contract
-        preserves the ``core_types`` architecture boundary. A missing matcher or
-        owner therefore fails closed.
+        candidate must be accepted by the policy :meth:`owner_matcher` selects
+        for this shape, against the concrete command already proved by the
+        central owner for this operation. Keeping filesystem I/O outside this
+        leaf contract preserves the ``core_types`` architecture boundary; the
+        caller therefore supplies the policies, but never chooses among them. A
+        missing policy set or owner fails closed.
 
-        The injected matcher owns link policy. Wrapper owners reject every
-        symlink and junction. The interpreter matcher may admit only the exact
-        terminal symlink spelling published by a POSIX virtual environment;
-        different aliases, linked ancestors and junctions remain foreign.
+        Wrapper owners reject every symlink and junction. The interpreter policy
+        admits only the exact terminal symlink spelling published by a POSIX
+        virtual environment; different aliases, linked ancestors and junctions
+        remain foreign.
         """
         if not isinstance(candidate, str) or not candidate.strip():
             return False
         if self.command in {AK3_INTERPRETER_COMMAND, AK3_WRAPPER_COMMAND}:
-            return path_owner_matcher is not None and path_owner_matcher(
+            return owner_policies is not None and self.owner_matcher(owner_policies)(
                 candidate,
                 resolved_owner_command,
             )
@@ -458,6 +520,7 @@ __all__ = [
     "Ak3ServerShape",
     "DesiredMcpServer",
     "McpServerRegistrationError",
+    "PathOwnerPolicies",
     "before_image_fingerprint",
     "canonical_registration_payload",
     "registration_digest",

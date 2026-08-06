@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.implementation.worker_health import AgentHealthState
 from agentkit.backend.implementation.worker_health.engine import maybe_request_llm_assessment
 from agentkit.backend.implementation.worker_health.models import LlmAssessmentStatus
@@ -119,6 +120,40 @@ def test_sidecar_returns_1_when_story_state_never_found(
     )
 
     assert exit_code == 1
+
+
+def test_sidecar_without_injected_repository_fails_closed_and_writes_nothing(
+    tmp_path: Path,
+    _sqlite_backend: None,
+) -> None:
+    """AG3-214: no default second writing path behind the single-writer contract.
+
+    The sidecar used to fall back to ``StateBackendWorkerHealthRepository``,
+    which writes straight to SQLite/Postgres without any writer lease. The
+    default is now removed: an uninjected sidecar aborts with a named error
+    BEFORE it reads or writes any state, and leaves no artefact behind.
+    """
+    state = AgentHealthState(worker_id="worker-1", story_id="AG3-214", total_score=70)
+    assert maybe_request_llm_assessment(state) is True
+    StateBackendWorkerHealthRepository(tmp_path).save(state)
+    before = state.model_dump(mode="json")
+
+    with pytest.raises(ConfigError) as excinfo:
+        run_worker_health_sidecar(
+            "AG3-214",
+            project_root=tmp_path,
+            assessment_client=_FakeAssessmentClient(probability=85),
+            iterations=1,
+        )
+
+    assert "ControlPlaneWriterRequired" in str(excinfo.value)
+    unchanged = StateBackendWorkerHealthRepository(tmp_path).load(
+        story_id="AG3-214",
+        worker_id="worker-1",
+    )
+    assert unchanged is not None
+    assert unchanged.model_dump(mode="json") == before
+    assert not (tmp_path / "_temp" / "qa" / "AG3-214" / "agent-health.json").exists()
 
 
 def test_scoring_continues_without_sidecar_result() -> None:

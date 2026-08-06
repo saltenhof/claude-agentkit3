@@ -47,6 +47,20 @@ AG3-189 R23 und ist der Startpunkt, **nicht** die Arbeitsliste.
 > zerstoert genau die Faelle, die Windows-Semantik pruefen sollen — und merkt es
 > nicht, weil danach alles gruen ist.
 
+**NACHTRAG 2026-08-06 — ein belegter Fall der Klasse 1, gefunden in AG3-189.**
+`tests/contract/installer/test_mcp_registration_binding.py:44` setzt
+`_PROJECT = "C:/projects/demo"`. Auf POSIX ist das **kein absoluter Pfad**. Der
+Test ist heute gruen, weil beide Vergleichsseiten aus demselben Literal
+abgeleitet werden und `abspath` denselben cwd-Praefix ergaenzt — er ist also
+selbstkonsistent, aber **cwd-abhaengig**. Das ist exakt die Konstellation, die
+R23 in den Nachbartests per `tmp_path` beseitigt hat: gruen aus dem falschen
+Grund.
+
+Betroffen sind **13 Fundstellen** in dieser Datei, viele davon ausserhalb von
+Fixture-Kontexten. Die Umstellung ist ein Umbau der gesamten Contract-Datei und
+wurde deshalb dort nicht vorgenommen. Der Fall ist ein guter Pruefstein fuer
+AC 1: Er gehoert **nicht** zu Klasse 2 oder 3, obwohl er gruen ist.
+
 Die Verteilung ist stark ungleich: allein
 `tests/integration/control_plane/test_takeover_confirm_pg.py` traegt 41 Treffer,
 `tests/unit/control_plane/test_runtime.py` 48, `tests/unit/skills/test_placeholder.py` 28.

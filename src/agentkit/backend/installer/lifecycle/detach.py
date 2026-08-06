@@ -33,12 +33,13 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 from agentkit.backend.boundary.filesystem import (
+    AK3_OWNER_POLICIES,
     FilesystemContainmentError,
     assert_project_local_file_path,
-    matches_resolved_interpreter_owner,
     matches_resolved_path_owner,
 )
 from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_SERVER_SHAPES,
     ARE_MCP_SERVER,
     ARE_MCP_WRAPPER_NAME,
     CODEX_HOOK_WRAPPER_NAME,
@@ -130,9 +131,12 @@ def _is_ak3_hook_command(
     # made detach delete foreign hooks. What no producer writes is not claimed.
     if executable_name not in _PYTHON_INTERPRETERS:
         return False
-    if not matches_resolved_interpreter_owner(
+    if not AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER].matches_command(
         executed,
-        resolved_command_owners.get(STORY_KNOWLEDGE_BASE_SERVER),
+        resolved_owner_command=resolved_command_owners.get(
+            STORY_KNOWLEDGE_BASE_SERVER
+        ),
+        owner_policies=AK3_OWNER_POLICIES,
     ):
         return False
     script = _python_script_argument(tokens[1:])

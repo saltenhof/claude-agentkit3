@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.config import load_project_config
@@ -401,6 +402,13 @@ def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     return InstallConfig(
         project_root=project_root,
         **ready_vectordb_install_kwargs(),
+        # FK-91 single writer: register-project/verify-project bind these ports
+        # to the active control-plane writer; the installer permits no local
+        # State-Backend fallback, so the test supplies the same ports.
+        **writer_backed_install_kwargs(
+            project_root / ".skill-bundle-store",
+            project_key=str(kwargs["project_key"]),
+        ),
         **kwargs,
     )
 

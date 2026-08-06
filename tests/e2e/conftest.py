@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 
 from agentkit.backend.installer import InstallConfig, install_agentkit
 from agentkit.backend.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
@@ -59,6 +60,14 @@ def installed_project(tmp_path: Path) -> Path:
             github_repo="demo",
             sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
+            # FK-91 single writer: register-project/verify-project bind these
+            # ports to the active control-plane writer; the installer permits no
+            # local State-Backend fallback, so the fixture supplies the same
+            # ports.
+            **writer_backed_install_kwargs(
+                tmp_path / ".skill-bundle-store",
+                project_key="test-project",
+            ),
         )
     )
     return project_dir

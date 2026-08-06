@@ -401,7 +401,7 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
     *(
         _SelectorLiteralException(
             Path("src/agentkit/backend/installer/lifecycle/detach.py"),
-            144,
+            148,
             literal,
             "parser vocabulary that recognizes current absolute interpreter-bound "
             "script hooks by basename and older bare hook text; never launches it",

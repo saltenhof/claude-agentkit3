@@ -13,10 +13,13 @@ idempotent persistence run for real (one truth, no second state/dispatch path).
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.control_plane.dispatch import PhaseDispatcher, PreStartGuard
@@ -36,6 +39,9 @@ from agentkit.backend.pipeline_engine.lifecycle import (
 )
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+)
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
@@ -44,6 +50,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.state_backend.backend_instance_identity_types import (
+        BackendInstanceIdentityRecord,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +85,22 @@ class _EscalatingHandler:
         return HandlerResult(status=PhaseStatus.ESCALATED)
 
 
+def _boot_writer_identity() -> BackendInstanceIdentityRecord:
+    """Resolve THIS boot's backend instance identity, as the writer does.
+
+    ``ControlPlaneRuntimeService`` refuses to stamp a claim without a resolved
+    identity (``_admission_identity.py`` ``_current_instance_identity``): on the
+    serving path the pre-serve startup hook binds it before the listener accepts
+    a request. A test that drives the default store therefore has to run the
+    same productive boot resolution instead of leaving the identity unbound.
+    """
+
+    return boot_backend_instance_identity_global(
+        f"test-instance-{uuid.uuid4().hex}",
+        datetime.now(tz=UTC),
+    )
+
+
 def _install_project(project_dir: Path) -> None:
     # AG3-088 CI regression (Jenkins #314): CP 11 (cp11_to_12.py, FK-50 §50.3)
     # runs ``git config core.hooksPath`` and hard-aborts (reason
@@ -94,6 +119,17 @@ def _install_project(project_dir: Path) -> None:
             sonarqube_available=False,
             ci_available=False,
             **ready_vectordb_install_kwargs(),
+            # FK-91 single writer: register-project/verify-project bind these
+            # ports to the active control-plane writer; the installer permits no
+            # local State-Backend fallback, so the test supplies the same ports.
+            **writer_backed_install_kwargs(
+                project_dir.parent / ".skill-bundle-store",
+                project_key=project_dir.name,
+                # The productive StoryWorkspaceLocator resolves the FS anchor
+                # from the level-1 project_registry, so the writer must persist
+                # into the real state backend, not in-process.
+                state_backed=True,
+            ),
         )
     )
     assert result.success
@@ -177,7 +213,10 @@ class TestSequentialDispatchContract:
             approval_reader=_AllowApproval(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
+        service = ControlPlaneRuntimeService(
+            phase_dispatcher=_boundary_dispatcher(guard=guard),
+            instance_identity=_boot_writer_identity(),
+        )
 
         # 1. Setup
         setup = service.start_phase(
@@ -233,7 +272,8 @@ class TestSequentialDispatchContract:
             phase_dispatcher=_boundary_dispatcher(
                 guard=guard,
                 overrides={"implementation": _EscalatingHandler()},
-            )
+            ),
+            instance_identity=_boot_writer_identity(),
         )
 
         service.start_phase(
@@ -268,7 +308,10 @@ class TestSequentialDispatchContract:
             approval_reader=_AllowApproval(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
+        service = ControlPlaneRuntimeService(
+            phase_dispatcher=_boundary_dispatcher(guard=guard),
+            instance_identity=_boot_writer_identity(),
+        )
         req = _request(project_dir, story_id, "setup")
 
         first = service.start_phase(run_id="run-1", phase="setup", request=req)
@@ -294,7 +337,10 @@ class TestSequentialDispatchContract:
             approval_reader=_Deny(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
+        service = ControlPlaneRuntimeService(
+            phase_dispatcher=_boundary_dispatcher(guard=guard),
+            instance_identity=_boot_writer_identity(),
+        )
 
         setup = service.start_phase(
             run_id="run-1",
@@ -380,7 +426,10 @@ class TestSequentialDispatchContract:
             approval_reader=_AllowApproval(),
             scheduling_reader=_AllowScheduling(),
         )
-        service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(guard=guard))
+        service = ControlPlaneRuntimeService(
+            phase_dispatcher=_boundary_dispatcher(guard=guard),
+            instance_identity=_boot_writer_identity(),
+        )
 
         setup = service.start_phase(
             run_id="run-1",

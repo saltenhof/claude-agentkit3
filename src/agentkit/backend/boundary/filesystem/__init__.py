@@ -13,7 +13,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from agentkit.backend.boundary.filesystem.atomic import atomic_write_json
     from agentkit.backend.boundary.filesystem.path_identity import (
+        AK3_OWNER_POLICIES,
         FilesystemContainmentError,
+        FilesystemOwnerPolicies,
         assert_project_local_file_path,
         is_filesystem_link,
         matches_resolved_interpreter_owner,
@@ -39,14 +41,18 @@ def __getattr__(name: str) -> Any:
 
         value = atomic_write_json
     elif name in {
+        "AK3_OWNER_POLICIES",
         "FilesystemContainmentError",
+        "FilesystemOwnerPolicies",
         "assert_project_local_file_path",
         "is_filesystem_link",
         "matches_resolved_interpreter_owner",
         "matches_resolved_path_owner",
     }:
         from agentkit.backend.boundary.filesystem.path_identity import (
+            AK3_OWNER_POLICIES,
             FilesystemContainmentError,
+            FilesystemOwnerPolicies,
             assert_project_local_file_path,
             is_filesystem_link,
             matches_resolved_interpreter_owner,
@@ -54,7 +60,9 @@ def __getattr__(name: str) -> Any:
         )
 
         value = {
+            "AK3_OWNER_POLICIES": AK3_OWNER_POLICIES,
             "FilesystemContainmentError": FilesystemContainmentError,
+            "FilesystemOwnerPolicies": FilesystemOwnerPolicies,
             "assert_project_local_file_path": assert_project_local_file_path,
             "is_filesystem_link": is_filesystem_link,
             "matches_resolved_interpreter_owner": matches_resolved_interpreter_owner,
@@ -76,7 +84,9 @@ def __getattr__(name: str) -> Any:
     return value
 
 __all__ = [
+    "AK3_OWNER_POLICIES",
     "FilesystemContainmentError",
+    "FilesystemOwnerPolicies",
     "atomic_write_json",
     "assert_project_local_file_path",
     "is_filesystem_link",

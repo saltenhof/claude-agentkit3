@@ -16,16 +16,15 @@ from agentkit.backend.implementation.worker_health.models import (
     LlmAssessmentStatus,
     utc_now,
 )
-from agentkit.backend.state_backend.store.worker_health_repository import (
-    StateBackendWorkerHealthRepository,
-    WorkerHealthStateRepository,
-)
 from agentkit.integration_clients.multi_llm_hub.client import HubClient, HubClientProtocol
 from agentkit.integration_clients.multi_llm_hub.config import load_multi_llm_hub_config
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.backend.state_backend.store.worker_health_repository import (
+        WorkerHealthStateRepository,
+    )
     from agentkit.integration_clients.multi_llm_hub.entities import HubBackendName
 
 
@@ -82,15 +81,45 @@ def run_worker_health_sidecar(
     config: WorkerHealthConfig | None = None,
     iterations: int | None = None,
 ) -> int:
-    """Poll the state backend and resolve pending LLM assessments.
+    """Poll the writer-owned worker-health state and resolve LLM assessments.
+
+    The sidecar is a second process next to the worker. It never owns
+    worker-health state: FK-91 admits exactly one active control-plane writer
+    per database, so the sidecar reaches that state through an injected,
+    writer-mediated repository (``agentkit watch-worker`` injects
+    ``RestWorkerHealthRepository``). There is deliberately no default: a
+    ``StateBackendWorkerHealthRepository`` fallback would write straight to
+    SQLite/Postgres without any writer lease and open a second writing path
+    behind the single-writer contract.
+
+    Args:
+        story_id: The story whose health state is polled.
+        project_root: The target project root (artefact export anchor).
+        repository: The writer-mediated worker-health state port. **Required**;
+            omitting it fails closed.
+        assessment_client: Optional LLM assessment boundary.
+        config: Optional worker-health configuration.
+        iterations: Optional bounded poll count (``None`` polls until idle).
 
     Returns:
         0 on clean shutdown (idle timeout or requested iterations completed).
         1 when the story state was never found during the entire run (indicates
         the story may not exist or the state backend is unavailable).
+
+    Raises:
+        ConfigError: When no repository was injected. The sidecar aborts before
+            reading or writing any state.
     """
+    if repository is None:
+        from agentkit.backend.exceptions import ConfigError
+
+        raise ConfigError(
+            "ControlPlaneWriterRequired: the worker-health sidecar requires the "
+            "writer-mediated state repository to be injected; no local "
+            "State-Backend fallback is permitted (FK-91 single writer).",
+        )
     worker_health = config or WorkerHealthConfig()
-    repo = repository or StateBackendWorkerHealthRepository(project_root)
+    repo = repository
     client = assessment_client or HubWorkerHealthAssessmentClient(
         models=worker_health.llm_assessment.models,
     )

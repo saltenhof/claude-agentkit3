@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.e2e._helpers import seed_active_run_ownership
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.bootstrap.composition_root import build_exploration_phase_handler
@@ -116,6 +117,17 @@ def _install_project(project_dir: Path) -> None:
             # CI preflight SKIPS.
             ci_available=False,
             **ready_vectordb_install_kwargs(),
+            # FK-91 single writer: register-project/verify-project bind these
+            # ports to the active control-plane writer; the installer permits no
+            # local State-Backend fallback, so the test supplies the same ports.
+            **writer_backed_install_kwargs(
+                project_dir.parent / ".skill-bundle-store",
+                project_key=project_dir.name,
+                # The productive StoryWorkspaceLocator resolves the FS anchor
+                # from the level-1 project_registry, so the writer must persist
+                # into the real state backend, not in-process.
+                state_backed=True,
+            ),
         )
     )
     assert install_result.success

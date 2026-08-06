@@ -34,12 +34,14 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from datetime import UTC, datetime
 from http.server import HTTPServer
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.cli.main import main
@@ -70,6 +72,9 @@ from agentkit.backend.pipeline_engine.lifecycle import (
 )
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+)
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.state_backend.telemetry_event_store import load_execution_events_for_project_global
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -138,6 +143,22 @@ def _count_events(project_key: str, run_id: str, event_type: EventType) -> int:
     )
 
 
+def _boot_writer_identity() -> BackendInstanceIdentityRecord:
+    """Resolve THIS boot's backend instance identity, as the writer does.
+
+    ``ControlPlaneRuntimeService`` refuses to stamp a claim without a resolved
+    identity (``_admission_identity.py`` ``_current_instance_identity``): on the
+    serving path the pre-serve startup hook binds it before the listener accepts
+    a request. A test that drives the default store therefore has to run the
+    same productive boot resolution instead of leaving the identity unbound.
+    """
+
+    return boot_backend_instance_identity_global(
+        f"test-instance-{uuid.uuid4().hex}",
+        datetime.now(tz=UTC),
+    )
+
+
 def _install_project(project_dir: Path) -> None:
     ensure_git_repo(project_dir)
     result = install_agentkit(
@@ -150,6 +171,17 @@ def _install_project(project_dir: Path) -> None:
             sonarqube_available=False,
             ci_available=False,
             **ready_vectordb_install_kwargs(),
+            # FK-91 single writer: register-project/verify-project bind these
+            # ports to the active control-plane writer; the installer permits no
+            # local State-Backend fallback, so the test supplies the same ports.
+            **writer_backed_install_kwargs(
+                project_dir.parent / ".skill-bundle-store",
+                project_key=project_dir.name,
+                # The productive StoryWorkspaceLocator resolves the FS anchor
+                # from the level-1 project_registry, so the writer must persist
+                # into the real state backend, not in-process.
+                state_backed=True,
+            ),
         )
     )
     assert result.success
@@ -214,10 +246,21 @@ def _serve(service: ControlPlaneRuntimeService) -> tuple[HTTPServer, str]:
 
 
 @pytest.fixture()
-def served_service() -> Iterator[tuple[ControlPlaneRuntimeService, str, dict[str, object]]]:
-    """Yield (service, base_url, overrides-holder). Overrides set per test before use."""
+def served_service(
+    postgres_isolated_schema: object,
+) -> Iterator[tuple[ControlPlaneRuntimeService, str, dict[str, object]]]:
+    """Yield (service, base_url, overrides-holder). Overrides set per test before use.
+
+    ``postgres_isolated_schema`` is requested explicitly: the collection hook
+    only APPENDS it, which would order it after this fixture -- and the boot
+    identity below is a Postgres-only record.
+    """
+    del postgres_isolated_schema
     overrides: dict[str, object] = {}
-    service = ControlPlaneRuntimeService(phase_dispatcher=_boundary_dispatcher(overrides=overrides))
+    service = ControlPlaneRuntimeService(
+        phase_dispatcher=_boundary_dispatcher(overrides=overrides),
+        instance_identity=_boot_writer_identity(),
+    )
     server, base_url = _serve(service)
     try:
         yield service, base_url, overrides

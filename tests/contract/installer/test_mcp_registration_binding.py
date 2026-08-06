@@ -14,9 +14,16 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.backend.boundary.filesystem import matches_resolved_path_owner
+from agentkit.backend.boundary.filesystem import (
+    AK3_OWNER_POLICIES,
+    matches_resolved_interpreter_owner,
+    matches_resolved_path_owner,
+)
 from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_INTERPRETER_COMMAND,
     AK3_SERVER_SHAPES,
+    AK3_WRAPPER_COMMAND,
+    ARE_MCP_SERVER,
     CODEX_HOOK_WRAPPER_NAME,
     REGISTERED_ENV_KEYS,
     STORY_KNOWLEDGE_BASE_SERVER,
@@ -309,7 +316,15 @@ def test_registered_command_is_an_absolute_interpreter_path() -> None:
 
 
 def test_ownership_recognises_only_the_resolved_machine_interpreter() -> None:
-    """An absolute spelling alone never proves interpreter ownership."""
+    """An absolute spelling alone never proves interpreter ownership.
+
+    The policy is NOT chosen here. ``matches_command`` asks
+    ``Ak3ServerShape.owner_matcher`` — the single decision point — which for the
+    interpreter sentinel yields the policy that admits exactly the terminal
+    symlink a POSIX virtual environment publishes as ``bin/python``. Restating
+    that choice at the call site is what made the owner fail to recognise itself
+    on Linux, where that symlink is the regular spelling.
+    """
     from agentkit.backend.installer.mcp_registration import render_mcp_json_without_ak3
 
     shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
@@ -317,25 +332,34 @@ def test_ownership_recognises_only_the_resolved_machine_interpreter() -> None:
     assert shape.matches_command(
         owner,
         resolved_owner_command=owner,
-        path_owner_matcher=matches_resolved_path_owner,
+        owner_policies=AK3_OWNER_POLICIES,
     )
     assert not shape.matches_command(
         "/opt/other-venv/bin/python",
         resolved_owner_command=owner,
-        path_owner_matcher=matches_resolved_path_owner,
+        owner_policies=AK3_OWNER_POLICIES,
     )
     assert not shape.matches_command(
         r"C:\venvs\ak3\Scripts\python.exe",
         resolved_owner_command=owner,
-        path_owner_matcher=matches_resolved_path_owner,
+        owner_policies=AK3_OWNER_POLICIES,
     )
+    # An unresolved central owner is not a licence to delete: without the
+    # snapshot the shape can prove nothing and must stay foreign.
+    assert not shape.matches_command(
+        owner,
+        resolved_owner_command=None,
+        owner_policies=AK3_OWNER_POLICIES,
+    )
+    # No policy set at all is the same fail-closed answer.
+    assert not shape.matches_command(owner, resolved_owner_command=owner)
     # A bare tool name is never what AK3 writes -- a foreign entry parked under
     # the AK3 server name must NOT be classified as ours (and then stripped).
     for candidate in ("python", "foreign-tool", "", None):
         assert not shape.matches_command(
             candidate,
             resolved_owner_command=owner,
-            path_owner_matcher=matches_resolved_path_owner,
+            owner_policies=AK3_OWNER_POLICIES,
         )
 
     server = _desired()
@@ -348,6 +372,104 @@ def test_ownership_recognises_only_the_resolved_machine_interpreter() -> None:
         )
     )
     assert STORY_KNOWLEDGE_BASE_SERVER not in stripped.get("mcpServers", {})
+
+
+def _ownership_verdicts(
+    server: object,
+    owners: dict[str, str],
+) -> tuple[bool, bool]:
+    """Return whether ``.mcp.json`` and the Codex table each claim ownership."""
+    from agentkit.backend.installer.mcp_registration import render_mcp_json_without_ak3
+
+    project_root = Path(server.cwd)  # type: ignore[attr-defined]
+    mcp_text, _ = render_mcp_json_text({}, (server,))  # type: ignore[arg-type]
+    stripped = json.loads(
+        render_mcp_json_without_ak3(
+            mcp_text.encode("utf-8"),
+            project_root=project_root,
+            resolved_command_owners=owners,
+        )
+    )
+    codex_raw = render_codex_config(
+        None,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=project_root,
+        servers=(server,),  # type: ignore[arg-type]
+    ).encode("utf-8")
+    codex_verdict = classify_ownership(
+        codex_raw,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=project_root,
+        resolved_command_owners=owners,
+    )
+    return (
+        STORY_KNOWLEDGE_BASE_SERVER not in stripped.get("mcpServers", {}),
+        codex_verdict is CodexConfigOwnership.AK3_ONLY,
+    )
+
+
+def test_both_ownership_consumers_take_the_one_central_policy_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Redirecting the single decision point redirects BOTH classifiers.
+
+    Behavioural parity alone cannot prove centrality: two independent copies of
+    the same rule agree until one of them is changed -- which is exactly how
+    AG3-189 R23 left a third copy behind. The only way to prove that the rule
+    now exists once is to change it in that one place and observe both
+    consumers follow. ``Ak3ServerShape.owner_matcher`` is therefore substituted
+    here (the narrow exception to the mock rule: no other instrument can
+    demonstrate a negative about the call sites), and the substitution also
+    records that each consumer really routed through it.
+    """
+    from agentkit.backend.core_types.mcp_server_registration import Ak3ServerShape
+
+    owner = resolve_story_knowledge_base_command()
+    server = _desired()
+    owners = {
+        STORY_KNOWLEDGE_BASE_SERVER: owner,
+        CODEX_HOOK_WRAPPER_NAME: CODEX_HOOK_COMMAND,
+    }
+    assert _ownership_verdicts(server, owners) == (True, True)
+
+    asked: list[str] = []
+
+    def deny_everything(
+        self: Ak3ServerShape,
+        policies: object,
+    ) -> object:
+        asked.append(self.command)
+        return lambda _candidate, _owner: False
+
+    monkeypatch.setattr(Ak3ServerShape, "owner_matcher", deny_everything)
+
+    mcp_owns, codex_owns = _ownership_verdicts(server, owners)
+    assert (mcp_owns, codex_owns) == (False, False)
+    # Both classifiers consulted the single decision point for the interpreter
+    # shape -- neither kept a policy choice of its own.
+    assert asked.count(AK3_INTERPRETER_COMMAND) >= 2
+
+
+def test_central_policy_selection_is_keyed_on_the_command_sentinel() -> None:
+    """The sentinel decides the policy; the server name is only a label."""
+    interpreter_shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
+    wrapper_shape = AK3_SERVER_SHAPES[ARE_MCP_SERVER]
+
+    assert interpreter_shape.command == AK3_INTERPRETER_COMMAND
+    assert wrapper_shape.command == AK3_WRAPPER_COMMAND
+    assert (
+        interpreter_shape.owner_matcher(AK3_OWNER_POLICIES)
+        is matches_resolved_interpreter_owner
+    )
+    assert (
+        wrapper_shape.owner_matcher(AK3_OWNER_POLICIES) is matches_resolved_path_owner
+    )
+    # Same sentinel under a different server name -> same policy. The rule does
+    # not read the label.
+    renamed = dataclasses.replace(interpreter_shape, args=())
+    assert (
+        renamed.owner_matcher(AK3_OWNER_POLICIES) is matches_resolved_interpreter_owner
+    )
 
 
 def test_foreign_absolute_interpreter_is_preserved_in_both_mcp_projections() -> None:

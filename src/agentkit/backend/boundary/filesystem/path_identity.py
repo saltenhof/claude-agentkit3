@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class FilesystemContainmentError(ValueError):
@@ -122,6 +127,34 @@ def matches_resolved_interpreter_owner(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FilesystemOwnerPolicies:
+    """The link policies this boundary offers to ownership decisions.
+
+    A capability set, NOT a decision: which policy governs a given registration
+    is decided once, by ``Ak3ServerShape.owner_matcher``. This type only makes
+    the two policies passable as a single value, so no consumer has to name —
+    and therefore cannot mis-name — the one it believes applies.
+
+    Attributes:
+        link_free: :func:`matches_resolved_path_owner`, which rejects every
+            symbolic link and Windows junction on both sides.
+        posix_venv_interpreter: :func:`matches_resolved_interpreter_owner`,
+            which additionally admits the exact terminal venv symlink.
+    """
+
+    link_free: Callable[[object, str | None], bool]
+    posix_venv_interpreter: Callable[[object, str | None], bool]
+
+
+#: The ONE wiring of the AK3 ownership policies. Consumers import this object;
+#: they never assemble their own pair and never pick a member themselves.
+AK3_OWNER_POLICIES: Final = FilesystemOwnerPolicies(
+    link_free=matches_resolved_path_owner,
+    posix_venv_interpreter=matches_resolved_interpreter_owner,
+)
+
+
 def assert_project_local_file_path(project_root: Path, relative_path: Path) -> Path:
     """Return a project-local file path after rejecting mutable indirections."""
     if relative_path.is_absolute() or ".." in relative_path.parts:
@@ -150,7 +183,9 @@ def assert_project_local_file_path(project_root: Path, relative_path: Path) -> P
 
 
 __all__ = [
+    "AK3_OWNER_POLICIES",
     "FilesystemContainmentError",
+    "FilesystemOwnerPolicies",
     "assert_project_local_file_path",
     "is_filesystem_link",
     "matches_resolved_interpreter_owner",

@@ -292,7 +292,10 @@ def test_run_pin_carries_project_key_when_config_present(
             # FK-91 single writer: register-project binds these ports to the
             # active control-plane writer; the installer permits no local
             # State-Backend fallback, so the test supplies the same ports.
-            **writer_backed_install_kwargs(tmp_path / ".skill-bundle-store"),
+            **writer_backed_install_kwargs(
+                tmp_path / ".skill-bundle-store",
+                project_key="acme-key",
+            ),
         ),
     )
 

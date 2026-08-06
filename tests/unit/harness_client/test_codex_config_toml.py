@@ -15,8 +15,8 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from agentkit.backend.boundary.filesystem import (
+    AK3_OWNER_POLICIES,
     matches_resolved_interpreter_owner,
-    matches_resolved_path_owner,
     path_identity,
 )
 from agentkit.backend.core_types.mcp_server_registration import (
@@ -624,7 +624,7 @@ def test_are_owner_comparison_normalizes_unc_case_and_separators(
     assert shape.matches_command(
         r"\\SERVER\AK3 Share\bin\AGENTKIT-ARE-MCP.EXE",
         resolved_owner_command="//server/ak3 share/bin/agentkit-are-mcp.exe",
-        path_owner_matcher=matches_resolved_path_owner,
+        owner_policies=AK3_OWNER_POLICIES,
     )
 
 
@@ -769,7 +769,7 @@ def test_are_command_recognition_rejects_symlinked_ancestor_before_dotdot(
     assert not AK3_SERVER_SHAPES[ARE_MCP_SERVER].matches_command(
         str(candidate),
         resolved_owner_command=str(owner),
-        path_owner_matcher=matches_resolved_path_owner,
+        owner_policies=AK3_OWNER_POLICIES,
     )
 
 
@@ -790,7 +790,7 @@ def test_are_command_recognition_rejects_symlinked_owner_ancestor_before_dotdot(
     assert not AK3_SERVER_SHAPES[ARE_MCP_SERVER].matches_command(
         str(owner),
         resolved_owner_command=str(owner_alias),
-        path_owner_matcher=matches_resolved_path_owner,
+        owner_policies=AK3_OWNER_POLICIES,
     )
 
 

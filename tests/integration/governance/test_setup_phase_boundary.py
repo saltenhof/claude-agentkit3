@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
 import pytest
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 from tests.phase_state_factory import make_phase_state
 
@@ -131,6 +132,13 @@ def _install(project_root: Path) -> None:
             sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
             ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
             **ready_vectordb_install_kwargs(),
+            # FK-91 single writer: register-project/verify-project bind these
+            # ports to the active control-plane writer; the installer permits no
+            # local State-Backend fallback, so the test supplies the same ports.
+            **writer_backed_install_kwargs(
+                project_root.parent / ".skill-bundle-store",
+                project_key=_PROJECT,
+            ),
         )
     )
 

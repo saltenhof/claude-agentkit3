@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_active_run_ownership, seed_approved_story
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 from tests.phase_state_factory import make_phase_state
 
@@ -146,6 +147,16 @@ class TestClosurePhaseE2E:
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
                 **ready_vectordb_install_kwargs(),
+                # FK-91 single writer: register-project/verify-project bind these
+                # ports to the active control-plane writer; the installer permits
+                # no local State-Backend fallback, so the test supplies the same
+                # ports. The real setup/closure handlers resolve the workspace from
+                # the level-1 project_registry, so the writer persists there.
+                **writer_backed_install_kwargs(
+                    tmp_path.parent / ".skill-bundle-store",
+                    project_key="e2e-closure-test",
+                    state_backed=True,
+                ),
             )
         )
 
