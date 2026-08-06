@@ -2,7 +2,48 @@ story_id: AG3-230
 story_title_short: "installer-bringt-alles-mit"
 title: "Der Installer bringt alles mit: Project Edge laeuft ohne Verweis auf ein fremdes Verzeichnis, ohne Netzzugang und ohne AK3-Checkout auf der Zielmaschine."
 type: implementation
-status: ready
+status: blocked
+# BLOCKIERT 2026-08-06 auf eine PO-Entscheidung. Die Feasibility liegt vor, es
+# gibt keinen Diff -- die Umsetzung haelt bewusst an.
+#
+# GEMESSENER BEFUND, der die Frage aufwirft:
+#   711 von 1042 Modulen (68 %) unter src/agentkit sind aus materialisiertem
+#   Code erreichbar. Der materialisierte Edge-Code importiert den Kern selbst,
+#   auf Modulebene (projectedge.py:20,21,30,35,36,39; check.py:28;
+#   semantic_gate.py:132). Der PreToolUse-Hook laedt bei JEDEM Read/Grep den
+#   Postgres-Treiber:
+#     pre_tool_use.py -> claude_code.py -> guard_evaluation.py
+#     -> projectedge/client.py -> story_creation -> story_context_manager
+#     -> control_plane_writer_lease.py:32   import psycopg
+#   harness_client/projectedge/ ist selbst nicht edge-rein: 9 von 13 Modulen
+#   importieren backend.*.
+#   Harte Drittabhaengigkeiten: pydantic, pyyaml, psycopg[binary],
+#   psycopg-pool, packaging; lazy-aber-erforderlich: weaviate-client, mcp,
+#   tokenizers.
+#
+# "Edge importiert den Kern nicht" ist damit keine Eigenschaft des Systems,
+# sondern eine Absicht von AG3-208/209 -- und die ist NICHT BEGONNEN:
+# AG3-208 = ready, AG3-209 = blocked (depends_on AG3-208).
+#
+# OFFENE ENTSCHEIDUNG:
+#   (a) Ganze Distribution jetzt in die Maschinen-Runtime -- fett, aber sofort
+#       sicher; die intima-Klasse verschwindet, AG3-209 macht spaeter schlank.
+#       Erfordert die Freigabe eines lokalen Wheelhouse (pip download zentral,
+#       pip install --no-index --find-links auf der Zielmaschine). Kein neues
+#       Paket, kein neuer Lizenzumfang; Preis sind plattform- und
+#       versionsspezifische Wheels fuer psycopg[binary] und tokenizers.
+#   (b) Warten auf AG3-208/209 -- architektonisch sauber, aber zwei Storys
+#       lang bleibt jede registrierte Installation an den Entwicklungsbaum
+#       gekettet.
+#
+# Empfehlung des Orchestrators: (a). Die PO-Zusage lautet, dass kein
+# Zielprojekt auf ein fremdes Verzeichnis verweist -- nicht, dass die Runtime
+# schlank ist.
+#
+# NEBENBEFUND, nicht angefasst: `agentkit-are-mcp` wird als MCP-Kommando
+# registriert (core_types/mcp_server_registration.py:225,244), hat aber keinen
+# Eintrag in [project.scripts]. Fail-closed ueber resolve_ak3_wrapper(),
+# sobald features.are aktiv ist.
 phase: setup
 created: "2026-08-06"
 size: L

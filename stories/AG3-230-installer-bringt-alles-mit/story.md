@@ -1,10 +1,10 @@
-# AG3-230 — Der Installer bringt alles mit
+# AG3-230 — Der Installer bringt alles mit, einmal pro Maschine
 
 - **Typ:** implementation
 - **Groesse:** L
 - **Abhaengigkeiten:** `unblocks: [AG3-217]` — eine Neuregistrierung ohne diese
-  Story wuerde denselben Fehler erneut materialisieren
-- **Herkunft:** PO-Vorgabe vom 2026-08-06
+  Story wuerde denselben Fehler frisch materialisieren
+- **Herkunft:** PO-Vorgabe vom 2026-08-06, praezisiert am selben Tag
 
 ## Die Zielarchitektur
 
@@ -13,129 +13,172 @@
 > bauen, dass dort schon irgendwas rumliegt, was der lokale Hook oder sonst wer
 > braucht."
 
-Das Backend laeuft auf einem zentralen Server. Auf dem Entwicklerrechner liegt
-**Project Edge**, und alles, was dort hin soll, wird von AK3 **explizit dorthin
-installiert** — inklusive saemtlicher Bibliotheken. Die Zielmaschine hat keinen
-Zugriff auf die AK3-Codebase und kann sich keine Python-Bibliotheken ziehen.
+**Praezisierung des PO (2026-08-06): eine Maschinen-Runtime, keine
+projektlokale.**
 
-Die Folge ist die eigentliche Zusage dieser Story:
+> „Wenn Du auf einem Rechner zum Beispiel drei Projekte hast, dass es an einer
+> zentralen Stelle — zum Beispiel irgendwo im Userhome-Verzeichnis — die
+> zentralisierten Bibliotheken gibt, die sich alle drei Projekte teilen. Und
+> wenn Du ein Update installieren moechtest, dass Du das dann auch nur einmal
+> installieren musst und nicht fuer alle drei parallel."
+>
+> „Richtig ist, dass die Runtime genauso sauber isoliert ist wie die
+> projektlokalen Sachen auch. Also dass die Runtimes nicht uebergriffig sind
+> auf ganz andere Python-Tools und sich ohne venv in die Systemkonfiguration
+> einnisten."
 
-> **Ein instabiler Zustand in der AK3-Codebase auf einem anderen Rechner ist
-> fuer die Projekte, die AK3 verwenden, unsichtbar.**
+Daraus folgen vier Eigenschaften, und **alle vier sind Zusagen**, nicht
+Wuensche:
 
-## Der Ist-Zustand ist ein fataler Fehler, kein Randfall
+1. **Eine Stelle je Maschine**, im Benutzerbereich — nicht systemweit, nicht
+   pro Projekt.
+2. **Geteilt von allen Projekten** dieser Maschine.
+3. **Ein Update, einmal installiert**, wirkt fuer alle Projekte — jedenfalls,
+   soweit es nur die Runtime betrifft.
+4. **Genauso isoliert wie AG3-189 es fuer AK3 selbst erzwungen hat:** eigene
+   venv, keine System-`site-packages`, kein Uebergriff auf fremde
+   Python-Werkzeuge, kein Einnisten in die Systemkonfiguration.
 
-Gemessen an `T:\codebase\intima` am 2026-08-06.
+Und die tragende Zusage bleibt:
 
-**Installiert wurden zwei Dateien:**
+> **Ein instabiler Zustand in der AK3-Codebase ist fuer die Projekte, die AK3
+> verwenden, unsichtbar.**
 
-```
-tools/agentkit/concept_toolchain
-tools/agentkit/projectedge.py
-```
+## Was die Maschinen-Runtime enthaelt — und was nicht
 
-Keine eigene Umgebung, keine Bibliotheken.
+Sie traegt **Project Edge und dessen Abhaengigkeiten**. Sie traegt **nicht** den
+Kern. `META-DEC-2026-08-03-EDGE-UND-KERN-SIND-ZWEI-DISTRIBUTIONEN` hat
+entschieden, dass Edge den Kern nicht importiert; AG3-208/209 trennen die
+Distributionen. **Diese Story zementiert diesen Schnitt nicht ein, sie setzt
+ihn voraus.** Faellt bei der Umsetzung auf, dass Edge heute doch den Kern
+braucht, ist das ein Befund mit Vorlage — kein Anlass, den Kern auf jede
+Maschine zu schieben.
 
-**Dafuer drei Verweise zurueck in den Entwicklungsbaum:**
+Damit ist auch **FK-10 §10.2.3** („AgentKit hat keine kanonische projektlokale
+Runtime") gewahrt: Eine Maschinen-Runtime ist nicht projektlokal. Der frueher
+befuerchtete Konzeptkonflikt entfaellt.
+
+## Der belegte Ist-Zustand
+
+Gemessen an `T:\codebase\intima` am 2026-08-06. Installiert wurden **zwei
+Dateien** (`tools/agentkit/concept_toolchain`, `tools/agentkit/projectedge.py`),
+keine Umgebung, keine Bibliotheken. Dafuer **drei Verweise zurueck** in den
+Entwicklungsbaum:
 
 ```
 tools/hooks/pre-commit                 'T:\codebase\claude-agentkit3\.venv\Scripts\python.exe'
 .codex/config.toml           command = "T:\\codebase\\claude-agentkit3\\.venv\\Scripts\\python.exe"
-.agentkit/config/control-plane.json   "ca_file": "T:\\codebase\\claude-agentkit3\\var\\devcert\\cert.pem"
+.agentkit/config/control-plane.json   "ca_file": "T:\\...\\var\\devcert\\cert.pem"
 ```
 
-Nicht nur der Interpreter — auch der **TLS-Vertrauensanker** zeigt dorthin.
+Auch der **TLS-Vertrauensanker** zeigt dorthin.
 
-**Die Ursache:** `resolve_ak3_interpreter()`
-(`backend/installer/interpreter.py:38`) liefert `sys.executable`, also den
-Interpreter **des Prozesses, der gerade installiert**. Das ist richtig, solange
-der Installer *innerhalb* der Project-Edge-Installation laeuft. Hier lief er aus
-dem Quell-Checkout — es gibt an dieser Stelle keine Trennung zwischen „wo AK3
-gerade laeuft" und „was auf der Zielmaschine liegen muss".
-
-**Auf einer echten Client-Maschine gibt es kein `T:\codebase\claude-agentkit3`.**
-Diese Installation waere tot, bevor sie das erste Mal laeuft. Was hier
-funktioniert, funktioniert ausschliesslich, weil Entwicklungsbaum und
-Zielprojekt auf derselben Platte liegen.
+**Ursache:** `resolve_ak3_interpreter()` (`backend/installer/interpreter.py:38`)
+liefert `sys.executable` — den Interpreter **des Prozesses, der installiert**.
+Es gibt keine Trennung zwischen „wo AK3 gerade laeuft" und „was auf der
+Zielmaschine liegen muss". Auf einer echten Client-Maschine gibt es kein
+`T:\codebase\claude-agentkit3`; die Installation waere tot, bevor sie das erste
+Mal laeuft.
 
 **Der intima-Totalausfall vom 2026-08-06 ist daraus vollstaendig erklaerbar.**
-Nicht „der Arbeitsbaum ist zufaellig produktiv", sondern: es existiert gar keine
-installierte Fassung, die etwas anderes haette sein koennen. Dort war ein Commit
-nur noch mit `--no-verify` moeglich — wir haben einen fremden Entwickler
-gezwungen, seine eigenen Guardrails zu umgehen.
+Dort war ein Commit nur noch mit `--no-verify` moeglich — wir haben einen
+fremden Entwickler gezwungen, seine eigenen Guardrails zu umgehen.
+
+## Zwei Funde, die den Umbau schwerer machen als er aussieht
+
+**1. Der Venv-Pfad ist ein Cache-Schluessel, keine blosse Zeichenkette.**
+`installer/paths.py:183-195` faltet `ak3_interpreter_command` und
+`ak3_wrapper_command` in `materialized_skill_variant_input_digest(...)`, der das
+Variantenverzeichnis benennt. **Wer die Runtime verschiebt oder ersetzt,
+verwaist stillschweigend jede materialisierte Skill-Variante** — die alten
+Verzeichnisse bleiben, die Links zeigen darauf, niemand meldet es.
+
+Das trifft diese Story doppelt: beim Umzug **und** bei jedem Runtime-Update
+(Eigenschaft 3). Ein Update, das die Runtime ersetzt und die Varianten
+verwaisen laesst, hat die Zusage nicht eingeloest, sondern verschoben.
+
+**2. Es sind siebzehn Schreiber, nicht drei Artefakte.** Fuenf betten den
+Venv-Pfad ein: `tools/hooks/pre-commit` und `post-commit`
+(`git_hook_dispatch.py:251,262`), `.claude/settings.json` (**zwei unabhaengige
+Produzenten**: `runner.py:605-612` und `settings_writer.py:477`),
+`.codex/config.toml`, `.mcp.json` (`cp10_mcp_registration.py:213,290`).
+`.installed-manifest.json` ist sauber. Die absoluten Projektwurzel-Pfade in
+`.codex/config.toml` (`cwd`) und `.mcp.json` (`concepts_dir`, `stories_dir`)
+sind Selbstbezuege und korrekt **keine** Verstoesse.
+
+Dazu zwei weitere nicht-eigenstaendige Baeume: `prompts/` als Hardlinks nach
+`%PROGRAMDATA%\AgentKit\prompt-bundles`, und `.claude|.codex/skills/` als
+Verzeichnis-Links nach `%PROGRAMDATA%` oder in `site-packages`.
 
 ## Scope
 
 ### In Scope
 
-- **Der Installer materialisiert eine vollstaendige, eigenstaendige Project-Edge-
-  Installation im Zielprojekt** — Laufzeit, alle von AK3 benoetigten
-  Bibliotheken, Hooks, Prompts, Manifeste, Vertrauensanker.
+- **Eine Maschinen-Runtime im Benutzerbereich**, vom Installer angelegt und
+  gepflegt, geteilt von allen Projekten dieser Maschine.
+- **Sie ist isoliert wie AK3 selbst**: eigene venv, keine System-`site-packages`,
+  kein Uebergriff auf fremde Python-Werkzeuge, kein systemweiter Eingriff.
 - **Kein materialisiertes Artefakt verweist auf einen Pfad ausserhalb der
-  Zielinstallation.** Nicht der Interpreter, nicht der Vertrauensanker, nicht
-  die Konfiguration, nicht ein Hook.
-- **Die Beschaffung liegt beim Installer, nicht bei der Zielmaschine.** Kein
-  `pip install` zur Installationszeit auf der Zielmaschine, kein Netzzugang, kein
-  vorausgesetztes Werkzeug ausser dem, was der Installer selbst mitbringt.
-- **Die Trennung zwischen „wo AK3 laeuft" und „was installiert wird"** wird
-  modelliert. `resolve_ak3_interpreter()` beantwortet die erste Frage; die
-  zweite braucht einen eigenen Eigentuemer.
-- **Upgrade zieht mit.** Eine bestehende Installation, die heute auf den
-  Entwicklungsbaum zeigt, wird beim Upgrade auf die eigenstaendige Form
-  gehoben — sichtbar gemeldet, nicht still.
-- **Normative Verankerung** in FK-10 (Runtime/Deployment) und FK-50
-  (Installer/Checkpoints) samt Decision Record.
+  Zielinstallation oder der Maschinen-Runtime.** Weder Interpreter noch
+  Vertrauensanker noch Konfiguration noch Hook.
+- **Ein Runtime-Update wirkt einmal fuer alle Projekte** — und laesst keine
+  verwaisten Skill-Varianten zurueck.
+- **Die Trennung „wo AK3 laeuft" gegen „was installiert wird"** wird modelliert.
+  `resolve_ak3_interpreter()` beantwortet die erste Frage; die zweite braucht
+  einen eigenen Eigentuemer.
+- **Upgrade zieht Bestandsinstallationen mit**, sichtbar gemeldet.
+- Normative Nachfuehrung in FK-10 und FK-50, Decision Record.
 
 ### Out of Scope
 
-- Die Frage, welche Bibliotheken Project Edge braucht, ist **nicht** offen: Es
-  sind die, die der materialisierte Code importiert. Findet die Umsetzung
-  heraus, dass Project Edge mehr braucht als erwartet, ist das ein Befund mit
-  Vorlage — kein Anlass, den Umfang zu kuerzen.
-- Die Aufteilung Backend/Server gegen Project Edge wird nicht neu verhandelt.
+- Der Distributionsschnitt Edge/Kern. Er ist entschieden (AG3-208/209) und wird
+  vorausgesetzt.
+- Welche Bibliotheken Edge braucht, ist **keine offene Frage**: Es sind die, die
+  der materialisierte Code importiert. Ergibt die Messung mehr als erwartet,
+  ist das ein Befund mit Vorlage, kein Anlass, den Umfang zu kuerzen.
 
 ## Akzeptanzkriterien
 
-1. **Kein materialisiertes Artefakt im Zielprojekt enthaelt einen Pfad ausserhalb
-   der Zielinstallation.** Nachgewiesen durch einen deterministischen Sweep
-   ueber **alle** materialisierten Dateien — Hooks, Harness-Konfigurationen,
-   `.agentkit/**`, Vertrauensanker —, nicht durch Sichtpruefung. Der Sweep
-   nennt seine Methode.
-2. **Der Nachweis laeuft auf einer Maschine ohne AK3-Checkout.** Eine
-   Installation in einem Container ohne AK3-Quellen, ohne Netzzugang und ohne
-   vorbereitete Python-Umgebung; danach laeuft ein echter Commit mit aktiven
-   Hooks durch. **Alles andere beweist nur, dass beide Haelften zufaellig
-   nebeneinanderliegen** (`CLAUDE.md` §REALITAETSNACHWEIS AN
-   FREMDSYSTEM-GRENZEN).
-3. **Ein Regelbruch faellt maschinell auf, bevor er landet.** Ein Gate weist
-   jeden materialisierten Verweis auf einen installationsfremden Pfad ab. Es
-   ist gegen einen kuenstlich eingefuegten Verstoss geprueft — ein Gate, das
-   falsch gruen meldet, entwertet jede Aussage, die es je gemacht hat.
-4. **Bestandsinstallationen werden gehoben.** `T:\codebase\intima` (und jedes
-   andere registrierte Projekt) zeigt nach dem Upgrade auf seine eigene
-   Installation. Die Aenderung wird sichtbar gemeldet, mit Projekt und Feld.
-5. **Der Vertrauensanker gehoert dazu.** Ein Zielprojekt vertraut nach der
-   Installation keinem Zertifikat, das im Entwicklungsbaum liegt.
-6. **Instabilitaet der AK3-Codebase ist unsichtbar.** Ein Test belegt, dass eine
-   Aenderung an den AK3-Quellen ein bereits installiertes Zielprojekt **nicht**
-   beeinflusst. Das ist die Kernzusage; ohne diesen Beleg ist die Story nicht
-   fertig.
-7. `ruff` clean, `mypy --strict` fuer `win32`, `linux`, `darwin`; alle
+1. **Kein materialisiertes Artefakt enthaelt einen Pfad ausserhalb der
+   Zielinstallation oder der Maschinen-Runtime.** Deterministischer Sweep ueber
+   **alle** siebzehn Schreiber, nicht per Sichtpruefung; die Methode wird
+   genannt. Die bekannten Selbstbezuege (`cwd`, `concepts_dir`, `stories_dir`)
+   sind ausdruecklich ausgenommen.
+2. **Der Nachweis laeuft auf einer Maschine ohne AK3-Checkout**, ohne Netzzugang
+   und ohne vorbereitete Python-Umgebung; danach gelingt ein echter Commit mit
+   aktiven Hooks. **Ein anderes Verzeichnis auf derselben Platte genuegt
+   nicht** — das beweist nur, dass beide Haelften nebeneinanderliegen.
+3. **Die Runtime ist nicht uebergriffig.** Belegt: keine System-`site-packages`
+   sichtbar, kein Eintrag ausserhalb des Benutzerbereichs, kein fremdes
+   Python-Werkzeug auf der Maschine veraendert. Das ist dieselbe Zusage, die
+   AG3-189 fuer AK3 selbst erzwungen hat — hier fuer die Runtime.
+4. **Zwei Projekte teilen eine Runtime.** Belegt an zwei Installationen auf
+   derselben Maschine: eine Runtime, zwei Projekte, beide lauffaehig.
+5. **Ein Runtime-Update wirkt einmal fuer beide** — und **verwaist keine
+   Skill-Variante**. Der Digest-Fund oben ist der Pruefstein: Nach dem Update
+   zeigt kein Link auf ein totes Variantenverzeichnis, und es bleibt keines
+   unbenannt zurueck.
+6. **Bestandsinstallationen werden gehoben**, sichtbar gemeldet mit Projekt und
+   Feld.
+7. **Instabilitaet der AK3-Codebase ist unsichtbar.** Test: Eine Aenderung an
+   den AK3-Quellen beeinflusst ein bereits installiertes Zielprojekt **nicht**.
+   Das ist die Kernzusage; ohne diesen Beleg ist die Story nicht fertig.
+8. `ruff` clean, `mypy --strict` fuer `win32`, `linux`, `darwin`; alle
    deterministischen Gates gruen; volle Suite gruen auf Jenkins; Coverage haelt
    die 85-%-Schwelle.
 
 ## Definition of Done
 
-- AC 1–7 erfuellt, jedes mit benanntem Beleg.
+- AC 1–8 erfuellt, jedes mit benanntem Beleg.
 - AC 2 ist **nicht** durch eine Simulation ersetzbar. Faellt der Lauf aus, ist
   das eine benannte Luecke mit Grund — nie „gruen".
 - Unabhaengiges Codex-Review bis zum Abbruchkriterium aus `CLAUDE.md`.
 
 ## Guardrail-Referenzen
 
-- `CLAUDE.md` §REALITAETSNACHWEIS AN FREMDSYSTEM-GRENZEN — AC 2 und AC 6
+- `CLAUDE.md` §REALITAETSNACHWEIS AN FREMDSYSTEM-GRENZEN — AC 2, AC 7
 - `CLAUDE.md` §FEHLENDES BESCHAFFEN STATT UMGEHEN — der Installer beschafft,
   die Zielmaschine nicht
-- `CLAUDE.md` §ZERO DEBT RULE — der belegte Anlassfall steht oben, samt dem
+- `CLAUDE.md` §ZERO DEBT RULE — der Anlassfall steht oben, samt dem
   `--no-verify`, zu dem wir jemanden gezwungen haben
-- `CLAUDE.md` §FAIL-CLOSED — AC 3
+- `CLAUDE.md` §FAIL-CLOSED — AC 5, keine stillen Waisen

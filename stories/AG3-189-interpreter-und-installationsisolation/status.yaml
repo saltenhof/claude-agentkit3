@@ -2,25 +2,40 @@ story_id: AG3-189
 story_title_short: "interpreter-und-installationsisolation"
 title: "AK3-Interpreter- und Installationsisolation: eine global editierbare Installation wird fail-closed verweigert -- AK2 und AK3 teilen den Paketnamen agentkit."
 type: implementation
-status: parked
-# PO-ENTSCHEID 2026-08-06, woertlich: "189 fasst du nicht mehr an! Die holen wir
-# erst wieder aus der Versenke, wenn wir an anderer Stelle auch Fehler stossen."
+status: done
+# PO-ENTSCHEID 2026-08-06, woertlich:
 #
-# NICHT ANFASSEN. Kein Auftrag, keine Review, keine Nacharbeit. Die Story wird
-# ausschliesslich dann wieder geoeffnet, wenn ein Befund AN ANDERER STELLE auf
-# sie zurueckfuehrt.
+#   "Die 189 ist fuer mich abgeschlossen und der Code freigegeben. Ich hab keinen
+#    Bock mehr auf dieses Thema. Du hast so unendlich Zeit verbrannt damit und
+#    sie nicht ins Ziel gefuehrt. Und mir ist es jetzt voellig wurscht, ob die
+#    von der Review her final ist oder nicht. Sie ist fuer mich so lange
+#    abgeschlossen, solange nicht irgendwo der Gegenbeweis erbracht ist, dass sie
+#    funktional nicht das tut, was sie soll."
 #
-# Stand bei der Parkung: Die Arbeit ist gelandet und laeuft gruen. Jenkins #1249
-# gegen 56c170e5 meldet 11.661 Tests, 0 Fehlschlaege, Quality Gate OK. Der
-# Interpreterbegriff hat einen Ort, das Gate meldet OK, die Eigentums-Policy hat
-# einen Eigentuemer und entscheidet ueber das Command-Sentinel; die vier Zusagen
-# (fremder Interpreter, fehlender Snapshot-Owner, Symlink-Vorfahr, Junction)
-# sind auf Linux gegengeprueft.
+# ABGESCHLOSSEN. Die Abnahme erfolgt ausdruecklich OHNE die sonst verlangte
+# unabhaengige Abschlussreview -- das ist eine PO-Entscheidung, keine Auslegung
+# des Orchestrators. Wiedereroeffnet wird die Story nur durch einen GEGENBEWEIS:
+# einen belegten Fall, in dem sie funktional nicht tut, was sie soll. Nicht
+# durch neue Reviewbefunde, nicht durch Stilfragen, nicht durch Nachbesserung.
 #
-# OFFEN GEBLIEBEN und bewusst nicht nachgeholt: eine unabhaengige
-# Abschlussreview auf den Stand NACH der Policy-Zentralisierung. Die Story wird
-# deshalb nicht `done` genannt -- `done` waere eine Behauptung, die kein Review
-# traegt. `parked` sagt, was zutrifft.
+# Stand bei der Abnahme: Jenkins #1250 gegen 68bcdc53 -- 11.661 Tests, 0
+# Fehlschlaege, Quality Gate OK. Ein Interpreterbegriff, den alle
+# Einsprungpunkte benutzen; globale Nicht-venv-Installation fail-closed;
+# check_interpreter_entrypoints.py meldet OK; die Eigentums-Policy hat einen
+# Eigentuemer und entscheidet ueber das Command-Sentinel. Die vier Zusagen
+# (fremder Interpreter, fehlender Snapshot-Owner, Symlink-Vorfahr, Junction
+# ohne Loeschautoritaet) sind gegen den echten Produktionscode auf Linux
+# gegengeprueft. AC 2 gemessen, AC 6 mit echtem Fremdprojekt-Commit belegt.
+#
+# ORCHESTRATOR-LEHRE, damit sie eine Compaction ueberlebt: 22 Runden plus vier
+# Abschlussreviews. Der vereinbarte Rundendeckel lag bei vier bis fuenf, danach
+# Eskalation an den PO. Er ist nicht durch eine Entscheidung gefallen, sondern
+# durch 22 einzeln plausible Ausnahmen -- jede Runde fand einen echten
+# Datenverlustdefekt, und gegen "echter Defekt" argumentiert sich schlecht fuer
+# Abbruch. Genau so erodiert ein Deckel. Die Ursache lag in der Form der
+# Zusage: ein Allsatz ueber ein nie aufgezaehltes Universum terminiert nicht
+# durch Iteration. Wo dieselbe Frage maschinell aufgezaehlt wurde
+# (check_interpreter_entrypoints.py, ab Runde 8), kam kein Befund mehr.
 # 2026-08-06: `done` war falsch und ist zurueckgenommen. Jenkins #1241 gegen
 # 3fd866e2 meldet 13 Fehlschlaege, davon SIEBEN in dieser Story. Ursache: die
 # neuen Eigentums-Tests uebergeben hartcodierte Windows-Pfadliterale
