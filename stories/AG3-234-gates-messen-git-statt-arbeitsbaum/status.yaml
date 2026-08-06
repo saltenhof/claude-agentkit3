@@ -1,0 +1,61 @@
+story_id: AG3-234
+story_title_short: "gates-messen-git-statt-arbeitsbaum"
+title: "Vier weitere Werkzeuge messen den Git-Zustand und sprechen ueber den Arbeitsbaum -- eines davon meldet falsch gruen fuer genau die Aenderungsklasse, fuer die es existiert."
+type: bugfix
+status: ready
+phase: setup
+created: "2026-08-06"
+size: M
+# Herkunft: Zusatzfrage aus AG3-232 (2026-08-06). Nachdem
+# `reference_integrity.py` als index-messend entlarvt war, lautete die Frage,
+# ob es dabei bleibt. Es bleibt nicht.
+#
+# METHODE des Sweeps (uebernommen, nicht nachzuholen): Alle neun
+# `scripts/ci/*`-Einstiege, `tools/concept_compiler/**`,
+# `tools/concept_governance/**`, `tools/concept_ingester/`, `tools/concept_mcp/`,
+# `tools/diagram_export/` und die Zielprojekt-Werkzeuge unter
+# `src/agentkit/bundles/target_project/tools/agentkit/**` wurden auf die Frage
+# geprueft, ob ihre Meldungen und Docstrings dasselbe behaupten, was sie messen.
+#
+# SAUBER GEPRUEFT UND IN ORDNUNG (auditierbares Negativergebnis): alle neun
+# scripts/ci-Einstiege; decision_record_git*.py; incubator_check.py
+# (vorbildlich -- Meldungen nennen ausdruecklich "committed blob of
+# base_revision"); promotion_check.py; check_concept_frontmatter.py;
+# check_interpreter_entrypoints.py; concept_ingester, concept_mcp,
+# diagram_export.
+#
+# VIER BEFUNDE, alle NICHT behoben:
+#
+# F1 -- exakter Klon in der Zielprojekt-Auslieferung, und schlimmer als das
+#       Original: bundles/target_project/tools/agentkit/concept_toolchain/
+#       reference_check.py. `git ls-files -z` (Z. 314-322, OHNE --others),
+#       Meldung "repo-relative path does not exist" (Z. 268), Praedikat heisst
+#       `path_exists` (Z. 69-73). Z. 314-325 macht das git-Ergebnis OPTIONAL --
+#       schlaegt der Aufruf fehl, faellt es auf Path.exists() zurueck. Derselbe
+#       Meldungstext bedeutet damit ZWEI VERSCHIEDENE PRAEDIKATE je nach
+#       Umgebung. Determinismus-Defekt obendrauf.
+#
+# F2 -- der schwerste: concept_toolchain/decision_gate.py. Docstring Z. 67-68
+#       verspricht "against base and the current working tree", gemessen wird
+#       `git diff --name-only -z <base>` (Z. 292-293). Untrackte Dateien
+#       tauchen in keinem Diff auf. Ein brandneues, nie `git add`-tes
+#       normatives Konzeptdokument ist damit UNSICHTBAR, und das Gate
+#       kurzschliesst mit "no concept documents changed" (Z. 88-90) --
+#       FALSCH GRUEN fuer genau die Aenderungsklasse, fuer die es existiert.
+#       Gegenrichtung im selben File: Z. 147-149 entscheidet die
+#       Trailer-Erfuellung per blossem `is_file()`; ein nie committeter
+#       Decision Record erfuellt damit den Trailer eines echten Commits.
+#
+# F3 -- tools/concept_governance/git_scope.py:18-19. `changed_concept_docs`
+#       verspricht "committed and working-tree Markdown changes", misst zwei
+#       `git diff --name-status` (Z. 26-45). Untrackte .md erscheinen nie
+#       (`--diff-filter=A` heisst "staged added"). Neu verfasste
+#       Konzeptdokumente fallen aus dem W2-Pre-Merge-Scope. Falsch gruen.
+#
+# F4 -- tools/concept_governance/chunks.py:20-26. `load_chunks` docstringt
+#       "working-tree chunks without an external index dependency"; im
+#       Pre-Merge-Pfad IST die Auswahl index-abgeleitet (F3 -> runner.py:41 ->
+#       hier). Propagationsstelle, kein eigenstaendiger Defekt, aber der
+#       Docstring ist unabhaengig falsch.
+depends_on: ["AG3-232"]
+unblocks: []
