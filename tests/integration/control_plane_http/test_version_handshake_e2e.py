@@ -27,7 +27,8 @@ from agentkit.backend.control_plane.models import TelemetryEventAccepted
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneSurface,
-    _build_handler,
+)
+from agentkit.backend.control_plane_http.server import (
     serve_control_plane,
 )
 from agentkit.backend.control_plane_http.version_handshake import (
@@ -36,6 +37,9 @@ from agentkit.backend.control_plane_http.version_handshake import (
     CompatWindow,
     VersionAxisWindow,
     VersionHandshakeMiddleware,
+)
+from agentkit.backend.control_plane_http.wire_adapter import (
+    _build_handler,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.harness_client.projectedge.client import HttpsJsonTransport
@@ -357,12 +361,12 @@ def test_serve_control_plane_app_none_is_handshake_gated(
         return real_build_handler(app, surface)
 
     monkeypatch.setattr(
-        "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
+        "agentkit.backend.control_plane_http.server.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
     _wire_held_test_lease(monkeypatch)
     monkeypatch.setattr(
-        "agentkit.backend.control_plane_http.app._build_handler",
+        "agentkit.backend.control_plane_http.server._build_handler",
         _spy_build_handler,
     )
 
@@ -397,7 +401,7 @@ def test_serve_control_plane_gates_injected_ungated_app_over_socket(
     assert ungated._version_handshake is None  # precondition: would be fail-open
 
     monkeypatch.setattr(
-        "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
+        "agentkit.backend.control_plane_http.server.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
     _wire_held_test_lease(monkeypatch)
@@ -445,7 +449,7 @@ def test_auth_login_without_handshake_works_through_production_wiring(
 ) -> None:
     """Item 1/8: POST /v1/auth/login without X-AK3-* is NOT 426 through production wiring."""
     monkeypatch.setattr(
-        "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
+        "agentkit.backend.control_plane_http.server.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
     _wire_held_test_lease(monkeypatch)

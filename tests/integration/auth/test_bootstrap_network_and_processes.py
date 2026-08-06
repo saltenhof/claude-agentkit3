@@ -32,11 +32,15 @@ from agentkit.backend.cli.main import main
 from agentkit.backend.control_plane.http import ControlPlaneApplication
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplicationRoutes,
-    _build_handler,
+)
+from agentkit.backend.control_plane_http.server import (
     serve_control_plane,
 )
 from agentkit.backend.control_plane_http.third_party_validation_routes import (
     ThirdPartyValidationRoutes,
+)
+from agentkit.backend.control_plane_http.wire_adapter import (
+    _build_handler,
 )
 from agentkit.backend.installer.bounded_executor import BoundedThreadExecutor
 from agentkit.backend.installer.third_party_clients import (

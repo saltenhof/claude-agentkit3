@@ -7,16 +7,14 @@ from typing import TYPE_CHECKING, Any
 from agentkit.backend.exceptions import OwnershipFenceViolationError
 
 from ._connection import _connect_global
-from ._control_plane_rows import (
-    _insert_story_execution_lock_row,
-    _write_takeover_binding_rows,
-)
+from ._control_plane_rows import _insert_story_execution_lock_row
 from ._mutation_commit_rows import (
     _conditional_upsert_control_plane_op_row,
     _enforce_blocking_freeze_row,
 )
 from ._ownership_rows import _insert_run_ownership_record_row
 from ._runtime_rows import _insert_execution_event_row
+from ._takeover_rows import _write_takeover_binding_rows
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

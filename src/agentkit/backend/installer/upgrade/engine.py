@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.installer.upgrade.cleanup import CleanupOutcome, CleanupPlan
+    from agentkit.backend.installer.upgrade.config_migration import ConfigMigrationPlan
     from agentkit.backend.installer.upgrade.hook_migration import (
         GitHookMigrationOutcome,
         HookMigrationOutcome,
@@ -370,96 +371,154 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
         Path(CONFIG_DIR) / PROJECT_CONFIG_FILE,
     )
     if context.run_state.config_migration_resume_detected:
-        current_witness = completed_config_migration_witness(
-            config_path,
-            context.run_state.registered_config_digest_at_detection or "",
-            req.target_config_version,
-        )
-        if (
-            current_witness is None
-            or current_witness.behavior_changes
-            != context.run_state.config_migration_behavior_changes
-        ):
-            raise ConfigMigrationError(
-                "Interrupted config-migration witness changed after upgrade "
-                "detection; refusing backup, rewrite, or digest persistence "
-                "fail-closed.",
-                detail={"config_path": str(config_path)},
-            )
+        _assert_resume_witness_unchanged(context, config_path)
     if not config_path.is_file():
-        if context.run_state.config_digest_at_detection is not None:
-            raise ConfigMigrationError(
-                "project.yaml disappeared or became a non-file after upgrade "
-                "detection; refusing digest persistence fail-closed.",
-                detail={
-                    "detected_digest": context.run_state.config_digest_at_detection,
-                    "config_path": str(config_path),
-                },
-            )
-        return _result(
-            UP_03_MIGRATE_CONFIG,
-            status=CheckpointStatus.SKIPPED,
-            detail="No on-disk project.yaml; nothing to migrate.",
-            reason="no_on_disk_config",
-            start=start,
-        )
+        return _absent_config_result(context, config_path, start=start)
     migration_plan = prepare_config_migration(
         config_path,
         req.target_config_version,
         expected_digest=context.run_state.config_digest_at_detection,
     )
     vectordb_migration_planned = migration_plan.mandatory_vectordb_enabled
+    if not migration_plan.needs_migration:
+        return _unmigrated_config_result(context, start=start)
+    if not context.mode.mutations_allowed:
+        context.run_state.config_target_version = req.target_config_version
+        return _planned_migration_result(
+            context,
+            vectordb_migration_planned=vectordb_migration_planned,
+            start=start,
+        )
+    return _apply_config_migration(
+        context,
+        migration_plan,
+        vectordb_migration_planned=vectordb_migration_planned,
+        start=start,
+    )
+
+
+def _assert_resume_witness_unchanged(
+    context: UpgradeRunContext,
+    config_path: Path,
+) -> None:
+    """Fail closed unless the interrupted migration's backup witness still matches."""
+    current_witness = completed_config_migration_witness(
+        config_path,
+        context.run_state.registered_config_digest_at_detection or "",
+        context.request.target_config_version,
+    )
+    if (
+        current_witness is None
+        or current_witness.behavior_changes
+        != context.run_state.config_migration_behavior_changes
+    ):
+        raise ConfigMigrationError(
+            "Interrupted config-migration witness changed after upgrade "
+            "detection; refusing backup, rewrite, or digest persistence "
+            "fail-closed.",
+            detail={"config_path": str(config_path)},
+        )
+
+
+def _absent_config_result(
+    context: UpgradeRunContext,
+    config_path: Path,
+    *,
+    start: float,
+) -> CheckpointResult:
+    """Report a missing project.yaml -- unless detection had already digested one."""
+    if context.run_state.config_digest_at_detection is not None:
+        raise ConfigMigrationError(
+            "project.yaml disappeared or became a non-file after upgrade "
+            "detection; refusing digest persistence fail-closed.",
+            detail={
+                "detected_digest": context.run_state.config_digest_at_detection,
+                "config_path": str(config_path),
+            },
+        )
+    return _result(
+        UP_03_MIGRATE_CONFIG,
+        status=CheckpointStatus.SKIPPED,
+        detail="No on-disk project.yaml; nothing to migrate.",
+        reason="no_on_disk_config",
+        start=start,
+    )
+
+
+def _unmigrated_config_result(
+    context: UpgradeRunContext,
+    *,
+    start: float,
+) -> CheckpointResult:
+    """Report a config already at the target shape, resumed VectorDB switch included."""
+    req = context.request
     vectordb_migration_resumed = (
         ConfigBehaviorChange.MANDATORY_VECTORDB_ENABLED
         in context.run_state.config_migration_behavior_changes
     )
-    needs_migration = migration_plan.needs_migration
-    if not needs_migration:
-        if vectordb_migration_resumed:
-            resume_action = (
-                "digest persistence resumes"
-                if context.mode.mutations_allowed
-                else "digest persistence requires register mode"
-            )
-            return _result(
-                UP_03_MIGRATE_CONFIG,
-                status=CheckpointStatus.PASS,
-                detail=(
-                    f"Project {req.project_key!r} at {req.project_root}: "
-                    "pipeline.features.vectordb changed from false to true; "
-                    "VectorDB is mandatory, so the interrupted upgrade changed "
-                    "project behavior from disabled to enabled. Exact backup "
-                    f"witness verified; {resume_action}."
-                ),
-                start=start,
-            )
+    if not vectordb_migration_resumed:
         return _result(
             UP_03_MIGRATE_CONFIG,
             status=CheckpointStatus.PASS,
             detail="config already at target shape and version; no migration.",
             start=start,
         )
-    if not context.mode.mutations_allowed:
-        context.run_state.config_target_version = req.target_config_version
-        return _result(
-            UP_03_MIGRATE_CONFIG,
-            status=CheckpointStatus.SKIPPED,
-            detail=(
-                (
-                    f"Project {req.project_key!r} at {req.project_root}: would "
-                    "change pipeline.features.vectordb from false to true; "
-                    "VectorDB is mandatory, so this upgrade would change "
-                    "project behavior from disabled to enabled. "
-                    if vectordb_migration_planned
-                    else ""
-                )
-                + "[plan] Would write `.bak`, repair retired config values, "
-                f"and migrate config to {req.target_config_version} (no "
-                "mutation in read-only mode)."
-            ),
-            reason="planned_no_mutation",
-            start=start,
+    resume_action = (
+        "digest persistence resumes"
+        if context.mode.mutations_allowed
+        else "digest persistence requires register mode"
+    )
+    return _result(
+        UP_03_MIGRATE_CONFIG,
+        status=CheckpointStatus.PASS,
+        detail=(
+            f"Project {req.project_key!r} at {req.project_root}: "
+            "pipeline.features.vectordb changed from false to true; "
+            "VectorDB is mandatory, so the interrupted upgrade changed "
+            "project behavior from disabled to enabled. Exact backup "
+            f"witness verified; {resume_action}."
+        ),
+        start=start,
+    )
+
+
+def _planned_migration_result(
+    context: UpgradeRunContext,
+    *,
+    vectordb_migration_planned: bool,
+    start: float,
+) -> CheckpointResult:
+    """Report the read-only migration plan without touching the config."""
+    req = context.request
+    behavior_change_note = ""
+    if vectordb_migration_planned:
+        behavior_change_note = (
+            f"Project {req.project_key!r} at {req.project_root}: would "
+            "change pipeline.features.vectordb from false to true; "
+            "VectorDB is mandatory, so this upgrade would change "
+            "project behavior from disabled to enabled. "
         )
+    return _result(
+        UP_03_MIGRATE_CONFIG,
+        status=CheckpointStatus.SKIPPED,
+        detail=behavior_change_note
+        + "[plan] Would write `.bak`, repair retired config values, "
+        f"and migrate config to {req.target_config_version} (no "
+        "mutation in read-only mode).",
+        reason="planned_no_mutation",
+        start=start,
+    )
+
+
+def _apply_config_migration(
+    context: UpgradeRunContext,
+    migration_plan: ConfigMigrationPlan,
+    *,
+    vectordb_migration_planned: bool,
+    start: float,
+) -> CheckpointResult:
+    """Write the `.bak`, migrate the config, and record what the upgrade changed."""
+    req = context.request
     migrated = migrate_config_file(migration_plan)
     context.run_state.config_migrated = migrated
     if migrated:
@@ -470,24 +529,39 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
     return _result(
         UP_03_MIGRATE_CONFIG,
         status=CheckpointStatus.UPDATED if migrated else CheckpointStatus.PASS,
-        detail=(
-            (
-                f"Project {req.project_key!r} at {req.project_root}: changed "
-                "pipeline.features.vectordb from false to true; VectorDB is "
-                "mandatory, so this upgrade changed project behavior from "
-                "disabled to enabled. Migrated config shape and version to "
-                f"{req.target_config_version} (.bak written)."
-            )
-            if migrated
-            and vectordb_migration_planned
-            else (
-                "Migrated config shape and version to "
-                f"{req.target_config_version} (.bak written)."
-                if migrated
-                else "config already current; no migration."
-            )
+        detail=_migration_detail(
+            req.project_key,
+            str(req.project_root),
+            req.target_config_version,
+            migrated=migrated,
+            vectordb_migration_planned=vectordb_migration_planned,
         ),
         start=start,
+    )
+
+
+def _migration_detail(
+    project_key: str,
+    project_root: str,
+    target_config_version: str,
+    *,
+    migrated: bool,
+    vectordb_migration_planned: bool,
+) -> str:
+    """Describe what the migration did, naming a VectorDB behavior change first."""
+    if not migrated:
+        return "config already current; no migration."
+    if vectordb_migration_planned:
+        return (
+            f"Project {project_key!r} at {project_root}: changed "
+            "pipeline.features.vectordb from false to true; VectorDB is "
+            "mandatory, so this upgrade changed project behavior from "
+            "disabled to enabled. Migrated config shape and version to "
+            f"{target_config_version} (.bak written)."
+        )
+    return (
+        "Migrated config shape and version to "
+        f"{target_config_version} (.bak written)."
     )
 
 

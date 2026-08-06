@@ -50,8 +50,8 @@ from agentkit.backend.verify_system.evidence.request_types import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
     from agentkit.backend.control_plane.models import CommandErrorResult
-    from agentkit.backend.control_plane.repository import EdgeCommandRepository
     from agentkit.backend.verify_system.evidence.preflight_sender import PreflightReviewSender
     from agentkit.backend.verify_system.structural.system_evidence import (
         ChangeEvidence,

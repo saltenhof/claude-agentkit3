@@ -15,8 +15,8 @@ from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     HttpResponse,
-    serve_control_plane,
 )
+from agentkit.backend.control_plane_http.server import serve_control_plane
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 
 __all__ = [

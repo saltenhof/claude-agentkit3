@@ -1398,7 +1398,7 @@ def test_serve_control_plane_runs_and_closes_server(monkeypatch: pytest.MonkeyPa
         def server_close(self) -> None:
             captured["closed"] = int(captured["closed"]) + 1
 
-    monkeypatch.setattr("agentkit.backend.control_plane_http.app.ThreadingHTTPSServer", _FakeServer)
+    monkeypatch.setattr("agentkit.backend.control_plane_http.server.ThreadingHTTPSServer", _FakeServer)
 
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
@@ -1439,7 +1439,7 @@ def test_serve_control_plane_rejects_startup_hook_lease_substitution(
             constructed = True
 
     monkeypatch.setattr(
-        "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
+        "agentkit.backend.control_plane_http.server.ThreadingHTTPSServer",
         _NeverServer,
     )
 
@@ -1511,7 +1511,7 @@ def test_serve_control_plane_does_not_start_when_startup_hook_fails(
         def server_close(self) -> None:  # pragma: no cover - must never run
             pass
 
-    monkeypatch.setattr("agentkit.backend.control_plane_http.app.ThreadingHTTPSServer", _NeverServer)
+    monkeypatch.setattr("agentkit.backend.control_plane_http.server.ThreadingHTTPSServer", _NeverServer)
 
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),

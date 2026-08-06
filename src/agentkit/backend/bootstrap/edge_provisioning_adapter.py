@@ -56,8 +56,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.backend.code_backend.provider_port import CodeBackendPort
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
     from agentkit.backend.control_plane.repository import (
-        EdgeCommandRepository,
         RunOwnershipRepository,
         TakeoverTransferRepository,
     )
@@ -476,8 +476,8 @@ def build_setup_edge_provisioning_coordinator(
     """
     from agentkit.backend.code_backend.git_protocol import GitLsRemoteReader
     from agentkit.backend.config.loader import load_project_config
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
     from agentkit.backend.control_plane.repository import (
-        EdgeCommandRepository,
         RunOwnershipRepository,
         TakeoverTransferRepository,
     )

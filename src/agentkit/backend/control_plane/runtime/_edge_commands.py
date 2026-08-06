@@ -60,9 +60,9 @@ from ._verify_evidence_results import verify_evidence_result_matches_command
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
     from agentkit.backend.control_plane.repository import (
         ControlPlaneRuntimeRepository,
-        EdgeCommandRepository,
     )
 
 logger = logging.getLogger(__name__)

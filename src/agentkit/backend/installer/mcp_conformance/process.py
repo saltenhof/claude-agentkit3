@@ -87,24 +87,36 @@ def resolve_command(command: str, *, cwd: str | Path | None) -> str | None:
     Generic non-AK3 MCP commands retain the conformance check's existing CWD/PATH
     lookup contract.
     """
-    import shutil
-
     if not command or not command.strip():
         return None
 
     candidate = Path(command)
-    if not candidate.is_absolute():
-        selector = candidate.name.casefold()
-        if selector.endswith(".exe"):
-            selector = selector[:-4]
-        if selector in {"python", "python3", "agentkit"} or selector.startswith(
-            "agentkit-"
-        ):
-            return None
+    if not candidate.is_absolute() and _names_ak3_owned_executable(candidate):
+        return None
 
     base = Path(cwd) if cwd is not None else Path.cwd()
     if candidate.is_absolute():
         return str(candidate) if candidate.is_file() else None
+    return _resolve_relative_command(command, candidate, base)
+
+
+def _names_ak3_owned_executable(candidate: Path) -> bool:
+    """Return whether a RELATIVE command selects an AK3 wrapper or a Python.
+
+    Resolving such a selector through CWD or ``PATH`` is exactly the substitution
+    CP 10 must prevent, so the selector is rejected instead of resolved.
+    """
+    selector = candidate.name.casefold()
+    if selector.endswith(".exe"):
+        selector = selector[:-4]
+    return selector in {"python", "python3", "agentkit"} or selector.startswith(
+        "agentkit-"
+    )
+
+
+def _resolve_relative_command(command: str, candidate: Path, base: Path) -> str | None:
+    """Apply the conformance check's CWD-then-PATH lookup for a foreign command."""
+    import shutil
 
     has_sep = os.sep in command or (os.altsep is not None and os.altsep in command)
     if has_sep or command.startswith("."):

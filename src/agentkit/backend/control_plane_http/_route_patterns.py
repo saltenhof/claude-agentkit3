@@ -120,3 +120,11 @@ _PROJECT_DASHBOARD_BOARD = re.compile(
 _PROJECT_DASHBOARD_STORY_METRICS = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/dashboard/story-metrics$",
 )
+
+# AG3-229: the project-credential transition surface. Requests matching it are
+# serialized by the application's credential-transition lock; the pattern lives
+# here with its siblings so ``app.py``'s executed top-level stays lean.
+_PROJECT_CREDENTIAL_TRANSITION_PATH = re.compile(
+    r"^/v1/projects(?:$|/[^/]+/(?:api-tokens(?:/[^/]+)?|"
+    r"installation/third-party-validation))$",
+)

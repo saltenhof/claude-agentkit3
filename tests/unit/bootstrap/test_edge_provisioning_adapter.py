@@ -27,6 +27,7 @@ from agentkit.backend.code_backend.provider_port import (
     StoryRefWriteCredentialClass,
     StoryRefWriteCredentialResult,
 )
+from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 from agentkit.backend.control_plane.ownership import OwnershipAcquisition, OwnershipStatus
 from agentkit.backend.control_plane.records import (
     EdgeCommandRecord,
@@ -34,7 +35,6 @@ from agentkit.backend.control_plane.records import (
     TakeoverTransferRecord,
 )
 from agentkit.backend.control_plane.repository import (
-    EdgeCommandRepository,
     RunOwnershipRepository,
     TakeoverTransferRepository,
 )

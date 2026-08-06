@@ -12,6 +12,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.installer.cp7_project_registration import (
+    _run_cp7_state_backend_registration,
+)
 from agentkit.backend.installer.registration import (
     CP7_STATE_BACKEND_REGISTRATION,
     REASON_CONFIG_DIGEST_UNCHANGED,
@@ -24,7 +27,6 @@ from agentkit.backend.installer.registration import (
 from agentkit.backend.installer.runner import (
     InstallConfig,
     _canonical_config_digest,
-    _run_cp7_state_backend_registration,
 )
 
 

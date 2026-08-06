@@ -49,6 +49,9 @@ def cp07_backend_registration(context: CheckpointContext) -> CheckpointResult:
     writing. A missing/invalid coordinate is still FAILED (the precondition
     holds in every mode).
     """
+    from agentkit.backend.installer.cp7_project_registration import (
+        _run_cp7_state_backend_registration,
+    )
     from agentkit.backend.installer.github_coordinates import validate_github_coordinate
     from agentkit.backend.installer.registration import (
         CP7_STATE_BACKEND_REGISTRATION,
@@ -59,7 +62,6 @@ def cp07_backend_registration(context: CheckpointContext) -> CheckpointResult:
         PROJECT_CONFIG_VERSION,
         _canonical_config_digest,
         _resolve_registration_repo,
-        _run_cp7_state_backend_registration,
     )
 
     config = context.config

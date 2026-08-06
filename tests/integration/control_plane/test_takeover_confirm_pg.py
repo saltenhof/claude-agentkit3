@@ -34,6 +34,7 @@ from agentkit.backend.config.models import (
     SonarQubeConfig,
 )
 from agentkit.backend.control_plane import object_claims as oc
+from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 from agentkit.backend.control_plane.edge_commands import edge_command_id
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
@@ -87,7 +88,6 @@ from agentkit.backend.control_plane.records import (
 )
 from agentkit.backend.control_plane.repository import (
     ControlPlaneRuntimeRepository,
-    EdgeCommandRepository,
     ObjectMutationClaimRepository,
 )
 from agentkit.backend.control_plane.runtime import (

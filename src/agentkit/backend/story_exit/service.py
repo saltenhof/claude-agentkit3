@@ -16,7 +16,10 @@ from agentkit.backend.control_plane.ownership import (
     BindingRevocationReason,
     BindingStatus,
 )
-from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
+from agentkit.backend.control_plane.records import (
+    ControlPlaneOperationRecord,
+    SessionRunBindingRecord,
+)
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.governance.principal_capabilities.principals import Principal
 from agentkit.backend.story_exit.models import (
@@ -496,45 +499,15 @@ class StoryExitService:
         now: datetime,
     ) -> str:
         existing_operation = self._repo.load_operation(record.exit_id)
-        if existing_operation is not None and not (
-            existing_operation.status in {"claimed", "committed"}
-            and existing_operation.operation_kind == "story_exit"
-            and existing_operation.project_key == request.project_key
-            and existing_operation.story_id == request.story_id
-            and existing_operation.run_id == request.run_id
-        ):
-            raise StoryExitError("story exit collides with a foreign operation")
-        binding = self._repo.load_binding(request.session_id)
-        if binding is None:
-            raise StoryExitError("story exit teardown requires the active binding")
-        if (
-            binding.project_key == request.project_key
-            and binding.story_id == request.story_id
-            and binding.run_id == request.run_id
-        ):
-            worktree_roots = binding.worktree_roots
-            binding_version = binding.binding_version
-        else:
-            raise StoryExitError("story exit teardown refused: binding collision")
+        self._assert_operation_is_this_exit(existing_operation, request)
+        binding = self._load_own_binding(request)
+        worktree_roots = binding.worktree_roots
+        binding_version = binding.binding_version
         if (
             binding.status == BindingStatus.REVOKED.value
             and binding.revocation_reason == BindingRevocationReason.STORY_ENDED.value
         ):
-            if existing_operation is None:
-                raise StoryExitError(
-                    "story exit replay requires its committed operation marker"
-                )
-            existing_lock = self._repo.load_lock(
-                request.project_key,
-                request.story_id,
-                request.run_id,
-                "story_execution",
-            )
-            if existing_lock is None:
-                raise StoryExitError("story exit replay requires the inactive lock")
-            from agentkit.backend.control_plane.runtime import _resolve_operating_mode
-
-            return _resolve_operating_mode(binding=binding, lock=existing_lock)
+            return self._replay_operating_mode(request, binding, existing_operation)
         if binding.status != BindingStatus.ACTIVE.value:
             raise StoryExitError("story exit teardown refused: binding is not active")
         disown_plan = build_disown_plan(
@@ -617,6 +590,60 @@ class StoryExitService:
         from agentkit.backend.control_plane.runtime import _resolve_operating_mode
 
         return _resolve_operating_mode(binding=disown_plan.revoked_binding, lock=lock)
+
+    @staticmethod
+    def _assert_operation_is_this_exit(
+        existing_operation: ControlPlaneOperationRecord | None,
+        request: StoryExitRequest,
+    ) -> None:
+        """Reject an exit-id marker that belongs to a different operation."""
+        if existing_operation is None:
+            return
+        if (
+            existing_operation.status in {"claimed", "committed"}
+            and existing_operation.operation_kind == "story_exit"
+            and existing_operation.project_key == request.project_key
+            and existing_operation.story_id == request.story_id
+            and existing_operation.run_id == request.run_id
+        ):
+            return
+        raise StoryExitError("story exit collides with a foreign operation")
+
+    def _load_own_binding(self, request: StoryExitRequest) -> SessionRunBindingRecord:
+        """Load the session binding and prove it names this exit's own run."""
+        binding = self._repo.load_binding(request.session_id)
+        if binding is None:
+            raise StoryExitError("story exit teardown requires the active binding")
+        if (
+            binding.project_key != request.project_key
+            or binding.story_id != request.story_id
+            or binding.run_id != request.run_id
+        ):
+            raise StoryExitError("story exit teardown refused: binding collision")
+        return binding
+
+    def _replay_operating_mode(
+        self,
+        request: StoryExitRequest,
+        binding: SessionRunBindingRecord,
+        existing_operation: ControlPlaneOperationRecord | None,
+    ) -> str:
+        """Re-derive the operating mode of an exit whose teardown already committed."""
+        if existing_operation is None:
+            raise StoryExitError(
+                "story exit replay requires its committed operation marker"
+            )
+        existing_lock = self._repo.load_lock(
+            request.project_key,
+            request.story_id,
+            request.run_id,
+            "story_execution",
+        )
+        if existing_lock is None:
+            raise StoryExitError("story exit replay requires the inactive lock")
+        from agentkit.backend.control_plane.runtime import _resolve_operating_mode
+
+        return _resolve_operating_mode(binding=binding, lock=existing_lock)
 
     def _acquire_claim(
         self,

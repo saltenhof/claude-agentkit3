@@ -49,6 +49,7 @@ from agentkit.backend.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
+from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 from agentkit.backend.control_plane.edge_commands import edge_command_id
 from agentkit.backend.control_plane.models import EdgeCommandView
 from agentkit.backend.control_plane.ownership import OwnershipAcquisition, OwnershipStatus
@@ -57,7 +58,6 @@ from agentkit.backend.control_plane.records import (
     RunOwnershipRecord,
 )
 from agentkit.backend.control_plane.repository import (
-    EdgeCommandRepository,
     RunOwnershipRepository,
     TakeoverTransferRepository,
 )

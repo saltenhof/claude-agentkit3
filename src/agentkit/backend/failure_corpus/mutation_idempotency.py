@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     IdempotencyRequest,
@@ -32,7 +32,6 @@ class FailureCorpusMutationResponse(Protocol):
         ...
 
 
-_ResponseT = TypeVar("_ResponseT", bound=FailureCorpusMutationResponse)
 _OPERATIONS = frozenset(
     {
         "add_incident",
@@ -49,7 +48,7 @@ class FailureCorpusMutationCoordinator:
     def __init__(self, guard: InflightIdempotencyGuard | None = None) -> None:
         self._guard = guard
 
-    def run(
+    def run[ResponseT: FailureCorpusMutationResponse](
         self,
         *,
         operation: str,
@@ -59,10 +58,10 @@ class FailureCorpusMutationCoordinator:
         request_body: dict[str, object],
         session_id: str,
         correlation_id: str,
-        mutate: Callable[[], _ResponseT],
-        replay: Callable[[dict[str, object]], _ResponseT],
-        conflict: Callable[[str, str, dict[str, object]], _ResponseT],
-    ) -> _ResponseT:
+        mutate: Callable[[], ResponseT],
+        replay: Callable[[dict[str, object]], ResponseT],
+        conflict: Callable[[str, str, dict[str, object]], ResponseT],
+    ) -> ResponseT:
         """Run the owner mutation under the shared op-id/claim mechanism."""
 
         if operation not in _OPERATIONS:

@@ -754,28 +754,51 @@ def _remove_owned_hook(
 
 
 def _has_inline_comment(item: object) -> bool:
-    """Return whether a tomlkit item or one of its descendants has a comment."""
-    trivia = getattr(item, "trivia", None)
-    if bool(getattr(trivia, "comment", "")):
+    """Return whether a tomlkit item or one of its descendants has a comment.
+
+    A single foreign comment anywhere below a value withdraws AK3's authority to
+    delete that value, so the traversal must reach every container kind: the
+    node's own trivia, a TOML array's value groups and elements, and a table's
+    children.
+    """
+    if _carries_own_comment(item):
         return True
     if isinstance(item, list):
-        groups = getattr(item, "_value", ())
-        if any(getattr(group, "comment", None) is not None for group in groups):
-            return True
-        item_method = getattr(item, "item", None)
-        for index, value in enumerate(item):
-            child = item_method(index) if callable(item_method) else value
-            if _has_inline_comment(child):
-                return True
-        return False
-    if not isinstance(item, dict):
-        return False
-    item_method = getattr(item, "item", None)
-    for key, value in item.items():
-        child = item_method(key) if callable(item_method) else value
-        if _has_inline_comment(child):
-            return True
+        return _array_carries_comment(item)
+    if isinstance(item, dict):
+        return _table_carries_comment(item)
     return False
+
+
+def _carries_own_comment(item: object) -> bool:
+    """Return whether the node's own tomlkit trivia records a comment."""
+    trivia = getattr(item, "trivia", None)
+    return bool(getattr(trivia, "comment", ""))
+
+
+def _child_item(container: object, key: object, plain_value: object) -> object:
+    """Return the tomlkit-wrapped child, or the plain value for a bare container."""
+    item_method = getattr(container, "item", None)
+    return item_method(key) if callable(item_method) else plain_value
+
+
+def _array_carries_comment(array: list[object]) -> bool:
+    """Return whether a TOML array's value groups or elements carry a comment."""
+    groups = getattr(array, "_value", ())
+    if any(getattr(group, "comment", None) is not None for group in groups):
+        return True
+    return any(
+        _has_inline_comment(_child_item(array, index, value))
+        for index, value in enumerate(array)
+    )
+
+
+def _table_carries_comment(table: dict[object, object]) -> bool:
+    """Return whether any child of a TOML table carries a comment."""
+    return any(
+        _has_inline_comment(_child_item(table, key, value))
+        for key, value in table.items()
+    )
 
 
 def _remove_owned_servers(

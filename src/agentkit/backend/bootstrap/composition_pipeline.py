@@ -111,7 +111,7 @@ def build_pipeline_handler_registry(
         from agentkit.backend.bootstrap.composition_verify import (
             build_change_evidence_port,
         )
-        from agentkit.backend.control_plane.repository import EdgeCommandRepository
+        from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
         from agentkit.backend.verify_system.evidence.edge_preparation import (
             VerifyEvidencePreparationCoordinator,
         )

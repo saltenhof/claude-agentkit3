@@ -288,11 +288,7 @@ def _load_required_installer_credential(
         except CredentialMissingError:
             pending = None
         if pending is not None:
-            is_initial_pending_state = (
-                pending.status == "pending"
-                and pending.superseded_token_id is None
-            )
-            if pending.project_key != project_key or not is_initial_pending_state:
+            if pending.project_key != project_key or not _is_initial_pending_state(pending):
                 raise CredentialStateError(
                     "Pending project credential cannot initialize this project",
                 ) from None
@@ -305,12 +301,18 @@ def _load_required_installer_credential(
     try:
         pending = load_pending_project_credentials(credential_path)
     except CredentialMissingError:
-        return active
-    if pending.model_copy(update={"status": "active"}) != active:
+        pending = None
+    if pending is not None and pending.model_copy(update={"status": "active"}) != active:
         raise CredentialStateError(
             "Active and pending project credentials describe different issuances",
         )
     return active
+
+
+def _is_initial_pending_state(pending: ProjectCredentialFile) -> bool:
+    """Return whether a pending credential is a first issuance, not a rotation."""
+
+    return pending.status == "pending" and pending.superseded_token_id is None
 
 
 def provision_installer_project_token(

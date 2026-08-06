@@ -109,24 +109,55 @@ class AuthMiddleware:
         project_key = _project_key_from_path(route_path) or headers.get("x-project-key")
         bearer = _bearer_token(headers)
         if bearer is not None:
-            if project_key is None:
-                return _unauthorized_response(correlation_id)
-            try:
-                token = validate_project_api_token(
-                    plaintext_token=bearer,
-                    project_key=project_key,
-                    repository=self._token_repository,
-                )
-            except ProjectMismatchError:
-                return _forbidden_response(correlation_id)
-            except AuthFailedError:
-                return _unauthorized_response(correlation_id)
-            return AuthResult(
-                auth_kind="project_api_token",
+            return self._authorize_project_api_token(
+                bearer,
                 project_key=project_key,
-                token_id=token.token_id,
+                correlation_id=correlation_id,
             )
+        return self._authorize_strategist_session(
+            headers,
+            method=method,
+            route_path=route_path,
+            project_key=project_key,
+            correlation_id=correlation_id,
+        )
 
+    def _authorize_project_api_token(
+        self,
+        bearer: str,
+        *,
+        project_key: str | None,
+        correlation_id: str,
+    ) -> AuthResult | AuthMiddlewareResponse:
+        """Authorize a machine principal against its own project's token."""
+        if project_key is None:
+            return _unauthorized_response(correlation_id)
+        try:
+            token = validate_project_api_token(
+                plaintext_token=bearer,
+                project_key=project_key,
+                repository=self._token_repository,
+            )
+        except ProjectMismatchError:
+            return _forbidden_response(correlation_id)
+        except AuthFailedError:
+            return _unauthorized_response(correlation_id)
+        return AuthResult(
+            auth_kind="project_api_token",
+            project_key=project_key,
+            token_id=token.token_id,
+        )
+
+    def _authorize_strategist_session(
+        self,
+        headers: Mapping[str, str],
+        *,
+        method: str,
+        route_path: str,
+        project_key: str | None,
+        correlation_id: str,
+    ) -> AuthResult | AuthMiddlewareResponse:
+        """Authorize a human principal: session, CSRF, then the first-credential gate."""
         session_id = _session_cookie(headers)
         if session_id is None:
             return _unauthorized_response(correlation_id)
@@ -136,24 +167,29 @@ class AuthMiddleware:
             return _unauthorized_response(correlation_id)
         if method.upper() in _MUTATING_METHODS and not _csrf_matches(headers, session.csrf_token):
             return _forbidden_response(correlation_id)
-        first_credential_match = _FIRST_CREDENTIAL_INSTALLER_PATH.match(route_path)
-        if first_credential_match is not None:
-            # The narrow strategist exception exists only before the first
-            # server-side project credential.  Once any token exists, even a
-            # valid strategist session cannot pass this machine-facing route.
-            # The current registration flow stores and activates its handed-off
-            # project token first, so productive register-project calls use the
-            # normal bearer path and never depend on this exception.
-            tokens = self._token_repository.list_for_project(
-                first_credential_match.group("project_key"),
-            )
-            if tokens:
-                return _forbidden_response(correlation_id)
+        if self._first_credential_exception_spent(route_path):
+            return _forbidden_response(correlation_id)
         return AuthResult(
             auth_kind="strategist_session",
             project_key=project_key,
             session_id=session.session_id,
         )
+
+    def _first_credential_exception_spent(self, route_path: str) -> bool:
+        """Return whether the machine-facing route already has a project credential."""
+        # The narrow strategist exception exists only before the first
+        # server-side project credential.  Once any token exists, even a
+        # valid strategist session cannot pass this machine-facing route.
+        # The current registration flow stores and activates its handed-off
+        # project token first, so productive register-project calls use the
+        # normal bearer path and never depend on this exception.
+        first_credential_match = _FIRST_CREDENTIAL_INSTALLER_PATH.match(route_path)
+        if first_credential_match is None:
+            return False
+        tokens = self._token_repository.list_for_project(
+            first_credential_match.group("project_key"),
+        )
+        return bool(tokens)
 
     def _authorize_logout(
         self,

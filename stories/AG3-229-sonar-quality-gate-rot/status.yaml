@@ -1,0 +1,32 @@
+story_id: AG3-229
+story_title_short: "sonar-quality-gate-rot"
+title: "Der Sonar-Quality-Gate ist rot: 28 neue Befunde, davon 1 Blocker und 18 kritische -- die einzige verbleibende Huerde fuer einen gruenen main."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-06"
+size: M
+# Herkunft: Jenkins #1246 gegen 41c78975, 2026-08-06.
+#
+# LAGE: Der Build ist FAILURE bei NULL Testfehlschlaegen. 11.637 Tests gruen,
+# beide Teststufen erstmals seit dem 5. August vollstaendig durch, Coverage
+# 90,69 %, alle sechs deterministischen Konzept-Gates gruen,
+# Referenzintegritaet 0 Fehler. Es scheitert ausschliesslich der
+# SonarQube-Quality-Gate:
+#
+#   new_coverage                   OK     89,8 %  (Schwelle 80)
+#   new_duplicated_lines_density   OK     0,34 %  (Schwelle 3)
+#   new_security_hotspots_reviewed OK     100 %
+#   new_critical_violations        ERROR  18      (Schwelle 0)
+#   new_violations                 ERROR  28      (Schwelle 0)
+#
+# HERKUNFT DER BEFUNDE: Sie stammen ueberwiegend aus dem Sammelcommit
+# 3fd866e2, der den seit AG3-179 ungeteilt gewachsenen Arbeitsbaum auf einmal
+# gelandet hat (366 Dateien). Deshalb liegen sie quer ueber die Arbeit
+# mehrerer Storys und gehoeren keiner davon allein -- daher eine eigene Story.
+#
+# DAS UNIVERSUM IST VOLLSTAENDIG AUFGEZAEHLT: 28 Befunde mit Datei, Zeile,
+# Regel und Meldung, in story.md. Das ist der ausdrueckliche Unterschied zu
+# AG3-189, wo eine nie aufgezaehlte Menge 22 Reviewrunden gekostet hat.
+depends_on: []
+unblocks: []

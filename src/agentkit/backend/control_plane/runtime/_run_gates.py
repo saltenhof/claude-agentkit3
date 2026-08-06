@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
     from agentkit.backend.control_plane.models import (
         ClosureCompleteRequest,
         ControlPlaneMutationResult,
@@ -39,7 +40,6 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.push_verification import PushBarrierEvidencePort
     from agentkit.backend.control_plane.repository import (
         ControlPlaneRuntimeRepository,
-        EdgeCommandRepository,
     )
 
     from ._models import MergePrecondition

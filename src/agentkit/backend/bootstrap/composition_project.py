@@ -318,9 +318,9 @@ def build_story_reset_service(
         WorkspacePurgeAdapter,
         WorktreePurgeAdapter,
     )
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
     from agentkit.backend.control_plane.repository import (
         ControlPlaneRuntimeRepository,
-        EdgeCommandRepository,
         RunOwnershipRepository,
     )
     from agentkit.backend.governance.runner import Governance

@@ -18,6 +18,8 @@ import pytest
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
+)
+from agentkit.backend.control_plane_http.wire_adapter import (
     _build_handler,
 )
 from agentkit.harness_client.projectedge.credentials import (

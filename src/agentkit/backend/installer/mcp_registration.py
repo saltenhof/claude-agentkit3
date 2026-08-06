@@ -36,6 +36,7 @@ from agentkit.backend.core_types.mcp_server_registration import (
     MCP_JSON_STDIO_TYPE,
     REGISTERED_ENV_KEYS,
     STORY_KNOWLEDGE_BASE_SERVER,
+    Ak3ServerShape,
     DesiredMcpServer,
     McpServerRegistrationError,
     before_image_fingerprint,
@@ -61,6 +62,13 @@ _MCP_ENTRYPOINT_MODULE: str = "agentkit.backend.vectordb.engine"
 
 #: Seconds granted to the one-shot import preflight below.
 _INTERPRETER_PROBE_TIMEOUT_SECONDS: float = 60.0
+
+#: The ``.mcp.json`` entry fields AK3 writes and therefore may delete again. An
+#: entry that carries anything less or anything more than exactly these is not an
+#: AK3 registration and stays untouched.
+_OWNED_MCP_FIELDS: frozenset[str] = frozenset(
+    {"type", "command", "args", "cwd", "env"},
+)
 
 
 def resolve_story_knowledge_base_command() -> str:
@@ -632,44 +640,88 @@ def _remove_owned_mcp_servers(
         entry = servers.get(name)
         if not isinstance(entry, dict):
             continue
-        owned_fields = {"type", "command", "args", "cwd", "env"}
-        owned_entry = {
-            field: value for field, value in entry.items() if field in owned_fields
-        }
-        if set(owned_entry) != owned_fields:
-            continue
-        if owned_entry["type"] != MCP_JSON_STDIO_TYPE:
-            continue
-        args = entry.get("args")
         resolved_owner = (
             None
             if resolved_command_owners is None
             else resolved_command_owners.get(name)
         )
-        if not shape.matches_command(
-            entry.get("command"),
-            resolved_owner_command=resolved_owner,
-            owner_policies=AK3_OWNER_POLICIES,
-        ) or not isinstance(args, list):
+        if not _entry_is_ak3_owned(
+            entry,
+            shape,
+            project_root=project_root,
+            resolved_owner=resolved_owner,
+        ):
             continue
-        if tuple(args) != shape.args:
-            continue
-        cwd = owned_entry["cwd"]
-        if not isinstance(cwd, str) or not cwd.strip():
-            continue
-        if not matches_resolved_path_owner(cwd, str(project_root.absolute())):
-            continue
-        env = owned_entry["env"]
-        if not isinstance(env, dict) or set(env) != set(shape.env_keys):
-            continue
-        if not all(isinstance(value, str) and value.strip() for value in env.values()):
-            continue
-        for field in owned_fields:
-            if field in entry:
-                del entry[field]
-                removed = True
-        if not entry:
-            del servers[name]
+        if _strip_owned_entry_fields(servers, name, entry):
+            removed = True
+    return removed
+
+
+def _entry_is_ak3_owned(
+    entry: dict[str, object],
+    shape: Ak3ServerShape,
+    *,
+    project_root: Path,
+    resolved_owner: str | None,
+) -> bool:
+    """Prove that one ``.mcp.json`` entry is the registration AK3 itself wrote.
+
+    Ownership must hold for EVERY owned field at once, so a single mismatch
+    leaves the whole entry foreign and untouched. The proof is deliberately
+    delegated: the command is classified by :meth:`Ak3ServerShape.matches_command`
+    under :data:`AK3_OWNER_POLICIES` (a foreign absolute interpreter, a linked
+    ancestor and a Windows junction all fail there), the containment boundary by
+    :func:`matches_resolved_path_owner` against the project root, and a missing
+    owner snapshot arrives as ``resolved_owner=None`` which those policies reject.
+    """
+    owned_entry = {
+        field: value for field, value in entry.items() if field in _OWNED_MCP_FIELDS
+    }
+    if set(owned_entry) != _OWNED_MCP_FIELDS:
+        return False
+    if owned_entry["type"] != MCP_JSON_STDIO_TYPE:
+        return False
+    if not shape.matches_command(
+        owned_entry["command"],
+        resolved_owner_command=resolved_owner,
+        owner_policies=AK3_OWNER_POLICIES,
+    ):
+        return False
+    args = owned_entry["args"]
+    if not isinstance(args, list) or tuple(args) != shape.args:
+        return False
+    return _cwd_is_project_root(
+        owned_entry["cwd"], project_root
+    ) and _env_matches_shape(owned_entry["env"], shape)
+
+
+def _cwd_is_project_root(cwd: object, project_root: Path) -> bool:
+    """Return whether an entry's ``cwd`` resolves to THIS project root."""
+    if not isinstance(cwd, str) or not cwd.strip():
+        return False
+    return matches_resolved_path_owner(cwd, str(project_root.absolute()))
+
+
+def _env_matches_shape(env: object, shape: Ak3ServerShape) -> bool:
+    """Return whether an entry's environment carries exactly the shape's keys."""
+    if not isinstance(env, dict) or set(env) != set(shape.env_keys):
+        return False
+    return all(isinstance(value, str) and value.strip() for value in env.values())
+
+
+def _strip_owned_entry_fields(
+    servers: dict[str, object],
+    name: str,
+    entry: dict[str, object],
+) -> bool:
+    """Delete the AK3-owned fields, and the entry itself once nothing foreign is left."""
+    removed = False
+    for field in _OWNED_MCP_FIELDS:
+        if field in entry:
+            del entry[field]
+            removed = True
+    if not entry:
+        del servers[name]
     return removed
 
 

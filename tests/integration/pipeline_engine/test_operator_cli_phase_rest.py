@@ -57,10 +57,12 @@ from agentkit.backend.control_plane.workspace_locator import (
 )
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
-    _build_handler,
 )
 from agentkit.backend.control_plane_http.version_handshake import (
     VersionHandshakeMiddleware,
+)
+from agentkit.backend.control_plane_http.wire_adapter import (
+    _build_handler,
 )
 from agentkit.backend.installer import InstallConfig, install_agentkit
 from agentkit.backend.installer.paths import story_dir as resolve_story_dir

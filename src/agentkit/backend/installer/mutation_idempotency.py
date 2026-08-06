@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     IdempotencyRequest,
@@ -28,16 +28,13 @@ class _InstallerMutationResponse(Protocol):
     def body(self) -> bytes: ...
 
 
-_T = TypeVar("_T", bound=_InstallerMutationResponse)
-
-
 class InstallerMutationCoordinator:
     """Apply the unified claim/replay contract around one installer mutation."""
 
     def __init__(self, guard: InflightIdempotencyGuard) -> None:
         self._guard = guard
 
-    def run(
+    def run[ResponseT: _InstallerMutationResponse](
         self,
         *,
         operation: str,
@@ -46,10 +43,10 @@ class InstallerMutationCoordinator:
         request_body: dict[str, object],
         session_id: str,
         correlation_id: str,
-        mutate: Callable[[], _T],
-        replay: Callable[[dict[str, object]], _T],
-        conflict: Callable[[str, str, dict[str, object]], _T],
-    ) -> _T:
+        mutate: Callable[[], ResponseT],
+        replay: Callable[[dict[str, object]], ResponseT],
+        conflict: Callable[[str, str, dict[str, object]], ResponseT],
+    ) -> ResponseT:
         """Claim, execute, and finalize one replayable installer mutation."""
         identity_body = {**request_body, "project_key": project_key}
         request = IdempotencyRequest(

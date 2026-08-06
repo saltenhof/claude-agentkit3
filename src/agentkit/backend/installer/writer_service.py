@@ -55,10 +55,10 @@ class InstallerWriterService:
         request: RegisterProjectStateRequest,
     ) -> CheckpointResult:
         """Converge CP7 registration and visible-project state."""
-        from agentkit.backend.installer.runner import (
-            InstallConfig,
+        from agentkit.backend.installer.cp7_project_registration import (
             _run_cp7_state_backend_registration,
         )
+        from agentkit.backend.installer.runner import InstallConfig
 
         config = InstallConfig(
             project_key=project_key,

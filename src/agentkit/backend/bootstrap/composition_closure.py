@@ -116,7 +116,7 @@ def build_closure_phase_handler(
         ClosureEntryPushVerificationPort,
         QueueMergeLocalCommandPort,
     )
-    from agentkit.backend.control_plane.repository import EdgeCommandRepository
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 
     merge_local_port = QueueMergeLocalCommandPort(
         edge_commands=EdgeCommandRepository()

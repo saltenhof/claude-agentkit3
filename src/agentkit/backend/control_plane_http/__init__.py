@@ -13,8 +13,8 @@ backwards compat; it carries no second definition (SINGLE SOURCE OF TRUTH).
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     HttpResponse,
-    serve_control_plane,
 )
+from agentkit.backend.control_plane_http.server import serve_control_plane
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 
 __all__ = [

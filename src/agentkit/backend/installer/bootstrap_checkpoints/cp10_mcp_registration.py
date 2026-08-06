@@ -391,10 +391,8 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
         return make_result(
             nid.CP_10_MCP_REGISTRATION,
             status=CheckpointStatus.FAILED,
-            detail=(
-                "ARE MCP command cannot be resolved through the central AK3 "
-                f"interpreter owner: {exc} No file was written."
-            ),
+            detail="ARE MCP command cannot be resolved through the central AK3 "
+            f"interpreter owner: {exc} No file was written.",
             reason=REASON_MCP_COMMAND_NOT_FOUND,
             start=start,
         )

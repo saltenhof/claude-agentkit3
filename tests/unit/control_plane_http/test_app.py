@@ -30,19 +30,23 @@ from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
 from agentkit.backend.control_plane.http import ControlPlaneApplication as CompatCPA
 from agentkit.backend.control_plane.http import HttpResponse as CompatHttpResponse
 from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseLostError
-
-# AC1: canonical namespace is owner
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     ControlPlaneSurface,
     HttpResponse,
-    ThreadingHTTPSServer,
-    _build_handler,
     _enforce_surface_policy,
+)
+
+# AC1: canonical namespace is owner
+from agentkit.backend.control_plane_http.server import (
+    ThreadingHTTPSServer,
 )
 from agentkit.backend.control_plane_http.takeover_handlers import (
     dispatch_project_edge_takeover_post,
+)
+from agentkit.backend.control_plane_http.wire_adapter import (
+    _build_handler,
 )
 from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
 from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
@@ -187,7 +191,7 @@ def test_production_listeners_have_separate_auth_contexts_with_shared_owners(
     tmp_path: Path,
 ) -> None:
     from agentkit.backend.auth.sessions import FileSessionStore
-    from agentkit.backend.control_plane_http.app import _build_production_application
+    from agentkit.backend.control_plane_http.server import _build_production_application
 
     monkeypatch.setenv("AGENTKIT_AUTH_CONFIG", str(tmp_path / "auth.json"))
     application = _build_production_application()

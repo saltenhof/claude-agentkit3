@@ -20,12 +20,13 @@ from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.control_plane.third_party_models import BranchPluginSelfTestRequest
-from agentkit.backend.control_plane_http.app import ControlPlaneApplication, _build_handler
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication
 from agentkit.backend.control_plane_http.routes_config import ControlPlaneApplicationRoutes
 from agentkit.backend.control_plane_http.third_party_validation_routes import (
     ThirdPartyValidationRoutes,
 )
 from agentkit.backend.control_plane_http.version_handshake import VersionHandshakeMiddleware
+from agentkit.backend.control_plane_http.wire_adapter import _build_handler
 from agentkit.backend.exceptions import InstallationError
 from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     run_checkpoint_install,

@@ -6,12 +6,12 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 from agentkit.backend.control_plane.execution_contract_assembly import (
     ExecutionContractDigestOutcome,
 )
 from agentkit.backend.control_plane.repository import (
     ControlPlaneRuntimeRepository,
-    EdgeCommandRepository,
     ObjectMutationClaimRepository,
 )
 from agentkit.backend.exceptions import (

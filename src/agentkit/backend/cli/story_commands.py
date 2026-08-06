@@ -26,6 +26,11 @@ if TYPE_CHECKING:
 
 _STORY_ID_FIELD_LABEL = "Story ID"
 _PROJECT_ROOT_HELP = "Project root directory"
+_PROJECT_KEY_HELP = "Project key"
+_BASE_URL_HELP = "Core Project-API base URL"
+_USERNAME_HELP = "Strategist username"
+_CA_FILE_HELP = "Trusted control-plane CA certificate"
+_PASSWORD_PROMPT = "Strategist password: "
 
 
 def add_story_parsers(
@@ -66,16 +71,16 @@ def add_story_parsers(
         "--plan", required=True, help="Path to the human-approved split-plan JSON"
     )
     split_parser.add_argument("--reason", required=True, help="Split reason")
-    split_parser.add_argument("--project", required=False, help="Project key")
+    split_parser.add_argument("--project", required=False, help=_PROJECT_KEY_HELP)
     split_parser.add_argument("--run", required=False, help="Source run ID")
     split_parser.add_argument("--project-root", default=None, help=_PROJECT_ROOT_HELP)
     split_parser.add_argument(
         "--base-url",
         required=False,
-        help="Core Project-API base URL",
+        help=_BASE_URL_HELP,
     )
-    split_parser.add_argument("--username", default="admin", help="Strategist username")
-    split_parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
+    split_parser.add_argument("--username", default="admin", help=_USERNAME_HELP)
+    split_parser.add_argument("--ca-file", default=None, help=_CA_FILE_HELP)
 
     reset_parser = subparsers.add_parser(
         "reset-story",
@@ -100,11 +105,11 @@ def add_story_parsers(
         action="store_true",
         help="Bypass the escalation-finding precondition (conscious operator override).",
     )
-    reset_parser.add_argument("--project", required=False, help="Project key")
+    reset_parser.add_argument("--project", required=False, help=_PROJECT_KEY_HELP)
     reset_parser.add_argument("--project-root", default=None, help=_PROJECT_ROOT_HELP)
-    reset_parser.add_argument("--base-url", required=False, help="Core Project-API base URL")
-    reset_parser.add_argument("--username", default="admin", help="Strategist username")
-    reset_parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
+    reset_parser.add_argument("--base-url", required=False, help=_BASE_URL_HELP)
+    reset_parser.add_argument("--username", default="admin", help=_USERNAME_HELP)
+    reset_parser.add_argument("--ca-file", default=None, help=_CA_FILE_HELP)
 
     exit_parser = subparsers.add_parser(
         "exit-story", help="Administratively exit a bound story run",
@@ -112,12 +117,12 @@ def add_story_parsers(
     exit_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
     exit_parser.add_argument("--reason", required=True, help="FK-58 exit reason code")
     exit_parser.add_argument("--note", required=False, help="Optional human note")
-    exit_parser.add_argument("--project", required=False, help="Project key")
+    exit_parser.add_argument("--project", required=False, help=_PROJECT_KEY_HELP)
     exit_parser.add_argument("--run", required=False, help="Bound run ID")
     exit_parser.add_argument("--project-root", default=None, help=_PROJECT_ROOT_HELP)
-    exit_parser.add_argument("--base-url", required=False, help="Core Project-API base URL")
-    exit_parser.add_argument("--username", default="admin", help="Strategist username")
-    exit_parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
+    exit_parser.add_argument("--base-url", required=False, help=_BASE_URL_HELP)
+    exit_parser.add_argument("--username", default="admin", help=_USERNAME_HELP)
+    exit_parser.add_argument("--ca-file", default=None, help=_CA_FILE_HELP)
 
     doctor_parser = subparsers.add_parser(
         "doctor", help="Check AgentKit installation health",
@@ -269,7 +274,7 @@ def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
             project_root,
             project_key,
             str(getattr(args, "username", "admin")),
-            getpass.getpass("Strategist password: "),
+            getpass.getpass(_PASSWORD_PROMPT),
             getattr(args, "ca_file", None),
         )
         result = client.split_story(
@@ -323,7 +328,7 @@ def _cmd_reset_story(args: argparse.Namespace) -> int:
             project_root,
             project_key,
             str(getattr(args, "username", "admin")),
-            getpass.getpass("Strategist password: "),
+            getpass.getpass(_PASSWORD_PROMPT),
             getattr(args, "ca_file", None),
         )
         result = client.reset_story(
@@ -386,7 +391,7 @@ def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:
             project_root,
             project_key,
             str(getattr(args, "username", "admin")),
-            getpass.getpass("Strategist password: "),
+            getpass.getpass(_PASSWORD_PROMPT),
             getattr(args, "ca_file", None),
         )
         result = client.exit_story(

@@ -21,7 +21,7 @@ from agentkit.backend.control_plane.records import EdgeCommandRecord
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.control_plane.repository import EdgeCommandRepository
+    from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
     from agentkit.backend.pipeline_engine.phase_executor import (
         ClosureProgress,
         MultiRepoClosureState,

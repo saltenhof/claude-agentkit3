@@ -1,4 +1,12 @@
-"""HTTPS transport and routing for the AgentKit control plane (FK-72 §72.8.2).
+"""Routing surface of the AgentKit control plane (FK-72 §72.8.2).
+
+This module owns the App / Router-Registry: it turns ONE admitted request into
+ONE :class:`HttpResponse` by dispatching it to the owning bounded context. It
+deliberately owns neither of the two questions that used to live alongside it:
+
+* *who may reach a route at all* -- ``surface_policy.py``,
+* *how bytes reach the socket and when a listener starts or stops* --
+  ``wire_adapter.py`` and ``server.py``.
 
 This is the canonical implementation (moved from ``control_plane/http.py``
 by AG3-090).  ``agentkit.backend.control_plane.http`` holds a compat re-export only.
@@ -7,19 +15,12 @@ by AG3-090).  ``agentkit.backend.control_plane.http`` holds a compat re-export o
 from __future__ import annotations
 
 import logging
-import re
-import socket
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
-from enum import Enum
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler
-from http.server import ThreadingHTTPSServer as _ThreadingHTTPSServer
 from threading import Event, RLock
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
-from agentkit.backend.auth.middleware import AuthMiddlewareResponse
 from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
@@ -29,8 +30,7 @@ from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddlewa
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
-    from pathlib import Path
+    from collections.abc import Iterator, Mapping
 
     from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
@@ -75,14 +75,12 @@ from agentkit.backend.control_plane_http.responses import (
     HttpResponse as HttpResponse,
 )
 from agentkit.backend.control_plane_http.responses import (
-    _auth_middleware_response_to_http_response,
     _auth_response_to_http_response,
     _bc_response_to_http_response,
     _concept_response_to_http_response,
     _decode_json_body,
     _decode_optional_json_body,
     _error_response,
-    _has_header,
     _hub_response_to_http_response,
     _json_response,
     _planning_response_to_http_response,
@@ -98,6 +96,16 @@ from agentkit.backend.control_plane_http.runtime_mutation_handlers import (
     _RuntimeMutationHandlers,
 )
 from agentkit.backend.control_plane_http.startup import run_pre_serve_startup
+from agentkit.backend.control_plane_http.surface_policy import (
+    ControlPlaneSurface as ControlPlaneSurface,
+)
+from agentkit.backend.control_plane_http.surface_policy import (
+    _enforce_surface_policy,
+    _run_request_middleware,
+)
+from agentkit.backend.control_plane_http.surface_policy import (
+    _is_project_scoped_path as _is_project_scoped_path,
+)
 from agentkit.backend.control_plane_http.takeover_dispatch import (
     TakeoverFrontendDispatcher,
 )
@@ -115,60 +123,6 @@ _WRITER_LEASE_LIVENESS_INTERVAL_SECONDS = 0.1
 # route matching is unchanged.
 
 _NOT_FOUND_MESSAGE = "Not found"
-
-
-class ThreadingHTTPSServer(_ThreadingHTTPSServer):
-    """HTTPS server whose listener address cannot be shared with another process."""
-
-    # On Windows SO_REUSEADDR permits unrelated processes to bind the same
-    # address, making requests nondeterministically reach the wrong security
-    # surface. Listener ownership is exclusive for the whole writer lifetime.
-    allow_reuse_address = False
-    daemon_threads = False
-    block_on_close = True
-
-    def server_bind(self) -> None:
-        """Bind with OS-enforced exclusivity before accepting any request."""
-
-        exclusive_option = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
-        if exclusive_option is not None:
-            self.socket.setsockopt(socket.SOL_SOCKET, exclusive_option, 1)
-        super().server_bind()
-
-
-class ControlPlaneSurface(Enum):
-    """Security context of one listener in the shared writer process."""
-
-    UI_BFF = "ui-bff"
-    PROJECT_API = "project-api"
-
-
-_UI_ONLY_ROUTE_PATTERNS = (
-    re.compile(r"^/v1/projects/[^/]+/(?:dashboard|planning)(?:/|$)"),
-    re.compile(r"^/v1/governance/takeover-approvals(?:/|$)"),
-)
-_PROJECT_ONLY_ROUTE_PATTERNS = (
-    re.compile(r"^/v1/project-edge(?:/|$)"),
-    re.compile(r"^/v1/projects/[^/]+/installation(?:/|$)"),
-    re.compile(r"^/v1/telemetry/events(?:/|$)"),
-    re.compile(r"^/v1/governance/(?:guard-counters|worker-health)(?:/|$)"),
-)
-_PROJECT_STRATEGIST_ADMIN_ROUTE_PATTERNS = (
-    re.compile(r"^/v1/auth/(?:login|logout|password)$"),
-    re.compile(r"^/v1/projects/[^/]+/api-tokens(?:/[^/]+)?$"),
-    re.compile(r"^/v1/projects/[^/]+/installation/third-party-validation$"),
-    re.compile(
-        r"^/v1/project-edge/story-runs/[^/]+/ownership/"
-        r"(?:takeover-(?:request|confirm|deny|reconcile-clear|reconcile-worktree)|recover)$",
-    ),
-    re.compile(r"^/v1/project-edge/operations/[^/]+/admin-abort$"),
-    re.compile(r"^/v1/projects/[^/]+/stories/[^/]+/(?:split|reset|exit)$"),
-    re.compile(r"^/v1/projects/[^/]+/failure-corpus(?:/|$)"),
-)
-_PROJECT_CREDENTIAL_TRANSITION_PATH = re.compile(
-    r"^/v1/projects(?:$|/[^/]+/(?:api-tokens(?:/[^/]+)?|"
-    r"installation/third-party-validation))$",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +555,10 @@ class ControlPlaneApplication(
 
         if (
             method in {"POST", "DELETE"}
-            and _PROJECT_CREDENTIAL_TRANSITION_PATH.fullmatch(route_path) is not None
+            and _route_patterns._PROJECT_CREDENTIAL_TRANSITION_PATH.fullmatch(
+                route_path,
+            )
+            is not None
         ):
             with self._project_credential_transition_lock:
                 return self._handle_routed_request(
@@ -1379,395 +1336,3 @@ class ControlPlaneApplication(
             correlation_id=correlation_id,
         )
 
-# ---------------------------------------------------------------------------
-# HTTP server entry point
-# ---------------------------------------------------------------------------
-
-
-def serve_control_plane(
-    *,
-    ui_host: str,
-    ui_port: int,
-    project_api_host: str,
-    project_api_port: int,
-    certfile: Path,
-    keyfile: Path | None = None,
-    app: ControlPlaneApplication | None = None,
-    startup_hook: Callable[[ControlPlaneApplication], None] | None = None,
-) -> None:
-    """Run both HTTPS surfaces in one writer process until interrupted.
-
-    Both listener coordinates are mandatory and carry no defaults: the listener
-    does not own the port registry.  UI-BFF and Project-API share this exact
-    application, boot identity, startup reconciliation and lifetime writer
-    lease; only their bind coordinates and per-surface security policy differ.
-
-    AG3-138 IMPL-003: the productive startup (lease acquisition, instance
-    identity, reconciliation) always runs BETWEEN application construction and
-    ``serve_forever()``. ``startup_hook`` is an optional pre-start observer or
-    fault-injection seam; it cannot replace the productive startup sequence.
-    """
-
-    if (ui_host, ui_port) == (project_api_host, project_api_port):
-        raise ValueError("UI-BFF and Project-API listeners require distinct bind addresses")
-    application = _build_production_application() if app is None else app
-    # GUARANTEE the real listener is handshake-gated even when an app was injected
-    # without a handshake middleware (close the fail-OPEN path; FK-91 Rule 11).
-    application.ensure_version_handshake()
-    application.require_productive_writer_lease()
-    # AG3-138 IMPL-003: the pre-serve startup hook runs BEFORE the socket is bound
-    # and BEFORE ``serve_forever()`` -- so the listener accepts its first request
-    # only after instance-identity resolution + orphan reconciliation succeed. A
-    # failure here (fail-closed, AC9) propagates uncaught: the server never starts
-    # with an unclear claim inventory.
-    servers: list[ThreadingHTTPSServer] = []
-    try:
-        if startup_hook is not None:
-            startup_hook(application)
-        # Call the concrete boundary implementation, not an injected override:
-        # an arbitrary application/hook may not substitute a duck-typed lease
-        # for the mandatory PostgreSQL session acquisition.
-        ControlPlaneApplication.run_pre_serve_startup_hook(application)
-        application.assert_productive_writer_ready()
-        servers.append(
-            ThreadingHTTPSServer(
-                (ui_host, ui_port),
-                _build_handler(application, ControlPlaneSurface.UI_BFF),
-                certfile=str(certfile),
-                keyfile=str(keyfile) if keyfile is not None else None,
-            ),
-        )
-        servers.append(
-            ThreadingHTTPSServer(
-                (project_api_host, project_api_port),
-                _build_handler(application, ControlPlaneSurface.PROJECT_API),
-                certfile=str(certfile),
-                keyfile=str(keyfile) if keyfile is not None else None,
-            ),
-        )
-        logger.info(
-            "Starting AgentKit UI-BFF on https://%s:%d and Project-API on "
-            "https://%s:%d using %s",
-            ui_host,
-            ui_port,
-            project_api_host,
-            project_api_port,
-            certfile,
-        )
-        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="agentkit-listener") as pool:
-            server_futures = tuple(pool.submit(server.serve_forever) for server in servers)
-            monitor_future = pool.submit(application.wait_for_writer_lease_loss)
-            futures = (*server_futures, monitor_future)
-            try:
-                done, pending = wait(futures, return_when=FIRST_COMPLETED)
-            except BaseException:
-                # ``ThreadPoolExecutor.__exit__`` waits for its workers.  Stop
-                # both serve loops before leaving the context on Ctrl+C or any
-                # coordinator failure, otherwise shutdown would deadlock.
-                for server in servers:
-                    server.shutdown()
-                application.wake_writer_lease_monitor()
-                raise
-            # Either surface ending tears down the whole writer runtime.  Keeping
-            # one surface alive after its sibling failed would silently change
-            # the advertised security topology.
-            for server, future in zip(servers, server_futures, strict=True):
-                if future in pending:
-                    server.shutdown()
-            application.wake_writer_lease_monitor()
-            for future in done | pending:
-                future.result()
-            if application.writer_lease_loss_reason is not None:
-                raise ControlPlaneWriterLeaseLostError(
-                    application.writer_lease_loss_reason,
-                )
-    finally:
-        for server in servers:
-            server.server_close()
-        application.release_writer_lease()
-
-
-def _build_production_application() -> ControlPlaneApplication:
-    """Build one runtime with separate listener auth contexts and shared owners."""
-    from agentkit.backend.auth.credentials import StrategistCredentialStore
-    from agentkit.backend.auth.http.routes import AuthRoutes
-    from agentkit.backend.auth.middleware import AuthMiddleware
-    from agentkit.backend.auth.sessions import FileSessionStore
-
-    credential_store = StrategistCredentialStore()
-    session_store = FileSessionStore(credential_store)
-    ui_auth = AuthMiddleware(session_store=session_store)
-    project_auth = AuthMiddleware(
-        session_store=session_store,
-        token_repository=ui_auth.token_repository,
-    )
-    return ControlPlaneApplication(
-        routes=ControlPlaneApplicationRoutes(
-            auth_routes=AuthRoutes(
-                credential_store=credential_store,
-                session_store=session_store,
-                token_repository=ui_auth.token_repository,
-            ),
-        ),
-        auth_middleware=ui_auth,
-        auth_middlewares={
-            ControlPlaneSurface.UI_BFF: ui_auth,
-            ControlPlaneSurface.PROJECT_API: project_auth,
-        },
-        version_handshake_middleware=VersionHandshakeMiddleware(),
-        writer_lease_required=True,
-    )
-
-
-class _ResponseWriteState:
-    """Track whether response headers have reached the socket."""
-
-    def __init__(self) -> None:
-        self.started = False
-
-
-def _write_handler_response(
-    handler: BaseHTTPRequestHandler,
-    app: ControlPlaneApplication,
-    response: HttpResponse,
-    state: _ResponseWriteState,
-    *,
-    fence_writer: bool,
-) -> None:
-    """Write one complete response while checking writer authority at wire edges."""
-
-    if fence_writer:
-        app._assert_writer_authority()
-    handler.send_response(response.status_code)
-    for key, value in response.headers:
-        handler.send_header(key, value)
-    if not _has_header(response.headers, "Content-Type"):
-        handler.send_header("Content-Type", "application/json")
-    if response.stream is None:
-        handler.send_header("Content-Length", str(len(response.body)))
-        if fence_writer:
-            app._assert_writer_authority()
-        handler.end_headers()
-        state.started = True
-        if fence_writer:
-            app._assert_writer_authority()
-        handler.wfile.write(response.body)
-        return
-    if fence_writer:
-        app._assert_writer_authority()
-    handler.end_headers()
-    state.started = True
-    for chunk in response.stream:
-        if fence_writer:
-            app._assert_writer_authority()
-        handler.wfile.write(chunk)
-        handler.wfile.flush()
-
-
-def _handle_http_exchange(
-    handler: BaseHTTPRequestHandler,
-    app: ControlPlaneApplication,
-    surface: ControlPlaneSurface | None,
-    body: bytes,
-) -> None:
-    """Fence application dispatch and the complete response as one request."""
-
-    request_headers = dict(handler.headers.items())
-    state = _ResponseWriteState()
-    try:
-        with app._response_write_scope():
-            response = app.handle_request(
-                method=handler.command,
-                path=handler.path,
-                body=body,
-                request_headers=request_headers,
-                surface=surface,
-            )
-            _write_handler_response(handler, app, response, state, fence_writer=True)
-    except ControlPlaneWriterLeaseLostError as exc:
-        app._record_writer_lease_loss(exc)
-        handler.close_connection = True
-        if not state.started:
-            # Status/headers may have been buffered but not sent. Discard them
-            # before writing the fail-closed response.
-            handler.__dict__["_headers_buffer"] = []
-            failure = app._writer_lease_failure_response(
-                _resolve_correlation_id(request_headers),
-                missing=False,
-            )
-            _write_handler_response(handler, app, failure, state, fence_writer=False)
-
-
-def _build_handler(
-    app: ControlPlaneApplication,
-    surface: ControlPlaneSurface | None = None,
-) -> type[BaseHTTPRequestHandler]:
-    class ControlPlaneHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
-            self._handle()
-
-        def do_POST(self) -> None:  # noqa: N802
-            self._handle()
-
-        def do_PATCH(self) -> None:  # noqa: N802
-            self._handle()
-
-        def do_PUT(self) -> None:  # noqa: N802
-            self._handle()
-
-        def do_DELETE(self) -> None:  # noqa: N802
-            self._handle()
-
-        def _handle(self) -> None:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(content_length) if content_length > 0 else b""
-            _handle_http_exchange(self, app, surface, body)
-
-        def log_message(self, message_format: str, *args: object) -> None:
-            logger.info("control-plane %s", message_format % args)
-
-        def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
-            super().log_request(code, size)
-
-    return ControlPlaneHandler
-
-
-# ---------------------------------------------------------------------------
-# Helper: project-scoped path detection
-# ---------------------------------------------------------------------------
-
-
-def _is_project_scoped_path(route_path: str) -> bool:
-    """Return True for paths that carry a project_key as a path segment.
-
-    Project-scoped paths follow /v1/projects/{key}/<something> (not just
-    /v1/projects or /v1/projects/{key} which are the project_management
-    special surface).
-    """
-    match = re.match(r"^/v1/projects/([^/]+)/(.+)$", route_path)
-    return match is not None
-
-
-def _run_request_middleware(
-    *,
-    auth_middleware: AuthMiddleware | None,
-    tenant_scope: TenantScopeMiddleware,
-    method: str,
-    route_path: str,
-    request_headers: Mapping[str, str] | None,
-    correlation_id: str,
-) -> tuple[HttpResponse | None, AuthResult | None]:
-    """Run auth and tenant middleware; return any short-circuit plus auth context."""
-    authorized: AuthResult | None = None
-    if auth_middleware is not None:
-        auth_result = auth_middleware.authorize(
-            method=method,
-            route_path=route_path,
-            request_headers=request_headers,
-            correlation_id=correlation_id,
-        )
-        if isinstance(auth_result, AuthMiddlewareResponse):
-            return _auth_middleware_response_to_http_response(auth_result), None
-        authorized = auth_result
-
-    # Tenant-scope middleware validates project resources only. Non-project
-    # endpoints (/healthz, auth, concepts, hub, project-edge) bypass it.
-    if _is_project_scoped_path(route_path):
-        tenant_result = tenant_scope.validate(
-            method=method,
-            route_path=route_path,
-            correlation_id=correlation_id,
-        )
-        if isinstance(tenant_result, HttpResponse):
-            return tenant_result, authorized
-    return None, authorized
-
-
-def _enforce_surface_policy(
-    *,
-    surface: ControlPlaneSurface | None,
-    method: str,
-    route_path: str,
-    auth_result: AuthResult | None,
-    correlation_id: str,
-) -> HttpResponse | None:
-    """Enforce listener-specific principal and route rights inside one process."""
-
-    if surface is None:
-        return None
-    blocked_patterns: tuple[re.Pattern[str], ...]
-    if surface is ControlPlaneSurface.UI_BFF:
-        if auth_result is not None and auth_result.auth_kind == "project_api_token":
-            return _error_response(
-                HTTPStatus.FORBIDDEN,
-                error_code="listener_principal_forbidden",
-                message="Project API tokens are not accepted by the UI-BFF listener",
-                correlation_id=correlation_id,
-            )
-        if method == "POST" and route_path == "/v1/projects":
-            return _error_response(
-                HTTPStatus.NOT_FOUND,
-                error_code="listener_route_not_exposed",
-                message=(
-                    "The credential-less project bootstrap is exposed only on "
-                    "the Project-API listener"
-                ),
-                correlation_id=correlation_id,
-            )
-        blocked_patterns = _PROJECT_ONLY_ROUTE_PATTERNS
-    else:
-        blocked_patterns = _UI_ONLY_ROUTE_PATTERNS
-        if any(pattern.match(route_path) is not None for pattern in blocked_patterns):
-            return _error_response(
-                HTTPStatus.NOT_FOUND,
-                error_code="listener_route_not_exposed",
-                message="This route is not exposed on the selected control-plane listener",
-                correlation_id=correlation_id,
-            )
-        project_context_bootstrap = method == "POST" and route_path == "/v1/projects"
-        if (
-            project_context_bootstrap
-            and auth_result is not None
-            and auth_result.auth_kind == "project_api_token"
-        ):
-            return _error_response(
-                HTTPStatus.FORBIDDEN,
-                error_code="listener_principal_forbidden",
-                message=(
-                    "Project API tokens cannot create the credential-less project "
-                    "context reserved for strategist bootstrap"
-                ),
-                correlation_id=correlation_id,
-            )
-        if (
-            auth_result is not None
-            and auth_result.auth_kind == "strategist_session"
-            and not project_context_bootstrap
-            and not any(
-                pattern.match(route_path) is not None
-                for pattern in _PROJECT_STRATEGIST_ADMIN_ROUTE_PATTERNS
-            )
-        ):
-            return _error_response(
-                HTTPStatus.FORBIDDEN,
-                error_code="listener_principal_forbidden",
-                message=(
-                    "Strategist sessions are accepted by Project-API only on "
-                    "explicit administrative routes"
-                ),
-                correlation_id=correlation_id,
-            )
-        return None
-    if any(pattern.match(route_path) is not None for pattern in blocked_patterns):
-        return _error_response(
-            HTTPStatus.NOT_FOUND,
-            error_code="listener_route_not_exposed",
-            message="This route is not exposed on the selected control-plane listener",
-            correlation_id=correlation_id,
-        )
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Response converters
-# ---------------------------------------------------------------------------

@@ -34,8 +34,6 @@ from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseL
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneSurface,
-    _build_handler,
-    serve_control_plane,
 )
 from agentkit.backend.control_plane_http.default_routes import (
     _build_default_installer_writer_routes,
@@ -45,10 +43,16 @@ from agentkit.backend.control_plane_http.installer_writer_routes import (
     InstallerWriterRoutes,
 )
 from agentkit.backend.control_plane_http.routes_config import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.server import (
+    serve_control_plane,
+)
 from agentkit.backend.control_plane_http.story_admin_routes import StoryAdminRoutes
 from agentkit.backend.control_plane_http.story_split_routes import StorySplitRoutes
 from agentkit.backend.control_plane_http.third_party_validation_routes import (
     ThirdPartyValidationRoutes,
+)
+from agentkit.backend.control_plane_http.wire_adapter import (
+    _build_handler,
 )
 from agentkit.backend.core_types import CheckStatus, CheckType, PatternStatus
 from agentkit.backend.exceptions import ControlPlaneApiError

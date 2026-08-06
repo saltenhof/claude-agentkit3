@@ -72,9 +72,11 @@ from agentkit.backend.config.models import (
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
-    _build_handler,
 )
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.control_plane_http.wire_adapter import (
+    _build_handler,
+)
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (

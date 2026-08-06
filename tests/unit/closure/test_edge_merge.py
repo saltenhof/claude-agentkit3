@@ -13,6 +13,7 @@ from agentkit.backend.closure.edge_merge import (
     QueueMergeLocalCommandPort,
     apply_merge_local_report,
 )
+from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 from agentkit.backend.control_plane.models import (
     MergeLocalRepoReport,
     MergeLocalReport,
@@ -29,7 +30,6 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
 )
 from agentkit.backend.control_plane.records import EdgeCommandRecord
-from agentkit.backend.control_plane.repository import EdgeCommandRepository
 from agentkit.backend.pipeline_engine.phase_executor import ClosureProgress
 
 if TYPE_CHECKING:

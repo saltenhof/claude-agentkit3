@@ -60,6 +60,19 @@ class _RouteRequest(BaseModel):
     op_id: str
 
 
+#: Request model per writer mutation. The concrete models are structural, not
+#: nominal, subtypes of :class:`_RouteRequest`; the single ``cast`` in
+#: :meth:`InstallerWriterRoutes._validate_request` states that once instead of
+#: repeating the same annotation string per branch.
+_REQUEST_MODELS: dict[str, type[BaseModel]] = {
+    "register_project": RegisterProjectStateRequest,
+    "project_registration_upgraded": ProjectRegistrationUpgradeRequest,
+    "skill_binding_save": SkillBindingWriteRequest,
+    "skill_binding_delete": SkillBindingDeleteRequest,
+    "governance_hooks_register": GovernanceHookRegistrationRequest,
+}
+
+
 class InstallerWriterRoutes:
     """Execute installer state reads/writes only inside the active writer."""
 
@@ -304,20 +317,8 @@ class InstallerWriterRoutes:
 
     @staticmethod
     def _validate_request(operation: str, payload: object) -> _RouteRequest:
-        model: type[_RouteRequest]
-        if operation == "register_project":
-            model = cast("type[_RouteRequest]", RegisterProjectStateRequest)
-        elif operation == "project_registration_upgraded":
-            model = cast("type[_RouteRequest]", ProjectRegistrationUpgradeRequest)
-        elif operation == "skill_binding_save":
-            model = cast("type[_RouteRequest]", SkillBindingWriteRequest)
-        elif operation == "skill_binding_delete":
-            model = cast("type[_RouteRequest]", SkillBindingDeleteRequest)
-        elif operation == "governance_hooks_register":
-            model = cast("type[_RouteRequest]", GovernanceHookRegistrationRequest)
-        else:
-            model = cast("type[_RouteRequest]", GovernanceHookClearRequest)
-        return model.model_validate(payload)
+        model = _REQUEST_MODELS.get(operation, GovernanceHookClearRequest)
+        return cast("_RouteRequest", model.model_validate(payload))
 
     @staticmethod
     def _match_get(route_path: str) -> tuple[str, str, str | None] | None:

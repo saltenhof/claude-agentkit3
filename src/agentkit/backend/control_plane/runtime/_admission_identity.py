@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.control_plane.repository import (
     ControlPlaneRuntimeRepository,
-    EdgeCommandRepository,
     ObjectMutationClaimRepository,
 )
 
@@ -25,6 +24,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.backend.control_plane.dispatch import PhaseDispatcher
+    from agentkit.backend.control_plane.edge_command_repository import (
+        EdgeCommandRepository,
+    )
     from agentkit.backend.control_plane.execution_contract_assembly import (
         ExecutionContractDigestOutcome,
     )

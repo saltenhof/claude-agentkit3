@@ -15,21 +15,11 @@ from agentkit.backend.state_backend.governance_runtime_store import (
     load_story_execution_lock_global,
     save_story_execution_lock_global,
 )
-from agentkit.backend.state_backend.harness_edge_command_store import (
-    commission_edge_command_record_global,
-    insert_edge_command_record_global,
-    list_and_ack_open_edge_command_records_global,
-    load_edge_command_record_global,
-    reconcile_verify_evidence_command_generation_global,
-    supersede_open_edge_command_global,
-    supersede_verify_evidence_command_global,
-)
 from agentkit.backend.state_backend.operation_ledger import (
     acquire_object_mutation_claim_global,
     admin_abort_control_plane_operation_global,
     claim_control_plane_operation_global,
     commit_control_plane_operation_with_side_effects_global,
-    commit_edge_command_result_global,
     commit_takeover_confirm_global,
     commit_takeover_deny_global,
     commit_takeover_expiry_global,
@@ -98,7 +88,6 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
-        EdgeCommandRecord,
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
@@ -570,42 +559,3 @@ class ControlPlaneWriterLeaseRepository:
         except StateBackendControlPlaneWriterAlreadyActiveError as exc:
             raise ControlPlaneWriterAlreadyActiveError(str(exc)) from exc
         return _RepositoryControlPlaneWriterLease(delegate)
-
-
-@dataclass(frozen=True)
-class EdgeCommandRepository:
-    """Persistence port for the Edge-Command-Queue (FK-91 §91.1b, AG3-145).
-
-    Postgres-only (K5): every method fails closed with ``ConfigError`` off
-    Postgres (``_require_control_plane_backend``, mirrors
-    :class:`RunOwnershipRepository` / :class:`ObjectMutationClaimRepository`).
-    ``insert_command`` is the strict commissioning write (setup provisioning,
-    sub-step C); ``commission_command`` is the ATOMICALLY IDEMPOTENT commissioning
-    write (``INSERT ... ON CONFLICT DO NOTHING``) used by the teardown path
-    (sub-step D) so a concurrent double-detach is one visible command / no error
-    (FK-10 §10.5.3); ``list_and_ack_open_commands`` is the GET Ack-read (Rule 13,
-    no lock); ``load_command`` is a raw identity lookup (idempotency-replay / test
-    support); ``commit_result`` is the atomic op-ledger + Rule-15-fenced
-    command-result commit (sub-step A).
-    """
-
-    insert_command: Callable[[EdgeCommandRecord], None] = (
-        insert_edge_command_record_global
-    )
-    commission_command: Callable[[EdgeCommandRecord], bool] = (
-        commission_edge_command_record_global
-    )
-    load_command: Callable[[str], EdgeCommandRecord | None] = (
-        load_edge_command_record_global
-    )
-    list_and_ack_open_commands: Callable[..., tuple[EdgeCommandRecord, ...]] = (
-        list_and_ack_open_edge_command_records_global
-    )
-    commit_result: Callable[..., None] = commit_edge_command_result_global
-    supersede_command: Callable[..., bool] = supersede_open_edge_command_global
-    reconcile_verify_evidence_generation: Callable[..., tuple[bool, bool]] = (
-        reconcile_verify_evidence_command_generation_global
-    )
-    supersede_verify_evidence: Callable[..., bool] = (
-        supersede_verify_evidence_command_global
-    )

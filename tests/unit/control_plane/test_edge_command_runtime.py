@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 from agentkit.backend.control_plane.models import (
     CommandErrorResult,
     EdgeCommandResultRequest,
@@ -22,7 +23,6 @@ from agentkit.backend.control_plane.ownership import OwnershipAcquisition, Owner
 from agentkit.backend.control_plane.records import EdgeCommandRecord, RunOwnershipRecord
 from agentkit.backend.control_plane.repository import (
     ControlPlaneRuntimeRepository,
-    EdgeCommandRepository,
     ObjectMutationClaimRepository,
 )
 from agentkit.backend.control_plane.runtime import (

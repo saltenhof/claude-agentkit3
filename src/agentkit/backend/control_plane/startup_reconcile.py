@@ -154,57 +154,106 @@ def _run(
     repaired: list[str] = []
     released: list[str] = []
     for op in orphaned:
-        if op.operation_epoch is None:
-            #: Fail-closed (AC4/AC9): a scanned own-identity orphan ALWAYS carries an
-            #: ``operation_epoch`` (AG3-138 stamps it on every claim; the orphan scan
-            #: only returns rows whose ``backend_instance_id`` matched this instance,
-            #: so a pre-AG3-137 legacy row with a NULL instance is never scanned here).
-            #: A NULL epoch on a scanned orphan is therefore a contradiction; we refuse
-            #: to finalize it without the mandatory epoch fence rather than fall back to
-            #: an identity-only finalize (which would violate
-            #: ``operation_finalize_requires_cas_on_operation_epoch``).
-            raise StartupReconciliationError(
-                f"orphaned claim {op.op_id!r} of backend instance "
-                f"{identity.backend_instance_id!r} carries no operation_epoch; "
-                "refusing an unfenced finalize (fail-closed, AC4/AC9).",
-            )
+        _assert_orphan_carries_epoch(op, identity)
         if _is_atomic_storyless_writer_operation(op):
-            if op.claimed_by is None or op.claimed_at is None:
-                raise StartupReconciliationError(
-                    f"atomic writer claim {op.op_id!r} has no owner CAS identity; "
-                    "refusing an unfenced release (fail-closed).",
-                )
-            applied = repo.release_operation(
-                op.op_id,
-                owner_token=op.claimed_by,
-                owner_claimed_at=op.claimed_at.isoformat(),
-                owner_operation_epoch=op.operation_epoch,
-            )
-            if not applied:
-                raise StartupReconciliationError(
-                    f"atomic writer claim {op.op_id!r} changed after the orphan "
-                    "scan; refusing to report or serve after an unapplied "
-                    "owner/claimed_at/operation_epoch release",
-                )
+            _release_atomic_writer_claim(repo, op)
             released.append(op.op_id)
             continue
-        status, note = _resolve_terminal_status(repo, op, identity=identity)
-        response_payload = _orphan_result_payload(op, status=status, admin_note=note)
-        applied = repo.finalize_orphaned_operation(
-            op_id=op.op_id,
-            backend_instance_id=identity.backend_instance_id,
-            status=status,
-            response_payload=response_payload,
-            now=now_fn(),
-            owner_operation_epoch=op.operation_epoch,
+        status = _finalize_orphaned_operation(
+            repo,
+            op,
+            identity=identity,
+            now_fn=now_fn,
         )
-        if not applied:
-            # The row changed underneath the scan (e.g. concurrently resolved by
-            # an admin-abort). Idempotent-safe: not this call's finalize to make.
+        if status is None:
             continue
         finalized.append(op.op_id)
         if status == "repair":
             repaired.append(op.op_id)
+    _release_orphaned_object_claims(claim_repo, identity)
+    return ReconciliationOutcome(
+        finalized_op_ids=tuple(finalized),
+        repair_op_ids=tuple(repaired),
+        released_op_ids=tuple(released),
+    )
+
+
+def _assert_orphan_carries_epoch(
+    op: ControlPlaneOperationRecord,
+    identity: BackendInstanceIdentityRecord,
+) -> None:
+    """Refuse an unfenced finalize for a scanned orphan without its epoch."""
+    if op.operation_epoch is not None:
+        return
+    #: Fail-closed (AC4/AC9): a scanned own-identity orphan ALWAYS carries an
+    #: ``operation_epoch`` (AG3-138 stamps it on every claim; the orphan scan
+    #: only returns rows whose ``backend_instance_id`` matched this instance,
+    #: so a pre-AG3-137 legacy row with a NULL instance is never scanned here).
+    #: A NULL epoch on a scanned orphan is therefore a contradiction; we refuse
+    #: to finalize it without the mandatory epoch fence rather than fall back to
+    #: an identity-only finalize (which would violate
+    #: ``operation_finalize_requires_cas_on_operation_epoch``).
+    raise StartupReconciliationError(
+        f"orphaned claim {op.op_id!r} of backend instance "
+        f"{identity.backend_instance_id!r} carries no operation_epoch; "
+        "refusing an unfenced finalize (fail-closed, AC4/AC9).",
+    )
+
+
+def _release_atomic_writer_claim(
+    repo: ControlPlaneRuntimeRepository,
+    op: ControlPlaneOperationRecord,
+) -> None:
+    """Release a storyless writer claim whose domain transaction never committed."""
+    if op.claimed_by is None or op.claimed_at is None:
+        raise StartupReconciliationError(
+            f"atomic writer claim {op.op_id!r} has no owner CAS identity; "
+            "refusing an unfenced release (fail-closed).",
+        )
+    applied = repo.release_operation(
+        op.op_id,
+        owner_token=op.claimed_by,
+        owner_claimed_at=op.claimed_at.isoformat(),
+        owner_operation_epoch=op.operation_epoch,
+    )
+    if not applied:
+        raise StartupReconciliationError(
+            f"atomic writer claim {op.op_id!r} changed after the orphan "
+            "scan; refusing to report or serve after an unapplied "
+            "owner/claimed_at/operation_epoch release",
+        )
+
+
+def _finalize_orphaned_operation(
+    repo: ControlPlaneRuntimeRepository,
+    op: ControlPlaneOperationRecord,
+    *,
+    identity: BackendInstanceIdentityRecord,
+    now_fn: Callable[[], datetime],
+) -> Literal["failed", "repair"] | None:
+    """Finalize one orphan; ``None`` when the row changed underneath the scan."""
+    status, note = _resolve_terminal_status(repo, op, identity=identity)
+    response_payload = _orphan_result_payload(op, status=status, admin_note=note)
+    applied = repo.finalize_orphaned_operation(
+        op_id=op.op_id,
+        backend_instance_id=identity.backend_instance_id,
+        status=status,
+        response_payload=response_payload,
+        now=now_fn(),
+        owner_operation_epoch=op.operation_epoch,
+    )
+    if not applied:
+        # The row changed underneath the scan (e.g. concurrently resolved by
+        # an admin-abort). Idempotent-safe: not this call's finalize to make.
+        return None
+    return status
+
+
+def _release_orphaned_object_claims(
+    claim_repo: ObjectMutationClaimRepository,
+    identity: BackendInstanceIdentityRecord,
+) -> None:
+    """Release every object claim this instance's earlier incarnations left behind."""
     #: AG3-141 Scope item 7 (SOLL-066 object-claims part): DIRECTLY scan the
     #: ``object_mutation_claims`` table for every claim orphaned by THIS
     #: instance's earlier incarnations and release it. A direct scan of the
@@ -230,11 +279,6 @@ def _run(
             claim.scope_key,
             claim.op_id,
         )
-    return ReconciliationOutcome(
-        finalized_op_ids=tuple(finalized),
-        repair_op_ids=tuple(repaired),
-        released_op_ids=tuple(released),
-    )
 
 
 def _is_atomic_storyless_writer_operation(op: ControlPlaneOperationRecord) -> bool:

@@ -410,7 +410,7 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
     ),
     _SelectorLiteralException(
         Path("src/agentkit/backend/installer/runner.py"),
-        1431,
+        1432,
         "python",
         "Pydantic serialization mode",
     ),

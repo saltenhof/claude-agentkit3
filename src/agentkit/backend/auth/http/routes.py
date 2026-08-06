@@ -389,11 +389,9 @@ class AuthRoutes:
             return _error_response(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 error_code="operation_completion_failed",
-                message=(
-                    "operation side effect may be committed; the retained in-flight "
-                    "claim is finalized by same-writer startup reconciliation or an "
-                    "explicit administrative abort"
-                ),
+                message="operation side effect may be committed; the retained in-flight "
+                "claim is finalized by same-writer startup reconciliation or an "
+                "explicit administrative abort",
                 correlation_id=correlation_id,
             )
 
