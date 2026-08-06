@@ -19,8 +19,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.backend.control_plane.http import ControlPlaneApplication
-from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication, ControlPlaneApplicationRoutes
 from agentkit.backend.core_types import StoryDependencyKind
 from agentkit.backend.execution_planning.entities import StoryDependency
 from agentkit.backend.project_management.entities import ProjectConfiguration

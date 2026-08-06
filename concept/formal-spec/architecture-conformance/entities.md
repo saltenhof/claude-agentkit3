@@ -1209,7 +1209,6 @@ boundary_modules:
     boundary_kind: entry_boundary
     module_prefixes:
       - agentkit.backend.control_plane_http
-      - agentkit.backend.control_plane.http
     importable_by:
       - architecture-conformance.boundary.cli
     may_import_component_groups: any

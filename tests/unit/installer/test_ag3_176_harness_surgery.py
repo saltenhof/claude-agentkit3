@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING
 
 import pytest
@@ -87,6 +88,57 @@ def test_mcp_json_detach_preserves_reserved_server_with_foreign_owned_value(
     )
 
     assert json.loads(rendered) == original
+
+
+class _ExplodingOwnerMapping(Mapping[str, str]):
+    """A contract-conform ``Mapping`` whose ``get`` refuses to answer.
+
+    ``Mapping[str, str]`` is the declared parameter type of
+    ``resolved_command_owners``; nothing in that contract promises a cheap or
+    total ``get``. This mapping makes the lookup observable: it may only be
+    reached for an entry that already passed the field-set and type checks.
+    """
+
+    def __init__(self, owners: dict[str, str]) -> None:
+        self._owners = owners
+
+    def __getitem__(self, key: str) -> str:
+        return self._owners[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._owners)
+
+    def __len__(self) -> int:
+        return len(self._owners)
+
+    # ``Mapping.get`` is overloaded; a never-returning override cannot match both
+    # signatures. The narrowing is intentional and local to this stub.
+    def get(self, key: str, default: object = None) -> str:  # type: ignore[override]
+        raise RuntimeError(f"owner lookup must not be reached for {key!r}")
+
+
+def test_mcp_json_detach_checks_entry_shape_before_looking_up_the_owner(
+    tmp_path: Path,
+) -> None:
+    """A shape-foreign entry is rejected without touching the owner mapping.
+
+    Regression for AG3-229 B1: the owner lookup had been hoisted in front of the
+    field-set and type checks, so a ``Mapping`` whose ``get`` raises turned a
+    plain ``False`` verdict into a propagating ``RuntimeError``.
+    """
+    project_root = tmp_path / "project"
+    original = {"mcpServers": {STORY_KNOWLEDGE_BASE_SERVER: {"type": "foreign-only"}}}
+    raw = (json.dumps(original) + "\n").encode("utf-8")
+
+    rendered = render_mcp_json_without_ak3(
+        raw,
+        project_root=project_root,
+        resolved_command_owners=_ExplodingOwnerMapping(
+            {STORY_KNOWLEDGE_BASE_SERVER: resolve_story_knowledge_base_command()}
+        ),
+    )
+
+    assert rendered.encode("utf-8") == raw
 
 
 @pytest.mark.parametrize(

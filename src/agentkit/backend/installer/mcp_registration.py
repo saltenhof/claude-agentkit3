@@ -640,16 +640,12 @@ def _remove_owned_mcp_servers(
         entry = servers.get(name)
         if not isinstance(entry, dict):
             continue
-        resolved_owner = (
-            None
-            if resolved_command_owners is None
-            else resolved_command_owners.get(name)
-        )
         if not _entry_is_ak3_owned(
             entry,
             shape,
+            name=name,
             project_root=project_root,
-            resolved_owner=resolved_owner,
+            resolved_command_owners=resolved_command_owners,
         ):
             continue
         if _strip_owned_entry_fields(servers, name, entry):
@@ -661,8 +657,9 @@ def _entry_is_ak3_owned(
     entry: dict[str, object],
     shape: Ak3ServerShape,
     *,
+    name: str,
     project_root: Path,
-    resolved_owner: str | None,
+    resolved_command_owners: Mapping[str, str] | None,
 ) -> bool:
     """Prove that one ``.mcp.json`` entry is the registration AK3 itself wrote.
 
@@ -673,6 +670,11 @@ def _entry_is_ak3_owned(
     ancestor and a Windows junction all fail there), the containment boundary by
     :func:`matches_resolved_path_owner` against the project root, and a missing
     owner snapshot arrives as ``resolved_owner=None`` which those policies reject.
+
+    The owner snapshot is looked up ONLY after the field-set and type checks have
+    accepted the entry: an entry that is foreign by shape is rejected without ever
+    touching ``resolved_command_owners``, which is a caller-supplied ``Mapping``
+    whose ``get`` may do arbitrary work.
     """
     owned_entry = {
         field: value for field, value in entry.items() if field in _OWNED_MCP_FIELDS
@@ -681,6 +683,9 @@ def _entry_is_ak3_owned(
         return False
     if owned_entry["type"] != MCP_JSON_STDIO_TYPE:
         return False
+    resolved_owner = (
+        None if resolved_command_owners is None else resolved_command_owners.get(name)
+    )
     if not shape.matches_command(
         owned_entry["command"],
         resolved_owner_command=resolved_owner,

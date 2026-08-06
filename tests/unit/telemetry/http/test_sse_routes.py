@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.sessions import InMemorySessionStore
-from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.ownership import TakeoverApprovalStatus
 from agentkit.backend.control_plane.records import TakeoverApprovalRecord
-from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication, ControlPlaneApplicationRoutes, HttpResponse
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.http.routes import TelemetryRoutes
 

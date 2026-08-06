@@ -8,8 +8,8 @@ deliberately owns neither of the two questions that used to live alongside it:
 * *how bytes reach the socket and when a listener starts or stops* --
   ``wire_adapter.py`` and ``server.py``.
 
-This is the canonical implementation (moved from ``control_plane/http.py``
-by AG3-090).  ``agentkit.backend.control_plane.http`` holds a compat re-export only.
+This is the canonical AND only implementation (moved from ``control_plane/http.py``
+by AG3-090); the re-export facade that survived that move was deleted by AG3-229.
 """
 
 from __future__ import annotations
@@ -1335,4 +1335,3 @@ class ControlPlaneApplication(
             message=_NOT_FOUND_MESSAGE,
             correlation_id=correlation_id,
         )
-

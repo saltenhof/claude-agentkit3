@@ -17,7 +17,6 @@ from typing import cast
 
 from tests.story_read_port_stub import StubStoryReadPort
 
-from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     EdgeCommandMutationResult,
     EdgeCommandResultRequest,
@@ -26,6 +25,7 @@ from agentkit.backend.control_plane.models import (
     OwnershipTransferredDetail,
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication, HttpResponse
 from agentkit.backend.story.service import StoryService
 
 _NOW = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)

@@ -29,8 +29,7 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-from agentkit.backend.control_plane.http import ControlPlaneApplication
-from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication, ControlPlaneApplicationRoutes
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.kpi_analytics.catalog import KpiCatalog
 from agentkit.backend.kpi_analytics.fact_store.models import (

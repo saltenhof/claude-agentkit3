@@ -1,0 +1,53 @@
+story_id: AG3-230
+story_title_short: "installer-bringt-alles-mit"
+title: "Der Installer bringt alles mit: Project Edge laeuft ohne Verweis auf ein fremdes Verzeichnis, ohne Netzzugang und ohne AK3-Checkout auf der Zielmaschine."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-06"
+size: L
+# PO-VORGABE 2026-08-06, woertlich:
+#
+#   "Das Ziel-Setup ist ganz klar. Es gibt einen Installer, und der bringt
+#    alles mit, was es braucht. Der darf nirgendwo hin verweisen auf
+#    irgendwelche anderen Verzeichnisse und darauf bauen, dass dort schon
+#    irgendwas rumliegt, was der lokale Hook oder sonst wer braucht. Und dann
+#    haben wir auch ueberhaupt kein Problem mehr, dass irgendwo auf irgendeinem
+#    anderen Rechner in der Codebase von AK3 ein instabiler Zustand herrscht,
+#    weil davon kriegen die Projekte, die AK3 verwenden, ueberhaupt nichts mit."
+#
+# Das ist keine Entscheidung, sondern die Zielarchitektur. Backend auf dem
+# zentralen Server; auf dem Entwicklerrechner liegt Project Edge, und alles,
+# was dort hin soll, wird von AK3 explizit dorthin installiert -- inklusive
+# saemtlicher Bibliotheken. Die Zielmaschine hat keinen Zugriff auf die
+# AK3-Codebase und kann sich keine Python-Bibliotheken ziehen.
+#
+# BELEGTER IST-ZUSTAND (T:\codebase\intima, 2026-08-06):
+#   installiert wurden ZWEI Dateien --
+#     tools/agentkit/concept_toolchain
+#     tools/agentkit/projectedge.py
+#   keine eigene venv, keine Bibliotheken.
+#
+#   dafuer DREI Verweise zurueck auf den Entwicklungsbaum:
+#     tools/hooks/pre-commit  'T:\codebase\claude-agentkit3\.venv\Scripts\python.exe'
+#     .codex/config.toml      command = "T:\\codebase\\claude-agentkit3\\.venv\\..."
+#     .agentkit/config/control-plane.json  "ca_file": "T:\\...\\var\\devcert\\cert.pem"
+#
+#   Auch der TLS-Vertrauensanker zeigt in den Entwicklungsbaum.
+#
+# URSACHE: `resolve_ak3_interpreter()` liefert `sys.executable` -- den
+# Interpreter des Prozesses, der gerade installiert. Das ist richtig, solange
+# der Installer INNERHALB der Project-Edge-Installation laeuft; hier lief er aus
+# dem Quell-Checkout. Es gibt an dieser Stelle keine Trennung zwischen "wo AK3
+# gerade laeuft" und "was auf der Zielmaschine liegen muss".
+#
+# FOLGE: Auf einer echten Client-Maschine gibt es kein
+# T:\codebase\claude-agentkit3. Diese Installation waere tot, bevor sie das
+# erste Mal laeuft. Was hier funktioniert, funktioniert ausschliesslich, weil
+# Entwicklungsbaum und Zielprojekt auf derselben Platte liegen.
+#
+# Der intima-Totalausfall vom 2026-08-06 ist daraus vollstaendig erklaerbar:
+# nicht "der Arbeitsbaum ist zufaellig produktiv", sondern es gibt gar keine
+# installierte Fassung, die etwas anderes haette sein koennen.
+depends_on: []
+unblocks: ["AG3-217"]

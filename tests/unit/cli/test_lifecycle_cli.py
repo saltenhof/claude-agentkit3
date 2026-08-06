@@ -54,7 +54,7 @@ def _capture_serve(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
         captured["keyfile"] = str(keyfile) if keyfile is not None else None
 
     monkeypatch.setattr(
-        "agentkit.backend.control_plane.http.serve_control_plane",
+        "agentkit.backend.control_plane_http.server.serve_control_plane",
         fake_serve_control_plane,
     )
     return captured

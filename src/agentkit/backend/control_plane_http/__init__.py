@@ -6,8 +6,9 @@
   - ``HttpResponse`` — the serializable HTTP response dataclass
   - ``TenantScopeMiddleware`` — project-key path extraction + validation
 
-``agentkit.backend.control_plane.http`` re-exports these same symbols for
-backwards compat; it carries no second definition (SINGLE SOURCE OF TRUTH).
+This package is the ONLY import path for these symbols. There is no second
+namespace and no re-export facade (SINGLE SOURCE OF TRUTH, KEINE
+KOMPATIBILITAETSSCHICHTEN).
 """
 
 from agentkit.backend.control_plane_http.app import (

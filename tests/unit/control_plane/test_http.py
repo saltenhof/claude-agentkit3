@@ -10,12 +10,6 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from tests.story_read_port_stub import StubStoryReadPort
 
-from agentkit.backend.control_plane.http import (
-    ControlPlaneApplication,
-    ControlPlaneApplicationRoutes,
-    HttpResponse,
-    serve_control_plane,
-)
 from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
@@ -27,6 +21,12 @@ from agentkit.backend.control_plane.models import (
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
+from agentkit.backend.control_plane_http.app import (
+    ControlPlaneApplication,
+    ControlPlaneApplicationRoutes,
+    HttpResponse,
+)
+from agentkit.backend.control_plane_http.server import serve_control_plane
 from agentkit.backend.kpi_analytics.dashboard.models import (
     BoardColumn,
     DashboardBoardResponse,

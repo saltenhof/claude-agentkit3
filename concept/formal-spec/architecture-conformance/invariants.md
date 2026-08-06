@@ -29,7 +29,7 @@ dependency_rules:
       - agentkit.backend.story
       - agentkit.dashboard
     forbidden_module_prefixes:
-      - agentkit.backend.control_plane.http
+      - agentkit.backend.control_plane_http
       - agentkit.harness_client.projectedge.client
       - agentkit.backend.governance.hookruntime
     message: story and dashboard application code may not depend on control-plane transport, project-edge transport, or hook runtime adapters
@@ -46,12 +46,11 @@ dependency_rules:
     source_module_prefixes:
       - agentkit.harness_client.projectedge
     forbidden_module_prefixes:
-      - agentkit.backend.control_plane.http
+      - agentkit.backend.control_plane_http
     message: project-edge client must not depend on the control-plane HTTP adapter implementation
   - id: architecture-conformance.rule.control_plane_http_must_not_depend_on_state_backend_repository
     source_module_prefixes:
       - agentkit.backend.control_plane_http
-      - agentkit.backend.control_plane.http
     forbidden_module_prefixes:
       - agentkit.backend.state_backend.store
     message: control-plane HTTP/BFF modules may not bypass owner BC ports via direct state-backend repository access

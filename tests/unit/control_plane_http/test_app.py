@@ -25,10 +25,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
-
-# AC1: compat re-export must resolve to the SAME class
-from agentkit.backend.control_plane.http import ControlPlaneApplication as CompatCPA
-from agentkit.backend.control_plane.http import HttpResponse as CompatHttpResponse
 from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseLostError
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
@@ -37,8 +33,6 @@ from agentkit.backend.control_plane_http.app import (
     HttpResponse,
     _enforce_surface_policy,
 )
-
-# AC1: canonical namespace is owner
 from agentkit.backend.control_plane_http.server import (
     ThreadingHTTPSServer,
 )
@@ -66,11 +60,6 @@ if TYPE_CHECKING:
         TakeoverConfirmCommand,
         TakeoverDenyCommand,
     )
-
-# ---------------------------------------------------------------------------
-# AC1 — compat re-export identity
-# ---------------------------------------------------------------------------
-
 
 def test_https_listener_address_is_exclusive() -> None:
     assert ThreadingHTTPSServer.allow_reuse_address is False
@@ -462,12 +451,6 @@ def test_listener_surface_policy_enforces_principal_and_route_separation() -> No
     )
     assert strategist_project_list is not None
     assert strategist_project_list.status_code == HTTPStatus.FORBIDDEN
-
-
-def test_compat_reexport_is_same_class() -> None:
-    """control_plane.http is a compat re-export; the class must be identical."""
-    assert ControlPlaneApplication is CompatCPA
-    assert HttpResponse is CompatHttpResponse
 
 
 def test_recovery_route_stamps_human_attestation_for_capability_layer() -> None:

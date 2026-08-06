@@ -343,9 +343,11 @@ Die Konformanz-Suite zieht mindestens diese Grenzen:
    existiert.
 4. Die stabilen Komponenten `story`, `dashboard`, `control_plane` und
    `projectedge` duerfen keine Rueckkopplungszyklen bilden.
-5. Kanonische Write-Surfaces gegen `state_backend` und kompatible
-   Legacy-Reexporte duerfen nur aus explizit zugelassenen
-   Komponentenoberflaechen importiert werden.
+5. Kanonische Write-Surfaces gegen `state_backend` duerfen nur aus
+   explizit zugelassenen Komponentenoberflaechen importiert werden.
+   Reexport-Fassaden sind keine zulaessige Importoberflaeche: AK3
+   fuehrt genau einen Importpfad je Symbol
+   (META-DEC-2026-08-06-NO-REEXPORT-FACADES).
 6. Globale Story-Read-Loader duerfen nur aus
    `agentkit.backend.story.repository` oder innerhalb von `agentkit.backend.state_backend`
    selbst importiert werden.
@@ -370,7 +372,7 @@ Die Konformanz-Suite codiert folgende deterministisch pruefbare
 Invarianten:
 
 1. `agentkit.backend.story` und `agentkit.dashboard` importieren nicht
-   `agentkit.backend.control_plane.http`.
+   `agentkit.backend.control_plane_http`.
 2. `agentkit.backend.story` und `agentkit.dashboard` importieren nicht
    `agentkit.harness_client.projectedge.client`.
 3. `agentkit.backend.story` und `agentkit.dashboard` importieren nicht
@@ -379,7 +381,7 @@ Invarianten:
    importieren nicht direkt `agentkit.backend.state_backend.postgres_store`
    oder `agentkit.backend.state_backend.sqlite_store`.
 5. `agentkit.harness_client.projectedge` importiert nicht
-   `agentkit.backend.control_plane.http`.
+   `agentkit.backend.control_plane_http`.
 6. Zwischen den stabilen Komponenten `story`, `dashboard`,
    `control_plane` und `projectedge` existiert kein Zyklus.
 7. Writer-Symbole fuer `story_contexts`, `flow_executions`,

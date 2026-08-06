@@ -136,10 +136,10 @@ def _default_serve_fn() -> ServeFn:
     """Resolve the productive control-plane listener at call time.
 
     Imported lazily so a test ``monkeypatch`` of
-    ``agentkit.backend.control_plane.http.serve_control_plane`` is honoured and
-    the heavy HTTP stack is not imported for an unrelated command.
+    ``agentkit.backend.control_plane_http.server.serve_control_plane`` is honoured
+    and the heavy HTTP stack is not imported for an unrelated command.
     """
-    from agentkit.backend.control_plane.http import serve_control_plane
+    from agentkit.backend.control_plane_http.server import serve_control_plane
 
     return serve_control_plane
 

@@ -15,12 +15,12 @@ from typing import cast
 
 from tests.story_read_port_stub import StubStoryReadPort
 
-from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     PushFreshnessListResponse,
     PushFreshnessView,
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication, HttpResponse
 from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.story.service import StoryService
 

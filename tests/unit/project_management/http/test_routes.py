@@ -4,8 +4,8 @@ import json
 from http import HTTPStatus
 from unittest.mock import patch
 
-from agentkit.backend.control_plane.http import ControlPlaneApplication
 from agentkit.backend.control_plane_http.app import (
+    ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     HttpResponse,
 )

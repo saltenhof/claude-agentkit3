@@ -29,8 +29,8 @@ from agentkit.backend.auth.http.routes import AuthRoutes
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.sessions import FileSessionStore
 from agentkit.backend.cli.main import main
-from agentkit.backend.control_plane.http import ControlPlaneApplication
 from agentkit.backend.control_plane_http.app import (
+    ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
 )
 from agentkit.backend.control_plane_http.server import (

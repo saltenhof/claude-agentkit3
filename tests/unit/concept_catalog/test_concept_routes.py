@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
 from agentkit.backend.concept_catalog.index import ConceptIndex
-from agentkit.backend.control_plane.http import ControlPlaneApplication
-from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication, ControlPlaneApplicationRoutes
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -36,7 +36,6 @@ from agentkit.backend.config.models import (
 from agentkit.backend.control_plane import object_claims as oc
 from agentkit.backend.control_plane.edge_command_repository import EdgeCommandRepository
 from agentkit.backend.control_plane.edge_commands import edge_command_id
-from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
     ClosureCompleteRequest,
@@ -100,6 +99,7 @@ from agentkit.backend.control_plane.runtime._ownership_transfer import (
     _commit_takeover_invalidation,
     _reconcile_takeover_confirm_cas_loss,
 )
+from agentkit.backend.control_plane_http.app import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane_http.routes_config import ControlPlaneApplicationRoutes
 from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.core_types.verify_evidence import (

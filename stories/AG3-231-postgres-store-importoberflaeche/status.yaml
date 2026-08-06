@@ -1,0 +1,41 @@
+story_id: AG3-231
+story_title_short: "postgres-store-importoberflaeche"
+title: "postgres_store ist eine 'Compatibility import surface' mit 272 dynamisch reflektierten Namen ueber 14 private Submodule -- verboten nach CLAUDE.md, und die eigentliche Frage ist, was oeffentlich sein soll."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-06"
+size: L
+# Herkunft: Codex-Abschlussreview zu AG3-229 (2026-08-06) und die
+# Umfangsmessung der Folgerunde.
+#
+# BEFUND: `src/agentkit/backend/state_backend/postgres_store/__init__.py`
+# bezeichnet sich im Docstring selbst als "Compatibility import surface for the
+# PostgreSQL state backend". Das faellt woertlich unter CLAUDE.md
+# §KEINE KOMPATIBILITAETSSCHICHTEN -- Re-Export-Fassaden sind ausnahmslos
+# verboten, und wer eine findet, entfernt sie mitsamt allem, was nur ihretwegen
+# existiert.
+#
+# GEMESSENER UMFANG:
+#   272 Namen in __all__, dynamisch per import_module + vars()-Reflexion ueber
+#       14 private Submodule (_sql_script ... _purge_rows; 17 .py im Paket),
+#       gefiltert ueber __module__-Herkunft plus eine handgepflegte
+#       18-elementige _EXPORTED_CONSTANTS-Liste fuer Konstanten, die die
+#       Herkunftspruefung nicht erfasst
+#   49 Importstellen in 42 Dateien ziehen ueber die Fassade statt ueber die
+#       Submodule: 20 in src/, 22 in tests/, 0 in scripts/
+#   64 Dateien nennen `postgres_store` insgesamt
+#
+# WARUM DAS NICHT NUR EIN IMPORT-REWRITE IST -- und das ist die eigentliche
+# Storygroesse: Die Fassade ist nicht bloss ein Umleitungsschild, sondern die
+# EINZIGE oeffentliche Oberflaeche des Pakets. Alle 14 Zielmodule sind mit `_`
+# privat benannt. Die Aufloesung verlangt deshalb zuerst eine fachliche
+# Entscheidung -- welche der 272 Namen sollen oeffentlich sein, und wie werden
+# die Submodule oeffentlich geschnitten -- und erst danach das Umziehen der 49
+# Importzeilen.
+#
+# Eine dynamisch reflektierte Exportliste ist zusaetzlich das Gegenteil dessen,
+# was AK3 v3 will: Sie macht Ownership unsichtbar. Niemand kann lesen, welches
+# Modul welchen Namen besitzt; die Liste entsteht zur Laufzeit.
+depends_on: []
+unblocks: []
