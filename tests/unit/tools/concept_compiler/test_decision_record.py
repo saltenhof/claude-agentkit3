@@ -207,6 +207,102 @@ def test_ac4_existing_record_precedents_are_schema_conform(record_name: str) -> 
     assert validate_decision_record_file(Path("concept/_meta/decisions") / record_name)
 
 
+_RECORD_FIELDS: dict[str, str] = {
+    "concept_id": "META-DEC-2026-07-13-EXAMPLE-DECISION",
+    "title": "Concept-Decision-Record — Example",
+    "module": "meta",
+    "cross_cutting": "true",
+    "status": "active",
+    "doc_kind": "decision-record",
+    "authority_over": "[]",
+    "defers_to": "[]",
+    "supersedes": "[]",
+    "superseded_by": "",
+    "tags": "[meta, decision-record]",
+    "formal_scope": "prose-only",
+}
+
+
+def _write_record(tmp_path: Path, **overrides: str) -> Path:
+    """Write a decision record whose frontmatter is the baseline plus overrides."""
+    fields = _RECORD_FIELDS | overrides
+    body = "\n".join(f"{key}: {value}" for key, value in fields.items())
+    path = tmp_path / "2026-07-13-example-decision.md"
+    path.write_text(f"---\n{body}\n---\n\n# Example\n", encoding="utf-8")
+    return path
+
+
+_DEFERS_TO_EDGES = "\n  - target: FK-07\n    scope: architecture-conformance\n    reason: FK-07 owns the import boundaries"
+
+
+def test_record_with_defers_to_edges_is_schema_conform(tmp_path: Path) -> None:
+    """P2 binds record prose to foreign authority through defers_to; edges are legal."""
+    assert validate_decision_record_file(_write_record(tmp_path, defers_to=_DEFERS_TO_EDGES))
+
+
+def test_superseded_record_is_schema_conform(tmp_path: Path) -> None:
+    """A replaced record is representable: archived plus a successor record id."""
+    assert validate_decision_record_file(
+        _write_record(
+            tmp_path,
+            status="archived",
+            superseded_by="META-DEC-2026-08-06-EXAMPLE-SUCCESSOR",
+        )
+    )
+
+
+def test_record_may_defer_to_a_meta_policy_document(tmp_path: Path) -> None:
+    """META policy docs hold authority_over scopes and are legal defers_to targets."""
+    assert validate_decision_record_file(
+        _write_record(tmp_path, defers_to="\n  - target: META-CONCEPT-CONSISTENCY\n    scope: concept-consistency-governance")
+    )
+
+
+def test_superseding_record_may_name_its_predecessor(tmp_path: Path) -> None:
+    assert validate_decision_record_file(
+        _write_record(tmp_path, supersedes="[META-DEC-2026-07-13-EXAMPLE-DECISION]")
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"authority_over": "[{scope: imports}]"}, "a record never holds authority itself"),
+        ({"defers_to": "\n  - target: FK-999"}, "defers_to target is not a corpus document id"),
+        ({"defers_to": "\n  - scope: imports"}, "defers_to edge without a target"),
+        ({"defers_to": "\n  - target: FK-07\n    reason: ''"}, "empty qualifier on a defers_to edge"),
+        ({"defers_to": "not-a-list"}, "defers_to must be a list"),
+        ({"defers_to": "[META-DEC-2026-07-13-EXAMPLE-DECISION]"}, "a record holds no authority to defer to"),
+        ({"supersedes": "[FK-07]"}, "only a record can supersede a record"),
+        ({"superseded_by": "META-DEC-2026-08-06-EXAMPLE-SUCCESSOR"}, "replaced record still claims status active"),
+        ({"superseded_by": "FK-07"}, "successor is not a decision record"),
+        ({"status": "draft"}, "a record persists a decision that was already taken"),
+        ({"status": "superseded"}, "status outside the corpus enum of FK-13 §13.9.6"),
+        ({"doc_kind": "core"}, "doc_kind is frozen to decision-record"),
+        ({"module": "governance"}, "module is frozen to meta"),
+        ({"cross_cutting": "false"}, "records are cross-cutting by construction"),
+        ({"formal_scope": "formal"}, "records are prose-only"),
+        ({"tags": "[meta]"}, "the decision-record tag is mandatory"),
+        ({"concept_id": "META-DEC-2026-07-13-example-decision"}, "concept_id grammar is upper-case"),
+        ({"concept_id": "META-DEC-2026-07-14-EXAMPLE-DECISION"}, "concept_id date must match the filename"),
+        ({"title": "'   '"}, "title must carry content"),
+    ],
+)
+def test_schema_violating_record_is_still_rejected(
+    tmp_path: Path, overrides: dict[str, str], reason: str
+) -> None:
+    assert not validate_decision_record_file(_write_record(tmp_path, **overrides)), reason
+
+
+def test_record_missing_a_required_field_is_rejected(tmp_path: Path) -> None:
+    fields = {key: value for key, value in _RECORD_FIELDS.items() if key != "defers_to"}
+    body = "\n".join(f"{key}: {value}" for key, value in fields.items())
+    path = tmp_path / "2026-07-13-example-decision.md"
+    path.write_text(f"---\n{body}\n---\n\n# Example\n", encoding="utf-8")
+
+    assert not validate_decision_record_file(path)
+
+
 @pytest.mark.parametrize(
     "change",
     [

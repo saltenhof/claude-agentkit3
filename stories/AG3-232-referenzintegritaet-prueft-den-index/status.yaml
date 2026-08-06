@@ -1,0 +1,38 @@
+story_id: AG3-232
+story_title_short: "referenzintegritaet-prueft-den-index"
+title: "Das Referenzintegritaets-Gate prueft den Git-Index statt des Dateisystems -- es meldet lokal gruen, was auf CI rot ist, und umgekehrt."
+type: bugfix
+status: ready
+phase: setup
+created: "2026-08-06"
+size: S
+# Herkunft: Jenkins #1248 gegen a32dc6d6 (2026-08-06). Ein Decision Record
+# nannte eine soeben geloeschte Datei; das Gate meldete lokal PASS und auf
+# Jenkins ERROR -- bei identischen 54 Reports.
+#
+# URSACHE, belegt: `_tracked_repo_paths` in
+# tools/concept_compiler/reference_integrity.py:418-447 ruft in Zeile 424
+# `git ls-files -z`. Das Ergebnis geht als `tracked_paths` in `_scan_document`
+# und wird dort in Zeile 245 gegen den Backtick-Token geprueft
+# (`candidate not in tracked_paths`). `Path.exists()` kommt im gesamten Modul
+# NICHT vor.
+#
+# Die Fehlermeldung lautet "repo-relative path does not exist" und beschreibt
+# damit etwas, das das Gate gar nicht prueft.
+#
+# ZWEI EXPERIMENTE, beide durchgefuehrt, Arbeitsbaum danach unveraendert:
+#   A) Datei im Arbeitsbaum vorhanden, nicht im Index -> Gate ROT
+#   B) Datei im Index vorhanden, nicht auf der Platte -> Gate GRUEN
+#      (byte-identisch zur Meldung, die den Fehler verdeckt hat)
+#
+# BEIDE RICHTUNGEN SIND KAPUTT:
+#   - geloeschte, noch nicht gestagte Datei  -> lokal gruen, CI rot
+#   - neu angelegte, noch nicht gestagte Datei -> lokal rot, CI gruen
+#
+# WARUM DAS SCHWERER WIEGT ALS EIN EINZELNER FEHLSCHLAG: Jeder Auftrag in
+# diesem Projekt verlangt vom Umsetzer, die deterministischen Gates vor der
+# Uebergabe lokal auszufuehren. Ein Gate, das einen anderen Zustand misst als
+# den, den der Umsetzer vor sich hat, macht diese Vorabpruefung wertlos -- und
+# der Fehler faellt erst zwoelf Minuten spaeter auf Jenkins auf.
+depends_on: []
+unblocks: []

@@ -3,7 +3,7 @@ concept_id: META-DEC-2026-07-14-CCAG-CENTRAL-OWNER
 title: Concept-Decision-Record — CCAG-Central-Owner
 module: meta
 cross_cutting: true
-status: superseded
+status: archived
 doc_kind: decision-record
 authority_over: []
 defers_to: []

@@ -243,6 +243,31 @@ reine Anker-/Linkziel-Aenderungen sind sicher nicht normativ; ein
 Modalmarker ist normativ und jeder andere substantielle Textdiff
 bleibt fail-closed uneindeutig.
 
+**Record-Schema (Frontmatter).** Ein Record erfuellt die Pflicht nur,
+wenn sein Frontmatter dem Record-Schema entspricht. Das Schema ist eine
+Auspraegung des Korpus-Frontmatters (FK-13 §13.9.6) mit record-eigenen
+Festlegungen:
+
+| Feld | Regel |
+|---|---|
+| Dateiname | `YYYY-MM-DD-<slug>.md`, Slug kleingeschrieben |
+| `concept_id` | `META-DEC-<Datum des Dateinamens>-<GROSS-SLUG>` |
+| `module` / `cross_cutting` / `doc_kind` / `formal_scope` | `meta` / `true` / `decision-record` / `prose-only` |
+| `tags` | Liste, enthaelt mindestens `meta` und `decision-record` |
+| `authority_over` | leer — ein Record haelt nie eigene Authority |
+| `defers_to` | Kanten auf die Authority-Dokumente der beruehrten Scopes (`FK-NN`, `DK-NN`, `META-<POLICY>`), als ID oder `{target, scope, reason}`; leer nur, wenn kein fremder Scope beruehrt ist |
+| `supersedes` | Kanten auf abgeloeste Records (`META-DEC-…`); Eintrag mit `scope` ist Teil-, ohne `scope` Voll-Abloesung |
+| `status` | `active` oder `archived` — Teilmenge des Korpus-Enums (FK-13 §13.9.6); ein Record haelt eine bereits getroffene Entscheidung, `draft` ist kein Record-Zustand |
+| `superseded_by` | leer oder die `concept_id` des abloesenden Records; gesetzt nur zusammen mit `status: archived` |
+
+`defers_to` ist bei einem Record kein Beiwerk, sondern die Erfuellung
+von P2: Der Record hat definitionsgemaess keine eigene Authority, also
+ist die Kante der einzige Weg, auf dem er ueber einen fremden Scope
+normativ sprechen darf. Ein Schema, das diese Kanten verbietet, macht
+jeden Record P2-widrig; ein Schema, das `supersedes`/`superseded_by`
+verbietet, macht die Abloesung eines Records unrepraesentierbar.
+Beides ist unzulaessig.
+
 ## 6. Betriebsmodell
 
 - **W1 ist Pflichtgate** in derselben CI-Stufe wie die bestehenden

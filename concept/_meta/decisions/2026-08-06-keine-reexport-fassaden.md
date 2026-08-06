@@ -22,11 +22,12 @@ Datum: 2026-08-06. Record fuer AG3-229, Blocker B2 der unabhaengigen Review.
 
 ## 1. Anlass
 
-`src/agentkit/backend/control_plane/http.py` existierte seit AG3-090 als reine
-Reexport-Fassade auf `agentkit.backend.control_plane_http`. Sie bezeichnete sich
-in ihrem eigenen Modul-Docstring als „Compat re-export", damit „existing callers
-… continue to resolve". `CLAUDE.md` §KEINE KOMPATIBILITAETSSCHICHTEN verbietet
-Reexport-Fassaden ausnahmslos und verpflichtet zu ihrer Entfernung.
+Der Importpfad `agentkit.backend.control_plane.http` existierte seit AG3-090
+als reine Reexport-Fassade auf `agentkit.backend.control_plane_http`. Das
+Modul bezeichnete sich in seinem eigenen Docstring als „Compat re-export",
+damit „existing callers … continue to resolve". `CLAUDE.md`
+§KEINE KOMPATIBILITAETSSCHICHTEN verbietet Reexport-Fassaden ausnahmslos und
+verpflichtet zu ihrer Entfernung.
 
 Der eigentliche Befund lag jedoch tiefer als das Modul: **Die Architekturregeln
 erlaubten die verbotene Konstruktion.** Der deterministische
