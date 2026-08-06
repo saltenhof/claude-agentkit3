@@ -1,0 +1,39 @@
+story_id: AG3-233
+story_title_short: "nightly-stufen-ohne-timeout"
+title: "Die beiden LLM-gestuetzten Nightly-Stufen sind 'non-blocking' im Ergebnis, aber nicht in der Dauer -- ein haengender Aufruf haelt die Pipeline bis zum globalen 300-Minuten-Timeout fest."
+type: bugfix
+status: ready
+phase: setup
+created: "2026-08-06"
+size: S
+# Herkunft: Jenkins #1249 gegen 56c170e5 (2026-08-06). Der Build stand nach 30
+# Minuten immer noch in der Stufe "Concept Authority Prose Nightly
+# (non-blocking)"; bisherige Volldurchlaeufe lagen bei 18 Minuten, dieselbe
+# Stufe brauchte in #1246 fuenf Minuten.
+#
+# Der LLM-Hub war dabei ERREICHBAR (Listener auf 9600, Dienst antwortet) -- die
+# Stufe haengt also nicht an einem toten Dienst, sondern an einem Aufruf ohne
+# Abbruchbedingung.
+#
+# BEFUND:
+#   Jenkinsfile:5      timeout(time: 300, unit: 'MINUTES')   global, 5 Stunden
+#   Jenkinsfile:329ff  Stufe W2: set +e ... exit 0, KEIN eigenes timeout()
+#   Jenkinsfile:350ff  Stufe W3: dito
+#   scripts/ci/check_concept_authority_prose.py: kein einziges `timeout`
+#
+# Beide Stufen behandeln sorgfaeltig den Fall "das Skript liefert einen
+# Fehlercode" -- und keinen von beiden den Fall "das Skript kehrt nie zurueck".
+# Es sind ausgerechnet die einzigen beiden Stufen, die einen externen
+# LLM-Dienst aufrufen, also die einzigen, bei denen genau das der realistische
+# Ausfall ist.
+#
+# "Non-blocking" ist damit nur fuer das ERGEBNIS umgesetzt, nicht fuer die
+# DAUER. Eine Stufe, die das Urteil nicht blockieren soll, aber die Pipeline
+# fuenf Stunden festhalten kann, ist nicht non-blocking.
+#
+# ZUSATZBEFUND aus demselben Lauf: Der PO hat am 2026-08-05 festgestellt, dass
+# der LLM-Hub instabil ist und nicht mehr die Zielarchitektur traegt -- die
+# Bewertung wandert auf die Harness Bridge. Eine Story, die diese beiden
+# Stufen anfasst, sollte wissen, dass ihr Aufrufziel mittelfristig entfaellt.
+depends_on: []
+unblocks: []
