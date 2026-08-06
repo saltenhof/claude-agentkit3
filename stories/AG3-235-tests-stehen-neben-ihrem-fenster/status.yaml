@@ -1,0 +1,31 @@
+story_id: AG3-235
+story_title_short: "tests-stehen-neben-ihrem-fenster"
+title: "Sieben Tests belegen etwas anderes als ihre Zusage -- einer davon benutzt genau den lokalen Repository-Pfad, den ein anderer Test derselben Story als nicht existent assertiert."
+type: bugfix
+status: ready
+phase: setup
+created: "2026-08-06"
+size: M
+# Herkunft: beauftragte Suche in AG3-214 (2026-08-06), nachdem die drei
+# Restbefunde alle dieselbe Form hatten: ein Test steht NEBEN dem Fenster, das
+# er absichern soll. Der Umsetzer hat die Fundstellen an ihren Locatoren selbst
+# nachgeprueft.
+#
+# DIESE KLASSE IST IN EINER EINZIGEN SESSION ACHTMAL AUFGETRETEN -- dreimal in
+# AG3-214 selbst (Serve-Boundary, op_id ohne Parallelitaet, Baumvergleich),
+# einmal in AG3-229 (Writer-Fixture, die den Writer imitierte statt ihn
+# auszufuehren), und hier sind sieben weitere.
+#
+# DER SCHWERSTE IST #5, weil er einen WIDERSPRUCH im Testbestand erzeugt:
+# tests/unit/cli/test_main.py:557 (ueber die autouse-Fixture bei :61) ersetzt
+# `_wire_register_config_to_writer` durch lokale
+# StateBackend*Repository(root)-Konstruktionen und assertiert dann gegen diese.
+# Das ist exakt der lokale Repository-Pfad, den AG3-214 entfernt hat -- und den
+# tests/unit/concept_toolchain/test_ag3_214_single_writer_contract.py:164-173
+# als NICHT EXISTENT assertiert. Der Docstring behauptet dabei "REAL code, no
+# monkeypatch crutch".
+#
+# Ein Testbestand, in dem ein Test die Abwesenheit eines Pfades beweist und ein
+# anderer denselben Pfad benutzt, traegt keine der beiden Aussagen.
+depends_on: []
+unblocks: []

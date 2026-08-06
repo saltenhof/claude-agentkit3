@@ -239,7 +239,11 @@ def test_unresolved_repo_path_in_a_clean_tree_is_still_an_error(tmp_path: Path) 
     # says nothing about untracked files. ``status --porcelain`` covers both, and
     # empty output is the actual proof that no staging artefact is in play.
     status = subprocess.run(
-        ["git", "-C", str(repo), "status", "--porcelain"], check=True, capture_output=True, text=True
+        ["git", "-C", str(repo), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
     assert status.stdout == ""
     assert _repo_path_findings(repo, "payload/never_existed.md") == (ABSENT,)
