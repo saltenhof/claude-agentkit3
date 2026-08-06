@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import http.client
 import json
+import os
 import socket
 import ssl
 import subprocess
+import sys
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
-from threading import Event, Thread
+from threading import Barrier, Event, Thread
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Never, cast
 
@@ -24,7 +27,10 @@ from agentkit.backend.auth.http.routes import AuthRoutes
 from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
 from agentkit.backend.cli.main import main
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
-from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+from agentkit.backend.control_plane.repository import (
+    BackendInstanceIdentityRepository,
+    ControlPlaneRuntimeRepository,
+)
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.control_plane.third_party_models import (
     BranchPluginSelfTestOperation,
@@ -127,6 +133,7 @@ from agentkit.backend.state_backend.store.governance_hook_repository import (
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     FreshClaim,
     IdempotencyRequest,
+    InFlightOutcome,
     InMemoryInflightIdempotencyGuard,
     StateBackendInflightIdempotencyGuard,
     compute_body_hash,
@@ -837,6 +844,251 @@ def test_writer_session_loss_after_cp7_domain_window_same_op_converges(
     assert StateBackendProjectRepository().get(_PROJECT) is not None
     committed = load_control_plane_operation_global(op_id)
     assert committed is not None and committed.status == "committed"
+
+
+class _ClaimEntrySignallingGuard(StateBackendInflightIdempotencyGuard):
+    """The PRODUCTIVE guard, plus a signal fired when a claim enters the window.
+
+    Subclassed rather than wrapped on purpose: ``InstallerMutationCoordinator``
+    selects the atomic writer-mutation scope by ``isinstance`` of the guard, so a
+    delegating wrapper would silently take a DIFFERENT production path than the
+    one under test. Only the entry signal is added; every decision stays the
+    guard's own.
+    """
+
+    def __init__(self, entered: Event) -> None:
+        self._entered = entered
+
+    def claim(self, request: IdempotencyRequest) -> object:
+        """Signal that this caller entered the claim window, then claim for real."""
+        self._entered.set()
+        return super().claim(request)
+
+
+class _CountingProjectRepository:
+    """Count every touch of the mutation body, optionally holding one call open.
+
+    ``calls`` counts EVERY delegated access, not just writes: CP 7 converges
+    idempotently, so a second execution of the same registration would write
+    nothing observable — but it cannot reach the domain state without touching
+    this port. A loser that never executed therefore has ``calls == 0``.
+
+    With ``inside``/``proceed`` the repository parks its caller inside the domain
+    mutation until the rival request has entered its claim, which is what makes
+    the two request windows provably overlap.
+    """
+
+    def __init__(
+        self,
+        *,
+        inside: Event | None = None,
+        proceed: Event | None = None,
+    ) -> None:
+        self._delegate = StateBackendProjectRepository()
+        self._inside = inside
+        self._proceed = proceed
+        self.calls = 0
+        self.saves = 0
+
+    def get(self, key: str) -> Project | None:
+        self.calls += 1
+        return self._delegate.get(key)
+
+    def list(self, *, include_archived: bool = False) -> list[Project]:
+        self.calls += 1
+        return self._delegate.list(include_archived=include_archived)
+
+    def save(self, project: Project) -> None:
+        self.calls += 1
+        self.saves += 1
+        if self._inside is not None:
+            self._inside.set()
+        if self._proceed is not None:
+            assert self._proceed.wait(timeout=60), "the rival request never claimed"
+        self._delegate.save(project)
+
+
+def _installer_routes(
+    *,
+    guard: StateBackendInflightIdempotencyGuard,
+    project_repository: object | None = None,
+) -> InstallerWriterRoutes:
+    """Build the productive installer writer routes around a specific guard."""
+    return InstallerWriterRoutes(
+        owner=InstallerWriterService(
+            registration_repository=StateBackendProjectRegistrationRepository,
+            project_repository=(
+                StateBackendProjectRepository
+                if project_repository is None
+                else (lambda: cast("Any", project_repository))
+            ),
+            skill_binding_repository=StateBackendSkillBindingRepository,
+            hook_repository=StateBackendHookRegistrationRepository,
+        ),
+        mutation_coordinator=InstallerMutationCoordinator(guard),
+    )
+
+
+def test_two_overlapping_requests_with_one_op_id_mutate_exactly_once(
+    tmp_path: Path,
+) -> None:
+    """AG3-214 B2: the SAME op_id sent twice CONCURRENTLY mutates once.
+
+    The pre-existing proofs sent the second request only AFTER the first had
+    settled (sequential retry) or after the writer session had died. Neither
+    entered the window ``mutation_idempotency`` exists for: two requests alive at
+    the same time under one ``op_id``.
+
+    Overlap here is OBSERVED, not assumed. The first request is held open inside
+    its domain mutation and is released only once the second request has provably
+    entered its claim, so the two windows demonstrably intersect. The contract
+    then has to hold: the mutation body runs exactly once, both callers receive
+    the same answer, and the ledger carries one committed row.
+    """
+
+    op_id = "op-concurrent-register-project"
+    payload = {
+        "op_id": op_id,
+        "project_name": "Tenant A",
+        "project_root": str(tmp_path),
+        "github_owner": "openai",
+        "github_repo": "agentkit",
+        "runtime_profile": "core",
+        "project_yaml": {
+            "project_key": _PROJECT,
+            "project_name": "Tenant A",
+            "repositories": [{"name": "main", "path": "."}],
+        },
+    }
+    auth = AuthResult(
+        auth_kind="project_api_token",
+        project_key=_PROJECT,
+        token_id="token-concurrent",
+    )
+    path = f"/v1/projects/{_PROJECT}/installation/register-project"
+
+    first_inside = Event()
+    second_entered = Event()
+    order: list[str] = []
+    blocking_repository = _CountingProjectRepository(
+        inside=first_inside,
+        proceed=second_entered,
+    )
+    rival_repository = _CountingProjectRepository()
+    first_routes = _installer_routes(
+        guard=StateBackendInflightIdempotencyGuard(),
+        project_repository=blocking_repository,
+    )
+    second_routes = _installer_routes(
+        guard=_ClaimEntrySignallingGuard(second_entered),
+        project_repository=rival_repository,
+    )
+    responses: dict[str, object] = {}
+    failures: list[BaseException] = []
+
+    def send(name: str, routes: InstallerWriterRoutes) -> None:
+        try:
+            responses[name] = routes.handle_post(
+                path,
+                dict(payload),
+                f"corr-concurrent-{name}",
+                auth,
+            )
+        except BaseException as exc:  # surfaced by the test, never swallowed
+            failures.append(exc)
+        finally:
+            order.append(f"{name}-returned")
+
+    app = _application(tmp_path)
+    app.run_pre_serve_startup_hook()
+    first = Thread(target=send, args=("first", first_routes))
+    second = Thread(target=send, args=("second", second_routes))
+    try:
+        first.start()
+        assert first_inside.wait(timeout=60), "the first request never reached its mutation"
+        order.append("first-mutating")
+        second.start()
+        assert second_entered.wait(timeout=60), "the second request never claimed"
+        order.append("second-claiming")
+        first.join(timeout=60)
+        second.join(timeout=60)
+    finally:
+        second_entered.set()
+        first.join(timeout=60)
+        second.join(timeout=60)
+        app.release_writer_lease()
+
+    assert failures == []
+    assert not first.is_alive() and not second.is_alive()
+    # The windows really overlapped: the second request claimed while the first
+    # was still inside its mutation, before either of them returned.
+    assert order[:2] == ["first-mutating", "second-claiming"]
+    assert set(order[2:]) == {"first-returned", "second-returned"}
+
+    first_response = cast("Any", responses["first"])
+    second_response = cast("Any", responses["second"])
+    assert first_response.status_code == HTTPStatus.OK
+    assert second_response.status_code == HTTPStatus.OK
+    assert first_response.body == second_response.body, "the loser replays the stored result"
+    # The mutation body ran once, for the winner only: the loser's own port was
+    # never touched at all, so it did not execute the mutation a second time.
+    assert blocking_repository.saves == 1
+    assert rival_repository.calls == 0
+    registration = StateBackendProjectRegistrationRepository().get(_PROJECT)
+    assert registration is not None and registration.github_owner == "openai"
+    committed = load_control_plane_operation_global(op_id)
+    assert committed is not None and committed.status == "committed"
+
+
+def test_concurrent_claims_on_one_op_id_produce_exactly_one_winner(
+    tmp_path: Path,
+) -> None:
+    """AG3-214 B2: the claim primitive itself admits exactly one of two racers.
+
+    ``mutation_idempotency`` rests on the atomic claim: when two callers reach
+    ``claim`` for the same ``op_id`` at the same instant, one wins and the other
+    is rejected in flight. A barrier releases both threads together, so the race
+    is real and not a scripted order.
+    """
+
+    request = IdempotencyRequest(
+        op_id="op-raced-claim",
+        operation_kind="project_api_token_create",
+        body_hash=compute_body_hash({"token_id": "token-raced"}),
+        project_key=_PROJECT,
+    )
+    app = _application(tmp_path)
+    app.run_pre_serve_startup_hook()
+    start = Barrier(2, timeout=60)
+    outcomes: list[object] = []
+    failures: list[BaseException] = []
+
+    def race() -> None:
+        try:
+            start.wait()
+            outcomes.append(StateBackendInflightIdempotencyGuard().claim(request))
+        except BaseException as exc:  # surfaced by the test, never swallowed
+            failures.append(exc)
+
+    racers = [Thread(target=race) for _ in range(2)]
+    try:
+        for racer in racers:
+            racer.start()
+        for racer in racers:
+            racer.join(timeout=60)
+    finally:
+        app.release_writer_lease()
+
+    assert failures == []
+    assert len(outcomes) == 2
+    assert sum(isinstance(outcome, FreshClaim) for outcome in outcomes) == 1
+    assert sum(isinstance(outcome, InFlightOutcome) for outcome in outcomes) == 1
+    stored = load_control_plane_operation_global(request.op_id)
+    assert stored is not None
+    assert stored.status == "claimed"
+    # Befund 2's sender is on the single surviving claim.
+    assert stored.backend_instance_id is not None
+    assert stored.instance_incarnation is not None
 
 
 class _KillSessionAfterProjectSave:
@@ -2246,6 +2498,256 @@ def test_idle_writer_session_termination_closes_both_listeners_and_fails_serve(
     assert len(errors) == 1
     assert isinstance(errors[0], ControlPlaneWriterLeaseLostError)
     assert app.writer_lease_loss_reason is not None
+    for port in (ui_port, project_api_port):
+        with pytest.raises(OSError), socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            pass
+
+
+#: The SECOND writer process: the real ``agentkit serve`` CLI entry, nothing else.
+#: It must be refused by the writer-lifetime lease before it binds a listener or
+#: touches the boot identity of the writer that is already serving.
+_SECOND_SERVE_PROCESS = (
+    "import sys\n"
+    "from agentkit.backend.cli.main import main\n"
+    "raise SystemExit(\n"
+    "    main(\n"
+    "        [\n"
+    "            'serve',\n"
+    "            '--certfile', sys.argv[1],\n"
+    "            '--ui-port', sys.argv[2],\n"
+    "            '--project-port', sys.argv[3],\n"
+    "        ],\n"
+    "    ),\n"
+    ")\n"
+)
+
+
+def _write_loopback_certificate(directory: Path, prefix: str) -> tuple[Path, Path]:
+    """Issue a short-lived self-signed loopback certificate (cert, key)."""
+    certfile = directory / f"{prefix}-cert.pem"
+    keyfile = directory / f"{prefix}-key.pem"
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(keyfile),
+            "-out",
+            str(certfile),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=127.0.0.1",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+        ],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+        text=True,
+    )
+    return certfile, keyfile
+
+
+def _await_listener(port: int) -> None:
+    """Block until *port* accepts a TCP connection (fail-closed after ~10s)."""
+    for _ in range(200):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return
+        except OSError:
+            continue
+    pytest.fail(f"the control-plane listener on port {port} never accepted a connection")
+
+
+def _request_over_tls(
+    port: int,
+    certfile: Path,
+    *,
+    method: str,
+    path: str,
+    headers: dict[str, str] | None = None,
+    body: bytes | None = None,
+) -> tuple[int, bytes]:
+    """Send one real HTTPS request to a serve_control_plane listener."""
+    context = ssl.create_default_context(cafile=str(certfile))
+    connection = http.client.HTTPSConnection("127.0.0.1", port, context=context, timeout=10)
+    try:
+        connection.request(method, path, body=body, headers=headers or {})
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+def test_serve_boundary_runs_both_listeners_on_one_writer_and_refuses_a_second_process(
+    tmp_path: Path,
+) -> None:
+    """AG3-214 B1: the PO's "one process, two listeners" holds at the real entry.
+
+    The proof runs the productive ``serve_control_plane`` boundary — not a
+    hand-acquired lease and not a ``fake_serve_control_plane`` seam:
+
+    1. ONE call to the boundary brings up BOTH HTTPS listeners; each answers a
+       real TLS request, so two listeners exist in one runtime.
+    2. The two listeners are the two FK-10 profiles, not the same profile twice:
+       the identical machine principal is refused by the UI-BFF listener
+       (``listener_principal_forbidden``) and admitted past the surface gate by
+       the Project-API listener.
+    3. Both share ONE boot identity: the whole boundary produced exactly one
+       ``backend_instance_identity`` and one incarnation, not one per listener.
+    4. A second, independent ``agentkit serve`` process is refused by name, and
+       it neither advances the incarnation nor reconciles the LIVE in-flight
+       claim of the writer that is still serving — the exact data-corruption
+       path Befund 1 described.
+    """
+
+    certfile, keyfile = _write_loopback_certificate(tmp_path, "serve-boundary")
+    ui_port = _unused_port()
+    project_api_port = _unused_port()
+    assert ui_port != project_api_port
+    _save_project()
+    prepared = _activate_project_token(tmp_path)
+    app = _application(tmp_path, project_token=prepared.record)
+    errors: list[BaseException] = []
+
+    def run_boundary() -> None:
+        try:
+            serve_control_plane(
+                ui_host="127.0.0.1",
+                ui_port=ui_port,
+                project_api_host="127.0.0.1",
+                project_api_port=project_api_port,
+                certfile=certfile,
+                keyfile=keyfile,
+                app=app,
+            )
+        except BaseException as exc:  # the test owns the thread's fatal result
+            errors.append(exc)
+
+    thread = Thread(target=run_boundary)
+    thread.start()
+    try:
+        _await_listener(ui_port)
+        _await_listener(project_api_port)
+
+        # (1) both listeners answer a real TLS request from the one runtime.
+        for port in (ui_port, project_api_port):
+            status, _ = _request_over_tls(port, certfile, method="GET", path="/healthz")
+            assert status == int(HTTPStatus.OK), f"port {port} did not serve /healthz"
+
+        # (2) the two listeners carry the two DIFFERENT security surfaces.
+        machine_headers = {
+            "Authorization": f"Bearer {prepared.plaintext_token}",
+            "X-Project-Key": _PROJECT,
+            "Content-Type": "application/json",
+        }
+        telemetry_body = json.dumps(
+            {
+                "project_key": _PROJECT,
+                "story_id": "AG3-214",
+                "run_id": "run-serve-boundary",
+                "event_type": "agent_start",
+                "occurred_at": "2026-08-05T10:00:00+00:00",
+                "source_component": "test",
+            },
+        ).encode("utf-8")
+        ui_status, ui_body = _request_over_tls(
+            ui_port,
+            certfile,
+            method="POST",
+            path="/v1/telemetry/events",
+            headers=machine_headers,
+            body=telemetry_body,
+        )
+        assert ui_status == int(HTTPStatus.FORBIDDEN)
+        assert json.loads(ui_body)["error_code"] == "listener_principal_forbidden"
+        project_status, project_body = _request_over_tls(
+            project_api_port,
+            certfile,
+            method="POST",
+            path="/v1/telemetry/events",
+            headers=machine_headers,
+            body=telemetry_body,
+        )
+        # Past the surface gate; the handshake middleware of the SAME runtime
+        # is what stops it, never the listener-principal rule.
+        assert project_status == int(HTTPStatus.UPGRADE_REQUIRED)
+        assert json.loads(project_body)["error_code"] == "upgrade_required"
+
+        # (3) one boot identity for both listeners.
+        identity = load_bound_control_plane_writer_identity()
+        assert identity is not None
+        stored = BackendInstanceIdentityRepository().load_identity(
+            identity.backend_instance_id,
+        )
+        assert stored is not None
+        assert stored.instance_incarnation == identity.instance_incarnation == 1
+
+        # A live in-flight claim of the STILL-SERVING writer.
+        live_request = IdempotencyRequest(
+            op_id="op-live-under-serve-boundary",
+            operation_kind="project_api_token_create",
+            body_hash=compute_body_hash({"token_id": "token-live-boundary"}),
+            project_key=_PROJECT,
+        )
+        assert isinstance(
+            StateBackendInflightIdempotencyGuard().claim(live_request),
+            FreshClaim,
+        )
+
+        # (4) a second REAL serve process is refused at the same boundary.
+        second_ui_port = _unused_port()
+        second_project_port = _unused_port()
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _SECOND_SERVE_PROCESS,
+                str(certfile),
+                str(second_ui_port),
+                str(second_project_port),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=180,
+            env={
+                **os.environ,
+                "AGENTKIT_AUTH_CONFIG": str(tmp_path / "second-writer-auth.json"),
+            },
+        )
+        assert probe.returncode == 1, probe.stderr
+        assert "ControlPlaneWriterAlreadyActive" in probe.stderr
+
+        # The refused process left the serving writer's boot identity and its
+        # live claim untouched.
+        unchanged = BackendInstanceIdentityRepository().load_identity(
+            identity.backend_instance_id,
+        )
+        assert unchanged == stored
+        live = load_control_plane_operation_global(live_request.op_id)
+        assert live is not None and live.status == "claimed"
+        assert live.backend_instance_id == identity.backend_instance_id
+        assert live.instance_incarnation == identity.instance_incarnation
+        # The second process bound no listener of its own either.
+        for port in (second_ui_port, second_project_port):
+            with pytest.raises(OSError), socket.create_connection(
+                ("127.0.0.1", port), timeout=0.2
+            ):
+                pass
+    finally:
+        app.wake_writer_lease_monitor()
+        thread.join(timeout=30)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert app.writer_lease_loss_reason is None
     for port in (ui_port, project_api_port):
         with pytest.raises(OSError), socket.create_connection(("127.0.0.1", port), timeout=0.2):
             pass
