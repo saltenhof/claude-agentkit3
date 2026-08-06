@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from concept_compiler.compiler import compile_formal_specs
 from concept_compiler.loader import try_load_frontmatter
 from concept_compiler.reference_integrity import (
@@ -99,31 +101,112 @@ def _name(repo: Path, reference: str) -> None:
     (repo / "concept" / "source.md").write_text(f"# Source\n\nIt names `{reference}`.\n", encoding="utf-8")
 
 
-def _repo_path_findings(repo: Path, reference: str) -> tuple[tuple[str, str], ...]:
+def _repo_path_findings(repo: Path, reference: str) -> tuple[tuple[str, str, str], ...]:
+    """Return every ``(severity, code, message)`` the gate emits for ``reference``."""
     result = audit_reference_integrity(repo, repo / "concept", COMPILED, repo / "concept" / "baseline.yaml")
-    return tuple((item.code, item.message) for item in result.findings if item.reference == reference)
+    return tuple(
+        (item.severity, item.code, item.message)
+        for item in (*result.findings, *result.warnings, *result.reports)
+        if item.reference == reference
+    )
 
 
-def test_new_unstaged_file_resolves_exactly_as_after_staging(tmp_path: Path) -> None:
-    """AC 1, direction 'new but unstaged': the gate follows the working tree."""
+def _blocks(repo: Path) -> bool:
+    result = audit_reference_integrity(repo, repo / "concept", COMPILED, repo / "concept" / "baseline.yaml")
+    return not result.ok
+
+
+ABSENT = ("ERROR", "UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file")
+DELETED = ("ERROR", "UNRESOLVED_REPO_PATH", "repo-relative path is tracked by git but absent from the working tree")
+UNVERSIONED = (
+    "WARNING",
+    "UNVERSIONED_REPO_PATH",
+    "repo-relative path resolves only against an untracked working-tree file; "
+    "it will not resolve for anyone else until the file is committed",
+)
+
+
+def test_repo_root_may_be_a_subdirectory_of_the_git_repository(tmp_path: Path) -> None:
+    """``git ls-files`` output must share the base every other path uses.
+
+    ``repo_root`` is not required to be the git root — the CLI exposes it as
+    ``--repo-root``. Adding ``--full-name`` would re-base the membership sets
+    onto the git root while candidates stay relative to ``repo_root``, and the
+    failure is silent: memberships miss and dead paths stop being reported.
+    """
+    repo = _seed_repo(tmp_path)
+    nested = repo / "nested"
+    (nested / "concept").mkdir(parents=True)
+    (nested / "concept" / "baseline.yaml").write_text(
+        "version: 1\nunresolved_references: []\ndocument_cycles: []\n", encoding="utf-8"
+    )
+    (nested / "payload").mkdir()
+    (nested / "payload" / "here.md").write_text("here\n", encoding="utf-8")
+    (nested / "concept" / "source.md").write_text(
+        "# Source\n\nAlive `payload/here.md`, dead `payload/gone.md`.\n", encoding="utf-8"
+    )
+    _commit(repo, "nested tree")
+
+    result = audit_reference_integrity(nested, nested / "concept", COMPILED, nested / "concept" / "baseline.yaml")
+
+    assert [(item.code, item.reference) for item in result.findings] == [("UNRESOLVED_REPO_PATH", "payload/gone.md")]
+
+
+def test_new_unstaged_file_is_a_visible_non_blocking_third_outcome(tmp_path: Path) -> None:
+    """AC 1, direction 'new but unstaged'.
+
+    The index owns resolution, so an unstaged file does not make the reference
+    resolve. It does not fire the blocking error either: the gate distinguishes
+    "not staged yet" from "does not exist" and says so without blocking.
+    """
     repo = _seed_repo(tmp_path)
     _name(repo, "payload/added.md")
     absent = _repo_path_findings(repo, "payload/added.md")
 
     (repo / "payload" / "added.md").write_text("added\n", encoding="utf-8")
     unstaged = _repo_path_findings(repo, "payload/added.md")
+    unstaged_blocks = _blocks(repo)
     _git(repo, "add", "payload/added.md")
     staged = _repo_path_findings(repo, "payload/added.md")
 
-    assert absent == (
-        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
-    )
-    assert unstaged == ()
-    assert unstaged == staged
+    assert absent == (ABSENT,)
+    assert unstaged == (UNVERSIONED,)
+    assert unstaged_blocks is False
+    assert staged == ()
+
+
+def test_untracked_local_output_never_satisfies_a_reference(tmp_path: Path) -> None:
+    """B1 counter-example: an untracked, unignored local file is not repo content.
+
+    ``tools/local-debug.log`` is versionable and present, so a union of index
+    and untracked content would have resolved it and let the reference reach a
+    commit that does not contain the file. The index-owned predicate refuses to
+    call it resolved, and the developer sees why.
+    """
+    repo = _seed_repo(tmp_path)
+    (repo / "tools").mkdir()
+    # A tracked sibling, as in the real repository: the top level stays a
+    # recognized path prefix regardless of the local output file's fate.
+    (repo / "tools" / "keep.md").write_text("kept\n", encoding="utf-8")
+    _commit(repo, "add tools")
+    (repo / "tools" / "local-debug.log").write_text("local noise\n", encoding="utf-8")
+    _name(repo, "tools/local-debug.log")
+
+    assert (repo / "tools" / "local-debug.log").exists()
+    assert _repo_path_findings(repo, "tools/local-debug.log") == (UNVERSIONED,)
+
+    # The reference is committed while the file it names is not: exactly the
+    # state a CI checkout materialises, and there the verdict is blocking.
+    _git(repo, "add", "concept/source.md")
+    _git(repo, "-c", "user.email=gate@example.invalid", "-c", "user.name=Gate", "commit", "-q", "-m", "name local output")
+    (repo / "tools" / "local-debug.log").unlink()
+
+    assert _repo_path_findings(repo, "tools/local-debug.log") == (ABSENT,)
+    assert _blocks(repo) is True
 
 
 def test_deleted_unstaged_file_fails_exactly_as_after_staging(tmp_path: Path) -> None:
-    """AC 1, direction 'deleted but unstaged': the gate follows the working tree."""
+    """AC 1, direction 'deleted but unstaged': the gate measures the working tree."""
     repo = _seed_repo(tmp_path)
     (repo / "payload" / "doomed.md").write_text("doomed\n", encoding="utf-8")
     _name(repo, "payload/doomed.md")
@@ -132,19 +215,18 @@ def test_deleted_unstaged_file_fails_exactly_as_after_staging(tmp_path: Path) ->
 
     (repo / "payload" / "doomed.md").unlink()
     unstaged = _repo_path_findings(repo, "payload/doomed.md")
+    unstaged_blocks = _blocks(repo)
     _git(repo, "add", "-A")
     staged = _repo_path_findings(repo, "payload/doomed.md")
 
     assert present == ()
-    assert unstaged == (
-        ("UNRESOLVED_REPO_PATH", "repo-relative path is known to git but absent from the working tree"),
-    )
-    # Staging the deletion drops the path from git entirely, so the message names
-    # the other unmet condition; the verdict the developer sees is identical.
-    assert [code for code, _ in staged] == [code for code, _ in unstaged]
-    assert staged == (
-        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
-    )
+    assert unstaged == (DELETED,)
+    assert unstaged_blocks is True
+    # Staging the deletion drops the path from the index entirely, so the message
+    # names the other unmet condition; the verdict the developer sees is identical.
+    assert staged == (ABSENT,)
+    assert [severity for severity, _, _ in staged] == [severity for severity, _, _ in unstaged]
+    assert _blocks(repo) is True
 
 
 def test_unresolved_repo_path_in_a_clean_tree_is_still_an_error(tmp_path: Path) -> None:
@@ -153,12 +235,15 @@ def test_unresolved_repo_path_in_a_clean_tree_is_still_an_error(tmp_path: Path) 
     _name(repo, "payload/never_existed.md")
     _commit(repo, "name a dead path")
 
-    # ``diff --quiet`` exits non-zero on any change, so ``check=True`` asserts a
-    # fully clean tree: nothing here is an artefact of staging state.
-    _git(repo, "diff", "--quiet", "HEAD")
-    assert _repo_path_findings(repo, "payload/never_existed.md") == (
-        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
+    # ``diff --quiet HEAD`` only compares index and working tree against HEAD; it
+    # says nothing about untracked files. ``status --porcelain`` covers both, and
+    # empty output is the actual proof that no staging artefact is in play.
+    status = subprocess.run(
+        ["git", "-C", str(repo), "status", "--porcelain"], check=True, capture_output=True, text=True
     )
+    assert status.stdout == ""
+    assert _repo_path_findings(repo, "payload/never_existed.md") == (ABSENT,)
+    assert _blocks(repo) is True
 
 
 def test_gitignored_working_tree_file_is_not_a_valid_reference(tmp_path: Path) -> None:
@@ -170,9 +255,57 @@ def test_gitignored_working_tree_file_is_not_a_valid_reference(tmp_path: Path) -
     (repo / "payload" / "generated.md").write_text("generated\n", encoding="utf-8")
 
     assert (repo / "payload" / "generated.md").exists()
-    assert _repo_path_findings(repo, "payload/generated.md") == (
-        ("UNRESOLVED_REPO_PATH", "repo-relative path is neither tracked by git nor an unignored working-tree file"),
-    )
+    assert _repo_path_findings(repo, "payload/generated.md") == (ABSENT,)
+    assert _blocks(repo) is True
+
+
+def test_tracked_broken_symlink_is_present_repo_content(tmp_path: Path) -> None:
+    """B2: a tracked symlink is repo content even when its target is missing.
+
+    ``Path.exists()`` follows the link and answers about the target, so a
+    dangling symlink was reported as "absent from the working tree" while its
+    directory entry was demonstrably there. ``os.path.lexists`` answers about
+    the entry.
+    """
+    repo = _seed_repo(tmp_path)
+    try:
+        os.symlink("missing-target.md", repo / "payload" / "dangling.md")
+    except OSError as exc:  # pragma: no cover - platform-dependent privilege
+        pytest.skip(f"creating a symlink requires elevation on this platform: {exc}")
+    _name(repo, "payload/dangling.md")
+    _commit(repo, "track a dangling symlink")
+
+    assert os.path.lexists(repo / "payload" / "dangling.md")
+    assert not (repo / "payload" / "dangling.md").exists()
+    assert _repo_path_findings(repo, "payload/dangling.md") == ()
+    assert _blocks(repo) is False
+
+
+def test_windows_collapsing_token_is_rejected_on_every_platform(tmp_path: Path) -> None:
+    """B3, closable part: a trailing dot no longer hides a token from the check.
+
+    Windows strips trailing dots from path components, so ``payload/anchor.md.``
+    exists there and does not on Linux. The recognition gate tolerates the
+    collapse so the token becomes a candidate; the exact, case-sensitive index
+    lookup then rejects it identically everywhere.
+    """
+    repo = _seed_repo(tmp_path)
+    _name(repo, "payload/anchor.md.")
+    _commit(repo, "name a windows-collapsing token")
+
+    assert _repo_path_findings(repo, "payload/anchor.md.") == (ABSENT,)
+    assert _blocks(repo) is True
+
+
+def test_root_level_collapsing_token_is_recognized_and_rejected(tmp_path: Path) -> None:
+    """B3, closable part: the collapse tolerance also applies to the first segment."""
+    repo = _seed_repo(tmp_path)
+    (repo / "ROOTDOC.md").write_text("root\n", encoding="utf-8")
+    _name(repo, "ROOTDOC.md.")
+    _commit(repo, "name a collapsing root token")
+
+    assert _repo_path_findings(repo, "ROOTDOC.md.") == (ABSENT,)
+    assert _blocks(repo) is True
 
 
 def test_same_scope_cycle_is_error_with_both_reasons() -> None:

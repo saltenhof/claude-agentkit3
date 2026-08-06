@@ -13,6 +13,7 @@ justified baseline entry.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -62,15 +63,36 @@ class DefersEdge:
 
 @dataclass(frozen=True)
 class ReferenceIntegrityResult:
-    """Stable findings and informational reports produced by an audit."""
+    """Stable findings, warnings and informational reports produced by an audit.
+
+    ``findings`` block, ``warnings`` describe a state that is neither a
+    violation nor a confirmation yet, and ``reports`` are justified baseline
+    entries. Only ``findings`` decide the exit code.
+    """
 
     findings: tuple[ReferenceFinding, ...]
     reports: tuple[ReferenceFinding, ...]
+    warnings: tuple[ReferenceFinding, ...] = ()
 
     @property
     def ok(self) -> bool:
         """Return whether the audit has no blocking findings."""
         return not self.findings
+
+
+@dataclass(frozen=True)
+class _RepoPaths:
+    """Three independent, separately measured observations about repo content.
+
+    ``tracked`` is the git index, ``untracked_unignored`` is the versionable
+    but not yet staged working-tree content, and ``top_level_casefold`` is the
+    lenient recognition gate that decides whether a backtick token is meant as
+    a path into this repository at all.
+    """
+
+    tracked: frozenset[str]
+    untracked_unignored: frozenset[str]
+    top_level_casefold: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -87,7 +109,7 @@ def audit_reference_integrity(
 ) -> ReferenceIntegrityResult:
     """Audit all concept references and scope-qualified delegation cycles."""
     paths = tuple(sorted(concept_root.rglob("*.md")))
-    known_paths, known_top_level_casefold, discovery_findings = _known_repo_paths(repo_root)
+    repo_paths, discovery_findings = _known_repo_paths(repo_root)
     documents, headings, edges, load_findings = _load_documents(repo_root, paths)
     baseline, baseline_findings = _load_baseline(repo_root, baseline_path)
     raw_findings: list[ReferenceFinding] = [*discovery_findings, *load_findings, *baseline_findings]
@@ -100,19 +122,19 @@ def audit_reference_integrity(
                 headings,
                 compiled.declared_ids,
                 frozenset(document.doc_id for document in compiled.documents),
-                known_paths,
-                known_top_level_casefold,
+                repo_paths,
             )
         )
     raw_findings.extend(_scope_cycle_findings(edges))
     cycle_findings, cycle_reports = _document_cycle_findings(edges, baseline)
     raw_findings.extend(cycle_findings)
     raw_findings.extend(_stale_baseline_findings(raw_findings, edges, baseline, baseline_path, repo_root))
-    findings, reports = _apply_unresolved_baseline(raw_findings, baseline)
+    findings, reports, warnings = _apply_unresolved_baseline(raw_findings, baseline)
     reports.extend(cycle_reports)
     return ReferenceIntegrityResult(
         findings=tuple(sorted(findings)),
         reports=tuple(sorted(reports)),
+        warnings=tuple(sorted(warnings)),
     )
 
 
@@ -120,10 +142,13 @@ def render_reference_integrity(result: ReferenceIntegrityResult) -> str:
     """Render byte-stable gate output."""
     lines = [
         f"[{item.severity}] {item.code} {item.path}:{item.line} {item.reference} - {item.message}"
-        for item in (*result.findings, *result.reports)
+        for item in (*result.findings, *result.warnings, *result.reports)
     ]
     status = "PASS" if result.ok else "ERROR"
-    lines.append(f"[{status}] concept-reference-integrity: {len(result.findings)} error(s), {len(result.reports)} report(s)")
+    lines.append(
+        f"[{status}] concept-reference-integrity: {len(result.findings)} error(s), "
+        f"{len(result.warnings)} warning(s), {len(result.reports)} report(s)"
+    )
     return "\n".join(lines)
 
 
@@ -201,8 +226,7 @@ def _scan_document(
     headings: dict[str, frozenset[str]],
     declared_ids: frozenset[str],
     formal_document_ids: frozenset[str],
-    known_paths: frozenset[str],
-    known_top_level_casefold: frozenset[str],
+    repo_paths: _RepoPaths,
 ) -> tuple[ReferenceFinding, ...]:
     relative = path.relative_to(repo_root).as_posix()
     text = path.read_text(encoding="utf-8")
@@ -241,28 +265,64 @@ def _scan_document(
                     _finding(relative, line_number, "UNRESOLVED_FORMAL_ID", match.group(), "formal item id is not declared")
                 )
         for match in BACKTICK_RE.finditer(line):
-            candidate = _repo_path_candidate(match.group(1), known_top_level_casefold)
+            candidate = _repo_path_candidate(match.group(1), repo_paths.top_level_casefold)
             if candidate is None:
                 continue
-            message = _repo_path_message(repo_root, candidate, known_paths)
-            if message is not None:
-                findings.append(_finding(relative, line_number, "UNRESOLVED_REPO_PATH", candidate, message))
+            verdict = _repo_path_verdict(repo_root, candidate, repo_paths)
+            if verdict is not None:
+                code, message, severity = verdict
+                findings.append(_finding(relative, line_number, code, candidate, message, severity))
     return tuple(findings)
 
 
-def _repo_path_message(repo_root: Path, candidate: str, known_paths: frozenset[str]) -> str | None:
-    """Return why ``candidate`` does not resolve, or ``None`` when it resolves.
+def _repo_path_verdict(repo_root: Path, candidate: str, repo_paths: _RepoPaths) -> tuple[str, str, str] | None:
+    """Return ``(code, message, severity)`` for ``candidate``, or ``None`` when it resolves.
 
-    Resolution has two conjunctive conditions, and the message names the one
-    that failed. ``known_paths`` is the case-sensitive, platform-independent
-    universe of versionable repository content; the working-tree probe decides
-    whether a member of that universe is actually present right now.
+    A concept reference is a durable claim about repository content, so the
+    question the gate answers is "does this path resolve in the versioned
+    corpus", and the index — not the working tree — owns that answer. The
+    working tree still has to be measured, because the index alone cannot tell
+    a staged-and-present path from a staged-and-locally-deleted one.
+
+    Two observations are therefore combined, and neither is a substitute for
+    the other:
+
+    * ``tracked`` — the path is in the git index and thus part of the corpus
+      any consumer of the commit will see.
+    * ``os.path.lexists`` — the directory entry is present right now.
+      ``lexists`` rather than ``exists`` because a git symlink is itself repo
+      content whose target need not exist; following the link would make the
+      gate report "absent from the working tree" about an entry that is
+      demonstrably there.
+
+    The combination has three outcomes, not two. A path that is present in the
+    working tree but absent from the index is neither a violation nor a
+    confirmation: it is versionable content the developer has not staged yet.
+    Reporting it as resolved would let local scratch files satisfy a concept
+    reference and would restore the locally-green/CI-red split this gate exists
+    to remove; reporting it as an error would fire on every reference written
+    in the same change that creates its target. It is reported as its own
+    visible, non-blocking outcome instead. That state cannot outlive the
+    handover: staging turns it into a pass, and not staging turns it into an
+    error on the very next run — including on CI, which only ever sees commits.
     """
-    if candidate not in known_paths:
-        return "repo-relative path is neither tracked by git nor an unignored working-tree file"
-    if not (repo_root / candidate).exists():
-        return "repo-relative path is known to git but absent from the working tree"
-    return None
+    present = os.path.lexists(repo_root / candidate)
+    if candidate in repo_paths.tracked:
+        if present:
+            return None
+        return ("UNRESOLVED_REPO_PATH", "repo-relative path is tracked by git but absent from the working tree", "ERROR")
+    if present and candidate in repo_paths.untracked_unignored:
+        return (
+            "UNVERSIONED_REPO_PATH",
+            "repo-relative path resolves only against an untracked working-tree file; "
+            "it will not resolve for anyone else until the file is committed",
+            "WARNING",
+        )
+    return (
+        "UNRESOLVED_REPO_PATH",
+        "repo-relative path is neither tracked by git nor an unignored working-tree file",
+        "ERROR",
+    )
 
 
 def _prose_lines(text: str) -> tuple[tuple[int, str], ...]:
@@ -417,6 +477,20 @@ def _canonical_section(section: str) -> str:
 
 
 def _repo_path_candidate(token: str, known_top_level_casefold: frozenset[str]) -> str | None:
+    """Decide whether ``token`` is meant as a path into this repository.
+
+    Recognition is anchored on a known top-level name because nothing else in a
+    backtick token distinguishes a repository path from prose that merely
+    contains a slash — model ids (``BAAI/bge-m3``), git refs (``origin/main``),
+    target-project runtime paths (``.agentkit/config/project.yaml``) and
+    illustrative placeholders (``a/b.py``) all share its shape.
+
+    The gate is deliberately more lenient than resolution: it casefolds, and it
+    tolerates the trailing dots and spaces that Windows silently strips from
+    path components. Both forms of leniency exist so a near-miss token becomes
+    a candidate and is then rejected by the exact, case-sensitive resolution
+    step on every operating system, instead of escaping the check entirely.
+    """
     candidate = token.strip().replace("\\", "/")
     candidate = re.sub(r":\d+(?:-\d+)?$", "", candidate)
     if not candidate or any(character.isspace() for character in candidate) or candidate.startswith(("/", "http://", "https://")):
@@ -424,56 +498,75 @@ def _repo_path_candidate(token: str, known_top_level_casefold: frozenset[str]) -
     if any(character in candidate for character in "*{}<>"):
         return None
     first = candidate.split("/", 1)[0]
-    if first.casefold() not in known_top_level_casefold:
+    if first.rstrip(". ").casefold() not in known_top_level_casefold:
         return None
     if any(part in {"", ".", ".."} for part in candidate.rstrip("/").split("/")):
         return None
     return candidate.rstrip("/")
 
 
-def _known_repo_paths(
-    repo_root: Path,
-) -> tuple[frozenset[str], frozenset[str], tuple[ReferenceFinding, ...]]:
-    """Collect every repo-relative path that git regards as versionable content.
+def _known_repo_paths(repo_root: Path) -> tuple[_RepoPaths, tuple[ReferenceFinding, ...]]:
+    """Measure the index and the untracked-but-unignored working tree separately.
 
-    The universe is the union of the index (``git ls-files``) and the untracked
-    but unignored working-tree files (``git ls-files --others
-    --exclude-standard``). Two properties follow from that union and neither is
-    obtainable from the working tree alone:
+    The two sets answer different questions and are therefore never merged:
 
-    * ``.gitignore`` stays the filter that keeps generated artefacts out of the
-      resolvable universe — ``var/``, ``.venv/``, ``__pycache__/``, ``build/``,
-      ``node_modules/``, ``_temp/``. Without it the gate would start accepting
-      references to build output as valid repository paths.
-    * Membership is case-sensitive and free of platform path quirks, so a
-      case-variant or a Windows-collapsing token (``dir/...``) is rejected on
-      every operating system.
+    * ``tracked`` (``git ls-files``) is the versioned corpus. It is what a
+      consumer of the commit sees, so it is what a concept reference has to
+      resolve against.
+    * ``untracked_unignored`` (``git ls-files --others --exclude-standard``) is
+      versionable content that is not in the corpus yet. It cannot make a
+      reference resolve, but it distinguishes "not staged yet" from "does not
+      exist", which are different situations for the developer.
 
-    What the union deliberately does *not* decide is presence: whether a member
-    is on disk right now is probed separately against the working tree, so the
-    gate measures the state the developer has in front of them rather than the
-    state that happens to be staged.
+    ``.gitignore`` filters the second set, so generated artefacts — ``var/``,
+    ``.venv/``, ``__pycache__/``, ``build/``, ``node_modules/`` — are in
+    neither set and can never satisfy a reference.
+
+    Both sets carry their parent prefixes so directory references resolve, and
+    both are case-sensitive and free of platform path quirks, so a case-variant
+    token is rejected identically on every operating system.
     """
     index_output, index_findings = _git_ls_files(repo_root, ())
     if index_findings:
-        return frozenset(), frozenset(), index_findings
+        return _RepoPaths(frozenset(), frozenset(), frozenset()), index_findings
     others_output, others_findings = _git_ls_files(repo_root, ("--others", "--exclude-standard"))
     if others_findings:
-        return frozenset(), frozenset(), others_findings
-    known: set[str] = set()
-    top_level: set[str] = set()
-    for raw_path in (*index_output.split("\0"), *others_output.split("\0")):
+        return _RepoPaths(frozenset(), frozenset(), frozenset()), others_findings
+    tracked = _expand_with_prefixes(index_output)
+    untracked = _expand_with_prefixes(others_output)
+    top_level = {path.split("/", 1)[0].casefold() for path in (*tracked, *untracked)}
+    return _RepoPaths(frozenset(tracked), frozenset(untracked), frozenset(top_level)), ()
+
+
+def _expand_with_prefixes(ls_files_output: str) -> set[str]:
+    expanded: set[str] = set()
+    for raw_path in ls_files_output.split("\0"):
         if not raw_path:
             continue
         normalized = raw_path.replace("\\", "/").strip("/")
         parts = normalized.split("/")
-        known.add(normalized)
-        known.update("/".join(parts[:index]) for index in range(1, len(parts)))
-        top_level.add(parts[0].casefold())
-    return frozenset(known), frozenset(top_level), ()
+        expanded.add(normalized)
+        expanded.update("/".join(parts[:index]) for index in range(1, len(parts)))
+    return expanded
 
 
 def _git_ls_files(repo_root: Path, options: tuple[str, ...]) -> tuple[str, tuple[ReferenceFinding, ...]]:
+    """List repository paths relative to ``repo_root``.
+
+    ``-C repo_root`` without ``--full-name`` is deliberate. Every path in this
+    module — the backtick candidates, the membership sets and the
+    ``repo_root / candidate`` presence probe — is relative to ``repo_root``,
+    and ``repo_root`` is not required to be the git root: the CLI exposes it as
+    ``--repo-root`` and the fixture suite points it at a subdirectory. Plain
+    ``ls-files`` emits cwd-relative paths and therefore shares that base.
+
+    ``--full-name`` would re-base only these two sets onto the git root while
+    candidates and the presence probe stayed on ``repo_root``, so every
+    membership test would miss and unresolved paths would stop being reported.
+    A sibling module needs ``--full-name`` because it also consumes ``git
+    diff``, which is always git-root-relative; this module has no such second
+    source and must not copy the flag.
+    """
     import subprocess
 
     argv = ["git", "-C", str(repo_root), "ls-files", "-z", *options]
@@ -696,10 +789,21 @@ def _strong_components(edges: Iterable[DefersEdge]) -> tuple[tuple[str, ...], ..
 
 def _apply_unresolved_baseline(
     findings: list[ReferenceFinding], baseline: _Baseline
-) -> tuple[list[ReferenceFinding], list[ReferenceFinding]]:
+) -> tuple[list[ReferenceFinding], list[ReferenceFinding], list[ReferenceFinding]]:
+    """Split raw findings into blocking errors, baselined reports and warnings.
+
+    Warnings bypass the baseline entirely: they describe transient local
+    working-tree state, so there is nothing durable to justify. They remain in
+    the staleness input, so a baselined entry that is temporarily a warning is
+    not misreported as stale.
+    """
     errors: list[ReferenceFinding] = []
     reports: list[ReferenceFinding] = []
+    warnings: list[ReferenceFinding] = []
     for finding in findings:
+        if finding.severity == "WARNING":
+            warnings.append(finding)
+            continue
         key = (finding.code, finding.path, finding.line, finding.reference)
         if key in baseline.unresolved:
             reports.append(
@@ -707,7 +811,7 @@ def _apply_unresolved_baseline(
             )
         else:
             errors.append(finding)
-    return errors, reports
+    return errors, reports, warnings
 
 
 def _stale_baseline_findings(
