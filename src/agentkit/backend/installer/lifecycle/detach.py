@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 from agentkit.backend.boundary.filesystem import (
     FilesystemContainmentError,
     assert_project_local_file_path,
+    matches_resolved_interpreter_owner,
     matches_resolved_path_owner,
 )
 from agentkit.backend.core_types.mcp_server_registration import (
@@ -129,7 +130,7 @@ def _is_ak3_hook_command(
     # made detach delete foreign hooks. What no producer writes is not claimed.
     if executable_name not in _PYTHON_INTERPRETERS:
         return False
-    if not matches_resolved_path_owner(
+    if not matches_resolved_interpreter_owner(
         executed,
         resolved_command_owners.get(STORY_KNOWLEDGE_BASE_SERVER),
     ):
@@ -138,9 +139,8 @@ def _is_ak3_hook_command(
     return script is not None and _is_ak3_hooks_path(script, project_root=project_root)
 
 
-#: Interpreter basenames used to recognise both current absolute
-#: interpreter-bound script hooks and older bare hook text. This table is parser
-#: vocabulary only; detach never launches or selects an interpreter from it.
+#: Interpreter basenames used for current absolute hooks and older bare text.
+#: This parser vocabulary never launches or selects an interpreter.
 _PYTHON_INTERPRETERS = frozenset({"python", "python3", "python.exe", "python3.exe"})
 #: Python options that consume the NEXT argument -- it is not the script.
 _PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})

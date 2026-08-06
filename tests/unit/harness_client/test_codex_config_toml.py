@@ -10,11 +10,15 @@ from __future__ import annotations
 import json
 import os
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
-from agentkit.backend.boundary.filesystem import matches_resolved_path_owner
+from agentkit.backend.boundary.filesystem import (
+    matches_resolved_interpreter_owner,
+    matches_resolved_path_owner,
+    path_identity,
+)
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_SERVER_SHAPES,
     ARE_MCP_SERVER,
@@ -40,7 +44,7 @@ from agentkit.harness_client.harness_adapters.codex_config_toml import (
 )
 
 _HOOK = str((Path.cwd() / ".test-ak3" / "agentkit-hook-codex.exe").absolute())
-_ROOT = Path("C:/proj")
+_ROOT = (Path.cwd() / ".test-project").absolute()
 
 
 def _ak3_command() -> str:
@@ -1068,7 +1072,7 @@ def test_ak3_registration_of_another_project_is_not_ak3_owned_here() -> None:
 
     Conservative on purpose: preserving is reversible, deleting is not.
     """
-    other_root = Path("C:/some-other-project")
+    other_root = _ROOT.parent / "some-other-project"
     other = DesiredMcpServer(
         name=STORY_KNOWLEDGE_BASE_SERVER,
         command=_ak3_command(),
@@ -1113,19 +1117,132 @@ def test_recognition_helper_accepts_only_the_expected_shape() -> None:
         {"command": "python"},  # relative: never what AK3 writes
         {"args": ["-m", "other"]},
         {"required": False},
-        {"cwd": "C:/elsewhere"},
+        {"cwd": str(_ROOT.parent / "elsewhere")},
         {"env": {"PROJECT_ID": "v"}},
         {"env": dict.fromkeys(shape.env_keys, "")},
     ):
         assert not is_recognised_ak3_server_table(
-            STORY_KNOWLEDGE_BASE_SERVER, {**good, **mutation}, project_root=_ROOT
+            STORY_KNOWLEDGE_BASE_SERVER,
+            {**good, **mutation},
+            project_root=_ROOT,
+            resolved_command_owners=_owner_snapshot(),
         ), mutation
     # an extra or a missing field is also not our own registration
     assert not is_recognised_ak3_server_table(
-        STORY_KNOWLEDGE_BASE_SERVER, {**good, "extra": 1}, project_root=_ROOT
+        STORY_KNOWLEDGE_BASE_SERVER,
+        {**good, "extra": 1},
+        project_root=_ROOT,
+        resolved_command_owners=_owner_snapshot(),
     )
     assert not is_recognised_ak3_server_table(
         STORY_KNOWLEDGE_BASE_SERVER,
         {k: v for k, v in good.items() if k != "cwd"},
         project_root=_ROOT,
+        resolved_command_owners=_owner_snapshot(),
+    )
+
+
+def test_recognition_rejects_foreign_absolute_interpreter(tmp_path: Path) -> None:
+    """An absolute regular executable is foreign unless it is the snapshot owner."""
+    foreign = tmp_path / "foreign-runtime" / "python"
+    foreign.parent.mkdir()
+    foreign.write_text("foreign", encoding="utf-8")
+    raw = _render(None, _server(command=str(foreign))).encode("utf-8")
+
+    assert (
+        classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT)
+        is CodexConfigOwnership.MIXED
+    )
+
+
+def _simulate_posix_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+    *symlinks: str,
+) -> None:
+    """Model POSIX link components without relying on host link privileges."""
+
+    class SyntheticPath:
+        def __init__(self, value: object) -> None:
+            self.value = str(value)
+
+        @property
+        def anchor(self) -> str:
+            return PurePosixPath(self.value).anchor
+
+        @property
+        def parts(self) -> tuple[str, ...]:
+            return PurePosixPath(self.value).parts
+
+        def __truediv__(self, part: object) -> SyntheticPath:
+            return SyntheticPath(str(PurePosixPath(self.value) / str(part)))
+
+        def __fspath__(self) -> str:
+            return self.value
+
+        def is_symlink(self) -> bool:
+            return self.value in symlinks
+
+    monkeypatch.setattr(path_identity, "Path", SyntheticPath)
+    monkeypatch.setattr(path_identity.os, "name", "posix")
+    monkeypatch.setattr(path_identity.os.path, "isjunction", lambda _path: False)
+
+
+def test_interpreter_owner_accepts_only_the_terminal_posix_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The venv executable itself is the one permitted POSIX indirection."""
+    interpreter = "/runtime/venv/bin/python"
+    _simulate_posix_symlinks(monkeypatch, interpreter)
+
+    assert matches_resolved_interpreter_owner(interpreter, interpreter)
+
+
+def test_interpreter_owner_rejects_different_terminal_symlink_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second symlink to the same runtime cannot impersonate the snapshot path."""
+    owner = "/runtime/venv/bin/python"
+    alias = "/foreign/venv/bin/python"
+    _simulate_posix_symlinks(monkeypatch, owner, alias)
+
+    assert not matches_resolved_interpreter_owner(alias, owner)
+
+
+def test_interpreter_owner_rejects_candidate_symlink_ancestor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A candidate pivot hidden by lexical normalisation grants no authority."""
+    candidate = "/pivot/../runtime/venv/bin/python"
+    owner = "/runtime/venv/bin/python"
+    _simulate_posix_symlinks(monkeypatch, "/pivot")
+
+    assert not matches_resolved_interpreter_owner(candidate, owner)
+
+
+def test_interpreter_owner_rejects_snapshot_symlink_ancestor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mutable owner-snapshot ancestor fails closed before normalisation."""
+    candidate = "/runtime/venv/bin/python"
+    owner = "/pivot/../runtime/venv/bin/python"
+    _simulate_posix_symlinks(monkeypatch, "/pivot")
+
+    assert not matches_resolved_interpreter_owner(candidate, owner)
+
+
+def test_recognition_rejects_interpreter_path_marked_as_junction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The POSIX venv-symlink exception never admits a Windows junction."""
+    interpreter = Path(_ak3_command())
+    real_isjunction = os.path.isjunction
+    monkeypatch.setattr(
+        os.path,
+        "isjunction",
+        lambda path: Path(path) == interpreter or real_isjunction(path),
+    )
+
+    assert (
+        classify_ownership(_hook_plus_mcp(), hook_command=_HOOK, project_root=_ROOT)
+        is CodexConfigOwnership.MIXED
     )

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_SERVER_SHAPES,
@@ -25,8 +28,10 @@ from agentkit.harness_client.harness_adapters.codex_config_toml import (
 )
 
 
-def test_mcp_json_detach_removes_only_owned_fields_and_preserves_foreign_values() -> None:
-    project_root = Path("T:/project")
+def test_mcp_json_detach_removes_only_owned_fields_and_preserves_foreign_values(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
     original = {
         "foreignTop": {"enabled": True, "threshold": 3},
         "mcpServers": {
@@ -60,8 +65,10 @@ def test_mcp_json_detach_removes_only_owned_fields_and_preserves_foreign_values(
     assert detached["mcpServers"]["story-knowledge-base"] == {"foreignExtension": {"keep": [1, 2, 3]}}
 
 
-def test_mcp_json_detach_preserves_reserved_server_with_foreign_owned_value() -> None:
-    project_root = Path("T:/project")
+def test_mcp_json_detach_preserves_reserved_server_with_foreign_owned_value(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
     entry = {
         "type": "foreign-transport",
         "command": resolve_story_knowledge_base_command(),
@@ -74,6 +81,9 @@ def test_mcp_json_detach_preserves_reserved_server_with_foreign_owned_value() ->
     rendered = render_mcp_json_without_ak3(
         (json.dumps(original) + "\n").encode("utf-8"),
         project_root=project_root,
+        resolved_command_owners={
+            STORY_KNOWLEDGE_BASE_SERVER: resolve_story_knowledge_base_command()
+        },
     )
 
     assert json.loads(rendered) == original
@@ -86,20 +96,25 @@ def test_mcp_json_detach_preserves_reserved_server_with_foreign_owned_value() ->
         b'{ "mcpServers": {"foreign": {"command": "keep"}}, "x": 1 }',
     ],
 )
-def test_mcp_json_detach_is_byte_stable_without_an_owned_removal(raw: bytes) -> None:
+def test_mcp_json_detach_is_byte_stable_without_an_owned_removal(
+    raw: bytes,
+    tmp_path: Path,
+) -> None:
     """Empty and wholly foreign JSON cannot be normalized or deleted."""
     rendered = render_mcp_json_without_ak3(
         raw,
-        project_root=Path("T:/project"),
+        project_root=tmp_path / "project",
         resolved_command_owners={},
     )
 
     assert rendered.encode("utf-8") == raw
 
 
-def test_mcp_json_detach_is_byte_stable_when_interpreter_owner_is_missing() -> None:
+def test_mcp_json_detach_is_byte_stable_when_interpreter_owner_is_missing(
+    tmp_path: Path,
+) -> None:
     """An AK3-shaped entry without its snapshot proof is not a mutation target."""
-    project_root = Path("T:/project")
+    project_root = tmp_path / "project"
     raw = json.dumps(
         {
             "mcpServers": {
@@ -126,9 +141,10 @@ def test_mcp_json_detach_is_byte_stable_when_interpreter_owner_is_missing() -> N
 
 def test_mcp_json_detach_preserves_server_when_cwd_cannot_resolve(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """A symlink-loop-style resolution failure must fail closed."""
-    project_root = Path("T:/project")
+    project_root = tmp_path / "project"
     entry = {
         "type": "stdio",
         "command": resolve_story_knowledge_base_command(),
@@ -138,13 +154,22 @@ def test_mcp_json_detach_preserves_server_when_cwd_cannot_resolve(
     }
     original = {"mcpServers": {"story-knowledge-base": entry}}
 
-    def _unresolvable(_path: Path) -> Path:
-        raise RuntimeError("symlink loop")
+    import agentkit.backend.boundary.filesystem.path_identity as path_identity
 
-    monkeypatch.setattr(Path, "resolve", _unresolvable)
+    real_abspath = path_identity.os.path.abspath
+
+    def _unresolvable(path: str) -> str:
+        if path == str(project_root):
+            raise RuntimeError("symlink loop")
+        return real_abspath(path)
+
+    monkeypatch.setattr(path_identity.os.path, "abspath", _unresolvable)
     rendered = render_mcp_json_without_ak3(
         (json.dumps(original) + "\n").encode("utf-8"),
         project_root=project_root,
+        resolved_command_owners={
+            STORY_KNOWLEDGE_BASE_SERVER: resolve_story_knowledge_base_command()
+        },
     )
 
     assert json.loads(rendered) == original
@@ -214,9 +239,14 @@ def test_detach_command_owner_snapshot_is_immutable(
         snapshot[ARE_MCP_SERVER] = "foreign"  # type: ignore[index]
 
 
-def test_codex_detach_removes_only_owned_fields_and_preserves_foreign_values() -> None:
-    project_root = Path("T:/project")
-    hook_owner = str(Path("T:/ak3/agentkit-hook-codex.exe"))
+def test_codex_detach_removes_only_owned_fields_and_preserves_foreign_values(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    hook_owner_path = tmp_path / "ak3" / "agentkit-hook-codex.exe"
+    hook_owner_path.parent.mkdir()
+    hook_owner_path.write_text("owner", encoding="utf-8")
+    hook_owner = str(hook_owner_path)
     interpreter_owner = resolve_story_knowledge_base_command()
     env = ", ".join(f'{key} = "value"' for key in sorted(REGISTERED_ENV_KEYS))
     original = f"""

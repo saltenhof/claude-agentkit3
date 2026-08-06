@@ -16,6 +16,7 @@ if TYPE_CHECKING:
         FilesystemContainmentError,
         assert_project_local_file_path,
         is_filesystem_link,
+        matches_resolved_interpreter_owner,
         matches_resolved_path_owner,
     )
     from agentkit.backend.boundary.filesystem.read import (
@@ -41,12 +42,14 @@ def __getattr__(name: str) -> Any:
         "FilesystemContainmentError",
         "assert_project_local_file_path",
         "is_filesystem_link",
+        "matches_resolved_interpreter_owner",
         "matches_resolved_path_owner",
     }:
         from agentkit.backend.boundary.filesystem.path_identity import (
             FilesystemContainmentError,
             assert_project_local_file_path,
             is_filesystem_link,
+            matches_resolved_interpreter_owner,
             matches_resolved_path_owner,
         )
 
@@ -54,6 +57,7 @@ def __getattr__(name: str) -> Any:
             "FilesystemContainmentError": FilesystemContainmentError,
             "assert_project_local_file_path": assert_project_local_file_path,
             "is_filesystem_link": is_filesystem_link,
+            "matches_resolved_interpreter_owner": matches_resolved_interpreter_owner,
             "matches_resolved_path_owner": matches_resolved_path_owner,
         }[name]
     elif name in {"load_json_object", "read_projection_json_object"}:
@@ -77,6 +81,7 @@ __all__ = [
     "assert_project_local_file_path",
     "is_filesystem_link",
     "load_json_object",
+    "matches_resolved_interpreter_owner",
     "matches_resolved_path_owner",
     "read_projection_json_object",
 ]

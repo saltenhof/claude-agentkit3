@@ -61,11 +61,15 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
-from agentkit.backend.boundary.filesystem import matches_resolved_path_owner
+from agentkit.backend.boundary.filesystem import (
+    matches_resolved_interpreter_owner,
+    matches_resolved_path_owner,
+)
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_MCP_SERVER_NAMES,
     AK3_SERVER_SHAPES,
     CODEX_HOOK_WRAPPER_NAME,
+    STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
 )
 
@@ -342,7 +346,11 @@ def is_recognised_ak3_server_table(
     if not shape.matches_command(
         entry.get("command"),
         resolved_owner_command=resolved_owner,
-        path_owner_matcher=matches_resolved_path_owner,
+        path_owner_matcher=(
+            matches_resolved_interpreter_owner
+            if name == STORY_KNOWLEDGE_BASE_SERVER
+            else matches_resolved_path_owner
+        ),
     ):
         return False
     args = entry.get("args")

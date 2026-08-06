@@ -129,11 +129,10 @@ class Ak3ServerShape:
         preserves the ``core_types`` architecture boundary. A missing matcher or
         owner therefore fails closed.
 
-        Candidate symlinks are deliberately rejected even when their current
-        target is the owner. The comparison never follows the candidate, so a
-        later link swap cannot make a different path compare equal. AK3's central
-        resolver never publishes a symlink, and accepting one would turn mutable
-        link state into deletion authority.
+        The injected matcher owns link policy. Wrapper owners reject every
+        symlink and junction. The interpreter matcher may admit only the exact
+        terminal symlink spelling published by a POSIX virtual environment;
+        different aliases, linked ancestors and junctions remain foreign.
         """
         if not isinstance(candidate, str) or not candidate.strip():
             return False
