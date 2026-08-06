@@ -335,10 +335,17 @@ PY
                     sh '''
                         . .venv/bin/activate
                         set +e
+                        # The script carries its own 1800s deadline and reports NOT_DETERMINED (exit 3).
+                        # This is the second rip cord for the case where the script itself cannot leave.
                         LLM_HUB_URL=http://host.docker.internal:9600 \
+                            timeout --kill-after=30s 35m \
                             python scripts/ci/check_concept_authority_prose.py --mode nightly
                         W2_EXIT=$?
-                        if [ "$W2_EXIT" -ne 0 ]; then
+                        if [ "$W2_EXIT" -eq 3 ]; then
+                            echo "[ERROR] W2 reached NO VERDICT: run abandoned at its deadline. NOT DETERMINED is not a pass; nightly stage remains non-blocking by design."
+                        elif [ "$W2_EXIT" -eq 124 ] || [ "$W2_EXIT" -eq 137 ]; then
+                            echo "[ERROR] W2 reached NO VERDICT: killed by the 35m stage bound. NOT DETERMINED is not a pass; nightly stage remains non-blocking by design."
+                        elif [ "$W2_EXIT" -ne 0 ]; then
                             echo "[ERROR] W2 reported untriaged or operational findings; nightly stage remains non-blocking by design."
                         fi
                         exit 0
@@ -356,10 +363,17 @@ PY
                     sh '''
                         . .venv/bin/activate
                         set +e
+                        # The script carries its own 1800s deadline and reports NOT_DETERMINED (exit 3).
+                        # This is the second rip cord for the case where the script itself cannot leave.
                         LLM_HUB_URL=http://host.docker.internal:9600 \
+                            timeout --kill-after=30s 35m \
                             python scripts/ci/check_concept_scope_consistency.py
                         W3_EXIT=$?
-                        if [ "$W3_EXIT" -ne 0 ]; then
+                        if [ "$W3_EXIT" -eq 3 ]; then
+                            echo "[ERROR] W3 reached NO VERDICT: run abandoned at its deadline. NOT DETERMINED is not a pass; nightly stage remains non-blocking by design."
+                        elif [ "$W3_EXIT" -eq 124 ] || [ "$W3_EXIT" -eq 137 ]; then
+                            echo "[ERROR] W3 reached NO VERDICT: killed by the 35m stage bound. NOT DETERMINED is not a pass; nightly stage remains non-blocking by design."
+                        elif [ "$W3_EXIT" -ne 0 ]; then
                             echo "[ERROR] W3 reported untriaged or operational findings; nightly stage remains non-blocking by design."
                         fi
                         exit 0
