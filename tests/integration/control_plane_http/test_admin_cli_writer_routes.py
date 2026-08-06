@@ -9,6 +9,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -2553,15 +2554,45 @@ def _write_loopback_certificate(directory: Path, prefix: str) -> tuple[Path, Pat
     return certfile, keyfile
 
 
-def _await_listener(port: int) -> None:
-    """Block until *port* accepts a TCP connection (fail-closed after ~10s)."""
-    for _ in range(200):
+#: Wall-clock budget for a listener of the productive boundary to accept.
+#: Deliberately measured in TIME, never in connection attempts: a refused
+#: loopback connection costs ~0.1 ms on Linux and ~0.5 s on Windows, so an
+#: attempt-counting loop grants five thousand times less waiting on the very
+#: platform the build is accepted on.
+_LISTENER_BUDGET_S = 30.0
+
+
+def _await_listener(
+    port: int,
+    *,
+    boundary: Thread,
+    errors: list[BaseException],
+) -> None:
+    """Block until *port* accepts a TCP connection (fail-closed).
+
+    Fails immediately — without burning the budget — when the boundary thread
+    has already died, so a broken ``serve_control_plane`` is reported with its
+    own exception instead of a generic timeout.
+    """
+    deadline = time.monotonic() + _LISTENER_BUDGET_S
+    while True:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.5):
                 return
         except OSError:
-            continue
-    pytest.fail(f"the control-plane listener on port {port} never accepted a connection")
+            pass
+        if errors:
+            raise errors[0]
+        if not boundary.is_alive():
+            pytest.fail(
+                f"the control-plane boundary exited before port {port} accepted",
+            )
+        if time.monotonic() >= deadline:
+            pytest.fail(
+                f"the control-plane listener on port {port} never accepted a "
+                f"connection within {_LISTENER_BUDGET_S:.0f}s",
+            )
+        time.sleep(0.05)
 
 
 def _request_over_tls(
@@ -2632,8 +2663,8 @@ def test_serve_boundary_runs_both_listeners_on_one_writer_and_refuses_a_second_p
     thread = Thread(target=run_boundary)
     thread.start()
     try:
-        _await_listener(ui_port)
-        _await_listener(project_api_port)
+        _await_listener(ui_port, boundary=thread, errors=errors)
+        _await_listener(project_api_port, boundary=thread, errors=errors)
 
         # (1) both listeners answer a real TLS request from the one runtime.
         for port in (ui_port, project_api_port):
