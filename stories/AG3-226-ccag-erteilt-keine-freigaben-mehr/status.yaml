@@ -2,7 +2,24 @@ story_id: AG3-226
 story_title_short: "ccag-erteilt-keine-freigaben-mehr"
 title: "Der CCAG-Gatekeeper bleibt als Hook bestehen, verliert aber seine Rolle als Genehmigungsinstanz -- kein Permission-Request-Verfahren, keine Freigaben, keine TTL-Eskalation."
 type: implementation
-status: in_progress
+status: done
+# ABGESCHLOSSEN 2026-08-06 nach 11 Runden plus unabhaengiger Abschlussreview.
+# Jenkins #1244 gegen 9e75c457: 9356 Tests, 6 Fehlschlaege -- ausschliesslich
+# die AG3-214-Faelle (`ControlPlaneWriterRequired` in verify_system und
+# prompt_runtime). Kein AG3-226-Befund offen.
+#
+# Mitgeliefert ueber den Story-Scope hinaus, jeweils auf PO-Entscheid:
+#   - features.vectordb-Migration (Verursacher AG3-176)
+#   - Writer-Operation `project_registration_upgraded` (update_upgraded() warf
+#     dort bisher immer RuntimeError und war produktiv erreichbar)
+#
+# Benannte Luecke: Ein Conflict-Freeze blockiert einen Agent-Spawn nicht
+# (CapabilityHull wird von prompt_integrity_guard.py:188 nicht ausgewertet).
+# Die Datierung als VORBESTEHEND ist unabhaengig verifiziert -- kein Regress
+# dieser Story. Folgestory noch anzulegen.
+#
+# Ausgeschnitten: neun weitere historische Konfigvertragsbrueche -> AG3-228,
+# mit vollstaendig aufgezaehltem Universum (stories/AG3-228-*/inventur.md).
 phase: setup
 created: "2026-08-05"
 size: M
