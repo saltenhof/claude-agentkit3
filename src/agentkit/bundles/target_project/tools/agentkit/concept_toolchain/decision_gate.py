@@ -192,7 +192,7 @@ def _prepared_record_unmet(project_root: Path, record_path: str) -> str | None:
     listed = _git(
         project_root, "ls-files", "--full-name", "--cached", "--others", "--exclude-standard", "-z", "--", record_path
     )
-    if not any(part for part in listed.split("\0")):
+    if not any(listed.split("\0")):
         return "does not name versionable repository content"
     if not (project_root / record_path).is_file():
         return "is known to git but absent from the working tree"
