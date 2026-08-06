@@ -7,6 +7,7 @@ from hashlib import sha256
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.exceptions import ProjectError
@@ -288,6 +289,10 @@ def test_run_pin_carries_project_key_when_config_present(
             sonarqube_available=False,
             ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
             **ready_vectordb_install_kwargs(),
+            # FK-91 single writer: register-project binds these ports to the
+            # active control-plane writer; the installer permits no local
+            # State-Backend fallback, so the test supplies the same ports.
+            **writer_backed_install_kwargs(tmp_path / ".skill-bundle-store"),
         ),
     )
 

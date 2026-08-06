@@ -98,6 +98,41 @@ def provisioned_installer_skills(
     ), store
 
 
+def writer_backed_install_kwargs(bundle_store_root: Path) -> dict[str, object]:
+    """Bind an ``InstallConfig`` to the writer-owned state ports.
+
+    Production reaches ``install_agentkit`` / ``run_checkpoint_install`` through
+    exactly one caller: ``agentkit register-project``, which binds registration,
+    project, hook and skill-binding persistence to the authenticated active
+    control-plane writer (``cli/installer_commands.py``
+    ``_wire_register_config_to_writer``). The installer consequently refuses
+    every local State-Backend fallback (``installer/runner.py``
+    ``_resolve_skills_and_store`` / ``_resolve_registration_repo`` /
+    ``_resolve_project_repo`` / ``_register_default_governance_hooks``).
+
+    A test that needs a really installed project therefore has to supply the
+    same ports the production caller supplies; running the installer without
+    them is not a shortcut but a call the production flow never makes.
+
+    Args:
+        bundle_store_root: Root of the per-test systemwide skill-bundle store.
+
+    Returns:
+        Keyword arguments for :class:`InstallConfig` carrying the writer-owned
+        skill surface, bundle store, registration, project and hook ports.
+    """
+
+    skills, store = provisioned_installer_skills(bundle_store_root)
+    registration_repo = InMemoryInstallerRegistrationRepository()
+    return {
+        "skills": skills,
+        "skill_bundle_store": store,
+        "registration_repo": registration_repo,
+        "project_repo": registration_repo.project_repo,
+        "hook_registration_repo": registration_repo.hook_repo,
+    }
+
+
 class InMemoryInstallerProjectRepository:
     """Project-management port standing in for the writer route in unit tests."""
 
@@ -151,4 +186,5 @@ __all__ = [
     "InMemoryInstallerProjectRepository",
     "InMemoryInstallerRegistrationRepository",
     "provisioned_installer_skills",
+    "writer_backed_install_kwargs",
 ]

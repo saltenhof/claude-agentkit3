@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
+from tests.fixtures.installer_writer import writer_backed_install_kwargs
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.bootstrap.composition_root import build_artifact_manager
@@ -156,6 +157,10 @@ class TestPromptAuditPinStabilityAfterRebind:
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
                 **ready_vectordb_install_kwargs(),
+                # FK-91 single writer: register-project binds these ports to the
+                # active control-plane writer; the installer permits no local
+                # State-Backend fallback, so the test supplies the same ports.
+                **writer_backed_install_kwargs(project_root.parent / ".skill-bundle-store"),
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
@@ -340,6 +345,10 @@ class TestSemanticReviewer:
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
                 **ready_vectordb_install_kwargs(),
+                # FK-91 single writer: register-project binds these ports to the
+                # active control-plane writer; the installer permits no local
+                # State-Backend fallback, so the test supplies the same ports.
+                **writer_backed_install_kwargs(tmp_path / ".skill-bundle-store"),
             ),
         )
         story_dir = project_root / "stories" / "TEST-001"
@@ -420,6 +429,10 @@ class TestSemanticReviewer:
                 sonarqube_available=False,  # AG3-052: conscious opt-out, no live Sonar
                 ci_available=False,  # AG3-056: conscious opt-out, no live Jenkins
                 **ready_vectordb_install_kwargs(),
+                # FK-91 single writer: register-project binds these ports to the
+                # active control-plane writer; the installer permits no local
+                # State-Backend fallback, so the test supplies the same ports.
+                **writer_backed_install_kwargs(tmp_path / ".skill-bundle-store"),
             ),
         )
         story_dir = project_root / "stories" / "OTHER-999"
