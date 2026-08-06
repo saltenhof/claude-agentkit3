@@ -20,14 +20,18 @@ source — it never redefines the config model (story §2.2).
 
 from __future__ import annotations
 
+import hashlib
+import os
 import shutil
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 import yaml
 
-from agentkit.backend.exceptions import InstallationError
-from agentkit.backend.utils.io import atomic_write_text
+from agentkit.backend.boundary.filesystem.path_identity import is_filesystem_link
+from agentkit.backend.exceptions import ConfigError, InstallationError
+from agentkit.backend.utils.io import assert_atomic_write_target
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -47,6 +51,13 @@ CONFIG_VERSION_KEY: Final = "config_version"
 #: every sibling, including extension keys unknown to the current schema.
 OBSOLETE_PERMISSIONS_KEY: Final = "permissions"
 
+#: The feature keys targeted by the AG3-226 E4 repair.  AG3-176 made VectorDB
+#: mandatory after earlier AK3 installers had explicitly written ``false``.
+#: Upgrade changes only that exact historical value; all sibling feature keys
+#: remain untouched, including keys unknown to the current schema.
+FEATURES_KEY: Final = "features"
+VECTORDB_KEY: Final = "vectordb"
+
 #: Suffix appended to a file path to form its backup (FK-51 §51.4.3 ``.bak``).
 #: English, dot-prefixed convention (ARCH-55, story §5).
 BACKUP_SUFFIX: Final = ".bak"
@@ -61,6 +72,49 @@ class ConfigMigrationError(InstallationError):
     recoverable backup). It is an :class:`InstallationError` so the upgrade flow
     treats it as a hard, fail-closed install failure (no partial migration).
     """
+
+
+class ConfigBehaviorChange(StrEnum):
+    """User-visible behavior changes proven by a config migration witness."""
+
+    MANDATORY_VECTORDB_ENABLED = "mandatory_vectordb_enabled"
+
+
+@dataclass(frozen=True)
+class CompletedConfigMigrationWitness:
+    """Exact interrupted-migration witness and its behavior changes."""
+
+    behavior_changes: frozenset[ConfigBehaviorChange]
+
+
+@dataclass(frozen=True)
+class ConfigFileBaseline:
+    """One identity-bound byte baseline for an on-disk config migration."""
+
+    path: Path
+    content: bytes
+    byte_digest: str
+    stat: os.stat_result
+
+
+@dataclass(frozen=True)
+class ConfigMigrationPlan:
+    """A config migration derived entirely from one validated byte baseline."""
+
+    baseline: ConfigFileBaseline
+    rendered_content: bytes
+    migrated_config_digest: str
+    mandatory_vectordb_enabled: bool
+
+    @property
+    def needs_migration(self) -> bool:
+        """Return whether the deterministic result differs from the baseline."""
+        return self.rendered_content != self.baseline.content
+
+    @property
+    def migrated_digest(self) -> str:
+        """Return the canonical config digest of the planned mapping."""
+        return self.migrated_config_digest
 
 
 def read_config_version(config: dict[str, object]) -> str:
@@ -140,6 +194,53 @@ def remove_obsolete_permission_config(
     del cleaned_pipeline[OBSOLETE_PERMISSIONS_KEY]
     cleaned[PIPELINE_KEY] = cleaned_pipeline
     return cleaned
+
+
+def enable_mandatory_vectordb_config(
+    config: dict[str, object],
+) -> dict[str, object]:
+    """Replace only historical ``pipeline.features.vectordb=false`` with true.
+
+    AG3-176 made VectorDB a mandatory base dependency and the current model
+    rejects an explicit opt-out.  Earlier AK3 installers nevertheless emitted
+    ``false``.  Keeping the key and setting the sole admissible value makes the
+    mandatory activation explicit, matching the current installer output; it
+    does not pretend that the field remains an operator choice.
+
+    Values other than the exact YAML boolean ``false`` are not repaired here.
+    They were not emitted by the historical writer and remain subject to strict
+    model validation.  The input and all foreign sibling mappings are preserved.
+    """
+    legacy_mappings = _historical_disabled_vectordb_mappings(config)
+    if legacy_mappings is None:
+        return dict(config)
+
+    pipeline, features = legacy_mappings
+    migrated = dict(config)
+    migrated_pipeline = dict(pipeline)
+    migrated_features = dict(features)
+    migrated_features[VECTORDB_KEY] = True
+    migrated_pipeline[FEATURES_KEY] = migrated_features
+    migrated[PIPELINE_KEY] = migrated_pipeline
+    return migrated
+
+
+def has_historical_disabled_vectordb(config: dict[str, object]) -> bool:
+    """Return whether config carries the exact AK3-written E4 legacy value."""
+    return _historical_disabled_vectordb_mappings(config) is not None
+
+
+def _historical_disabled_vectordb_mappings(
+    config: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object]] | None:
+    """Return the owning mappings only for the exact historical false value."""
+    pipeline = config.get(PIPELINE_KEY)
+    if not isinstance(pipeline, dict):
+        return None
+    features = pipeline.get(FEATURES_KEY)
+    if not isinstance(features, dict) or features.get(VECTORDB_KEY) is not False:
+        return None
+    return pipeline, features
 
 
 @dataclass(frozen=True)
@@ -253,6 +354,7 @@ def migrate_config(
 
     current = raw_current
     migrated = remove_obsolete_permission_config(existing)
+    migrated = enable_mandatory_vectordb_config(migrated)
     if current == target_version:
         return migrated
 
@@ -287,8 +389,118 @@ def migrate_config(
     )
 
 
-def backup_config_file(config_path: Path) -> Path:
-    """Write the ``.bak`` backup of ``config_path`` BEFORE a migration (FK-51 §51.4.3).
+def _read_config_baseline(
+    config_path: Path,
+) -> ConfigFileBaseline:
+    """Read one stable, identity-bound byte baseline."""
+    if is_filesystem_link(config_path) or not config_path.is_file():
+        raise ConfigMigrationError(
+            f"Cannot read a regular local config file for migration: {config_path} "
+            "(FK-51 §51.4, fail-closed).",
+            detail={"config_path": str(config_path)},
+        )
+    try:
+        with config_path.open("rb") as source:
+            stat_before = os.fstat(source.fileno())
+            content = source.read()
+            stat_after = os.fstat(source.fileno())
+    except OSError as exc:
+        raise ConfigMigrationError(
+            f"Failed to read config migration baseline {config_path}: {exc}",
+            detail={"config_path": str(config_path)},
+        ) from exc
+    if not os.path.samestat(stat_before, stat_after):
+        raise ConfigMigrationError(
+            f"Config identity changed while reading migration baseline: {config_path}.",
+            detail={"config_path": str(config_path)},
+        )
+    return ConfigFileBaseline(
+        path=config_path,
+        content=content,
+        byte_digest=hashlib.sha256(content).hexdigest(),
+        stat=stat_after,
+    )
+
+
+def _assert_baseline_current(
+    baseline: ConfigFileBaseline,
+    *,
+    mutation: str,
+) -> None:
+    """Compare file identity and digest with ``baseline`` before a mutation."""
+    current = _read_config_baseline(baseline.path)
+    if (
+        not os.path.samestat(baseline.stat, current.stat)
+        or current.byte_digest != baseline.byte_digest
+    ):
+        raise ConfigMigrationError(
+            "project.yaml identity or content changed after the validated "
+            f"migration read and before {mutation}; refusing mutation "
+            "fail-closed.",
+            detail={
+                "baseline_byte_digest": baseline.byte_digest,
+                "current_byte_digest": current.byte_digest,
+                "config_path": str(baseline.path),
+            },
+        )
+
+
+def prepare_config_migration(
+    config_path: Path,
+    target_version: str,
+    *,
+    expected_digest: str | None = None,
+    steps: tuple[MigrationStep, ...] = _MIGRATION_STEPS,
+) -> ConfigMigrationPlan:
+    """Derive a migration plan from one digest-validated byte baseline.
+
+    The returned baseline is the sole source for YAML parsing, migration and
+    backup bytes. ``expected_digest`` binds the read to UP01 when the engine
+    invokes this function; direct file-level callers may omit it.
+    """
+    baseline = _read_config_baseline(config_path)
+    try:
+        loaded = yaml.safe_load(baseline.content.decode("utf-8"))
+    except (UnicodeError, yaml.YAMLError) as exc:
+        raise ConfigMigrationError(
+            f"Config file is not valid UTF-8 YAML; cannot migrate: "
+            f"{config_path} ({exc}).",
+            detail={"config_path": str(config_path)},
+        ) from exc
+    if not isinstance(loaded, dict):
+        raise ConfigMigrationError(
+            f"Config file must be a YAML mapping to migrate: {config_path}.",
+            detail={"config_path": str(config_path)},
+        )
+    existing: dict[str, object] = dict(loaded)
+    from agentkit.backend.installer.runner import _canonical_config_digest
+
+    current_config_digest = _canonical_config_digest(existing)
+    if expected_digest is not None and current_config_digest != expected_digest:
+        raise ConfigMigrationError(
+            "project.yaml changed after upgrade detection and before migration; "
+            "refusing backup, rewrite, or digest persistence fail-closed.",
+            detail={
+                "detected_digest": expected_digest,
+                "current_digest": current_config_digest,
+                "current_byte_digest": baseline.byte_digest,
+            },
+        )
+    migrated = migrate_config(existing, target_version, steps=steps)
+    return ConfigMigrationPlan(
+        baseline=baseline,
+        rendered_content=(
+            _render_config(migrated).encode("utf-8")
+            if migrated != existing
+            else baseline.content
+        ),
+        migrated_config_digest=_canonical_config_digest(migrated),
+        mandatory_vectordb_enabled=has_historical_disabled_vectordb(existing),
+    )
+
+
+def backup_config_file(baseline: ConfigFileBaseline) -> Path:
+    """Write ``baseline`` to ``.bak`` BEFORE a migration (FK-51 §51.4.3).
 
     The backup is created atomically (copy to a temp sibling, then ``os.replace``
     onto ``<config_path>.bak``) so a crash never leaves a truncated backup; the
@@ -296,28 +508,30 @@ def backup_config_file(config_path: Path) -> Path:
     recoverable (story §6 — recoverable on migration failure).
 
     Args:
-        config_path: The existing config file to back up.
+        baseline: The validated source identity and bytes to back up.
 
     Returns:
         The backup path (``<config_path>.bak``).
 
     Raises:
-        ConfigMigrationError: When the source file is absent (no migration
-            without an existing config to back up) or the backup write fails.
+        ConfigMigrationError: When the source changed after the baseline read or
+            the backup cannot be written.
     """
-    if not config_path.is_file():
-        raise ConfigMigrationError(
-            f"Cannot back up a missing config file before migration: {config_path} "
-            "(FK-51 §51.4.3, fail-closed).",
-            detail={"config_path": str(config_path)},
-        )
+    config_path = baseline.path
+    _assert_baseline_current(baseline, mutation="backup")
     backup_path = config_path.with_name(config_path.name + BACKUP_SUFFIX)
-    tmp_path = backup_path.with_name(backup_path.name + ".tmp")
+    tmp_path = _migration_temp_path(backup_path)
     try:
-        shutil.copy2(config_path, tmp_path)
-        tmp_path.replace(backup_path)
-    except OSError as exc:
         if tmp_path.exists():
+            tmp_path.unlink()
+        with tmp_path.open("xb") as destination:
+            destination.write(baseline.content)
+            destination.flush()
+            os.fsync(destination.fileno())
+        shutil.copystat(config_path, tmp_path, follow_symlinks=False)
+        os.replace(tmp_path, backup_path)
+    except OSError as exc:
+        if tmp_path.exists() and not is_filesystem_link(tmp_path):
             tmp_path.unlink()
         raise ConfigMigrationError(
             f"Failed to write config backup {backup_path}: {exc} (FK-51 §51.4.3, "
@@ -327,85 +541,173 @@ def backup_config_file(config_path: Path) -> Path:
     return backup_path
 
 
-def migrate_config_file(
+def _render_config(config: dict[str, object]) -> str:
+    """Render a migrated config exactly as the file-level writer emits it."""
+    return yaml.dump(
+        config,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
+
+
+def _migration_temp_path(path: Path) -> Path:
+    """Return an unlink-safe staging path as an installer migration error."""
+    try:
+        return assert_atomic_write_target(path)
+    except OSError as exc:
+        raise ConfigMigrationError(
+            f"Unsafe config migration staging path for {path}: {exc}",
+            detail={"target_path": str(path)},
+        ) from exc
+
+
+def matches_completed_config_migration(
     config_path: Path,
+    registered_digest: str,
     target_version: str,
-    *,
-    steps: tuple[MigrationStep, ...] = _MIGRATION_STEPS,
 ) -> bool:
-    """Migrate ``project.yaml`` on disk to ``target_version`` (FK-51 §51.4).
+    """Return whether ``.bak`` proves an interrupted owned migration.
+
+    The witness is accepted only when all three facts agree: the backup is a
+    real local file, its canonical digest equals the registered pre-migration
+    baseline, and the current config bytes exactly equal the deterministic
+    result of migrating that backup to ``target_version``. Mere backup presence
+    or a subsequently edited migration result therefore remains untrusted.
+
+    Args:
+        config_path: Current project config path.
+        registered_digest: Digest persisted before the interrupted migration.
+        target_version: Version requested by the resumed upgrade.
+
+    Returns:
+        ``True`` only for an exact completed-migration witness; otherwise
+        ``False`` fail-closed.
+    """
+    return (
+        completed_config_migration_witness(
+            config_path,
+            registered_digest,
+            target_version,
+        )
+        is not None
+    )
+
+
+def completed_config_migration_witness(
+    config_path: Path,
+    registered_digest: str,
+    target_version: str,
+) -> CompletedConfigMigrationWitness | None:
+    """Return the exact interrupted migration witness with behavior metadata."""
+    from agentkit.backend.installer.upgrade._digest import config_file_digest
+
+    if not registered_digest or is_filesystem_link(config_path):
+        return None
+    backup_path = config_path.with_name(config_path.name + BACKUP_SUFFIX)
+    if is_filesystem_link(backup_path) or not backup_path.is_file():
+        return None
+    try:
+        if config_file_digest(backup_path) != registered_digest:
+            return None
+        loaded = yaml.safe_load(backup_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            return None
+        source = dict(loaded)
+        expected = _render_config(migrate_config(source, target_version))
+        if config_path.read_bytes() != expected.encode("utf-8"):
+            return None
+        behavior_changes: set[ConfigBehaviorChange] = set()
+        if has_historical_disabled_vectordb(source):
+            behavior_changes.add(ConfigBehaviorChange.MANDATORY_VECTORDB_ENABLED)
+        return CompletedConfigMigrationWitness(
+            behavior_changes=frozenset(behavior_changes),
+        )
+    except (ConfigError, ConfigMigrationError, OSError, UnicodeError, yaml.YAMLError):
+        return None
+
+
+def _replace_config_if_unchanged(
+    plan: ConfigMigrationPlan,
+    staged_path: Path,
+) -> None:
+    """CAS the staged migration result over the validated baseline."""
+    _assert_baseline_current(plan.baseline, mutation="final replacement")
+    os.replace(staged_path, plan.baseline.path)
+
+
+def migrate_config_file(plan: ConfigMigrationPlan) -> bool:
+    """Apply a prepared ``project.yaml`` migration plan (FK-51 §51.4).
 
     The file-level wrapper around :func:`migrate_config`:
 
-    1. Reads the existing YAML mapping.
-    2. Computes both the stepwise version migration and the targeted removal of
-       the retired ``pipeline.permissions`` stanza.
-    3. If neither transform changes the mapping -> returns ``False`` (no backup,
-       no write).
-    4. Otherwise writes the ``.bak`` backup before any mutation and atomically
-       rewrites the config file. Returns ``True``.
+    The plan already binds parsing, transforms and backup bytes to one baseline.
+    If a foreign write changes either the file identity or digest before backup
+    or before the final replace, the operation fails closed and leaves those
+    foreign bytes untouched.
 
     On any migration failure AFTER the backup the original is recoverable from
     the ``.bak`` (story §6); the backup itself is written before any mutation.
 
     Args:
-        config_path: Path to the existing ``project.yaml``.
-        target_version: The desired ``config_version`` after migration.
-        steps: The migration step set (tests may override).
+        plan: The prepared migration plan and its validated byte baseline.
 
     Returns:
         ``True`` when a migration was performed (backup + rewrite), ``False``
         when the config was already at the target version.
 
     Raises:
-        ConfigMigrationError: On a missing/malformed config, an unknown version
-            (fail-closed) or a backup write failure.
+        ConfigMigrationError: On a changed baseline or any staging/backup error.
     """
-    if not config_path.is_file():
-        raise ConfigMigrationError(
-            f"Cannot migrate a missing config file: {config_path} (FK-51 §51.4, "
-            "fail-closed).",
-            detail={"config_path": str(config_path)},
-        )
-    raw_text = config_path.read_text(encoding="utf-8")
-    try:
-        loaded = yaml.safe_load(raw_text)
-    except yaml.YAMLError as exc:
-        raise ConfigMigrationError(
-            f"Config file is not valid YAML; cannot migrate: {config_path} ({exc}).",
-            detail={"config_path": str(config_path)},
-        ) from exc
-    if not isinstance(loaded, dict):
-        raise ConfigMigrationError(
-            f"Config file must be a YAML mapping to migrate: {config_path}.",
-            detail={"config_path": str(config_path)},
-        )
-    existing: dict[str, object] = dict(loaded)
-
-    migrated = migrate_config(existing, target_version, steps=steps)
-    if migrated == existing:
+    if not plan.needs_migration:
         return False
 
+    # Prove both derived staging paths before the first on-disk mutation. The
+    # individual writers repeat the same central check at their own boundary.
+    config_path = plan.baseline.path
+    backup_path = config_path.with_name(config_path.name + BACKUP_SUFFIX)
+    _migration_temp_path(backup_path)
+    tmp_path = _migration_temp_path(config_path)
+
     # FK-51 §51.4.3: backup BEFORE every on-disk mutation.
-    backup_config_file(config_path)
-    atomic_write_text(
-        config_path,
-        yaml.dump(migrated, default_flow_style=False, allow_unicode=True, sort_keys=False),
-    )
+    backup_config_file(plan.baseline)
+    try:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        with tmp_path.open("xb") as staged:
+            staged.write(plan.rendered_content)
+            staged.flush()
+            os.fsync(staged.fileno())
+        _replace_config_if_unchanged(plan, tmp_path)
+    except BaseException:
+        if tmp_path.exists() and not is_filesystem_link(tmp_path):
+            tmp_path.unlink()
+        raise
     return True
 
 
 __all__ = [
     "BACKUP_SUFFIX",
     "CONFIG_VERSION_KEY",
+    "FEATURES_KEY",
     "OBSOLETE_PERMISSIONS_KEY",
     "PIPELINE_KEY",
+    "VECTORDB_KEY",
+    "CompletedConfigMigrationWitness",
+    "ConfigFileBaseline",
+    "ConfigBehaviorChange",
     "ConfigMigrationError",
+    "ConfigMigrationPlan",
     "MigrationStep",
     "backup_config_file",
+    "completed_config_migration_witness",
+    "enable_mandatory_vectordb_config",
+    "has_historical_disabled_vectordb",
+    "matches_completed_config_migration",
     "migrate_3_to_4",
     "migrate_config",
     "migrate_config_file",
+    "prepare_config_migration",
     "read_config_version",
     "remove_obsolete_permission_config",
 ]

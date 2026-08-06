@@ -140,6 +140,16 @@ sichtbar war.
   Geschwisterschluessel werden nicht bereinigt oder gefiltert. Hintergrund ist
   der in `T:\codebase\intima` eingetretene Totalausfall: Die neue strikt
   validierende Runtime sah dort noch den alten Installationsvertrag.
+- **Bestehende `project.yaml`, `pipeline.features.vectordb: false`**: Der von
+  AG3-176 verursachte zweite Fall derselben Migrationsklasse kommt auf
+  ausdruecklichen PO-Entscheid vom 2026-08-06 in diese Story. Das ist keine
+  Scope-Ausweitung durch den Auftragnehmer. Vor AG3-176 schrieb AK3 den Wert
+  selbst; heute ist VektorDB verpflichtend und `false` ungueltig. Der
+  produktive Upgrade setzt deshalb exakt dieses Blatt auf den einzig
+  zulaessigen Wert `true`, laesst fremde Geschwister unveraendert und meldet
+  Projekt, Feld und die Verhaltensaenderung von deaktiviert zu aktiviert
+  sichtbar. Das Feld bleibt als explizite Pflichtdeklaration erhalten, nicht
+  als Opt-out-Wahl.
 - **FK-42** (CCAG-Runtime) und die betroffenen Stellen in **FK-30**, **FK-55**
   und **FK-91** sagen, was der Gatekeeper noch tut und was nicht.
 

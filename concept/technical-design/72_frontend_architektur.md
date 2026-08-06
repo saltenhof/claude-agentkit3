@@ -702,7 +702,7 @@ Verlustkorridor-Pflichttext aus FK-56 §56.13c (uebernommen wird
 ausschliesslich der gepushte Stand `<sha>`; nicht Gepushtes ist kein
 Uebergabegut). Eine Ablehnung oder der Fristablauf laesst nur die
 offene Anfrage verfallen und entzieht niemals Eigentum
-(FK-55 §55.9a). Die Shell hostet nur die Overlay-Region (§72.4);
+(FK-56 §56.13a/§56.13b). Die Shell hostet nur die Overlay-Region (§72.4);
 Daten und Aktion kommen aus dem Owner-BC.
 
 **(3) Operations-, Snapshot- und Contested-Anzeige.** Die Sicht zeigt

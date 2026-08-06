@@ -15,14 +15,19 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
+import agentkit.backend.installer.upgrade.config_migration as config_migration_module
 from agentkit.backend.installer.upgrade.config_migration import (
     BACKUP_SUFFIX,
+    ConfigFileBaseline,
     ConfigMigrationError,
+    ConfigMigrationPlan,
     MigrationStep,
     backup_config_file,
+    enable_mandatory_vectordb_config,
     migrate_3_to_4,
     migrate_config,
     migrate_config_file,
+    prepare_config_migration,
     remove_obsolete_permission_config,
 )
 
@@ -72,6 +77,47 @@ def test_remove_obsolete_permission_config_preserves_unknown_siblings() -> None:
         }
     }
     assert "permissions" in existing["pipeline"]  # type: ignore[operator]
+
+
+def test_enable_mandatory_vectordb_config_preserves_unknown_siblings() -> None:
+    """Only historical boolean false changes; foreign feature keys survive."""
+    existing = _cfg("3.0")
+    existing["pipeline"] = {
+        "config_version": "3.0",
+        "features": {
+            "vectordb": False,
+            "foreign_feature": {"keep": True},
+        },
+        "foreign_pipeline": "keep",
+    }
+
+    result = enable_mandatory_vectordb_config(existing)
+
+    assert result == {
+        "pipeline": {
+            "config_version": "3.0",
+            "features": {
+                "vectordb": True,
+                "foreign_feature": {"keep": True},
+            },
+            "foreign_pipeline": "keep",
+        }
+    }
+    assert existing["pipeline"]["features"]["vectordb"] is False  # type: ignore[index]
+
+
+@pytest.mark.parametrize("historical_value", [True, "false", 0, None])
+def test_enable_mandatory_vectordb_config_does_not_coerce_foreign_values(
+    historical_value: object,
+) -> None:
+    """The repair is exact and does not weaken strict model validation."""
+    existing = _cfg("3.0")
+    existing["pipeline"] = {
+        "config_version": "3.0",
+        "features": {"vectordb": historical_value},
+    }
+
+    assert enable_mandatory_vectordb_config(existing) == existing
 
 
 def test_migrate_config_stepwise_no_jump_skip() -> None:
@@ -134,16 +180,17 @@ def test_backup_config_file_writes_bak_with_old_content(tmp_path: Path) -> None:
         "pipeline:\n  config_version: '3.0'\nold_field: 5\n", encoding="utf-8"
     )
 
-    backup = backup_config_file(config)
+    plan = prepare_config_migration(config, "4.0")
+    backup = backup_config_file(plan.baseline)
 
     assert backup == config.with_name("project.yaml" + BACKUP_SUFFIX)
     assert backup.read_text(encoding="utf-8") == config.read_text(encoding="utf-8")
 
 
-def test_backup_config_file_missing_source_fails_closed(tmp_path: Path) -> None:
-    """Backing up a missing config fails closed (no migration without a backup)."""
+def test_prepare_config_migration_missing_source_fails_closed(tmp_path: Path) -> None:
+    """Preparing a missing config fails closed before backup or migration."""
     with pytest.raises(ConfigMigrationError):
-        backup_config_file(tmp_path / "absent.yaml")
+        prepare_config_migration(tmp_path / "absent.yaml", "4.0")
 
 
 def test_migrate_config_file_3_to_4_creates_bak_and_rewrites(tmp_path: Path) -> None:
@@ -152,7 +199,7 @@ def test_migrate_config_file_3_to_4_creates_bak_and_rewrites(tmp_path: Path) -> 
     old_content = "pipeline:\n  config_version: '3.0'\nold_field: 42\n"
     config.write_text(old_content, encoding="utf-8")
 
-    migrated = migrate_config_file(config, "4.0")
+    migrated = migrate_config_file(prepare_config_migration(config, "4.0"))
 
     assert migrated is True
     backup = config.with_name("project.yaml" + BACKUP_SUFFIX)
@@ -171,7 +218,7 @@ def test_migrate_config_file_already_current_no_backup(tmp_path: Path) -> None:
     config = tmp_path / "project.yaml"
     config.write_text("pipeline:\n  config_version: '4.0'\n", encoding="utf-8")
 
-    migrated = migrate_config_file(config, "4.0")
+    migrated = migrate_config_file(prepare_config_migration(config, "4.0"))
 
     assert migrated is False
     assert not config.with_name("project.yaml" + BACKUP_SUFFIX).exists()
@@ -192,7 +239,7 @@ def test_migrate_config_file_cleans_obsolete_stanza_at_current_version(
     )
     config.write_text(old_content, encoding="utf-8")
 
-    migrated = migrate_config_file(config, "4.0")
+    migrated = migrate_config_file(prepare_config_migration(config, "4.0"))
 
     assert migrated is True
     assert config.with_name("project.yaml" + BACKUP_SUFFIX).read_text(
@@ -205,19 +252,52 @@ def test_migrate_config_file_cleans_obsolete_stanza_at_current_version(
     }
 
 
+def test_migrate_config_file_enables_vectordb_at_current_version(
+    tmp_path: Path,
+) -> None:
+    """The AG3-176 false value is repaired with backup and sibling fidelity."""
+    config = tmp_path / "project.yaml"
+    old_content = (
+        "pipeline:\n"
+        "  config_version: '3.0'\n"
+        "  features:\n"
+        "    vectordb: false\n"
+        "    foreign_feature:\n"
+        "      keep: true\n"
+        "  foreign_pipeline: keep\n"
+    )
+    config.write_text(old_content, encoding="utf-8")
+
+    migrated = migrate_config_file(prepare_config_migration(config, "3.0"))
+
+    assert migrated is True
+    assert config.with_name("project.yaml" + BACKUP_SUFFIX).read_text(
+        encoding="utf-8"
+    ) == old_content
+    on_disk = yaml.safe_load(config.read_text(encoding="utf-8"))
+    assert on_disk["pipeline"] == {
+        "config_version": "3.0",
+        "features": {
+            "vectordb": True,
+            "foreign_feature": {"keep": True},
+        },
+        "foreign_pipeline": "keep",
+    }
+
+
 def test_migrate_config_file_unknown_version_fails_closed(tmp_path: Path) -> None:
     """A file on an unknown version fails closed (AC2)."""
     config = tmp_path / "project.yaml"
     config.write_text("pipeline:\n  config_version: '9.9'\n", encoding="utf-8")
 
     with pytest.raises(ConfigMigrationError):
-        migrate_config_file(config, "4.0")
+        prepare_config_migration(config, "4.0")
 
 
 def test_migrate_config_file_missing_fails_closed(tmp_path: Path) -> None:
     """Migrating a missing config file fails closed."""
     with pytest.raises(ConfigMigrationError):
-        migrate_config_file(tmp_path / "absent.yaml", "4.0")
+        prepare_config_migration(tmp_path / "absent.yaml", "4.0")
 
 
 def test_migrate_config_file_malformed_yaml_fails_closed(tmp_path: Path) -> None:
@@ -226,4 +306,67 @@ def test_migrate_config_file_malformed_yaml_fails_closed(tmp_path: Path) -> None
     config.write_text("- just\n- a\n- list\n", encoding="utf-8")
 
     with pytest.raises(ConfigMigrationError):
-        migrate_config_file(config, "4.0")
+        prepare_config_migration(config, "4.0")
+
+
+def test_migrate_config_file_rejects_change_between_migration_read_and_backup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The backup CAS rejects a foreign edit made after plan derivation."""
+    config = tmp_path / "project.yaml"
+    original = b"pipeline:\n  config_version: '3.0'\nold_field: 42\n"
+    foreign = original + b"foreign_change: preserve\n"
+    config.write_bytes(original)
+    plan = prepare_config_migration(config, "4.0")
+    original_backup = config_migration_module.backup_config_file
+
+    def _edit_then_backup(baseline: ConfigFileBaseline) -> Path:
+        config.write_bytes(foreign)
+        return original_backup(baseline)
+
+    monkeypatch.setattr(
+        config_migration_module,
+        "backup_config_file",
+        _edit_then_backup,
+    )
+
+    with pytest.raises(ConfigMigrationError, match="before backup"):
+        migrate_config_file(plan)
+
+    assert config.read_bytes() == foreign
+    assert not config.with_name("project.yaml.bak").exists()
+    assert not config.with_name("project.yaml.tmp").exists()
+
+
+def test_migrate_config_file_rejects_change_between_digest_check_and_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The final CAS preserves a foreign edit made after backup staging."""
+    config = tmp_path / "project.yaml"
+    original = b"pipeline:\n  config_version: '3.0'\nold_field: 42\n"
+    foreign = original + b"foreign_change: preserve\n"
+    config.write_bytes(original)
+    plan = prepare_config_migration(config, "4.0")
+    original_replace = config_migration_module._replace_config_if_unchanged
+
+    def _edit_then_replace(
+        plan_arg: ConfigMigrationPlan,
+        staged_path: Path,
+    ) -> None:
+        config.write_bytes(foreign)
+        original_replace(plan_arg, staged_path)
+
+    monkeypatch.setattr(
+        config_migration_module,
+        "_replace_config_if_unchanged",
+        _edit_then_replace,
+    )
+
+    with pytest.raises(ConfigMigrationError, match="before final replacement"):
+        migrate_config_file(plan)
+
+    assert config.read_bytes() == foreign
+    assert config.with_name("project.yaml.bak").read_bytes() == original
+    assert not config.with_name("project.yaml.tmp").exists()

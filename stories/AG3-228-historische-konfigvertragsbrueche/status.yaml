@@ -1,0 +1,36 @@
+story_id: AG3-228
+story_title_short: "historische-konfigvertragsbrueche"
+title: "Neun von elf historischen project.yaml-Vertragsbruechen haben keine Migration: AK3 lehnt Konfigurationen ab, die AK3 selbst geschrieben hat."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-06"
+size: L
+# Herkunft: Inventur aus AG3-226 R9-R11 (2026-08-06), belegt in
+# `inventur.md` neben dieser Datei.
+#
+# ANLASSFALL: `T:\codebase\intima` war vollstaendig blockiert, weil die
+# verschaerfte Schemapruefung `pipeline.permissions` fail-closed abwies -- ein
+# Schluessel, den AK3 selbst geschrieben hatte. Jeder Commit brach ab, ein
+# `--no-verify` ist dort passiert. Wir haben einen fremden Entwickler gezwungen,
+# seine eigenen Guardrails zu umgehen.
+#
+# Die Untersuchung zeigte: Das war kein Einzelfall, sondern eine Klasse. Elf
+# Faelle, in denen ein produktiver AK3-Writer einen Zustand persistieren konnte,
+# den das heutige `ProjectConfig` ablehnt. Zwei davon (`features.vectordb`,
+# `pipeline.permissions`) hat AG3-226 auf PO-Entscheid migriert. NEUN sind
+# offen.
+#
+# SECHS der neun sind Auslassungsfaelle (`ABSENT`): AK3 schrieb ein Feld gar
+# nicht, das heutige Modell verlangt es. Ein Projekt, das vor der jeweiligen
+# Verschaerfung installiert wurde, laedt seine Konfiguration heute NICHT MEHR --
+# es ist arbeitsunfaehig, so wie intima es war. Das ist kein latenter Mangel,
+# sondern ein bereits eingetretener Zustand bei jeder betroffenen Installation.
+#
+# DAS UNIVERSUM IST VOR ARBEITSBEGINN AUFGEZAEHLT. Das ist der ausdrueckliche
+# Unterschied zu AG3-189, wo eine Universalzusage ueber eine nie aufgezaehlte
+# Menge 22 Reviewrunden gekostet hat. Die Inventur nennt je Fall Feld, Locator,
+# verschaerfenden Commit, historischen Wert und Writer-Commit; sie definiert
+# ihre Mengengrenze und begruendet ihre Ausschluesse.
+depends_on: ["AG3-226"]
+unblocks: []

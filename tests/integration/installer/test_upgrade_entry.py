@@ -9,17 +9,20 @@ upgrade flow (FK-51, AG3-089 FIX 1).
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 import yaml
 
+from agentkit.backend.config.models import ProjectConfig
 from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.governance.runner import Governance
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.paths import project_config_path
 from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
+from agentkit.backend.installer.upgrade._digest import config_file_digest
 from agentkit.backend.installer.upgrade.config_migration import BACKUP_SUFFIX
 from agentkit.backend.installer.upgrade.engine import UP_02_GUARD_BINDING
 from agentkit.backend.installer.upgrade.entry import run_checkpoint_upgrade
@@ -142,6 +145,67 @@ def test_run_checkpoint_upgrade_dry_run_wires_real_repo(tmp_path: Path) -> None:
     assert result.mutated is False
     # Read-only: the on-disk config is untouched.
     assert config_path.read_text(encoding="utf-8") == before
+
+
+def test_productive_upgrade_repairs_disabled_vectordb_with_visible_notice(
+    tmp_path: Path,
+) -> None:
+    """The productive boundary makes an AK3-written false config valid again."""
+    project_root = tmp_path / "historical-vectordb-project"
+    project_root.mkdir()
+    subprocess.run(
+        ["git", "init"],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+    )
+    config_path = _write_valid_config(project_root)
+    historical = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    historical["pipeline"]["features"]["vectordb"] = False
+    historical["pipeline"]["features"]["telemetry"] = False
+    config_path.write_text(yaml.dump(historical, sort_keys=False), encoding="utf-8")
+    before = config_path.read_bytes()
+
+    repo = StateBackendProjectRegistrationRepository(project_root)
+    repo.save(
+        ProjectRegistration(
+            project_key="demo",
+            project_root=project_root,
+            github_owner="acme",
+            github_repo="demo",
+            runtime_profile=RuntimeProfile.CORE,
+            config_version="3.0",
+            config_digest=config_file_digest(config_path),
+            registered_at=datetime.now(tz=UTC),
+        )
+    )
+    governance, skills = _writer_dependencies(project_root)
+
+    result = run_checkpoint_upgrade(
+        project_root,
+        project_key="demo",
+        github_owner="acme",
+        github_repo="demo",
+        target_config_version="3.0",
+        mode=ExecutionMode.REGISTER,
+        registration_repo=repo,
+        governance=governance,
+        skills=skills,
+    )
+
+    assert result.config_migrated is True
+    assert "Project 'demo'" in result.detail
+    assert str(project_root) in result.detail
+    assert "pipeline.features.vectordb from false to true" in result.detail
+    assert "changed project behavior from disabled to enabled" in result.detail
+    assert config_path.with_name("project.yaml" + BACKUP_SUFFIX).read_bytes() == before
+    on_disk = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert on_disk["pipeline"]["features"]["vectordb"] is True
+    assert on_disk["pipeline"]["features"]["telemetry"] is False
+    ProjectConfig.model_validate(on_disk)
+    stored = repo.get("demo")
+    assert stored is not None
+    assert stored.config_digest == config_file_digest(config_path)
 
 
 @pytest.mark.parametrize(

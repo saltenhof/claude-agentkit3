@@ -13,8 +13,41 @@ from typing import TYPE_CHECKING, cast
 
 import yaml
 
+from agentkit.backend.boundary.filesystem.path_identity import is_filesystem_link
+
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+class AtomicWriteLinkError(OSError):
+    """An atomic staging path is a symbolic link or Windows junction."""
+
+
+def assert_atomic_write_target(path: Path) -> Path:
+    """Return the fixed temporary sibling after rejecting link indirections.
+
+    Every atomic write through this module uses ``<path>.tmp`` as its staging
+    file. A pre-existing symbolic link or Windows junction at that derived path
+    would make a normal text open follow an external target before
+    :func:`os.replace` runs. Rejecting it through the central filesystem-link
+    detector keeps every caller fail-closed.
+
+    Args:
+        path: Final destination of the atomic write.
+
+    Returns:
+        The derived temporary sibling path.
+
+    Raises:
+        AtomicWriteLinkError: If the temporary sibling is a symbolic link
+            or Windows junction.
+    """
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    if is_filesystem_link(tmp):
+        raise AtomicWriteLinkError(
+            f"atomic write temporary path is a symbolic link or junction: {tmp}"
+        )
+    return tmp
 
 
 def atomic_write_text(
@@ -45,16 +78,20 @@ def atomic_write_text(
             original bytes must survive a read-modify-write untouched.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = assert_atomic_write_target(path)
     try:
-        with tmp.open("w", encoding="utf-8", newline=newline, errors=errors) as f:
+        if tmp.exists():
+            tmp.unlink()
+        # Exclusive creation prevents a link planted after the identity check
+        # from being followed during the open operation.
+        with tmp.open("x", encoding="utf-8", newline=newline, errors=errors) as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
         os.replace(str(tmp), str(path))
     except BaseException:
         # Clean up temp file on any failure
-        if tmp.exists():
+        if tmp.exists() and not is_filesystem_link(tmp):
             tmp.unlink()
         raise
 

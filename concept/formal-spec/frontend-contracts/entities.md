@@ -1038,7 +1038,7 @@ entities:
         notes:
           - >
             `expired` ist ein Entscheidungs-Verfall der offenen
-            Anfrage, nie ein Ownership-Entzug (FK-55 §55.9a).
+            Anfrage, nie ein Ownership-Entzug (FK-56 §56.13b).
           - >
             `invalidated` beendet eine offene Anfrage, wenn die
             gespeicherte Challenge-Grundlage durch eine zwischenzeitliche

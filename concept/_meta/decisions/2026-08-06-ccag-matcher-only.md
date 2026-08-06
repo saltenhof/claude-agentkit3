@@ -7,8 +7,15 @@ status: active
 doc_kind: decision-record
 authority_over: []
 defers_to:
-  - FK-42
-  - FK-55
+  - target: FK-42
+    scope: ccag-tools
+    reason: FK-42 owns the retained matcher and the abolished permission surface
+  - target: FK-55
+    scope: principal-capability-model
+    reason: FK-55 owns direct capability grants and denials after procedure removal
+  - target: FK-51
+    scope: upgrade
+    reason: FK-51 owns config-migration staging safety and digest persistence
 supersedes:
   - META-DEC-2026-07-14-CCAG-CENTRAL-OWNER
 superseded_by:
@@ -68,7 +75,17 @@ entfernt sie der Projektverantwortliche.
 Vor Regeldatei-Cleanup und Config-Mutation wird die projektlokale Pfadidentitaet
 ueber die zentrale Filesystem-Boundary bewiesen. Ein Symlink oder eine Junction
 im Pfad blockiert fail-closed, damit weder Loeschung noch Backup/Rewrite aus dem
-Zielprojekt entkommen kann.
+Zielprojekt entkommen kann. Fuer die Config-Migration schliesst dieser Beweis
+die abgeleiteten Geschwister `project.yaml.bak.tmp` und `project.yaml.tmp` ein;
+beide werden vor dem Backup geprueft und an ihrer jeweiligen Schreibgrenze
+erneut abgesichert.
+Endet der Prozess nach der Config-Migration, aber vor der Digest-Persistenz,
+darf der naechste Upgrade den Digest nur anhand des vorhandenen
+Vor-Migrationsstands nachziehen: Dessen kanonischer Digest muss dem
+registrierten Ausgangsstand entsprechen, und die aktuelle `project.yaml` muss
+bytegenau das deterministisch gerenderte Migrationsergebnis dieses Stands sein.
+Ein bloss vorhandenes Backup oder jede nachtraegliche Aenderung bleibt
+`CONFIG_EDITED`.
 
 Bereits initialisierte SQLite- und PostgreSQL-Backends behalten die physischen
 Tabellen `ccag_permission_requests` und `ccag_permission_leases`. Der Product
@@ -104,10 +121,17 @@ behoben, sondern als gemeinsamer Schnitt fuer eine Folgestory festgehalten.
 ## 4. Impact-Sweep (P3/W4)
 
 Der Sweep zaehlte aktive Markdown-Normen in `concept/domain-design`,
-`concept/technical-design`, `concept/formal-spec` und
-`concept/_meta/bc-cut-decisions.md` auf. Gesucht wurde nach CCAG- und
-Permission-Request-Begriffen, Request-/Lease-Typen, Routen und Kommandos,
-State-/Projektionsnamen, FK-18/FK-90 sowie den drei Regeldateien. Historische Decision
+`concept/technical-design`, `concept/formal-spec`,
+`concept/_meta/bc-cut-decisions.md` und alle Decision Records mit
+`status: active` auf. Gesucht wurde nach CCAG- und Permission-Request-Begriffen,
+Request-/Lease-Typen, Genehmigungs-/Permission-Wrapper- und Overlay-Analogien,
+Routen und Kommandos, State-/Projektionsnamen sowie stale Abschnittsverweise
+auf das entfernte Verfahren in FK-55. Hinzu kamen FK-18/FK-90 und die drei
+Regeldateien. Die erste Fassung hatte Decision Records bis auf
+den offensichtlichen Central-Owner-Record pauschal als historische Dokumente
+aus dem Suchraum ausgeschlossen. Dadurch blieb die weiterhin aktive
+Takeover-Entscheidung mit ihrer FK-55-Analogie unentdeckt; der erneute Sweep
+schnitt nach dem Frontmatter-Status statt nach dem Verzeichnis. Supersedete
 Records wurden nicht umgeschrieben; der bisher aktive Central-Owner-Record wird
 durch diesen Record explizit superseded. Betroffen sind insbesondere DK-09,
 DK-12, FK-01/02/03/04/07/10/15/24/27/30/31/35/42/51/55/56/71/90/91/92/93,
@@ -125,6 +149,8 @@ Guard- und Architekturvertraege.
 | FK-10 / FK-18 / FK-90 / State-Backend | geaendert | Request-/Lease-Owner, Records und Projektionen entfallen. Alte Backends behalten die zwei toten Tabellen unter `state_backend`-Ownership; neue Backends legen sie nicht an. |
 | FK-03 / FK-51 / FK-92 / Zielprojekte | geaendert | Regeldateien werden nicht mehr installiert und bei Upgrade entfernt. |
 | Bestehende `project.yaml` | geaendert | Upgrade entfernt gezielt `pipeline.permissions`, bewahrt fremde Geschwister und schreibt zuvor `.bak`. |
+| Takeover-Decision-Record | klargestellt | Takeover-Approval und -Challenge werden aus ihrer eigenen Domaene beschrieben, nicht durch Analogie zum entfernten Permission-Request-/Lease-Verfahren. |
+| FK-72 / formale Frontend-Entities | klargestellt | Ablehnung und Fristablauf im Takeover entziehen kein Eigentum; die Aussage verweist auf den eigenen Takeover-Anker FK-56 statt auf das entfernte FK-55-Verfahren. |
 | FK-04 / FK-35 | geaendert | Runbook und Integrity-Sicht behandeln nur externe Host-Interferenz. |
 | FK-15 / FK-27 / FK-31 / FK-71 | geaendert | Dedizierte Guards sind alleinige benannte Schutzstellen. |
 | Control-Plane- und CLI-Katalog | entfernt | Keine Request-/Lease-Route und kein Freigabekommando bleibt erreichbar. |

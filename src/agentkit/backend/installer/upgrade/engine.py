@@ -40,7 +40,13 @@ from typing import TYPE_CHECKING
 from agentkit.backend.boundary.filesystem import assert_project_local_file_path
 from agentkit.backend.installer.registration import CheckpointResult, CheckpointStatus
 from agentkit.backend.installer.upgrade.cleanup import run_cleanup
-from agentkit.backend.installer.upgrade.config_migration import migrate_config_file
+from agentkit.backend.installer.upgrade.config_migration import (
+    ConfigBehaviorChange,
+    ConfigMigrationError,
+    completed_config_migration_witness,
+    migrate_config_file,
+    prepare_config_migration,
+)
 from agentkit.backend.installer.upgrade.footprint import (
     CustomizationFootprint,
     CustomizationKind,
@@ -140,6 +146,11 @@ class UpgradeRunState:
     footprint: CustomizationFootprint | None = None
     decision: UpgradeScenarioDecision | None = None
     config_migrated: bool = False
+    config_migration_resume_detected: bool = False
+    config_migration_behavior_changes: frozenset[ConfigBehaviorChange] = frozenset()
+    registered_config_digest_at_detection: str | None = None
+    config_digest_at_detection: str | None = None
+    config_digest_to_persist: str | None = None
     config_target_version: str | None = None
     hook_outcome: HookMigrationOutcome | None = None
     claude_hook_settings_migrated: bool = False
@@ -208,20 +219,53 @@ def up_01_detect_footprint(context: UpgradeRunContext) -> CheckpointResult:
     on_disk_digest = (
         config_file_digest(config_path) if config_path.is_file() else registered_digest
     )
+    migration_witness = (
+        completed_config_migration_witness(
+            config_path,
+            registered_digest,
+            req.target_config_version,
+        )
+        if registration is not None and registered_digest != on_disk_digest
+        else None
+    )
+    migration_resumed = migration_witness is not None
     decision = decide_upgrade_scenario(
         registered_config_digest=registered_digest,
-        on_disk_config_digest=on_disk_digest,
+        on_disk_config_digest=(
+            registered_digest if migration_resumed else on_disk_digest
+        ),
         bundle_version_changed=req.bundle_version_changed,
         explicit_binding_switch=req.explicit_binding_switch,
     )
     context.run_state.footprint = footprint
     context.run_state.decision = decision
+    context.run_state.config_migration_resume_detected = migration_resumed
+    context.run_state.config_migration_behavior_changes = (
+        migration_witness.behavior_changes
+        if migration_witness is not None
+        else frozenset()
+    )
+    context.run_state.registered_config_digest_at_detection = (
+        registered_digest if registration is not None else None
+    )
+    context.run_state.config_digest_at_detection = (
+        on_disk_digest if config_path.is_file() else None
+    )
+    context.run_state.config_digest_to_persist = (
+        on_disk_digest if migration_resumed else None
+    )
     return _result(
         UP_01_DETECT_FOOTPRINT,
         status=CheckpointStatus.PASS,
         detail=(
             f"Detected {len(footprint.points)} customization(s); scenario "
             f"{decision.scenario.value!r}."
+            + (
+                " Exact backup witness identifies an interrupted config "
+                "migration; digest persistence will resume."
+                if migration_resumed
+                else ""
+            )
         ),
         start=start,
     )
@@ -317,8 +361,6 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
     planned migration without writing (FK-50 §50.2).
     """
     from agentkit.backend.installer.paths import CONFIG_DIR, PROJECT_CONFIG_FILE
-    from agentkit.backend.installer.upgrade.config_migration import migrate_config
-
     start = time.monotonic()
     req = context.request
     # Repeat containment at the side-effect checkpoint: an ancestor could have
@@ -327,7 +369,33 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
         req.project_root,
         Path(CONFIG_DIR) / PROJECT_CONFIG_FILE,
     )
+    if context.run_state.config_migration_resume_detected:
+        current_witness = completed_config_migration_witness(
+            config_path,
+            context.run_state.registered_config_digest_at_detection or "",
+            req.target_config_version,
+        )
+        if (
+            current_witness is None
+            or current_witness.behavior_changes
+            != context.run_state.config_migration_behavior_changes
+        ):
+            raise ConfigMigrationError(
+                "Interrupted config-migration witness changed after upgrade "
+                "detection; refusing backup, rewrite, or digest persistence "
+                "fail-closed.",
+                detail={"config_path": str(config_path)},
+            )
     if not config_path.is_file():
+        if context.run_state.config_digest_at_detection is not None:
+            raise ConfigMigrationError(
+                "project.yaml disappeared or became a non-file after upgrade "
+                "detection; refusing digest persistence fail-closed.",
+                detail={
+                    "detected_digest": context.run_state.config_digest_at_detection,
+                    "config_path": str(config_path),
+                },
+            )
         return _result(
             UP_03_MIGRATE_CONFIG,
             status=CheckpointStatus.SKIPPED,
@@ -335,16 +403,36 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
             reason="no_on_disk_config",
             start=start,
         )
-    import yaml
-
-    loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    migrated_config = (
-        migrate_config(dict(loaded), req.target_config_version)
-        if isinstance(loaded, dict)
-        else None
+    migration_plan = prepare_config_migration(
+        config_path,
+        req.target_config_version,
+        expected_digest=context.run_state.config_digest_at_detection,
     )
-    needs_migration = migrated_config is not None and migrated_config != loaded
+    vectordb_migration_planned = migration_plan.mandatory_vectordb_enabled
+    vectordb_migration_resumed = (
+        ConfigBehaviorChange.MANDATORY_VECTORDB_ENABLED
+        in context.run_state.config_migration_behavior_changes
+    )
+    needs_migration = migration_plan.needs_migration
     if not needs_migration:
+        if vectordb_migration_resumed:
+            resume_action = (
+                "digest persistence resumes"
+                if context.mode.mutations_allowed
+                else "digest persistence requires register mode"
+            )
+            return _result(
+                UP_03_MIGRATE_CONFIG,
+                status=CheckpointStatus.PASS,
+                detail=(
+                    f"Project {req.project_key!r} at {req.project_root}: "
+                    "pipeline.features.vectordb changed from false to true; "
+                    "VectorDB is mandatory, so the interrupted upgrade changed "
+                    "project behavior from disabled to enabled. Exact backup "
+                    f"witness verified; {resume_action}."
+                ),
+                start=start,
+            )
         return _result(
             UP_03_MIGRATE_CONFIG,
             status=CheckpointStatus.PASS,
@@ -357,15 +445,25 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
             UP_03_MIGRATE_CONFIG,
             status=CheckpointStatus.SKIPPED,
             detail=(
-                "[plan] Would write `.bak`, remove retired config keys, and "
-                f"migrate config to {req.target_config_version} "
-                "(no mutation in read-only mode)."
+                (
+                    f"Project {req.project_key!r} at {req.project_root}: would "
+                    "change pipeline.features.vectordb from false to true; "
+                    "VectorDB is mandatory, so this upgrade would change "
+                    "project behavior from disabled to enabled. "
+                    if vectordb_migration_planned
+                    else ""
+                )
+                + "[plan] Would write `.bak`, repair retired config values, "
+                f"and migrate config to {req.target_config_version} (no "
+                "mutation in read-only mode)."
             ),
             reason="planned_no_mutation",
             start=start,
         )
-    migrated = migrate_config_file(config_path, req.target_config_version)
+    migrated = migrate_config_file(migration_plan)
     context.run_state.config_migrated = migrated
+    if migrated:
+        context.run_state.config_digest_to_persist = migration_plan.migrated_digest
     context.run_state.config_target_version = (
         req.target_config_version if migrated else None
     )
@@ -373,10 +471,21 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
         UP_03_MIGRATE_CONFIG,
         status=CheckpointStatus.UPDATED if migrated else CheckpointStatus.PASS,
         detail=(
-            "Migrated config shape and version to "
-            f"{req.target_config_version} (.bak written)."
+            (
+                f"Project {req.project_key!r} at {req.project_root}: changed "
+                "pipeline.features.vectordb from false to true; VectorDB is "
+                "mandatory, so this upgrade changed project behavior from "
+                "disabled to enabled. Migrated config shape and version to "
+                f"{req.target_config_version} (.bak written)."
+            )
             if migrated
-            else "config already current; no migration."
+            and vectordb_migration_planned
+            else (
+                "Migrated config shape and version to "
+                f"{req.target_config_version} (.bak written)."
+                if migrated
+                else "config already current; no migration."
+            )
         ),
         start=start,
     )

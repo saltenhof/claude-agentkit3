@@ -78,11 +78,12 @@ Postgres-only). Felder (Minimum): opaque server-minted `challenge_id`,
 
 ### 2.2 Challenge vs. Approval — getrennt, EINE Komponente
 `takeover_challenges` (server-autoritative Entscheidungsgrundlage fuer
-Menschen- UND Agent-Pfad) und `takeover_approvals` (Agent-Permission-Wrapper,
-FK-42/FK-90-Familie) bleiben getrennte Record-Familien mit
+Menschen- UND Agent-Pfad) und `takeover_approvals` (persistierte
+Uebernahmeentscheidung fuer den Agent-Pfad) bleiben getrennte Record-Familien mit
 `approval.challenge_ref → challenge.challenge_id`, aber innerhalb der EINEN
 Komponente OwnershipTransferProtocol (CCP/CRP: die Challenge aendert mit der
-Ownership-CAS-Semantik, die Approval mit der Permission-/Overlay-Semantik).
+Ownership-CAS-Semantik, die Approval mit ihrer Status- und
+Challenge-Relink-Semantik).
 
 ### 2.3 TTL-Semantik (Red-Flag 5) — Confirm re-issued frische Challenge
 Bestaetigt ein Mensch eine noch gueltige Agent-Approval, deren Challenge-TTL
@@ -303,9 +304,9 @@ eine pending Approval auf `approved` (Terminalitaet unveraendert: approved
 verfaellt nie) und re-linkt sie per CAS (`challenge_ref` alt→neu,
 rowcount==1). Antwort: `challenge_reissued` mit der frischen Challenge —
 KEIN Transfer; der Vollzug erfordert einen zweiten Confirm (neuer `op_id`)
-auf der frischen `challenge_id`. FK-55-§55.9a-Einbettung: die approved
-Approval ist der entschiedene Permission-Request, die jeweils frische
-befristete Challenge die bounded Lease fuer den Vollzug.
+auf der frischen `challenge_id`. Die approved Takeover-Approval dokumentiert
+die bestaetigte Uebernahmeentscheidung; die jeweils frische, befristete
+Takeover-Challenge bindet den nachgelagerten Vollzug an einen neuen Confirm.
 `takeover_approval_changed` wird bei jedem Statuswechsel UND jedem
 erfolgreichen Relink emittiert (Wire-Key `challenge_id` in der Payload).
 Operation-Lifecycle: erster Confirm-op terminal `challenge_reissued`

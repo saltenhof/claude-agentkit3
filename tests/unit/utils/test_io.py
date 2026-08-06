@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+import pytest
 import yaml
 
 if TYPE_CHECKING:
@@ -57,6 +58,25 @@ class TestAtomicWriteText:
         atomic_write_text(target, content)
         loaded = json.loads(target.read_text(encoding="utf-8"))
         assert loaded == data
+
+    def test_temp_symlink_is_oserror_and_external_target_is_unchanged(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """The shared writer rejects its linked staging path as an I/O error."""
+        target = tmp_path / "output.txt"
+        external = tmp_path / "external.txt"
+        external.write_bytes(b"external sentinel")
+        try:
+            target.with_name("output.txt.tmp").symlink_to(external)
+        except OSError as exc:
+            pytest.skip(f"file symlinks unavailable: {exc}")
+
+        with pytest.raises(OSError):
+            atomic_write_text(target, "replacement")
+
+        assert external.read_bytes() == b"external sentinel"
+        assert not target.exists()
 
 
 class TestAtomicWriteYaml:

@@ -106,22 +106,27 @@ def test_backup_config_file_oserror_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A backup write failure fails closed (no migration without a recoverable bak)."""
-    import shutil
-
     from agentkit.backend.installer.upgrade.config_migration import (
         ConfigMigrationError,
         backup_config_file,
+        prepare_config_migration,
     )
 
     config = tmp_path / "project.yaml"
-    config.write_text("config_version: '3.0'\n", encoding="utf-8")
+    config.write_text("pipeline:\n  config_version: '3.0'\n", encoding="utf-8")
+    before = config.read_bytes()
+    plan = prepare_config_migration(config, "4.0")
 
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(shutil, "copy2", _boom)
+    monkeypatch.setattr("os.fsync", _boom)
     with pytest.raises(ConfigMigrationError):
-        backup_config_file(config)
+        backup_config_file(plan.baseline)
+
+    assert config.read_bytes() == before
+    assert not config.with_name("project.yaml.bak").exists()
+    assert not config.with_name("project.yaml.bak.tmp").exists()
 
 
 def test_build_skills_surface_returns_none_on_failure(

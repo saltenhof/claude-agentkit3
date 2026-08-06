@@ -22,15 +22,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.backend.boundary.filesystem import assert_project_local_file_path
 from agentkit.backend.installer.checkpoint_engine.engine import CheckpointEngine
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.backend.installer.paths import CONFIG_DIR, PROJECT_CONFIG_FILE
 from agentkit.backend.installer.registration import CheckpointStatus
-from agentkit.backend.installer.upgrade._digest import config_file_digest
 from agentkit.backend.installer.upgrade.engine import (
     UpgradeRequest,
     UpgradeRunContext,
@@ -40,6 +36,8 @@ from agentkit.backend.installer.upgrade.engine import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.backend.governance.hook_registration import HookDefinition
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.installer.upgrade.cleanup import CleanupOutcome, CleanupPlan
@@ -62,6 +60,8 @@ class UpgradeResult:
         scenario: The decided §51.3 :class:`UpgradeScenarioDecision`.
         footprint: The detected customization footprint.
         config_migrated: Whether the config file was migrated (``.bak`` + write).
+        config_migration_resumed: Whether an interrupted migration's digest
+            persistence was resumed from an exact backup witness.
         config_target_version: The config version migrated to (``None`` when no
             migration ran).
         hook_outcome: The §51.6 hook-migration outcome (``None`` in read-only
@@ -80,6 +80,7 @@ class UpgradeResult:
     scenario: UpgradeScenarioDecision
     footprint: CustomizationFootprint
     config_migrated: bool = False
+    config_migration_resumed: bool = False
     config_target_version: str | None = None
     hook_outcome: HookMigrationOutcome | None = None
     claude_hook_settings_migrated: bool = False
@@ -102,6 +103,7 @@ class UpgradeResult:
         """Return whether the flow performed any mutation."""
         return (
             self.config_migrated
+            or self.config_migration_resumed
             or self.claude_hook_settings_migrated
             or (self.hook_outcome is not None and self.hook_outcome.changed)
             or (self.git_hook_outcome is not None and self.git_hook_outcome.migrated)
@@ -191,22 +193,25 @@ def run_upgrade(
     assert state.decision is not None
     detail = "; ".join(r.detail for r in results if r.detail)
     failed_checkpoints = tuple(r.checkpoint for r in results if r.status is CheckpointStatus.FAILED)
-    if state.config_migrated and not state.decision.config_changed:
-        config_path = assert_project_local_file_path(
-            project_root,
-            Path(CONFIG_DIR) / PROJECT_CONFIG_FILE,
-        )
+    config_migration_resumed = False
+    if (
+        mode.mutations_allowed
+        and state.config_digest_to_persist is not None
+        and not state.decision.config_changed
+    ):
         registration_repo.update_upgraded(
             project_key,
             datetime.now(tz=UTC),
-            config_file_digest(config_path),
+            state.config_digest_to_persist,
         )
+        config_migration_resumed = state.config_migration_resume_detected
     return UpgradeResult(
         failed_checkpoints=failed_checkpoints,
         mode=mode,
         scenario=state.decision,
         footprint=state.footprint,
         config_migrated=state.config_migrated,
+        config_migration_resumed=config_migration_resumed,
         config_target_version=state.config_target_version,
         hook_outcome=state.hook_outcome,
         claude_hook_settings_migrated=state.claude_hook_settings_migrated,
