@@ -15,7 +15,7 @@ the :class:`PathClassifier` (lock-records, edge-bundle / freeze exports,
 ``.agent-guard``, git internals — FK-55 §55.4). They fall into two policy zones
 (see :data:`SelfProtectionGuard._ZONE_POLICY`):
 
-- **harness zone** — harness hook-settings + CCAG-/skill-symlink dirs. Only the
+- **harness zone** — harness hook-settings + skill-binding dirs. Only the
   Installer (Zone-2 deterministic, FK-30 §30.3.1) materialises these binding
   points; FK-15 §15.4.1 grants no other writer → fail-closed to the most
   restrictive grounded principal: :attr:`Principal.PIPELINE_DETERMINISTIC` only.
@@ -227,7 +227,7 @@ class SelfProtectionGuard:
         segments = _segments(target)
         if not segments:
             return None
-        # harness zone: exact hook-settings files + CCAG-/skill-symlink dirs.
+        # harness zone: exact hook-settings files + skill-binding dirs.
         if _matches_file(segments, SELF_PROTECTION_HARNESS_FILE_PARTS):
             return self._ZONE_HARNESS
         if _under_dir(segments, SELF_PROTECTION_HARNESS_DIR_PARTS):

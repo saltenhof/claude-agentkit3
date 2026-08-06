@@ -493,25 +493,7 @@ Lock-Record existiert, blockiert er. Fehlt die lokale
 Materialisierung des `qa_artifact_write`-Locks im Edge-Bundle,
 arbeitet der Guard fail-closed und blockiert ebenfalls.
 
-### 31.3.5 CCAG-Regel
-
-Zusätzlich zum Hook eine CCAG-Regel als zweite Absicherungsschicht:
-
-```yaml
-# Kanonisch unter .agentkit/ccag/rules/subagents.yaml
-# (harness-spezifischer Symlink z. B. .claude/ccag/rules/subagents.yaml fuer Claude Code; FK-76, FK-42 §42.7)
-- id: qa-artifact-lock
-  description: "Blockiert Sub-Agent-Zugriff auf QA-Verzeichnisse"
-  scope: subagent
-  condition:
-    state_backend_has_active_lock: "qa_artifact_write"
-  tools: [Write, Edit, Bash]
-  block_pattern: "_temp/qa/"
-  action: block
-  message: "Operation not permitted."
-```
-
-### 31.3.6 Audit-Trail
+### 31.3.5 Audit-Trail
 
 Jeder Blockade-Versuch wird als `integrity_violation`-Event in
 `execution_events` geschrieben (Kap. 68). Das Integrity-Gate
@@ -587,13 +569,11 @@ Der Adversarial Agent darf nur in seiner Sandbox schreiben
 (`_temp/adversarial/{story_id}/`), nicht in Produktivcode
 oder andere Verzeichnisse.
 
-### 31.6.2 Umsetzung als Hook (nicht CCAG)
+### 31.6.2 Umsetzung als Hook
 
 Konsistent mit allen anderen Guards wird der Adversarial-Guard
-als PreToolUse-Hook implementiert — nicht als CCAG-Regel. CCAG
-ist die lernfähige Permission-Schicht für menschliche Freigaben
-(Kap. 42), nicht der Enforcement-Mechanismus für harte
-Sicherheitsregeln. Harte Regeln gehören in Hooks
+als PreToolUse-Hook implementiert. Der autoritaetslose CCAG-Matcher
+ist kein Enforcement-Mechanismus. Harte Regeln gehören in Hooks
 (Plattform-Enforcement, Kap. 01 P2).
 
 **Hook-Modul:** `agentkit.backend.governance.adversarial_guard`

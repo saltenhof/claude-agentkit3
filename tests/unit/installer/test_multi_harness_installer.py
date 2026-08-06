@@ -22,6 +22,7 @@ from tests.fixtures.vectordb_installer import (
 from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
 from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.ccag_settings import CCAG_HOOK_MATCHER
 from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
@@ -142,6 +143,21 @@ def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
             "post",
             "commit_hook",
         ),
+    }
+    assert _claude_commands_for_matcher(
+        claude_settings,
+        "PreToolUse",
+        CCAG_HOOK_MATCHER,
+    ) == {
+        _harness_command("agentkit-hook-claude", "pre", "ccag_gatekeeper")
+    }
+    codex_ccag = next(
+        entry
+        for entry in codex_hooks["hooks"]["PreToolUse"]
+        if entry["matcher"] == "Bash|apply_patch"
+    )
+    assert {hook["command"] for hook in codex_ccag["hooks"]} == {
+        _harness_command("agentkit-hook-codex", "pre", "ccag_gatekeeper")
     }
     codex_post_bash = next(entry for entry in codex_hooks["hooks"]["PostToolUse"] if entry["matcher"] == "Bash")
     assert {hook["command"] for hook in codex_post_bash["hooks"]} == {

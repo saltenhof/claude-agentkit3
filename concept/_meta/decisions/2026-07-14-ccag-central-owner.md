@@ -3,12 +3,12 @@ concept_id: META-DEC-2026-07-14-CCAG-CENTRAL-OWNER
 title: Concept-Decision-Record — CCAG-Central-Owner
 module: meta
 cross_cutting: true
-status: active
+status: superseded
 doc_kind: decision-record
 authority_over: []
 defers_to: []
 supersedes: []
-superseded_by:
+superseded_by: META-DEC-2026-08-06-CCAG-MATCHER-ONLY
 tags: [meta, decision-record, ccag, permissions, persistence, governance, AG3-131]
 formal_scope: prose-only
 ---

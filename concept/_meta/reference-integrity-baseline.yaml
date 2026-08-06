@@ -81,11 +81,6 @@ unresolved_references:
     reference: guardrails/manifest-index.json
     reason: Optional target-project curated index example, not an AK3 repository file.
   - code: UNRESOLVED_REPO_PATH
-    path: concept/technical-design/42_ccag_tool_governance_permission_runtime.md
-    line: 268
-    reference: src/main/java/com/acme
-    reason: Language-agnostic Java source-layout example, not an AK3 repo path.
-  - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/48_adversarial_testing_runtime.md
     line: 172
     reference: tests/adversarial_quarantine
@@ -97,18 +92,18 @@ unresolved_references:
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 516
+    line: 523
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
 
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/51_upgrade_migration_customization_preservation.md
-    line: 219
+    line: 248
     reference: tools/hooks/pre-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/51_upgrade_migration_customization_preservation.md
-    line: 278
+    line: 306
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH

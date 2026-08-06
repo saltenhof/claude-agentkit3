@@ -63,12 +63,7 @@ def test_governance_plane_self_protection_config_and_manifest() -> None:
 
 
 def test_governance_plane_self_protection_symlink_dirs() -> None:
-    # FK-30 §30.5.4 / FK-15 §15.7.1: CCAG-rule + skill-symlink dirs (any path
-    # UNDER them) classify as governance_plane.
-    assert _classify(".agentkit/ccag/rules/subagents.yaml") is (
-        PathClass.GOVERNANCE_PLANE
-    )
-    assert _classify(".claude/ccag/rules/subagents.yaml") is PathClass.GOVERNANCE_PLANE
+    # FK-30 §30.5.4 / FK-15 §15.7.1: skill-symlink dirs classify as governance.
     assert _classify(".claude/skills/create-userstory/SKILL.md") is (
         PathClass.GOVERNANCE_PLANE
     )

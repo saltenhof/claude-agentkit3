@@ -117,29 +117,12 @@ defers_to:
     reason: >-
       §93.5 und §93.6 dienen der fachlichen Governance-Regel; deren
       Domaenensicht liegt in DK-03.
-  # --- 93.5a Permission-Runtime -----------------------------------------
-  # ACHTUNG: §93.5a ist die Ausnahme nach §93.0.1 -- kein Dokument ausserhalb
-  # FK-93 traegt diese Werte, FK-93 ist fuer die ZAHLEN selbst die Normquelle.
-  # Die folgenden Kanten benennen deshalb, was FK-42/FK-55 tatsaechlich
-  # besitzen (Mechanik und Wirkung), und ausdruecklich nicht die Werte.
-  - target: FK-42
-    scope: ccag-tools
-    reason: >-
-      §93.5a haengt an der Permission-Runtime: Request, Pause und Ablauf ohne
-      Entscheidung normiert FK-42. Die Sekundenwerte selbst normiert FK-93
-      (§93.0.1, katalog-eigener Wert).
+  # --- 93.5a Externe Host-Prompts ---------------------------------------
   - target: FK-55
     scope: principal-capability-model
     reason: >-
-      §93.5a haengt am Permission-Lease und seiner Befristung als Mechanismus;
-      das Capability-Modell normiert FK-55. Die Fristwerte selbst normiert
-      FK-93 (§93.0.1, katalog-eigener Wert).
-  - target: FK-55
-    scope: story-scoped-capabilities
-    reason: >-
-      §93.5a begrenzt offene Requests je Run; die Story-Scope-Durchsetzung, in
-      der die Grenze wirkt, normiert FK-55. Die Grenze selbst normiert FK-93
-      (§93.0.1, katalog-eigener Wert).
+      §93.5a gibt die Nulltoleranz fuer externe Host-Prompts im Story-Run
+      wieder; das Capability-Modell normiert ihre Wirkung in FK-55.
   # --- 93.7 LLM-Evaluator ------------------------------------------------
   - target: FK-11
     scope: llm-evaluator
@@ -343,27 +326,15 @@ uebrigen Zeilen sind Wiedergaben.
 | Rolling-Window-Breite | 50 Events | `governance.window_size` | — | 35 |
 | Cooldown | 300 Sekunden | `governance.cooldown_s` | FK-06-128 | 35 |
 
-## 93.5a Permission-Runtime und Requests
+## 93.5a Externe Host-Prompts im Story-Run
 
-**Katalog-eigene Werte (§93.0.1, Ausnahme).** Kein Dokument ausserhalb FK-93
-fuehrt diese fuenf Werte. FK-42 normiert die Permission-Runtime (Request,
-Pause, Ablauf ohne Entscheidung), FK-55 das Permission-Lease als befristete
-Ausnahme und die Story-Scope-Durchsetzung — die **Fristen und Mengen** selbst
-normiert dieser Katalog.
-
-**Offene Modellierungsschuld beim Owner (§93.0.1, letzte Regel):** die
-Konfigurationspfade `permissions.*` stehen **nicht** im Konfigurationsmodell
-von FK-03 und werden auch in FK-42/FK-55 nicht gefuehrt. Solange das so ist,
-sind die Pfade hier ein Vorschlag und kein bestaetigtes Schema. Die Luecke
-gehoert FK-03 zusammen mit FK-42/FK-55 und wird dort geschlossen.
+Ein aktiver Story-Run wartet nicht auf einen nativen Host-Prompt. Die
+Nulltoleranz ist kein konfigurierbarer Freigabepfad, sondern die in FK-55
+normierte Grenze des externen Permission-Substrats.
 
 | Parameter | Default (FK-Soll) | Config-Pfad | Normquelle | Kapitel |
 |-----------|-------------------|-------------|------------|---------|
-| Permission-Request-TTL | 1800s (30 Min) | `permissions.request_ttl_s` | FK-93 (katalog-eigen); Regel: FK-42 | 42 / 55 |
-| Permission-Pause-TTL | 3600s (60 Min) | `permissions.pause_ttl_s` | FK-93 (katalog-eigen); Regel: FK-42 | 42 / 55 |
-| Permission-Lease-TTL | `run_scoped` | `permissions.lease_ttl` | FK-93 (katalog-eigen); Regel: FK-55 | 55 |
-| External-Prompt-Grace in Story-Run | 0s | `permissions.story_execution_external_prompt_grace_s` | FK-93 (katalog-eigen); Regel: FK-42 | 42 / 55 |
-| Max offene Permission-Requests pro Run | 1 | `permissions.max_open_requests_per_run` | FK-93 (katalog-eigen); Regel: FK-55 | 55 |
+| External-Prompt-Grace in Story-Run | 0s | fest im Guard | FK-55 | 55 |
 
 ## 93.6 Risikopunkte (Governance-Sensorik)
 

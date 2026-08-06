@@ -22,7 +22,7 @@ Im Scope sind:
 
 Nicht Teil dieses Kontexts sind:
 
-- CCAG als separate Permission-Runtime
+- der registrierte, autoritaetslose CCAG-Matcher
 - Integrity-Gate in Closure
 - Telemetrie-Aggregation
 - freie Agentenlogik ausserhalb des Hook-Enforcements

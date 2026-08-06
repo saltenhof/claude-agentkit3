@@ -188,8 +188,7 @@ def _event_tool(event: HookEvent) -> str:
 
     Prefers an explicit ``operation_args["tool_name"]`` (how WebFetch/WebSearch
     arrive, since the HookEvent ``operation`` is ``unknown_tool`` for them);
-    otherwise maps the ``operation`` back to the canonical tool name. Mirrors
-    ``CcagPermissionRuntime._tool_name_from_event`` (single convention).
+    otherwise maps the ``operation`` back to the canonical tool name.
 
     AG3-036 FIX-2: a web-tool name is canonicalized (``web_fetch`` /
     ``web-search`` / ``WEBFETCH`` / ... → ``WebFetch`` / ``WebSearch``) BEFORE it

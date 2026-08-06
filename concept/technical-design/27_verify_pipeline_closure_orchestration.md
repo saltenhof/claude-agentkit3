@@ -508,7 +508,7 @@ Der Orchestrator spawnt den Adversarial Agent als Harness-Sub-Agent
 - Zugriff auf Handover-Paket (`inputs.handover`, `risks_for_qa` als Ansatzpunkte)
 - Zugriff auf Concerns aus Schicht 2 (`inputs.layer2_concerns`, PASS_WITH_CONCERNS als Ansatzpunkte)
 - Pflicht, Sparring-LLM zu holen
-- Write-Scoping über CCAG-Regel (FK-42 §42.2.4, FK-15 §15.4.2)
+- Write-Scoping über den Adversarial-Guard (FK-31 §31.6, FK-15 §15.4.2)
 
 ### 27.6.2 Ablauf (FK-05-197 bis FK-05-207)
 

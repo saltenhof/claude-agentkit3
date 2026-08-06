@@ -438,11 +438,9 @@ Enforcement funktioniert hat. Ein echter Closure-Blocker liegt erst
 vor, wenn eine unzulaessige Mutation erfolgreich festgestellt oder ein
 aktiver Freeze ohne offiziellen Resolution-Pfad verlassen wurde.
 
-**Hinweis zu Permission-Faellen:** Ein geblockter, aber sauber
-abgeschlossener `permission_request` ist kein Breach. Kritisch wird der
-Fall erst, wenn ein offener Permission-Request oder eine externe
-Permission-Interferenz ohne formalen Abschluss im selben Run stehen
-bleibt.
+**Hinweis zu externer Permission-Interferenz:** Ein hostseitiger Prompt oder
+TTY-Effekt im Story-Run ist kritisch, wenn er ohne formalen Abschluss im selben
+Run stehen bleibt. Ein internes Permission-Request-Verfahren existiert nicht.
 
 ### 35.2.6 Modus-abhängige Prüfung
 

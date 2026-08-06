@@ -43,14 +43,15 @@ glossary:
         aufloesen, Tool-Aufruf auf operation_class normalisieren, Ziele auf
         path_class normalisieren, harte Capability-Matrix pruefen,
         Freeze-Overlay anwenden, offizielle Servicepfade pruefen,
-        Modusregel fuer unbekannte Freigaben anwenden, erst danach CCAG.
+        Modusregel fuer unbekannte Operationen anwenden. Der registrierte
+        CCAG-Matcher nimmt an der Entscheidung nicht teil.
         Reihenfolge ist normativ und nicht variierbar.
       see_also:
         - term: guard-system
           domain: governance-and-guards
         - term: principal
           domain: governance-and-guards
-        - term: ccag-permission-runtime
+        - term: ccag-gatekeeper
           domain: governance-and-guards
     - id: guard-system
       definition: >
@@ -59,8 +60,8 @@ glossary:
         Branch-Guard, Orchestrator-Guard, QA-Artefakt-Schutz,
         QA-Agent-Guard, Adversarial-Guard, Self-Protection-Guard,
         Story-Creation-Guard, Budget-Guard und Worker-Health-Monitor.
-        Jeder Guard ist als PreToolUse-Hook implementiert; CCAG ist
-        ausdruecklich nicht Teil des GuardSystem.
+        Jeder Guard ist als PreToolUse-Hook implementiert; der autoritaetslose
+        CCAG-Matcher ist ausdruecklich kein Guard.
       see_also:
         - term: guard-decision
           domain: governance-and-guards
@@ -131,9 +132,9 @@ Kapitel zusammen mit FK-31 die Top-Level-Komponente `GuardSystem` ab.
 Zum `GuardSystem` gehoeren nicht nur die klassischen Branch- und
 Artefakt-Guards, sondern alle blockierenden oder hart eingreifenden
 Hook-Bausteine inklusive Self-Protection, Story-Creation-Guard,
-Budget-Guard und Worker-Health-Monitor. CCAG gehoert ausdruecklich
-nicht zu diesem System, sondern ist eine separate Permission-Runtime
-(FK-42).
+Budget-Guard und Worker-Health-Monitor. Der registrierte CCAG-Matcher gehoert
+ausdruecklich nicht zu diesem System und besitzt keine eigene Runtime oder
+Autoritaet (FK-42).
 
 ## 30.2 Hook-Architektur (harness-bezogen, Beispiele anhand Claude Code)
 
@@ -251,8 +252,9 @@ einen ohnehin nicht blockierenden Ausfall zusaetzlich in einen unauffindbaren.
 
 **Prompt-Regel fuer aktive Runs:** Im `story_execution`-Modus darf ein
 Hook niemals auf einen harness-nativen Permission-Dialog (Claude Code
-oder Codex; siehe FK-76) als Fortschrittsmechanismus setzen. Unbekannte Freigaben werden im Hook
-sofort blockiert und als Permission-Fall materialisiert.
+oder Codex; siehe FK-76) als Fortschrittsmechanismus setzen. Unbekannte
+Operationen werden durch das Principal-Capability-Modell unmittelbar
+blockiert; ein Freigabeverfahren wird nicht materialisiert.
 
 ### 30.2.5 GuardSystem als Komponenten-Flow
 
@@ -311,13 +313,11 @@ geprueft, sondern gegen einen festen Capability-Entscheidungspfad:
 5. harte Capability-Matrix auswerten
 6. aktives Freeze-Overlay anwenden
 7. nur danach offizielle Ausnahme-/Servicepfade pruefen
-8. Modusregel fuer unbekannte Freigaben anwenden
-9. erst ganz zuletzt darf CCAG auf verbleibende weiche Freigaben wirken
+8. Modusregel fuer unbekannte Operationen anwenden
 
-**Wichtige Konsequenz:** CCAG ist kein zweites Sicherheitsmodell neben
-dem GuardSystem. Es kommt erst nach Principal-, Pfad- und
-Freeze-Entscheidung zum Zug und darf harte Denies nicht in Allow
-umwandeln.
+**Wichtige Konsequenz:** CCAG ist kein Sicherheitsmodell neben dem
+GuardSystem. Der Matcher bleibt registriert, ist aber autoritaetslos und kann
+weder harte Denies noch andere Entscheidungen veraendern.
 
 **Externe Permission-Systeme:** Harness-native Permission-Prompts
 (Claude Code, Codex; siehe FK-76), TTY-Interaktivitaet oder
@@ -704,7 +704,6 @@ selbst (Kap. 15.7):
 | Geschützte Pfade | Reaktion |
 |-----------------|---------|
 | Harness-spezifische Hook-Settings (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe FK-76 §76.5) | Sofortiger Stopp |
-| Harness-spezifische CCAG-Symlinks (Beispiel Claude Code: `.claude/ccag/rules/`; kanonisch `.agentkit/ccag/rules/`) | Sofortiger Stopp |
 | `.agentkit/config/project.yaml` | Sofortiger Stopp |
 | `.installed-manifest.json` | Sofortiger Stopp |
 | `_temp/governance/` | Sofortiger Stopp |

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.installer.ccag_settings import CCAG_HOOK_MATCHER
 from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.runner import InstallConfig, _register_default_governance_hooks
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
@@ -101,6 +102,11 @@ def test_default_install_lands_ag3_086_hooks_in_settings(tmp_path: Path) -> None
     assert ("Bash", _claude_command("post", "commit_hook")) in post
     # FK-31 §31.7: the permanently-active prompt-integrity guard (PreToolUse Agent).
     assert ("Agent", _claude_command("pre", "prompt_integrity")) in pre
+    # AG3-226: matcher-only CCAG remains installed without permission authority.
+    assert (
+        CCAG_HOOK_MATCHER,
+        _claude_command("pre", "ccag_gatekeeper"),
+    ) in pre
 
 
 def test_default_install_is_idempotent_on_second_run(tmp_path: Path) -> None:

@@ -143,7 +143,8 @@ Das bedeutet:
 - kein Integrity-Gate
 - keine Verify-/Closure-/Story-Prozesspflichten
 
-Es bleiben nur die immer-aktiven Basisschutzregeln und CCAG.
+Es bleiben nur die immer-aktiven Basisschutzregeln sowie der registrierte,
+autoritaetslose CCAG-Matcher.
 
 ## 56.3 Die zwei Betriebsmodi
 
@@ -193,7 +194,7 @@ Story-Workflows.
 
 Diese Regeln gelten in beiden Modi:
 
-- CCAG
+- registrierter CCAG-Matcher ohne Autoritaet
 - Governance-Selbstschutz
 - destructive Git baseline guards:
   - kein Force-Push
@@ -516,9 +517,9 @@ fremden aktiven Session erfordert bei agenteninitiiertem Request eine
   Benutzer die Uebernahme im Frontend freigeben muss —, sodass der
   Orchestrator seinen Benutzer informieren kann; den Ausgang
   beobachtet er ueber `GET operations/{op_id}`.
-- Die ausstehende Freigabe gehoert zur Permission-Request-Familie
-  (FK-42, FK-90): Sie darf als offene Anfrage verfallen (dann
-  DENIED), entzieht aber niemals bestehendes Eigentum.
+- Die Takeover-Freigabe ist ein eigenes Ownership-Verfahren (FK-56) und keine
+  CCAG- oder Tool-Permission. Ihr Ausgang entzieht ohne vollzogenen Transfer
+  niemals bestehendes Eigentum.
 - Menschlich initiierte Takeovers (UI/CLI) durchlaufen denselben
   informierten Challenge-Dialog direkt. Der Vollzug wird als
   Operation der Klasse `admin_transition` (FK-55) gefuehrt und

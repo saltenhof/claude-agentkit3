@@ -22,7 +22,9 @@ from agentkit.backend.installer.http_models import (
     GovernanceHookRegistrationResponse,
     InstallerWriterReadyResponse,
     ProjectRegistrationListResponse,
+    ProjectRegistrationMutationResponse,
     ProjectRegistrationReadResponse,
+    ProjectRegistrationUpgradeRequest,
     RegisterProjectStateRequest,
     SkillBindingDeleteRequest,
     SkillBindingListResponse,
@@ -31,6 +33,7 @@ from agentkit.backend.installer.http_models import (
     SkillBindingWriteRequest,
 )
 from agentkit.backend.installer.registration import CheckpointStatus
+from agentkit.backend.installer.writer_service import InstallerMigrationWitnessError
 
 if TYPE_CHECKING:
     from agentkit.backend.auth.middleware import AuthResult
@@ -165,6 +168,13 @@ class InstallerWriterRoutes:
                     detail=detail,
                 ),
             )
+        except InstallerMigrationWitnessError as exc:
+            return _error_response(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                error_code="invalid_config_migration_witness",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
         except (OSError, RuntimeError) as exc:
             return self._unavailable(exc, correlation_id)
 
@@ -246,6 +256,15 @@ class InstallerWriterRoutes:
                     correlation_id=correlation_id,
                     detail=body,
                 )
+        elif operation == "project_registration_upgraded":
+            self._owner.update_project_registration_after_upgrade(
+                project_key,
+                cast("ProjectRegistrationUpgradeRequest", request),
+            )
+            body = ProjectRegistrationMutationResponse(
+                project_key=project_key,
+                action="upgraded",
+            ).model_dump(mode="json")
         elif operation == "skill_binding_save":
             write = cast("SkillBindingWriteRequest", request)
             skill_name = str(target)
@@ -288,6 +307,8 @@ class InstallerWriterRoutes:
         model: type[_RouteRequest]
         if operation == "register_project":
             model = cast("type[_RouteRequest]", RegisterProjectStateRequest)
+        elif operation == "project_registration_upgraded":
+            model = cast("type[_RouteRequest]", ProjectRegistrationUpgradeRequest)
         elif operation == "skill_binding_save":
             model = cast("type[_RouteRequest]", SkillBindingWriteRequest)
         elif operation == "skill_binding_delete":
@@ -326,6 +347,11 @@ class InstallerWriterRoutes:
     def _match_post(route_path: str) -> tuple[str, str, str | None] | None:
         for pattern, operation, target_group in (
             (_REGISTER_PROJECT, "register_project", None),
+            (
+                _PROJECT_REGISTRATION,
+                "project_registration_upgraded",
+                None,
+            ),
             (_SKILL_BINDING_DELETE, "skill_binding_delete", "skill_name"),
             (_SKILL_BINDING, "skill_binding_save", "skill_name"),
             (_GOVERNANCE_HOOKS_CLEAR, "governance_hooks_clear", None),

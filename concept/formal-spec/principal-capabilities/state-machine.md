@@ -13,7 +13,7 @@ prose_refs:
 
 # Principal Capability State Machine
 
-Der relevante Lebenszyklus ist die Freeze- und Freigabesemantik einer
+Der relevante Lebenszyklus ist die Freeze- und Entscheidungsemantik einer
 storybezogenen Capability-Zone.
 
 <!-- FORMAL-SPEC:BEGIN -->
@@ -26,7 +26,6 @@ states:
   - id: principal-capabilities.status.normal
     initial: true
   - id: principal-capabilities.status.story_scoped
-  - id: principal-capabilities.status.permission_pending
   - id: principal-capabilities.status.frozen
   - id: principal-capabilities.status.official_service_active
   - id: principal-capabilities.status.released
@@ -41,16 +40,6 @@ transitions:
     from: principal-capabilities.status.story_scoped
     to: principal-capabilities.status.frozen
     guard: principal-capabilities.invariant.freeze_removes_orchestrator_mutation_rights
-  - id: principal-capabilities.transition.story_scoped_to_permission_pending
-    from: principal-capabilities.status.story_scoped
-    to: principal-capabilities.status.permission_pending
-    guard: principal-capabilities.invariant.no_native_prompt_during_story_lock
-  - id: principal-capabilities.transition.permission_pending_to_released
-    from: principal-capabilities.status.permission_pending
-    to: principal-capabilities.status.released
-  - id: principal-capabilities.transition.permission_pending_to_denied
-    from: principal-capabilities.status.permission_pending
-    to: principal-capabilities.status.denied
   - id: principal-capabilities.transition.frozen_to_official_service_active
     from: principal-capabilities.status.frozen
     to: principal-capabilities.status.official_service_active

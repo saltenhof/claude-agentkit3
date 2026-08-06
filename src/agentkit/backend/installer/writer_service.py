@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.governance.repository import HookRegistrationRepository
     from agentkit.backend.installer.http_models import (
+        ProjectRegistrationUpgradeRequest,
         RegisterProjectStateRequest,
         SkillBindingWriteRequest,
     )
@@ -26,6 +27,10 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.skills import SkillBindingRepository
+
+
+class InstallerMigrationWitnessError(ValueError):
+    """An upgrade request does not prove a deterministic AK3 migration."""
 
 
 class InstallerWriterService:
@@ -80,6 +85,58 @@ class InstallerWriterService:
         """Return the writer-owned CP7 registration."""
         return self._registration_repository().get(project_key)
 
+    def update_project_registration_after_upgrade(
+        self,
+        project_key: str,
+        request: ProjectRegistrationUpgradeRequest,
+    ) -> None:
+        """Verify and persist one deterministic AK3 config migration."""
+
+        from agentkit.backend.installer.runner import _canonical_config_digest
+        from agentkit.backend.installer.upgrade.config_migration import (
+            ConfigMigrationError,
+            migrate_config,
+            read_config_version,
+        )
+
+        repository = self._registration_repository()
+        registration = repository.get(project_key)
+        if registration is None:
+            raise RuntimeError("cannot update a missing project registration")
+        source_digest = _canonical_config_digest(request.source_project_yaml)
+        if source_digest != registration.config_digest:
+            raise InstallerMigrationWitnessError(
+                "config migration witness does not match the registered baseline"
+            )
+        try:
+            target_version = read_config_version(request.migrated_project_yaml)
+            expected_migration = migrate_config(
+                request.source_project_yaml,
+                target_version,
+            )
+        except ConfigMigrationError as exc:
+            raise InstallerMigrationWitnessError(
+                "config migration witness is semantically invalid"
+            ) from exc
+        expected_digest = _canonical_config_digest(expected_migration)
+        submitted_digest = _canonical_config_digest(request.migrated_project_yaml)
+        if (
+            expected_migration != request.migrated_project_yaml
+            or expected_digest != submitted_digest
+        ):
+            raise InstallerMigrationWitnessError(
+                "config migration witness is not an AK3-owned migration result"
+            )
+        if submitted_digest != request.new_digest:
+            raise InstallerMigrationWitnessError(
+                "config migration witness digest does not match its result"
+            )
+        repository.update_upgraded(
+            project_key,
+            datetime.now(UTC),
+            expected_digest,
+        )
+
     def get_skill_binding(
         self,
         project_key: str,
@@ -133,4 +190,4 @@ class InstallerWriterService:
         self._hook_repository().clear_for_project(project_key)
 
 
-__all__ = ["InstallerWriterService"]
+__all__ = ["InstallerMigrationWitnessError", "InstallerWriterService"]

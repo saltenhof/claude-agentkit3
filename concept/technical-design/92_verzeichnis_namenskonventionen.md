@@ -101,7 +101,7 @@ src/agentkit/{component_name}/{subcomponent_name}/
 |-------------|--------|-----------|
 | `.json` | Strukturierte Daten | QA-Artefakte, Config, Manifest, Schemas |
 | `.jsonl` | Export-/Audit-Stream (1 Zeile/Event) | Telemetrie-Export, Failure Corpus |
-| `.yaml` | Konfiguration | Pipeline-Config, CCAG-Regeln |
+| `.yaml` | Konfiguration | Pipeline-Config |
 | `.md` | Menschenlesbare Dokumente | Prompts, Skills, Protokolle, Konzepte |
 | `.db` | Nicht projektlokal kanonisch | DB-Dateien sind fuer AgentKit nicht Source of Truth |
 | `.bak` | Backup bei Upgrade | Gesicherte Nutzer-Anpassungen |

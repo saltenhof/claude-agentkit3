@@ -76,29 +76,6 @@ def test_all_real_consumers_reimport_the_one_literal() -> None:
     )
 
 
-def test_ccag_decision_mode_is_a_different_axis_not_the_operating_mode() -> None:
-    """CCAG's permission-decision axis is NOT conflated with OperatingMode.
-
-    FK-42 §42.2.5 / FK-56 §56.4: CCAG keys on whether a host-prompt is admissible
-    (a PRINCIPAL property: ``interactive_agent``), NOT on binding validity. Its
-    literal is a genuinely different axis -- it must carry its own name
-    (``CcagDecisionMode``), have NO ``binding_invalid`` member, and must NOT be
-    the SSOT ``OperatingMode`` (no second operating-mode truth, FIX-THE-MODEL).
-    """
-    from typing import get_args
-
-    from agentkit.backend.governance.ccag.runtime import CcagDecisionMode
-
-    assert CcagDecisionMode is not OperatingMode
-    ccag_values = set(get_args(CcagDecisionMode))
-    operating_values = set(get_args(OperatingMode))
-    assert ccag_values != operating_values
-    # The CCAG axis has the host-dialog principal but NOT the FK-56 binding state.
-    assert "interactive_agent" in ccag_values
-    assert "binding_invalid" not in ccag_values
-    assert "binding_invalid" in operating_values
-
-
 def test_real_resolved_edge_state_satisfies_the_port() -> None:
     """The real ResolvedEdgeState structurally satisfies CarriesOperatingMode.
 

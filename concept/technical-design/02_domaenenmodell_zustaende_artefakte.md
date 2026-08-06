@@ -476,7 +476,7 @@ einer Story.
 | Ein Agent kann nicht entscheiden, was implementiert wird | Preflight prüft `Status == "Approved"` | `preflight.py` |
 | Alle Änderungen auf Story-Branch isoliert | Branch-Guard blockiert Main-Operationen | `branch_guard.py` Hook |
 | Orchestrator implementiert nicht | Orchestrator-Guard blockiert Codebase-Zugriff | `orchestrator_guard.py` Hook |
-| Worker kann QA nicht manipulieren | Lock-Record-Mechanismus + CCAG blockiert Sub-Agents (siehe 2.7) | Lock-Record + CCAG-Regeln |
+| Worker kann QA nicht manipulieren | Lock-Record-Mechanismus und Guard blockieren Sub-Agents (siehe 2.7) | Lock-Record + Guard |
 | LLM bewertet, Pipeline entscheidet | LLM-Antwort wird geparst; Pipeline wertet Status-Feld aus | `llm_evaluator.py` |
 | Kein Story-Close ohne Merge | Closure fuehrt Merge vor Story-Status-Wechsel auf Done durch | `closure.py` |
 | Kein Story-Close ohne Integrity-Gate | Integrity-Gate ist Voraussetzung fuer den Story-Status-Wechsel auf Done (Closure-Sequence FK-29) | `integrity.py` Gate |
@@ -493,7 +493,7 @@ einer Story.
 > Lock-Record-Mechanismus (Prinzip, qa_artifact_write_lock-Record,
 > Lebenszyklus mit expliziten Beendigungspfaden — Closure, Exit, Reset,
 > Split, Ownership-Transfer; keine automatische Stale-Freigabe —,
-> Sub-Agent-Scoping, CCAG-Regel) ist in **FK-71 §71.3** normiert.
+> Sub-Agent-Scoping) ist in **FK-71 §71.3** normiert.
 
 ## 2.9 Typisierte Stage-Registry
 

@@ -106,7 +106,7 @@ def is_subagent_spawn(
     WebFetch / WebSearch take), or — defensively — as the literal tool name. A
     sub-agent spawn is a control-plane orchestration operation with no path target;
     recognising it lets the capability layer treat it as a KNOWN operation that is
-    routed to its dedicated ``prompt_integrity`` guard + CCAG instead of being
+    routed to its dedicated ``prompt_integrity`` guard instead of being
     hard-blocked as an unknown permission or DENY-ed by the path matrix.
 
     Args:
@@ -284,10 +284,10 @@ class OperationClassifier:
         agentkit/WebFetch/WebSearch/… — mapped to a concrete operation class)
         from an UNKNOWN permission (a tool the classifier has no rule for). The
         enforcement layer uses this to resolve an unknown tool *mode-specific*
-        (story_execution ⇒ BLOCK + permission_request; interactive/ai_augmented ⇒
+        (story execution ⇒ BLOCK; interactive/ai_augmented ⇒
         defer) instead of force-fitting it to a matrix-matching ``execute`` ALLOW
         (the AG3-032 ERROR C fail-open hole). ``classify`` still returns the inert
-        :attr:`OperationClass.EXECUTE` for an unknown tool (so CCAG / downstream
+        :attr:`OperationClass.EXECUTE` for an unknown tool (so downstream
         keep working); this predicate is the explicit unknown signal.
 
         A research web tool (WebFetch / WebSearch, AG3-036 FIX-1) is KNOWN: it
@@ -311,7 +311,7 @@ class OperationClassifier:
         if self._web_tool_from(operation_name, args) is not None:
             return True
         # FK-31 §31.7 / FK-91 §91.4: the ``Agent`` sub-agent spawn is a KNOWN
-        # control-plane operation (routed to the prompt_integrity guard + CCAG),
+        # control-plane operation (routed to the prompt_integrity guard),
         # never an unknown permission. Recognising it here stops the §55.6.1
         # mode-specific unknown-permission block from intercepting it before its
         # dedicated guard runs.

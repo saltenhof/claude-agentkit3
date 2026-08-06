@@ -318,7 +318,7 @@ git-Mechanik, ARE-Evidence-Upload, Weaviate-Suche, Agent-LLM-Sparring.
 1. `PrincipalCapability` — Principal, Rollen, CapabilityToken (sub_exposed)
 2. `EscalationMechanism` — Eskalations-Mechanik (internal)
 3. `GuardSystem` — Hooks, Branch-Schutz, GuardDecision (sub_exposed)
-4. `CcagPermissionRuntime` — CCAG-Tool-Governance, PermissionVerdict (sub_exposed)
+4. `CcagMatcherCatalog` — CCAG-Hook-Registrierung und Matcher-Katalog (sub_exposed)
 5. `IntegrityGate` — Closure-Integritaet (sub_exposed)
 6. `GovernanceObserver` — Beobachtung, Monitoring (sub_exposed)
 7. `SetupPreflightGate` — Preflight-Checks fuer Setup-Phase (sub_exposed)
@@ -328,7 +328,7 @@ git-Mechanik, ARE-Evidence-Upload, Weaviate-Suche, Agent-LLM-Sparring.
 | Name | Exposure | Prefix |
 |------|----------|--------|
 | GuardSystem | sub_exposed | `agentkit.backend.governance.guard_system` |
-| CcagPermissionRuntime | sub_exposed | `agentkit.backend.governance.ccag_permission_runtime` |
+| CcagMatcherCatalog | sub_exposed | `agentkit.backend.installer.ccag_settings` |
 | GovernanceObserver | sub_exposed | `agentkit.backend.governance.governance_observer` |
 | IntegrityGate | sub_exposed | `agentkit.backend.governance.integrity_gate` |
 | PrincipalCapability | sub_exposed | `agentkit.backend.governance.principal_capability` |
@@ -336,9 +336,9 @@ git-Mechanik, ARE-Evidence-Upload, Weaviate-Suche, Agent-LLM-Sparring.
 | EscalationMechanism | internal | `agentkit.backend.governance.escalation_mechanism` |
 
 **Klassen-Skizzen:**
-- `Governance`: Top-Surface; koordiniert Guard/Permission/Gate-Entscheidungen
+- `Governance`: Top-Surface; koordiniert Guard- und Gate-Entscheidungen
 - `GuardSystem`: Hooks aktivieren, Branch-Artefakt-Schutz, GuardDecision
-- `CcagPermissionRuntime`: Tool-Freigaben, CCAG-Policy, PermissionVerdict
+- `CcagMatcherCatalog`: registrierter Hook-Name und Tool-Matcher ohne Autoritaet
 - `GovernanceObserver`: Monitoring von Guard-Ereignissen, Audit-Trail
 - `IntegrityGate`: Pre-Merge-Integritaetspruefung (FK-20 Drift-Aufloesung: Sub
   von Governance, nicht ClosurePhase)
@@ -485,7 +485,7 @@ Layer 3: WorkerLoop (orchestriert Inkremente, schreibt Handover)
 | `pipeline-framework` | PF -> I | Phase-Handler-Aufruf via FlowOrchestrator |
 | `verify-system` | I -> VS | `run_qa_subflow(qa_context=IMPLEMENTATION_INITIAL\|REMEDIATION)` mit handover.json als Target |
 | `governance-and-guards` | GG -> I (Hooks) | HookRuntime ruft `agentkit.backend.implementation.worker_health.scoring_hook` + `intervention_hook` direkt (daher `sub_exposed` fuer WorkerHealthMonitor) |
-| `governance-and-guards` | I -> GG | CCAG-PermissionRuntime fuer Worker-Tool-Freigaben |
+| `governance-and-guards` | I -> GG | Guard- und Principal-Capability-Entscheidungen; CCAG liefert nur Hook-Matcher-Metadaten |
 | `story-context-manager` | I -> SCM | `StoryIdentity` fuer Worker-Kontext-Aufbau |
 | `artifacts` | I -> A | ArtifactManager fuer handover/manifest/protocol/agent-health |
 | `telemetry-and-events` | I -> T | agent_start/end, increment_commit, drift_check, review_*, worker_health_score, worker_health_intervention |

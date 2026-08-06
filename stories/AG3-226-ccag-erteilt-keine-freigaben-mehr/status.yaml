@@ -2,7 +2,7 @@ story_id: AG3-226
 story_title_short: "ccag-erteilt-keine-freigaben-mehr"
 title: "Der CCAG-Gatekeeper bleibt als Hook bestehen, verliert aber seine Rolle als Genehmigungsinstanz -- kein Permission-Request-Verfahren, keine Freigaben, keine TTL-Eskalation."
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-08-05"
 size: M

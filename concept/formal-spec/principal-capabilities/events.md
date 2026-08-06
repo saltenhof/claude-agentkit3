@@ -44,19 +44,5 @@ events:
     role: governance
   - id: principal-capabilities.event.conflict_resolution_rejected
     role: governance
-  - id: principal-capabilities.event.permission_request_opened
-    role: governance
-  - id: principal-capabilities.event.permission_request_approved
-    role: governance
-  - id: principal-capabilities.event.permission_request_rejected
-    role: governance
-  - id: principal-capabilities.event.permission_request_expired
-    role: governance
-  - id: principal-capabilities.event.permission_lease_issued
-    role: lifecycle
-  - id: principal-capabilities.event.permission_lease_consumed
-    role: lifecycle
-  - id: principal-capabilities.event.external_permission_interference_detected
-    role: audit
 ```
 <!-- FORMAL-SPEC:END -->

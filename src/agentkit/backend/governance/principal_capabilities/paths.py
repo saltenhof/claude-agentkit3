@@ -92,8 +92,7 @@ _SELF_PROTECTION_FILE_PARTS: tuple[tuple[str, ...], ...] = (
 )
 
 #: Self-protection registry DIRECTORY-prefix segment tuples (FK-30 §30.5.4 /
-#: FK-15 §15.7.1): the CCAG-rule / skill-symlink dirs (``.agentkit/ccag/rules``,
-#: ``.claude/ccag/rules``, ``.claude/skills``). A mutation UNDER any of these is
+#: FK-15 §15.7.1). A mutation under a registered skill-symlink directory is
 #: governance-plane (FK-55 §55.4 guardrail states). Same canonical source.
 _SELF_PROTECTION_DIR_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_SYMLINK_DIR_PARTS,
@@ -175,7 +174,7 @@ class PathClassifier:
         if "_temp" in segments and "governance" in segments:
             return True
         # Self-protection registry (FK-30 §30.5.4): harness hook-settings,
-        # CCAG-/skill-symlink dirs and governance config / installer manifest are
+        # skill-binding dirs and governance config / installer manifest are
         # "guardrail states" (FK-55 §55.4 governance_plane: "only official
         # service paths"). Precise: exact files + dir-prefix runs only — NOT all of
         # ``.claude``/``.codex`` (arbitrary harness working files stay

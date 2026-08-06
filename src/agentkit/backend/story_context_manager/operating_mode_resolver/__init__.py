@@ -35,10 +35,7 @@ ad-hoc. This namespace consolidates the *mode semantics* onto ONE named owner
 The R-boundary FS reads + the project-edge sync live in ``projectedge.runtime``
 (the I/O boundary) and the run-binding classification in ``control_plane.runtime``;
 this A-core namespace owns the *mode-semantic seam* (the re-exported literal + the
-one accessor). The CCAG permission-decision axis (``CcagDecisionMode``:
-``story_execution``/``ai_augmented``/``interactive_agent``) is a DIFFERENT axis
-(FK-42 §42.2.5 / FK-56 §56.4 -- ``interactive_agent`` is a PRINCIPAL, not a
-binding-validity state) and is deliberately NOT this type.
+one accessor).
 
 The FK-56 namespace concept-prose nachzug (PROJECT_STRUCTURE / BC-registry doc)
 is AG3-102; AG3-097 owns only this code namespace.

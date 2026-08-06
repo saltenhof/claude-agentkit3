@@ -116,7 +116,7 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
 | `GuardSystem` | A | harte Guard- und Capability-Enforcement-Regeln fuer Hook-Entscheidungen; intern aufgeteilt in `GuardEvaluation` (harness-neutraler A-Kern) und `HarnessAdapters.{Harness}` (pro Harness eine bewusst lokalisierte AT-Mediation-Insel, z.B. `claude_code` und `codex`; FK-76 §76.4) | `GuardDecisionPort` |
-| `CcagPermissionRuntime` | A | lernfaehige, sessionpersistente Permission-Pfade ausserhalb der harten Guards | `PermissionDecisionPort` |
+| `CcagMatcherCatalog` | A | registrierter Hook-Name und Tool-Matcher ohne Autoritaet oder persistenten Zustand | — |
 | `ConformanceService` | A | gestufte Dokument- und Konzepttreuepruefung an definierten Prozesszeitpunkten | `ConformancePort` |
 | `StageRegistry` | A | autoritativer Stage-Katalog mit Producer-, Trust- und Blocking-Vertraegen | `StageRegistryPort` |
 | `GovernanceObserver` | A | verdichtet Governance-Signale zu Incidents und Mustern | `GovernanceObservationPort` |

@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
     from agentkit.backend.control_plane_http.failure_corpus_routes import FailureCorpusRoutes
     from agentkit.backend.control_plane_http.installer_writer_routes import InstallerWriterRoutes
-    from agentkit.backend.control_plane_http.permission_routes import PermissionRoutes
     from agentkit.backend.control_plane_http.story_admin_routes import StoryAdminRoutes
     from agentkit.backend.control_plane_http.story_split_routes import StorySplitRoutes
     from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
@@ -123,14 +122,6 @@ def _build_default_takeover_approval_routes() -> TakeoverApprovalRoutes:
     )
 
     return TakeoverApprovalRoutes(build_takeover_approval_read_source())
-
-
-def _build_default_permission_routes() -> PermissionRoutes:
-    """Build CCAG permission routes through the governance composition root."""
-    from agentkit.backend.bootstrap.composition_root import build_permission_service
-    from agentkit.backend.control_plane_http.permission_routes import PermissionRoutes
-
-    return PermissionRoutes(build_permission_service())
 
 
 def _build_default_auth_routes(auth_middleware: AuthMiddleware | None) -> AuthRoutes:

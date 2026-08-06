@@ -39,20 +39,11 @@ commands:
       - principal-capabilities.status.story_scoped
       - principal-capabilities.status.frozen
     requires:
-      - principal-capabilities.invariant.ccag_never_elevates_hard_capabilities
+      - principal-capabilities.invariant.hard_capability_denials_are_final
       - principal-capabilities.invariant.orchestrator_is_control_plane_only
     emits:
       - principal-capabilities.event.capability_allowed
       - principal-capabilities.event.capability_denied
-  - id: principal-capabilities.command.open-permission-request
-    signature: POST /v1/governance/permission-requests operation open with matching project_api_token
-    allowed_statuses:
-      - principal-capabilities.status.story_scoped
-    requires:
-      - principal-capabilities.invariant.no_native_prompt_during_story_lock
-      - principal-capabilities.invariant.run_progress_not_dependent_on_external_permission_ui
-    emits:
-      - principal-capabilities.event.permission_request_opened
   - id: principal-capabilities.command.activate-conflict-freeze
     signature: internal activate story-scoped conflict_freeze on authoritative divergence or normative conflict
     allowed_statuses:
@@ -86,49 +77,5 @@ commands:
       - principal-capabilities.event.conflict_resolution_applied
       - principal-capabilities.event.conflict_freeze_released
       - principal-capabilities.event.official_service_path_completed
-  - id: principal-capabilities.command.approve-permission-request
-    signature: POST /v1/governance/permission-requests operation resolve approved with strategist session
-    allowed_statuses:
-      - principal-capabilities.status.permission_pending
-    requires:
-      - principal-capabilities.invariant.permission_leases_are_scoped_and_expiring
-      - principal-capabilities.invariant.external_permission_substrate_is_non_authoritative
-      - principal-capabilities.invariant.permission_request_approval_requires_human_cli
-      - principal-capabilities.invariant.no_auto_rule_promotion_from_permission_request
-    emits:
-      - principal-capabilities.event.permission_request_approved
-  - id: principal-capabilities.command.reject-permission-request
-    signature: POST /v1/governance/permission-requests operation resolve denied with strategist session
-    allowed_statuses:
-      - principal-capabilities.status.permission_pending
-    requires:
-      - principal-capabilities.invariant.permission_request_approval_requires_human_cli
-    emits:
-      - principal-capabilities.event.permission_request_rejected
-  - id: principal-capabilities.command.grant-permission-lease
-    signature: POST /v1/governance/permission-leases operation grant with strategist session
-    allowed_statuses:
-      - principal-capabilities.status.released
-    requires:
-      - principal-capabilities.invariant.permission_leases_are_scoped_and_expiring
-      - principal-capabilities.invariant.permission_decision_auth_is_split
-      - principal-capabilities.invariant.permission_grant_does_not_resume_run
-    emits:
-      - principal-capabilities.event.permission_lease_issued
-  - id: principal-capabilities.command.consume-permission-lease
-    signature: POST /v1/governance/permission-leases operation consume with matching project_api_token
-    allowed_statuses:
-      - principal-capabilities.status.released
-    requires:
-      - principal-capabilities.invariant.permission_leases_are_scoped_and_expiring
-      - principal-capabilities.invariant.permission_state_has_central_owner
-    emits:
-      - principal-capabilities.event.permission_lease_consumed
-  - id: principal-capabilities.command.expire-permission-request
-    signature: internal expire open permission request after ttl without human decision
-    allowed_statuses:
-      - principal-capabilities.status.permission_pending
-    emits:
-      - principal-capabilities.event.permission_request_expired
 ```
 <!-- FORMAL-SPEC:END -->

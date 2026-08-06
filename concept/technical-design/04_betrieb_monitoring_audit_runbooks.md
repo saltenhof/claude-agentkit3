@@ -310,30 +310,19 @@ Lösung:
 5. Story bei Bedarf neu starten
 ```
 
-### 4.5.9 Permission-Block / externe Permission-Interferenz
+### 4.5.9 Externe Permission-Interferenz
 
 ```text
-Symptom: `permission_request_opened` oder
-`external_permission_interference_detected` im aktiven Run
-Ursache: Unbekannte Freigabe oder hostseitiges Permission-/TTY-Verhalten;
+Symptom: `external_permission_interference_detected` im aktiven Run
+Ursache: hostseitiges Permission-/TTY-Verhalten;
 der Tool-Call darf nicht unendlich auf Mensch/UI warten
 
 Loesung:
-1. Offenen Permission-Request fuer `story_id` und `run_id` pruefen
-2. Entscheiden:
-   - Einzelfall freigeben:
-     <absolute-agentkit-wrapper> approve-permission-request --request {request_id}
-   - Einzelfall ablehnen:
-     <absolute-agentkit-wrapper> reject-permission-request --request {request_id}
-3. Nur bei bewusstem Mehrwert daraus spaeter eine Dauerregel machen
-4. Wenn ein Host-Prompt oder TTY-Effekt auftrat:
-   - als `external_permission_interference_detected` dokumentieren
-   - keinen haengenden Tool-Call weiterverwenden
-   - Story nur ueber offiziellen Resume-/Folgepfad fortsetzen
-5. Ergebnis pruefen:
-   - Request ist `approved`, `rejected` oder `expired`
-   - kein unendlicher Wait auf Host-UI
-   - derselbe Run wird nur mit expliziter Entscheidung fortgesetzt
+1. Interferenz als `external_permission_interference_detected` dokumentieren
+2. Den haengenden Tool-Call nicht weiterverwenden
+3. Benannten Guard- oder Capability-Block pruefen und die Ursache dort beheben
+4. Story nur ueber offiziellen Resume-/Folgepfad fortsetzen
+5. Sicherstellen, dass kein unendlicher Wait auf Host-UI verbleibt
 ```
 
 <!-- PROSE-FORMAL: formal.state-storage.invariants, formal.operating-modes.invariants -->
@@ -388,8 +377,8 @@ Loesung:
    Schritt 1/2); den Ausgang beobachtet der Agent ueber
    GET .../operations/{op_id} (FK-56 §56.13b,
    `operating-modes.invariant.agent_initiated_takeover_requires_human_frontend_approval`).
-   Die offene Freigabe darf wie jede Permission-Request verfallen (dann
-   DENIED) — sie entzieht nie bestehendes Eigentum.
+   Eine nicht vollzogene Takeover-Freigabe entzieht nie bestehendes Eigentum;
+   sie ist ein eigenes Ownership-Verfahren nach FK-56.
 4. Wirkung auf den Ex-Owner pruefen: Die alte Session geht in
    binding_invalid mit Grund `ownership_transferred`; jeder mutierende
    Call wird deterministisch abgewiesen, Reads (inkl.
@@ -612,7 +601,6 @@ kein zusätzliches Limit nötig.
 | Daten | Wichtigkeit | Backup-Methode |
 |-------|-----------|---------------|
 | `.agentkit/config/project.yaml` | Hoch | Teil des Git-Repos |
-| `.agentkit/ccag/rules/` (kanonisch; harness-spezifische Symlinks via Adapter, FK-76) | Hoch | Teil des Git-Repos |
 | PostgreSQL | Hoch | Zentrales DB-Backup / PITR |
 | Audit-Exports | Mittel | Objektspeicher / Archiv-Backup |
 

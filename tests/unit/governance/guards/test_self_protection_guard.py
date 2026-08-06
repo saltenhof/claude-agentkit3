@@ -91,20 +91,6 @@ class TestSelfProtectionDeny:
         assert verdict.detail is not None
         assert verdict.detail["protection_zone"] == "harness"
 
-    def test_worker_write_canonical_ccag_rules_denied(self) -> None:
-        # AG3-033 ERROR A: FK-15 §15.7.1 lists the canonical .agentkit/ccag/rules/
-        # as a protected path (not just the .claude/ccag/rules symlink).
-        verdict = _guard().evaluate(
-            _event(
-                operation="file_write",
-                operation_args={"file_path": ".agentkit/ccag/rules/subagents.yaml"},
-                attest="worker",
-            )
-        )
-        assert verdict.allowed is False
-        assert verdict.detail is not None
-        assert verdict.detail["protection_zone"] == "harness"
-
     def test_worker_write_skill_symlink_denied(self) -> None:
         verdict = _guard().evaluate(
             _event(

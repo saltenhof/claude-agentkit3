@@ -101,7 +101,7 @@ klassifiziert ausschliesslich nach Erzeuger und typischen Beispielen.
 ### 71.1.2 Schutzmechanismus (Referenz)
 
 Die vollstaendige Liste geschuetzter Export-Dateinamen (`PROTECTED_ARTIFACTS`),
-der Lock-Record-Mechanismus und die CCAG-Hook-Konfiguration gehoeren
+der Lock-Record-Mechanismus und die Hook-Konfiguration gehoeren
 zur Hook-Konfiguration in BC 4 (governance.guard_system).
 
 Siehe **FK-31** — Hook-Enforcement und QA-Artefaktschutz.
@@ -198,7 +198,7 @@ nicht als operative Wahrheitsquelle.
 
 Der vollstaendige Lock-Mechanismus — Lock-Record-Schema, Lebenszyklus
 mit expliziten Beendigungspfaden (Closure, Exit, Reset, Split,
-Ownership-Transfer), CCAG-Regel, Scoping (nur Sub-Agents gesperrt) —
+Ownership-Transfer) und Scoping (nur Sub-Agents gesperrt) —
 ist Owner des BC 4 (governance-and-guards). Locks — ausdruecklich auch
 der qa_artifact_write-Lock — enden nie automatisch aufgrund
 clientseitiger Stille (kein Lease-TTL, kein Heartbeat-Entzug, keine

@@ -536,7 +536,6 @@ liegen im Zielprojekt unter `tools/qa/schemas/` (deployt vom Installer).
 | Schema | Datei | Owning Chapter |
 |--------|-------|---------------|
 | Pipeline-Config | `project.yaml` → `PipelineConfig` (Pydantic) | 03 |
-| CCAG-Regeln | `.agentkit/ccag/rules/*.yaml` (kanonisch; harness-spezifische Symlinks via Adapter — z. B. `.claude/ccag/rules/` fuer Claude Code; FK-76) → eigenes Schema | 42 |
 | Installer-Manifest | `.installed-manifest.json` → eigenes Schema | 50 |
 
 ### 3.3.3 Schema-Versionierung

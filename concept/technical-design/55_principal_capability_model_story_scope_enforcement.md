@@ -23,7 +23,7 @@ defers_to:
     reason: Freeze- und Resolution-Folgen muessen am Integrity-Gate nachweisbar sein
   - target: FK-42
     scope: ccag
-    reason: CCAG darf harte Capabilities nicht aufweichen
+    reason: FK-42 grenzt den registrierten, autoritaetslosen Matcher von Capability-Entscheidungen ab
   - target: DK-01
     scope: rollen-und-llm-einsatz
     reason: Fachliche Trennung von Rolle, Verantwortung und Zugriff stammt aus DK-01 und wird hier technisch verankert
@@ -101,8 +101,7 @@ glossary:
         Hook-Call. Moegliche Werte: ALLOW, BLOCK, ALLOW_VIA_OFFICIAL_SERVICE_PATH.
         Ergibt sich aus dem Tupel (principal_type, project_key, story_id,
         run_id, active_story_scope, active_freeze, tool_name, operation_class,
-        path_class). CCAG darf nur bei potentiellem ALLOW oder ASK innerhalb
-        des erlaubten Capability-Raums wirken.
+        path_class). Der registrierte CCAG-Matcher wirkt nicht auf das Ergebnis.
       values:
         - ALLOW
         - BLOCK
@@ -139,11 +138,6 @@ glossary:
         - term: permission-verdict
           domain: governance-and-guards
   internal_terms:
-    - id: permission-state-export
-      reason: >
-        Lokaler .agent-guard/permission_state.json-Export fuer Hook-Hilfsstatus
-        (offene Requests, aktive Leases). Implementierungsdetail; kein
-        exportierter Vertragstyp.
     - id: story-scope-export
       reason: >
         Lokaler .agent-guard/scope.json-Export fuer schnellen Hook-Zugriff
@@ -379,24 +373,24 @@ Die Plattform entscheidet daraus deterministisch:
 - `BLOCK`
 - `ALLOW_VIA_OFFICIAL_SERVICE_PATH`
 
-CCAG darf nur bei einem potentiellen `ALLOW` oder `ASK` innerhalb der
-bereits erlaubten Capability-Zone helfen. Ein `BLOCK` aus dem harten
-Capability-Modell bleibt `BLOCK`.
+Der registrierte Matcher `ccag_gatekeeper` hat auf diese Entscheidung keinen
+Einfluss. Ein `BLOCK` aus dem harten Capability-Modell bleibt `BLOCK`.
 
-### 55.6.1 Modus-scharfe Unknown-Permission-Regel
+### 55.6.1 Modus-scharfe Regel fuer unbekannte Operationen
 
-Fuer unbekannte Permissions gelten abhaengig vom Ausfuehrungsmodus
+Fuer unbekannte Operationen gelten abhaengig vom Ausfuehrungsmodus
 unterschiedliche Regeln:
 
-| Modus | Unbekannte Permission | Ergebnis |
+| Modus | Unbekannte Operation | Ergebnis |
 |------|------------------------|----------|
-| `story_execution` | keine passende Regel, nicht hart verboten | `BLOCK` + `permission_request_opened` |
+| `story_execution` | keine passende Capability-Regel | `BLOCK` |
 | `interactive_admin` | keine passende Regel | externer Prompt zulaessig |
 | `ai_augmented` | keine passende Regel | externer Prompt zulaessig |
 
 **Normative Regel:** Im `story_execution`-Modus darf ein Tool-Aufruf nie
-an einem nativen Host-Prompt haengen. Der Hook blockiert sofort und
-erzeugt stattdessen einen auswertbaren Permission-Fall.
+an einem nativen Host-Prompt haengen. Das Principal-Capability-Modell blockiert
+eine unbekannte Operation unmittelbar; daraus entsteht weder eine Anfrage noch
+eine spaeter wirksame Freigabe.
 
 ## 55.7 Storybezogene Scope-Aufloesung
 
@@ -549,44 +543,7 @@ AK3-/Edge-Dienst-Identitaet (provider-neutral, FK-12 §12.1.3) und wird nur fuer
 Session ist der Push damit capability-seitig doppelt gesperrt
 (§55.8.3): Edge-Push-Gate und Code-Backend-Ref-Schutz.
 
-## 55.9a Permission-Request- und Lease-Modell
-
-Damit unbekannte Freigaben nicht den laufenden Tool-Call blockieren,
-trennt AK3 strikt zwischen:
-
-1. `permission_request`
-   - ein offener, auditierbarer Einzelfall
-   - noch keine neue Dauerregel
-2. `permission_lease`
-   - eine explizit erteilte, befristete Ausnahme fuer
-     `project_key + story_id + run_id + principal_type +
-     tool_name + operation_class + path_class + request_fingerprint`
-3. persistenter CCAG-Regel
-   - nur nach bewusster, dauerhafter Freigabe
-
-**Wichtige Regel:** Die erste Entscheidung ist immer ein Einzelfall.
-Ein `permission_request` darf ohne ausdrueckliche Zusatzentscheidung
-nicht automatisch in eine neue Dauerregel uebergehen.
-
-**Einzelfall-Schaerfe:** Eine Lease ist bewusst enger geschnitten als
-eine Dauerregel. Sie bindet an einen normalisierten Request-Fingerprint
-und darf optional mit `max_uses = 1` als consume-once-Lease modelliert
-werden.
-
-**Run-Zustandsregel:** `permission_request_opened` setzt den aktiven Run
-auf `PAUSED`. `permission_request_expired` fuehrt ohne menschliche
-Entscheidung zu `ESCALATED`. Eine Freigabe erzeugt nur die Lease; sie
-setzt den Run nicht implizit fort. Fuer die Fortsetzung ist ein
-expliziter Resume-Pfad notwendig.
-
-**Abgrenzung zum Ownership:** Eine Permission-Lease und ihr Verfall
-lassen ausschliesslich offene Anfragen verfallen — sie entziehen
-niemals bestehendes Eigentum an einem Run (FK-56 §56.13,
-FK-91 §91.1a Regel 16). Die menschliche Frontend-Freigabe eines
-agenteninitiierten Takeover-Requests (FK-56 §56.13b) gehoert zur
-selben Permission-Request-Familie und folgt denselben Regeln.
-
-### 55.9a.1 Externe Permission-Substrate
+## 55.9a Externe Permission-Substrate
 
 Native Permission-Dialoge des Agent-Harness (Claude Code, Codex;
 FK-76), TTY-Interaktivitaet und hostseitige Sonderfaelle fuer
@@ -650,12 +607,10 @@ Die Entscheidung muss in genau dieser Reihenfolge fallen:
 6. harte Capability-Matrix pruefen
 7. aktives `conflict_freeze` ueberlagern
 8. nur wenn erlaubt: offiziellen Servicepfad pruefen
-9. nur wenn weiterhin nicht blocked: Modusregel fuer unbekannte
-   Permissions anwenden
-10. erst danach: zentrale CCAG-Entscheidung auswerten
-11. stale Permission-Requests lazy expirieren
-12. erst danach, falls zulaessig: externer Prompt pruefen
-13. Ergebnis + Begruendung als Event emittieren
+9. nur wenn weiterhin nicht blockiert: Modusregel fuer unbekannte
+   Operationen anwenden
+10. erst danach, falls zulaessig: externer Prompt pruefen
+11. Ergebnis + Begruendung als Event emittieren
 
 ### 55.10.4 Referenz-Pseudocode
 
@@ -665,8 +620,6 @@ def evaluate_capability(event: HookEvent) -> CapabilityVerdict:
     principal = resolve_principal_type(event)           # fail-closed
     scope = load_story_scope_binding(event.project_key, event.story_id)
     freeze = load_active_conflict_freeze(event.project_key, event.story_id)
-    expire_stale_permission_requests(event.project_key, event.story_id, event.run_id)
-
     op_class = classify_operation(event.tool_name, event.tool_input)
     path_classes = classify_targets(event.tool_name, event.tool_input, scope)
 
@@ -680,25 +633,18 @@ def evaluate_capability(event: HookEvent) -> CapabilityVerdict:
     if is_official_service_path(event, principal):
         return allow("official_service_path", principal, op_class)
 
-    ccag_decision = evaluate_ccag(event.tool_name, event.tool_input,
-                                  event.is_subagent, mode)
-    if mode == "story_execution" and ccag_decision == "unknown_permission":
-        open_permission_request(event, principal, op_class, path_classes)
-        return deny("unknown_permission", principal, op_class, path_classes)
-    if ccag_decision == "block_by_rule":
-        return deny("ccag_block_rule", principal, op_class, path_classes)
-    if ccag_decision == "allow":
-        return allow("ccag_allow_rule", principal, op_class, path_classes)
+    if mode == "story_execution":
+        return deny("unknown_story_operation", principal, op_class, path_classes)
     return ask_external_or_allow(event, principal, op_class, path_classes)
 ```
 
 Die entscheidende Eigenschaft ist:
 
-- `ccag_or_allow(...)` wird niemals aufgerufen, wenn harte Matrix oder
-  Freeze bereits `deny` geliefert haben.
-- im `story_execution`-Modus fuehrt eine unbekannte Freigabe nicht zu
-  einem wartenden Prompt, sondern zu `permission_request_opened` +
-  `deny`
+- Harte Matrix und Freeze liefern eine finale Ablehnung.
+- Im `story_execution`-Modus fuehrt eine unbekannte Operation direkt zu
+  `deny`; es gibt keinen wartenden Prompt und kein Freigabeverfahren.
+- `ccag_gatekeeper` bleibt als registrierter Matcher bestehen, wird aber nicht
+  als Autoritaet in diese Auswertung einbezogen.
 
 ### 55.10.4 Story-Scope-Export fuer Hooks
 
@@ -720,30 +666,10 @@ Dieser Export enthaelt mindestens:
 - `content_plane_roots`
 - `governance_roots`
 - `freeze_version`
-- `permission_state_version`
 
 Der Export ist ein Hook-Hilfsartefakt, nicht die kanonische Wahrheit.
 Kanonisch bleibt das State-Backend. Fehlt der Export oder ist er
 inkonsistent, gilt fail-closed.
-
-### 55.10.4a Lokaler Permission-State-Export
-
-Offene Permission-Requests und aktive Leases werden zusaetzlich lokal
-materialisiert, z. B. in:
-
-```text
-.agent-guard/permission_state.json
-```
-
-Der Export enthaelt mindestens:
-
-- offene `permission_request`-IDs fuer `story_id + run_id`
-- `expires_at`
-- aktive `permission_lease`-Fingerprints
-- `permission_state_version`
-
-Ohne diesen Export koennen `max_open_requests_per_run`, lazy expiry und
-lease-basierte Retries nicht billig genug im Hook durchgesetzt werden.
 
 ### 55.10.5 Atomarer Conflict-Freeze
 
@@ -792,24 +718,6 @@ Integrity-Gate nachweisbar sein:
 - ueber welchen offiziellen Pfad die Aufloesung geschah
 
 Fehlt dieser Nachweis, ist der Run nicht closure-faehig.
-
-### 55.10.9a Permission-Timeouts
-
-Ein `permission_request` ist kein unendlicher Schwebezustand. Es traegt
-mindestens:
-
-- `requested_at`
-- `expires_at`
-- `resolution`
-
-Laeuft die Frist ab, ohne dass der Mensch explizit entscheidet, wird der
-Fall deterministisch als `DENIED` abgeschlossen. Diese Ablehnung erzeugt
-keine neue Regel und keine neue Lease. Der Fristablauf ist ein reiner
-Entscheidungs-Verfall offener Anfragen und niemals ein Entzug
-bestehenden Eigentums (FK-56 §56.13, FK-91 §91.1a Regel 16).
-
-Die Expiration wird nicht durch einen permanenten Daemon erzwungen,
-sondern lazy beim naechsten relevanten Hook-/CLI-Zugriff materialisiert.
 
 ### 55.10.10 Rueckkanalgrenze zum Orchestrator
 

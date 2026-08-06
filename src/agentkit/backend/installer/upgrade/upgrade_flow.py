@@ -21,11 +21,16 @@ write (FK-prescribed, story §6).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.backend.boundary.filesystem import assert_project_local_file_path
 from agentkit.backend.installer.checkpoint_engine.engine import CheckpointEngine
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.paths import CONFIG_DIR, PROJECT_CONFIG_FILE
 from agentkit.backend.installer.registration import CheckpointStatus
+from agentkit.backend.installer.upgrade._digest import config_file_digest
 from agentkit.backend.installer.upgrade.engine import (
     UpgradeRequest,
     UpgradeRunContext,
@@ -35,8 +40,6 @@ from agentkit.backend.installer.upgrade.engine import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from agentkit.backend.governance.hook_registration import HookDefinition
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.installer.upgrade.cleanup import CleanupOutcome, CleanupPlan
@@ -68,6 +71,8 @@ class UpgradeResult:
         git_hook_outcome: The git-hook dispatch migration outcome (``None`` in
             read-only modes or when no migration ran).
         cleanup_outcome: The §51.7 cleanup outcome (``None`` when no cleanup ran).
+        obsolete_permission_rule_files_removed: Retired CCAG permission-rule
+            paths removed by the productive upgrade cleanup.
         detail: Human-readable summary.
     """
 
@@ -80,6 +85,7 @@ class UpgradeResult:
     claude_hook_settings_migrated: bool = False
     git_hook_outcome: GitHookMigrationOutcome | None = None
     cleanup_outcome: CleanupOutcome | None = None
+    obsolete_permission_rule_files_removed: tuple[str, ...] = ()
     detail: str = ""
     #: Checkpoints that ended FAILED. A blocked step must reach the caller: the
     #: engine stops before further mutations, but a result that stayed silent
@@ -103,6 +109,7 @@ class UpgradeResult:
                 self.cleanup_outcome is not None
                 and bool(self.cleanup_outcome.removed)
             )
+            or bool(self.obsolete_permission_rule_files_removed)
         )
 
 
@@ -115,7 +122,6 @@ def run_upgrade(
     bundle_version_changed: bool = False,
     explicit_binding_switch: bool = False,
     mode: ExecutionMode = ExecutionMode.REGISTER,
-    is_subagent: bool = False,
     skills: Skills | None = None,
     governance: HookRegistrationSurface | None = None,
     desired_hook_definitions: list[HookDefinition] | None = None,
@@ -143,7 +149,6 @@ def run_upgrade(
         explicit_binding_switch: Whether the operator explicitly switched the
             project binding to the new bundle/profile (§51.3.3 — no auto pull).
         mode: The execution mode (defaults to ``register``).
-        is_subagent: Scope flag forwarded to the CCAG footprint source.
         skills: The agent-skills top surface for the skill-binding footprint
             source (DI; defaults to the productive surface).
         governance: The governance top surface for the §51.6 hook migration.
@@ -167,7 +172,6 @@ def run_upgrade(
         registration_repo=registration_repo,
         bundle_version_changed=bundle_version_changed,
         explicit_binding_switch=explicit_binding_switch,
-        is_subagent=is_subagent,
         skills=skills,
         governance=governance,
         desired_hook_definitions=desired_hook_definitions,
@@ -187,6 +191,16 @@ def run_upgrade(
     assert state.decision is not None
     detail = "; ".join(r.detail for r in results if r.detail)
     failed_checkpoints = tuple(r.checkpoint for r in results if r.status is CheckpointStatus.FAILED)
+    if state.config_migrated and not state.decision.config_changed:
+        config_path = assert_project_local_file_path(
+            project_root,
+            Path(CONFIG_DIR) / PROJECT_CONFIG_FILE,
+        )
+        registration_repo.update_upgraded(
+            project_key,
+            datetime.now(tz=UTC),
+            config_file_digest(config_path),
+        )
     return UpgradeResult(
         failed_checkpoints=failed_checkpoints,
         mode=mode,
@@ -198,6 +212,9 @@ def run_upgrade(
         claude_hook_settings_migrated=state.claude_hook_settings_migrated,
         git_hook_outcome=state.git_hook_outcome,
         cleanup_outcome=state.cleanup_outcome,
+        obsolete_permission_rule_files_removed=(
+            state.obsolete_permission_rule_files_removed
+        ),
         detail=detail,
     )
 

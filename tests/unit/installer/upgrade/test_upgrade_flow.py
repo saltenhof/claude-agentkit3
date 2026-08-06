@@ -61,6 +61,10 @@ def test_run_upgrade_register_migrates_config_with_bak(tmp_path: Path, registrat
     assert backup.is_file()
     on_disk = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert on_disk["pipeline"]["config_version"] == "4.0"
+    stored = registration_repo.get(project_root.stem)
+    assert stored is not None
+    assert registration_repo.upgrade_calls == 1
+    assert stored.config_digest == config_file_digest(config_path)
 
 
 def test_run_upgrade_scenario_3b_config_edited(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:

@@ -1,10 +1,9 @@
-"""Integration: run_hook runs CapabilityEnforcement before CCAG (AK7/AK8, B5 fix).
+"""Integration: capability enforcement precedes the retained CCAG matcher.
 
 FK-55 §55.10.3 / FK-30 §30.2.6: in an active story run the hard Principal-
-Capability matrix + freeze overlay run BEFORE the legacy guard chain and BEFORE
-CCAG. A capability DENY is hard — CCAG is never consulted and cannot soften it.
-The capability layer is story-scoped: it engages only when a story-execution
-binding is published (otherwise the legacy guards / CCAG govern).
+Capability matrix + freeze overlay run before the remaining hook chain. A hard
+capability denial is final. The capability layer is story-scoped; the retained
+CCAG endpoint has no granting or denying authority.
 """
 
 from __future__ import annotations
@@ -157,11 +156,10 @@ def test_disowned_overlay_is_wired_through_real_runner_and_resolver(
         phase="pre",
         project_root=tmp_path,
     )
-    # Ownership is valid again, but an unknown mutation remains fail-closed and
-    # opens a canonical permission request; ownership transfer is not an allow.
-    assert new_owner_verdict.allowed is False
-    assert new_owner_verdict.detail is not None
-    assert new_owner_verdict.detail["permission_request_opened"] is True
+    # The valid worker write passes the capability matrix. Under interpretation A
+    # no CCAG rule authority remains to block it.
+    assert new_owner_verdict.allowed is True
+    assert new_owner_verdict.guard_name == "ccag_gatekeeper"
 
 
 def test_disowned_deny_is_not_official_service_path_override_convertible(
@@ -583,14 +581,14 @@ def test_capability_unknown_tool_normal_mode_defers_to_ccag(
     assert ccag_calls == ["ccag"]
 
 
-def test_capability_unknown_tool_story_mode_blocks_and_opens_request(
+def test_capability_unknown_tool_story_mode_blocks_without_approval_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # AG3-032 ERROR C / FK-55 §55.6.1 (mode-scharf): in story_execution an UNKNOWN
-    # tool is an UNKNOWN_PERMISSION. Even at the worktree (a story_scope target
+    # tool is unknown. Even at the worktree (a story_scope target
     # that would make an EXECUTE matrix-ALLOW), an unknown TOOL must NOT be
-    # allowed — the runner fail-closes it to a hard BLOCK AND opens an auditable
-    # permission_request (no native prompt may hang a run). CCAG must NOT run.
+    # allowed: the principal-capability layer blocks it directly. The retained
+    # matcher is never reached and no approval path is opened.
     # cwd == the worktree so the locally-derived execution_mode is genuinely
     # story_execution (this is the CRITICAL regression case: an unknown worker
     # tool in story scope was previously ALLOWED).
@@ -599,7 +597,7 @@ def test_capability_unknown_tool_story_mode_blocks_and_opens_request(
 
     def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
         _ = project_root
-        raise AssertionError("CCAG must not run after a story-mode unknown-permission block")
+        raise AssertionError("matcher-only CCAG hook must not run after the hard block")
 
     monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
 
@@ -617,10 +615,9 @@ def test_capability_unknown_tool_story_mode_blocks_and_opens_request(
     verdict = run_hook("ccag_gatekeeper", event, phase="pre", project_root=tmp_path)
     assert verdict.allowed is False
     assert verdict.guard_name == "principal_capability"
-    # FK-55 §55.6.1: a permission_request must be opened (auditable, not a prompt).
     assert verdict.detail is not None
-    assert verdict.detail.get("permission_request_opened") is True
-    assert verdict.detail.get("permission_request_id")
+    assert verdict.detail.get("capability_rule_id") == "FK-55-55.6.1"
+    assert not any("permission_request" in key for key in verdict.detail)
 
 
 def _binding_invalid_event_kwargs(*, operation: str) -> dict[str, object]:
@@ -695,15 +692,14 @@ def test_binding_invalid_fail_closed_blocks_without_ccag(
     )
     verdict = run_hook("ccag_gatekeeper", event, phase="pre", project_root=tmp_path)
     # Fail-closed HARD BLOCK from the capability layer (NOT a ccag_gatekeeper
-    # verdict, NOT a grantable in-story permission_request).
+    # verdict and not a grantable exception).
     assert verdict.allowed is False
     assert verdict.guard_name == "principal_capability"
     assert verdict.detail is not None
     assert verdict.detail.get("operating_mode") == "binding_invalid"
     assert verdict.detail.get("block_reason") == expected_reason
     assert verdict.detail.get("capability_rule_id") == "FK-55-55.10.1/55.10.4"
-    # A broken binding is NOT a grantable in-story permission: no request opened.
-    assert "permission_request_opened" not in verdict.detail
+    assert not any("permission_request" in key for key in verdict.detail)
 
 
 def test_ai_augmented_unknown_tool_still_defers_to_ccag(

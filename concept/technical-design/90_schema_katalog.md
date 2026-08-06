@@ -78,13 +78,11 @@ als fachliche Referenz.
 | Story-Reset-Record | `story_reset.models` | 53 | Auditierbarer Reset-Vorgang |
 | Story-Split-Plan | `story_split.models` | 54 | Menschlich freigegebener Plan fuer Nachfolger, Rebinding und Cancel-Pfad |
 | Story-Split-Record | `story_split.models` | 54 | Auditierbarer Split-Vorgang |
-| Capability-Freeze-Record | `governance.ccag.rules` | 55 | Storybezogener Freeze bei HARD-STOP-/Normkonflikten; CcagRule |
-| Conflict-Resolution-Record | `governance.ccag.rules` | 55 | Auditierbare menschliche oder offizielle Konfliktaufloesung; CcagRule |
-| Permission-Request-Record | `governance.ccag.requests` | 55 | Auditierbarer Einzelfall fuer unbekannte Freigaben mit TTL und Resolution; PermissionRequest |
-| Permission-Lease-Record | `governance.ccag.leases` | 55 | Befristete, story-/run-scoped Freigabe ausserhalb einer Dauerregel; PermissionLease |
-| Integration-Scope-Manifest | governance.ccag (Story-Typ-Enum; kein eigenstaendiges Artefaktmodell) | 57 | Freigegebener Integrationsraum fuer systemische E2E-/Stabilisierungsstories |
-| Manifest-Approval-Record | governance.ccag (kein eigenstaendiges Artefaktmodell) | 57 | Attestierte menschliche oder administrative Freigabe eines Integrations-Manifests |
-| Stabilization-Budget | governance.ccag (kein eigenstaendiges Artefaktmodell) | 57 | Harte Schleifen-, Surface- und Regressionsgrenzen fuer Integrationsstabilisierung |
+| Capability-Freeze-Record | `governance.principal_capabilities` | 55 | Storybezogener Freeze bei HARD-STOP-/Normkonflikten |
+| Conflict-Resolution-Record | `governance.principal_capabilities` | 55 | Auditierbare menschliche oder offizielle Konfliktaufloesung |
+| Integration-Scope-Manifest | `integration_stabilization.models` | 57 | Freigegebener Integrationsraum fuer systemische E2E-/Stabilisierungsstories; IntegrationScopeManifest |
+| Manifest-Approval-Record | `integration_stabilization.models` | 57 | Attestierte menschliche oder administrative Freigabe eines Integrations-Manifests; ManifestApprovalRecord |
+| Stabilization-Budget | `integration_stabilization.models` | 57 | Harte Schleifen-, Surface- und Regressionsgrenzen fuer Integrationsstabilisierung; StabilizationBudget |
 | Story-Exit-Record | `story_exit.models` | 58 | Audit-Record fuer administrativen Story-Exit in Human-Takeover |
 | Exit-Manifest-Snapshot | `story_exit.models` | 58 | Letzter gebundener Story-/Manifest-/Budget-Stand beim Exit |
 | ARE-Gate-Result | `requirements_coverage.models` | 40 | ARE-Gate-Pruefergebnis |
@@ -120,3 +118,19 @@ darf nicht eingefuehrt werden.
 
 **Stabilitaetsanker:** Contract-Tests in `tests/contract/` sind der
 maschinell pruefbare Stabilitaetsanker dieser Konvention.
+
+## 90.3 Tote relationale Altbestandsobjekte
+
+Der folgende Katalog macht physisch moegliche, aber fachlich tote
+Schemaobjekte sichtbar. Er erweitert nicht den aktiven relationalen
+Speicherschnitt aus FK-18.
+
+| Schemaobjekt | Status und Vorkommen | Owner | Grund und Lebenszyklus |
+|--------------|----------------------|-------|------------------------|
+| `ccag_permission_requests` | tot; nur noch in bereits initialisierten SQLite-/PostgreSQL-Backends moeglich | `state_backend` | PO-Entscheid 2026-08-06: bewusst nicht-destruktiv; kein Read-/Write-Pfad, kein `DROP`, keine Migration, kein Reset; neue Backends legen die Tabelle nicht an. |
+| `ccag_permission_leases` | tot; nur noch in bereits initialisierten SQLite-/PostgreSQL-Backends moeglich | `state_backend` | PO-Entscheid 2026-08-06: bewusst nicht-destruktiv; kein Read-/Write-Pfad, kein `DROP`, keine Migration, kein Reset; neue Backends legen die Tabelle nicht an. |
+
+Der `state_backend` besitzt ausschliesslich die physische
+Altbestandsverantwortung. Die Tabellen haben keine operative Autoritaet, keine
+Pydantic- oder Repository-Schemaquelle und keinen produktiven Pfad, der sie
+wieder befuellt. Eine spaetere Entfernung braucht einen neuen Product-Entscheid.

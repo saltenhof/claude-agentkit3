@@ -24,7 +24,7 @@ glossary:
         durch eine komplexe Aufgabe fuehrt. Skills standardisieren Ablauf
         und Qualitaet, indem sie bewaehrte Methodik einbetten. Ein Skill
         ist kein Tool-Berechtigungsset — Berechtigungen werden separat
-        ueber CCAG vergeben.
+        durch Guards und Principal Capabilities bestimmt.
       see_also:
         - term: skill-variant
           domain: agent-skills
@@ -81,13 +81,12 @@ zurückgreifen.
 ## 12.1 Abgrenzung zu DK-09 (Tools/CCAG)
 
 Skills sind **inhaltliche Methodik** (Was tut der Agent? Welche
-Schritte? Welche Prüfungen?). Tool-Governance via CCAG (DK-09) ist
-**Berechtigung** (Welche Tools darf der Agent ausführen? Mit welchen
-Parametern?). Beide ergänzen sich:
+Schritte? Welche Prüfungen?). Der CCAG-Katalog (DK-09) ist
+**Matcher-Metadaten** (Welche Tool-Namen erfasst der registrierte Hook?). Die
+Berechtigung selbst bestimmen Guards und Principal Capabilities:
 
 - Ein Skill kann Tools voraussetzen (z.B. `git`, `gh`, `pytest`),
   ohne sie selbst freizugeben.
-- CCAG kann Tools freigeben, ohne dem Agent eine Methodik
-  vorzuschreiben.
-- Erst beide zusammen ergeben einen Agenten, der eine Aufgabe
-  konsistent und sicher ausführen kann.
+- Der Matcher kann Tools katalogisieren, ohne sie freizugeben.
+- Guards und Capabilities sichern die Ausfuehrung, waehrend Skills die
+  Methodik liefern.

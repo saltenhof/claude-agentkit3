@@ -1709,6 +1709,24 @@ def test_404_carries_correlation_id_and_error_code() -> None:
     assert _header(response, "X-Correlation-Id") is not None
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/v1/governance/permission-requests"),
+        ("POST", "/v1/governance/permission-requests"),
+        ("POST", "/v1/governance/permission-leases"),
+    ],
+)
+def test_removed_permission_authority_routes_are_unreachable(
+    method: str, path: str,
+) -> None:
+    """AG3-226: removed procedure paths are routing 404s, not tombstones."""
+    response = _make_app().handle_request(method=method, path=path, body=b"{}")
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert _json_body(response)["error_code"] == "not_found"  # type: ignore[index]
+
+
 def test_correlation_id_reflected_from_request_header() -> None:
     app = _make_app()
     response = app.handle_request(

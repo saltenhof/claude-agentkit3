@@ -9,7 +9,6 @@ version: 1
 prose_refs:
   - concept/technical-design/55_principal_capability_model_story_scope_enforcement.md
   - concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md
-  - concept/technical-design/42_ccag_tool_governance_permission_runtime.md
 ---
 
 # Principal Capability Entities
@@ -67,38 +66,5 @@ entities:
       - story_scope_ref
       - freeze_ref
       - verdict
-  - id: principal-capabilities.entity.permission-request
-    identity: request_id
-    attributes:
-      - project_key
-      - story_id
-      - run_id
-      - principal_type
-      - tool_name
-      - operation_class
-      - path_classes
-      - request_fingerprint
-      - status
-      - requested_at
-      - expires_at
-      - resolution
-      - decided_at
-      - decision_note
-  - id: principal-capabilities.entity.permission-lease
-    identity: lease_id
-    attributes:
-      - request_ref
-      - project_key
-      - story_id
-      - run_id
-      - principal_type
-      - tool_name
-      - operation_class
-      - path_classes
-      - request_fingerprint
-      - max_uses
-      - consumed
-      - issued_at
-      - expires_at
 ```
 <!-- FORMAL-SPEC:END -->

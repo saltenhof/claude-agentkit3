@@ -48,7 +48,9 @@ class UpgradeScenarioDecision:
     Attributes:
         scenario: The decided :class:`UpgradeScenario`.
         config_changed: Whether the on-disk config digest differs from the
-            registered digest (drives §51.3.2).
+            registered digest (drives §51.3.2). This pre-migration decision also
+            prevents the upgrade flow from rebasing a user edit as an AK3-owned
+            migration result.
         bundle_version_changed: Whether the target bundle version differs from the
             currently bound one.
         rebind_allowed: Whether an explicit symlink rebind to the new bundle

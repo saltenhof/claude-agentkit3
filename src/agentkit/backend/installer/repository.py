@@ -40,7 +40,13 @@ class ProjectRegistrationRepository(Protocol):
     def update_upgraded(
         self, project_key: str, upgraded_at: datetime, new_digest: str
     ) -> None:
-        """Set ``last_upgraded_at`` and the new ``config_digest`` (upgrade path)."""
+        """Set ``last_upgraded_at`` and the post-migration ``config_digest``.
+
+        The upgrade flow calls this mutation only after it rewrote a config whose
+        pre-migration digest still matched the registered baseline. A user-edited
+        config must remain divergent and must not be rebased by this method's
+        caller.
+        """
         ...
 
     def list_all(self) -> list[ProjectRegistration]:

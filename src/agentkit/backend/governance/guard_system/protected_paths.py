@@ -129,7 +129,7 @@ def is_adversarial_sandbox_path(relpath: str) -> bool:
 # ---------------------------------------------------------------------------
 
 #: ZONE "harness" — harness-specific hook-settings files (FK-30 §30.5.4 /
-#: FK-76 §76.5) and CCAG/skill symlink directories (FK-15 §15.7.1). These
+#: FK-76 §76.5) and skill symlink directories (FK-15 §15.7.1). These
 #: binding points are materialized exclusively by the installer (FK-30 §30.3.1
 #: "caller: installer"; FK-50 CP 9) via ``register_hooks`` — a deterministic
 #: zone-2 process. Exact file tuples.
@@ -137,7 +137,7 @@ SELF_PROTECTION_HARNESS_FILE_PARTS: tuple[tuple[str, ...], ...] = (
     *SELF_PROTECTION_HOOK_SETTINGS_PARTS,
 )
 
-#: ZONE "harness" — directory prefixes (CCAG rules / skill symlinks, FK-15
+#: ZONE "harness" — skill-symlink directory prefixes (FK-15
 #: §15.7.1). Every mutation UNDER one of these directories belongs to the
 #: harness zone.
 SELF_PROTECTION_HARNESS_DIR_PARTS: tuple[tuple[str, ...], ...] = (
@@ -162,7 +162,7 @@ SELF_PROTECTION_PROTECTED_FILE_PARTS: tuple[tuple[str, ...], ...] = (
 )
 
 #: Aggregate of all protected directory prefixes (FK-30 §30.5.4). Currently
-#: congruent with the harness zone (CCAG/skill symlinks); the governance-plane
+#: congruent with the harness zone (skill bindings); the governance-plane
 #: directories (``_temp/governance``, ``.agent-guard``, ``.git``) are covered by
 #: the ``PathClassifier`` via path classes, not via these tuples.
 SELF_PROTECTION_PROTECTED_DIR_PARTS: tuple[tuple[str, ...], ...] = (

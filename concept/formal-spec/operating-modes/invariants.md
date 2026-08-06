@@ -32,10 +32,10 @@ invariants:
     rule: in ai_augmented mode there are no verify closure integrity or story telemetry obligations
   - id: operating-modes.invariant.baseline_guards_apply_in_all_modes
     scope: governance
-    rule: destructive git protections self protection secrets protection and ccag remain active in all operating modes
+    rule: destructive git protections self protection secrets protection and the matcher only ccag hook remain active in all operating modes
   - id: operating-modes.invariant.story_mode_fast_disables_story_scoped_guards_only
     scope: governance
-    rule: story mode fast disables only the story scoped guards and story lock records while the baseline guards destructive git protections self protection secrets protection and ccag stay active
+    rule: story mode fast disables only the story scoped guards and story lock records while the baseline guards destructive git protections self protection secrets protection and the matcher only ccag hook stay active
   - id: operating-modes.invariant.story_execution_requires_lock_binding_and_worktree_match
     scope: governance
     rule: story_execution may only activate when a valid run binding a valid story_execution lock and a matching worktree root are all present
@@ -71,7 +71,7 @@ invariants:
     rule: run ownership changes owner only through an explicit reasoned challenge confirm takeover an official end path or recovery and never through timeout lease expiry heartbeat loss or any other automatic inference from client silence
   - id: operating-modes.invariant.agent_initiated_takeover_requires_human_frontend_approval
     scope: governance
-    rule: an agent initiated takeover request must not execute before a human approves it in the frontend and the requesting agent receives pending_human_approval and observes the outcome by op_id while the approval which may lapse like any open permission request is outstanding
+    rule: an agent initiated takeover request must not execute before a human approves it in the frontend and the requesting agent receives pending_human_approval and observes the outcome by op_id while the takeover approval is outstanding
   - id: operating-modes.invariant.takeover_confirm_fences_in_flight_mutations
     scope: governance
     rule: takeover confirm is serialized behind in flight mutations of the same story and is a server-side compare and swap on the stored challenge basis owner_session_id ownership_epoch and binding_version so any interim ownership change exit reset split or closure invalidates open challenges terminally

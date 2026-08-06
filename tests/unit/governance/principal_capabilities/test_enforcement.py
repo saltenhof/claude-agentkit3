@@ -371,54 +371,6 @@ def test_bash_spoofed_service_path_is_not_official(tmp_path: Path) -> None:
     assert result.outcome is EnforcementOutcome.DENY
 
 
-def test_should_run_ccag_gate(tmp_path: Path) -> None:
-    # AK7: CCAG (step 7) runs ONLY when the capability outcome is ALLOW.
-    event = _event(
-        tmp_path,
-        principal_kind="subagent",
-        session_id="run-1",
-        cli_args=[_ATTEST, "worker"],
-        operation_args={"file_path": f"{_WORKTREE}/src/module.py"},
-    )
-    enforcement = _enforcement(tmp_path)
-    allow_result = enforcement.evaluate(
-        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
-    )
-    assert CapabilityEnforcement.should_run_ccag(allow_result) is True
-
-    deny_event = _event(
-        tmp_path,
-        principal_kind="main",
-        session_id="run-1",  # orchestrator
-        operation_args={"file_path": f"{_WORKTREE}/src/module.py"},
-    )
-    deny_result = enforcement.evaluate(
-        deny_event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
-    )
-    assert deny_result.outcome is EnforcementOutcome.DENY
-    assert CapabilityEnforcement.should_run_ccag(deny_result) is False
-
-
-def test_deny_does_not_invoke_ccag_via_spy(tmp_path: Path) -> None:
-    # AK7: on a hard DENY the caller must NOT call CCAG.
-    event = _event(
-        tmp_path,
-        principal_kind="main",
-        session_id="run-1",  # orchestrator
-        operation_args={"file_path": f"{_WORKTREE}/src/module.py"},
-    )
-    result = _enforcement(tmp_path).evaluate(
-        event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
-    )
-    assert result.outcome is EnforcementOutcome.DENY
-
-    ccag_calls: list[str] = []
-
-    if CapabilityEnforcement.should_run_ccag(result):
-        ccag_calls.append("called")
-    assert ccag_calls == []  # CCAG never consulted after a hard DENY.
-
-
 # ---------------------------------------------------------------------------
 # Sub-agent spawn routing (FIX A / FK-31 §31.7 / FK-91 §91.4)
 # ---------------------------------------------------------------------------
@@ -522,9 +474,8 @@ def test_agent_spawn_frozen_story_freeze_verdict_is_not_fabricated(
     # The spawn op-class (EXECUTE / control_plane_spawn) is OUTSIDE the freeze
     # overlay scope (FK-55 §55.10.6 = write/git_mutation/curate/admin_transition),
     # so the capability layer does NOT itself hard-DENY the spawn — it still routes
-    # to the dedicated guard + CCAG (outcome ALLOW). But the hull's freeze_verdict
-    # must be the NON-fabricated real state: "deny" (story is frozen), so CCAG /
-    # the §55.8.2 adjudication downstream sees a real freeze signal.
+    # to the dedicated guard (outcome ALLOW). But the hull's freeze_verdict must
+    # be the non-fabricated real state so downstream §55.8.2 adjudication sees it.
     assert result.outcome is EnforcementOutcome.ALLOW
     assert result.hull is not None
     assert result.hull.freeze_verdict == "deny"

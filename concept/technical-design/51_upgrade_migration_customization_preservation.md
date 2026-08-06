@@ -47,8 +47,8 @@ glossary:
     - id: customization-footprint
       definition: >
         Erfasstes Profil projektspezifischer Anpassungen an AgentKit-verwalteten
-        Dateien, insbesondere geaenderte Schwellenwerte in der Pipeline-Config,
-        projektspezifische CCAG-Regeln und bewusst gesetzte Bundle-Bindungen.
+        Dateien, insbesondere geaenderte Schwellenwerte in der Pipeline-Config
+        und bewusst gesetzte Bundle-Bindungen.
         Erkannte Anpassungen werden niemals stillschweigend ueberschrieben.
       see_also:
         - term: manifest-contract
@@ -66,7 +66,28 @@ erhalten, statt sie zu überschreiben (FK-11-008). Laufzeit-Assets wie
 Skills und Prompts werden systemweit versioniert bereitgestellt; im
 Projekt werden nur Konfiguration und Symlink-Bindungen aktualisiert.
 
-**F-51-023 — Erkennung und Erhalt nutzerseitiger Customizations (FK-11-023):** Upgrades müssen aktiv erkennen, welche projektseitigen Anpassungen vorgenommen wurden — dazu zählen geänderte Schwellenwerte in der Konfiguration, projektspezifische CCAG-Regeln und bewusst gesetzte Projektprofil-/Bundle-Bindungen. Erkannte Anpassungen werden niemals stillschweigend überschrieben.
+**F-51-023 — Erkennung und Erhalt nutzerseitiger Customizations (FK-11-023):** Upgrades müssen aktiv erkennen, welche projektseitigen Anpassungen vorgenommen wurden — dazu zählen geänderte Schwellenwerte in der Konfiguration und bewusst gesetzte Projektprofil-/Bundle-Bindungen. Erkannte Anpassungen werden niemals stillschweigend überschrieben.
+
+**F-51-024 — Entfernung obsoleter CCAG-Regeldateien:** Ein Upgrade entfernt
+`.agentkit/ccag/rules/global.yaml`, `subagents.yaml` und `approved.yaml`
+unbedingt, auch wenn ihr Inhalt menschlich bearbeitet wurde. Diese Dateien
+tragen ausschliesslich die abgeschaffte Permission-Autoritaet; ihr Erhalt als
+Customization wuerde unerreichbare, irrefuehrende Governance-Leichen
+hinterlassen. Andere Dateien in demselben Verzeichnis bleiben unangetastet.
+
+**F-51-025 — Gezielte Entfernung obsoleter Projektkonfiguration:** Ein Upgrade
+entfernt aus bestehender `.agentkit/config/project.yaml` den vollstaendig
+entfallenen Zweig `pipeline.permissions`, einschliesslich seines frueher
+definierten Parameters `request_ttl_s`. Diese Shape-Migration laeuft auch bei
+bereits aktueller `pipeline.config_version` und schreibt vor der Mutation die
+normale `.bak`. Sie entfernt keine anderen unbekannten Felder: Schemafremde
+Geschwister bleiben unveraendert, weil der Upgrade-Pfad kein generischer
+Unknown-Key-Filter ist.
+Vor jedem dieser Datei- oder Config-Schreibzugriffe beweist der Upgrade-Pfad
+die projektlokale Pfadidentitaet ueber die zentrale Filesystem-Boundary.
+Symlinks oder Junctions in einem Pfadbestandteil blockieren fail-closed; ein
+Upgrade darf niemals durch eine Verzeichnisindirektion ausserhalb des
+Zielprojekts loeschen, sichern oder schreiben.
 
 ## 51.2 Upgrade-Trigger und Treibermodell
 
@@ -176,7 +197,15 @@ def migrate_3_to_4(config: dict) -> dict:
 
 ### 51.4.3 Backup
 
-Vor jeder Migration wird `project.yaml.bak` geschrieben.
+Vor jeder Migration wird neben der Konfiguration
+`.agentkit/config/project.yaml.bak` geschrieben. Sie ist bewusst ein einzelner,
+rollierender Vor-Migrationsstand: Die naechste Migration ersetzt sie atomar,
+legt also keine Backup-Historie an. Nach einer erfolgreichen Migration entfernt
+AgentKit sie nicht automatisch, weil sie im Szenario 51.3.2 die einzige Quelle
+fuer das manuelle Nachziehen der zuvor erkannten Nutzeranpassungen ist. Der
+Projektverantwortliche entfernt sie nach Verifikation beziehungsweise nach dem
+Nachziehen; bis dahin ist sie ein beabsichtigtes Wiederherstellungsartefakt und
+kein operativer Konfigurationsstand.
 
 ## 51.5 Schema-Migration
 
@@ -252,7 +281,6 @@ Owner-BCs:
 | Quelle | Owner-BC | Lese-Schnittstelle |
 |--------|----------|-------------------|
 | Pipeline-Config-Schwellenwerte | `pipeline-framework` (FK-03) | `PipelineConfig`-Schema lesen (lokale Datei; Digest-Vergleich) |
-| CCAG-Regeln (projektspezifisch) | `governance-and-guards` | Top-Surface lesen; CCAG-Regeln sind Teil des Governance-Vertrags |
 | Bundle-Bindings (Prompt) | `prompt-runtime` | `PromptRuntime.update_binding`-Pendant; aktuellen Bundle-Pin lesen |
 | Bundle-Bindings (Skills) | `agent-skills` | `Skills.resolve_binding(skill_id, project_root)` (Top-Surface FK-43) |
 

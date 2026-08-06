@@ -387,7 +387,6 @@ component_groups:
       - architecture-conformance.group.principal_capability
       - architecture-conformance.group.harness_adapters_claude_code
       - architecture-conformance.group.harness_adapters_codex
-      - architecture-conformance.group.ccag_permission_runtime
       - architecture-conformance.group.integrity_gate
       - architecture-conformance.group.governance_observer
       - architecture-conformance.group.setup_preflight_gate
@@ -445,15 +444,6 @@ component_groups:
     # harness-integration; der physische Paketpfad bestimmt NICHT die
     # BC-Ownership und darf nicht zur Ableitung von Governance-Ownership
     # herangezogen werden.
-
-  - id: architecture-conformance.group.ccag_permission_runtime
-    name: CcagPermissionRuntime
-    bloodgroup: A
-    module_prefixes:
-      - agentkit.backend.governance.ccag_permission_runtime
-    parent_group_id: architecture-conformance.group.governance
-    exposure: sub_exposed
-    component_kind: domain
 
   - id: architecture-conformance.group.governance_observer
     name: GovernanceObserver

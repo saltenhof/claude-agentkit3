@@ -798,12 +798,6 @@ Projekte mit eigener Soll-Struktur.
 └── <Projektdateien>                # Quellcode, Tests, Build-Dateien
 ```
 
-> **CCAG-Permission-Konfiguration.** Permission-/Policy-**Regeln**
-> sind projektlokale Konfiguration; ihr Ablageort ist in FK-42
-> normiert. Permission-**Requests/Leases** sind hingegen kanonischer
-> Laufzeit-State und liegen zentral im Backend-State (I5), nicht in
-> einer projektlokalen DB. Siehe FK-42.
-
 Der Installer registriert beide Harnesses parallel (FK-76 §76.7).
 Die jeweils harness-spezifischen Verzeichnisse werden vom zugehörigen
 Adapter beschrieben.
@@ -813,7 +807,7 @@ Adapter beschrieben.
 
 **Nicht mehr im Projekt vorgesehen:**
 - keine projektlokalen Telemetrie-DBs
-- keine projektlokalen kanonischen CCAG-/Permission-DBs
+- keine projektlokalen kanonischen Permission-DBs
 - keine AgentKit-`_temp/`-Zustandsverzeichnisse als Source of Truth
 - keine kopierten Prompt-/Skill-/Schema-Bundles
 - kein Installations-Manifest als Laufzeitanker
@@ -898,7 +892,6 @@ Persistenz-Akteur.
 | State-Backend: Workflow-State | Pipeline-Fachlogik im Backend (Backend) | Orchestrator, QA, Status-Abfragen (REST) | Rollen- und Principal-basierte Rechte; kein Direkt-DB-Zugriff (I1) |
 | State-Backend: Telemetrie | Hooks/Pipeline melden per REST (Backend) | Integrity-Gate, Postflight, Governance (REST) | Zentraler Audit-Trail; Append über Backend |
 | State-Backend: Governance/Locks | Governance-Fachlogik im Backend (Backend) | Hooks (REST-Read, ggf. Read-Projektion) | Nur Backend mutiert; Dev-Seite nur lesend |
-| State-Backend: CCAG Permission-Requests/Leases | Governance-Fachlogik im Backend (Backend) | Frontend-Inbox, Hooks (REST) | Kanonisch zentral (kein projektlokaler SQLite-Owner; FK-42) |
 | State-Backend: Failure Corpus | Governance-Beobachtung, Pipeline (Backend) | Failure-Corpus-Engine (REST) | Append-only, permanent |
 | Drittsystem-Zugriffe (ARE, GitHub, Sonar, Jenkins, LLM-Hub) | — | — | Kanonische AK3-Vorgänge über Backend-Adapter (I2); direkte Zugriffe nur im FK-01-Carve-out |
 | Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Link) | Versioniert, immutable pro Bundle-Version |
@@ -931,7 +924,6 @@ Prozesse lesen/schreiben sie über REST.
 | Telemetrie (Laufzeit) | State-Backend (Backend; Dev meldet per REST) | DB-Events | Permanent |
 | Telemetrie (Archiv) | Export-Service / Objektspeicher (Backend) | JSONL/Bundle | Export bei Closure oder Audit |
 | Locks | State-Backend (Backend) | Lock-Records | Während Story-Lauf |
-| CCAG Permission-Requests/Leases | State-Backend (Backend; FK-42) | Strukturierte Records | Request: bis Entscheidung; Lease: session-scoped |
 | Failure Corpus | State-Backend / Artefaktspeicher (Backend) | JSONL + strukturierte Datensätze | Permanent, projektübergreifend |
 | Lokale Read-Projektionen | Projekt-FS (Project-Edge) | JSON/Plaintext | Ephemer, nicht kanonisch (I5) |
 | Konzept-Dokumente | `concepts/` | Markdown/Assets | Permanent |
@@ -1245,5 +1237,5 @@ FK-08-002 (JSONL pro Story),
 FK-11-001 bis FK-11-009 (Installation/Checkpoints),
 FK-18 (relationales State-Backend-Schema),
 FK-30 (Hook→Backend-Kommunikation),
-FK-42 (CCAG zentraler Owner),
+FK-42 (CCAG-Matcher-Katalog),
 FK-91 (REST-/Service-API)*

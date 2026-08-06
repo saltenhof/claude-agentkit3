@@ -201,8 +201,8 @@ events:
       Loest den globalen, benutzeruebergreifenden
       Takeover-Freigabe-Overlay der App-Shell aus, aktualisiert dessen
       Bestaetigungsschritt bzw. schliesst ihn (FK-72 §72.14.7). Die
-      ausstehende Freigabe gehoert zur Permission-Request-Familie
-      (FK-56 §56.13b, FK-55 §55.9a).
+      ausstehende Freigabe ist ausschliesslich Teil des
+      Ownership-Takeover-Vertrags (FK-56 §56.13b).
     producer:
       bc: telemetry
       source_bc: story-lifecycle

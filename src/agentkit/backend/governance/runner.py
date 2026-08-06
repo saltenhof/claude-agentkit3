@@ -30,7 +30,6 @@ from agentkit.backend.governance.errors import LockRecordNotFoundError
 from agentkit.backend.governance.guard_system.records import GuardDecision, GuardDecisionOutcome
 from agentkit.backend.governance.hook_registration import HookId
 from agentkit.backend.governance.locks import DeactivationResult, LockRecordId
-from agentkit.backend.governance.permission_request_block import open_permission_request_block
 from agentkit.backend.governance.principal_capabilities.operations import (
     WEB_FETCH,
     WEB_SEARCH,
@@ -40,7 +39,6 @@ from agentkit.backend.governance.protocols import GuardVerdict, ViolationType
 if TYPE_CHECKING:
     from agentkit.backend.governance.guard_evaluation import HookEvent
     from agentkit.backend.governance.hook_registration import HookDefinition, RegistrationResult
-    from agentkit.backend.governance.principal_capabilities import CapabilityHull
     from agentkit.backend.governance.protocols import GovernanceGuard
     from agentkit.backend.governance.repository import HookRegistrationRepository
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
@@ -540,9 +538,9 @@ def run_hook(
 ) -> HookDecision:
     """Run a named governance hook, fail-closed on unknown selectors.
 
-    For ``phase="pre"`` and ``hook_id="ccag_gatekeeper"``, delegates to
-    :class:`~agentkit.backend.governance.ccag.runtime.CcagPermissionRuntime` which
-    implements FK-42 §42.1.  All other pre-hooks are dispatched to the
+    For ``phase="pre"`` and ``hook_id="ccag_gatekeeper"``, retains the
+    catalogued matcher edge without granting or denying authority. All other
+    pre-hooks are dispatched to the
     general :func:`~agentkit.backend.governance.guard_evaluation.evaluate_pre_tool_use`
     guard evaluation chain.
 
@@ -821,7 +819,7 @@ def _dispatch_pre_hook(
     """Dispatch a validated pre-hook through the FK-55 enforcement chain.
 
     Ordering (FK-55 §55.10.3 / governance-and-guards.B5):
-    1. Capability enforcement (hard DENY — CCAG never softens it).
+    1. Capability enforcement (hard DENY is final).
     2. Dedicated pre-hooks (review_guard, budget (WebCallBudgetGuard),
        health_monitor, self_protection, story_creation_guard).
     3. CCAG gatekeeper (FK-42 §42.5.2 — last pre-hook).
@@ -853,10 +851,8 @@ def _dispatch_pre_hook(
     if hook_id == HookId.PROMPT_INTEGRITY.value:
         return _run_prompt_integrity_guard(event, project_root=project_root)
 
-    # Step 3: CCAG — last pre-hook (FK-42 §42.5.2). FK-42 §42.2.4: CCAG runs ONLY
-    # with the pre-computed capability hull. The hull is resolved here (the same
-    # capability layer that ran in step 1) and threaded into CCAG; without it
-    # CCAG fails closed.
+    # Step 3: CCAG remains the last pre-hook (FK-42 §42.5), but is now a
+    # state-free matcher endpoint without grant or deny authority (AG3-226).
     if hook_id == "ccag_gatekeeper":
         return _run_ccag_hook(event, project_root=project_root)
 
@@ -1452,23 +1448,6 @@ def _web_call_thresholds(project_root: Path) -> tuple[int, int]:
     return telemetry.web_call_limit, telemetry.web_call_warning
 
 
-def _permission_request_ttl_s(project_root: Path) -> int:
-    """Resolve the permission-request TTL from config (FK-93 §93.5a / AG3-086).
-
-    Reads the typed ``permissions.request_ttl_s`` (default 1800). A config fault
-    falls back to the typed default (the FK-93-conformant 1800) — never the
-    superseded hard-coded 600.
-    """
-    from agentkit.backend.config.models import PermissionsConfig
-
-    try:
-        from agentkit.backend.config.loader import load_project_config
-
-        return load_project_config(project_root).pipeline.permissions.request_ttl_s
-    except Exception:  # noqa: BLE001 -- fall back to the FK-93 typed default
-        return PermissionsConfig().request_ttl_s
-
-
 def _run_budget_event_emitter_post(
     event: HookEvent, *, project_root: Path
 ) -> HookDecision:
@@ -1737,7 +1716,7 @@ def _run_capability_enforcement(
     *,
     project_root: Path,
 ) -> HookDecision | None:
-    """Run FK-55 §55.10.3 steps 1-5 before the legacy guard chain / CCAG.
+    """Run FK-55 §55.10.3 steps 1-5 before downstream guard dispatch.
 
     Engages for EVERY hook event (FK-55 §55.10.3 / formal
     ``evaluate-principal-operation`` is allowed in ``normal``, ``story_scoped``
@@ -1761,13 +1740,10 @@ def _run_capability_enforcement(
       export) — mapped to a hard BLOCK rather than an escaping runtime fault
       (FK-55 §55.10.5 / FK-31 §31.2.7, AG3-032 ERROR 6).
 
-    Returns ``None`` when the operation is matrix-permitted (ALLOW — proceed to
-    CCAG, step 7) OR when a NON-mutating target is unclassifiable OUTSIDE a story
-    run (the §55.6.1 unknown-permission rule is mode-specific: in
-    interactive/ai_augmented mode the unknown non-mutating target defers to the
-    legacy guards / CCAG / external prompt rather than hard-blocking generic
-    interactive work). The deferred step 6 mode-rule (B3 / AG3-018) is what would
-    later open a permission request here.
+    Returns ``None`` when the operation is matrix-permitted or when a
+    non-mutating target is unclassifiable outside a story run. In genuine
+    ``ai_augmented`` mode the harness may decide the interactive operation;
+    story execution remains blocked directly by this layer.
     """
     from agentkit.backend.governance.principal_capabilities import (
         CapabilityEnforcement,
@@ -1825,144 +1801,36 @@ def _run_capability_enforcement(
         # (FK-55 §55.10.2). normal mode is NOT a fail-open escape (ERROR 2).
         return _capability_block(result.verdict)
     if result.outcome is EnforcementOutcome.UNKNOWN_PERMISSION:
-        # FK-55 §55.6.1 mode-specific (AG3-032 ERROR C / FK-55 §55.10.1/§55.10.4):
-        # an UNKNOWN tool resolves by the THREE locally-derived mode buckets.
-        return _resolve_mode_scoped_block(
-            context, event, result.verdict, result.hull, project_root
-        )
+        return _resolve_mode_scoped_block(context, result.verdict)
     if result.outcome is EnforcementOutcome.UNRESOLVED:
         # A non-mutating unclassifiable / target-less event resolves by the SAME
         # three mode buckets (FK-55 §55.10.2 / §55.6.1 mode-specific): a binding-
-        # invalid edge must fail-closed here too — it must NOT defer to CCAG.
-        return _resolve_mode_scoped_block(
-            context, event, result.verdict, result.hull, project_root
-        )
+        # invalid edge must fail-closed here too — it must not defer to the harness.
+        return _resolve_mode_scoped_block(context, result.verdict)
     return None
-
-
-def _resolve_capability_hull(
-    event: HookEvent, *, project_root: Path
-) -> CapabilityHull | None:
-    """Resolve the pre-computed capability hull for CCAG (FK-42 §42.2.4).
-
-    Runs the SAME capability layer that already gated the pre-dispatch (step 1)
-    and returns its :class:`CapabilityHull` ONLY when the outcome is an ALLOW (the
-    only outcome that reaches CCAG, FK-55 §55.10.3 step 10). Any non-ALLOW outcome
-    or a capability-layer fault returns ``None`` — CCAG then fails closed (no hull
-    -> BLOCK), never a global allow. The hull is a value object; building it here
-    keeps CCAG's hull precondition explicit at the runner edge.
-    """
-    from agentkit.backend.governance.principal_capabilities import (
-        CapabilityEnforcement,
-        CapabilityMatrix,
-        ConflictFreezeOverlay,
-        EnforcementOutcome,
-        OperationClassifier,
-        PathClassifier,
-        PrincipalResolver,
-    )
-    from agentkit.backend.state_backend.store.freeze_repository import (
-        FreezeRepository,
-        LocalFreezeJsonExport,
-    )
-
-    enforcement = CapabilityEnforcement(
-        principal_resolver=PrincipalResolver(),
-        path_classifier=PathClassifier(),
-        op_classifier=OperationClassifier(),
-        matrix=CapabilityMatrix(),
-        freeze=ConflictFreezeOverlay(
-            FreezeRepository(project_root),
-            local_export=LocalFreezeJsonExport(project_root),
-        ),
-    )
-    context = _resolve_capability_context(event, project_root=project_root)
-    try:
-        result = enforcement.evaluate(
-            event,
-            project_root=project_root,
-            story_id=context.story_id,
-            story_scope_roots=context.scope_roots,
-            binding_revocation_reason=context.binding_revocation_reason, new_owner_ref=context.new_owner_ref,
-        )
-    except Exception:  # noqa: BLE001 -- a capability fault -> no hull -> CCAG fail-closed
-        return None
-    # CCAG (FK-55 §55.10.3 step 10) is reachable on an ALLOW and on the two
-    # mode-specific defer outcomes (UNKNOWN_PERMISSION / UNRESOLVED). A hard DENY /
-    # UNCLASSIFIED_MUTATION already blocked in step 1 and never reaches CCAG. The
-    # hull is attached to every CCAG-reachable result by the capability layer.
-    if result.outcome not in (
-        EnforcementOutcome.ALLOW,
-        EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH,
-        EnforcementOutcome.UNKNOWN_PERMISSION,
-        EnforcementOutcome.UNRESOLVED,
-    ):
-        return None
-    return result.hull
 
 
 def _resolve_mode_scoped_block(
     context: _CapabilityContext,
-    event: HookEvent,
     verdict: object,
-    hull: CapabilityHull | None,
-    project_root: Path,
 ) -> HookDecision | None:
     """Resolve an UNKNOWN_PERMISSION / UNRESOLVED outcome by execution-mode bucket.
 
-    FK-55 §55.6.1 mode-specific with the §55.10.1/§55.10.4 fail-closed correction
-    for inconsistent bindings. Three exhaustive buckets:
+    Story execution and invalid bindings remain fail-closed. Genuine
+    ``ai_augmented`` mode may defer to the harness after the CCAG authority was
+    removed.
 
-    - ``story_execution``: a coherent autonomous run. Open a GRANTABLE
-      ``permission_request`` AND return a blocking verdict (no native prompt may
-      hang a run). Unchanged behaviour.
+    - ``story_execution``: return the principal-capability block directly.
     - ``binding_invalid``: a story-execution lock/session EXISTS but is
-      inconsistent (session mismatch / inactive lock / worktree-root mismatch).
-      A broken binding must NOT degrade to free mode and is NOT a grantable
-      in-story permission — it is a fail-closed HARD BLOCK carrying the resolver
-      ``block_reason`` (FK-55 §55.10.1/§55.10.4, FK-56 §51, FK-59 §175).
+      inconsistent and remains a named fail-closed block.
     - genuine ``ai_augmented`` (no lock/session at all): defer (return ``None``).
-      This is the ONLY bucket that may defer to CCAG / an external prompt.
+      This is the deliberate effect of interpretation A.
     """
     if context.is_story_execution:
-        return _block_with_permission_request(
-            event, verdict, project_root, context=context, hull=hull
-        )
+        return _capability_block(verdict)
     if context.is_binding_invalid:
         return _binding_invalid_block(context.block_reason)
     return None
-
-
-def _block_with_permission_request(
-    event: HookEvent,
-    verdict: object,
-    project_root: Path,
-    *,
-    context: _CapabilityContext | None = None,
-    hull: CapabilityHull | None = None,
-) -> HookDecision:
-    """Open a permission_request (story_execution) and return a blocking verdict.
-
-    FK-55 §55.6.1 / formal ``open-permission-request``: in ``story_execution`` an
-    unknown / non-actionable permission must not hang on a native host prompt —
-    the hook blocks AND emits an auditable ``permission_request_opened`` (AG3-032
-    ERROR C). Request creation is owned by the CCAG runtime (the single owner of
-    permission requests); the runner only triggers it with the locally-derived
-    mode. A failure to persist the request must not turn the fail-closed BLOCK
-    into a fault that escapes — it stays a deterministic BLOCK.
-    """
-    resolved = context or _resolve_capability_context(event, project_root=project_root)
-    resolved_hull = hull or _resolve_capability_hull(event, project_root=project_root)
-    return open_permission_request_block(
-        event,
-        verdict,
-        project_key=resolved.project_key,
-        story_id=resolved.story_id,
-        run_id=resolved.run_id,
-        hull=resolved_hull,
-        client_factory=lambda: _governance_edge_client(project_root),
-        ttl_seconds=_permission_request_ttl_s(project_root),
-    )
 
 
 @dataclass(frozen=True)
@@ -1996,9 +1864,8 @@ class _CapabilityContext:
     def is_story_execution(self) -> bool:
         """Whether the locally-derived mode is the autonomous ``story_execution``.
 
-        Only this mode hard-blocks an unknown / non-actionable permission and
-        opens a GRANTABLE permission_request (FK-55 §55.6.1); genuine
-        ``ai_augmented`` (no lock/session at all) defers to an external prompt.
+        Only this mode hard-blocks an unknown or non-actionable operation;
+        genuine ``ai_augmented`` mode may defer to the harness.
         """
         return self.execution_mode == "story_execution"
 
@@ -2068,132 +1935,15 @@ def _resolve_capability_context(
 
 
 def _run_ccag_hook(event: HookEvent, *, project_root: Path) -> HookDecision:
-    """Dispatch to CcagPermissionRuntime and translate decision to GuardVerdict.
+    """Keep the catalogued CCAG hook edge without permission authority.
 
-    The CCAG runtime returns a :class:`~agentkit.backend.governance.ccag.runtime.CcagDecision`
-    which we map to the :class:`~agentkit.backend.governance.protocols.GuardVerdict`
-    type used by the hook chain.
-
-    FK-42 §42.2.4 (AG3-086): CCAG is invoked ONLY with the pre-computed capability
-    hull (the same capability layer that already ran in step 1). When the hull
-    cannot be resolved (the operation is not an ALLOW, or a capability fault),
-    CCAG must NOT be force-fed a global allow — it fails closed inside
-    ``CcagPermissionRuntime.evaluate`` (``capability_hull=None`` -> BLOCK).
-
-    Translation:
-        ``allow``              → ``GuardVerdict.allow("ccag_gatekeeper")``
-        ``unknown_permission`` → ``GuardVerdict.allow("ccag_gatekeeper")``
-            (unknown → adapter decides; in story_execution the request is
-             persisted and the CLI exits 2 via the standalone path)
-        ``block_by_rule``      → ``GuardVerdict.block("ccag_gatekeeper", ...)``
-
-    Args:
-        event: Harness-neutral hook event.
-        project_root: Project root for the capability-hull resolution.
-
-    Returns:
-        A :class:`~agentkit.backend.governance.protocols.GuardVerdict`.
+    Principal-capability enforcement and dedicated guards have already run before
+    this final hook. The retained matcher is therefore observable and stable, but
+    this hook neither reads nor writes policy or control-plane state and cannot
+    grant or deny an operation.
     """
-    from agentkit.backend.governance.ccag.runtime import CcagDecisionKind, CcagPermissionRuntime
-
-    # AG3-086 (FK-42 §42.4.2 step 5 / FK-55 §55.10.9a): CCAG is the productive
-    # path that reads pending permission requests during a real run. Before
-    # evaluating, lazily materialise any TTL-elapsed permission request into a
-    # deterministic ESCALATED run-status (the lazy materialisation FK-55 §55.10.9a
-    # demands — no daemon). Idempotent; a fault here never converts the evaluation
-    # into a crash (the escalation is best-effort against the authoritative
-    # PhaseState, the CCAG decision proceeds regardless).
-    _escalate_expired_permission_requests(event, project_root=project_root)
-
-    hull = _resolve_capability_hull(event, project_root=project_root)
-    runtime = CcagPermissionRuntime()
-    decision = runtime.evaluate(event, capability_hull=hull)
-
-    if decision.kind == CcagDecisionKind.BLOCK_BY_RULE:
-        return GuardVerdict.block(
-            "ccag_gatekeeper",
-            ViolationType.UNAUTHORIZED_OPERATION,
-            decision.reason or "Blocked by CCAG deny rule",
-            detail={
-                "ccag_decision": decision.kind.value,
-                "matched_rule_id": decision.matched_rule_id,
-            },
-        )
-
-    if decision.kind == CcagDecisionKind.UNKNOWN_PERMISSION:
-        context = _resolve_capability_context(event, project_root=project_root)
-        if context.is_story_execution:
-            return _block_with_permission_request(
-                event, decision, project_root, context=context, hull=hull
-            )
+    del event, project_root
     return GuardVerdict.allow("ccag_gatekeeper")
-
-
-def _escalate_expired_permission_requests(
-    event: HookEvent, *, project_root: Path
-) -> bool:
-    """Lazily escalate the run when a permission request has TTL-expired.
-
-    FK-42 §42.4.2 step 5 / FK-55 §55.10.9a: a CCAG ``permission_request`` that
-    elapses without a decision deterministically sets the authoritative
-    ``PhaseState.status`` to ``ESCALATED`` (reason
-    ``permission_request_expired``). This is the PRODUCTIVE wiring of
-    :class:`~agentkit.backend.governance.ccag.expiry.PermissionExpiryEscalator`: it runs at
-    the CCAG hook edge (the path that reads pending requests during a real run),
-    materialising expiry LAZILY rather than via a daemon. Idempotent: an
-    already-ESCALATED state is left unchanged; no expired request -> no change.
-
-    Scoped to the active story resolved from the LOCAL edge bundle (never from
-    forgeable ``operation_args``). Outside an active story binding there is no run
-    to escalate -> no-op. Best-effort: a store / state fault is swallowed (the
-    escalation never crashes the CCAG decision path), but a successful expiry
-    deterministically escalates the authoritative run-status truth.
-
-    Args:
-        event: Harness-neutral hook event.
-        project_root: Project root for store + phase-state resolution.
-
-    Returns:
-        ``True`` when an expired request drove the run to ESCALATED.
-    """
-    scope = _guard_counter_scope(event, project_root=project_root)
-    if scope is None:
-        return False
-    project_key, story_id = scope
-    try:
-        from agentkit.backend.governance.ccag.expiry import escalate_run_to_phase_state
-        from agentkit.backend.state_backend.store.phase_envelope_repository import (
-            StateBackendPhaseEnvelopeRepository,
-        )
-        resolved = _commit_hook_scope(event, project_root=project_root)
-        if resolved is None:
-            return False
-        _project_key, _story_id, run_id = resolved
-        requests = _governance_edge_client(project_root).read_permission_requests(
-            project_key=project_key, story_id=story_id, run_id=run_id
-        )
-        if not any(item.status == "expired" for item in requests.requests):
-            return False
-        phase_state_port = StateBackendPhaseEnvelopeRepository(
-            project_root / "stories" / story_id
-        )
-        from agentkit.backend.pipeline_engine.phase_executor.models import PhaseName
-        state = phase_state_port.load_state(story_id, PhaseName.IMPLEMENTATION)
-        if state is None:
-            return False
-        escalated = escalate_run_to_phase_state(state)
-        if escalated is state:
-            return False
-        phase_state_port.save_state(escalated)
-        return True
-    except Exception:  # noqa: BLE001 -- lazy escalation is best-effort; never crash CCAG
-        logger.warning(
-            "permission_request_ttl_escalation_degraded story_id=%s "
-            "(best-effort lazy materialisation; CCAG decision unaffected)",
-            story_id,
-            exc_info=True,
-        )
-        return False
 
 
 def _hook_ids_for_phase(phase: str) -> frozenset[str]:

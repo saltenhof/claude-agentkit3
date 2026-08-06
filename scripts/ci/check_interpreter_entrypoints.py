@@ -381,22 +381,16 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
             "logical Claude hook identifier consumed only by the absolute-wrapper materializer",
         )
         for line, literal in (
-            (66, "agentkit-hook-claude pre "),
-            (71, "agentkit-hook-claude post "),
-            (76, "agentkit-hook-claude post "),
-            (81, "agentkit-hook-claude post "),
-            (86, "agentkit-hook-claude post "),
-            (93, "agentkit-hook-claude pre "),
-            (100, "agentkit-hook-claude post "),
-            (106, "agentkit-hook-claude pre "),
-            (113, "agentkit-hook-claude pre "),
+            (68, "agentkit-hook-claude pre "),
+            (73, "agentkit-hook-claude post "),
+            (78, "agentkit-hook-claude post "),
+            (83, "agentkit-hook-claude post "),
+            (88, "agentkit-hook-claude post "),
+            (95, "agentkit-hook-claude pre "),
+            (102, "agentkit-hook-claude post "),
+            (108, "agentkit-hook-claude pre "),
+            (115, "agentkit-hook-claude pre "),
         )
-    ),
-    _SelectorLiteralException(
-        Path("src/agentkit/backend/installer/ccag_settings.py"),
-        94,
-        "agentkit-hook-claude",
-        "wrapper identity passed to the central absolute-wrapper renderer",
     ),
     _SelectorLiteralException(
         Path("src/agentkit/backend/installer/codex_settings.py"),

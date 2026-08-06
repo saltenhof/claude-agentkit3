@@ -1,4 +1,4 @@
-"""Capability enforcement pipeline (FK-55 §55.10.3 steps 1-5 + step 7 CCAG gate).
+"""Capability enforcement pipeline (FK-55 §55.10.3 steps 1-5).
 
 :class:`CapabilityEnforcement` runs the normed FK-55 §55.10.3 evaluation order:
 
@@ -12,7 +12,7 @@ The evaluation engages for EVERY hook event. Absence of an active story binding
 is ``normal`` mode, NOT a skip (AG3-032 ERROR 2 — never fail-open). Five-way
 :class:`EnforcementOutcome`:
 
-- ``DENY``       — hard matrix / freeze block; CCAG cannot soften it.
+- ``DENY``       — hard matrix / freeze block; no later hook can soften it.
 - ``ALLOW``      — the matrix (post-freeze) permits the operation.
 - ``UNCLASSIFIED_MUTATION`` — mutating operation whose target could not be
                    classified (FK-55 §55.10.2): fail-closed BLOCK in ALL modes.
@@ -25,7 +25,6 @@ is ``normal`` mode, NOT a skip (AG3-032 ERROR 2 — never fail-open). Five-way
                    Resolved mode-specific: ``story_execution`` ⇒ BLOCK; else defer.
 
 Step 6 (official service paths) is rudimentary (AG3-032 §2.1.4 — out of scope).
-Step 7 (CCAG, FK-30 §30.2.6) runs ONLY on ``ALLOW`` — see :meth:`should_run_ccag`.
 """
 
 from __future__ import annotations
@@ -71,8 +70,8 @@ class EnforcementOutcome(Enum):
     ``UNKNOWN_PERMISSION`` (AG3-032 ERROR C / FK-55 §55.6.1): the tool itself is
     UNKNOWN to the classifier — it has no concrete operation class the matrix can
     grant. The matrix must NOT be used to ALLOW it; the caller resolves it
-    mode-specific (``story_execution`` ⇒ BLOCK + ``permission_request_opened``;
-    ``interactive_admin`` / ``ai_augmented`` ⇒ defer to an external prompt). A
+    mode-specific (``story_execution`` ⇒ BLOCK;
+    ``interactive_admin`` / ``ai_augmented`` ⇒ defer to the harness). A
     hard matrix / freeze DENY still PRECEDES this (e.g. an unknown tool aimed at
     ``.git`` is a hard DENY); the unknown-permission signal only resolves the
     otherwise-not-denied case, never softening a DENY.
@@ -93,7 +92,7 @@ _UNCLASSIFIED_RULE_ID = "FK-55-55.10.2"
 
 #: Reason emitted for an UNKNOWN tool that is not otherwise hard-denied (FK-55
 #: §55.6.1). The verdict is a fail-closed DENY (the caller resolves it
-#: mode-specific: story_execution ⇒ BLOCK + permission_request; else defer).
+#: mode-specific: story execution blocks; interactive mode may defer).
 UNKNOWN_PERMISSION_REASON = "unknown_permission"
 _UNKNOWN_PERMISSION_RULE_ID = "FK-55-55.6.1"
 
@@ -107,7 +106,7 @@ _UNKNOWN_PERMISSION_RULE_ID = "FK-55-55.6.1"
 #: catalogues ``Agent`` under the ``ccag_gatekeeper`` matcher
 #: (``Bash|Write|Edit|Read|Grep|Glob|Agent``) — it does NOT itself grant a matrix
 #: exemption. The capability layer therefore passes the spawn through with an
-#: ALLOW hull and lets ``prompt_integrity`` (and CCAG) be the real authority.
+#: ALLOW hull and lets ``prompt_integrity`` be the real authority.
 SUBAGENT_SPAWN_REASON = "subagent_spawn_routed_to_prompt_integrity"
 _SUBAGENT_SPAWN_RULE_ID = "FK-31-31.7"
 
@@ -130,19 +129,20 @@ _MUTATING_OP_CLASSES: frozenset[OperationClass] = frozenset(
 
 @dataclass(frozen=True)
 class CapabilityHull:
-    """Pre-computed capability hull required by CCAG (FK-42 §42.2.4).
+    """Legacy capability envelope that also carries the Agent-spawn freeze signal.
 
-    FK-42 §42.2.4: ``evaluate_ccag()`` may run ONLY after the capability hull has
-    been computed (principal / path / operation classes + the hard matrix and
-    freeze verdicts). CCAG consults this hull and must NEVER be invoked without
-    it — a missing hull is a fail-closed block, not a global allow.
+    CCAG no longer consumes this value and it confers no permission authority.
+    It remains because the Agent-spawn path also used ``freeze_verdict`` as its
+    representation of a separate conflict-freeze obligation. Moving that
+    obligation into an enforcing layer is a mixed-responsibility decision and
+    must precede removal of this otherwise-dead envelope (AG3-226 AC3).
 
     Attributes:
         principal_type: The resolved technical principal (FK-55 §55.3a).
         operation_class: The normalized operation class.
         path_classes: The per-target path classes (the unclassified sentinel
             ``None`` is mapped to the literal ``"unclassified"`` so the hull is a
-            plain value object CCAG can carry without the path-class enum).
+            plain value object without the path-class enum).
         hard_capability_verdict: ``"allow"`` / ``"deny"`` — the hard matrix
             decision (post any per-target DENY short-circuit).
         freeze_verdict: ``"allow"`` / ``"deny"`` — the conflict-freeze overlay
@@ -163,9 +163,9 @@ class CapabilityResult:
         outcome: The three-way :class:`EnforcementOutcome`.
         verdict: The originating :class:`CapabilityVerdict` (for ALLOW/DENY) or
             the synthesized fail-closed verdict for UNRESOLVED.
-        hull: The pre-computed :class:`CapabilityHull` (FK-42 §42.2.4) the caller
-            threads into CCAG. ``None`` only for results that never reach CCAG
-            (an early fault); the runner passes the hull ONLY on an ALLOW outcome.
+        hull: The legacy :class:`CapabilityHull`. It no longer reaches CCAG; the
+            remaining consumer contract is limited to tests pinning the unresolved
+            Agent-spawn conflict-freeze obligation described on the class.
     """
 
     __slots__ = ("hull", "outcome", "verdict")
@@ -208,7 +208,7 @@ class DisownedSessionOverlay:
         )
 
 class CapabilityEnforcement:
-    """Runs FK-55 §55.10.3 steps 1-5 and gates CCAG (step 7).
+    """Run FK-55 §55.10.3 steps 1-5 before downstream guard dispatch.
 
     Args:
         principal_resolver: Resolves the principal from the event (§55.3a).
@@ -255,14 +255,13 @@ class CapabilityEnforcement:
                 participating-repo roots, registered sandboxes).
 
         Returns:
-            A :class:`CapabilityResult`. A ``DENY`` outcome is hard — the caller
-            must NOT run CCAG (see :meth:`should_run_ccag`). An
+            A :class:`CapabilityResult`. A ``DENY`` outcome is hard. An
             ``UNCLASSIFIED_MUTATION`` outcome is a mutating operation that did
             not resolve to an explicit ALLOW (unclassifiable target, including a
             missing / empty / ambiguous target): the caller blocks it in ALL
             modes (FK-55 §55.10.2). An ``UNRESOLVED`` outcome is an
             unclassifiable target on a non-mutating operation: the caller decides
-            mode-specific (story-scoped ⇒ block; otherwise defer to CCAG).
+            mode-specific (story-scoped ⇒ block; otherwise defer to the harness).
         """
         root = project_root or Path(event.cwd or ".")
         # Step 1: resolve principal (fail-closed, harness-context only).
@@ -279,10 +278,10 @@ class CapabilityEnforcement:
         # through with an ALLOW matrix hull (the spawn schema / template is governed
         # by ``prompt_integrity_guard``, the spawn's real fail-closed authority).
         # The hull's ``freeze_verdict`` carries the REAL conflict-freeze state
-        # (FK-42 §42.2.4 — the hull must not fabricate ``allow``; FK-55 §55.8.2 —
+        # (FK-55 §55.8.2 — the hull must not fabricate ``allow``; the
         # the freeze exists precisely to stop an orchestrator from spawning fresh
-        # sub-agents to circumvent guard barriers after a HARD STOP, so CCAG/the
-        # adjudication downstream must see the true state). This is NOT a weakening
+        # sub-agents to circumvent guard barriers after a HARD STOP, so downstream
+        # adjudication must see the true state). This is NOT a weakening
         # of the fail-closed for genuinely-unknown tools — it is the
         # concept-modelled routing of one specific, named operation.
         if is_subagent_spawn(event.operation, event.operation_args):
@@ -324,12 +323,9 @@ class CapabilityEnforcement:
         # only the mutating-op fail-closed case.
         if unresolved and op_class in _MUTATING_OP_CLASSES:
             return self._unresolved_result(op_class)
-        # FK-42 §42.2.4: the capability hull is computed for EVERY outcome that can
-        # reach CCAG (ALLOW + the mode-specific defer outcomes UNKNOWN_PERMISSION /
-        # UNRESOLVED). No hard DENY fired here, so the hull's matrix/freeze
-        # verdicts are ``allow`` (a DENY / UNCLASSIFIED_MUTATION already returned
-        # above and never reaches CCAG). An unclassified target is recorded as the
-        # literal ``"unclassified"`` path class.
+        # Preserve the legacy envelope until the mixed Agent-spawn freeze
+        # obligation is reassigned. CCAG no longer consumes it or derives
+        # authority from it (AG3-226 AC3).
         hull = CapabilityHull(
             principal_type=principal.value,
             operation_class=op_class.value,
@@ -341,7 +337,7 @@ class CapabilityEnforcement:
         )
         # Per FK-55 §55.6.1 an UNKNOWN tool resolves to UNKNOWN_PERMISSION (the
         # matrix is NOT consulted for an ALLOW) — the caller resolves it
-        # mode-specific and may defer to CCAG.
+        # mode-specific and may defer to the harness.
         if not is_known:
             return CapabilityResult(
                 EnforcementOutcome.UNKNOWN_PERMISSION,
@@ -352,7 +348,7 @@ class CapabilityEnforcement:
             )
         # A KNOWN op with an unclassifiable NON-mutating target is a genuinely
         # non-actionable event (UNRESOLVED) the caller resolves mode-specific (it may
-        # defer to CCAG, so it carries the hull too).
+        # defer to the harness; the legacy envelope remains as described above).
         if unresolved:
             return CapabilityResult(
                 EnforcementOutcome.UNRESOLVED,
@@ -439,10 +435,9 @@ class CapabilityEnforcement:
         dedicated ``prompt_integrity`` guard. FK-91 §91.4 only catalogues ``Agent``
         under the ``ccag_gatekeeper`` matcher; the path-matrix-bypass rationale is
         FK-31 §31.7 + FK-55 §55.6. We therefore return an ALLOW *matrix* hull so the
-        dispatch proceeds to the dedicated ``prompt_integrity`` guard + CCAG, the
-        spawn's real fail-closed authority.
+        dispatch proceeds to the dedicated ``prompt_integrity`` guard.
 
-        FK-42 §42.2.4 / FK-55 §55.8.2 (AG3-086 FIX B): the hull's
+        FK-55 §55.8.2 (AG3-086 FIX B): the hull's
         ``freeze_verdict`` MUST report the REAL conflict-freeze state — never a
         fabricated ``"allow"``. The freeze exists precisely to stop an orchestrator
         from spawning fresh sub-agents to circumvent guard barriers after a HARD
@@ -450,19 +445,18 @@ class CapabilityEnforcement:
         ``write``/``git_mutation``/``curate``/``admin_transition`` for
         ``orchestrator`` — a control-plane spawn (EXECUTE) is OUT of that overlay
         scope, so this layer does NOT itself hard-DENY the spawn on freeze. But it
-        surfaces the TRUE ``is_frozen`` state in the hull so CCAG (and the §55.8.2
-        adjudication downstream) decides on a real freeze signal rather than an
-        asserted ``"allow"`` for a possibly-frozen story.
+        records the true ``is_frozen`` state in the legacy hull. No productive
+        downstream component currently enforces that signal after CCAG authority
+        removal; this is the explicit AG3-226 AC3 finding.
 
         Args:
-            principal: The resolved principal (recorded on the hull for the audit).
+            principal: The resolved principal recorded on the legacy hull.
             story_id: The active story id (``""`` ⇒ ``normal`` mode, never frozen);
                 used to consult the real conflict-freeze overlay state.
 
         Returns:
-            An ``ALLOW`` :class:`CapabilityResult` carrying a hull whose matrix
-            verdict is ``allow`` and whose ``freeze_verdict`` reflects the real
-            ``is_frozen`` state of ``story_id``.
+            An ``ALLOW`` :class:`CapabilityResult` carrying the legacy hull whose
+            ``freeze_verdict`` reflects the real ``is_frozen`` state.
         """
         # The freeze overlay scope (§55.10.6) does not cover the control-plane
         # spawn op-class, so this is a pure STATE read, not an overlay application:
@@ -509,21 +503,6 @@ class CapabilityEnforcement:
                 EnforcementOutcome.UNCLASSIFIED_MUTATION, verdict
             )
         return CapabilityResult(EnforcementOutcome.UNRESOLVED, verdict)
-
-    @staticmethod
-    def should_run_ccag(result: CapabilityResult) -> bool:
-        """Step 7 gate: CCAG runs ONLY on an ALLOW outcome.
-
-        FK-30 §30.2.6 / FK-55 §55.10.3 step 10: CCAG is consulted last and only
-        within the already-permitted capability zone. A hard DENY and an
-        UNCLASSIFIED_MUTATION are final blocks; an UNRESOLVED outcome and an
-        UNKNOWN_PERMISSION outcome are resolved mode-specific by the caller, not by
-        this gate (the caller may still dispatch CCAG on the defer path).
-        """
-        return result.outcome in (
-            EnforcementOutcome.ALLOW,
-            EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH,
-        )
 
     def _classify_targets(
         self,

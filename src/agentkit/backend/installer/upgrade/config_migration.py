@@ -9,7 +9,7 @@ Implements the FK-51 §51.4 stepwise config migration:
 * :func:`migrate_3_to_4` — the concrete 3.0 -> 4.0 step (the only registered
   step today; the chain is extended by registering further steps).
 * :func:`migrate_config_file` — the file-level wrapper that writes the ``.bak``
-  backup BEFORE migrating (atomic, recoverable, FK-51 §51.4.3, story AC1) and
+  backup BEFORE mutating (atomic, recoverable, FK-51 §51.4.3, story AC1) and
   then atomically rewrites ``project.yaml`` with the migrated content.
 
 Ownership: the migration steps are owned HERE (BC ``installation-and-bootstrap``,
@@ -41,6 +41,11 @@ PIPELINE_KEY: Final = "pipeline"
 
 #: The ``config_version`` key WITHIN the ``pipeline`` stanza (AG3-070 SSOT).
 CONFIG_VERSION_KEY: Final = "config_version"
+
+#: Retired AG3-226 owner key.  The whole stanza configured the removed
+#: permission-request procedure; upgrade removes this exact key while retaining
+#: every sibling, including extension keys unknown to the current schema.
+OBSOLETE_PERMISSIONS_KEY: Final = "permissions"
 
 #: Suffix appended to a file path to form its backup (FK-51 §51.4.3 ``.bak``).
 #: English, dot-prefixed convention (ARCH-55, story §5).
@@ -114,6 +119,27 @@ def _write_config_version(config: dict[str, object], version: str) -> dict[str, 
     updated_pipeline[CONFIG_VERSION_KEY] = version
     updated[PIPELINE_KEY] = updated_pipeline
     return updated
+
+
+def remove_obsolete_permission_config(
+    config: dict[str, object],
+) -> dict[str, object]:
+    """Remove only the retired ``pipeline.permissions`` stanza (AG3-226).
+
+    The stanza exclusively parameterized the abolished permission-request
+    procedure.  This targeted transform deliberately does not filter or
+    validate any other key: known and unknown siblings remain byte-for-value
+    equivalent in the returned mapping.  The input and its nested ``pipeline``
+    mapping are not mutated.
+    """
+    pipeline = config.get(PIPELINE_KEY)
+    if not isinstance(pipeline, dict) or OBSOLETE_PERMISSIONS_KEY not in pipeline:
+        return dict(config)
+    cleaned = dict(config)
+    cleaned_pipeline = dict(pipeline)
+    del cleaned_pipeline[OBSOLETE_PERMISSIONS_KEY]
+    cleaned[PIPELINE_KEY] = cleaned_pipeline
+    return cleaned
 
 
 @dataclass(frozen=True)
@@ -226,11 +252,11 @@ def migrate_config(
         )
 
     current = raw_current
+    migrated = remove_obsolete_permission_config(existing)
     if current == target_version:
-        return dict(existing)  # No migration needed (FK-51 §51.4.2).
+        return migrated
 
     index = _step_index(steps)
-    migrated = dict(existing)
     # Walk the chain. The loop is bounded by the step count: each iteration
     # advances ``current`` to a STRICTLY later source, so it cannot cycle.
     for _ in range(len(steps) + 1):
@@ -312,11 +338,12 @@ def migrate_config_file(
     The file-level wrapper around :func:`migrate_config`:
 
     1. Reads the existing YAML mapping.
-    2. If already at ``target_version`` -> returns ``False`` (no backup, no
-       write — nothing to migrate).
-    3. Otherwise writes the ``.bak`` backup FIRST (FK-51 §51.4.3 — before every
-       migration), then computes the migrated mapping and atomically rewrites the
-       config file. Returns ``True``.
+    2. Computes both the stepwise version migration and the targeted removal of
+       the retired ``pipeline.permissions`` stanza.
+    3. If neither transform changes the mapping -> returns ``False`` (no backup,
+       no write).
+    4. Otherwise writes the ``.bak`` backup before any mutation and atomically
+       rewrites the config file. Returns ``True``.
 
     On any migration failure AFTER the backup the original is recoverable from
     the ``.bak`` (story §6); the backup itself is written before any mutation.
@@ -355,13 +382,12 @@ def migrate_config_file(
         )
     existing: dict[str, object] = dict(loaded)
 
-    current = read_config_version(existing)
-    if current == target_version:
+    migrated = migrate_config(existing, target_version, steps=steps)
+    if migrated == existing:
         return False
 
-    # FK-51 §51.4.3: backup BEFORE the migration (and before any rewrite).
+    # FK-51 §51.4.3: backup BEFORE every on-disk mutation.
     backup_config_file(config_path)
-    migrated = migrate_config(existing, target_version, steps=steps)
     atomic_write_text(
         config_path,
         yaml.dump(migrated, default_flow_style=False, allow_unicode=True, sort_keys=False),
@@ -372,6 +398,7 @@ def migrate_config_file(
 __all__ = [
     "BACKUP_SUFFIX",
     "CONFIG_VERSION_KEY",
+    "OBSOLETE_PERMISSIONS_KEY",
     "PIPELINE_KEY",
     "ConfigMigrationError",
     "MigrationStep",
@@ -380,4 +407,5 @@ __all__ = [
     "migrate_config",
     "migrate_config_file",
     "read_config_version",
+    "remove_obsolete_permission_config",
 ]

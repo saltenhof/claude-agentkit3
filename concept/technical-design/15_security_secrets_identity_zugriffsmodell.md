@@ -146,7 +146,7 @@ Kap. 12.4.1). Im AI-Augmented-Modus sind Branch-Guards inaktiv.
 | Worker darf keine QA-Artefakte schreiben | zentraler Lock-Record + Hook (Kap. 02.7) | Nein — Lock-Record vom Pipeline-Tooling, nicht vom Agent |
 | Worker/Orchestrator dürfen keine DB-Credentials besitzen | State-Backend-Zugriff nur über Hook- oder Project-Edge-Principals; CLI-Principals sind menschlich | Nein — Credentials bleiben außerhalb der Agent-Prompts und Workspaces |
 | Backend-Zugriff nur im Projekt-Scope | Principals sind auf genau einen `project_key` oder einen expliziten Admin-Scope begrenzt | Nein — Row-/Schema-Scope liegt außerhalb der Agent-Kontrolle |
-| Adversarial darf nur in Sandbox schreiben | CCAG-Regel `scope: subagent` | Nein — CCAG ist Hook-basiert |
+| Adversarial darf nur in Sandbox schreiben | dedizierter Adversarial-Guard | Nein — Hook ist Plattform-Infrastruktur |
 | Branch-Guard (Story-Execution) | `branch_guard.py` (PreToolUse-Hook) + aktiver Lock-/Run-Record | Nein — Hook + State-Backend |
 | QA-Agent darf keinen Code editieren | PreToolUse-Guard auf Write/Edit für Principal `qa` — erlaubt nur Lesen und Test-Ausführung | Nein — Hook-basiert, analog zum Orchestrator-Guard |
 | Force-Push verboten | `branch_guard.py` | Nein — auch im AI-Augmented-Modus aktiv (Sonderregel, s.u.) |
@@ -216,7 +216,7 @@ Der Structural Check `security.secrets` (Schicht 1 des QA-Subflows
 innerhalb der Implementation-Phase) prueft den vollstaendigen
 Git-Diff nochmals als Absicherung — falls
 der Pre-Commit-Hook umgangen wurde (z.B. `--no-verify`, was aber
-durch CCAG blockierbar ist).
+durch den Self-Protection-Guard blockierbar ist).
 
 **Geprüfte Patterns (beide Stufen identisch):**
 
@@ -344,7 +344,6 @@ Agent lernt, den Guard gezielt zu umgehen.
 | Orchestrator-Guard | `"Operation not permitted."` | — |
 | QA-Artefakt-Schutz | `"Operation not permitted."` | — |
 | Integrity-Gate | `"GOVERNANCE VIOLATION DETECTED. Immediately stop all work."` | Fehler-Codes im Violation-Record des State-Backends |
-| CCAG (Lock-record-basiert) | `"Operation not permitted."` | Lock-Record zeigt Story-ID und Scope |
 
 ### 15.6.3 Audit-Log
 
@@ -372,7 +371,6 @@ Governance selbst zu manipulieren:
 | Manipulationsversuch | Erkennung | Reaktion |
 |---------------------|-----------|---------|
 | Agent ändert harness-spezifische Hook-Settings (z. B. `.claude/settings.json` fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-76 §76.5) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
-| Agent ändert CCAG-Regeln (kanonisch `.agentkit/ccag/rules/*.yaml`; harness-spezifische Symlinks z. B. `.claude/ccag/rules/`) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent ändert `.agentkit/config/project.yaml` | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
 | Agent versucht Edge-Bundle- oder Lock-Mechanismus lokal zu umgehen | Hook-Signal: Governance-Datei verändert oder fehlender offizieller Project-Edge-Write-Pfad | Sofortiger Stopp |
 | Agent ändert harness-spezifische Skill-Symlinks (z. B. `.claude/skills/` fuer Claude Code; FK-76) | Hook-Signal: Governance-Datei verändert | Sofortiger Stopp |
@@ -381,10 +379,8 @@ Governance selbst zu manipulieren:
 **Geschützte Pfade** (immer, unabhängig vom Betriebsmodus; harness-spezifische Pfade sind Beispiele und werden vom jeweiligen Adapter eingebracht — siehe FK-76):
 
 ```
-.agentkit/ccag/rules/                  # kanonischer CCAG-Regelpfad
 .agentkit/config/project.yaml
 .claude/settings.json                  # Beispiel: Claude-Code-Adapter
-.claude/ccag/rules/                    # Beispiel: Symlink fuer Claude Code
 .claude/skills/                        # Beispiel: Symlink fuer Claude Code
 .codex/config.toml                     # Beispiel: Codex-Adapter
 _temp/governance/
@@ -408,7 +404,7 @@ Zentrale Lock-Records können vom Agent nicht manipuliert werden, weil:
 
 1. Lock-Records liegen im State-Backend (geschützter Zustandsraum)
 2. Nur Pipeline-Skripte (Zone 2) schreiben Lock-Records
-3. Der CCAG-/Guard-Pfad blockiert unzulässige Sub-Agent-Aktionen
+3. Der Guard-Pfad blockiert unzulässige Sub-Agent-Aktionen
 4. Locks enden nie automatisch (kein PID-/TTL-Mechanismus), sondern
    nur über offizielle Pfade — Closure, Exit, Reset, Split,
    Ownership-Transfer (Kap. 02.7); explizites, auditiertes Handeln

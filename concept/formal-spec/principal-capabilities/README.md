@@ -15,5 +15,6 @@ Ergaenzende Prosa-Konzepte:
 
 Der Kontext ist bewusst querschnittlich: Er ist keine neue
 Laufzeitkomponente neben dem GuardSystem, sondern der formale Vertrag,
-nach dem GuardSystem, CCAG und offizielle Servicepfade geschnitten
-werden.
+nach dem GuardSystem und offizielle Servicepfade geschnitten werden. Der
+``ccag_gatekeeper`` bleibt nur als katalogisierter Matcher ohne eigene
+Freigabe- oder Blockadeautoritaet registriert.

@@ -5,7 +5,7 @@ bleiben)``) and ``formal.operating-modes.invariants``:
 
 * ``baseline_guards_apply_in_all_modes`` -- the BASELINE guards stay active in
   EVERY operating mode, including fast: destructive-git protection, secrets
-  protection, self-protection and CCAG (FK-30 §30.5.4 / §42).
+  protection, self-protection and the matcher-only CCAG hook (FK-30 §30.5.4 / §42).
 * ``story_mode_fast_disables_story_scoped_guards_only`` -- ``mode == fast``
   deactivates ONLY the STORY-SCOPED guards (the per-story branch/scope-overlap/
   artifact/lock-record guards activated for a governing run) and creates NO
@@ -45,7 +45,7 @@ BASELINE_GUARD_IDS: frozenset[str] = frozenset(
         "branch_guard",  # FK-30 §30.5.4/§31.1 destructive-git protection (BASELINE)
         "self_protection",  # FK-30 §30.5.3 governance self-protection
         "secrets_protection",  # FK-30 secrets protection (path-class SECRET)
-        "ccag_gatekeeper",  # FK-42 CCAG permission runtime
+        "ccag_gatekeeper",  # FK-42 retained matcher-only hook
         "story_creation_guard",  # FK-31 §31.5 always-on story-creation guard
     }
 )

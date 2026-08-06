@@ -34,8 +34,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.backend.boundary.filesystem import assert_project_local_file_path
 from agentkit.backend.installer.registration import CheckpointResult, CheckpointStatus
 from agentkit.backend.installer.upgrade.cleanup import run_cleanup
 from agentkit.backend.installer.upgrade.config_migration import migrate_config_file
@@ -59,7 +61,6 @@ from agentkit.backend.process.language.model import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from agentkit.backend.governance.hook_registration import HookDefinition
     from agentkit.backend.installer.checkpoint_engine.engine import CheckpointHandler
@@ -103,7 +104,6 @@ class UpgradeRequest:
             currently bound version (§51.3 criterion).
         explicit_binding_switch: Whether the operator explicitly switched the
             project binding to the new bundle/profile (§51.3.3 — no auto pull).
-        is_subagent: Scope flag forwarded to the CCAG footprint source.
         skills: The agent-skills top surface for the skill-binding footprint
             source (DI; defaults to the productive surface).
         governance: The governance top surface for the §51.6 hook migration
@@ -121,7 +121,6 @@ class UpgradeRequest:
     registration_repo: ProjectRegistrationRepository
     bundle_version_changed: bool = False
     explicit_binding_switch: bool = False
-    is_subagent: bool = False
     skills: Skills | None = None
     governance: HookRegistrationSurface | None = None
     desired_hook_definitions: list[HookDefinition] | None = None
@@ -146,6 +145,7 @@ class UpgradeRunState:
     claude_hook_settings_migrated: bool = False
     git_hook_outcome: GitHookMigrationOutcome | None = None
     cleanup_outcome: CleanupOutcome | None = None
+    obsolete_permission_rule_files_removed: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,7 +188,7 @@ def up_01_detect_footprint(context: UpgradeRunContext) -> CheckpointResult:
     Read-only in every mode (a read aggregate, never a mutation). Records the
     footprint and the decision on the run state for the later write paths.
     """
-    from agentkit.backend.installer.paths import project_config_path
+    from agentkit.backend.installer.paths import CONFIG_DIR, PROJECT_CONFIG_FILE
     from agentkit.backend.installer.upgrade._digest import config_file_digest
 
     start = time.monotonic()
@@ -197,12 +197,14 @@ def up_01_detect_footprint(context: UpgradeRunContext) -> CheckpointResult:
         req.project_root,
         registration_repo=req.registration_repo,
         project_key=req.project_key,
-        is_subagent=req.is_subagent,
         skills=req.skills,
     )
     registration = req.registration_repo.get(req.project_key)
     registered_digest = registration.config_digest if registration is not None else ""
-    config_path = project_config_path(req.project_root)
+    config_path = assert_project_local_file_path(
+        req.project_root,
+        Path(CONFIG_DIR) / PROJECT_CONFIG_FILE,
+    )
     on_disk_digest = (
         config_file_digest(config_path) if config_path.is_file() else registered_digest
     )
@@ -314,12 +316,17 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
     FK-prescribed path and the human re-applies edits. Read-only modes report the
     planned migration without writing (FK-50 §50.2).
     """
-    from agentkit.backend.installer.paths import project_config_path
-    from agentkit.backend.installer.upgrade.config_migration import read_config_version
+    from agentkit.backend.installer.paths import CONFIG_DIR, PROJECT_CONFIG_FILE
+    from agentkit.backend.installer.upgrade.config_migration import migrate_config
 
     start = time.monotonic()
     req = context.request
-    config_path = project_config_path(req.project_root)
+    # Repeat containment at the side-effect checkpoint: an ancestor could have
+    # been swapped after UP 01's read-only inspection (TOCTOU fail-closed).
+    config_path = assert_project_local_file_path(
+        req.project_root,
+        Path(CONFIG_DIR) / PROJECT_CONFIG_FILE,
+    )
     if not config_path.is_file():
         return _result(
             UP_03_MIGRATE_CONFIG,
@@ -331,13 +338,17 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
     import yaml
 
     loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    current = read_config_version(loaded) if isinstance(loaded, dict) else None
-    needs_migration = current is not None and current != req.target_config_version
+    migrated_config = (
+        migrate_config(dict(loaded), req.target_config_version)
+        if isinstance(loaded, dict)
+        else None
+    )
+    needs_migration = migrated_config is not None and migrated_config != loaded
     if not needs_migration:
         return _result(
             UP_03_MIGRATE_CONFIG,
             status=CheckpointStatus.PASS,
-            detail="config already at target version; no migration.",
+            detail="config already at target shape and version; no migration.",
             start=start,
         )
     if not context.mode.mutations_allowed:
@@ -346,8 +357,9 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
             UP_03_MIGRATE_CONFIG,
             status=CheckpointStatus.SKIPPED,
             detail=(
-                f"[plan] Would write `.bak` and migrate config to "
-                f"{req.target_config_version} (no mutation in read-only mode)."
+                "[plan] Would write `.bak`, remove retired config keys, and "
+                f"migrate config to {req.target_config_version} "
+                "(no mutation in read-only mode)."
             ),
             reason="planned_no_mutation",
             start=start,
@@ -361,7 +373,8 @@ def up_03_migrate_config(context: UpgradeRunContext) -> CheckpointResult:
         UP_03_MIGRATE_CONFIG,
         status=CheckpointStatus.UPDATED if migrated else CheckpointStatus.PASS,
         detail=(
-            f"Migrated config to {req.target_config_version} (.bak written)."
+            "Migrated config shape and version to "
+            f"{req.target_config_version} (.bak written)."
             if migrated
             else "config already current; no migration."
         ),
@@ -460,51 +473,60 @@ def up_05_migrate_git_hook(context: UpgradeRunContext) -> CheckpointResult:
 
 
 def up_06_cleanup(context: UpgradeRunContext) -> CheckpointResult:
-    """Run the §51.7 cleanup mode fail-closed against the footprint (AC6/AC8).
+    """Run §51.7 cleanup and remove obsolete CCAG permission-rule files.
 
-    No-op when the request carries no cleanup plan. Read-only modes do not mutate
-    (cleanup deletes files); register mode runs :func:`run_cleanup`, which raises
-    :class:`CustomizationPreservationError` if a target is a detected
-    customization (F-51-023, fail-closed — no partial deletion).
+    Read-only modes do not mutate. Register mode first runs an optional typed
+    cleanup plan, which remains protected by F-51-023, and then unconditionally
+    removes the three permission-rule files retired by AG3-226. Those files are
+    not customizations anymore because the productive permission authority and
+    every reader have been removed.
     """
     start = time.monotonic()
     req = context.request
-    if req.cleanup_plan is None:
-        return _result(
-            UP_06_CLEANUP,
-            status=CheckpointStatus.PASS,
-            detail="No cleanup plan; nothing to clean up.",
-            start=start,
-        )
-    footprint = context.run_state.footprint
-    assert footprint is not None  # up_01 ran first (spine order)
     if not context.mode.mutations_allowed:
         return _result(
             UP_06_CLEANUP,
             status=CheckpointStatus.SKIPPED,
-            detail="[plan] Would run cleanup fail-closed against the footprint.",
+            detail=(
+                "[plan] Would run optional cleanup fail-closed against the "
+                "footprint and remove obsolete CCAG permission-rule files."
+            ),
             reason="planned_no_mutation",
             start=start,
         )
-    outcome = run_cleanup(req.cleanup_plan, footprint)
-    context.run_state.cleanup_outcome = outcome
+    outcome = None
+    if req.cleanup_plan is not None:
+        footprint = context.run_state.footprint
+        assert footprint is not None  # up_01 ran first (spine order)
+        outcome = run_cleanup(req.cleanup_plan, footprint)
+        context.run_state.cleanup_outcome = outcome
+
+    from agentkit.backend.installer.ccag_settings import (
+        remove_obsolete_permission_rule_files,
+    )
+
+    obsolete_removed = tuple(remove_obsolete_permission_rule_files(req.project_root))
+    context.run_state.obsolete_permission_rule_files_removed = obsolete_removed
+    cleanup_removed_count = len(outcome.removed) if outcome is not None else 0
+    changed = cleanup_removed_count > 0 or bool(obsolete_removed)
     return _result(
         UP_06_CLEANUP,
-        status=(
-            CheckpointStatus.UPDATED if outcome.removed else CheckpointStatus.PASS
+        status=CheckpointStatus.UPDATED if changed else CheckpointStatus.PASS,
+        detail=(
+            f"Removed {cleanup_removed_count} planned obsolete target(s) and "
+            f"{len(obsolete_removed)} obsolete CCAG permission-rule file(s)."
         ),
-        detail=f"Removed {len(outcome.removed)} obsolete target(s).",
         start=start,
     )
 
 
 def _build_default_hook_definitions() -> list[HookDefinition]:
     """Return the productive default hook definitions (§51.6 desired set)."""
-    from agentkit.backend.governance.default_hook_definitions import (
-        build_default_hook_definitions,
+    from agentkit.backend.installer.ccag_settings import (
+        build_installed_hook_definitions,
     )
 
-    return build_default_hook_definitions()
+    return build_installed_hook_definitions()
 
 
 def build_upgrade_flow() -> FlowDefinition:

@@ -105,8 +105,8 @@ transparent als Dateien konsumiert — ein Remote-/HTTP-Zugriff ist für den
 Harness nicht transparent (Harness-Transparenz-Constraint). Die kanonische
 Quelle der Bundles ist zentral (versionierte Registry), die Materialisierung
 erfolgt pro Rechner (Sync, `manifest-contract`-gepinnt, DK-08) — dasselbe
-Muster „kanonisch zentral, lokal materialisiert" wie Edge-Bundle (FK-30) und
-Permission-Export (FK-55). Der Project-Space-Symlink kollabiert nur die
+Muster „kanonisch zentral, lokal materialisiert" wie das Edge-Bundle (FK-30).
+Der Project-Space-Symlink kollabiert nur die
 Duplikation *innerhalb* eines Rechners (alle Project Spaces → eine rechnerweite
 Bundle-Materialisierung); er verweist nie auf den entfernten Core. Die
 drei Installationsebenen (zentral / Entwicklermaschine / Projektraum)
@@ -274,7 +274,7 @@ Dieses Kapitel enthaelt nur die uebergeordneten Prinzipien:
 | Familie | Leitende Komponenten |
 |---------|----------------------|
 | Story-, Planungs- und Ausfuehrungskern | `StoryContextManager`, `ExecutionPlanningService`, `PipelineEngine`, `StoryExecutionLifecycleService`, `WorktreeManager` |
-| Governance- und QA-Kern | `GuardSystem`, `CcagPermissionRuntime`, `ConformanceService`, `StageRegistry`, `GovernanceObserver`, `FailureCorpus` |
+| Governance- und QA-Kern | `GuardSystem`, `CcagMatcherCatalog`, `ConformanceService`, `StageRegistry`, `GovernanceObserver`, `FailureCorpus` |
 | Inhalts- und Runtime-Services | `ArtifactManager`, `PromptComposer`, `LlmEvaluator`, `TelemetryService`, `PhaseStateStore` |
 | Analytics- und Produktoberflaeche | `KpiAnalyticsEngine`, `DashboardApplication` |
 | Bootstrap und Projektbindung | `Installer` |
@@ -286,7 +286,7 @@ Dieses Kapitel enthaelt nur die uebergeordneten Prinzipien:
 | `PipelineEngine` vs. Phasen | Die Engine ist Top-Level; die Phasen sind ihre Subkomponenten. `PreflightChecker`, `ModeResolver`, `StructuralChecker`, `PolicyEngine` und `IntegrityGate` sind wiederum phasennahe Subkomponenten |
 | `ExecutionPlanningService` vs. `PipelineEngine` | Planung bestimmt `READY`, `blocked`, Wellen und Parallelisierungsbudgets; die `PipelineEngine` fuehrt nur bereits zugelassene Story-Runs aus |
 | `StageRegistry` | Bleibt Top-Level, weil sie sowohl von der Capability `VerifySystem` (im QA-Subflow innerhalb der Implementation- und Exploration-Phase) als auch vom `FailureCorpus` genutzt wird; sie darf nicht in `VerifySystem` aufgehen |
-| `GuardSystem` vs. `CcagPermissionRuntime` | CCAG ist **nicht** Teil des GuardSystems. Guards erzwingen harte Regeln; CCAG verwaltet lernfaehige, vom Menschen freigegebene Permission-Pfade |
+| `GuardSystem` vs. `CcagMatcherCatalog` | Guards und Principal Capabilities erzwingen Regeln. CCAG bewahrt nur Hook-Registrierung und Matcher-Katalog und trifft keine Freigabeentscheidung |
 | `PromptComposer` vs. Prompt-Integritaet | Der Composer assembliert Prompts. Sentinel-/Spawn-Integritaet und Governance-Escape-Erkennung gehoeren zum Guard-/Hook-System, nicht zum Composer |
 | Externe Integrationen | GitHub, LLM-Hub, ARE und VectorDB bleiben getrennte Adapter; `IntegrationHub` ist kein normativer Top-Level-Baustein |
 
@@ -423,7 +423,7 @@ technische Mechanismen erzwungen:
 | Orchestrator | Darf nicht auf Codebase zugreifen | `orchestrator_guard.py` (PreToolUse-Hook) |
 | Worker | Darf keine QA-Artefakte schreiben | `integrity.py` (PreToolUse-Hook) |
 | QA-Agent (Bewertungsfunktion) | Hat keinen Dateisystem-Zugriff | Läuft als Pool-Call, nicht als Agent |
-| Adversarial Agent | Darf nur Test-Dateien schreiben | CCAG-Regel oder dedizierter Guard |
+| Adversarial Agent | Darf nur Test-Dateien schreiben | dedizierter Guard |
 
 ### P5: Multi-LLM als Pflicht
 

@@ -48,7 +48,6 @@ from agentkit.backend.control_plane_http.default_routes import (
     _build_default_hub_routes,
     _build_default_installer_writer_routes,
     _build_default_kpi_analytics_routes,
-    _build_default_permission_routes,
     _build_default_planning_routes,
     _build_default_project_routes,
     _build_default_read_model_routes,
@@ -165,7 +164,6 @@ _PROJECT_STRATEGIST_ADMIN_ROUTE_PATTERNS = (
     re.compile(r"^/v1/project-edge/operations/[^/]+/admin-abort$"),
     re.compile(r"^/v1/projects/[^/]+/stories/[^/]+/(?:split|reset|exit)$"),
     re.compile(r"^/v1/projects/[^/]+/failure-corpus(?:/|$)"),
-    re.compile(r"^/v1/governance/permission-(?:requests|leases)$"),
 )
 _PROJECT_CREDENTIAL_TRANSITION_PATH = re.compile(
     r"^/v1/projects(?:$|/[^/]+/(?:api-tokens(?:/[^/]+)?|"
@@ -470,9 +468,6 @@ class ControlPlaneApplication(
         self._takeover_frontend_dispatcher = TakeoverFrontendDispatcher(
             r.takeover_approval_routes or _build_default_takeover_approval_routes(),
             self._telemetry_routes,
-        )
-        self._permission_routes = (
-            r.permission_routes or _build_default_permission_routes()
         )
         self._third_party_validation_routes = (
             r.third_party_validation_routes
@@ -811,11 +806,6 @@ class ControlPlaneApplication(
         if takeover_response is not None:
             return takeover_response
         if method == "GET":
-            permission_response = self._permission_routes.handle_get(
-                route_path, query, correlation_id, auth_result,
-            )
-            if permission_response is not None:
-                return permission_response
             third_party_response = self._third_party_validation_routes.handle_get(
                 route_path, correlation_id,
             )
@@ -1171,11 +1161,6 @@ class ControlPlaneApplication(
         correlation_id: str,
         auth_result: AuthResult | None,
     ) -> HttpResponse | None:
-        permission_response = self._permission_routes.handle_post(
-            route_path, payload, correlation_id, auth_result,
-        )
-        if permission_response is not None:
-            return permission_response
         takeover_response = dispatch_project_edge_takeover_post(
             route_path=route_path,
             payload=payload,

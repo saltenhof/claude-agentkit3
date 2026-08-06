@@ -2,7 +2,7 @@
 
 The ``CustomizationFootprint`` is a READ-ONLY aggregate owned by BC
 ``installation-and-bootstrap`` that detects which AgentKit-managed surfaces a
-project has deliberately customised. It combines FOUR owner-BC sources, each
+project has deliberately customised. It combines three owner-BC sources, each
 read ONLY through the owner's canonical top/read surface — never through a
 direct filesystem reach into a foreign BC's internal structures (FK-51 §51.8,
 story §5 / §6):
@@ -12,12 +12,10 @@ story §5 / §6):
    ``config_digest`` (``ProjectRegistration.config_digest``). The config is read
    through ``load_project_config`` (the model is the owner surface; the digest is
    the customization key). A digest mismatch means the user edited the config.
-2. CCAG rules (BC ``governance-and-guards``): read through ``load_rules`` — any
-   project-local rule beyond the empty baseline is a customization.
-3. Prompt bundle binding (BC ``prompt-runtime``): read through
+2. Prompt bundle binding (BC ``prompt-runtime``): read through
    ``resolve_project_prompt_binding`` -> ``PromptBundleBinding``. A binding pinned
    to a non-default bundle/version is a deliberate customization.
-4. Skill binding (BC ``agent-skills``): read through ``Skills.resolve_binding`` —
+3. Skill binding (BC ``agent-skills``): read through ``Skills.resolve_binding`` —
    a skill pinned to a non-default bundle/version is a deliberate customization.
 
 **Invariant F-51-023 (never silently overwrite):** a write path in CLEANUP or a
@@ -44,17 +42,15 @@ if TYPE_CHECKING:
 
 
 class CustomizationKind(StrEnum):
-    """The four FK-51 §51.8 customization sources (typed, not strings).
+    """The active FK-51 §51.8 customization sources (typed, not strings).
 
     Attributes:
         PIPELINE_CONFIG: A pipeline-config threshold edit (digest mismatch).
-        CCAG_RULE: A project-specific CCAG rule.
         PROMPT_BINDING: A deliberate prompt-bundle binding.
         SKILL_BINDING: A deliberate skill binding.
     """
 
     PIPELINE_CONFIG = "pipeline_config"
-    CCAG_RULE = "ccag_rule"
     PROMPT_BINDING = "prompt_binding"
     SKILL_BINDING = "skill_binding"
 
@@ -151,7 +147,6 @@ class CustomizationFootprint:
         *,
         registration_repo: ProjectRegistrationRepository,
         project_key: str,
-        is_subagent: bool = False,
         skills: Skills | None = None,
     ) -> CustomizationFootprint:
         """Detect customizations across the four owner surfaces (FK-51 §51.8).
@@ -166,7 +161,6 @@ class CustomizationFootprint:
             registration_repo: The CP 7 registration read surface (the registered
                 ``config_digest`` is the pipeline-config customization key).
             project_key: The project key used to look up the registration.
-            is_subagent: Scope flag forwarded to ``load_rules`` (CCAG source).
             skills: The agent-skills top surface to read skill bindings through
                 (DI). When ``None`` the default productive surface is built
                 (``Skills.resolve_binding`` is still the only access path — this
@@ -179,7 +173,6 @@ class CustomizationFootprint:
         points.extend(
             _detect_pipeline_config(project_root, registration_repo, project_key)
         )
-        points.extend(_detect_ccag_rules(project_root, is_subagent=is_subagent))
         points.extend(_detect_prompt_binding(project_root))
         points.extend(_detect_skill_bindings(project_root, skills=skills))
         return cls(points=tuple(points))
@@ -236,32 +229,6 @@ def _detect_pipeline_config(
                 "the user edited the pipeline config."
             ),
         ),
-    )
-
-
-def _detect_ccag_rules(
-    project_root: Path, *, is_subagent: bool
-) -> Iterable[CustomizationPoint]:
-    """Detect project-specific CCAG rules via ``load_rules`` (owner surface).
-
-    Reads the project's CCAG rule set through the runtime read surface
-    ``load_rules`` (BC ``governance-and-guards``). Any block/allow rule present is
-    a project-specific customization (the baseline ships no project rules).
-    """
-    from agentkit.backend.governance.ccag.rules import DEFAULT_RULES_SUBDIR, load_rules
-
-    rules_dir = project_root / DEFAULT_RULES_SUBDIR
-    if not rules_dir.is_dir():
-        return ()
-    rule_set = load_rules(is_subagent, rules_dir=rules_dir)
-    rules = (*rule_set.blocks, *rule_set.allows)
-    return tuple(
-        CustomizationPoint(
-            kind=CustomizationKind.CCAG_RULE,
-            identifier=f"ccag:{rule.rule_id}",
-            detail=f"Project-specific CCAG rule {rule.rule_id!r} present.",
-        )
-        for rule in rules
     )
 
 

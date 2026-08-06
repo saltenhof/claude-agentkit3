@@ -36,10 +36,7 @@ from typing import Protocol, runtime_checkable
 # the run-binding classifier ``control_plane.runtime``; the ``control_plane.models``
 # read models; ``governance.guard_evaluation`` + the integrity-gate mode guard)
 # RE-IMPORTS this exact literal rather than redeclaring it -- ONE definition, no
-# drift. The CCAG permission-decision axis (``story_execution``/``ai_augmented``/
-# ``interactive_agent``) is a DIFFERENT axis (FK-42 §42.2.5 / FK-56 §56.4: the
-# ``interactive_agent`` is a PRINCIPAL, not a binding-validity state) and is
-# deliberately NOT this type (see ``governance.ccag.runtime.CcagDecisionMode``).
+# drift.
 from agentkit.backend.core_types.operating_mode import OperatingMode
 
 

@@ -98,6 +98,26 @@ class ProjectRegistrationListResponse(BaseModel):
     registrations: tuple[dict[str, object], ...]
 
 
+class ProjectRegistrationUpgradeRequest(BaseModel):
+    """Persist a digest with a server-verifiable AK3 migration witness."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op_id: str = Field(min_length=1)
+    new_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_project_yaml: dict[str, object]
+    migrated_project_yaml: dict[str, object]
+
+
+class ProjectRegistrationMutationResponse(BaseModel):
+    """Acknowledgement of a writer-owned registration lifecycle mutation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str
+    action: str
+
+
 class GovernanceHookRegistrationRequest(BaseModel):
     """Persist the CP9/UP04 hook definitions inside the active writer."""
 
@@ -140,7 +160,9 @@ __all__ = [
     "GovernanceHookRegistrationResponse",
     "InstallerWriterReadyResponse",
     "ProjectRegistrationListResponse",
+    "ProjectRegistrationMutationResponse",
     "ProjectRegistrationReadResponse",
+    "ProjectRegistrationUpgradeRequest",
     "RegisterProjectStateRequest",
     "SkillBindingDeleteRequest",
     "SkillBindingListResponse",

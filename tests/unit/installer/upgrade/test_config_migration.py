@@ -23,6 +23,7 @@ from agentkit.backend.installer.upgrade.config_migration import (
     migrate_3_to_4,
     migrate_config,
     migrate_config_file,
+    remove_obsolete_permission_config,
 )
 
 if TYPE_CHECKING:
@@ -51,6 +52,26 @@ def test_migrate_config_already_at_target_is_noop() -> None:
 
     assert result == existing
     assert result is not existing  # a copy, never the same object
+
+
+def test_remove_obsolete_permission_config_preserves_unknown_siblings() -> None:
+    """Only the procedure-owned stanza is removed; foreign siblings survive."""
+    existing = _cfg("4.0")
+    existing["pipeline"] = {
+        "config_version": "4.0",
+        "permissions": {"request_ttl_s": 1800, "foreign_nested": True},
+        "foreign_extension": {"keep": True},
+    }
+
+    result = remove_obsolete_permission_config(existing)
+
+    assert result == {
+        "pipeline": {
+            "config_version": "4.0",
+            "foreign_extension": {"keep": True},
+        }
+    }
+    assert "permissions" in existing["pipeline"]  # type: ignore[operator]
 
 
 def test_migrate_config_stepwise_no_jump_skip() -> None:
@@ -154,6 +175,34 @@ def test_migrate_config_file_already_current_no_backup(tmp_path: Path) -> None:
 
     assert migrated is False
     assert not config.with_name("project.yaml" + BACKUP_SUFFIX).exists()
+
+
+def test_migrate_config_file_cleans_obsolete_stanza_at_current_version(
+    tmp_path: Path,
+) -> None:
+    """Schema cleanup runs even without a config-version jump and is backed up."""
+    config = tmp_path / "project.yaml"
+    old_content = (
+        "pipeline:\n"
+        "  config_version: '4.0'\n"
+        "  permissions:\n"
+        "    request_ttl_s: 1800\n"
+        "  foreign_extension:\n"
+        "    keep: true\n"
+    )
+    config.write_text(old_content, encoding="utf-8")
+
+    migrated = migrate_config_file(config, "4.0")
+
+    assert migrated is True
+    assert config.with_name("project.yaml" + BACKUP_SUFFIX).read_text(
+        encoding="utf-8"
+    ) == old_content
+    on_disk = yaml.safe_load(config.read_text(encoding="utf-8"))
+    assert on_disk["pipeline"] == {
+        "config_version": "4.0",
+        "foreign_extension": {"keep": True},
+    }
 
 
 def test_migrate_config_file_unknown_version_fails_closed(tmp_path: Path) -> None:

@@ -138,6 +138,25 @@ Enthaelt nur rebuildbare Lesemodelle.
 - `phase_snapshots`
 - `kpi_projections`
 
+### 18.3.7 Tote CCAG-Tabellen in Altbestaenden
+
+**Owner:** `state_backend` (physische Altbestandsverantwortung).
+**Produktentscheid:** Product Owner, 2026-08-06.
+
+Die Tabellen `ccag_permission_requests` und `ccag_permission_leases` sind
+**tot**. Sie koennen in bereits initialisierten SQLite- und PostgreSQL-Backends
+physisch weiterbestehen, werden aber von keinem produktiven Code gelesen oder
+geschrieben. Es gibt keinen produktiven Pfad, der neue Zeilen anlegt oder
+bestehende Zeilen wieder fachlich wirksam macht.
+
+Der Product Owner hat am 2026-08-06 bewusst die nicht-destruktive Behandlung
+entschieden: Altbestaende behalten die Tabellen; es gibt weder `DROP` noch
+Schema-Migration oder Reset. Die physische Altbestandsverantwortung bleibt bis
+zu einer neuen Product-Entscheidung beim `state_backend` und ist damit nicht
+heimatlos. **Neue** SQLite- und PostgreSQL-Backends legen beide Tabellen nicht
+mehr an. Sie gehoeren weder zu einer aktiven Table-Family noch zum kanonischen
+relationalen Zielmodell.
+
 ## 18.4 Tabellen pro Entität
 
 | FK-17 Entität | Logische Tabelle | Modelltyp |

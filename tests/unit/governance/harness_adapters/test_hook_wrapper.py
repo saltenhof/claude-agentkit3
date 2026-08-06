@@ -207,10 +207,10 @@ class TestDispatcherAllHookIds:
         # AG3-032 ERROR C / FK-55 §55.6.1 (mode-scharf): an UNKNOWN tool (Task /
         # TodoWrite / …) is an UNKNOWN PERMISSION. The enforcement signals
         # UNKNOWN_PERMISSION (the matrix is NOT consulted for an ALLOW). OUTSIDE a
-        # story run (here: ai_augmented, no .agentkit/) the runner defers it to an
-        # external prompt / CCAG rather than hard-blocking generic interactive
-        # work — so the event flows to the legacy guards / CCAG and is allowed
-        # (exit 0). Only story_execution would hard-block + open a request.
+        # story run (here: ai_augmented, no .agentkit/) the runner defers it to the
+        # harness rather than hard-blocking generic interactive work, so the event
+        # reaches the matcher-only CCAG endpoint and is allowed (exit 0).
+        # story_execution blocks the unknown operation directly.
         event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
         monkeypatch.setattr("sys.stdin", io.StringIO(event))
         monkeypatch.chdir(tmp_path)

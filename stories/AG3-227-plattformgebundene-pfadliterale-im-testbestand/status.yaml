@@ -1,0 +1,33 @@
+story_id: AG3-227
+story_title_short: "plattformgebundene-pfadliterale-im-testbestand"
+title: "249 hartcodierte Laufwerksliterale in 43 Testdateien: der Testbestand traegt eine Plattformannahme, die Jenkins auf Linux nicht teilt -- die Inventur wird bewertet und bereinigt."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-06"
+size: L
+# Herkunft: AG3-189 R23 (2026-08-06). Jenkins #1241 meldete sieben
+# Fehlschlaege, deren Ursache zur Haelfte hartcodierte Windows-Pfadliterale in
+# Tests waren -- `C:/proj` und `T:/project` sind auf POSIX RELATIVE Pfade.
+#
+# Die andere Haelfte war ein echter Produktionsdefekt, den dieselbe
+# Plattformannahme jahrelang verdeckt hat: Auf Linux ist der venv-Interpreter
+# ein terminaler Symlink, der Eigentumsbeweis verwarf jeden Symlink -- Detach
+# hat auf Linux NIE funktioniert. Kein Windows-Test konnte das finden.
+#
+# Der beauftragte Abschluss-Sweep hat die Klasse vermessen:
+#
+#   252 Laufwerksliteral-Treffer in 45 Testdateien
+#     davon 3 in den 2 mandatierten Dateien (behoben)
+#   249 Treffer in 43 Dateien AUSSERHALB des Mandats
+#   0 WindowsPath/PosixPath-Konstruktionen ausserhalb des Mandats
+#   dazu Backslash-/UNC-Fundstellen ohne Laufwerksliteral in 6 weiteren Dateien
+#
+# WICHTIG -- die Zahl ist eine Inventur, KEINE Defektliste. Der Sub-Agent hat
+# ausdruecklich festgehalten: "Die Treffer sind eine Inventarliste, keine
+# Behauptung, dass jeder davon defekt ist. Viele sind bewusst opaque
+# Wire-Werte oder explizite Windows-Gegenbeispiele." Ein Auftrag, der alle 249
+# Treffer pauschal ersetzt, zerstoert genau die Faelle, die absichtlich
+# Windows-Semantik pruefen.
+depends_on: ["AG3-189"]
+unblocks: []

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import urllib.parse
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Never, cast
 
+import yaml
+
+from agentkit.backend.boundary.filesystem import assert_project_local_file_path
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.governance.errors import HookRegistrationError
 from agentkit.backend.governance.hook_registration import (
@@ -19,7 +23,9 @@ from agentkit.backend.installer.http_models import (
     GovernanceHookRegistrationResponse,
     InstallerWriterReadyResponse,
     ProjectRegistrationListResponse,
+    ProjectRegistrationMutationResponse,
     ProjectRegistrationReadResponse,
+    ProjectRegistrationUpgradeRequest,
     RegisterProjectStateRequest,
     SkillBindingDeleteRequest,
     SkillBindingListResponse,
@@ -37,7 +43,6 @@ from agentkit.backend.skills import SkillBinding
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
-    from pathlib import Path
 
     from agentkit.backend.governance.repository import HookRegistrationRepository
     from agentkit.backend.state_backend.store.lock_record_repository import (
@@ -186,14 +191,69 @@ class WriterProjectRegistrationRepository:
         upgraded_at: datetime,
         new_digest: str,
     ) -> None:
-        """Reject repository-level mutation; CP7 is the sole aggregate command."""
+        """Persist the digest after an AK3-owned migration through the writer."""
 
-        del project_key, upgraded_at, new_digest
-        raise RuntimeError("CP7 project state mutations require the aggregate writer route")
+        self._assert_scope(project_key)
+        registration = self.get(project_key)
+        if registration is None:
+            raise RuntimeError("cannot update a missing project registration")
+        from agentkit.backend.installer.paths import CONFIG_DIR, PROJECT_CONFIG_FILE
+        from agentkit.backend.installer.runner import _canonical_config_digest
+
+        relative_config = Path(CONFIG_DIR) / PROJECT_CONFIG_FILE
+        config_path = assert_project_local_file_path(
+            registration.project_root,
+            relative_config,
+        )
+        backup_path = assert_project_local_file_path(
+            registration.project_root,
+            relative_config.with_name(relative_config.name + ".bak"),
+        )
+        source_project_yaml = _read_project_yaml_mapping(backup_path)
+        migrated_project_yaml = _read_project_yaml_mapping(config_path)
+        if _canonical_config_digest(source_project_yaml) != registration.config_digest:
+            raise RuntimeError(
+                "config migration backup does not match the registered digest baseline"
+            )
+        if _canonical_config_digest(migrated_project_yaml) != new_digest:
+            raise RuntimeError(
+                "current project config does not match the migrated digest"
+            )
+        request = ProjectRegistrationUpgradeRequest(
+            op_id=self._client._child_op_id("project-registration-upgraded"),
+            new_digest=new_digest,
+            source_project_yaml=source_project_yaml,
+            migrated_project_yaml=migrated_project_yaml,
+        )
+        del upgraded_at  # The writer owns the authoritative mutation timestamp.
+        data = self._client._send(
+            method="POST",
+            suffix="/project-registration",
+            payload=request.model_dump(mode="json"),
+        )
+        response = ProjectRegistrationMutationResponse.model_validate(data)
+        if response.project_key != project_key or response.action != "upgraded":
+            raise RuntimeError("installer writer returned an invalid upgrade acknowledgement")
 
     def _assert_scope(self, project_key: str) -> None:
         if project_key != self._client.project_key:
             raise ValueError("installer repository project scope mismatch")
+
+
+def _read_project_yaml_mapping(path: Path) -> dict[str, object]:
+    """Read one migration witness mapping fail-closed."""
+
+    if not path.is_file():
+        raise RuntimeError(f"config migration witness is missing: {path}")
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError(f"config migration witness is unreadable: {path}") from exc
+    if not isinstance(loaded, dict) or not all(
+        isinstance(key, str) for key in loaded
+    ):
+        raise RuntimeError(f"config migration witness is not a string-keyed mapping: {path}")
+    return cast("dict[str, object]", loaded)
 
 
 class WriterSkillBindingRepository:

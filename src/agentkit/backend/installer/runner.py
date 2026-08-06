@@ -1444,8 +1444,8 @@ def _register_default_governance_hooks(
 ) -> list[str]:
     """Register default hooks through the writer and local settings writers."""
 
-    from agentkit.backend.governance.default_hook_definitions import (
-        build_default_hook_definitions,
+    from agentkit.backend.installer.ccag_settings import (
+        build_installed_hook_definitions,
     )
     from agentkit.backend.installer.writer_client import InstallerHookGovernance
 
@@ -1467,7 +1467,7 @@ def _register_default_governance_hooks(
         project_key=config.project_key,
         project_root=root,
     )
-    result = governance.register_hooks(build_default_hook_definitions())
+    result = governance.register_hooks(build_installed_hook_definitions())
     if result.errors:
         raise InstallationError(
             "Default governance hook registration failed.",

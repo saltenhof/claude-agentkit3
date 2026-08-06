@@ -302,7 +302,7 @@ FK-33) **verweisen** hierher. Auszeichnung: **IN** unveraendert /
 | Closure | Guards deaktivieren | **MOD**: no-op (keine Locks aktiv) |
 
 **Was in jedem Modus aktiv bleibt (Baseline-Guards):** destructive git
-protections, secrets protection, CCAG, self-protection
+protections, secrets protection, der autoritaetslose CCAG-Matcher und self-protection
 (`formal.operating-modes.invariant.baseline_guards_apply_in_all_modes`). Fast
 deaktiviert nur die **Story-scoped** Repo-Schutz-Guards (Branch-Guard,
 Scope-Overlap, Lock-Records).

@@ -32,10 +32,6 @@ The named ``story_context_manager.operating_mode_resolver`` A-core stays the
 SSOT *accessor* owner: it re-exports this literal and owns the single
 ``resolve_operating_mode`` accessor consumers route the resolved mode through.
 
-The CCAG permission-decision axis (``governance.ccag.runtime.CcagDecisionMode``:
-``story_execution`` / ``ai_augmented`` / ``interactive_agent``) is a DIFFERENT
-axis (FK-42 §42.2.5 / FK-56 §56.4 -- ``interactive_agent`` is a PRINCIPAL, not a
-binding-validity state) and is deliberately NOT this type.
 """
 
 from __future__ import annotations

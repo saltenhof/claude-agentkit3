@@ -1,8 +1,10 @@
 """Default governance hook definitions for project installation.
 
-This module is the production source for the hook definitions that the
-installer hands to ``Governance.register_hooks``.  The settings writers remain
-generic materializers; this source owns the project-default wiring.
+This module is the production source for the base guard definitions. The
+installer-owned ``build_installed_hook_definitions`` compositor adds the
+matcher-only CCAG endpoint and is the single complete default set handed to
+``Governance.register_hooks``. The settings writers remain generic
+materializers.
 
 AG3-086: the AG3-086 guard-hooks are PERMANENTLY-ACTIVE governance hooks
 (FK-31 §31.7 / FK-30 §30.5.1a / FK-43 §43.6.2). The runner DISPATCHES them, but

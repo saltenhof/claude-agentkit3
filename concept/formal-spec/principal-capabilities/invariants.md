@@ -9,7 +9,6 @@ version: 1
 prose_refs:
   - concept/technical-design/55_principal_capability_model_story_scope_enforcement.md
   - concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md
-  - concept/technical-design/42_ccag_tool_governance_permission_runtime.md
   - concept/technical-design/35_integrity_gate_governance_beobachtung_eskalation.md
 ---
 
@@ -49,9 +48,9 @@ invariants:
   - id: principal-capabilities.invariant.only_official_service_or_human_cli_may_mutate_during_freeze
     scope: governance
     rule: while a conflict_freeze is active only official service principals or explicit human_cli commands may execute mutating recovery paths
-  - id: principal-capabilities.invariant.ccag_never_elevates_hard_capabilities
+  - id: principal-capabilities.invariant.hard_capability_denials_are_final
     scope: governance
-    rule: ccag may not override a hard deny produced by the principal capability matrix or freeze overlay
+    rule: no later hook may override a hard deny produced by the principal capability matrix or freeze overlay
   - id: principal-capabilities.invariant.git_internal_never_mutated_via_free_bash
     scope: governance
     rule: mutations below .git or equivalent repository internals must never be allowed through generic shell operations and require an official service path
@@ -63,33 +62,12 @@ invariants:
     rule: a running story may not swap its authoritative setup snapshot in place; authoritative divergence requires freeze and official resolution
   - id: principal-capabilities.invariant.no_native_prompt_during_story_lock
     scope: governance
-    rule: while a story_execution lock is active an unknown permission may not be delegated to a native host prompt and must resolve to a blocked permission request path
+    rule: while a story_execution lock is active an unknown operation may not be delegated to a native host prompt and must be blocked directly by principal capability enforcement
   - id: principal-capabilities.invariant.run_progress_not_dependent_on_external_permission_ui
     scope: governance
     rule: active story progress may not depend on the response time or session semantics of external permission dialogs tty prompts or host ui confirmation layers
-  - id: principal-capabilities.invariant.permission_leases_are_scoped_and_expiring
-    scope: governance
-    rule: temporary permission exceptions must be scoped to project story run principal operation class and path class and must expire deterministically
   - id: principal-capabilities.invariant.external_permission_substrate_is_non_authoritative
     scope: governance
     rule: native host permission prompts tty requirements and protected-directory special cases may influence execution behavior but never define AK3 capability authority
-  - id: principal-capabilities.invariant.permission_request_approval_requires_human_cli
-    scope: governance
-    rule: approving or rejecting a permission request requires explicit human cli authority and may not be inferred from admin-service automation alone
-  - id: principal-capabilities.invariant.no_auto_rule_promotion_from_permission_request
-    scope: governance
-    rule: a permission request approval may issue at most a scoped lease by default and must never silently create a persistent ccag rule
-  - id: principal-capabilities.invariant.permission_state_has_central_owner
-    scope: governance
-    rule: permission requests permission leases and project mode lock holder identities are canonical only in the central postgres owner and local files are discardable short ttl read projections
-  - id: principal-capabilities.invariant.permission_projection_fails_closed
-    scope: governance
-    rule: a missing stale or divergent local permission or mode lock projection blocks the run and may never become a fallback authority
-  - id: principal-capabilities.invariant.permission_decision_auth_is_split
-    scope: governance
-    rule: matching project api tokens may open read and consume permission state while only an authenticated strategist session may resolve requests or grant leases and authorization precedes mutation
-  - id: principal-capabilities.invariant.permission_grant_does_not_resume_run
-    scope: governance
-    rule: granting a permission lease creates only the scoped lease and never resumes or otherwise advances the story run
 ```
 <!-- FORMAL-SPEC:END -->

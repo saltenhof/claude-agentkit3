@@ -64,26 +64,16 @@ scenarios:
       status: principal-capabilities.status.released
     requires:
       - principal-capabilities.invariant.only_official_service_or_human_cli_may_mutate_during_freeze
-  - id: principal-capabilities.scenario.unknown-permission-opens-request-and-expires
+  - id: principal-capabilities.scenario.unknown-story-operation-blocks-directly
     start:
       status: principal-capabilities.status.story_scoped
     trace:
-      - command: principal-capabilities.command.open-permission-request
-      - command: principal-capabilities.command.expire-permission-request
+      - command: principal-capabilities.command.resolve-capability-context
+      - command: principal-capabilities.command.evaluate-principal-operation
     expected_end:
       status: principal-capabilities.status.denied
     requires:
       - principal-capabilities.invariant.no_native_prompt_during_story_lock
       - principal-capabilities.invariant.run_progress_not_dependent_on_external_permission_ui
-  - id: principal-capabilities.scenario.permission-request-approved-via-lease
-    start:
-      status: principal-capabilities.status.story_scoped
-    trace:
-      - command: principal-capabilities.command.open-permission-request
-      - command: principal-capabilities.command.approve-permission-request
-    expected_end:
-      status: principal-capabilities.status.released
-    requires:
-      - principal-capabilities.invariant.permission_leases_are_scoped_and_expiring
 ```
 <!-- FORMAL-SPEC:END -->

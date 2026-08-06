@@ -1,8 +1,7 @@
 """Unit tests for the CustomizationFootprint read-aggregate (AG3-089 AC7 / AC8).
 
-AC7: the footprint aggregates the FOUR owner sources (pipeline-config digest,
-CCAG ``load_rules``, prompt ``resolve_project_prompt_binding``, skill
-``Skills.resolve_binding``) — one set customization per source.
+AC7: the footprint aggregates pipeline-config, prompt-binding, and skill-binding
+owner surfaces.
 
 AC8 / F-51-023: a write path (cleanup / binding) that would touch a detected
 customization blocks/reports and mutates NOTHING.
@@ -30,20 +29,6 @@ from agentkit.backend.installer.upgrade.footprint import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-def _write_ccag_rule(project_root: Path) -> None:
-    """Write one project-specific CCAG block rule (governance-and-guards source)."""
-    rules_dir = project_root / ".agentkit" / "ccag" / "rules"
-    rules_dir.mkdir(parents=True, exist_ok=True)
-    (rules_dir / "global.yaml").write_text(
-        "- rule_id: no-rm-rf\n"
-        "  tool: Bash\n"
-        "  block_pattern: 'rm -rf'\n"
-        "  scope: all\n"
-        "  reason: project rule\n",
-        encoding="utf-8",
-    )
 
 
 def _bind_prompt(project_root: Path, store_root: Path) -> None:
@@ -99,12 +84,12 @@ class _BoundSkillsSurface:
         )
 
 
-def test_footprint_aggregates_four_sources(
+def test_footprint_aggregates_active_sources(
     tmp_path: Path,
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC7: one set customization per source -> all four KINDS detected."""
+    """AC7: one customization per active source is detected."""
     project_root = tmp_path / "proj"
     project_root.mkdir()
     store_root = tmp_path / "store"
@@ -122,11 +107,9 @@ def test_footprint_aggregates_four_sources(
         project_key=project_root.stem,
         config_digest="a-different-registered-digest",
     )
-    # 2) CCAG rule.
-    _write_ccag_rule(project_root)
-    # 3) prompt binding.
+    # 2) prompt binding.
     _bind_prompt(project_root, store_root)
-    # 4) skill binding (injected surface).
+    # 3) skill binding (injected surface).
     skills = _BoundSkillsSurface(bound_skill="execute-userstory")
 
     footprint = CustomizationFootprint.detect(
@@ -138,7 +121,6 @@ def test_footprint_aggregates_four_sources(
 
     kinds = {point.kind for point in footprint.points}
     assert CustomizationKind.PIPELINE_CONFIG in kinds
-    assert CustomizationKind.CCAG_RULE in kinds
     assert CustomizationKind.PROMPT_BINDING in kinds
     assert CustomizationKind.SKILL_BINDING in kinds
 
@@ -192,14 +174,14 @@ def test_guard_write_blocks_detected_customization_no_mutation() -> None:
         points=(
             CustomizationPoint(
                 kind=CustomizationKind.PIPELINE_CONFIG,
-                identifier="ccag:no-rm-rf",
+                identifier="pipeline:max_feedback_rounds",
                 detail="x",
             ),
         )
     )
 
     with pytest.raises(CustomizationPreservationError) as exc:
-        footprint.guard_write("ccag:no-rm-rf", write_path="binding")
+        footprint.guard_write("pipeline:max_feedback_rounds", write_path="binding")
 
     assert "F-51-023" in str(exc.value)
 

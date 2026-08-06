@@ -70,7 +70,7 @@ GOVERNANCE_FREEZE_EXPORT_RELPATH: str = "/".join(GOVERNANCE_FREEZE_EXPORT_PARTS)
 # Self-protection paths (FK-30 §30.5.4 / FK-15 §15.7.1) — SINGLE SOURCE.
 #
 # The governance self-protection (FK-30 §30.5.4) protects a fixed set of
-# hook-settings, CCAG-symlink, configuration, manifest and lock-/edge-bundle
+# hook-settings, skill bindings, configuration, manifest and lock-/edge-bundle
 # paths from any mutation by non-official principals. The associated path
 # literals live here (core_types) as SINGLE SOURCE OF TRUTH so that the
 # protected ``agentkit.backend.governance`` namespace (in particular the
@@ -99,15 +99,9 @@ SELF_PROTECTION_HOOK_SETTINGS_PARTS: tuple[tuple[str, ...], ...] = (
     (".codex", "hooks.json"),
 )
 
-#: CCAG-rule and skill symlink directories (FK-30 §30.5.4 / FK-15 §15.7.1):
-#: the canonical CCAG rule path ``.agentkit/ccag/rules`` (FK-15 §15.7.1 first
-#: line of the protected paths — the actual owner path, not just its symlink),
-#: the harness-specific symlink ``.claude/ccag/rules`` (symlink to the canonical
-#: path) and ``.claude/skills`` (CCAG-/skill symlink targets).
-#: Directory prefixes — any mutation UNDER these paths is protected.
+#: Harness-specific skill symlink directory (FK-30 §30.5.4 / FK-15 §15.7.1).
+#: Directory prefix — any mutation under this path is protected.
 SELF_PROTECTION_SYMLINK_DIR_PARTS: tuple[tuple[str, ...], ...] = (
-    (_AGENTKIT_DIR, "ccag", "rules"),
-    (_CLAUDE_DIR, "ccag", "rules"),
     (_CLAUDE_DIR, "skills"),
 )
 

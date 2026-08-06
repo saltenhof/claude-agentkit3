@@ -13,30 +13,22 @@ defers_to:
   - FK-42
 supersedes: []
 superseded_by:
-tags: [tools, ccag, permissions, automation]
+tags: [tools, ccag, hooks]
 formal_scope: prose-only
 glossary:
   exported_terms:
     - id: ccag
       definition: >
-        Claude Code Agent Governance. Lernfaehige, sessionuebergreifende
-        Permission-Schicht fuer Tool-Aufrufe, die harte Guards ergaenzt aber
-        nicht ersetzt. Regeln werden als YAML gespeichert und koennen per
-        LLM-Generalisierung verallgemeinert werden. Im story_execution-Modus
-        blockiert CCAG unbekannte Freigaben sofort statt auf einen
-        Permission-Dialog zu warten.
+        Claude Code Agent Governance. Der registrierte Hook-Matcher erfasst die
+        in FK-42 festgelegten Tool-Namen, trifft jedoch keine Autoritaets- oder
+        Freigabeentscheidung. Harte Guards und Principal Capabilities bleiben
+        die benannten Durchsetzungsstellen.
       see_also:
-        - term: ccag-permission-runtime
+        - term: ccag-gatekeeper
           domain: governance-and-guards
         - term: guard-system
           domain: governance-and-guards
-  internal_terms:
-    - id: llm-rule-generation
-      reason: >
-        Technisches Detailmerkmal der CCAG-Implementierung (automatische
-        Regex-Generalisierung durch LLM bei neuen Freigaben). Kein
-        eigenstaendiger exportierter Vertragstyp; gehoert zur
-        Implementierungsbeschreibung von FK-42.
+  internal_terms: []
 ---
 
 # 09 — Tool-Governance (CCAG)
@@ -51,60 +43,17 @@ macht. Zwei Komponenten sind dabei zentral: die parameterbasierte
 Tool-Governance (CCAG, hier) und das spezialisierte Skill-System
 ([12-skills-und-skill-system.md](12-skills-und-skill-system.md)).
 
-### 9.1 Parameterbasierte Tool-Governance (CCAG)
+### 9.1 Tool-Matcher (CCAG)
 
-Agent-Harnesses (Claude Code, Codex; siehe FK-76) bieten
-standardmäßig ein einfaches Permission-System: Der
-Mensch wird gefragt, ob ein Tool ausgeführt werden darf, und seine
-Antwort gilt nur für die aktuelle Session. Bei hochautomatisierten
-Abläufen mit vielen Sub-Agents führt das zu zwei Problemen: Erstens
-scheitern Agents an Permissions, die der Mensch in einer früheren
-Session bereits erteilt hat, weil die Freigabe nicht gespeichert wurde.
-Zweitens kann das native System nur nach Tool-Name filtern, nicht nach
-Parametern. Man kann nicht "git push auf Story-Branches erlauben, aber
-auf Main blockieren", wenn beides derselbe Tool-Name ist.
+AgentKit registriert `ccag_gatekeeper` fuer die in FK-42 festgelegten
+Tool-Namen. Dieser Katalog stellt fuer alle Harness-Adapter dieselbe
+Matcher-Identitaet bereit, trifft aber keine Entscheidung ueber einen Aufruf.
 
-CCAG löst beide Probleme:
-
-**Sessionübergreifende Persistenz.** Jede erteilte Freigabe wird als
-Regel in einer YAML-Datei gespeichert und steht in allen zukünftigen
-Sessions sofort zur Verfügung. Über Wochen und Monate wächst ein
-projektspezifischer Regelsatz, der die häufigsten Operationen
-automatisch freigibt und den Menschen nur noch bei genuinen Neuheiten
-fragt.
-
-**Parameterbasierte Regeln.** Regeln matchen nicht nur auf den
-Tool-Namen, sondern auf beliebige Parameter: Dateipfade, Befehle,
-URLs, Flags. Damit lassen sich feingranulare Policies abbilden, etwa
-"Schreibzugriff nur innerhalb des Projektverzeichnisses" oder "git push
-erlaubt, aber nicht mit --force und nicht auf Main".
-
-**LLM-gestützte Regelgenerierung.** Wenn der Mensch einen neuen
-Tool-Aufruf freigibt, kann er ein LLM aufrufen, das den spezifischen
-Aufruf zu einer verallgemeinerten Regel generalisiert. Statt die
-exakte Befehlszeile zu speichern, erzeugt das LLM eine Regex-Regel,
-die ähnliche zukünftige Aufrufe ebenfalls abdeckt. Der Mensch sieht
-eine Vorschau und kann anpassen, bevor die Regel gespeichert wird.
-
-**Rollenspezifische Scopes.** Regeln unterscheiden zwischen
-Hauptagent und Sub-Agents. Sub-Agents erhalten engere Rechte als der
-Hauptagent. Ein Sub-Agent darf beispielsweise nicht außerhalb des
-Projektverzeichnisses schreiben, während der Hauptagent das darf.
-Diese Unterscheidung wird über eine Hierarchie in der Regeldatenbank
-aufgelöst.
-
-**Modus-scharfe Behandlung unbekannter Permissions.** In explizit
-interaktiven Sitzungen darf CCAG weiterhin einen nativen Host-Prompt
-nutzen. Im aktiven Story-Run dagegen nicht: Dort wird eine unbekannte
-Freigabe sofort blockiert und als auditierbarer Permission-Fall
-materialisiert. Die menschliche Entscheidung erfolgt spaeter per
-offiziellem AgentKit-Pfad statt im wartenden Tool-Call.
-
-Der Effekt für die Story-Umsetzung: Die Wahrscheinlichkeit, dass
-Agents unkontrolliert an Permissions haengen, sinkt drastisch. Die
-Guards ([03-governance-und-guards.md](03-governance-und-guards.md))
-bleiben dabei intakt, denn CCAG ersetzt keine Governance-Regeln,
-sondern ergänzt sie um eine komfortable, lernfähige Permission-Schicht.
+Zulaessigkeit und Blockade gehoeren ausschliesslich zu den benannten Guards
+und zum Principal-Capability-Modell. CCAG speichert keine menschlichen
+Entscheidungen, erzeugt keine Regeln und eroeffnet keine spaeter entscheidbare
+Anfrage. Damit bleibt die Adapter-Schnittstelle stabil, ohne eine zweite
+Autoritaet neben den Durchsetzungsstellen zu bilden.
 
 ### 9.2 Spezialisierte Skills
 

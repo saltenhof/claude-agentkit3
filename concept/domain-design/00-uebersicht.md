@@ -234,8 +234,8 @@ Code, Codex — siehe FK-76); der kanonische Zustand liegt im zentralen Core
 zentraler Quelle materialisiert.
 
 **4.9 Umsetzungsautomatisierung und Werkzeuge** (→ [09-tools-und-skills.md](09-tools-und-skills.md)).
-Parameterbasierte Tool-Governance (CCAG) mit sessionübergreifender
-Persistenz und LLM-gestützter Regelgenerierung senkt Permission-Reibung.
+Der registrierte CCAG-Hook stellt einen harness-uebergreifend identischen
+Tool-Matcher ohne eigene Autoritaet bereit.
 Spezialisierte Skills standardisieren komplexe Aufgaben und heben die
 Ergebnisqualität.
 

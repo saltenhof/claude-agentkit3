@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
     from agentkit.backend.control_plane_http.failure_corpus_routes import FailureCorpusRoutes
     from agentkit.backend.control_plane_http.installer_writer_routes import InstallerWriterRoutes
-    from agentkit.backend.control_plane_http.permission_routes import PermissionRoutes
     from agentkit.backend.control_plane_http.story_admin_routes import StoryAdminRoutes
     from agentkit.backend.control_plane_http.story_split_routes import StorySplitRoutes
     from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
@@ -53,7 +52,6 @@ class ControlPlaneApplicationRoutes:
     read_model_routes: ReadModelRoutes | None = None
     task_management_routes: TaskManagementRoutes | None = None
     takeover_approval_routes: TakeoverApprovalRoutes | None = None
-    permission_routes: PermissionRoutes | None = None
     third_party_validation_routes: ThirdPartyValidationRoutes | None = None
     story_split_routes: StorySplitRoutes | None = None
     story_admin_routes: StoryAdminRoutes | None = None

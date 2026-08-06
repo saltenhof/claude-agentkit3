@@ -111,7 +111,7 @@ FK-07 beschreibt die Importregeln und Blutgruppen-Semantik.
 | `30_hook_adapter_guard_enforcement.md` | governance-and-guards | Harness-Hooks (Claude Code, Codex; harness-spezifisch via Adapter, FK-76 §76.4), Registrierung, Event-Normalisierung |
 | `31_branch_guard_orchestrator_guard_artefaktschutz.md` | governance-and-guards | Regelssaetze, Pfadklassifikation, opake Fehlercodes, Prompt-Integrity-Guard |
 | `35_integrity_gate_governance_beobachtung_eskalation.md` | governance-and-guards | 9 Dimensionen, Anomalie-Sensorik, Incident-Kandidaten, Massnahmen |
-| `42_ccag_tool_governance_permission_runtime.md` | governance-and-guards | Regelmodell, Persistenz, Auswertung, LLM-Generierung |
+| `42_ccag_tool_governance_permission_runtime.md` | governance-and-guards | registrierter Hook-Identifier und autoritaetsloser Matcher-Katalog |
 | `55_principal_capability_model_story_scope_enforcement.md` | governance-and-guards | Principals, Capability-Profile, storybezogene Pfad- und Operationsklassen, Freeze-Modell, offizielle Servicepfade |
 
 ## 6. BC: exploration-and-design

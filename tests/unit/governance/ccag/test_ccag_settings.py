@@ -1,108 +1,83 @@
-"""Tests for agentkit.backend.installer.ccag_settings — deploy and remove."""
+"""Tests for the retained CCAG registration and obsolete-rule cleanup."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import yaml
+import pytest
 
+from agentkit.backend.boundary.filesystem import FilesystemContainmentError
 from agentkit.backend.installer.ccag_settings import (
-    CCAG_RULES_SUBDIR,
-    build_claude_hook_entry,
-    build_claude_settings_snippet,
-    ccag_rules_dir,
-    deploy_ccag_rules,
-    remove_ccag_rules,
+    CCAG_HOOK_MATCHER,
+    build_ccag_hook_definition,
+    remove_obsolete_permission_rule_files,
 )
+from agentkit.backend.skills import create_directory_link
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-class TestDeployCcagRules:
-    def test_deploy_creates_all_three_files(self, tmp_path: Path) -> None:
-        written = deploy_ccag_rules(tmp_path)
-        assert len(written) == 3
-        rules_dir = ccag_rules_dir(tmp_path)
-        assert (rules_dir / "global.yaml").is_file()
-        assert (rules_dir / "subagents.yaml").is_file()
-        assert (rules_dir / "approved.yaml").is_file()
+def test_ccag_matcher_and_hook_registration_survive() -> None:
+    definition = build_ccag_hook_definition()
 
-    def test_deploy_idempotent_second_call_writes_nothing(
-        self, tmp_path: Path
-    ) -> None:
-        deploy_ccag_rules(tmp_path)
-        written_second = deploy_ccag_rules(tmp_path)
-        assert written_second == []
-
-    def test_deploy_does_not_overwrite_customised_file(
-        self, tmp_path: Path
-    ) -> None:
-        deploy_ccag_rules(tmp_path)
-        global_yaml = ccag_rules_dir(tmp_path) / "global.yaml"
-        original_content = global_yaml.read_text(encoding="utf-8")
-        customised = original_content + "\n# custom addition\n"
-        global_yaml.write_text(customised, encoding="utf-8")
-
-        deploy_ccag_rules(tmp_path)  # second deploy
-        assert global_yaml.read_text(encoding="utf-8") == customised
-
-    def test_deploy_global_yaml_is_valid_yaml(self, tmp_path: Path) -> None:
-        deploy_ccag_rules(tmp_path)
-        global_yaml = ccag_rules_dir(tmp_path) / "global.yaml"
-        parsed = yaml.safe_load(global_yaml.read_text(encoding="utf-8"))
-        assert "rules" in parsed
-        assert isinstance(parsed["rules"], list)
-
-    def test_deploy_subagents_yaml_is_valid_yaml(self, tmp_path: Path) -> None:
-        deploy_ccag_rules(tmp_path)
-        subagents_yaml = ccag_rules_dir(tmp_path) / "subagents.yaml"
-        parsed = yaml.safe_load(subagents_yaml.read_text(encoding="utf-8"))
-        assert "rules" in parsed
-
-    def test_ccag_rules_dir_path(self, tmp_path: Path) -> None:
-        expected = tmp_path / CCAG_RULES_SUBDIR
-        assert ccag_rules_dir(tmp_path) == expected
+    assert CCAG_HOOK_MATCHER == "Bash|Write|Edit|Read|Grep|Glob|Agent"
+    assert definition.matcher == CCAG_HOOK_MATCHER
+    assert definition.command == "agentkit-hook-claude pre ccag_gatekeeper"
 
 
-class TestHookRegistration:
-    def test_claude_hook_entry_has_required_keys(self) -> None:
-        entry = build_claude_hook_entry()
-        assert "matcher" in entry
-        assert "hooks" in entry
-        handlers = entry["hooks"]
-        assert isinstance(handlers, list)
-        assert handlers[0]["type"] == "command"
-        assert "ccag_gatekeeper" in handlers[0]["command"]
+def test_upgrade_preserves_unrelated_files_in_ccag_directory(tmp_path: Path) -> None:
+    rules_dir = tmp_path / ".agentkit" / "ccag" / "rules"
+    rules_dir.mkdir(parents=True)
+    retained = rules_dir / "operator-note.txt"
+    retained.write_text("not a permission rule", encoding="utf-8")
+    (rules_dir / "approved.yaml").write_text("rules: []\n", encoding="utf-8")
 
-    def test_claude_settings_snippet_is_valid_json(self) -> None:
-        import json
+    removed = remove_obsolete_permission_rule_files(tmp_path)
 
-        snippet = build_claude_settings_snippet()
-        parsed = json.loads(snippet)
-        assert "hooks" in parsed
-        assert "PreToolUse" in parsed["hooks"]
+    assert removed == [".agentkit/ccag/rules/approved.yaml"]
+    assert retained.read_text(encoding="utf-8") == "not a permission rule"
 
 
-class TestRemoveCcagRules:
-    def test_remove_deployed_files(self, tmp_path: Path) -> None:
-        deploy_ccag_rules(tmp_path)
-        # approved.yaml is empty (header only) → removed
-        removed = remove_ccag_rules(tmp_path)
-        # At minimum global.yaml and subagents.yaml removed
-        assert any("global.yaml" in r for r in removed)
-        assert any("subagents.yaml" in r for r in removed)
+def test_upgrade_cleanup_rejects_linked_rules_directory(tmp_path: Path) -> None:
+    """Cleanup must not unlink a retired filename outside the project root."""
+    project_root = tmp_path / "project"
+    link_parent = project_root / ".agentkit" / "ccag"
+    link_parent.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "approved.yaml"
+    protected.write_text("rules: []\n", encoding="utf-8")
+    try:
+        create_directory_link(link_parent / "rules", outside)
+    except OSError as exc:
+        pytest.skip(f"directory links unavailable: {exc}")
 
-    def test_remove_preserves_approved_with_user_rules(
-        self, tmp_path: Path
-    ) -> None:
-        deploy_ccag_rules(tmp_path)
-        approved = ccag_rules_dir(tmp_path) / "approved.yaml"
-        # Add a user rule
-        approved.write_text(
-            yaml.dump([{"id": "u1", "tool": "Bash", "allow_pattern": "git"}]),
-            encoding="utf-8",
-        )
-        remove_ccag_rules(tmp_path)
-        # approved.yaml should still be there (has user rules)
-        assert approved.is_file()
+    with pytest.raises(FilesystemContainmentError):
+        remove_obsolete_permission_rule_files(project_root)
+
+    assert protected.read_text(encoding="utf-8") == "rules: []\n"
+
+
+def test_upgrade_cleanup_validates_all_targets_before_deleting(tmp_path: Path) -> None:
+    """A link at the last retired filename preserves the earlier files too."""
+    project_root = tmp_path / "project"
+    rules_dir = project_root / ".agentkit" / "ccag" / "rules"
+    rules_dir.mkdir(parents=True)
+    global_rule = rules_dir / "global.yaml"
+    subagent_rule = rules_dir / "subagents.yaml"
+    global_rule.write_text("rules: []\n", encoding="utf-8")
+    subagent_rule.write_text("rules: []\n", encoding="utf-8")
+    outside = tmp_path / "outside-approved.yaml"
+    outside.write_text("rules: []\n", encoding="utf-8")
+    try:
+        (rules_dir / "approved.yaml").symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemContainmentError):
+        remove_obsolete_permission_rule_files(project_root)
+
+    assert global_rule.is_file()
+    assert subagent_rule.is_file()
+    assert outside.read_text(encoding="utf-8") == "rules: []\n"

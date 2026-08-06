@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Never, cast
 
 import psycopg
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from agentkit.backend.auth.credentials import StrategistCredentialStore
@@ -76,14 +77,21 @@ from agentkit.backend.governance.hook_registration import (
     RegistrationResult,
 )
 from agentkit.backend.installer.bounded_executor import BoundedThreadExecutor
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.mutation_idempotency import (
     InstallerMutationCoordinator,
 )
+from agentkit.backend.installer.paths import project_config_path
 from agentkit.backend.installer.registration import (
     ProjectRegistration,
     RuntimeProfile,
 )
+from agentkit.backend.installer.runner import _canonical_config_digest
 from agentkit.backend.installer.third_party_preflight import ThirdPartyPreflightService
+from agentkit.backend.installer.upgrade._digest import config_file_digest
+from agentkit.backend.installer.upgrade.config_migration import migrate_config
+from agentkit.backend.installer.upgrade.scenarios import UpgradeScenario
+from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
 from agentkit.backend.installer.writer_client import InstallerWriterClient
 from agentkit.backend.installer.writer_service import InstallerWriterService
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
@@ -92,7 +100,10 @@ from agentkit.backend.skills.binding import (
     SkillBindingMode,
     SkillLifecycleStatus,
 )
-from agentkit.backend.state_backend.config import load_state_backend_config
+from agentkit.backend.state_backend.config import (
+    StateBackendKind,
+    load_state_backend_config,
+)
 from agentkit.backend.state_backend.operation_ledger import (
     claim_control_plane_operation_global,
     load_control_plane_operation_global,
@@ -337,6 +348,326 @@ def _activate_project_token(project_root: Path) -> object:
     )
     activate_project_credentials(credential_path)
     return prepared
+
+
+def _write_upgrade_project_yaml(project_root: Path) -> Path:
+    """Create the retired-permissions input used by the productive upgrade proof."""
+
+    subprocess.run(
+        ["git", "init"],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+    )
+    path = project_config_path(project_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.dump(
+            {
+                "project_key": _PROJECT,
+                "project_name": "Tenant A",
+                "repositories": [{"name": "backend", "path": "."}],
+                "pipeline": {
+                    "config_version": "3.0",
+                    "features": {"multi_llm": False},
+                    "sonarqube": {"available": False, "enabled": False},
+                    "ci": {"available": False, "enabled": False},
+                    "permissions": {"request_ttl_s": 1800},
+                },
+            },
+            default_flow_style=False,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _save_upgrade_registration(project_root: Path, config_path: Path) -> None:
+    StateBackendProjectRegistrationRepository().save(
+        ProjectRegistration(
+            project_key=_PROJECT,
+            project_root=project_root,
+            github_owner="openai",
+            github_repo="agentkit",
+            runtime_profile=RuntimeProfile.CORE,
+            config_version="3.0",
+            config_digest=config_file_digest(config_path),
+            registered_at=datetime.now(UTC),
+        )
+    )
+
+
+def test_run_upgrade_twice_rebaselines_digest_after_own_config_migration(
+    tmp_path: Path,
+    postgres_isolated_schema: object,
+) -> None:
+    """A second upgrade reads AK3's own digest through the productive writer."""
+
+    project_root = tmp_path / "project"
+    assert postgres_isolated_schema
+    assert load_state_backend_config().backend is StateBackendKind.POSTGRES
+    project_root.mkdir()
+    config_path = _write_upgrade_project_yaml(project_root)
+    _save_upgrade_registration(project_root, config_path)
+    _save_project()
+    prepared = _activate_project_token(project_root)
+    app = _application(
+        tmp_path,
+        installer_writer_routes=_build_default_installer_writer_routes(),
+        project_token=prepared.record,
+    )
+    app.run_pre_serve_startup_hook()
+    try:
+        with _live_https_writer(app, tmp_path) as (base_url, certfile):
+            transport = HttpsJsonTransport(
+                base_url=base_url,
+                ssl_context=ssl.create_default_context(cafile=str(certfile)),
+                skill_bundle_version="0.1.0",
+                bearer_token=prepared.plaintext_token,
+                project_key=_PROJECT,
+            )
+            first = run_upgrade(
+                project_root,
+                project_key=_PROJECT,
+                target_config_version="3.0",
+                registration_repo=InstallerWriterClient(
+                    transport,
+                    project_key=_PROJECT,
+                    op_id="op-upgrade-rebaseline-first",
+                ).registration_repository(),
+                mode=ExecutionMode.REGISTER,
+            )
+            second = run_upgrade(
+                project_root,
+                project_key=_PROJECT,
+                target_config_version="3.0",
+                registration_repo=InstallerWriterClient(
+                    transport,
+                    project_key=_PROJECT,
+                    op_id="op-upgrade-rebaseline-second",
+                ).registration_repository(),
+                bundle_version_changed=True,
+                mode=ExecutionMode.REGISTER,
+            )
+    finally:
+        app.release_writer_lease()
+
+    stored = StateBackendProjectRegistrationRepository().get(_PROJECT)
+    assert first.config_migrated is True
+    assert stored is not None
+    assert stored.config_digest == config_file_digest(config_path)
+    assert second.scenario.scenario is UpgradeScenario.UNCHANGED
+    assert second.scenario.rebind_allowed is True
+
+
+def test_run_upgrade_twice_preserves_user_edit_detection_after_own_config_migration(
+    tmp_path: Path,
+    postgres_isolated_schema: object,
+) -> None:
+    """A user edit remains CONFIG_EDITED across the productive writer boundary."""
+
+    project_root = tmp_path / "project"
+    assert postgres_isolated_schema
+    assert load_state_backend_config().backend is StateBackendKind.POSTGRES
+    project_root.mkdir()
+    config_path = _write_upgrade_project_yaml(project_root)
+    _save_upgrade_registration(project_root, config_path)
+    _save_project()
+    prepared = _activate_project_token(project_root)
+    app = _application(
+        tmp_path,
+        installer_writer_routes=_build_default_installer_writer_routes(),
+        project_token=prepared.record,
+    )
+    app.run_pre_serve_startup_hook()
+    try:
+        with _live_https_writer(app, tmp_path) as (base_url, certfile):
+            transport = HttpsJsonTransport(
+                base_url=base_url,
+                ssl_context=ssl.create_default_context(cafile=str(certfile)),
+                skill_bundle_version="0.1.0",
+                bearer_token=prepared.plaintext_token,
+                project_key=_PROJECT,
+            )
+            first = run_upgrade(
+                project_root,
+                project_key=_PROJECT,
+                target_config_version="3.0",
+                registration_repo=InstallerWriterClient(
+                    transport,
+                    project_key=_PROJECT,
+                    op_id="op-upgrade-user-edit-first",
+                ).registration_repository(),
+                mode=ExecutionMode.REGISTER,
+            )
+            stored_after_first = StateBackendProjectRegistrationRepository().get(
+                _PROJECT
+            )
+            assert stored_after_first is not None
+            baseline_after_first = stored_after_first.config_digest
+            edited = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            edited["project_name"] = "user-edited-name"
+            config_path.write_text(
+                yaml.dump(edited, default_flow_style=False, sort_keys=False),
+                encoding="utf-8",
+            )
+            second = run_upgrade(
+                project_root,
+                project_key=_PROJECT,
+                target_config_version="4.0",
+                registration_repo=InstallerWriterClient(
+                    transport,
+                    project_key=_PROJECT,
+                    op_id="op-upgrade-user-edit-second",
+                ).registration_repository(),
+                bundle_version_changed=True,
+                mode=ExecutionMode.REGISTER,
+            )
+    finally:
+        app.release_writer_lease()
+
+    stored = StateBackendProjectRegistrationRepository().get(_PROJECT)
+    assert first.config_migrated is True
+    assert second.config_migrated is True
+    assert second.scenario.scenario is UpgradeScenario.CONFIG_EDITED
+    assert second.scenario.rebind_allowed is False
+    assert stored is not None
+    assert stored.config_digest == baseline_after_first
+    assert stored.config_digest != config_file_digest(config_path)
+
+
+def test_writer_rejects_digest_without_ak3_migration_witness(
+    tmp_path: Path,
+    postgres_isolated_schema: object,
+) -> None:
+    """A project token cannot directly rebaseline an arbitrary user edit."""
+
+    project_root = tmp_path / "project"
+    assert postgres_isolated_schema
+    assert load_state_backend_config().backend is StateBackendKind.POSTGRES
+    project_root.mkdir()
+    config_path = _write_upgrade_project_yaml(project_root)
+    _save_upgrade_registration(project_root, config_path)
+    _save_project()
+    prepared = _activate_project_token(project_root)
+    source = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    arbitrary = dict(source)
+    arbitrary["project_name"] = "user-edited-name"
+    app = _application(
+        tmp_path,
+        installer_writer_routes=_build_default_installer_writer_routes(),
+        project_token=prepared.record,
+    )
+    app.run_pre_serve_startup_hook()
+    try:
+        with _live_https_writer(app, tmp_path) as (base_url, certfile):
+            transport = HttpsJsonTransport(
+                base_url=base_url,
+                ssl_context=ssl.create_default_context(cafile=str(certfile)),
+                skill_bundle_version="0.1.0",
+                bearer_token=prepared.plaintext_token,
+                project_key=_PROJECT,
+            )
+            with pytest.raises(ControlPlaneApiError) as captured:
+                transport.send(
+                    method="POST",
+                    path=f"/v1/projects/{_PROJECT}/installation/project-registration",
+                    payload={
+                        "op_id": "op-arbitrary-registration-rebaseline",
+                        "new_digest": _canonical_config_digest(arbitrary),
+                        "source_project_yaml": source,
+                        "migrated_project_yaml": arbitrary,
+                    },
+                )
+    finally:
+        app.release_writer_lease()
+
+    assert captured.value.error_code == "invalid_config_migration_witness"
+    assert captured.value.http_status == HTTPStatus.UNPROCESSABLE_ENTITY
+    stored = StateBackendProjectRegistrationRepository().get(_PROJECT)
+    assert stored is not None
+    assert stored.config_digest == config_file_digest(config_path)
+
+
+def test_writer_rejects_semantically_malformed_migration_witness(
+    tmp_path: Path,
+    postgres_isolated_schema: object,
+) -> None:
+    """Malformed, unreachable, and type-coercive witnesses are stable 422s."""
+
+    project_root = tmp_path / "project"
+    assert postgres_isolated_schema
+    assert load_state_backend_config().backend is StateBackendKind.POSTGRES
+    project_root.mkdir()
+    config_path = _write_upgrade_project_yaml(project_root)
+    source = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    source["pipeline"]["sonarqube"]["available"] = True
+    source["pipeline"]["max_feedback_rounds"] = 3
+    config_path.write_text(
+        yaml.dump(source, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    _save_upgrade_registration(project_root, config_path)
+    _save_project()
+    prepared = _activate_project_token(project_root)
+    unreachable = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    unreachable["pipeline"]["config_version"] = "99.0"
+    expected = migrate_config(source, "4.0")
+    false_to_zero = json.loads(json.dumps(expected))
+    false_to_zero["pipeline"]["features"]["multi_llm"] = 0
+    true_to_one = json.loads(json.dumps(expected))
+    true_to_one["pipeline"]["sonarqube"]["available"] = 1
+    int_to_float = json.loads(json.dumps(expected))
+    int_to_float["pipeline"]["max_feedback_rounds"] = 3.0
+    app = _application(
+        tmp_path,
+        installer_writer_routes=_build_default_installer_writer_routes(),
+        project_token=prepared.record,
+    )
+    app.run_pre_serve_startup_hook()
+    try:
+        with _live_https_writer(app, tmp_path) as (base_url, certfile):
+            transport = HttpsJsonTransport(
+                base_url=base_url,
+                ssl_context=ssl.create_default_context(cafile=str(certfile)),
+                skill_bundle_version="0.1.0",
+                bearer_token=prepared.plaintext_token,
+                project_key=_PROJECT,
+            )
+            invalid_witnesses = (
+                ({}, "f" * 64),
+                (unreachable, "f" * 64),
+                (false_to_zero, _canonical_config_digest(expected)),
+                (true_to_one, _canonical_config_digest(expected)),
+                (int_to_float, _canonical_config_digest(expected)),
+            )
+            for index, (malformed, submitted_digest) in enumerate(
+                invalid_witnesses,
+                start=1,
+            ):
+                with pytest.raises(ControlPlaneApiError) as captured:
+                    transport.send(
+                        method="POST",
+                        path=(
+                            f"/v1/projects/{_PROJECT}/installation/"
+                            "project-registration"
+                        ),
+                        payload={
+                            "op_id": f"op-malformed-registration-witness-{index}",
+                            "new_digest": submitted_digest,
+                            "source_project_yaml": source,
+                            "migrated_project_yaml": malformed,
+                        },
+                    )
+                assert captured.value.error_code == "invalid_config_migration_witness"
+                assert captured.value.http_status == HTTPStatus.UNPROCESSABLE_ENTITY
+    finally:
+        app.release_writer_lease()
+
+    stored = StateBackendProjectRegistrationRepository().get(_PROJECT)
+    assert stored is not None
+    assert stored.config_digest == config_file_digest(config_path)
 
 
 def test_cp7_second_write_failure_same_op_retry_converges_through_real_writer(
