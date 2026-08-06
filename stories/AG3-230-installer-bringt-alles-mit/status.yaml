@@ -3,8 +3,34 @@ story_title_short: "installer-bringt-alles-mit"
 title: "Der Installer bringt alles mit: Project Edge laeuft ohne Verweis auf ein fremdes Verzeichnis, ohne Netzzugang und ohne AK3-Checkout auf der Zielmaschine."
 type: implementation
 status: blocked
-# BLOCKIERT 2026-08-06 auf eine PO-Entscheidung. Die Feasibility liegt vor, es
-# gibt keinen Diff -- die Umsetzung haelt bewusst an.
+# PO-KLARSTELLUNG 2026-08-06, woertlich: "Ich hab spezifiziert, dass da pro
+# Entwicklerrechner dann eine Runtime installiert wird, eine Instanz, und die
+# ganzen Projektinstanzen da drauf dann Zugriff nehmen. Und in welcher
+# Reihenfolge das jetzt dann kommt, ob das eine Story frueher oder spaeter
+# kommt, das ueberlass ich dir. Ich setz das Ganze eher erst ein, wenn Du fertig
+# bist mit allen Stories."
+#
+# DAMIT IST DIE ARCHITEKTUR ENTSCHIEDEN und die Reihenfolge Sache des
+# Orchestrators.
+#
+# ORCHESTRATOR-ENTSCHEID: AG3-208 -> AG3-209 -> AG3-230 -> AG3-217.
+#
+# Begruendung: Der einzige Grund fuer die fette Variante (ganze Distribution
+# jetzt in die Runtime) war die Risikoluecke -- dass bis dahin jede
+# registrierte Installation am Entwicklungsbaum haengt. Diese Luecke betrifft
+# ausschliesslich `intima` und `ibkr-tax-analyzer` auf dem Rechner des PO, und
+# der PO setzt erst nach Abschluss aller Storys ein. Damit entfaellt der Grund,
+# 68 % des Kerns auf jede Maschine zu schieben und dafuer ein Wheelhouse fuer
+# psycopg[binary] und tokenizers zu bauen -- Arbeit, die AG3-209 anschliessend
+# wieder rueckgaengig macht.
+#
+# KEINE Wheelhouse-Freigabe noetig. Bleibt nach dem Distributionsschnitt eine
+# Beschaffung uebrig, ist sie klein und wird dann konkret vorgelegt.
+#
+# BLOCKIERT auf AG3-209 (das seinerseits auf AG3-208 blockiert). Die
+# Feasibility unten bleibt gueltig und ist der Startpunkt, sobald der Schnitt
+# steht -- sie muss dann nur gegen die dann kleinere Modulmenge neu gemessen
+# werden.
 #
 # GEMESSENER BEFUND, der die Frage aufwirft:
 #   711 von 1042 Modulen (68 %) unter src/agentkit sind aus materialisiertem
@@ -25,20 +51,8 @@ status: blocked
 # sondern eine Absicht von AG3-208/209 -- und die ist NICHT BEGONNEN:
 # AG3-208 = ready, AG3-209 = blocked (depends_on AG3-208).
 #
-# OFFENE ENTSCHEIDUNG:
-#   (a) Ganze Distribution jetzt in die Maschinen-Runtime -- fett, aber sofort
-#       sicher; die intima-Klasse verschwindet, AG3-209 macht spaeter schlank.
-#       Erfordert die Freigabe eines lokalen Wheelhouse (pip download zentral,
-#       pip install --no-index --find-links auf der Zielmaschine). Kein neues
-#       Paket, kein neuer Lizenzumfang; Preis sind plattform- und
-#       versionsspezifische Wheels fuer psycopg[binary] und tokenizers.
-#   (b) Warten auf AG3-208/209 -- architektonisch sauber, aber zwei Storys
-#       lang bleibt jede registrierte Installation an den Entwicklungsbaum
-#       gekettet.
-#
-# Empfehlung des Orchestrators: (a). Die PO-Zusage lautet, dass kein
-# Zielprojekt auf ein fremdes Verzeichnis verweist -- nicht, dass die Runtime
-# schlank ist.
+# (Der frueher hier stehende Entscheidungsblock "fett jetzt gegen warten" ist
+# entfallen -- er ist oben durch den Orchestrator-Entscheid beantwortet.)
 #
 # NEBENBEFUND, nicht angefasst: `agentkit-are-mcp` wird als MCP-Kommando
 # registriert (core_types/mcp_server_registration.py:225,244), hat aber keinen
@@ -90,5 +104,5 @@ size: L
 # Der intima-Totalausfall vom 2026-08-06 ist daraus vollstaendig erklaerbar:
 # nicht "der Arbeitsbaum ist zufaellig produktiv", sondern es gibt gar keine
 # installierte Fassung, die etwas anderes haette sein koennen.
-depends_on: []
+depends_on: ["AG3-209"]
 unblocks: ["AG3-217"]
