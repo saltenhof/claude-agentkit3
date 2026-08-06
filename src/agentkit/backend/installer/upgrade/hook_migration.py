@@ -17,7 +17,7 @@ Two migration paths:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.installer.git_hook_dispatch import (
     GIT_HOOK_DISPATCH_MARKERS,
@@ -35,7 +35,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.governance.hook_registration import HookDefinition, RegistrationResult
-    from agentkit.backend.governance.runner import Governance
+
+
+class HookRegistrationSurface(Protocol):
+    """Narrow UP04 dependency implemented by Governance and writer adapters."""
+
+    def register_hooks(
+        self,
+        hook_definitions: list[HookDefinition],
+    ) -> RegistrationResult:
+        """Persist and materialize the supplied hook definitions."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -84,7 +94,7 @@ def determine_hook_definitions(
 
 
 def migrate_hooks(
-    governance: Governance,
+    governance: HookRegistrationSurface,
     desired: list[HookDefinition],
     *,
     current_matchers: frozenset[str] = frozenset(),

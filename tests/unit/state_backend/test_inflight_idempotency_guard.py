@@ -9,6 +9,11 @@ in ``tests/contract/state_backend/test_inflight_idempotency_guard_postgres.py``.
 
 from __future__ import annotations
 
+import logging
+from dataclasses import replace
+
+import pytest
+
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     FreshClaim,
     IdempotencyRequest,
@@ -120,9 +125,28 @@ def test_finalize_with_wrong_owner_token_does_not_apply() -> None:
     first = guard.claim(req)
     assert isinstance(first, FreshClaim)
 
-    forged = FreshClaim(owner_token="not-the-owner", claimed_at_iso=first.claimed_at_iso)
+    forged = FreshClaim(
+        owner_token="not-the-owner",
+        claimed_at_iso=first.claimed_at_iso,
+        operation_epoch=first.operation_epoch,
+    )
     applied = guard.finalize(req, forged, {"status_code": 201, "body": {}})
     assert applied is False
+
+
+def test_finalize_with_changed_operation_epoch_does_not_apply() -> None:
+    """A late executor cannot finalize after the operation fence moved."""
+
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-epoch-fence", {"title": "T"})
+    first = guard.claim(req)
+    assert isinstance(first, FreshClaim)
+
+    stale = replace(first, operation_epoch=first.operation_epoch + 1)
+    applied = guard.finalize(req, stale, {"status_code": 201, "body": {}})
+
+    assert applied is False
+    assert isinstance(guard.classify(req), InFlightOutcome)
 
 
 def test_project_scoped_claim_carries_no_story_id() -> None:
@@ -227,6 +251,41 @@ def test_run_route_idempotent_pre_outcome_exception_releases_claim_and_retry_suc
     # cleanly and succeeds.
     retry = _run(guard, req, lambda: _ok(201, {"created": True}))
     assert retry.status_code == 201
+
+
+def test_in_memory_release_rejects_changed_operation_epoch(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The first-class test guard enforces the same epoch CAS as PostgreSQL."""
+
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-release-epoch-drift", {"a": 1})
+    claim = guard.claim(req)
+    assert isinstance(claim, FreshClaim)
+    guard._rows[req.op_id].operation_epoch += 1  # noqa: SLF001 - CAS drift fixture
+
+    with caplog.at_level(logging.ERROR):
+        released = guard.release(req, claim)
+
+    assert released is False
+    assert "release CAS did not apply" in caplog.text
+    assert isinstance(guard.classify(req), InFlightOutcome)
+
+
+def test_route_server_error_fails_closed_when_release_epoch_changed() -> None:
+    """A 5xx cannot pretend its rolled-back claim was released after drift."""
+
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-route-release-epoch-drift", {"a": 1})
+
+    def _drift_then_fail() -> _Resp:
+        guard._rows[req.op_id].operation_epoch += 1  # noqa: SLF001 - CAS drift fixture
+        return _ok(500, {"error_code": "injected_failure"})
+
+    with pytest.raises(RuntimeError, match="release CAS did not apply"):
+        _run(guard, req, _drift_then_fail)
+
+    assert isinstance(guard.classify(req), InFlightOutcome)
 
 
 def test_run_route_idempotent_server_error_response_releases_claim() -> None:

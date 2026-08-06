@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "concept_roots": {
+    "domain": "concept/domain-design",
+    "technical": "concept/technical-design",
+    "formal": "concept/formal-spec",
+    "meta": "concept/_meta",
+    "guardrails": "guardrails"
+  },
+  "incubator_root": "concept-incubator",
+  "lock_backend": "filesystem",
+  "lock_remote": null,
+  "id_grammars": {
+    "domain_doc": "^DK-\\d{2,}$",
+    "technical_doc": "^FK-\\d{2,}$",
+    "formal_object": "^formal\\.[a-z0-9-]+\\.[a-z0-9-]+$",
+    "decision_record": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+$",
+    "scope": "^[a-z0-9]+([.-][a-z0-9]+)*$",
+    "source": "^SRC-[0-9a-f]{8}-\\d{4,}$"
+  },
+  "frontmatter_contract": {
+    "required_fields": [
+      "concept_id",
+      "title",
+      "module",
+      "status",
+      "doc_kind",
+      "parent_concept_id",
+      "authority_over",
+      "defers_to",
+      "supersedes",
+      "superseded_by",
+      "tags"
+    ],
+    "classification": "formal_refs_xor_prose_only",
+    "detail_requires_parent": true,
+    "full_supersession_reciprocity": true
+  },
+  "vcs_policy": {
+    "mode": "class_based",
+    "sensitive_disposition": "local",
+    "unclassified_class": "sensitive"
+  },
+  "data_class_default": "sensitive"
+}

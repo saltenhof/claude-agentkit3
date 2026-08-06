@@ -10,8 +10,9 @@ fail-closed input handling, without a live backend.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import patch
+
+import pytest
 
 from agentkit.backend.cli.main import main
 from agentkit.backend.control_plane.models import (
@@ -19,9 +20,6 @@ from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
-
-if TYPE_CHECKING:
-    import pytest
 
 _BASE_ARGS = [
     "admin-abort",
@@ -32,7 +30,17 @@ _BASE_ARGS = [
     "operator",
     "--reason",
     "hung executor; operator decision",
+    "--project",
+    "ak3",
 ]
+
+
+@pytest.fixture(autouse=True)
+def _strategist_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "agentkit.backend.cli._operator_recovery_admin.getpass.getpass",
+        lambda _prompt: "secret",
+    )
 
 
 def _abort_result(status: str = "aborted") -> ControlPlaneMutationResult:
@@ -77,7 +85,7 @@ def test_admin_abort_delegates_to_rest_endpoint_only(
     client = _RecordingClient(_abort_result("aborted"))
     args = [*_BASE_ARGS, "--base-url", "https://127.0.0.1:9702"]
     with patch(
-        "agentkit.backend.cli.main._build_control_plane_client",
+        "agentkit.backend.cli.main._build_strategist_control_plane_client",
         return_value=client,
     ):
         code, out, _err = _invoke(args, capsys)
@@ -101,7 +109,7 @@ def test_admin_abort_repair_result_is_a_success_exit(
     client = _RecordingClient(_abort_result("repair"))
     args = [*_BASE_ARGS, "--base-url", "https://127.0.0.1:9702"]
     with patch(
-        "agentkit.backend.cli.main._build_control_plane_client",
+        "agentkit.backend.cli.main._build_strategist_control_plane_client",
         return_value=client,
     ):
         code, out, _err = _invoke(args, capsys)
@@ -120,7 +128,7 @@ def test_admin_abort_requires_base_url_and_never_touches_backend(
     constructed.
     """
     with patch(
-        "agentkit.backend.cli.main._build_control_plane_client",
+        "agentkit.backend.cli.main._build_strategist_control_plane_client",
     ) as build_client:
         code, _out, err = _invoke(list(_BASE_ARGS), capsys)
 
@@ -148,7 +156,7 @@ def test_admin_abort_maps_stable_api_error_to_nonzero(
 
     args = [*_BASE_ARGS, "--base-url", "https://127.0.0.1:9702"]
     with patch(
-        "agentkit.backend.cli.main._build_control_plane_client",
+        "agentkit.backend.cli.main._build_strategist_control_plane_client",
         return_value=_FailingClient(),
     ):
         code, _out, err = _invoke(args, capsys)
@@ -172,9 +180,11 @@ def test_admin_abort_rejects_empty_reason_before_any_call(
         "",
         "--base-url",
         "https://127.0.0.1:9702",
+        "--project",
+        "ak3",
     ]
     with patch(
-        "agentkit.backend.cli.main._build_control_plane_client",
+        "agentkit.backend.cli.main._build_strategist_control_plane_client",
     ) as build_client:
         code, _out, err = _invoke(args, capsys)
 

@@ -1,0 +1,28 @@
+story_id: AG3-225
+story_title_short: "skill-bundles-verlassen-den-menschenpfad"
+title: "Produktiv bindbare Skill-Bundles weisen Agenten nicht mehr an, die CLI des Operators aufzurufen -- sie nutzen den Weg ueber Project Edge, der fuer sie existiert."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-05"
+size: L
+# Herkunft: PO-Entscheid vom 2026-08-05
+# (`concept/_meta/decisions/2026-08-05-delegationsrichtung-und-kontextschonung.md`),
+# Konsequenz Nr. 1 und 2.
+#
+# Betroffen sind mindestens `execute-userstory-core` (run-phase-Aufrufe an
+# {{AK3_WRAPPER}} gebunden, FK-43:470-472) und `lookup-userstory-core`
+# (export-story-md, FK-43:477-481 / FK-21:829-839). Die vollstaendige Menge
+# ergibt sich aus der Inventur (AC 1).
+#
+# DEPENDS_ON AG3-224: Erst muss die Norm im Korpus stehen, sonst implementiert
+# diese Story gegen eine Aussage, die nur in einem Decision Record lebt.
+#
+# ERWARTETER STOLPERSTEIN: Der Record haelt in §7 ausdruecklich fest, dass
+# ungeprueft ist, ob fuer JEDE heute per CLI im Bundle beauftragte Faehigkeit
+# schon ein Project-Edge-Aequivalent existiert. Fehlt eines, ist es zu bauen --
+# nicht zu umgehen und nicht durch Belassen des CLI-Aufrufs zu heilen. Genau
+# das kann diese Story deutlich groesser machen als ihr Kern; deshalb ist die
+# Inventur (AC 1) das erste Akzeptanzkriterium und nicht das letzte.
+depends_on: ["AG3-224"]
+unblocks: []

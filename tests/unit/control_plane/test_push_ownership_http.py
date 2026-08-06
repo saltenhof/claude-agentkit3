@@ -44,18 +44,26 @@ class _FakePushOwnershipRuntimeService(ControlPlaneRuntimeService):
         self.calls: list[tuple[str, str, str, str]] = []
 
     def confirm_push_ownership(
-        self, run_id: str, *, project_key: str, story_id: str, session_id: str,
+        self,
+        run_id: str,
+        *,
+        project_key: str,
+        story_id: str,
+        session_id: str,
     ) -> PushOwnershipConfirmation:
         if self.error is not None:
             raise self.error
         self.calls.append((run_id, project_key, story_id, session_id))
         return PushOwnershipConfirmation(
-            run_id=run_id, owner_confirmed=self._owner_confirmed, detail="fake",
+            run_id=run_id,
+            owner_confirmed=self._owner_confirmed,
+            detail="fake",
         )
 
 
 def _app(runtime: ControlPlaneRuntimeService) -> ControlPlaneApplication:
     return ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=runtime,
         story_service=_FakeStoryService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -72,10 +80,7 @@ def test_get_push_ownership_returns_the_confirmation() -> None:
 
     response = app.handle_request(
         method="GET",
-        path=(
-            "/v1/project-edge/story-runs/run-1/push-ownership"
-            "?project_key=tenant-a&story_id=AG3-147&session_id=sess-A"
-        ),
+        path=("/v1/project-edge/story-runs/run-1/push-ownership?project_key=tenant-a&story_id=AG3-147&session_id=sess-A"),
         body=b"",
     )
 
@@ -92,10 +97,7 @@ def test_get_push_ownership_denied_owner_surfaces_false() -> None:
 
     response = app.handle_request(
         method="GET",
-        path=(
-            "/v1/project-edge/story-runs/run-1/push-ownership"
-            "?project_key=tenant-a&story_id=AG3-147&session_id=sess-A"
-        ),
+        path=("/v1/project-edge/story-runs/run-1/push-ownership?project_key=tenant-a&story_id=AG3-147&session_id=sess-A"),
         body=b"",
     )
 
@@ -118,17 +120,12 @@ def test_get_push_ownership_missing_query_params_returns_400() -> None:
 
 def test_get_push_ownership_non_postgres_backend_fails_closed_503() -> None:
     """The gate check is Postgres-only (K5); a ConfigError -> 503."""
-    runtime = _FakePushOwnershipRuntimeService(
-        error=ConfigError("Postgres state backend required")
-    )
+    runtime = _FakePushOwnershipRuntimeService(error=ConfigError("Postgres state backend required"))
     app = _app(runtime)
 
     response = app.handle_request(
         method="GET",
-        path=(
-            "/v1/project-edge/story-runs/run-1/push-ownership"
-            "?project_key=tenant-a&story_id=AG3-147&session_id=sess-A"
-        ),
+        path=("/v1/project-edge/story-runs/run-1/push-ownership?project_key=tenant-a&story_id=AG3-147&session_id=sess-A"),
         body=b"",
     )
 

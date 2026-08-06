@@ -30,7 +30,9 @@ def test_compat_window_model_shape_is_stable() -> None:
 
 
 def test_compat_endpoint_response_matches_model() -> None:
-    app = ControlPlaneApplication()
+    app = ControlPlaneApplication(
+        writer_lease_required=False,
+    )
 
     response = app.handle_request(method="GET", path="/v1/compat", body=b"")
 

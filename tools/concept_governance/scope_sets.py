@@ -6,11 +6,12 @@ from typing import TYPE_CHECKING
 
 from concept_governance.chunks import authorization_scopes
 from concept_governance.scope_models import ScopeAssertionChunk, ScopePartition, ScopeSet
+from concept_governance.scope_prompt import render_scope_prompt
 
 if TYPE_CHECKING:
     from concept_ingester.discovery import ConceptChunk
 
-DEFAULT_PARTITION_MAX_CHARS = 48_000
+DEFAULT_PARTITION_MAX_CHARS = 30_000
 DEFAULT_PARTITION_MAX_CHUNKS = 20
 
 
@@ -49,12 +50,17 @@ def partition_scope_sets(
     max_chars: int = DEFAULT_PARTITION_MAX_CHARS,
     max_chunks: int = DEFAULT_PARTITION_MAX_CHUNKS,
 ) -> tuple[ScopePartition, ...]:
-    """Partition every non-empty set without truncating any assertion chunk."""
+    """Partition sets under exact rendered-prompt and source-count limits."""
     if max_chars < 1 or max_chunks < 1:
         raise ScopeSetError("partition limits must be positive")
+    if max_chars > DEFAULT_PARTITION_MAX_CHARS:
+        raise ScopeSetError(
+            f"partition maximum cannot exceed {DEFAULT_PARTITION_MAX_CHARS} characters"
+        )
     partitions: list[ScopePartition] = []
     for scope_set in scope_sets:
-        groups = _partition_assertions(scope_set.assertions, max_chars, max_chunks)
+        groups = _partition_assertions(scope_set.assertions, max_chunks)
+        groups = _fit_rendered_prompt_limit(scope_set.scope, groups, max_chars)
         partitions.extend(
             ScopePartition(scope=scope_set.scope, index=index, count=len(groups), assertions=group)
             for index, group in enumerate(groups, start=1)
@@ -63,18 +69,45 @@ def partition_scope_sets(
 
 
 def _partition_assertions(
-    assertions: tuple[ScopeAssertionChunk, ...], max_chars: int, max_chunks: int
+    assertions: tuple[ScopeAssertionChunk, ...], max_chunks: int
 ) -> tuple[tuple[ScopeAssertionChunk, ...], ...]:
-    groups: list[tuple[ScopeAssertionChunk, ...]] = []
-    current: list[ScopeAssertionChunk] = []
-    current_chars = 0
-    for assertion in assertions:
-        size = len(assertion.doc) + len(assertion.anchor) + len(assertion.text)
-        if current and (len(current) >= max_chunks or current_chars + size > max_chars):
-            groups.append(tuple(current))
-            current, current_chars = [], 0
-        current.append(assertion)
-        current_chars += size
-    if current:
-        groups.append(tuple(current))
-    return tuple(groups)
+    return tuple(
+        assertions[start : start + max_chunks]
+        for start in range(0, len(assertions), max_chunks)
+    )
+
+
+def _fit_rendered_prompt_limit(
+    scope: str,
+    initial: tuple[tuple[ScopeAssertionChunk, ...], ...],
+    max_chars: int,
+) -> tuple[tuple[ScopeAssertionChunk, ...], ...]:
+    """Split deterministically until every final rendered prompt fits."""
+    groups = initial
+    while groups:
+        count = len(groups)
+        revised: list[tuple[ScopeAssertionChunk, ...]] = []
+        changed = False
+        for index, group in enumerate(groups, start=1):
+            partition = ScopePartition(
+                scope=scope,
+                index=index,
+                count=count,
+                assertions=group,
+            )
+            rendered, _ = render_scope_prompt(partition)
+            if len(rendered) <= max_chars:
+                revised.append(group)
+                continue
+            if len(group) == 1:
+                raise ScopeSetError(
+                    f"source {group[0].chunk_id!r} renders to {len(rendered)} characters, "
+                    f"above partition maximum {max_chars}"
+                )
+            midpoint = (len(group) + 1) // 2
+            revised.extend((group[:midpoint], group[midpoint:]))
+            changed = True
+        groups = tuple(revised)
+        if not changed:
+            return groups
+    return ()

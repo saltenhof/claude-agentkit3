@@ -324,7 +324,7 @@ Zugriff: `payload.progress.integrity_passed`,
 `payload.progress.story_branch_pushed`,
 `payload.progress.merge_done` etc.
 
-Bei erneutem Aufruf (Service: `POST /phases/closure/start` oder Operator-CLI `agentkit run-phase closure`):
+Bei erneutem Aufruf (Service: `POST /phases/closure/start` oder Operator-CLI `<absolute-agentkit-wrapper> run-phase closure`):
 
 - Story-Branch-Push wird übersprungen, wenn
   `payload.progress.story_branch_pushed == true`

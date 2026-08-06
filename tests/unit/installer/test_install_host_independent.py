@@ -21,6 +21,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.installer_writer import (
+    InMemoryInstallerHookRepository,
+    InMemoryInstallerProjectRepository,
+)
 from tests.fixtures.vectordb_installer import (
     GRPC_ENDPOINT,
     HTTP_ENDPOINT,
@@ -39,6 +43,7 @@ from agentkit.backend.installer.runner import (
     InstallConfig,
     install_agentkit,
 )
+from agentkit.backend.skills import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS
 from agentkit.backend.skills.bundle_store import SkillBundle
 
 if TYPE_CHECKING:
@@ -88,11 +93,14 @@ class _FakeStore:
         self._root = root
 
     def get_bundle(self, bundle_id: str) -> SkillBundle:
-        bundle_root = self._root / bundle_id / "4.0.0"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        bundle_root = self._root / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         return SkillBundle(
             bundle_id=bundle_id,
-            bundle_version="4.0.0",
+            bundle_version=bundle_version,
             bundle_root=bundle_root,
             manifest_digest="0" * 64,
         )
@@ -153,6 +161,8 @@ def _config(
         github_owner="acme",
         github_repo="host-indep",
         registration_repo=registration_repo or _InMemoryRegistrationRepo(),
+        project_repo=InMemoryInstallerProjectRepository(),
+        hook_registration_repo=InMemoryInstallerHookRepository(),
         skills=skills,  # type: ignore[arg-type]
         skill_bundle_store=store,  # type: ignore[arg-type]
         skill_bundle_ids=_BUNDLE_IDS,

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.control_plane.disown import DisownPlan
     from agentkit.backend.control_plane.records import (
+        BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
         SessionRunBindingRecord,
     )
@@ -175,14 +176,29 @@ class ResetDisownAdapter:
     """Bind the reset disown port to the canonical control-plane transaction."""
 
     cp_repo: ControlPlaneRuntimeRepository
+    instance_identity: BackendInstanceIdentityRecord | None = None
     object_claim_repo: ObjectMutationClaimRepository = field(
         default_factory=ObjectMutationClaimRepository,
     )
 
     def claim(self, record: ControlPlaneOperationRecord) -> bool:
         """Claim the reset fence through the same control-plane repository."""
+        from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+            load_bound_control_plane_writer_identity,
+        )
 
-        return self.cp_repo.claim_operation(record)
+        identity = self.instance_identity or load_bound_control_plane_writer_identity()
+        if identity is None:
+            raise StoryResetLockError(
+                "story reset requires the active control-plane writer identity",
+            )
+        claimed = replace(
+            record,
+            operation_epoch=1,
+            backend_instance_id=identity.backend_instance_id,
+            instance_incarnation=identity.instance_incarnation,
+        )
+        return self.cp_repo.claim_operation(claimed)
 
     def load(self, op_id: str) -> ControlPlaneOperationRecord | None:
         """Load the reset fence through the same control-plane repository."""

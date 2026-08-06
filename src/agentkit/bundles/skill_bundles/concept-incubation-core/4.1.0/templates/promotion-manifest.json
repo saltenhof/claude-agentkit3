@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "<run_id>",
+  "base_revision": { "kind": "git", "value": "<commit-sha>" },
+  "scopes": [
+    { "scope_id": "<scope>", "promotion_disposition": "deferred", "blockers": [ { "reason": "<why>", "atom_ids": [], "owner": "<who>", "visible_anchor": "<path#anchor>" } ] }
+  ],
+  "required_decision_ids": [],
+  "required_concept_ids": [],
+  "required_formal_ids": [],
+  "required_registry_edges": [],
+  "required_support_paths": [],
+  "required_test_oracles": [],
+  "targets": [],
+  "receipts_dir": "promotion/receipts",
+  "scope_locks": [],
+  "semantic_gates": [
+    { "gate": "authority-prose", "status": "not_run", "receipt_path": null, "blocking_scope_ids": [] },
+    { "gate": "scope-consistency", "status": "not_run", "receipt_path": null, "blocking_scope_ids": [] }
+  ]
+}

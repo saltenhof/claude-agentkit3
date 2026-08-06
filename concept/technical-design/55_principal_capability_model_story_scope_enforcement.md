@@ -297,7 +297,7 @@ AK3 verwendet normativ diese Principal-Typen:
 | `adversarial_writer` | Schreiben und Ausfuehren adversarialer Tests in Sandbox | Adversarial-Agent |
 | `llm_evaluator` | strukturierte Bewertung ohne lokale Toolrechte | QA-/Semantic-/Conformance-Evaluator |
 | `pipeline_deterministic` | deterministische AgentKit-Skripte mit offizieller Mutationshoheit | Setup, deterministische Anteile innerhalb Implementation (QA-Subflow), Closure |
-| `human_cli` | menschlich ausgeloeste administrative Entscheidungen | `agentkit ...` durch Menschen |
+| `human_cli` | menschlich ausgeloeste administrative Entscheidungen | `<absolute-agentkit-wrapper> ...` durch Menschen |
 | `admin_service` | offizieller administrativer Servicepfad innerhalb AgentKit | `StoryResetService`, `StorySplitService`, spaeter Konfliktauflosung |
 
 **Normative Reduktion:** Weitere Principals duerfen nicht ad hoc aus
@@ -530,11 +530,11 @@ Servicepfade erfolgen.
 
 | Pfad | Principal |
 |------|-----------|
-| `POST /phases/closure/start` (Service-API) / `agentkit run-phase closure` (Operator-CLI) — interne Git-Mutationen | `pipeline_deterministic` |
-| `agentkit split-story ...` | `admin_service` / `human_cli` |
-| `agentkit reset-story ...` | `admin_service` / `human_cli` |
-| `agentkit cleanup --story ...` fuer stale Runtime-Reste | `pipeline_deterministic` oder `human_cli` |
-| kuenftig `agentkit resolve-conflict ...` | `admin_service` / `human_cli` |
+| `POST /phases/closure/start` (Service-API) / `<absolute-agentkit-wrapper> run-phase closure` (Operator-CLI) — interne Git-Mutationen | `pipeline_deterministic` |
+| `<absolute-agentkit-wrapper> split-story ...` | `admin_service` / `human_cli` |
+| `<absolute-agentkit-wrapper> reset-story ...` | `admin_service` / `human_cli` |
+| `<absolute-agentkit-wrapper> cleanup --story ...` fuer stale Runtime-Reste | `pipeline_deterministic` oder `human_cli` |
+| kuenftig `<absolute-agentkit-wrapper> resolve-conflict ...` | `admin_service` / `human_cli` |
 
 **Normative Regel:** Ein freier Bash-Befehl darf nie denselben
 Capability-Status erhalten wie ein offizieller Servicepfad.
@@ -776,7 +776,7 @@ einem Service-Attest ausgefuehrt wird.
 
 Das bedeutet explizit:
 
-- `agentkit split-story ...` oder `agentkit resolve-conflict ...` als
+- `<absolute-agentkit-wrapper> split-story ...` oder `<absolute-agentkit-wrapper> resolve-conflict ...` als
   freier Bash-String eines Agenten ist **nicht** automatisch ein
   offizieller Servicepfad
 - privilegiert sind nur durch Plattform/CLI attestiere Aufrufe von

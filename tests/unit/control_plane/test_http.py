@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from tests.story_read_port_stub import StubStoryReadPort
 
 from agentkit.backend.control_plane.http import (
@@ -43,7 +45,7 @@ from agentkit.backend.story_context_manager.sizing import StorySize
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
-    import pytest
+    from collections.abc import Iterator
 
     from agentkit.backend.control_plane_http.third_party_validation_routes import (
         ThirdPartyValidationRoutes,
@@ -59,9 +61,7 @@ class _AbstainingThirdPartyValidationRoutes:
 
 def _legacy_operation_routes() -> ControlPlaneApplicationRoutes:
     return ControlPlaneApplicationRoutes(
-        third_party_validation_routes=cast(
-            "ThirdPartyValidationRoutes", _AbstainingThirdPartyValidationRoutes()
-        )
+        third_party_validation_routes=cast("ThirdPartyValidationRoutes", _AbstainingThirdPartyValidationRoutes())
     )
 
 
@@ -269,47 +269,55 @@ class _FakeStoryContextRoutes(StoryContextRoutes):
             if not project_key_values:
                 return StoryRouteResponse(
                     status_code=400,
-                    body=json.dumps({
-                        "error_code": "missing_project_key",
-                        "error": "Missing required query parameter: project_key",
-                        "correlation_id": correlation_id,
-                    }).encode(),
+                    body=json.dumps(
+                        {
+                            "error_code": "missing_project_key",
+                            "error": "Missing required query parameter: project_key",
+                            "correlation_id": correlation_id,
+                        }
+                    ).encode(),
                     headers=(("X-Correlation-Id", correlation_id),),
                 )
             project_key = project_key_values[0]
             return StoryRouteResponse(
                 status_code=200,
-                body=json.dumps({
-                    "project_key": project_key,
-                    "stories": [{"story_id": "AG3-100"}],
-                }).encode(),
+                body=json.dumps(
+                    {
+                        "project_key": project_key,
+                        "stories": [{"story_id": "AG3-100"}],
+                    }
+                ).encode(),
                 headers=(("X-Correlation-Id", correlation_id),),
             )
         if route_path.startswith("/v1/stories/"):
-            story_id = route_path[len("/v1/stories/"):]
+            story_id = route_path[len("/v1/stories/") :]
             if "/" not in story_id:
                 # detail path
                 self.get_calls.append((route_path, correlation_id))
                 if story_id == "missing":
                     return StoryRouteResponse(
                         status_code=404,
-                        body=json.dumps({
-                            "error_code": "story_not_found",
-                            "error": "Story not found",
-                            "correlation_id": correlation_id,
-                        }).encode(),
+                        body=json.dumps(
+                            {
+                                "error_code": "story_not_found",
+                                "error": "Story not found",
+                                "correlation_id": correlation_id,
+                            }
+                        ).encode(),
                         headers=(("X-Correlation-Id", correlation_id),),
                     )
                 return StoryRouteResponse(
                     status_code=200,
-                    body=json.dumps({
-                        "summary": {
-                            "story_id": story_id,
-                            "project_key": "tenant-a",
-                            "title": "Implement control plane",
-                        },
-                        "spec": None,
-                    }).encode(),
+                    body=json.dumps(
+                        {
+                            "summary": {
+                                "story_id": story_id,
+                                "project_key": "tenant-a",
+                                "title": "Implement control plane",
+                            },
+                            "spec": None,
+                        }
+                    ).encode(),
                     headers=(("X-Correlation-Id", correlation_id),),
                 )
         return None
@@ -421,6 +429,7 @@ class _NoopTenantScopeMiddleware:
 def test_post_telemetry_event_returns_created() -> None:
     service = _FakeTelemetryService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=service,
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -453,6 +462,7 @@ def test_post_telemetry_event_returns_created() -> None:
 def test_post_phase_start_returns_created() -> None:
     runtime = _FakeRuntimeService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
@@ -517,6 +527,7 @@ def test_post_phase_start_rejection_returns_conflict() -> None:
     result without crashing; the rejection detail rides on ``phase_dispatch``.
     """
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_RejectingRuntimeService(),
         story_service=_FakeStoryService(),
@@ -549,6 +560,7 @@ def test_post_phase_start_rejection_returns_conflict() -> None:
 def test_post_project_edge_sync_returns_ok() -> None:
     runtime = _FakeRuntimeService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
@@ -574,6 +586,7 @@ def test_post_project_edge_sync_returns_ok() -> None:
 def test_post_phase_complete_and_fail_route_to_runtime() -> None:
     runtime = _FakeRuntimeService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
@@ -612,6 +625,7 @@ def test_post_phase_complete_and_fail_route_to_runtime() -> None:
 def test_post_closure_complete_returns_created() -> None:
     runtime = _FakeRuntimeService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
@@ -639,6 +653,7 @@ def test_post_closure_complete_returns_created() -> None:
 def test_get_operation_returns_ok() -> None:
     runtime = _FakeRuntimeService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=_legacy_operation_routes(),
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
@@ -658,6 +673,7 @@ def test_get_operation_returns_ok() -> None:
 
 def test_get_missing_operation_returns_not_found() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=_legacy_operation_routes(),
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
@@ -680,6 +696,7 @@ def test_get_missing_operation_returns_not_found() -> None:
 
 def test_healthz_returns_ok() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -694,6 +711,7 @@ def test_healthz_returns_ok() -> None:
 
 def test_healthz_wrong_method_returns_allow_header() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -712,6 +730,7 @@ def test_healthz_wrong_method_returns_allow_header() -> None:
 
 def test_unknown_path_returns_not_found() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -725,6 +744,7 @@ def test_unknown_path_returns_not_found() -> None:
 
 def test_invalid_json_returns_bad_request() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -748,6 +768,7 @@ def test_get_stories_legacy_path_returns_404() -> None:
     """GET /v1/stories (legacy bare path) is no longer exposed; must return 404 (AC2)."""
     fake_routes = _FakeStoryContextRoutes()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
@@ -770,6 +791,7 @@ def test_get_story_legacy_detail_path_returns_404() -> None:
     """GET /v1/stories/{id} (legacy bare path) is no longer exposed; must return 404 (AC2)."""
     fake_routes = _FakeStoryContextRoutes()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
@@ -789,6 +811,7 @@ def test_get_story_legacy_detail_path_returns_404() -> None:
 def test_get_stories_legacy_bare_path_returns_404() -> None:
     """GET /v1/stories (no project_key) is not routed to story_routes any more (AC2)."""
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         routes=ControlPlaneApplicationRoutes(story_routes=_FakeStoryContextRoutes()),
@@ -808,6 +831,7 @@ def test_get_stories_legacy_bare_path_returns_404() -> None:
 def test_get_missing_story_legacy_path_returns_404() -> None:
     """GET /v1/stories/missing via legacy path is not routed; generic 404 (AC2)."""
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         routes=ControlPlaneApplicationRoutes(story_routes=_FakeStoryContextRoutes()),
@@ -828,6 +852,7 @@ def test_patch_story_legacy_path_returns_404() -> None:
     """PATCH /v1/stories/{id} (legacy bare path) no longer resolves; 404 (AC2/AC3)."""
     fake_routes = _FakeStoryContextRoutes()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
@@ -849,6 +874,7 @@ def test_put_story_field_legacy_path_returns_404() -> None:
     """PUT /v1/stories/{id}/fields/{key} (legacy bare path) no longer resolves; 404 (AC2/AC3)."""
     fake_routes = _FakeStoryContextRoutes()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         routes=ControlPlaneApplicationRoutes(story_routes=fake_routes),
@@ -868,6 +894,7 @@ def test_put_story_field_legacy_path_returns_404() -> None:
 def test_get_dashboard_board_returns_project_scoped_columns() -> None:
     dashboard_service = _FakeDashboardService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -891,6 +918,7 @@ def test_get_dashboard_board_returns_project_scoped_columns() -> None:
 def test_get_dashboard_story_metrics_returns_project_scoped_metrics() -> None:
     dashboard_service = _FakeDashboardService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -913,6 +941,7 @@ def test_get_dashboard_story_metrics_returns_project_scoped_metrics() -> None:
 
 def test_invalid_payload_returns_bad_request() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
     )
@@ -934,6 +963,7 @@ def test_invalid_payload_returns_bad_request() -> None:
 
 def test_invalid_phase_payload_returns_bad_request() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -959,6 +989,7 @@ def test_invalid_phase_payload_returns_bad_request() -> None:
 def test_missing_op_id_phase_payload_returns_422() -> None:
     """AG3-140 (FK-91 §91.1a Rule 5, AC1): a phase mutation without op_id is 422."""
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -988,6 +1019,7 @@ def test_missing_op_id_phase_payload_returns_422() -> None:
 
 def test_invalid_closure_payload_returns_bad_request() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -1012,6 +1044,7 @@ def test_invalid_closure_payload_returns_bad_request() -> None:
 def test_missing_op_id_closure_payload_returns_422() -> None:
     """AG3-140 (FK-91 §91.1a Rule 5, AC1): a closure completion without op_id is 422."""
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -1048,6 +1081,7 @@ def test_missing_op_id_guard_counter_payload_returns_422() -> None:
     Validation precedes any guard-counter service call, so this holds at the wire.
     """
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -1076,6 +1110,7 @@ def test_missing_op_id_guard_counter_payload_returns_422() -> None:
 
 def test_invalid_project_edge_sync_payload_returns_bad_request() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
     )
@@ -1099,6 +1134,7 @@ def test_invalid_project_edge_sync_payload_returns_bad_request() -> None:
 def test_missing_op_id_project_edge_sync_payload_returns_422() -> None:
     """AG3-140 (FK-91 §91.1a Rule 5, AC1): a project-edge sync without op_id is 422."""
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
     )
@@ -1121,6 +1157,7 @@ def test_runtime_unavailable_returns_service_unavailable() -> None:
     runtime = _FakeRuntimeService()
     runtime.error = RuntimeError("postgres unavailable")
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
     )
@@ -1149,6 +1186,7 @@ def test_phase_runtime_unavailable_returns_service_unavailable() -> None:
     runtime = _FakeRuntimeService()
     runtime.error = RuntimeError("phase backend unavailable")
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -1191,6 +1229,7 @@ def _config_error_app() -> ControlPlaneApplication:
     runtime = _FakeRuntimeService()
     runtime.error = ConfigError(_CONFIG_ERROR_MESSAGE)
     return ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -1294,6 +1333,7 @@ def test_config_error_on_closure_returns_structured_503() -> None:
 
 def test_incoming_correlation_id_is_propagated() -> None:
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
         story_service=_FakeStoryService(),
@@ -1311,7 +1351,29 @@ def test_incoming_correlation_id_is_propagated() -> None:
 
 
 def test_serve_control_plane_runs_and_closes_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
+    captured: dict[str, object] = {
+        "addresses": [],
+        "closed": 0,
+        "served": 0,
+        "lease_released": 0,
+    }
+
+    class _HeldLease:
+        def assert_held(self) -> None:
+            return None
+
+        def bind_identity(self, identity: object) -> None:
+            del identity
+
+        @contextmanager
+        def request_scope(self) -> Iterator[None]:
+            yield
+
+        def quiesce_requests(self) -> None:
+            return None
+
+        def release(self) -> None:
+            captured["lease_released"] = int(captured["lease_released"]) + 1
 
     class _FakeServer:
         def __init__(
@@ -1322,16 +1384,19 @@ def test_serve_control_plane_runs_and_closes_server(monkeypatch: pytest.MonkeyPa
             certfile: str,
             keyfile: str | None,
         ) -> None:
-            captured["address"] = address
+            cast("list[tuple[str, int]]", captured["addresses"]).append(address)
             captured["handler_cls"] = handler_cls
             captured["certfile"] = certfile
             captured["keyfile"] = keyfile
 
         def serve_forever(self) -> None:
-            captured["served"] = True
+            captured["served"] = int(captured["served"]) + 1
+
+        def shutdown(self) -> None:
+            pass
 
         def server_close(self) -> None:
-            captured["closed"] = True
+            captured["closed"] = int(captured["closed"]) + 1
 
     monkeypatch.setattr("agentkit.backend.control_plane_http.app.ThreadingHTTPSServer", _FakeServer)
 
@@ -1339,24 +1404,82 @@ def test_serve_control_plane_runs_and_closes_server(monkeypatch: pytest.MonkeyPa
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
     )
+
+    monkeypatch.setattr(
+        "agentkit.backend.control_plane_http.app.run_pre_serve_startup",
+        lambda _runtime_service: _HeldLease(),
+    )
+
     serve_control_plane(
-        host="127.0.0.1",
-        port=9911,
+        ui_host="127.0.0.1",
+        ui_port=9911,
+        project_api_host="127.0.0.1",
+        project_api_port=9912,
         certfile=Path("tls/control-plane.pem"),
         keyfile=Path("tls/control-plane.key"),
         app=app,
-        # AG3-138: this transport-wiring test drives only server start/close; the
-        # pre-serve startup hook (instance-identity + reconciliation) has its own
-        # dedicated tests and needs a live control-plane backend, so inject a
-        # no-op here (the productive listener always runs the real hook).
-        startup_hook=lambda _app: None,
     )
 
-    assert captured["address"] == ("127.0.0.1", 9911)
+    assert captured["addresses"] == [("127.0.0.1", 9911), ("127.0.0.1", 9912)]
     assert captured["certfile"] == str(PurePath("tls/control-plane.pem"))
     assert captured["keyfile"] == str(PurePath("tls/control-plane.key"))
-    assert captured["served"] is True
-    assert captured["closed"] is True
+    assert captured["served"] == 2
+    assert captured["closed"] == 2
+    assert captured["lease_released"] == 1
+
+
+def test_serve_control_plane_rejects_startup_hook_lease_substitution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed = False
+
+    class _NeverServer:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            nonlocal constructed
+            constructed = True
+
+    monkeypatch.setattr(
+        "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
+        _NeverServer,
+    )
+
+    class _InjectedLease:
+        def assert_held(self) -> None:
+            return None
+
+        def bind_identity(self, identity: object) -> None:
+            del identity
+
+        @contextmanager
+        def request_scope(self) -> Iterator[None]:
+            yield
+
+        def quiesce_requests(self) -> None:
+            return None
+
+        def release(self) -> None:
+            return None
+
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+    )
+
+    def _substitute_lease(application: ControlPlaneApplication) -> None:
+        application._writer_lease = _InjectedLease()  # type: ignore[assignment]  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="pre-serve startup may run only once"):
+        serve_control_plane(
+            ui_host="127.0.0.1",
+            ui_port=9911,
+            project_api_host="127.0.0.1",
+            project_api_port=9912,
+            certfile=Path("tls/control-plane.pem"),
+            app=app,
+            startup_hook=_substitute_lease,
+        )
+
+    assert constructed is False
 
 
 def test_serve_control_plane_does_not_start_when_startup_hook_fails(
@@ -1388,9 +1511,7 @@ def test_serve_control_plane_does_not_start_when_startup_hook_fails(
         def server_close(self) -> None:  # pragma: no cover - must never run
             pass
 
-    monkeypatch.setattr(
-        "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer", _NeverServer
-    )
+    monkeypatch.setattr("agentkit.backend.control_plane_http.app.ThreadingHTTPSServer", _NeverServer)
 
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
@@ -1402,8 +1523,10 @@ def test_serve_control_plane_does_not_start_when_startup_hook_fails(
 
     with _pytest.raises(StartupReconciliationError):
         serve_control_plane(
-            host="127.0.0.1",
-            port=9912,
+            ui_host="127.0.0.1",
+            ui_port=9912,
+            project_api_host="127.0.0.1",
+            project_api_port=9913,
             certfile=Path("tls/control-plane.pem"),
             keyfile=None,
             app=app,
@@ -1476,9 +1599,7 @@ class _AbortRuntimeService(ControlPlaneRuntimeService):
         self._error = error
         self.calls: list[tuple[str, object]] = []
 
-    def admin_abort_inflight_operation(
-        self, op_id: str, request: object
-    ) -> ControlPlaneMutationResult:
+    def admin_abort_inflight_operation(self, op_id: str, request: object) -> ControlPlaneMutationResult:
         self.calls.append((op_id, request))
         if self._error is not None:
             raise self._error
@@ -1488,6 +1609,7 @@ class _AbortRuntimeService(ControlPlaneRuntimeService):
 
 def _abort_app(runtime: ControlPlaneRuntimeService) -> ControlPlaneApplication:
     return ControlPlaneApplication(
+        writer_lease_required=False,
         telemetry_service=_FakeTelemetryService(),
         runtime_service=runtime,
         story_service=_FakeStoryService(),
@@ -1495,9 +1617,7 @@ def _abort_app(runtime: ControlPlaneRuntimeService) -> ControlPlaneApplication:
     )
 
 
-def _post_admin_abort(
-    app: ControlPlaneApplication, *, op_id: str, body: dict[str, object]
-) -> HttpResponse:
+def _post_admin_abort(app: ControlPlaneApplication, *, op_id: str, body: dict[str, object]) -> HttpResponse:
     return app.handle_request(
         method="POST",
         path=f"/v1/project-edge/operations/{op_id}/admin-abort",
@@ -1569,11 +1689,7 @@ def test_admin_abort_endpoint_terminal_op_returns_409() -> None:
     """AC6: a target that is not a live claim is a deterministic fail-closed 409."""
     from agentkit.backend.control_plane.runtime import OperationNotAbortableError
 
-    app = _abort_app(
-        _AbortRuntimeService(
-            error=OperationNotAbortableError("op-abort-1", "committed")
-        )
-    )
+    app = _abort_app(_AbortRuntimeService(error=OperationNotAbortableError("op-abort-1", "committed")))
 
     response = _post_admin_abort(app, op_id="op-abort-1", body=_ABORT_BODY)
 
@@ -1607,9 +1723,7 @@ def test_phase_mutation_repair_lock_rejection_maps_to_409() -> None:
     """
 
     class _RepairLockedRuntime(ControlPlaneRuntimeService):
-        def start_phase(
-            self, *, run_id: str, phase: str, request: object
-        ) -> ControlPlaneMutationResult:
+        def start_phase(self, *, run_id: str, phase: str, request: object) -> ControlPlaneMutationResult:
             del run_id, request
             return ControlPlaneMutationResult(
                 status="rejected",
@@ -1623,10 +1737,7 @@ def test_phase_mutation_repair_lock_rejection_maps_to_409() -> None:
                     status="rejected",
                     reaction="rejected",
                     dispatched=False,
-                    rejection_reason=(
-                        "phase_start rejected: story has an open "
-                        "reconcile/repair state (AG3-138 AC10)."
-                    ),
+                    rejection_reason=("phase_start rejected: story has an open reconcile/repair state (AG3-138 AC10)."),
                 ),
             )
 
@@ -1672,9 +1783,7 @@ def test_phase_start_retry_against_aborted_terminal_row_maps_to_409() -> None:
     state = _RepoState()
     _resolvable_standard_ctx(state)
     request = _retry_request("op-abort-http")
-    _seed_terminal_operation(
-        state, op_id="op-abort-http", status="aborted", request=request
-    )
+    _seed_terminal_operation(state, op_id="op-abort-http", status="aborted", request=request)
     app = _abort_app(_admitting_service(state))
 
     response = app.handle_request(
@@ -1709,13 +1818,10 @@ def test_phase_mutation_body_hash_mismatch_maps_to_409() -> None:
     from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
 
     class _MismatchRuntime(ControlPlaneRuntimeService):
-        def start_phase(
-            self, *, run_id: str, phase: str, request: object
-        ) -> ControlPlaneMutationResult:
+        def start_phase(self, *, run_id: str, phase: str, request: object) -> ControlPlaneMutationResult:
             del run_id, phase, request
             raise IdempotencyMismatchError(
-                "op_id 'op-x' was previously used with a different request body; "
-                "use a new op_id for a different mutation",
+                "op_id 'op-x' was previously used with a different request body; use a new op_id for a different mutation",
                 detail={"op_id": "op-x", "conflict": "body_hash_mismatch"},
             )
 
@@ -1752,9 +1858,7 @@ def test_closure_complete_repair_lock_rejection_maps_to_409() -> None:
     """
 
     class _RepairLockedClosureRuntime(ControlPlaneRuntimeService):
-        def complete_closure(
-            self, *, run_id: str, request: object
-        ) -> ControlPlaneMutationResult:
+        def complete_closure(self, *, run_id: str, request: object) -> ControlPlaneMutationResult:
             del request
             return ControlPlaneMutationResult(
                 status="rejected",
@@ -1768,10 +1872,7 @@ def test_closure_complete_repair_lock_rejection_maps_to_409() -> None:
                     status="rejected",
                     reaction="rejected",
                     dispatched=False,
-                    rejection_reason=(
-                        "closure_complete rejected: story has an open "
-                        "reconcile/repair state (AG3-138 AC10)."
-                    ),
+                    rejection_reason=("closure_complete rejected: story has an open reconcile/repair state (AG3-138 AC10)."),
                 ),
             )
 

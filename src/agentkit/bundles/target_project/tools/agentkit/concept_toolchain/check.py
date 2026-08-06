@@ -25,6 +25,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from agentkit.backend.installer.interpreter import render_ak3_interpreter_command
+
 try:
     from .config import (
         GovernanceConfig,
@@ -49,9 +51,9 @@ try:
     from .runmodel_projection import load_projection_manifest
     from .semantic_status import run_semantic_status
 except ImportError:  # pragma: no cover - direct script execution path
-    # Executed as a plain script (``python tools/agentkit/concept_toolchain/check.py``):
-    # relative imports have no parent package, so re-run this module under its
-    # canonical package name and delegate the whole invocation to it.
+    # Direct script execution uses the absolute AK3 interpreter rendered by
+    # ``build_parser``. Relative imports then have no parent package, so re-run
+    # this module under its canonical package name and delegate the invocation.
     import importlib
 
     _package_parent = str(Path(__file__).resolve().parent.parent)
@@ -80,7 +82,9 @@ class _UsageErrorParser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     """Build the read-only concept-gate argument parser."""
     parser = _UsageErrorParser(
-        prog="python tools/agentkit/concept_toolchain/check.py",
+        prog=render_ak3_interpreter_command(
+            "tools/agentkit/concept_toolchain/check.py"
+        ),
         description="Read-only deterministic concept gates (FK-78).",
     )
     parser.add_argument("--project-root", default=".", help="Target-project root (default: current directory).")

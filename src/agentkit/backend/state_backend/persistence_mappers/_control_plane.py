@@ -130,7 +130,7 @@ def control_plane_op_row_to_record(
     return _ControlPlaneOperationRecord(
         op_id=str(row["op_id"]),
         project_key=str(row["project_key"]),
-        story_id=str(row["story_id"]),
+        story_id=cast("_OptionalString", row["story_id"]),
         run_id=cast("_OptionalString", row["run_id"]),
         session_id=cast("_OptionalString", row["session_id"]),
         operation_kind=str(row["operation_kind"]),

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import tempfile
 import tomllib
 from pathlib import Path
@@ -21,6 +22,7 @@ import pytest
 
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_SERVER_SHAPES,
+    ARE_MCP_SERVER,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
 )
@@ -28,7 +30,12 @@ from agentkit.backend.installer.codex_settings import (
     CODEX_HOOK_COMMAND,
     build_codex_config_toml,
 )
-from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
+from agentkit.backend.installer.interpreter import (
+    ak3_interpreter_command,
+    render_ak3_interpreter_command,
+    render_ak3_wrapper_command,
+    render_resolved_command,
+)
 from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.skills import create_directory_link, is_directory_link
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
@@ -69,6 +76,28 @@ def _codex_hook(phase: str, hook_id: str) -> str:
         phase,
         hook_id,
     )
+
+
+def _write_single_claude_hook(project_root: Path, command: str) -> Path:
+    settings_path = project_root / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [{"type": "command", "command": command}],
+                        }
+                    ]
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return settings_path
 
 
 def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
@@ -184,6 +213,90 @@ def test_detach_removes_only_ak3_hook_blocks_and_preserves_foreign(
 
     assert _claude_hook("pre", "branch_guard") in result.removed_ak3_hooks
     assert "/opt/foreign/audit-hook.sh" in result.preserved_foreign_hooks
+
+
+def test_detach_preserves_foreign_absolute_hook_wrapper_with_ak3_basename(
+    tmp_path: Path,
+) -> None:
+    """An executable basename is parser vocabulary, never deletion authority."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    foreign = tmp_path / "FOREIGN TOOL" / "agentkit-hook-claude.exe"
+    foreign.parent.mkdir()
+    foreign.write_text("foreign", encoding="utf-8")
+    command = f'"{foreign.as_posix()}" pre branch_guard'
+    settings_path = _write_single_claude_hook(project_root, command)
+    before = settings_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert settings_path.read_bytes() == before
+    assert command in result.preserved_foreign_hooks
+    assert result.removed_ak3_hooks == ()
+
+
+def test_detach_preserves_hook_script_from_another_project(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    foreign_script = tmp_path / "foreign" / ".agentkit" / "hooks" / "audit.py"
+    foreign_script.parent.mkdir(parents=True)
+    foreign_script.write_text("# foreign", encoding="utf-8")
+    command = render_ak3_interpreter_command(str(foreign_script))
+    settings_path = _write_single_claude_hook(project_root, command)
+    before = settings_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert settings_path.read_bytes() == before
+    assert foreign_script.is_file()
+    assert command in result.preserved_foreign_hooks
+
+
+def test_detach_preserves_hook_when_central_owner_is_unresolvable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agentkit.backend.installer.lifecycle.detach as detach_module
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    command = _claude_hook("pre", "branch_guard")
+    settings_path = _write_single_claude_hook(project_root, command)
+    before = settings_path.read_bytes()
+    real_resolver = detach_module.resolve_ak3_wrapper
+
+    def _resolve_other_wrappers(name: str) -> Path:
+        if name == "agentkit-hook-claude":
+            raise RuntimeError("central hook owner unavailable")
+        return real_resolver(name)
+
+    monkeypatch.setattr(
+        detach_module,
+        "resolve_ak3_wrapper",
+        _resolve_other_wrappers,
+    )
+
+    result = detach_project(project_root)
+
+    assert settings_path.read_bytes() == before
+    assert command in result.preserved_foreign_hooks
+    assert result.removed_ak3_hooks == ()
+
+
+def test_detach_removes_real_interpreter_bound_project_hook(tmp_path: Path) -> None:
+    """The deployed script form remains positively owned and is not orphaned."""
+    project_root = tmp_path / "project"
+    hook_script = project_root / ".agentkit" / "hooks" / "pre_tool_use.py"
+    hook_script.parent.mkdir(parents=True)
+    hook_script.write_text("# AK3 hook", encoding="utf-8")
+    command = render_ak3_interpreter_command(".agentkit/hooks/pre_tool_use.py")
+    settings_path = _write_single_claude_hook(project_root, command)
+
+    result = detach_project(project_root)
+
+    assert not settings_path.exists()
+    assert command in result.removed_ak3_hooks
+    assert command not in result.preserved_foreign_hooks
 
 
 def test_detach_removes_ak3_bindings_and_launcher(tmp_path: Path) -> None:
@@ -729,6 +842,174 @@ def test_detach_removes_ak3_hook_plus_ak3_mcp_config(tmp_path: Path) -> None:
     assert not (project_root / ".codex").exists()  # empty dir cleaned up too
 
 
+def test_detach_preserves_an_unrelated_empty_codex_directory(tmp_path: Path) -> None:
+    """An empty harness directory is not evidence of AK3 ownership."""
+    project_root = tmp_path / "project"
+    codex_dir = project_root / ".codex"
+    codex_dir.mkdir(parents=True)
+
+    result = detach_project(project_root)
+
+    assert codex_dir.is_dir()
+    assert str(Path(".codex")) not in result.removed_bindings
+
+
+@pytest.mark.parametrize(
+    "relative_directory",
+    [
+        Path("tools"),
+        Path("stories"),
+        Path(".claude/context"),
+        Path(".claude/skills"),
+    ],
+)
+def test_detach_preserves_every_unrelated_empty_directory(
+    tmp_path: Path,
+    relative_directory: Path,
+) -> None:
+    """Empty directory names alone never carry deletion authority."""
+    project_root = tmp_path / "project"
+    directory = project_root / relative_directory
+    directory.mkdir(parents=True)
+
+    result = detach_project(project_root)
+
+    assert directory.is_dir()
+    assert str(relative_directory) not in result.removed_bindings
+
+
+def test_detach_preserves_an_empty_codex_directory_link(tmp_path: Path) -> None:
+    """Empty symlink/junction harness paths are never cleanup targets."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    foreign_target = tmp_path / "foreign-codex"
+    foreign_target.mkdir()
+    codex_link = project_root / ".codex"
+    create_directory_link(codex_link, foreign_target)
+
+    result = detach_project(project_root)
+
+    assert codex_link.is_symlink() or os.path.isjunction(codex_link)
+    assert foreign_target.is_dir()
+    assert str(Path(".codex")) not in result.removed_bindings
+
+
+def test_interpreter_snapshot_key_is_consumed_by_both_mcp_projections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One detach snapshot proves the interpreter owner to both projections."""
+    import agentkit.backend.installer.lifecycle.detach as detach_module
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    interpreter = tmp_path / "runtime" / "python.exe"
+    interpreter.parent.mkdir()
+    interpreter.write_text("owner", encoding="utf-8")
+    shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
+    server = DesiredMcpServer(
+        name=STORY_KNOWLEDGE_BASE_SERVER,
+        command=str(interpreter),
+        args=shape.args,
+        cwd=str(project_root),
+        env=tuple((key, "value") for key in sorted(shape.env_keys)),
+    )
+    mcp_path = project_root / ".mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {"mcpServers": {STORY_KNOWLEDGE_BASE_SERVER: server.to_mcp_json_entry()}}
+        ),
+        encoding="utf-8",
+    )
+    config_path = _write_codex(
+        project_root,
+        render_codex_config(
+            None,
+            hook_command=CODEX_HOOK_COMMAND,
+            project_root=project_root,
+            servers=(server,),
+        ).encode("utf-8"),
+    )
+    calls = 0
+
+    def _changing_interpreter() -> Path:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise RuntimeError("interpreter owner changed during detach")
+        return interpreter
+
+    def _missing_wrapper(_name: str) -> Path:
+        raise RuntimeError("wrapper owners are unavailable")
+
+    monkeypatch.setattr(
+        detach_module,
+        "resolve_ak3_interpreter",
+        _changing_interpreter,
+    )
+    monkeypatch.setattr(detach_module, "resolve_ak3_wrapper", _missing_wrapper)
+
+    result = detach_project(project_root)
+
+    assert calls == 1
+    assert not mcp_path.exists()
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert STORY_KNOWLEDGE_BASE_SERVER not in parsed.get("mcp_servers", {})
+    assert parsed["hooks"]["pre_tool_use"]["command"] == CODEX_HOOK_COMMAND
+    assert str(Path(".mcp.json")) in result.removed_bindings
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_link_aliased_cwd_is_preserved_in_both_mcp_projections(
+    tmp_path: Path,
+) -> None:
+    """A symlink/junction alias cannot prove an MCP table's project ownership."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    project_alias = tmp_path / "project-alias"
+    create_directory_link(project_alias, project_root)
+    owned = _expected_ak3_server(project_root)
+    server = DesiredMcpServer(
+        name=STORY_KNOWLEDGE_BASE_SERVER,
+        command=owned.command,
+        args=owned.args,
+        cwd=str(project_alias),
+        env=owned.env,
+    )
+    mcp_path = project_root / ".mcp.json"
+    mcp_path.write_text(
+        json.dumps(
+            {"mcpServers": {STORY_KNOWLEDGE_BASE_SERVER: server.to_mcp_json_entry()}}
+        ),
+        encoding="utf-8",
+    )
+    mcp_before = mcp_path.read_bytes()
+    config_path = _write_codex(
+        project_root,
+        render_codex_config(
+            None,
+            hook_command=CODEX_HOOK_COMMAND,
+            project_root=project_root,
+            servers=(server,),
+        ).encode("utf-8"),
+    )
+
+    result = detach_project(project_root)
+
+    assert project_alias.is_symlink() or os.path.isjunction(project_alias)
+    assert mcp_path.read_bytes() == mcp_before
+    mcp_after = json.loads(mcp_path.read_text(encoding="utf-8"))
+    assert mcp_after["mcpServers"][STORY_KNOWLEDGE_BASE_SERVER]["cwd"] == str(
+        project_alias
+    )
+    codex_after = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert codex_after["mcp_servers"][STORY_KNOWLEDGE_BASE_SERVER]["cwd"] == str(
+        project_alias
+    )
+    assert str(Path(".mcp.json")) in result.preserved_foreign_files
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
 def test_detach_preserves_config_with_a_foreign_table_alongside_the_mcp_entry(
     tmp_path: Path,
 ) -> None:
@@ -743,6 +1024,189 @@ def test_detach_preserves_config_with_a_foreign_table_alongside_the_mcp_entry(
     parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert parsed == {"user": {"custom": {"key": "value"}}}
     assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_detach_preserves_same_named_are_program_when_wrapper_owner_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Post-uninstall owner failure cannot authorize deletion by basename."""
+    import agentkit.backend.installer.lifecycle.detach as detach_module
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    shape = AK3_SERVER_SHAPES[ARE_MCP_SERVER]
+    foreign = DesiredMcpServer(
+        name=ARE_MCP_SERVER,
+        command=r"T:\FOREIGN TOOL\agentkit-are-mcp.exe",
+        args=shape.args,
+        cwd=str(project_root),
+        env=tuple((key, "value") for key in sorted(shape.env_keys)),
+    )
+    content = render_codex_config(
+        None,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=project_root,
+        servers=(foreign,),
+    ).encode("utf-8")
+    config_path = _write_codex(project_root, content)
+
+    def _missing_wrapper(_name: str) -> Path:
+        raise RuntimeError("AK3 environment was removed")
+
+    monkeypatch.setattr(detach_module, "resolve_ak3_wrapper", _missing_wrapper)
+
+    result = detach_project(project_root)
+
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert parsed["mcp_servers"][ARE_MCP_SERVER]["command"] == foreign.command
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_detach_preserves_codex_hook_when_its_snapshot_owner_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An import-time hook value cannot replace a missing detach-time owner."""
+    import agentkit.backend.installer.lifecycle.detach as detach_module
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    owner = tmp_path / "owner" / "agentkit-are-mcp.exe"
+    owner.parent.mkdir()
+    owner.write_text("owner", encoding="utf-8")
+    shape = AK3_SERVER_SHAPES[ARE_MCP_SERVER]
+    server = DesiredMcpServer(
+        name=ARE_MCP_SERVER,
+        command=str(owner),
+        args=shape.args,
+        cwd=str(project_root),
+        env=tuple((key, "value") for key in sorted(shape.env_keys)),
+    )
+    (project_root / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {ARE_MCP_SERVER: server.to_mcp_json_entry()}}),
+        encoding="utf-8",
+    )
+    config_path = _write_codex(
+        project_root,
+        render_codex_config(
+            None,
+            hook_command=CODEX_HOOK_COMMAND,
+            project_root=project_root,
+            servers=(server,),
+        ).encode("utf-8"),
+    )
+    calls = 0
+
+    def _changing_wrapper(name: str) -> Path:
+        nonlocal calls
+        if name != "agentkit-are-mcp":
+            raise RuntimeError(f"unavailable test owner: {name}")
+        calls += 1
+        if calls > 1:
+            raise RuntimeError("owner changed during detach")
+        return owner
+
+    monkeypatch.setattr(detach_module, "resolve_ak3_wrapper", _changing_wrapper)
+
+    result = detach_project(project_root)
+
+    assert calls == 1
+    assert not (project_root / ".mcp.json").exists()
+    assert config_path.exists()
+    parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert parsed["hooks"]["pre_tool_use"]["command"] == CODEX_HOOK_COMMAND
+    assert ARE_MCP_SERVER not in parsed.get("mcp_servers", {})
+    assert str(Path(".mcp.json")) in result.removed_bindings
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_missing_codex_owner_preserves_config_without_importing_settings_module(
+    tmp_path: Path,
+) -> None:
+    """Fresh-process detach cannot trigger import-time hook resolution."""
+    project_root = tmp_path / "project"
+    config_path = project_root / ".codex" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    raw = (
+        b"[hooks.pre_tool_use]\n"
+        b'command = "T:/missing/agentkit-hook-codex.exe"\n'
+    )
+    config_path.write_bytes(raw)
+    script = r"""
+import importlib
+import sys
+from pathlib import Path
+
+interpreter = importlib.import_module("agentkit.backend.installer.interpreter")
+
+def missing_wrapper(_name: str) -> Path:
+    raise RuntimeError("wrapper absent")
+
+interpreter.resolve_ak3_wrapper = missing_wrapper
+detach = importlib.import_module("agentkit.backend.installer.lifecycle.detach")
+assert "agentkit.backend.installer.codex_settings" not in sys.modules
+detach.resolve_ak3_wrapper = missing_wrapper
+project_root = Path(sys.argv[1])
+before = (project_root / ".codex" / "config.toml").read_bytes()
+result = detach.detach_project(project_root)
+assert (project_root / ".codex" / "config.toml").read_bytes() == before
+assert ".codex/config.toml" in {
+    value.replace("\\", "/") for value in result.preserved_foreign_files
+}
+assert "agentkit.backend.installer.codex_settings" not in sys.modules
+"""
+
+    completed = subprocess.run(
+        ak3_interpreter_command("-c", script, str(project_root)),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert config_path.read_bytes() == raw
+
+
+def test_detach_removes_snapshot_owned_codex_hook_from_path_with_spaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shell quoting cannot hide a hook proved by the detach-time raw owner."""
+    import agentkit.backend.installer.lifecycle.detach as detach_module
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    owner = tmp_path / "Owner With Spaces" / "agentkit-hook-codex.exe"
+    owner.parent.mkdir()
+    owner.write_text("owner", encoding="utf-8")
+    hook_command = render_resolved_command(str(owner))
+    config_path = _write_codex(
+        project_root,
+        render_codex_config(
+            None,
+            hook_command=hook_command,
+            project_root=project_root,
+            servers=(),
+        ).encode("utf-8"),
+    )
+
+    def _wrapper(wrapper_name: str) -> Path:
+        if wrapper_name == "agentkit-hook-codex":
+            return owner
+        raise RuntimeError(f"unavailable test owner: {wrapper_name}")
+
+    monkeypatch.setattr(detach_module, "resolve_ak3_wrapper", _wrapper)
+
+    result = detach_project(project_root)
+
+    assert " " in str(owner)
+    assert hook_command != str(owner)
+    assert not config_path.exists()
+    assert str(Path(".codex/config.toml")) in result.removed_bindings
 
 
 def test_detach_preserves_an_ak3_only_config_carrying_a_user_comment(
@@ -780,6 +1244,50 @@ def test_detach_preserves_an_unparsable_codex_config(tmp_path: Path) -> None:
     result = detach_project(project_root)
 
     assert config_path.read_bytes() == before
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_detach_preserves_a_non_utf8_codex_config(tmp_path: Path) -> None:
+    """Invalid UTF-8 follows the unreadable preservation path, never an exception."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    config_path = _write_codex(project_root, b'x = "\xff\xfe"\n')
+    before = config_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert config_path.read_bytes() == before
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+
+
+def test_detach_preserves_an_excessively_nested_mcp_json(tmp_path: Path) -> None:
+    """A parser recursion limit is unreadable input, never permission to mutate."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    config_path = project_root / ".mcp.json"
+    depth = 2_000
+    raw = b'{"mcpServers":' + (b"[" * depth) + b"0" + (b"]" * depth) + b"}"
+    config_path.write_bytes(raw)
+
+    result = detach_project(project_root)
+
+    assert config_path.read_bytes() == raw
+    assert str(Path(".mcp.json")) in result.preserved_foreign_files
+
+
+def test_detach_preserves_an_excessively_nested_codex_config(
+    tmp_path: Path,
+) -> None:
+    """A TOML parser recursion limit also follows the unreadable-file path."""
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    depth = 2_000
+    raw = b"value = " + (b"[" * depth) + b"0" + (b"]" * depth) + b"\n"
+    config_path = _write_codex(project_root, raw)
+
+    result = detach_project(project_root)
+
+    assert config_path.read_bytes() == raw
     assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
 
 

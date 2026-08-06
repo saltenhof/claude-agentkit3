@@ -13,7 +13,7 @@ korrupt gewordene Story-Umsetzungen.
 
 Im Scope sind:
 
-- der offizielle CLI-Pfad `agentkit reset-story`
+- der offizielle CLI-Pfad `<absolute-agentkit-wrapper> reset-story`
 - der Reset-Prozesszustand
 - Reset-spezifische Kernentitaeten
 - Reset-Events

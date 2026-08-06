@@ -682,7 +682,7 @@ nach einem Crash und entspricht dem `auto-resume` aus FK-20 §20.7.3; ein
 eigenes Identitaets-Primitiv ist dafuer nicht noetig, weil die
 resumebare Session selbst der stabile Anker ist.
 
-**Fallback — `agentkit recover-story` (neuer Run, menschlich).** Nur
+**Fallback — `<absolute-agentkit-wrapper> recover-story` (neuer Run, menschlich).** Nur
 wenn die Harness-Identitaet **nicht** wiederherstellbar ist
 (Session/Transcript verloren, bewusster Clean-Slate) oder waehrend der
 Ausfallzeit bereits ein Takeover die Story entzogen hat (der Ex-Owner

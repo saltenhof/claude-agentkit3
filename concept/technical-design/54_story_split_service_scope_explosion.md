@@ -48,7 +48,7 @@ glossary:
         Menschenfreigegebenes Artefakt, das Ausgangs-Story, Split-Grund,
         Nachfolger-Stories, Ziel-Scope je Nachfolger,
         Akzeptanzkriterien-Zuordnung und Dependency-Rebinding
-        beschreibt. Pflichtinput fuer agentkit split-story. Kein
+        beschreibt. Pflichtinput fuer <absolute-agentkit-wrapper> split-story. Kein
         optionaler Input, sondern vertraglicher Kern der Operation.
     - id: story-split
       definition: >
@@ -160,7 +160,7 @@ Nach erfolgreichem Split gilt:
 Normativer Kontrollpfad:
 
 ```bash
-agentkit split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion in exploration"
+<absolute-agentkit-wrapper> split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion in exploration"
 ```
 
 Pflichtparameter:
@@ -373,7 +373,7 @@ Diese Auditdaten duerfen aber:
 Waehrend einer aktiven Story-Execution blockieren die Guards viele
 Mutationen absichtlich. Fuer den offiziellen Split-Pfad gilt deshalb:
 
-1. Nur `agentkit split-story ...` darf trotz aktivem Story-Lock die
+1. Nur `<absolute-agentkit-wrapper> split-story ...` darf trotz aktivem Story-Lock die
    administrative Split-Operation ausfuehren.
 2. Freie Git-Manipulationen oder direkte Story-Backend-Mutationen am
    Service vorbei bleiben weiter blockiert.

@@ -1487,3 +1487,21 @@ def test_story_split_service_requires_an_explicit_project_root() -> None:
             stories_root=Path("stories"),
             project_root=None,
         )
+
+
+def test_story_reset_service_requires_the_active_writer_identity(tmp_path: Path) -> None:
+    """A direct composition caller cannot create a lease-free reset writer."""
+
+    from agentkit.backend.bootstrap.composition_project import build_story_reset_service
+
+    with pytest.raises(RuntimeError, match="active control-plane writer identity"):
+        build_story_reset_service(project_key="ak3", store_dir=tmp_path)
+
+
+def test_story_exit_service_requires_the_active_writer_identity() -> None:
+    """A direct composition caller cannot create a lease-free exit writer."""
+
+    from agentkit.backend.bootstrap.composition_project import build_story_exit_service
+
+    with pytest.raises(RuntimeError, match="active control-plane writer identity"):
+        build_story_exit_service(project_key="ak3")

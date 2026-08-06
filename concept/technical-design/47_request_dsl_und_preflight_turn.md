@@ -108,24 +108,29 @@ Result-POST ebenfalls benoetigt (FK-91 §91.1a Regeln 14/15).
 
 ```mermaid
 sequenceDiagram
-    participant C as Client/Orchestrator
+    participant C as Orchestrator-Agent
     participant B as Backend Implementation Phase
     participant E as Project Edge
     participant R as Preflight Reviewer
-    C->>B: Start/Resume
+    C->>E: Start/Resume beauftragen
+    E->>B: Start/Resume
     B->>B: commission base_collection
-    B-->>C: PAUSED (Claim frei)
+    B-->>E: PAUSED (Claim frei)
+    E-->>C: PAUSED
     C->>E: offene Commands pollen/ausfuehren
     E->>B: Result-POST (terminalisiert nur CommandRecord)
-    C->>B: Resume
+    C->>E: Resume beauftragen
+    E->>B: Resume
     B->>B: Bundle aus Edge-Dateien assembliert
     B->>R: einmaliger Preflight je auditiertem attempt
     R-->>B: raw response
     B->>B: response + Requests + Digests atomar checkpointen
-    B-->>C: PAUSED (Claim frei)
+    B-->>E: PAUSED (Claim frei)
+    E-->>C: PAUSED
     C->>E: dynamic_requests ausfuehren
     E->>B: Result-POST (nur CommandRecord)
-    C->>B: Resume
+    C->>E: Resume beauftragen
+    E->>B: Resume
     B->>B: D3 + Bundle-Anwendung unter Ownership-Fence
     B->>B: QA-Subflow fortsetzen
 ```

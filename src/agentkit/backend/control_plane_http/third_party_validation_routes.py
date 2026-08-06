@@ -33,6 +33,16 @@ class ThirdPartyValidationRoutes:
     def __init__(self, service: ThirdPartyPreflightService) -> None:
         self._service = service
 
+    def drain_writer_work(self) -> None:
+        """Drain accepted background mutations before normal writer unlock."""
+
+        self._service.drain_writer_work()
+
+    def abort_writer_work(self) -> None:
+        """Fence background finalization after fatal writer-lease loss."""
+
+        self._service.abort_writer_work()
+
     def handle_post(self, route_path: str, payload: object, correlation_id: str) -> HttpResponse | None:
         """Handle light validation or explicit self-test submission."""
         validation = _VALIDATION.match(route_path)

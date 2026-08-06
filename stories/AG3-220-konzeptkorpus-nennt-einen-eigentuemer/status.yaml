@@ -1,0 +1,24 @@
+story_id: AG3-220
+story_title_short: "konzeptkorpus-nennt-einen-eigentuemer"
+title: "Mehrere Konzeptdokumente fuehren Werte und Aussagen, die anderswo ihren Eigentuemer haben -- Installationsform, Python-Untergrenze, Bundle-Floors. Jeder dieser Werte bekommt genau einen Eigentuemer."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-05"
+size: M
+# Herkunft: AG3-189 R15 (2026-08-05). Der dort beauftragte Konzeptkorpus-Sweep
+# fasste 54 Dateien an und legte dabei Widersprueche frei, die mit
+# Interpreter-Isolation nichts zu tun haben. Sie gehoeren nicht in AG3-189 --
+# dort waeren sie ein zweiter, fremder Auftrag im selben Schnitt.
+#
+# AG3-189 bleibt: kein produktiver Weg publiziert oder verwendet einen nackten
+# Interpreter-/Wrapperaufruf. Diese Story hier: kein Wert hat zwei Eigentuemer.
+#
+# NICHT in dieser Story: der normative Widerspruch, ob ein Agent die CLI
+# ueberhaupt direkt aufrufen darf (FK-45:329-355 verbietet es, FK-43:466-470
+# und der Installationsisolations-Record :168-172 setzen es voraus; FK-21:829-839
+# steht im selben Konflikt). Das ist eine fachliche Grundentscheidung und liegt
+# beim PO -- vorgelegt am 2026-08-05, Antwort offen. Solange sie offen ist,
+# darf keine der beiden Seiten stillschweigend umgeschrieben werden.
+depends_on: ["AG3-189", "AG3-214"]
+unblocks: []

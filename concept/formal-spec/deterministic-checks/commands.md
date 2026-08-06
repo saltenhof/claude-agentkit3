@@ -98,7 +98,7 @@ commands:
     emits:
       - deterministic-checks.event.tests-green-floor.passed
   - id: deterministic-checks.command.evaluate-policy
-    signature: agentkit policy
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> policy
     # The policy aggregator fires from exactly one applicability-resolved
     # entry status (FK-33 §33.6.5), and ONLY in the non-fast flows (under mode
     # fast the Policy Engine / Layer 4 is OUT, so this command never runs). For

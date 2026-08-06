@@ -5,22 +5,35 @@ from __future__ import annotations
 import hashlib
 
 import pytest
-from concept_governance.scope_contracts import ScopeConsistencyResponse
+from concept_governance.scope_contracts import QuotedAssertion, ScopeConsistencyResponse
 from concept_governance.scope_models import SCOPE_PROMPT_VERSION, ScopeConsistencyFinding
 from concept_governance.scope_prompt import SCOPE_PROMPT_PATH, SCOPE_PROMPT_TEMPLATE_SHA256
 from pydantic import ValidationError
 
 
 def test_scope_prompt_version_hash_and_no_verdict_contract_are_pinned() -> None:
-    assert SCOPE_PROMPT_VERSION == "scope-consistency/v1"
+    assert SCOPE_PROMPT_VERSION == "scope-consistency/v2"
     template = SCOPE_PROMPT_PATH.read_text(encoding="utf-8")
     assert hashlib.sha256(template.encode()).hexdigest() == SCOPE_PROMPT_TEMPLATE_SHA256
     assert "contradictions" in template
-    assert "chunk_id" in template
+    assert "source_id" in template
+    assert "start_id" in template
+    assert "end_id" in template
+    assert "Never copy assertion text" in template
     assert "Never return PASS, ERROR" in template
 
 
 def test_scope_response_forbids_policy_verdict() -> None:
+    assert set(QuotedAssertion.model_fields) == {"source_id", "start_id", "end_id"}
+    with pytest.raises(ValidationError):
+        QuotedAssertion.model_validate(
+            {
+                "chunk_id": "chunk-1",
+                "doc": "a.md",
+                "anchor": "rule-000",
+                "assertion": "copied text",
+            }
+        )
     with pytest.raises(ValidationError):
         ScopeConsistencyResponse.model_validate({"contradictions": [], "verdict": "PASS"})
 

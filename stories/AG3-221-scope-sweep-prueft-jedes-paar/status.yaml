@@ -1,0 +1,26 @@
+story_id: AG3-221
+story_title_short: "scope-sweep-prueft-jedes-paar"
+title: "Der Scope-Consistency-Sweep prueft nur innerhalb disjunkter Partitionen; Widersprueche ueber Partitionsgrenzen hinweg sieht er nie. Er soll jedes Chunk-Paar einmal gemeinsam bewerten -- oder fail-closed enden."
+type: implementation
+status: blocked
+phase: setup
+created: "2026-08-05"
+size: L
+# Herkunft: AG3-219 R4-Review (2026-08-05).
+#
+# BLOCKIERT AUF PO-ENTSCHEIDUNG. Die vollstaendige Loesung (pair-covering,
+# ueberlappende Partitionen) ist kombinatorisch teuer -- jedes Chunk-Paar
+# eines Scope-Sets muss einmal gemeinsam in einem Prompt stehen. Bei n Chunks
+# und einer 30.000-Zeichen-Grenze waechst die Zahl der Bewertungen deutlich
+# ueber die heutige lineare Partitionierung hinaus. Jede Bewertung ist ein
+# LLM-Aufruf ueber den Multi-LLM-Hub.
+#
+# Der PO muss entscheiden, ob diese Kosten getragen werden -- oder ob AK3
+# bewusst mit Partitionskonsistenz statt Scope-Set-Konsistenz lebt und das
+# ueberall dort sagt, wo es die Zusage macht.
+#
+# AG3-219 hat die Sofortpflicht bereits erfuellt: Der Sweep meldet
+# INCOMPLETE_SWEEP, statt einen unvollstaendigen Lauf als PASS auszugeben.
+# Die Luecke ist damit sichtbar und benannt, nicht geschlossen.
+depends_on: ["AG3-219"]
+unblocks: []

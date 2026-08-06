@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "receipt_id": "<receipt_id>",
+  "atom_id": "<atom_id>",
+  "target": { "path": "<path>", "anchor": "<anchor>" },
+  "target_mode": "markdown-section",
+  "selector": null,
+  "source_digest": "<sha256>",
+  "target_section_digest": "<sha256>",
+  "writer_principal_id": "<principal>",
+  "writer_session_ref": "<opaque>",
+  "reviewer_principal_id": "<reviewer-principal>",
+  "reviewer_session_ref": "<reviewer-opaque>",
+  "verdict": "equivalent",
+  "reviewed_at": "<iso-utc>"
+}

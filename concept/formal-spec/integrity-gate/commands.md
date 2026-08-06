@@ -34,7 +34,7 @@ commands:
       - integrity-gate.event.gate.started
       - integrity-gate.event.gate.result
   - id: integrity-gate.command.override-gate
-    signature: agentkit override-integrity --story {story_id} --reason ...
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> override-integrity --story {story_id} --reason ...
     allowed_statuses:
       - integrity-gate.status.failed
     requires:
@@ -42,7 +42,7 @@ commands:
     emits:
       - integrity-gate.event.gate.overridden
   - id: integrity-gate.command.query-audit-log
-    signature: agentkit query-telemetry --story {story_id} --event integrity_gate_result
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> query-telemetry --story {story_id} --event integrity_gate_result
     allowed_statuses:
       - integrity-gate.status.failed
       - integrity-gate.status.overridden

@@ -107,9 +107,21 @@ class _ControlPlaneResumeMixin:
             self, *, project_key: str, story_id: str, op_id: str
         ) -> object_claims.ObjectClaimConflict | None: ...
 
-        def _release_my_claim(self, op_id: str, owner_token: str, claimed_at_raw: str | None) -> None: ...
+        def _release_my_claim(
+            self,
+            op_id: str,
+            owner_token: str,
+            claimed_at_raw: str | None,
+            operation_epoch: int | None,
+        ) -> None: ...
 
-        def _release_my_claim_best_effort(self, op_id: str, owner_token: str, claimed_at_raw: str | None) -> None: ...
+        def _release_my_claim_best_effort(
+            self,
+            op_id: str,
+            owner_token: str,
+            claimed_at_raw: str | None,
+            operation_epoch: int | None,
+        ) -> None: ...
 
         def _release_object_claim(self, *, project_key: str, story_id: str, op_id: str) -> None: ...
 
@@ -249,7 +261,12 @@ class _ControlPlaneResumeMixin:
                 op_id=request.op_id,
             )
             if object_conflict is not None:
-                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
+                self._release_my_claim(
+                    request.op_id,
+                    owner_token,
+                    owner_claimed_at,
+                    owner_operation_epoch,
+                )
                 return _object_claim_busy_rejection(
                     op_id=request.op_id,
                     operation_kind="phase_resume",
@@ -276,7 +293,12 @@ class _ControlPlaneResumeMixin:
                 #: SESSION_RUN_BINDING_CREATED. Release MY claims and return the
                 #: NON-stored rejection (the engine's own phase-state, if any,
                 #: stands). A retry then re-evaluates.
-                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
+                self._release_my_claim(
+                    request.op_id,
+                    owner_token,
+                    owner_claimed_at,
+                    owner_operation_epoch,
+                )
                 self._release_object_claim(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -297,6 +319,7 @@ class _ControlPlaneResumeMixin:
                 phase=phase,
                 owner_token=owner_token,
                 owner_claimed_at=owner_claimed_at,
+                owner_operation_epoch=owner_operation_epoch,
             )
             if yield_rejection is not None:
                 return yield_rejection
@@ -329,7 +352,12 @@ class _ControlPlaneResumeMixin:
             #: this commit. The whole finalize rolled back (no side effect, no
             #: stored op). Release MY claims and surface the rich ex-owner
             #: rejection.
-            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
+            self._release_my_claim_best_effort(
+                request.op_id,
+                owner_token,
+                owner_claimed_at,
+                owner_operation_epoch,
+            )
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
@@ -347,7 +375,12 @@ class _ControlPlaneResumeMixin:
             #: belonging to a DIFFERENT run that rebound the same session. The store
             #: refused fail-closed and the WHOLE transaction rolled back -- a resume
             #: for an old run must never clobber a foreign run's live binding.
-            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
+            self._release_my_claim_best_effort(
+                request.op_id,
+                owner_token,
+                owner_claimed_at,
+                owner_operation_epoch,
+            )
             #: Codex-R1 (BLOCKER): NON-best-effort object-claim release on this
             #: handled-return rejection (surface failures, never a swallowed held
             #: claim behind a normal rejection).
@@ -372,7 +405,12 @@ class _ControlPlaneResumeMixin:
             #: durably held -- ended ONLY via the AG3-138 startup reconciliation
             #: or an explicit admin_abort_inflight_operation.
             if not finalized:
-                self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
+                self._release_my_claim_best_effort(
+                    request.op_id,
+                    owner_token,
+                    owner_claimed_at,
+                    owner_operation_epoch,
+                )
                 self._release_object_claim_best_effort(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -389,6 +427,7 @@ class _ControlPlaneResumeMixin:
         phase: str,
         owner_token: str,
         owner_claimed_at: str | None,
+        owner_operation_epoch: int | None,
     ) -> ControlPlaneMutationResult | None:
         """Yield-point push barrier (FK-10 §10.2.4b type 3); rejection or ``None``.
 
@@ -409,7 +448,12 @@ class _ControlPlaneResumeMixin:
         )
         if yield_block is None:
             return None
-        self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
+        self._release_my_claim(
+            request.op_id,
+            owner_token,
+            owner_claimed_at,
+            owner_operation_epoch,
+        )
         self._release_object_claim(
             project_key=request.project_key,
             story_id=request.story_id,

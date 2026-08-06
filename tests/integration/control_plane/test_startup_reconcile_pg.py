@@ -25,11 +25,16 @@ The Postgres backend is auto-attached to every ``tests/integration`` item
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.auth.http.routes import AuthRoutes
+from agentkit.backend.auth.middleware import AuthResult
 from agentkit.backend.control_plane.instance_identity import (
     resolve_backend_instance_identity,
 )
@@ -41,13 +46,19 @@ from agentkit.backend.control_plane.records import (
 from agentkit.backend.control_plane.repository import (
     BackendInstanceIdentityRepository,
     ControlPlaneRuntimeRepository,
+    ControlPlaneWriterLeaseRepository,
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.control_plane.startup_reconcile import (
     StartupReconciliationError,
     run_startup_reconciliation,
 )
+from agentkit.backend.control_plane.writer_lease import (
+    ControlPlaneWriterLeaseLostError,
+)
 from agentkit.backend.control_plane_http.app import ControlPlaneApplication
+from agentkit.backend.control_plane_http.startup import run_pre_serve_startup
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.state_backend.operation_ledger import (
     claim_control_plane_operation_global,
     finalize_control_plane_operation_global,
@@ -58,9 +69,22 @@ from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
     save_backend_instance_identity_global,
 )
+from agentkit.backend.state_backend.store.auth_repository import (
+    StateBackendProjectApiTokenRepository,
+)
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    FreshClaim,
+    IdempotencyRequest,
+    StateBackendInflightIdempotencyGuard,
+    compute_body_hash,
+)
+from agentkit.backend.state_backend.store.project_management_repository import (
+    StateBackendProjectRepository,
+)
 from agentkit.backend.state_backend.story_lifecycle_store import save_story_context_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -137,10 +161,14 @@ def _abort_request() -> object:
 
 def test_boot_identity_is_stable_and_incarnation_is_strictly_monotone() -> None:
     """AC3: the id is stable across boots; the incarnation increments by +1."""
-    first = boot_backend_instance_identity_global("inst-candidate-1", _T0)
-    # A DIFFERENT candidate on later boots is ignored -- the stored id wins.
-    second = boot_backend_instance_identity_global("inst-candidate-IGNORED", _T0)
-    third = resolve_backend_instance_identity(BackendInstanceIdentityRepository())
+    lease = ControlPlaneWriterLeaseRepository().acquire()
+    try:
+        first = boot_backend_instance_identity_global("inst-candidate-1", _T0)
+        # A DIFFERENT candidate on later boots is ignored -- the stored id wins.
+        second = boot_backend_instance_identity_global("inst-candidate-IGNORED", _T0)
+        third = resolve_backend_instance_identity(BackendInstanceIdentityRepository())
+    finally:
+        lease.release()
 
     assert first.backend_instance_id == "inst-candidate-1"
     assert second.backend_instance_id == "inst-candidate-1"
@@ -156,20 +184,18 @@ def test_reconciliation_finalizes_own_earlier_incarnation_only() -> None:
     """AC1/AC2: own earlier-incarnation orphans -> failed; foreign untouched."""
     save_backend_instance_identity_global(_identity("inst-me", 1))
     # Own orphan from incarnation 1 (this boot is incarnation 2): reconcilable.
-    assert claim_control_plane_operation_global(
-        _claimed_op("op-own", backend_instance_id="inst-me", incarnation=1)
-    )
+    assert claim_control_plane_operation_global(_claimed_op("op-own", backend_instance_id="inst-me", incarnation=1))
     # Foreign identity: never touched by this instance's reconciliation.
     assert claim_control_plane_operation_global(
         _claimed_op(
-            "op-foreign", backend_instance_id="inst-other", incarnation=1,
+            "op-foreign",
+            backend_instance_id="inst-other",
+            incarnation=1,
             story_id="AG3-301",
         )
     )
 
-    outcome = run_startup_reconciliation(
-        ControlPlaneRuntimeRepository(), _identity("inst-me", 2)
-    )
+    outcome = run_startup_reconciliation(ControlPlaneRuntimeRepository(), _identity("inst-me", 2))
 
     assert outcome.finalized_op_ids == ("op-own",)
     own = load_control_plane_operation_global("op-own")
@@ -189,16 +215,159 @@ def test_pre_serve_startup_hook_finalizes_orphans_before_serving() -> None:
     this hook before ``serve_forever``).
     """
     save_backend_instance_identity_global(_identity("known-backend", 1))
-    assert claim_control_plane_operation_global(
-        _claimed_op("op-hook-orphan", backend_instance_id="known-backend", incarnation=1)
+    assert claim_control_plane_operation_global(_claimed_op("op-hook-orphan", backend_instance_id="known-backend", incarnation=1))
+
+    application = ControlPlaneApplication(
+        writer_lease_required=False,
     )
-
-    application = ControlPlaneApplication()
     application.run_pre_serve_startup_hook()
+    try:
+        finalized = load_control_plane_operation_global("op-hook-orphan")
+        assert finalized is not None
+        assert finalized.status == "failed", "the orphan is finalized by the startup hook"
+    finally:
+        application.release_writer_lease()
 
-    finalized = load_control_plane_operation_global("op-hook-orphan")
-    assert finalized is not None
-    assert finalized.status == "failed", "the orphan is finalized by the startup hook"
+
+def test_second_writer_is_rejected_before_incarnation_and_live_claim_reconcile() -> None:
+    """AG3-214 AC1: an independent process cannot become a second writer."""
+
+    first_lease = ControlPlaneWriterLeaseRepository().acquire()
+    try:
+        identity = boot_backend_instance_identity_global("single-writer", _T0)
+        first_lease.bind_identity(identity)
+        request = IdempotencyRequest(
+            op_id="op-live-writer",
+            operation_kind="project_api_token_create",
+            body_hash=compute_body_hash({"token_id": "token-live"}),
+            project_key="tenant-a",
+        )
+        assert isinstance(StateBackendInflightIdempotencyGuard().claim(request), FreshClaim)
+
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from agentkit.backend.control_plane.repository import "
+                    "ControlPlaneWriterLeaseRepository; "
+                    "from agentkit.backend.control_plane.writer_lease import "
+                    "ControlPlaneWriterAlreadyActiveError; "
+                    "import sys; "
+                    "\ntry:\n"
+                    " ControlPlaneWriterLeaseRepository().acquire()\n"
+                    "except ControlPlaneWriterAlreadyActiveError as exc:\n"
+                    " print(str(exc), file=sys.stderr); raise SystemExit(23)\n"
+                    "raise SystemExit(0)"
+                ),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        assert probe.returncode == 23
+        assert "another active control-plane writer" in probe.stderr
+
+        unchanged = BackendInstanceIdentityRepository().load_identity(
+            identity.backend_instance_id,
+        )
+        assert unchanged == identity
+        outcome = run_startup_reconciliation(ControlPlaneRuntimeRepository(), identity)
+        assert outcome.finalized_op_ids == ()
+        live = load_control_plane_operation_global(request.op_id)
+        assert live is not None and live.status == "claimed"
+        assert live.instance_incarnation == identity.instance_incarnation
+    finally:
+        first_lease.release()
+
+
+def test_boot_identity_mutation_without_writer_lease_is_rejected() -> None:
+    """No non-serve caller can silently create a second writer incarnation."""
+
+    with pytest.raises(
+        ControlPlaneWriterLeaseLostError,
+        match="boot identity mutation requires the active database writer lease",
+    ):
+        resolve_backend_instance_identity(BackendInstanceIdentityRepository())
+
+
+def test_restarted_writer_finalizes_crashed_auth_claim_without_admin() -> None:
+    """AG3-214 AC2: restart itself closes an old Auth claim without replaying it."""
+
+    first_lease = ControlPlaneWriterLeaseRepository().acquire()
+    first = boot_backend_instance_identity_global("auth-crash-writer", _T0)
+    first_lease.bind_identity(first)
+    StateBackendProjectRepository().save(
+        Project(
+            key="tenant-a",
+            name="Tenant A",
+            story_id_prefix="AG3",
+            configuration=ProjectConfiguration(
+                repo_url="",
+                default_branch="main",
+                are_url=None,
+                default_worker_count=1,
+                repositories=["https://example.test/repo.git"],
+            ),
+            archived_at=None,
+        ),
+    )
+    token_repository = StateBackendProjectApiTokenRepository()
+    prepared = prepare_project_api_token(project_key="tenant-a", label="crash-proof")
+    payload = {
+        "label": prepared.record.label,
+        "token_id": prepared.record.token_id,
+        "token_hash": prepared.record.token_hash,
+        "op_id": "op-auth-crash",
+    }
+    try:
+        request = IdempotencyRequest(
+            op_id=str(payload["op_id"]),
+            operation_kind="project_api_token_create",
+            body_hash=compute_body_hash(
+                {**payload, "target_project_key": "tenant-a"},
+            ),
+            project_key="tenant-a",
+        )
+        assert isinstance(StateBackendInflightIdempotencyGuard().claim(request), FreshClaim)
+        # Authoritative Auth side effect commits, then the process dies before
+        # its guard can finalize the ledger row.
+        token_repository.insert(prepared.record)
+    finally:
+        # The process dies after the Auth guard persisted the claim but before
+        # its route can finalize it.  Releasing this session models that death.
+        first_lease.release()
+
+    restarted_runtime = ControlPlaneRuntimeService()
+    restarted_lease = run_pre_serve_startup(restarted_runtime)
+    try:
+        restarted = BackendInstanceIdentityRepository().load_identity(
+            first.backend_instance_id,
+        )
+        assert restarted is not None
+        assert restarted.backend_instance_id == first.backend_instance_id
+        assert restarted.instance_incarnation == first.instance_incarnation + 1
+        finalized = load_control_plane_operation_global(request.op_id)
+        assert finalized is not None and finalized.status == "failed"
+
+        response = AuthRoutes(token_repository=token_repository).handle_post(
+            "/v1/projects/tenant-a/api-tokens",
+            payload,
+            "corr-auth-recovery",
+            request_headers=None,
+            auth_result=AuthResult(
+                auth_kind="strategist_session",
+                project_key="tenant-a",
+            ),
+        )
+        assert response is not None and response.status_code == 409
+        assert json.loads(response.body)["error_code"] == "operation_conflict"
+        resolved = load_control_plane_operation_global(request.op_id)
+        assert resolved is not None and resolved.status == "failed"
+    finally:
+        restarted_lease.release()
 
 
 def test_pre_serve_startup_hook_is_fail_closed_on_reconcile_error(
@@ -213,7 +382,9 @@ def test_pre_serve_startup_hook_is_fail_closed_on_reconcile_error(
         "agentkit.backend.control_plane.startup_reconcile.run_startup_reconciliation",
         _boom,
     )
-    application = ControlPlaneApplication()
+    application = ControlPlaneApplication(
+        writer_lease_required=False,
+    )
     with pytest.raises(StartupReconciliationError):
         application.run_pre_serve_startup_hook()
 
@@ -232,9 +403,7 @@ def test_operation_epoch_cas_fence_at_real_store() -> None:
     from dataclasses import replace
 
     # Matching epoch -> finalize applies.
-    assert claim_control_plane_operation_global(
-        _claimed_op("op-epoch-ok", backend_instance_id="inst-me", incarnation=1, epoch=1)
-    )
+    assert claim_control_plane_operation_global(_claimed_op("op-epoch-ok", backend_instance_id="inst-me", incarnation=1, epoch=1))
     terminal_ok = replace(
         _claimed_op("op-epoch-ok", backend_instance_id="inst-me", incarnation=1),
         status="committed",
@@ -431,9 +600,7 @@ def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
 
     # (1) real dispatch persists an engine write at T0+2min.
     engine_write_at = _T0 + timedelta(minutes=2)
-    dispatcher = _EngineWritingDispatcher(
-        story_id=story_id, run_id=run_id, started_at=engine_write_at
-    )
+    dispatcher = _EngineWritingDispatcher(story_id=story_id, run_id=run_id, started_at=engine_write_at)
     service = ControlPlaneRuntimeService(
         phase_dispatcher=dispatcher,  # type: ignore[arg-type]
         now_fn=lambda: _T0,
@@ -496,9 +663,7 @@ def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
         now_fn=lambda: _T0 + timedelta(minutes=6),
         instance_identity=identity,
     )
-    resolved = resolve_service.admin_abort_inflight_operation(
-        "op-350-crash", _abort_request()
-    )
+    resolved = resolve_service.admin_abort_inflight_operation("op-350-crash", _abort_request())
     assert resolved.status == "resolved", "the open repair is productively closed out"
     reloaded = load_control_plane_operation_global("op-350-crash")
     assert reloaded is not None and reloaded.status == "resolved"

@@ -17,7 +17,7 @@ prose_refs:
 
 Exploration laeuft ueber offizielle Phase-Runner-Service- und Resume-Pfade.
 Normative Aufruf-Parameter (story_id, phase) sind in FK-91 §91.1a definiert.
-Die Operator-Recovery-CLI `agentkit run-phase exploration --story <story_id>`
+Die Operator-Recovery-CLI `<absolute-agentkit-wrapper> run-phase exploration --story <story_id>`
 ist ein Spezialfall (FK-91 §91.1, FK-45 §45.4).
 
 <!-- FORMAL-SPEC:BEGIN -->
@@ -44,7 +44,7 @@ commands:
       - exploration.event.gate.approved
       - exploration.event.gate.rejected
   - id: exploration.command.resume
-    signature: agentkit resume --story <story_id>
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> resume --story <story_id>
     allowed_statuses:
       - exploration.status.paused_for_human
     requires:

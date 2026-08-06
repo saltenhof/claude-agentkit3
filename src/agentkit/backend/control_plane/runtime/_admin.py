@@ -352,7 +352,10 @@ class _AdminTransitionMixin:
     ) -> tuple[Literal["aborted", "repair"], str]:
         """Decide ``aborted`` vs ``repair`` for an admin-abort target (IMPL-005)."""
         since = record.claimed_at or record.created_at
-        has_writes = self._repo.has_engine_writes_since(record.story_id, since)
+        has_writes = (
+            record.story_id is not None
+            and self._repo.has_engine_writes_since(record.story_id, since)
+        )
         actor = f"session={request.session_id!r} principal={request.principal_type!r}"
         if has_writes:
             return (

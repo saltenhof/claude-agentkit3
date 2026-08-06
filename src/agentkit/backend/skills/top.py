@@ -18,8 +18,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from packaging.version import InvalidVersion, Version
-
 from agentkit.backend.skills.binding import (
     HarnessKind,
     SkillBinding,
@@ -46,6 +44,9 @@ from agentkit.backend.skills.quality_metric import (
     SkillQualityMetric,
     SourceWindow,
     collect_quality_metrics,
+)
+from agentkit.backend.skills.version_policy import (
+    _reject_norm_violating_bundle_version,
 )
 
 if TYPE_CHECKING:
@@ -77,38 +78,6 @@ def _harness_skill_dir(project_root: Path, harness: HarnessKind) -> Path:
     # Exhaustive — StrEnum ensures only known values pass.
     msg = f"Unknown harness: {harness}"  # pragma: no cover
     raise ValueError(msg)  # pragma: no cover
-
-
-def _reject_norm_violating_pin(skill_name: str, binding: SkillBinding) -> None:
-    """Reject a persisted pin whose bundle still executes an abolished path.
-
-    A pin is otherwise honoured for the lifetime of a project. The exception is
-    a bundle that would keep running behaviour the norm removed — there,
-    honouring the pin would let a supported project pass VERIFY while doing the
-    forbidden thing (see ``MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS``).
-
-    Raises:
-        SkillBindingFailedError: If the pinned version is below the floor.
-    """
-    from agentkit.backend.installer.runner import (  # noqa: PLC0415 - avoids an installer/skills import cycle
-        MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS,
-    )
-
-    floor = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(binding.bundle_id)
-    if floor is None:
-        return
-    try:
-        pinned_is_old = Version(binding.bundle_version) < Version(floor)
-    except InvalidVersion as exc:
-        raise SkillBindingFailedError(
-            f"Skill {skill_name!r} pin {binding.bundle_version!r} is not a comparable version",
-        ) from exc
-    if pinned_is_old:
-        raise SkillBindingFailedError(
-            f"Skill {skill_name!r} is pinned to {binding.bundle_id}@{binding.bundle_version}, "
-            f"which is below the minimum conform version {floor}: that bundle still carries a "
-            "path the norm abolished. Rebind the skill to pick up the conform bundle.",
-        )
 
 
 def _verify_manifest_digest(
@@ -474,6 +443,11 @@ class Skills:
         effective_project_key = project_root.stem
         effective_bundle_id = str(bundle_info.get("bundle_id") or bundle_root.stem)
         effective_bundle_version = str(bundle_info.get("bundle_version") or "0.0.0")
+        _reject_norm_violating_bundle_version(
+            skill_name,
+            effective_bundle_id,
+            effective_bundle_version,
+        )
         pinned_at = datetime.now(tz=UTC)
         bid = _binding_id_for(effective_project_key, skill_name)
 
@@ -606,15 +580,17 @@ class Skills:
         *,
         config: ProjectConfig,
         variant_dir: Path,
+        ak3_interpreter_command: str,
+        ak3_wrapper_command: str,
     ) -> SkillBinding:
         """Bind a placeholder-bearing skill via its materialized substituted variant.
 
         The SECOND binding mode (FK-43 §43.4.1.1): instead of linking the raw
         ``bundle_root``, the installer materializes a SUBSTITUTED copy of the bundle
         into the digest-keyed *variant_dir* (in the AK3 install store) and links the
-        harness bind points at THAT variant. All five placeholders (four FK-03 + the
-        manifest-fed ``{{AGENT_SPAWN_SKILL_PROOF}}``, AG3-110) are resolved by the
-        REUSED :class:`PlaceholderSubstitutor` — no substitution is re-implemented.
+        harness bind points at THAT variant. Config-, manifest-, and installer-fed
+        placeholders are resolved by the REUSED :class:`PlaceholderSubstitutor` —
+        no substitution is re-implemented.
 
         The Fachlogik lives in :mod:`agentkit.backend.skills.materialize`; this method only
         performs the same pre-bind validation as :meth:`bind_skill` (paths, profile,
@@ -626,8 +602,10 @@ class Skills:
             skill_name: Logical skill name.
             bundle_root: Systemwide bundle directory (neutral representation).
             project_root: Target-project root.
-            config: Project configuration (resolves the four FK-03 placeholders).
+            config: Project configuration (resolves the five FK-03 placeholders).
             variant_dir: The digest-keyed variant directory (installer-computed).
+            ak3_interpreter_command: Shell-rendered absolute AK3 interpreter.
+            ak3_wrapper_command: Shell-rendered absolute ``agentkit`` wrapper.
 
         Returns:
             The persisted ``SkillBinding`` (status ``VERIFIED``).
@@ -649,6 +627,11 @@ class Skills:
         effective_project_key = project_root.stem
         effective_bundle_id = str(bundle_info.get("bundle_id") or bundle_root.stem)
         effective_bundle_version = str(bundle_info.get("bundle_version") or "0.0.0")
+        _reject_norm_violating_bundle_version(
+            skill_name,
+            effective_bundle_id,
+            effective_bundle_version,
+        )
         bid = _binding_id_for(effective_project_key, skill_name)
 
         return bind_skill_materialized(
@@ -661,6 +644,8 @@ class Skills:
             binding_id=bid,
             bundle_id=effective_bundle_id,
             bundle_version=effective_bundle_version,
+            ak3_interpreter_command=ak3_interpreter_command,
+            ak3_wrapper_command=ak3_wrapper_command,
         )
 
     @staticmethod
@@ -763,7 +748,14 @@ class Skills:
             The ``SkillBinding`` if found, otherwise ``None``.
         """
         project_key = project_root.stem
-        return self._binding_repo.load(project_key, skill_name)
+        binding = self._binding_repo.load(project_key, skill_name)
+        if binding is not None:
+            _reject_norm_violating_bundle_version(
+                skill_name,
+                binding.bundle_id,
+                binding.bundle_version,
+            )
+        return binding
 
     # ------------------------------------------------------------------
     # list_bound_skills
@@ -794,7 +786,6 @@ class Skills:
         binding = self.resolve_binding(project_root, skill_name)
         if binding is None or binding.status is not SkillLifecycleStatus.VERIFIED:
             raise SkillBindingFailedError(f"Skill {skill_name!r} has no VERIFIED persisted binding")
-        _reject_norm_violating_pin(skill_name, binding)
         link_paths = [
             _harness_skill_dir(project_root, harness) / skill_name for harness in (HarnessKind.CLAUDE_CODE, HarnessKind.CODEX)
         ]

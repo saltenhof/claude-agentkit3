@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from agentkit.backend.boundary.filesystem import is_filesystem_link
+
 
 class InterpreterResolutionError(RuntimeError):
     """Raised when the running process is not bound to an isolated interpreter."""
@@ -100,6 +102,8 @@ def resolve_ak3_wrapper(wrapper_name: str) -> Path:
 
     Raises:
         ValueError: If ``wrapper_name`` is not a plain executable name.
+        InterpreterResolutionError: If the installed wrapper is missing or is
+            not a regular file.
     """
     if (
         not wrapper_name
@@ -109,7 +113,12 @@ def resolve_ak3_wrapper(wrapper_name: str) -> Path:
         raise ValueError("wrapper_name must be a plain non-empty executable name")
     interpreter = resolve_ak3_interpreter()
     suffix = ".exe" if sys.platform == "win32" else ""
-    return interpreter.parent / f"{wrapper_name}{suffix}"
+    wrapper = interpreter.parent / f"{wrapper_name}{suffix}"
+    if is_filesystem_link(wrapper) or not wrapper.is_file():
+        raise InterpreterResolutionError(
+            f"Cannot resolve the AgentKit wrapper: {wrapper} is not a regular file.",
+        )
+    return wrapper
 
 
 def ak3_wrapper_command(wrapper_name: str, *arguments: str) -> tuple[str, ...]:
@@ -120,6 +129,17 @@ def ak3_wrapper_command(wrapper_name: str, *arguments: str) -> tuple[str, ...]:
 def render_ak3_interpreter_command(*arguments: str) -> str:
     """Render a shell command bound to the isolated AgentKit interpreter."""
     command = ak3_interpreter_command(*arguments)
+    return render_resolved_command(*command)
+
+
+def render_resolved_command(executable: str, *arguments: str) -> str:
+    """Render an already resolved executable path and its arguments.
+
+    Unlike the ``render_ak3_*`` helpers this function performs no resolution.
+    It lets one operation render a previously captured owner snapshot with the
+    exact same quoting rules as installation, without a second resolver call.
+    """
+    command = (executable, *arguments)
     if sys.platform == "win32":
         return subprocess.list2cmdline(command)
     return shlex.join(command)
@@ -128,17 +148,13 @@ def render_ak3_interpreter_command(*arguments: str) -> str:
 def render_ak3_python_command(module: str, *arguments: str) -> str:
     """Render a ``python -m`` command bound to the AgentKit interpreter."""
     command = ak3_python_command(module, *arguments)
-    if sys.platform == "win32":
-        return subprocess.list2cmdline(command)
-    return shlex.join(command)
+    return render_resolved_command(*command)
 
 
 def render_ak3_wrapper_command(wrapper_name: str, *arguments: str) -> str:
     """Render an installed AgentKit wrapper command without a PATH lookup."""
     command = ak3_wrapper_command(wrapper_name, *arguments)
-    if sys.platform == "win32":
-        return subprocess.list2cmdline(command)
-    return shlex.join(command)
+    return render_resolved_command(*command)
 
 
 __all__ = [
@@ -150,6 +166,7 @@ __all__ = [
     "render_ak3_interpreter_command",
     "render_ak3_python_command",
     "render_ak3_wrapper_command",
+    "render_resolved_command",
     "resolve_ak3_interpreter",
     "resolve_ak3_wrapper",
 ]

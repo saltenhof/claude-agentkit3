@@ -304,13 +304,27 @@ def _detect_skill_bindings(
     """
     from agentkit.backend.installer.runner import MANDATORY_SKILLS
     from agentkit.backend.installer.upgrade._skills_surface import build_skills_surface
+    from agentkit.backend.skills.errors import SkillBindingFailedError
 
     surface = skills if skills is not None else build_skills_surface(project_root)
     if surface is None:
         return ()
     points: list[CustomizationPoint] = []
     for skill_name in MANDATORY_SKILLS:
-        binding = surface.resolve_binding(project_root, skill_name)
+        try:
+            binding = surface.resolve_binding(project_root, skill_name)
+        except SkillBindingFailedError as exc:
+            # A norm-violating pin is still a deliberate customization. Preserve
+            # it in the footprint so UP02 can report the complete, typed
+            # fail-closed violation before any mutation.
+            points.append(
+                CustomizationPoint(
+                    kind=CustomizationKind.SKILL_BINDING,
+                    identifier=f"skill:{skill_name}@norm-violating",
+                    detail=str(exc),
+                ),
+            )
+            continue
         if binding is None:
             continue
         points.append(

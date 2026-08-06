@@ -336,8 +336,10 @@ Antworte nur mit: LOOP_PROBABILITY: <0-100>
 
 **Sidecar-Lifecycle:**
 
-- **Start:** Orchestrator startet den Sidecar beim Worker-Spawn
-  (`agentkit watch-worker <story-id>`)
+- **Start:** Der Orchestrator beauftragt den Sidecar-Start beim Worker-Spawn
+  ueber Project Edge. Der physische Start laeuft auf dem etablierten Knoten;
+  `<absolute-agentkit-wrapper> watch-worker <story-id>` ist ausschliesslich
+  menschliche Operator-Recovery.
 - **Stop:** Beendet sich selbst wenn `agent-health.json` nicht
   mehr aktualisiert wird (Timeout 5 Minuten) oder wenn der
   Worker terminiert

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from agentkit.backend.cli.auth_commands import InstallerAuthContext
     from agentkit.backend.installer.runner import InstallConfig
 
 
@@ -141,6 +143,11 @@ def _add_register_verify_parsers(
         action="store_true",
         help="Plan-only: report planned checkpoint outcomes without mutating.",
     )
+    register_parser.add_argument(
+        "--op-id",
+        default=None,
+        help="Client-supplied idempotency key for replay after response loss.",
+    )
 
     verify_parser = subparsers.add_parser(
         "verify-project",
@@ -161,9 +168,9 @@ def _add_control_plane_flags(parser: argparse.ArgumentParser) -> None:
 
     The default is DERIVED from the FK-10 §10.7.2 port registry
     (``DEFAULT_CONTROL_PLANE_BASE_URL``), so it always names the port
-    ``agentkit serve --project-api`` actually binds. An operator whose Core runs
-    on another host/port states it here instead of hand-editing the installed
-    ``control-plane.json`` afterwards.
+    the shared ``agentkit serve`` process binds for Project-API. An operator
+    whose Core runs on another host/port states it here instead of hand-editing
+    the installed ``control-plane.json`` afterwards.
     """
     from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
 
@@ -320,6 +327,75 @@ def _print_checkpoint_results(result: object) -> None:
         print(line)
 
 
+def _operation_id(args: argparse.Namespace) -> str:
+    """Resolve and expose the client-owned installer operation id."""
+
+    op_id = str(getattr(args, "op_id", None) or f"op-{uuid.uuid4().hex}")
+    print(f"Operation ID: {op_id}")
+    return op_id
+
+
+def _emit_writer_error(verb: str, exc: Exception) -> int:
+    """Report a named fail-closed writer error without any local fallback."""
+
+    from urllib.error import URLError
+
+    from agentkit.backend.exceptions import ControlPlaneApiError
+
+    if isinstance(exc, ControlPlaneApiError):
+        print(
+            f"{verb} failed [{exc.error_code}] HTTP {exc.http_status}: {exc}",
+            file=sys.stderr,
+        )
+    elif isinstance(exc, URLError):
+        print(
+            f"{verb} failed [ControlPlaneWriterUnavailable]: {exc}",
+            file=sys.stderr,
+        )
+    else:
+        print(f"{verb} failed [ControlPlaneWriterUnavailable]: {exc}", file=sys.stderr)
+    return 1
+
+
+def _wire_register_config_to_writer(
+    config: InstallConfig,
+    args: argparse.Namespace,
+    op_id: str,
+) -> InstallerAuthContext:
+    """Bind CP7/CP8/CP9 persistence to the authenticated active writer."""
+
+    from agentkit.backend.cli.auth_commands import prepare_installer_auth_context
+    from agentkit.backend.installer.runner import resolve_planned_prompt_bundle_version
+    from agentkit.backend.installer.writer_client import InstallerWriterClient
+    from agentkit.backend.skills import SkillBundleStore, Skills
+
+    planned_version = resolve_planned_prompt_bundle_version(config)
+    auth_context = prepare_installer_auth_context(
+        args,
+        planned_skill_bundle_version=planned_version,
+    )
+    try:
+        client = InstallerWriterClient(
+            auth_context.transport,
+            project_key=config.project_key,
+            op_id=op_id,
+        )
+        bundle_store = SkillBundleStore()
+        config.writer_client = client
+        config.registration_repo = client.registration_repository()
+        config.hook_registration_repo = client.hook_registration_repository()
+        config.skills = Skills(
+            bundle_store=bundle_store,
+            binding_repo=client.skill_binding_repository(),
+        )
+        config.skill_bundle_store = bundle_store
+        config.project_edge_client = auth_context.project_edge_client
+        return auth_context
+    except BaseException:
+        auth_context.clear_secret()
+        raise
+
+
 def _cmd_register_project(args: argparse.Namespace) -> int:
     """Handle ``agentkit register-project`` (FK-50 §50.2)."""
     if not _runtime_dependencies_ready():
@@ -339,18 +415,16 @@ def _cmd_register_project(args: argparse.Namespace) -> int:
         return 1
     mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
     auth_context = None
+    op_id = _operation_id(args)
     try:
         try:
-            if mode is ExecutionMode.REGISTER:
-                from agentkit.backend.cli.auth_commands import prepare_installer_auth_context
-
-                auth_context = prepare_installer_auth_context(args)
-                if auth_context is not None:
-                    config.project_edge_client = auth_context.project_edge_client
+            auth_context = _wire_register_config_to_writer(config, args, op_id)
             result = run_checkpoint_install(config, mode=mode)
         except (ProjectError, ProjectCredentialError) as exc:
             print(f"register-project failed: {exc}", file=sys.stderr)
             return 1
+        except Exception as exc:
+            return _emit_writer_error("register-project", exc)
         label = "planned" if args.dry_run else "registered"
         print(f"Project {label} ({mode.value}) at {args.project_root}")
         _print_checkpoint_results(result)
@@ -378,15 +452,27 @@ def _cmd_verify_project(args: argparse.Namespace) -> int:
         run_checkpoint_install,
     )
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+    from agentkit.harness_client.projectedge.credentials import ProjectCredentialError
 
     config = _build_engine_config(args)
     if config is None:
         return 1
+    auth_context = None
     try:
+        auth_context = _wire_register_config_to_writer(
+            config,
+            args,
+            f"verify-{uuid.uuid4().hex}",
+        )
         result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)
-    except ProjectError as exc:
+    except (ProjectError, ProjectCredentialError) as exc:
         print(f"verify-project failed: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        return _emit_writer_error("verify-project", exc)
+    finally:
+        if auth_context is not None:
+            auth_context.clear_secret()
     print(f"Project verification (read-only) at {args.project_root}")
     _print_checkpoint_results(result)
     return 0 if result.success else 1
@@ -431,6 +517,12 @@ def _add_upgrade_parser(
         action="store_true",
         help="Plan-only: report the planned upgrade without mutating.",
     )
+    _add_control_plane_flags(upgrade_parser)
+    upgrade_parser.add_argument(
+        "--op-id",
+        default=None,
+        help="Client-supplied idempotency key for replay after response loss.",
+    )
 
 
 def _cmd_upgrade_project(args: argparse.Namespace) -> int:
@@ -446,6 +538,7 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.backend.installer.upgrade.entry import run_checkpoint_upgrade
     from agentkit.backend.installer.upgrade.footprint import CustomizationPreservationError
+    from agentkit.harness_client.projectedge.credentials import ProjectCredentialError
 
     project_root = Path(args.project_root)
     coordinates = _resolve_github_coordinates(args, project_root)
@@ -453,7 +546,32 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
         return 1
     github_owner, github_repo = coordinates
     mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
+    op_id = _operation_id(args)
+    auth_context = None
     try:
+        from agentkit.backend.cli.auth_commands import prepare_installer_auth_context
+        from agentkit.backend.installer.writer_client import (
+            InstallerHookGovernance,
+            InstallerWriterClient,
+        )
+        from agentkit.backend.skills import SkillBundleStore, Skills
+
+        auth_context = prepare_installer_auth_context(args)
+        writer_client = InstallerWriterClient(
+            auth_context.transport,
+            project_key=str(args.project_key),
+            op_id=op_id,
+        )
+        bundle_store = SkillBundleStore()
+        skills = Skills(
+            bundle_store=bundle_store,
+            binding_repo=writer_client.skill_binding_repository(),
+        )
+        governance = InstallerHookGovernance(
+            hook_repo=writer_client.hook_registration_repository(),
+            project_key=str(args.project_key),
+            project_root=project_root,
+        )
         result = run_checkpoint_upgrade(
             project_root,
             project_key=args.project_key,
@@ -463,6 +581,9 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
             mode=mode,
             bundle_version_changed=args.bundle_version_changed,
             explicit_binding_switch=args.explicit_binding_switch,
+            registration_repo=writer_client.registration_repository(),
+            governance=governance,
+            skills=skills,
         )
     except CustomizationPreservationError as exc:
         # F-51-023: a detected customization blocked a non-migrating write path.
@@ -471,6 +592,14 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
     except ProjectError as exc:
         print(f"upgrade-project failed: {exc}", file=sys.stderr)
         return 1
+    except ProjectCredentialError as exc:
+        print(f"upgrade-project failed: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        return _emit_writer_error("upgrade-project", exc)
+    finally:
+        if auth_context is not None:
+            auth_context.clear_secret()
     if result.failed:
         # The engine already stopped before further mutations — but a zero exit
         # code would tell operators and automation the upgrade succeeded.

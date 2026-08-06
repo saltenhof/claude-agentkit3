@@ -14,7 +14,10 @@ from pathlib import Path
 
 import pytest
 
+from agentkit.backend.boundary.filesystem import matches_resolved_path_owner
 from agentkit.backend.core_types.mcp_server_registration import (
+    AK3_SERVER_SHAPES,
+    CODEX_HOOK_WRAPPER_NAME,
     REGISTERED_ENV_KEYS,
     STORY_KNOWLEDGE_BASE_SERVER,
     McpServerRegistrationError,
@@ -32,7 +35,10 @@ from agentkit.backend.installer.mcp_registration import (
 )
 from agentkit.backend.vectordb.runtime_binding import RuntimeBinding
 from agentkit.harness_client.harness_adapters.codex_config_toml import (
+    CodexConfigOwnership,
+    classify_ownership,
     render_codex_config,
+    render_without_ak3,
 )
 
 _PROJECT = "C:/projects/demo"
@@ -302,31 +308,98 @@ def test_registered_command_is_an_absolute_interpreter_path() -> None:
     assert codex_entry["command"] == command
 
 
-def test_ownership_still_recognises_a_machine_specific_interpreter() -> None:
-    """The absolute path must not break AK3-ownership detection on detach.
-
-    Ownership is carried by the server name, the exact ``args`` vector, the field
-    set and ``cwd`` — never by a literal interpreter spelling, which is
-    machine-specific by construction.
-    """
-    from agentkit.backend.core_types.mcp_server_registration import AK3_SERVER_SHAPES
+def test_ownership_recognises_only_the_resolved_machine_interpreter() -> None:
+    """An absolute spelling alone never proves interpreter ownership."""
     from agentkit.backend.installer.mcp_registration import render_mcp_json_without_ak3
 
     shape = AK3_SERVER_SHAPES[STORY_KNOWLEDGE_BASE_SERVER]
-    assert shape.matches_command(resolve_story_knowledge_base_command())
-    assert shape.matches_command("/opt/other-venv/bin/python")
-    assert shape.matches_command(r"C:envsk3\Scripts\python.exe")
+    owner = resolve_story_knowledge_base_command()
+    assert shape.matches_command(
+        owner,
+        resolved_owner_command=owner,
+        path_owner_matcher=matches_resolved_path_owner,
+    )
+    assert not shape.matches_command(
+        "/opt/other-venv/bin/python",
+        resolved_owner_command=owner,
+        path_owner_matcher=matches_resolved_path_owner,
+    )
+    assert not shape.matches_command(
+        r"C:\venvs\ak3\Scripts\python.exe",
+        resolved_owner_command=owner,
+        path_owner_matcher=matches_resolved_path_owner,
+    )
     # A bare tool name is never what AK3 writes -- a foreign entry parked under
     # the AK3 server name must NOT be classified as ours (and then stripped).
-    assert not shape.matches_command("python")
-    assert not shape.matches_command("foreign-tool")
-    assert not shape.matches_command("")
-    assert not shape.matches_command(None)
+    for candidate in ("python", "foreign-tool", "", None):
+        assert not shape.matches_command(
+            candidate,
+            resolved_owner_command=owner,
+            path_owner_matcher=matches_resolved_path_owner,
+        )
 
     server = _desired()
     mcp_text, _ = render_mcp_json_text({}, (server,))  # type: ignore[arg-type]
-    stripped = json.loads(render_mcp_json_without_ak3(mcp_text.encode("utf-8")))
+    stripped = json.loads(
+        render_mcp_json_without_ak3(
+            mcp_text.encode("utf-8"),
+            project_root=Path(server.cwd),
+            resolved_command_owners={STORY_KNOWLEDGE_BASE_SERVER: owner},
+        )
+    )
     assert STORY_KNOWLEDGE_BASE_SERVER not in stripped.get("mcpServers", {})
+
+
+def test_foreign_absolute_interpreter_is_preserved_in_both_mcp_projections() -> None:
+    """The reviewer counterexample cannot acquire deletion authority by shape."""
+    from agentkit.backend.installer.mcp_registration import render_mcp_json_without_ak3
+
+    owner = resolve_story_knowledge_base_command()
+    foreign_command = r"T:\FOREIGN TOOL\python.exe"
+    server = dataclasses.replace(_desired(), command=foreign_command)
+    owners = {
+        STORY_KNOWLEDGE_BASE_SERVER: owner,
+        CODEX_HOOK_WRAPPER_NAME: CODEX_HOOK_COMMAND,
+    }
+
+    mcp_text, _ = render_mcp_json_text({}, (server,))  # type: ignore[arg-type]
+    stripped_mcp = json.loads(
+        render_mcp_json_without_ak3(
+            mcp_text.encode("utf-8"),
+            project_root=Path(server.cwd),
+            resolved_command_owners=owners,
+        )
+    )
+    assert stripped_mcp["mcpServers"][STORY_KNOWLEDGE_BASE_SERVER][
+        "command"
+    ] == foreign_command
+
+    codex_raw = render_codex_config(
+        None,
+        hook_command=CODEX_HOOK_COMMAND,
+        project_root=Path(server.cwd),
+        servers=(server,),
+    ).encode("utf-8")
+    assert (
+        classify_ownership(
+            codex_raw,
+            hook_command=CODEX_HOOK_COMMAND,
+            project_root=Path(server.cwd),
+            resolved_command_owners=owners,
+        )
+        is CodexConfigOwnership.MIXED
+    )
+    stripped_codex = tomllib.loads(
+        render_without_ak3(
+            codex_raw,
+            hook_command=CODEX_HOOK_COMMAND,
+            project_root=Path(server.cwd),
+            resolved_command_owners=owners,
+        )
+    )
+    assert stripped_codex["mcp_servers"][STORY_KNOWLEDGE_BASE_SERVER][
+        "command"
+    ] == foreign_command
 
 
 def test_interpreter_preflight_fails_closed_when_ak3_is_not_importable() -> None:

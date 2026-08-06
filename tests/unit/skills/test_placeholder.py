@@ -19,6 +19,8 @@ from agentkit.backend.config.models import (
 )
 from agentkit.backend.skills.errors import UnknownPlaceholderError
 from agentkit.backend.skills.placeholder import (
+    AK3_INTERPRETER_PLACEHOLDER,
+    AK3_WRAPPER_PLACEHOLDER,
     SPAWN_SKILL_PROOF_PLACEHOLDER,
     PlaceholderSubstitutor,
 )
@@ -57,7 +59,7 @@ def _project_config(
 
 
 # ---------------------------------------------------------------------------
-# Happy paths — four mandatory placeholders
+# Happy paths — five mandatory placeholders
 # ---------------------------------------------------------------------------
 
 class TestMandatoryPlaceholders:
@@ -204,10 +206,54 @@ def _write_manifest(root: Path, token: str) -> None:
     )
 
 
-class TestSpawnHeaderSubstitution:
+class TestInstalledSkillSubstitution:
     def setup_method(self) -> None:
         self.sub = PlaceholderSubstitutor()
         self.cfg = _project_config()
+
+    def test_resolves_installer_commands_through_the_shared_substitutor(
+        self, tmp_path: Path
+    ) -> None:
+        _write_manifest(tmp_path, "proof-token")
+
+        result = self.sub.substitute_materialized(
+            "{{AK3_INTERPRETER}} -m existing; {{AK3_WRAPPER}} export-story-md "
+            "proof={{AGENT_SPAWN_SKILL_PROOF}}",
+            self.cfg,
+            tmp_path,
+            ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+            ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+        )
+
+        assert result == (
+            '"C:\\AgentKit Runtime\\python.exe" -m existing; '
+            '"C:\\AgentKit Runtime\\agentkit.exe" export-story-md proof=proof-token'
+        )
+
+    @pytest.mark.parametrize(
+        ("token", "interpreter", "wrapper"),
+        [
+            (AK3_INTERPRETER_PLACEHOLDER, "", "agentkit"),
+            (AK3_WRAPPER_PLACEHOLDER, "python", ""),
+        ],
+    )
+    def test_rejects_empty_installer_command(
+        self,
+        tmp_path: Path,
+        token: str,
+        interpreter: str,
+        wrapper: str,
+    ) -> None:
+        _write_manifest(tmp_path, "proof-token")
+
+        with pytest.raises(ValueError, match="must be non-empty"):
+            self.sub.substitute_materialized(
+                f"{{{{{token}}}}}",
+                self.cfg,
+                tmp_path,
+                ak3_interpreter_command=interpreter,
+                ak3_wrapper_command=wrapper,
+            )
 
     def test_resolves_manifest_token_into_header(self, tmp_path: Path) -> None:
         # AC3 positive: the resolved header carries the real token, not the literal.
@@ -246,11 +292,146 @@ class TestSpawnHeaderSubstitution:
         self, tmp_path: Path
     ) -> None:
         # Freestyle/other content that does NOT carry the proof placeholder still
-        # resolves the four FK-03 placeholders even with no manifest installed.
+        # resolves the five FK-03 placeholders even with no manifest installed.
         result = self.sub.substitute_spawn_header(
             "key={{project_key}}", self.cfg, tmp_path
         )
         assert result == "key=my-proj"
+
+    def test_create_userstory_420_binds_every_executable_to_installer_values(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.backend.skills.bundle_store import shipped_skill_bundles_root
+
+        source = (
+            shipped_skill_bundles_root()
+            / "create-userstory-core"
+            / "4.2.0"
+            / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        _write_manifest(tmp_path, "proof-token")
+
+        materialized = self.sub.substitute_materialized(
+            source,
+            self.cfg,
+            tmp_path,
+            ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+            ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+        )
+
+        assert "{{AK3_INTERPRETER}}" not in materialized
+        assert "{{AK3_WRAPPER}}" not in materialized
+        assert (
+            '"C:\\AgentKit Runtime\\python.exe" '
+            "-m agentkit.backend.vectordb.wait_for_weaviate"
+        ) in materialized
+        assert (
+            '"C:\\AgentKit Runtime\\python.exe" '
+            "tools/agentkit/projectedge.py create-story"
+        ) in materialized
+        assert '"C:\\AgentKit Runtime\\agentkit.exe" concept' in materialized
+        assert (
+            '"C:\\AgentKit Runtime\\agentkit.exe" export-story-md'
+            in materialized
+        )
+
+    def test_lookup_userstory_410_binds_inline_wrapper_to_installer_value(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.backend.skills.bundle_store import shipped_skill_bundles_root
+
+        source = (
+            shipped_skill_bundles_root()
+            / "lookup-userstory-core"
+            / "4.1.0"
+            / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        _write_manifest(tmp_path, "proof-token")
+
+        materialized = self.sub.substitute_materialized(
+            source,
+            self.cfg,
+            tmp_path,
+            ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+            ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+        )
+
+        assert "{{AK3_WRAPPER}}" not in materialized
+        assert (
+            '"C:\\AgentKit Runtime\\agentkit.exe" export-story-md'
+            in materialized
+        )
+
+    def test_execute_userstory_410_uses_the_phase_owner_and_bound_wrapper(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.backend.skills.bundle_store import shipped_skill_bundles_root
+
+        source = (
+            shipped_skill_bundles_root()
+            / "execute-userstory-core"
+            / "4.1.0"
+            / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        _write_manifest(tmp_path, "proof-token")
+
+        materialized = self.sub.substitute_materialized(
+            source,
+            self.cfg,
+            tmp_path,
+            ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+            ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+        )
+
+        assert "{{AK3_WRAPPER}}" not in materialized
+        assert (
+            '"C:\\AgentKit Runtime\\agentkit.exe" run-phase setup'
+            in materialized
+        )
+        assert (
+            '"C:\\AgentKit Runtime\\agentkit.exe" run-phase verify'
+            in materialized
+        )
+        assert (
+            '"C:\\AgentKit Runtime\\agentkit.exe" run-phase closure'
+            in materialized
+        )
+        assert "agentkit.qa.structural_check" not in materialized
+        assert "agentkit.qa.policy_engine" not in materialized
+        assert "agentkit.bugfix.verify_reproducer" not in materialized
+        assert "agentkit preflight" not in materialized
+        assert "agentkit postflight" not in materialized
+        assert "agentkit run-phase" not in source
+
+    def test_concept_incubation_410_binds_text_fence_commands_to_interpreter(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.backend.skills.bundle_store import SkillBundleStore
+
+        bundle = SkillBundleStore().get_bundle("concept-incubation-core")
+        assert bundle.bundle_version == "4.1.0"
+        source = (bundle.bundle_root / "references" / "process-core.md").read_text(
+            encoding="utf-8"
+        )
+        _write_manifest(tmp_path, "proof-token")
+
+        materialized = self.sub.substitute_materialized(
+            source,
+            self.cfg,
+            tmp_path,
+            ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+            ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+        )
+
+        assert "{{AK3_INTERPRETER}}" not in materialized
+        assert (
+            '"C:\\AgentKit Runtime\\python.exe" '
+            "tools/agentkit/concept_toolchain/check.py"
+        ) in materialized
+        assert (
+            '"C:\\AgentKit Runtime\\python.exe" '
+            "tools/agentkit/concept_toolchain/semantic_gate.py"
+        ) in materialized
 
 
 # ---------------------------------------------------------------------------
@@ -264,10 +445,10 @@ class TestSpawnHeaderSubstitution:
 #:    a SEPARATE render mechanism (out of scope, FK-43 §43.4.2 "keine Template-Engine").
 _BLOCK_DIRECTIVE_RE = re.compile(r"\{\{[#^/][^}]+\}\}")
 
-#: The two re-cut bundles whose vocabulary must be FULLY resolvable, plus
-#: execute-userstory-core (AG3-111 E2E target, AC8a). All three must resolve with
+#: The re-cut bundles whose vocabulary must be FULLY resolvable. All must resolve with
 #: a real ProjectConfig + a real installed manifest (NO substitutor mock).
 _RECUT_BUNDLES = (
+    "concept-incubation-core",
     "create-userstory-core",
     "lookup-userstory-core",
     "execute-userstory-core",
@@ -275,10 +456,10 @@ _RECUT_BUNDLES = (
 
 
 def _bundle_md_files(bundle_id: str) -> list[Path]:
-    from agentkit.backend.skills.bundle_store import shipped_skill_bundles_root
+    from agentkit.backend.skills.bundle_store import SkillBundleStore
 
-    root = shipped_skill_bundles_root() / bundle_id / "4.0.0"
-    return sorted(root.glob("**/*.md"))
+    bundle = SkillBundleStore().get_bundle(bundle_id)
+    return sorted(bundle.bundle_root.glob("**/*.md"))
 
 
 def test_fk43_vocabulary_matches_concept_table() -> None:
@@ -317,7 +498,13 @@ class TestShippedBundleFullResolution:
             content = md.read_text(encoding="utf-8")
             # NO UnknownPlaceholderError (fail-closed-on-unknown stays valid because
             # the vocabulary is complete for these bundles).
-            resolved = self.sub.substitute_spawn_header(content, self.cfg, tmp_path)
+            resolved = self.sub.substitute_materialized(
+                content,
+                self.cfg,
+                tmp_path,
+                ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+                ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+            )
             # Strip the allowed conditional block directives, then assert NO residual
             # {{...}} token remains.
             residual = _residual_placeholders_after_blocks(resolved)
@@ -334,8 +521,20 @@ class TestShippedBundleFullResolution:
         _write_manifest(tmp_path, "deadbeefcafe0123")
         for md in _bundle_md_files(bundle_id):
             content = md.read_text(encoding="utf-8")
-            first = self.sub.substitute_spawn_header(content, self.cfg, tmp_path)
-            second = self.sub.substitute_spawn_header(content, self.cfg, tmp_path)
+            first = self.sub.substitute_materialized(
+                content,
+                self.cfg,
+                tmp_path,
+                ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+                ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+            )
+            second = self.sub.substitute_materialized(
+                content,
+                self.cfg,
+                tmp_path,
+                ak3_interpreter_command='"C:\\AgentKit Runtime\\python.exe"',
+                ak3_wrapper_command='"C:\\AgentKit Runtime\\agentkit.exe"',
+            )
             assert first == second
 
 

@@ -39,7 +39,7 @@ def _claim(
     op_id: str,
     backend_instance_id: str,
     incarnation: int,
-    story_id: str = "AG3-300",
+    story_id: str | None = "AG3-300",
     run_id: str | None = "run-1",
 ) -> ControlPlaneOperationRecord:
     return ControlPlaneOperationRecord(
@@ -75,6 +75,27 @@ class _FakeReconcileRepo:
     engine_writes: dict[str, datetime] = field(default_factory=dict)
     #: When set, the scan raises to prove the fail-closed wrap.
     scan_raises: bool = False
+
+    def release_operation(
+        self,
+        op_id: str,
+        *,
+        owner_token: str,
+        owner_claimed_at: str,
+        owner_operation_epoch: int,
+    ) -> bool:
+        existing = self.operations.get(op_id)
+        if (
+            existing is not None
+            and existing.status == "claimed"
+            and existing.claimed_by == owner_token
+            and existing.claimed_at is not None
+            and existing.claimed_at.isoformat() == owner_claimed_at
+            and existing.operation_epoch == owner_operation_epoch
+        ):
+            del self.operations[op_id]
+            return True
+        return False
 
     def list_orphaned_claimed_operations(
         self, backend_instance_id: str, before_incarnation: int
@@ -269,6 +290,120 @@ def test_orphan_with_engine_writes_goes_to_repair_not_failed() -> None:
     #: repair mutation-locks NEW mutations at the operations layer, not via a
     #: held object claim.
     assert object_claim_repo.released == [("tenant-a", "story", "AG3-300", "op-partial")]
+
+
+def test_auth_claim_from_earlier_boot_is_finalized_without_admin() -> None:
+    """AG3-214 AC2: a stamped Auth orphan resolves during startup itself.
+
+    Auth mutations do not write phase/flow engine state.  Reconciliation therefore
+    closes the old claim as ``failed`` without inventing a committed result and
+    without waiting for an administrative abort.
+    """
+
+    repo = _FakeReconcileRepo()
+    repo.operations["op-auth-orphan"] = replace(
+        _claim(
+            op_id="op-auth-orphan",
+            backend_instance_id="inst-me",
+            incarnation=1,
+            story_id=None,
+            run_id=None,
+        ),
+        operation_kind="project_api_token_create",
+        phase=None,
+        declared_serialization_scope=None,
+    )
+
+    outcome = run_startup_reconciliation(
+        repo,  # type: ignore[arg-type]
+        _identity("inst-me", 2),
+        object_claim_repo=_FakeObjectClaimRepo(),  # type: ignore[arg-type]
+        now_fn=lambda: _NOW,
+    )
+
+    assert outcome.finalized_op_ids == ("op-auth-orphan",)
+    assert outcome.repair_op_ids == ()
+    assert repo.operations["op-auth-orphan"].status == "failed"
+
+
+def test_atomic_storyless_writer_claim_from_earlier_boot_is_released_for_retry() -> None:
+    """A claimed installer op proves its domain transaction never committed."""
+
+    repo = _FakeReconcileRepo()
+    repo.operations["op-installer-orphan"] = replace(
+        _claim(
+            op_id="op-installer-orphan",
+            backend_instance_id="inst-me",
+            incarnation=1,
+            story_id=None,
+            run_id=None,
+        ),
+        operation_kind="installer_register_project",
+        phase=None,
+        declared_serialization_scope=None,
+    )
+
+    outcome = run_startup_reconciliation(
+        repo,  # type: ignore[arg-type]
+        _identity("inst-me", 2),
+        object_claim_repo=_FakeObjectClaimRepo(),  # type: ignore[arg-type]
+        now_fn=lambda: _NOW,
+    )
+
+    assert outcome.finalized_op_ids == ()
+    assert outcome.repair_op_ids == ()
+    assert outcome.released_op_ids == ("op-installer-orphan",)
+    assert "op-installer-orphan" not in repo.operations
+
+
+def test_atomic_storyless_writer_release_epoch_drift_fails_startup_closed() -> None:
+    """A changed operation epoch cannot be reported as a released placeholder."""
+
+    class _EpochDriftRepo(_FakeReconcileRepo):
+        def release_operation(
+            self,
+            op_id: str,
+            *,
+            owner_token: str,
+            owner_claimed_at: str,
+            owner_operation_epoch: int,
+        ) -> bool:
+            existing = self.operations[op_id]
+            self.operations[op_id] = replace(
+                existing,
+                operation_epoch=owner_operation_epoch + 1,
+            )
+            return super().release_operation(
+                op_id,
+                owner_token=owner_token,
+                owner_claimed_at=owner_claimed_at,
+                owner_operation_epoch=owner_operation_epoch,
+            )
+
+    repo = _EpochDriftRepo()
+    repo.operations["op-installer-epoch-drift"] = replace(
+        _claim(
+            op_id="op-installer-epoch-drift",
+            backend_instance_id="inst-me",
+            incarnation=1,
+            story_id=None,
+            run_id=None,
+        ),
+        operation_kind="installer_register_project",
+        phase=None,
+        declared_serialization_scope=None,
+    )
+
+    with pytest.raises(StartupReconciliationError, match="operation_epoch release"):
+        run_startup_reconciliation(
+            repo,  # type: ignore[arg-type]
+            _identity("inst-me", 2),
+            object_claim_repo=_FakeObjectClaimRepo(),  # type: ignore[arg-type]
+            now_fn=lambda: _NOW,
+        )
+
+    assert repo.operations["op-installer-epoch-drift"].status == "claimed"
+    assert repo.operations["op-installer-epoch-drift"].operation_epoch == 2
 
 
 def test_object_claim_with_no_paired_operation_row_is_still_reconciled() -> None:

@@ -6,21 +6,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class QuotedAssertion(BaseModel):
-    """One evaluator-reported exact quote and stable input locus."""
+    """One evaluator-reported source-span reference."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    chunk_id: str = Field(min_length=1)
-    doc: str = Field(min_length=1)
-    anchor: str = Field(min_length=1)
-    assertion: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    start_id: str = Field(min_length=1)
+    end_id: str = Field(min_length=1)
 
-    @field_validator("chunk_id", "doc", "anchor", "assertion")
+    @field_validator("source_id", "start_id", "end_id")
     @classmethod
     def values_must_be_non_empty(cls, value: str) -> str:
-        """Reject whitespace-only response evidence."""
+        """Reject whitespace-only source coordinates."""
         if not value.strip():
-            raise ValueError("quoted assertion fields must be non-empty")
+            raise ValueError("source reference fields must be non-empty")
         return value
 
 
@@ -34,10 +33,10 @@ class ContradictionGroup(BaseModel):
 
     @model_validator(mode="after")
     def loci_must_be_distinct(self) -> ContradictionGroup:
-        """Reject repeated copies of one quoted assertion."""
-        identities = [(item.chunk_id, item.assertion) for item in self.loci]
+        """Reject repeated references to one source range."""
+        identities = [(item.source_id, item.start_id, item.end_id) for item in self.loci]
         if len(identities) != len(set(identities)):
-            raise ValueError("contradiction group loci must be distinct")
+            raise ValueError("contradiction group source ranges must be distinct")
         return self
 
 

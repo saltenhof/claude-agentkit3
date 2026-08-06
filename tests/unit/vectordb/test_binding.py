@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
+from agentkit.backend.installer.interpreter import resolve_ak3_interpreter
+from agentkit.backend.vectordb.engine import compose_runtime
 from agentkit.backend.vectordb.project_binding import (
     ProjectBinding,
     ProjectBindingError,
@@ -146,15 +149,54 @@ def test_binding_carries_both_exact_endpoints() -> None:
 
 
 def test_runtime_binding_from_env_ok() -> None:
+    command = str(resolve_ak3_interpreter())
     rb = RuntimeBinding.from_env(
-        _GOOD_ENV, command="python", args=("-m", "agentkit.backend.vectordb.mcp_server"), cwd="/srv"
+        _GOOD_ENV,
+        command=command,
+        args=("-m", "agentkit.backend.vectordb.mcp_server"),
+        cwd="/srv",
     )
     assert rb.project_id == "acme"
     assert rb.weaviate_http_endpoint == "http://weaviate.acme.local:8080"
     spec = rb.spec
-    assert spec.command == "python"
+    assert spec.command == command
     assert spec.cwd == "/srv"
     assert spec.env_dict()["PROJECT_ID"] == "acme"
+
+
+def test_compose_runtime_materializes_only_the_central_interpreter(
+    tmp_path: Path,
+) -> None:
+    client = RecordingWeaviateClient()
+    service = compose_runtime(
+        _GOOD_ENV,
+        concepts_dir=tmp_path / "concept",
+        stories_dir=tmp_path / "stories",
+        client=client,
+        cwd=str(tmp_path),
+    )
+    try:
+        assert service.binding.spec.command == str(resolve_ak3_interpreter())
+    finally:
+        service.close()
+
+
+def test_compose_runtime_rejects_a_caller_supplied_path_selector(
+    tmp_path: Path,
+) -> None:
+    client = RecordingWeaviateClient()
+    try:
+        with pytest.raises(RuntimeBindingError, match="diverges from the central"):
+            compose_runtime(
+                _GOOD_ENV,
+                concepts_dir=tmp_path / "concept",
+                stories_dir=tmp_path / "stories",
+                client=client,
+                command="python",
+                cwd=str(tmp_path),
+            )
+    finally:
+        client.close()
 
 
 @pytest.mark.parametrize("missing_key", ["PROJECT_ID", "WEAVIATE_HTTP_ENDPOINT"])

@@ -109,12 +109,12 @@ Die Pipeline-Orchestrierung folgt einem zentralen Grundsatz des FK
 (FK-05-002): **Kein Agent entscheidet über den Ablauf; der Ablauf
 entscheidet, wann welcher Agent arbeiten darf.**
 
-Technisch bedeutet das: Der Phase Runner ist ein deterministisches
-Python-Skript, das den Story-Lifecycle als State Machine steuert.
-Er wird vom Orchestrator-Agent über die CLI aufgerufen, aber der
-Orchestrator hat keinen Einfluss auf die Phasenlogik selbst. Der
-Phase Runner entscheidet über Phasenwechsel, Feedback-Loops und
-Eskalation.
+Technisch bedeutet das: Der Phase Runner ist ein deterministischer Service,
+der den Story-Lifecycle als State Machine steuert. Der Orchestrator-Agent
+beauftragt ihn ueber Project Edge und die Service-API (FK-45 §45.1); die CLI
+bleibt menschliche Operator-Recovery. Der Orchestrator hat keinen Einfluss auf
+die Phasenlogik selbst. Der Phase Runner entscheidet über Phasenwechsel,
+Feedback-Loops und Eskalation.
 
 ### 20.1.1 Komponentenschnitt
 
@@ -239,8 +239,8 @@ nicht als ad-hoc-Sonderlogik in einzelnen Komponenten modelliert.
 
 **Regeln:**
 
-1. Overrides duerfen nur durch Mensch oder Orchestrator via CLI
-   beantragt werden, nie durch Worker.
+1. Overrides duerfen nur durch den Menschen ueber die Operator-CLI oder durch
+   den Orchestrator ueber Project Edge beantragt werden, nie durch Worker.
 2. Jeder Override wird als auditierbarer Override-Record persistiert
    und von der Engine ausgewertet.
 3. Ob ein Override zulaessig ist, entscheidet die `OverridePolicy`
@@ -507,12 +507,14 @@ Subflow-Iteration, keine Top-Phase-Transition.
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator
+    participant O as Orchestrator-Agent
+    participant E as Project Edge
     participant PR as Phase Runner (Implementation)
     participant V as VerifySystem (Capability)
     participant W as Worker (Remediation)
 
-    O->>PR: run-phase implementation --story ODIN-042 (qa_subflow active)
+    O->>E: Implementation starten
+    E->>PR: POST /phases/implementation/start (qa_subflow active)
     PR->>V: run_qa_subflow(qa_context=IMPLEMENTATION_INITIAL)
     V-->>PR: PolicyVerdict: FAILED (findings)
 
@@ -521,16 +523,20 @@ sequenceDiagram
     alt Guard bestanden (aktueller Wert < max)
         Note over PR: 2. Inkrementiert memory.implementation.qa_feedback_rounds (0->1, 1->2, 2->3)
         Note over PR: 3. save_phase_state() — persistiert Inkrement VOR Worker-Spawn
-        PR-->>O: phase-state: phase=implementation, status=IN_PROGRESS, agents_to_spawn=[remediation_worker]
+        PR-->>E: phase-state: phase=implementation, status=IN_PROGRESS, agents_to_spawn=[remediation_worker]
+        E-->>O: phase-state
         O->>W: Spawnt Remediation-Worker mit Maengelliste
         W-->>O: Fixes committed
-        O->>PR: run-phase implementation --story ODIN-042 (resume qa_subflow)
+        O->>E: Implementation resumieren
+        E->>PR: POST /phases/implementation/start (resume qa_subflow)
         PR->>V: run_qa_subflow(qa_context=IMPLEMENTATION_REMEDIATION)
         V-->>PR: PolicyVerdict: PASS oder erneut FAILED
-        PR-->>O: phase-state: COMPLETED (PASS) oder erneut Loop
+        PR-->>E: phase-state: COMPLETED (PASS) oder erneut Loop
+        E-->>O: phase-state
     else Guard abgelehnt (aktueller Wert >= max)
         Note over PR: Guard FAIL -> ESCALATED (max_rounds_exceeded)
-        PR-->>O: phase-state: ESCALATED, escalation_reason=max_rounds_exceeded
+        PR-->>E: phase-state: ESCALATED, escalation_reason=max_rounds_exceeded
+        E-->>O: phase-state
     end
 ```
 
@@ -540,7 +546,7 @@ sequenceDiagram
 > (`save_phase_state()`) sind ausschließlich Aufgaben des
 > **Phase Runner (Engine)**, nicht des Orchestrators. Der
 > Orchestrator liest den Phase-State und reagiert darauf (z.B.
-> ruft `run-phase implementation` auf), aber er mutiert den
+> beauftragt er die Implementation-Fortsetzung ueber Project Edge), aber er mutiert den
 > State nie direkt. Dieses Prinzip ist in FK-39 §39.6 normativ
 > festgelegt ("Nur der Phase Runner schreibt") und folgt aus
 > dem Determinismus-Grundsatz (§20.1): Ablaufsteuerung,
@@ -581,8 +587,8 @@ Die folgende Tabelle listet alle Auslöser, die die Pipeline stoppen. Spalte „
 | Max Feedback-Runden erschoepft (QA-Subflow) | implementation | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Pipeline stoppt. Mensch muss entscheiden: Story anpassen, Anforderungen lockern, oder manuell fixen. |
 | Integrity-Gate FAIL | closure | ESCALATED (`escalation_reason: "integrity_fail"`) | Pipeline stoppt. Mensch prüft Audit-Log (`integrity-violations.log`). |
 | Merge-Konflikt | closure | ESCALATED (`escalation_reason: "merge_fail"`) | Pipeline stoppt. Worker muss rebasen oder Mensch löst Konflikt. |
-| Scope-Explosion (Klasse 3) | exploration | PAUSED (`pause_reason` durch H2-Routing) | Mensch prueft Split-Befund. Standardpfad: `agentkit split-story` statt Weiterarbeit im selben Story-Vertrag. |
-| Governance-Beobachtung: kritischer Incident | jede | **PAUSED** (`pause_reason: GOVERNANCE_INCIDENT`) | Pipeline pausiert sofort — kein ESCALATED. Mensch muss intervenieren, dann Resume via `agentkit resume`. Siehe FK-39 §39.2.2. |
+| Scope-Explosion (Klasse 3) | exploration | PAUSED (`pause_reason` durch H2-Routing) | Mensch prueft Split-Befund. Standardpfad: `<absolute-agentkit-wrapper> split-story` statt Weiterarbeit im selben Story-Vertrag. |
+| Governance-Beobachtung: kritischer Incident | jede | **PAUSED** (`pause_reason: GOVERNANCE_INCIDENT`) | Pipeline pausiert sofort — kein ESCALATED. Mensch muss intervenieren, dann Resume via `<absolute-agentkit-wrapper> resume`. Siehe FK-39 §39.2.2. |
 | Edge-Provisionierung/Preflight beauftragt | setup | **PAUSED** (`pause_reason: AWAITING_EDGE_PROVISIONING`) | Setup hat den Project Edge mit `provision_worktree`/`preflight_probe` beauftragt und pausiert **fail-closed** bis zur Meldung (kein Timeout-Weiter; FK-10 §10.2.4a, FK-91 §91.1b). Kein Mensch — der Agent treibt sein eigenes Edge-Tool; Resume nach der Meldung. Siehe FK-39 §39.2.2. |
 | Governance-Beobachtung: harter Verstoß (Secrets, Governance-Manipulation) | jede | ESCALATED (`escalation_reason: "governance_violation"`) | Sofortiger dauerhafter Stopp, kein LLM-Adjudication nötig. |
 
@@ -600,18 +606,18 @@ Bei jeder **ESCALATED**-Eskalation (nicht PAUSED — `GOVERNANCE_INCIDENT` führ
 
 **PAUSED vs. ESCALATED:** Pause-Zustände (`PAUSED` mit einem
 PauseReason) sind vorübergehend — Resume nach Klärung via
-`agentkit resume`. ESCALATED ist dauerhafter Stopp der aktuellen
+`<absolute-agentkit-wrapper> resume`. ESCALATED ist dauerhafter Stopp der aktuellen
 Iteration — Ursache muss behoben werden, bevor ein neuer Run
 gestartet wird. Definition der vier PauseReason-Werte und
 der Resume-Trigger in **FK-39 §39.2.2**.
 
 | Status | PauseReason / Ausloeser | Phase | Bedeutung | Resume |
 |--------|----------------------|-------|-----------|--------|
-| `PAUSED` | `AWAITING_DESIGN_REVIEW` | exploration | Entwurfsartefakt wartet auf Design-Review. Pipeline pausiert, bis Review-Ergebnis vorliegt. | `agentkit resume --story {id}` (nach Review-Abschluss) |
-| `PAUSED` | `AWAITING_DESIGN_CHALLENGE` | exploration | Design-Review hat Einwaende erhoben. Pipeline pausiert, bis Challenge-Prozess abgeschlossen. | `agentkit resume --story {id}` (nach Challenge-Klaerung) |
-| `PAUSED` | `GOVERNANCE_INCIDENT` | jede | Governance-Observer hat kritischen Incident erkannt. Pipeline pausiert sofort, Mensch muss intervenieren. | `agentkit resume --story {id}` (nach Incident-Klaerung) |
+| `PAUSED` | `AWAITING_DESIGN_REVIEW` | exploration | Entwurfsartefakt wartet auf Design-Review. Pipeline pausiert, bis Review-Ergebnis vorliegt. | `<absolute-agentkit-wrapper> resume --story {id}` (nach Review-Abschluss) |
+| `PAUSED` | `AWAITING_DESIGN_CHALLENGE` | exploration | Design-Review hat Einwaende erhoben. Pipeline pausiert, bis Challenge-Prozess abgeschlossen. | `<absolute-agentkit-wrapper> resume --story {id}` (nach Challenge-Klaerung) |
+| `PAUSED` | `GOVERNANCE_INCIDENT` | jede | Governance-Observer hat kritischen Incident erkannt. Pipeline pausiert sofort, Mensch muss intervenieren. | `<absolute-agentkit-wrapper> resume --story {id}` (nach Incident-Klaerung) |
 | `PAUSED` | `AWAITING_EDGE_PROVISIONING` | setup | Setup hat den Project Edge mit `provision_worktree`/`preflight_probe` beauftragt und pausiert fail-closed bis zur Meldung (FK-10 §10.2.4a, FK-91 §91.1b). Kein Mensch — der Agent treibt sein Edge-Tool. | Service-Resume (`POST /phases/setup/start`) nach der Edge-Meldung |
-| `ESCALATED` | Preflight FAIL, Worker BLOCKED, Integrity-Gate FAIL, Max Runden im QA-Subflow, Merge-Konflikt, Gate-FAIL nach max Runden | setup, implementation, closure | Pipeline ist dauerhaft gestoppt fuer diese Iteration. Mensch muss Ursache klaeren und ggf. neuen Run starten. | `agentkit reset-escalation --story {id}` -> neuer Run |
+| `ESCALATED` | Preflight FAIL, Worker BLOCKED, Integrity-Gate FAIL, Max Runden im QA-Subflow, Merge-Konflikt, Gate-FAIL nach max Runden | setup, implementation, closure | Pipeline ist dauerhaft gestoppt fuer diese Iteration. Mensch muss Ursache klaeren und ggf. neuen Run starten. | `<absolute-agentkit-wrapper> reset-escalation --story {id}` -> neuer Run |
 
 **Technisch:** Der Phase-State mit `status: ESCALATED` oder `PAUSED`
 verhindert, dass der Orchestrator die nächste Phase aufruft.
@@ -625,7 +631,7 @@ verhindert, dass der Orchestrator die nächste Phase aufruft.
 | Agent-Session crashed mitten in Implementation | `phase: implementation, status: IN_PROGRESS` | Neuer Run mit neuer `run_id`. Worktree existiert noch, Commits sind da. Orchestrator spawnt neuen Worker, der die Arbeit fortsetzt. |
 | Phase Runner crashed mitten im QA-Subflow | `phase: implementation, status: IN_PROGRESS, payload.qa_cycle_status: awaiting_qa` | `run-phase implementation` erneut aufrufen — Engine setzt den QA-Subflow am letzten persistierten `qa_cycle_status` fort. Schicht 1 hat bereits `structural.json` geschrieben (idempotent). Fortschritt wird aus vorhandenen Artefakten rekonstruiert. |
 | Closure crashed nach Merge aber vor Story-Close | `payload.progress: {merge_done: true, story_closed: false}` | `run-phase closure` erneut aufrufen. Merge wird übersprungen (bereits gemergt). Story-Close (AK3-Story-Service setzt Status Done) wird ausgeführt. |
-| Mensch will eskalierten Run fortsetzen | `status: ESCALATED` | Mensch setzt Phase-State zurück: `agentkit reset-escalation --story {story_id}`. Dann neuer Run. |
+| Mensch will eskalierten Run fortsetzen | `status: ESCALATED` | Mensch setzt Phase-State zurück: `<absolute-agentkit-wrapper> reset-escalation --story {story_id}`. Dann neuer Run. |
 
 ### 20.7.2 Run-ID und Retry
 
@@ -653,7 +659,7 @@ hier entscheidet der Stratege manuell ueber den Worker-Halbstand.
 |---|---|
 | **Setup** | Auto-Resume. Phasen-atomicitaet — die Phase ist kurz und deterministisch, Wiederholung kostet nichts. |
 | **Exploration-Subflow (Stufen 1, 2a, 2b, Mandatsklassifikation, Feindesign)** | Auto-Resume **pro Stufe**. Jede Stufe persistiert ihren Abschluss in `ExplorationPayload.gate_status` plus Stage-Artefakte. Mid-Stufe-Crash → die laufende Stufe wird beim Resume neu gestartet, abgeschlossene Stufen werden uebersprungen. Wiederhol-Kost: ein bis wenige LLM-Calls pro Stufe. |
-| **Implementation Worker-Loop** | **Manueller Strategen-Eingriff.** Der Worker schreibt Code in den Worktree; ein mid-Worker-Loop-Crash hinterlaesst Code-Halbstand, der nicht trivial wiederholbar ist. Der Stratege entscheidet, ob er den Halbstand uebernehmen (Worker setzt fort, neuer `run_id`) oder verwerfen (Worktree zurueckgesetzt, Implementation-Phase beginnt im neuen Run von vorn) will. Dafuer steht `agentkit recover-story --story {story_id}` mit Auswahl-Modus zur Verfuegung. |
+| **Implementation Worker-Loop** | **Manueller Strategen-Eingriff.** Der Worker schreibt Code in den Worktree; ein mid-Worker-Loop-Crash hinterlaesst Code-Halbstand, der nicht trivial wiederholbar ist. Der Stratege entscheidet, ob er den Halbstand uebernehmen (Worker setzt fort, neuer `run_id`) oder verwerfen (Worktree zurueckgesetzt, Implementation-Phase beginnt im neuen Run von vorn) will. Dafuer steht `<absolute-agentkit-wrapper> recover-story --story {story_id}` mit Auswahl-Modus zur Verfuegung. |
 | **Implementation QA-Subflow (Layer 1-4, Remediation-Loop)** | Auto-Resume **pro Schicht**. Layer 1 schreibt `structural.json`; Layer 2 schreibt `qa_review.json`/`semantic_review.json`/`doc_fidelity.json`; Layer 3 schreibt `adversarial.json`; Layer 4 schreibt den kanonischen Policy-/Verify-Decision-Record `decision.json`. Mid-Schicht-Crash → die laufende Schicht wird beim Resume neu gestartet, abgeschlossene Schichten werden aus den vorhandenen Artefakten uebernommen. Der Subflow-interne Remediation-Loop (FK-38) ist ueber `qa_feedback_rounds` in `PhaseMemory.implementation` carry-forward. |
 | **Closure** | Auto-Resume. Granularitaet ist `ClosurePayload.progress` (siehe §20.7.1 Tabelle): Merge-Status, Story-Close-Status, Postflight-Status werden einzeln persistiert; bereits abgeschlossene Schritte werden beim Resume uebersprungen. |
 
@@ -689,13 +695,13 @@ auto-resume.
 
 ### 20.7.4 Einordnung: Crash-Recovery als Ownership-Transfer-Spezialfall
 
-Ownership-seitig ist die Crash-Recovery ueber `agentkit recover-story`
+Ownership-seitig ist die Crash-Recovery ueber `<absolute-agentkit-wrapper> recover-story`
 nur der **Fallback**: Der `auto-resume` aus §20.7.3 ist der
 Standardmechanismus (SOLL) und entspricht der Session-Continuation via
 `/resume` aus FK-56 §56.13g — die resumte Session behaelt ihre
 `owner_session_id` und besitzt die Story weiter, ganz ohne Transfer.
 Erst wenn die Harness-Identitaet nicht wiederherstellbar ist, greift der
-Transfer-Pfad: `agentkit recover-story` erwirbt das Run-Ownership mit
+Transfer-Pfad: `<absolute-agentkit-wrapper> recover-story` erwirbt das Run-Ownership mit
 `acquired_via=recovery` — aber mit **neuem Run auf dem bestehenden
 Worktree**, weil der alte Run-Zustand nach einem Crash nicht
 vertrauenswuerdig ist. Der Takeover (FK-56 §56.13) fuehrt dagegen

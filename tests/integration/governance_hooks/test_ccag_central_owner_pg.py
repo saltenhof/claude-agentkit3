@@ -130,18 +130,14 @@ def test_request_lease_lifecycle_is_server_mediated_on_real_postgres(
     issued = prepare_project_api_token(project_key=_PROJECT, label="hook")
     tokens.insert(issued.record)
     auth = AuthMiddleware(token_repository=tokens)
-    app = ControlPlaneApplication(auth_middleware=auth)
+    app = ControlPlaneApplication(writer_lease_required=False, auth_middleware=auth)
     session = auth.session_store.create()
     with _server(app) as base_url:
-        hook_transport = HttpsJsonTransport(
-            base_url=base_url, bearer_token=issued.plaintext_token, project_key=_PROJECT
-        )
+        hook_transport = HttpsJsonTransport(base_url=base_url, bearer_token=issued.plaintext_token, project_key=_PROJECT)
         hook = GovernanceEdgeClient(transport=hook_transport)
         opened = hook.open_permission_request(_request("request-http"))
         assert opened.status == "pending"
-        assert hook.read_permission_requests(
-            project_key=_PROJECT, story_id=_STORY, run_id=_RUN
-        ).requests == (opened,)
+        assert hook.read_permission_requests(project_key=_PROJECT, story_id=_STORY, run_id=_RUN).requests == (opened,)
 
         human = HttpsJsonTransport(
             base_url=base_url,
@@ -185,12 +181,10 @@ def test_hook_token_cannot_resolve_or_grant_before_mutation(
     issued = prepare_project_api_token(project_key=_PROJECT, label="hook")
     tokens.insert(issued.record)
     auth = AuthMiddleware(token_repository=tokens)
-    app = ControlPlaneApplication(auth_middleware=auth)
+    app = ControlPlaneApplication(writer_lease_required=False, auth_middleware=auth)
     service = _service()
     with _server(app) as base_url:
-        transport = HttpsJsonTransport(
-            base_url=base_url, bearer_token=issued.plaintext_token, project_key=_PROJECT
-        )
+        transport = HttpsJsonTransport(base_url=base_url, bearer_token=issued.plaintext_token, project_key=_PROJECT)
         hook = GovernanceEdgeClient(transport=transport)
         opened = hook.open_permission_request(_request("request-auth"))
         with pytest.raises(ControlPlaneApiError, match="human BFF session"):
@@ -246,7 +240,7 @@ def test_real_hook_opens_request_through_http_and_postgres(
     tokens = _TokenRepository()
     issued = prepare_project_api_token(project_key=_PROJECT, label="hook")
     tokens.insert(issued.record)
-    app = ControlPlaneApplication(auth_middleware=AuthMiddleware(token_repository=tokens))
+    app = ControlPlaneApplication(writer_lease_required=False, auth_middleware=AuthMiddleware(token_repository=tokens))
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
     credential_path = project_credentials_path(tmp_path)

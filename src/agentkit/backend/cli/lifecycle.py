@@ -43,17 +43,10 @@ def _add_serve_parser(
         "serve",
         help="Run the AK3 Core backend listener (level 1, FK-10 §10.2.5)",
     )
-    profile = serve_parser.add_mutually_exclusive_group(required=True)
-    profile.add_argument(
-        "--ui-bff", action="store_true", help="UI-BFF profile (default port 9701)"
-    )
-    profile.add_argument(
-        "--project-api",
-        action="store_true",
-        help="Project-API profile (default port 9702)",
-    )
-    serve_parser.add_argument("--host", default="127.0.0.1")
-    serve_parser.add_argument("--port", type=int, default=None)
+    serve_parser.add_argument("--ui-host", default="127.0.0.1")
+    serve_parser.add_argument("--ui-port", type=int, default=None)
+    serve_parser.add_argument("--project-host", default="127.0.0.1")
+    serve_parser.add_argument("--project-port", type=int, default=None)
     serve_parser.add_argument("--certfile", required=True)
     serve_parser.add_argument("--keyfile")
 
@@ -148,17 +141,27 @@ def _add_decommission_parser(
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Handle ``agentkit serve --ui-bff|--project-api`` (FK-10 §10.2.5)."""
-    from agentkit.backend.cli.serve import ServeProfile, run_serve
-
-    profile = ServeProfile.UI_BFF if args.ui_bff else ServeProfile.PROJECT_API
-    return run_serve(
-        profile=profile,
-        host=args.host,
-        port=args.port,
-        certfile=Path(args.certfile),
-        keyfile=Path(args.keyfile) if args.keyfile is not None else None,
+    """Handle the one-process, two-listener ``agentkit serve`` command."""
+    from agentkit.backend.cli.serve import run_serve
+    from agentkit.backend.control_plane.writer_lease import (
+        ControlPlaneWriterAlreadyActiveError,
     )
+
+    try:
+        return run_serve(
+            ui_host=args.ui_host,
+            ui_port=args.ui_port,
+            project_api_host=args.project_host,
+            project_api_port=args.project_port,
+            certfile=Path(args.certfile),
+            keyfile=Path(args.keyfile) if args.keyfile is not None else None,
+        )
+    except ControlPlaneWriterAlreadyActiveError as exc:
+        print(
+            f"serve failed [ControlPlaneWriterAlreadyActive]: {exc}",
+            file=sys.stderr,
+        )
+        return 1
 
 
 def cmd_ui(args: argparse.Namespace) -> int:

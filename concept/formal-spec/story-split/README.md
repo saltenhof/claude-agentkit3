@@ -13,7 +13,7 @@ Dieser Kontext formalisiert den administrativen Split-Pfad fuer
 
 Im Scope sind:
 
-- der offizielle CLI-Pfad `agentkit split-story`
+- der offizielle CLI-Pfad `<absolute-agentkit-wrapper> split-story`
 - der Split-Prozesszustand
 - Split-spezifische Entitaeten
 - Split-Events

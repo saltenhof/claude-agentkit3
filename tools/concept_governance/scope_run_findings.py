@@ -50,6 +50,26 @@ def incomplete_finding(
     return partition_finding("INCOMPLETE_SWEEP", detail, model, partition)
 
 
+def cross_partition_incomplete_findings(
+    partitions: tuple[ScopePartition, ...],
+    model: str,
+) -> tuple[ScopeConsistencyFinding, ...]:
+    """Name every scope whose disjoint partitions cannot prove set consistency."""
+    return tuple(
+        partition_finding(
+            "INCOMPLETE_SWEEP",
+            (
+                f"scope={partition.scope!r} partitions={partition.count}; "
+                "cross-partition contradictions remain unchecked"
+            ),
+            model,
+            partition,
+        )
+        for partition in partitions
+        if partition.index == 1 and partition.count > 1
+    )
+
+
 def make_scope_result(
     findings: tuple[ScopeConsistencyFinding, ...],
     sets: int,

@@ -20,8 +20,8 @@ normative Control-Plane-**Service-API** (FK-91 §91.1a Endpunkt +
 ``PhaseMutationRequest``-Payload/``op_id``-Idempotenz), der Schema-Owner
 der Aufruf-Parameter (project_key, story_id, phase, session_id,
 principal_type, worktree_roots, op_id, detail.resume_trigger). Die
-CLI-Verben (FK-91 §91.1, z. B. ``agentkit run-phase`` / ``agentkit
-resume``) sind menschliche Operator-Recovery-Pfade, die diese Service-API
+CLI-Verben (FK-91 §91.1, z. B. ``<absolute-agentkit-wrapper> run-phase`` /
+``<absolute-agentkit-wrapper> resume``) sind menschliche Operator-Recovery-Pfade, die diese Service-API
 seit AG3-130 ausschliesslich als duenne REST-Anforderer treiben (kein
 in-process Runtime-Build).
 
@@ -71,7 +71,7 @@ commands:
     emits:
       - story-workflow.event.phase.resumed
   - id: story-workflow.command.reset-escalation
-    signature: agentkit reset-escalation --story <story_id>
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> reset-escalation --story <story_id>
     allowed_statuses:
       - story-workflow.status.escalated
     restrictions:

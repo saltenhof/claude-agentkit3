@@ -45,12 +45,22 @@ from agentkit.backend.skills.placeholder import (
     SPAWN_SKILL_PROOF_PLACEHOLDER,
     PlaceholderSubstitutor,
 )
-from agentkit.backend.skills.quality_metric import AttributionState, SkillQualityMetric, SourceWindow
+from agentkit.backend.skills.quality_metric import (
+    AttributionState,
+    SkillQualityMetric,
+    SourceWindow,
+)
 from agentkit.backend.skills.repository import (
     InMemorySkillBindingRepository,
     SkillBindingRepository,
 )
 from agentkit.backend.skills.top import Skills
+from agentkit.backend.skills.version_policy import (
+    MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS,
+    BundleVersionAssessment,
+    BundleVersionPolicyError,
+    assess_bundle_version,
+)
 
 __all__ = [
     # Top-surface
@@ -69,6 +79,10 @@ __all__ = [
     "SkillBundle",
     "SkillBundleStore",
     "SkillBundleVersion",
+    "BundleVersionAssessment",
+    "BundleVersionPolicyError",
+    "MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS",
+    "assess_bundle_version",
     # Link mechanics (platform-aware: symlink on POSIX, junction on Windows)
     "create_directory_link",
     "is_directory_link",

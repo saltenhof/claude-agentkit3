@@ -38,13 +38,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.governance.hook_registration import HookDefinition
-    from agentkit.backend.governance.runner import Governance
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.installer.upgrade.cleanup import CleanupOutcome, CleanupPlan
     from agentkit.backend.installer.upgrade.footprint import CustomizationFootprint
     from agentkit.backend.installer.upgrade.hook_migration import (
         GitHookMigrationOutcome,
         HookMigrationOutcome,
+        HookRegistrationSurface,
     )
     from agentkit.backend.installer.upgrade.scenarios import UpgradeScenarioDecision
     from agentkit.backend.skills import Skills
@@ -117,7 +117,7 @@ def run_upgrade(
     mode: ExecutionMode = ExecutionMode.REGISTER,
     is_subagent: bool = False,
     skills: Skills | None = None,
-    governance: Governance | None = None,
+    governance: HookRegistrationSurface | None = None,
     desired_hook_definitions: list[HookDefinition] | None = None,
     current_hook_matchers: frozenset[str] = frozenset(),
     cleanup_plan: CleanupPlan | None = None,

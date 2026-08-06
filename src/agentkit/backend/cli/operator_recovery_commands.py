@@ -24,6 +24,9 @@ from ._operator_recovery_parser import (
 )
 from ._operator_recovery_phase import _VALID_PHASES as _VALID_PHASES
 from ._operator_recovery_phase import _build_control_plane_client as _build_control_plane_client
+from ._operator_recovery_phase import (
+    _build_strategist_control_plane_client as _build_strategist_control_plane_client,
+)
 from ._operator_recovery_phase import _cmd_resume as _cmd_resume
 from ._operator_recovery_phase import _cmd_run_phase as _cmd_run_phase
 from ._operator_recovery_phase import (
@@ -65,6 +68,7 @@ __all__ = [
     "_VALID_PHASES",
     "_apply_since_filter",
     "_build_control_plane_client",
+    "_build_strategist_control_plane_client",
     "_build_strategist_client",
     "_build_weekly_review_frame",
     "_cmd_admin_abort",

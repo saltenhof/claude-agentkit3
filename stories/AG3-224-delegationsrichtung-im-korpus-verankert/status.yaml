@@ -1,0 +1,28 @@
+story_id: AG3-224
+story_title_short: "delegationsrichtung-im-korpus-verankert"
+title: "Der PO-Entscheid zur Delegationsrichtung und zur Kontextschonung des Orchestrators wird im gesamten Konzeptkorpus verankert -- vollstaendig, widerspruchsfrei und mit einem Eigentuemer je Aussage."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-05"
+size: M
+# Herkunft: PO-Entscheid vom 2026-08-05, festgehalten in
+# `concept/_meta/decisions/2026-08-05-delegationsrichtung-und-kontextschonung.md`.
+#
+# Ausloeser war der Widerspruch zwischen FK-45 (:352-355: "Kein Agent darf die
+# CLI direkt aufrufen") und FK-43 (:470-472: die produktive Skill-Variante
+# bindet die tatsaechlichen `run-phase`-Aufrufe an {{AK3_WRAPPER}}), sowie
+# FK-21 (:829-839) mit `export-story-md`.
+#
+# Der PO hat den Widerspruch nicht durch Wahl einer Seite aufgeloest, sondern
+# durch Korrektur der Topologie-Annahme: Ein Agent ist Harness + LLM; der
+# Harness laeuft auf der CLIENT-Maschine; das AK3-Backend ist kein Agent und
+# hat keine direkte Schnittstelle zu den Harness-Installationen. Project Edge
+# ist das Relais BEIDER Richtungen.
+#
+# ABGRENZUNG: Diese Story verankert die Norm. Die Umstellung der Skill-Bundles
+# ist AG3-225 -- getrennt, weil eine Story, die Norm UND Implementierung UND
+# das Bauen fehlender Project-Edge-Wege zusagt, dieselbe unbegrenzte
+# Zusagenbreite haette, die AG3-189 siebzehn Runden gekostet hat.
+depends_on: []
+unblocks: ["AG3-225"]

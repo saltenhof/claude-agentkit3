@@ -10,6 +10,7 @@ excluded from coverage.
 
 from __future__ import annotations
 
+import os
 import types
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -125,6 +126,23 @@ class TestIsDirectoryLink:
 
     def test_missing_path_is_not_a_link(self, tmp_path: Path) -> None:
         assert links_mod.is_directory_link(tmp_path / "nope") is False
+
+    def test_windows_junction_is_a_link(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        junction = tmp_path / "junction"
+        junction.mkdir()
+        real_isjunction = os.path.isjunction
+        monkeypatch.setattr(
+            os.path,
+            "isjunction",
+            lambda path: Path(path) == junction or real_isjunction(path),
+        )
+
+        assert not junction.is_symlink()
+        assert links_mod.is_directory_link(junction)
 
 
 class TestReadDirectoryLinkTarget:

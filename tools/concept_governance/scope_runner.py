@@ -12,12 +12,18 @@ from concept_governance.chunks import load_chunks
 from concept_governance.scope_execution import ScopeSweepError, collect_scope_findings
 from concept_governance.scope_port import BatchScopeConsistencyEvaluator
 from concept_governance.scope_run_findings import (
+    cross_partition_incomplete_findings,
     incomplete_finding,
     make_scope_result,
     partition_finding,
     run_finding,
 )
-from concept_governance.scope_sets import ScopeSetError, build_scope_sets, partition_scope_sets
+from concept_governance.scope_sets import (
+    DEFAULT_PARTITION_MAX_CHARS,
+    ScopeSetError,
+    build_scope_sets,
+    partition_scope_sets,
+)
 from concept_governance.vocabulary import load_scope_vocabulary
 
 if TYPE_CHECKING:
@@ -34,7 +40,7 @@ def run_scope_consistency(
     scope_filters: tuple[str, ...] = (),
     *,
     limit: int | None = None,
-    partition_max_chars: int = 48_000,
+    partition_max_chars: int = DEFAULT_PARTITION_MAX_CHARS,
     partition_max_chunks: int = 20,
 ) -> ScopeConsistencyRunResult:
     """Run W3 fail closed without reading an index or writing the baseline."""
@@ -60,12 +66,33 @@ def run_scope_consistency(
                 "INCOMPLETE_SWEEP", detail, evaluator.model, concept_root.as_posix()
             )
             return make_scope_result((incomplete,), len(scope_sets), 0, 0)
-        partitions = partition_scope_sets(
-            scope_sets, max_chars=partition_max_chars, max_chunks=partition_max_chunks
-        )
     except (OSError, ValueError) as exc:
         finding = run_finding("DISCOVERY_FAILURE", str(exc), evaluator.model, concept_root.as_posix())
         return make_scope_result((finding,), 0, 0, 0)
+    partitions = ()
+    coverage_findings = ()
+    for scope_set in scope_sets:
+        try:
+            scope_partitions = partition_scope_sets(
+                (scope_set,),
+                max_chars=partition_max_chars,
+                max_chunks=partition_max_chunks,
+            )
+        except (OSError, ValueError) as exc:
+            finding = run_finding(
+                "DISCOVERY_FAILURE", str(exc), evaluator.model, concept_root.as_posix()
+            )
+            return make_scope_result(
+                (finding, *coverage_findings),
+                len(scope_sets),
+                len(partitions),
+                0,
+            )
+        partitions = (*partitions, *scope_partitions)
+        coverage_findings = (
+            *coverage_findings,
+            *cross_partition_incomplete_findings(scope_partitions, evaluator.model),
+        )
     try:
         if isinstance(evaluator, BatchScopeConsistencyEvaluator):
             with evaluator:
@@ -75,7 +102,12 @@ def run_scope_consistency(
     except ScopeSweepError as exc:
         failed = partition_finding(exc.code, str(exc), exc.model, exc.partition)
         incomplete = incomplete_finding(exc.completed, len(partitions), exc.partition, exc.model)
-        return make_scope_result((failed, incomplete), len(scope_sets), len(partitions), exc.completed)
+        return make_scope_result(
+            (failed, incomplete, *coverage_findings),
+            len(scope_sets),
+            len(partitions),
+            exc.completed,
+        )
     except (LlmClientError, MultiLlmHubError, TimeoutError) as exc:
         failed = run_finding("HUB_UNREACHABLE", str(exc), evaluator.model, concept_root.as_posix())
         incomplete = run_finding(
@@ -84,10 +116,17 @@ def run_scope_consistency(
             evaluator.model,
             concept_root.as_posix(),
         )
-        return make_scope_result((failed, incomplete), len(scope_sets), len(partitions), 0)
+        return make_scope_result(
+            (failed, incomplete, *coverage_findings), len(scope_sets), len(partitions), 0
+        )
     selected_scopes = frozenset(item.scope for item in scope_sets)
     findings = apply_scope_baseline(raw_findings, baseline, baseline_doc, selected_scopes)
-    return make_scope_result(findings, len(scope_sets), len(partitions), len(partitions))
+    return make_scope_result(
+        (*findings, *coverage_findings),
+        len(scope_sets),
+        len(partitions),
+        len(partitions),
+    )
 
 
 def _relative_baseline_doc(concept_root: Path, baseline_path: Path) -> str:

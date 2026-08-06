@@ -1,7 +1,7 @@
 """Claude Code pre-tool hook adapter.
 
 Official CLI entry point for Claude Code hooks:
-``agentkit-hook-claude {phase} {hook_id}``
+``<absolute-agentkit-hook-claude-wrapper> {phase} {hook_id}``
 
 The adapter preserves the external hook contract: blocked decisions are
 printed as JSON to stdout and return exit code 2; allowed decisions
@@ -247,7 +247,8 @@ def main_project_edge(argv: list[str] | None = None) -> int:
     restructure: the wrapper kept pointing at a module that no longer exists, so
     it died at import -- silently, which is why nobody noticed that **no AK3
     guard runs for Write, Edit, Read, Grep or Glob**. The per-guard command
-    (``agentkit-hook-claude pre <id>``) only covers Bash, WebFetch/WebSearch and
+    (``<absolute-agentkit-hook-claude-wrapper> pre <id>``) only covers Bash,
+    WebFetch/WebSearch and
     Agent.
 
     Repairing only the import would have been worse than the defect: the
@@ -266,9 +267,18 @@ def main_project_edge(argv: list[str] | None = None) -> int:
     """
     arguments = list(sys.argv[1:]) if argv is None else list(argv)
     if arguments:
+        from agentkit.backend.installer.interpreter import (
+            render_ak3_wrapper_command,
+        )
+
+        single_guard_command = render_ak3_wrapper_command(
+            "agentkit-hook-claude",
+            "pre",
+            "<id>",
+        )
         print(
-            "agentkit project-edge pre-tool hook takes no arguments; "
-            f"got {arguments!r}. Use 'agentkit-hook-claude pre <id>' for a single guard.",
+            "The project-edge pre-tool hook takes no arguments; "
+            f"got {arguments!r}. Use {single_guard_command!r} for a single guard.",
             file=sys.stderr,
         )
         return 2

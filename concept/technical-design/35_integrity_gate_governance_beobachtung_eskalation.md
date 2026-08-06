@@ -491,7 +491,7 @@ insert_event(
 Der Mensch kann die Details abfragen:
 
 ```bash
-agentkit query-telemetry --story ODIN-042 --event integrity_gate_result
+<absolute-agentkit-wrapper> query-telemetry --story ODIN-042 --event integrity_gate_result
 ```
 
 ### 35.2.9 Bei Scheitern
@@ -501,7 +501,7 @@ Orchestrator stoppt. Mensch muss Audit-Log des aktuellen gültigen Runs
 prüfen und entscheiden:
 - Prozess nachvollziehen und Ursache beheben → neuer Run
 - Bewusster Override (z.B. bei bekanntem Infrastruktur-Problem)
-  → `agentkit override-integrity --story {story_id} --reason "..."`
+  → `<absolute-agentkit-wrapper> override-integrity --story {story_id} --reason "..."`
 
 ## 35.3 Governance-Beobachtung
 
@@ -806,26 +806,26 @@ Hier zur Querreferenz die Phase- und Status-Zuordnung:
 
 | Auslöser | Phase | Phase-State | Resume |
 |----------|-------|------------|--------|
-| Preflight FAIL | setup | ESCALATED (`escalation_reason: "preflight_fail"`) | `agentkit reset-escalation` + neuer Run |
-| Dokumententreue Ebene 2 FAIL | exploration | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | `agentkit reset-escalation` → neuer Run |
-| Design-Review-Gate FAIL non-remediable | exploration | ESCALATED (`escalation_reason: "design_review_rejected"`) | `agentkit reset-escalation` → neuer Run |
-| Offene Punkte brauchen Freigabe | exploration | PAUSED (`AWAITING_DESIGN_REVIEW` o.ae.) | `agentkit resume` nach Freigabe |
-| Scope-Explosion (Klasse 3) | exploration | PAUSED | Mensch entscheidet ueber offiziellen Story-Split (`agentkit split-story`) |
+| Preflight FAIL | setup | ESCALATED (`escalation_reason: "preflight_fail"`) | `<absolute-agentkit-wrapper> reset-escalation` + neuer Run |
+| Dokumententreue Ebene 2 FAIL | exploration | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | `<absolute-agentkit-wrapper> reset-escalation` → neuer Run |
+| Design-Review-Gate FAIL non-remediable | exploration | ESCALATED (`escalation_reason: "design_review_rejected"`) | `<absolute-agentkit-wrapper> reset-escalation` → neuer Run |
+| Offene Punkte brauchen Freigabe | exploration | PAUSED (`AWAITING_DESIGN_REVIEW` o.ae.) | `<absolute-agentkit-wrapper> resume` nach Freigabe |
+| Scope-Explosion (Klasse 3) | exploration | PAUSED | Mensch entscheidet ueber offiziellen Story-Split (`<absolute-agentkit-wrapper> split-story`) |
 | Worker BLOCKED (unloesbarer Constraint) | implementation | ESCALATED (`escalation_reason: "worker_blocked"`) | Externen Constraint loesen, dann neuer Run |
-| Dokumententreue Ebene 3 FAIL (Umsetzungstreue) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | `agentkit reset-escalation` → neuer Run |
+| Dokumententreue Ebene 3 FAIL (Umsetzungstreue) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | `<absolute-agentkit-wrapper> reset-escalation` → neuer Run |
 | Max Feedback-Runden erschöpft | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Story anpassen, dann neuer Run |
 | Impact-Violation (Execution oder Exploration Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Story-Attribute korrigieren oder neue Exploration |
 | Integrity-Gate FAIL | closure | ESCALATED (`escalation_reason: "integrity_fail"`) | Audit-Log prüfen, Ursache beheben |
 | Merge-Konflikt | closure | ESCALATED (`escalation_reason: "merge_fail"`) | Mensch löst Konflikt manuell |
-| Governance: kritischer Incident | jede | PAUSED (`pause_reason: GOVERNANCE_INCIDENT`) | `agentkit resume` nach Prüfung |
+| Governance: kritischer Incident | jede | PAUSED (`pause_reason: GOVERNANCE_INCIDENT`) | `<absolute-agentkit-wrapper> resume` nach Prüfung |
 | Governance: harter Verstoß (Secrets, Manipulation) | jede | ESCALATED (`escalation_reason: "governance_violation"`) | Sicherheits-Review, dann neuer Run |
 
 ### 35.4.3 PAUSED vs. ESCALATED
 
 | Status | Bedeutung | Typischer Auslöser | Resume-Pfad |
 |--------|-----------|-------------------|-------------|
-| `PAUSED` | Vorübergehend angehalten, kann fortgesetzt werden | Governance-Incident, menschliche Freigabe nötig | `agentkit resume --story {story_id}` |
-| `ESCALATED` | Dauerhaft gestoppt für diese Iteration | Integrity-Gate FAIL, Merge-Konflikt, Max Runden | `agentkit reset-escalation --story {story_id}` → neuer Run |
+| `PAUSED` | Vorübergehend angehalten, kann fortgesetzt werden | Governance-Incident, menschliche Freigabe nötig | `<absolute-agentkit-wrapper> resume --story {story_id}` |
+| `ESCALATED` | Dauerhaft gestoppt für diese Iteration | Integrity-Gate FAIL, Merge-Konflikt, Max Runden | `<absolute-agentkit-wrapper> reset-escalation --story {story_id}` → neuer Run |
 
 **Unterschied:** Bei PAUSED wird derselbe Run fortgesetzt.
 Bei ESCALATED wird ein neuer Run gestartet (neue `run_id`).
@@ -834,22 +834,22 @@ Bei ESCALATED wird ein neuer Run gestartet (neue `run_id`).
 
 ```bash
 # Story-Status abfragen
-agentkit status --story ODIN-042
+<absolute-agentkit-wrapper> status --story ODIN-042
 
 # Pausierte Story fortsetzen
-agentkit resume --story ODIN-042
+<absolute-agentkit-wrapper> resume --story ODIN-042
 
 # Eskalation zurücksetzen (neuer Run möglich)
-agentkit reset-escalation --story ODIN-042
+<absolute-agentkit-wrapper> reset-escalation --story ODIN-042
 
 # Scope-Explosion kontrolliert in Nachfolger-Stories überführen
-agentkit split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"
+<absolute-agentkit-wrapper> split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"
 
 # Integrity-Gate bewusst overriden (mit Begründung)
-agentkit override-integrity --story ODIN-042 --reason "VNC login expired, gemini pool unavailable"
+<absolute-agentkit-wrapper> override-integrity --story ODIN-042 --reason "VNC login expired, gemini pool unavailable"
 
 # Audit-Log der letzten Eskalation des aktuellen Runs anzeigen
-agentkit query-telemetry --story ODIN-042 --event integrity_gate_result
+<absolute-agentkit-wrapper> query-telemetry --story ODIN-042 --event integrity_gate_result
 ```
 
 ### 35.4.5 Override-Mechanismus
@@ -859,7 +859,7 @@ overriden — z.B. wenn der LLM-Hub während des Runs nicht
 erreichbar war und deshalb Telemetrie-Nachweise fehlen.
 
 ```bash
-agentkit override-integrity --story ODIN-042 --reason "..."
+<absolute-agentkit-wrapper> override-integrity --story ODIN-042 --reason "..."
 ```
 
 Das Override wird in `execution_events` protokolliert:

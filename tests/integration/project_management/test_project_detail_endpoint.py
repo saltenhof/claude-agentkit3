@@ -78,6 +78,7 @@ def _app(tmp_path: Path) -> ControlPlaneApplication:
         story_service=_story_service(tmp_path),
     )
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=ProjectManagementRoutes(
                 repository=project_repo,
@@ -161,15 +162,19 @@ def test_counters_classify_persisted_dependency_as_blocked(tmp_path: Path) -> No
 
     story_a = service.create_story(
         CreateStoryInput(
-            project_key="tenant-a", title="Predecessor A",
-            type="implementation", repos=["repo-a"],
+            project_key="tenant-a",
+            title="Predecessor A",
+            type="implementation",
+            repos=["repo-a"],
         ),
         op_id="dep-op-a",
     )
     story_b = service.create_story(
         CreateStoryInput(
-            project_key="tenant-a", title="Dependent B",
-            type="implementation", repos=["repo-a"],
+            project_key="tenant-a",
+            title="Dependent B",
+            type="implementation",
+            repos=["repo-a"],
         ),
         op_id="dep-op-b",
     )

@@ -158,7 +158,6 @@ ignore_missing_imports = true
 
 [tool.ruff]
 src = ["src", "tests"]
-target-version = "py314"
 line-length = 130
 
 [tool.ruff.lint]

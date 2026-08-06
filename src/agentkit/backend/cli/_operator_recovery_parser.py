@@ -100,6 +100,10 @@ def _setup_operator_recovery_subparsers(
     admin_abort_parser.add_argument("--session", required=True, help="Admin session ID (audited)")
     admin_abort_parser.add_argument("--principal", required=True, help="Admin principal type (audited)")
     admin_abort_parser.add_argument("--reason", required=True, help="Mandatory audited justification for the abort")
+    admin_abort_parser.add_argument("--project", required=False, help=_PROJECT_KEY_OVERRIDE_HELP)
+    admin_abort_parser.add_argument("--config", required=False, help=_CONFIG_PATH_OVERRIDE_HELP)
+    admin_abort_parser.add_argument("--username", default="admin", help="Strategist username")
+    admin_abort_parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
     admin_abort_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
     admin_abort_parser.add_argument(
         "--base-url",

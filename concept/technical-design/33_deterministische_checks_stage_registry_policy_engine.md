@@ -1056,24 +1056,29 @@ eigene leichtgewichtige Checks:
 | `research.sources` | Quellenvielfalt (nicht nur eine Quelle) | FK-05-049 |
 | `research.assessment` | Bewertungskriterien dokumentiert | FK-05-049 |
 
-## 33.10 CLI-Integration
+## 33.10 Menschliche Operator-CLI-Integration
+
+Die drei folgenden ausfuehrbaren Aufrufe gehoeren ausschliesslich zum
+menschlichen beziehungsweise administrativen Operator-CLI-Pfad. Agenten rufen
+diese Operationen nicht ueber die CLI auf; ihr Aufrufweg fuehrt ueber Project
+Edge.
 
 ### 33.10.1 Structural Checks ausführen
 
 ```bash
-agentkit structural --story ODIN-042 --config .agentkit/config/project.yaml
+<absolute-agentkit-wrapper> structural --story ODIN-042 --config .agentkit/config/project.yaml
 ```
 
 ### 33.10.2 Policy-Evaluation ausführen
 
 ```bash
-agentkit policy --story ODIN-042 --config .agentkit/config/project.yaml
+<absolute-agentkit-wrapper> policy --story ODIN-042 --config .agentkit/config/project.yaml
 ```
 
 ### 33.10.3 Stage-Registry anzeigen
 
 ```bash
-agentkit stages --story-type implementation --config .agentkit/config/project.yaml
+<absolute-agentkit-wrapper> stages --story-type implementation --config .agentkit/config/project.yaml
 ```
 
 Zeigt alle für diesen Story-Typ geltenden Stages mit Layer,

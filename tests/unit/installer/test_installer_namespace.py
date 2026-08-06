@@ -8,8 +8,14 @@ import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.backend.installer import InstallConfig, install_agentkit
-from agentkit.backend.installer.runner import MANDATORY_SKILLS
-from agentkit.backend.skills import Skills, create_directory_link
+from agentkit.backend.installer.runner import (
+    MANDATORY_SKILLS,
+)
+from agentkit.backend.skills import (
+    MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS,
+    Skills,
+    create_directory_link,
+)
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
 from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
@@ -69,13 +75,17 @@ _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleStore]:
     store = SkillBundleStore(store_root=bundle_store_root)
     for skill_name in MANDATORY_SKILLS:
-        bundle_root = bundle_store_root / f"{skill_name}-core" / "4.0.0"
+        bundle_id = f"{skill_name}-core"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        bundle_root = bundle_store_root / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
-                bundle_id=f"{skill_name}-core",
-                bundle_version="4.0.0",
+                bundle_id=bundle_id,
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -88,6 +98,10 @@ def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleSto
     reason="Filesystem supports neither symlinks nor directory junctions",
 )
 def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
+    from tests.fixtures.installer_writer import (
+        InMemoryInstallerHookRepository,
+        InMemoryInstallerProjectRepository,
+    )
     from tests.fixtures.vectordb_installer import (
         GRPC_ENDPOINT,
         HTTP_ENDPOINT,
@@ -107,6 +121,8 @@ def test_installer_namespace_exposes_install_api(tmp_path: Path) -> None:
         github_owner="acme",
         github_repo="demo",
         registration_repo=_InMemoryRegistrationRepo(),
+        project_repo=InMemoryInstallerProjectRepository(),
+        hook_registration_repo=InMemoryInstallerHookRepository(),
         skills=skills,
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,

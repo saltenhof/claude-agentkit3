@@ -73,6 +73,14 @@ Projekt werden nur Konfiguration und Symlink-Bindungen aktualisiert.
 Der Installer ist transport-agnostisch. CLI-Aufrufe sind Boundary-Controls
 des aufrufenden BC. Aufruf erfolgt ueber das aufrufende BC (Boundary-Control).
 
+`upgrade-project` setzt wie `register-project` den erreichbaren aktiven Writer
+und die aktive Project-Credential voraus. Das CLI legt sein Root-`op_id` vor
+Transport offen und prueft die Writer-Bereitschaft, bevor Config-Backup,
+Migration, Re-Bind, Hook-/Git-Hook-Migration oder Cleanup beginnen. Reads auf
+Installationsregistrierung und Skill-Bindings sowie alle kanonischen Writes
+laufen ueber die projektgeskoppelten Installer-HTTPS-Routen; ein produktives
+State-Backend-Repository im CLI-Prozess und ein lokaler Fallback sind verboten.
+
 Der Installer erkennt anhand der installierten Paketversion, der
 registrierten Bundle-Version und des Konfigurations-Digests, ob ein
 Upgrade oder eine Re-Bindung noetig ist.
@@ -195,10 +203,23 @@ Der Installer:
    (`python -m agentkit.`), entfernt veraltete und fuegt neue hinzu
 4. Nicht-AgentKit-Hooks bleiben unveraendert
 
+UP 04 erhaelt dabei eine enge `register_hooks`-Top-Surface, die auf
+`Governance.register_hooks` delegiert und deren Persistenz-Port auf `POST
+/v1/projects/{project_key}/installation/governance-hooks` zeigt. Nur der aktive
+Writer schreibt die Hook-Registrierungen auf seiner reservierten Session; die
+lokale Governance-Surface materialisiert anschliessend die Harness-Settings.
+Ihr Lock-Deaktivierungsport ist fuer diesen Capability-Ausschnitt fail-closed
+und nicht exponiert. Der stabile Child-Claim wird aus Root-`op_id`, Projekt und
+Wirkungsart abgeleitet und folgt dem gemeinsamen Body-Hash-/Replay-/Mismatch-/
+In-Flight-Vertrag aus FK-91. Ein Upgrade ohne Writer endet vor jeder lokalen
+Upgrade-Wirkung fail-closed.
+
 ### 51.6.1 Git-Hook-Migration (Pre-Commit Dispatching)
 
-Der Pre-Commit-Hook (`tools/hooks/pre-commit`) verwendet seit
-der ConceptContext-Einführung (Kap. 13.9) eine pfadbasierte
+Der im Zielprojekt unter `tools/hooks/pre-commit` materialisierte
+Pre-Commit-Hook wird ausschliesslich durch den Owner
+`src/agentkit/backend/installer/git_hook_dispatch.py` erzeugt und verwendet
+seit der ConceptContext-Einführung (Kap. 13.9) eine pfadbasierte
 Dispatching-Logik:
 
 - Secret-Detection: Global (immer aktiv, Kap. 15.5.2)
@@ -254,7 +275,7 @@ Zustand einer höheren Ebene.
 
 | Verb | Ebene | Mechanik | Schutz |
 |------|-------|----------|--------|
-| **Projekt-Detach** | 3 | Skill-Junctions lösen (über die Owner-Top-Surfaces, z. B. `Skills.unbind`), AK3-Hook-Registrierung über `Governance.register_hooks` (nur AK3-Blöcke, Command-Pattern `python -m agentkit.`) entfernen, `tools/agentkit/`-Launcher und `.agentkit/`-Bindungen löschen | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, **nie** `rmtree` durch den Link (FK-43); Projektcode und fremde Hooks bleiben; **zentraler State des Projekts bleibt** |
+| **Projekt-Detach** | 3 | Skill-Junctions lösen (über die Owner-Top-Surfaces, z. B. `Skills.unbind`), AK3-Hook-Registrierung über `Governance.register_hooks` (nur AK3-Blöcke, Command-Pattern `python -m agentkit.`) entfernen, die aus `src/agentkit/bundles/target_project/tools/agentkit/` materialisierten `tools/agentkit/`-Launcher und `.agentkit/`-Bindungen über `src/agentkit/backend/installer/lifecycle/detach.py` löschen | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, **nie** `rmtree` durch den Link (FK-43); Projektcode und fremde Hooks bleiben; **zentraler State des Projekts bleibt** |
 | **Maschinen-Uninstall** | 2 | `agentkit`-Paket deinstallieren, Bundle-Store und Shims entfernen | Vor dem Entfernen einer Bundle-Version: gebundene Projekte über das Registrierungs-Aggregat ermitteln und als **orphaned** warnen; laufende Harness-/Hook-Prozesse vorher beenden |
 | **Core-Decommission** | 1 | Backend-/Frontend-Dienste stoppen, ggf. DB abbauen | **Destruktiv**: nur nach expliziter Bestätigung **und Pflicht-Export** des State-Backends (Audit-Trail, Closure-Records, QA-Ergebnisse); DB-Volume-Löschung **nie** an Dienst-Uninstall koppeln |
 | **Projekt-Löschung** | 1 | kanonischen State eines Projekts zentral löschen | **Destruktiv**; explizite Bestätigung; nicht-destruktive Alternative bleibt **Archivierung** (DK-14) |

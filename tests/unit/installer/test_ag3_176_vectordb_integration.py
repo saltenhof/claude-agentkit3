@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
+from tests.fixtures.installer_writer import provisioned_installer_skills
 from tests.unit.vectordb.corpus_doubles import (
     RealQueryBoundaryWeaviateClient,
     RecordingWeaviateClient,
@@ -511,6 +512,9 @@ def test_config_is_strictly_reread_before_first_effect(
         for item in tmp_path.rglob("*")
     }
 
+    skills, bundle_store = provisioned_installer_skills(
+        tmp_path.parent / f".unused-bundles-{tmp_path.name}",
+    )
     with pytest.raises(ProjectError) as caught:
         run_checkpoint_install(
             InstallConfig(
@@ -519,6 +523,8 @@ def test_config_is_strictly_reread_before_first_effect(
                 project_root=tmp_path,
                 github_owner="acme",
                 github_repo="agentkit",
+                skills=skills,
+                skill_bundle_store=bundle_store,
                 vectordb_preflight=MutatingSuccessfulPreflight(
                     path,
                     replacement,

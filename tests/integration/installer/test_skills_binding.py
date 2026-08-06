@@ -35,10 +35,19 @@ from agentkit.backend.installer.runner import (
     InstallConfig,
     install_agentkit,
 )
-from agentkit.backend.skills import Skills
+from agentkit.backend.skills import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS, Skills
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
 from agentkit.backend.skills.links import create_directory_link, is_directory_link
 from agentkit.backend.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.state_backend.store.governance_hook_repository import (
+    StateBackendHookRegistrationRepository,
+)
+from agentkit.backend.state_backend.store.project_management_repository import (
+    StateBackendProjectRepository,
+)
+from agentkit.backend.state_backend.store.project_registration_repository import (
+    StateBackendProjectRegistrationRepository,
+)
 from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
@@ -64,13 +73,17 @@ def _bundle_store_with_all_skills(root: Path) -> SkillBundleStore:
     """Register one real on-disk bundle per mandatory skill in a fresh store."""
     store = SkillBundleStore(store_root=root / "skill-bundles")
     for skill_name in MANDATORY_SKILLS:
-        bundle_root = root / "skill-bundles" / f"{skill_name}-core" / "4.0.0"
+        bundle_id = f"{skill_name}-core"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        bundle_root = root / "skill-bundles" / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
-                bundle_id=f"{skill_name}-core",
-                bundle_version="4.0.0",
+                bundle_id=bundle_id,
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -97,6 +110,9 @@ def _make_config(
         skills=skills,
         skill_bundle_store=skill_bundle_store,
         skill_bundle_ids=skill_bundle_ids,
+        registration_repo=StateBackendProjectRegistrationRepository(root),
+        project_repo=StateBackendProjectRepository(root),
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
         # AG3-052 Design-Decision: scaffold default is ``available: true``
         # (FK-03 §3). No live SonarQube here => declare the conscious opt-out
         # so the completing install's CP 10d is SKIPPED (not fail-closed).
@@ -152,7 +168,13 @@ def test_install_binds_all_mandatory_skills_as_links(tmp_path: Path) -> None:
         assert is_directory_link(claude_link), f"{skill_name}: .claude link missing"
         assert is_directory_link(codex_link), f"{skill_name}: .codex link missing"
         # The link resolves to the systemwide bundle root (single source).
-        expected = (tmp_path / "skill-bundles" / f"{skill_name}-core" / "4.0.0").resolve()
+        bundle_id = f"{skill_name}-core"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        expected = (
+            tmp_path / "skill-bundles" / bundle_id / bundle_version
+        ).resolve()
         assert claude_link.resolve() == expected
         assert codex_link.resolve() == expected
 
@@ -168,36 +190,31 @@ def test_install_binds_all_mandatory_skills_as_links(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-def test_no_skill_config_fails_closed_when_bundles_unprovisioned(
+def test_empty_writer_backed_skill_store_fails_closed_when_bundles_unprovisioned(
     tmp_path: Path,
 ) -> None:
-    """A normal install with no injected skills MUST bind the four mandatory
-    skills (AC#5). When the systemwide bundle store is not provisioned with
-    them the install FAILS CLOSED with ``BundleNotFound`` — it does NOT
-    silently succeed and skip binding (AG3-048 Codex review ERROR 1, AC#7).
+    """The writer-backed skill surface fails closed on an empty bundle store.
 
-    The default-built ``SkillBundleStore`` points at the platform store root
-    (overridden here to an empty dir) and has no registered bundles, so the
-    first mandatory bundle is missing.
+    Productive CLI composition always injects its HTTPS binding adapter. This
+    focused lower-level test injects the equivalent state port and proves that
+    missing mandatory bundles still fail with ``BundleNotFound`` before links.
     """
-    import os
-
-    from agentkit.backend.skills.bundle_store import SKILL_BUNDLE_STORE_ENV
-
     root = tmp_path / "proj-no-config"
     root.mkdir()
-    # Point the default systemwide store at an empty dir (no provisioned
-    # bundles) so the default-built store resolves nothing.
-    prev = os.environ.get(SKILL_BUNDLE_STORE_ENV)
-    os.environ[SKILL_BUNDLE_STORE_ENV] = str(tmp_path / "empty-system-store")
-    try:
-        with pytest.raises(InstallationError) as exc_info:
-            install_agentkit(_make_config(root))
-    finally:
-        if prev is None:
-            os.environ.pop(SKILL_BUNDLE_STORE_ENV, None)
-        else:
-            os.environ[SKILL_BUNDLE_STORE_ENV] = prev
+    empty_store = SkillBundleStore(store_root=tmp_path / "empty-system-store")
+    skills = Skills(
+        bundle_store=empty_store,
+        binding_repo=StateBackendSkillBindingRepository(root),
+    )
+    with pytest.raises(InstallationError) as exc_info:
+        install_agentkit(
+            _make_config(
+                root,
+                skills=skills,
+                skill_bundle_store=empty_store,
+                skill_bundle_ids=_BUNDLE_IDS,
+            ),
+        )
 
     assert exc_info.value.detail.get("cause") == "BundleNotFound"
     # No partial install: no harness skill directories were created.
@@ -257,7 +274,17 @@ def test_bind_failure_after_first_skill_rolls_back_all(tmp_path: Path) -> None:
     # Corrupt the SECOND mandatory skill's manifest so bind_skill fails AFTER
     # the first skill is fully bound.
     second = MANDATORY_SKILLS[1]
-    bad_manifest = tmp_path / "skill-bundles" / f"{second}-core" / "4.0.0" / "manifest.json"
+    second_bundle_id = f"{second}-core"
+    second_bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+        second_bundle_id, "4.0.0"
+    )
+    bad_manifest = (
+        tmp_path
+        / "skill-bundles"
+        / second_bundle_id
+        / second_bundle_version
+        / "manifest.json"
+    )
     bad_manifest.write_text("[]", encoding="utf-8")  # JSON array, not an object
 
     repo = StateBackendSkillBindingRepository(root)

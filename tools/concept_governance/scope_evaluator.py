@@ -8,6 +8,7 @@ from concept_governance.scope_contracts import ScopeEvaluation
 from concept_governance.scope_models import SCOPE_PROMPT_VERSION, ScopePartition
 from concept_governance.scope_parser import parse_scope_response
 from concept_governance.scope_prompt import render_scope_prompt
+from concept_governance.transport_retry import complete_with_transport_retry
 
 if TYPE_CHECKING:
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
@@ -27,9 +28,16 @@ class LlmScopeConsistencyEvaluator:
         return self._model
 
     def evaluate(self, partition: ScopePartition) -> ScopeEvaluation:
-        """Render, call once, and strictly parse the classification."""
+        """Render once, retry unanswered transport, and parse one final response."""
         prompt, prompt_sha256 = render_scope_prompt(partition)
-        raw = self._llm_client.complete(role="concept_scope_consistency", prompt=prompt)
+        raw = complete_with_transport_retry(
+            self._llm_client,
+            role="concept_scope_consistency",
+            prompt=prompt,
+            backend=self._model,
+            item_kind="partition",
+            item_id=partition.partition_id,
+        )
         return ScopeEvaluation(
             response=parse_scope_response(raw),
             prompt_version=SCOPE_PROMPT_VERSION,

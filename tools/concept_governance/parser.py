@@ -19,6 +19,10 @@ class ResponseParseError(ValueError):
     """Raised when all strict response parsing stages fail."""
 
 
+class ResponseContractError(ResponseParseError):
+    """Raised when a response exposes evidence but leaves it incomplete."""
+
+
 def parse_response(raw_response: str) -> AuthorityProseResponse:
     """Run JSON extraction then a strict regex fallback, fail closed."""
     text = raw_response.strip()
@@ -37,10 +41,11 @@ def parse_response(raw_response: str) -> AuthorityProseResponse:
             return parsed
     try:
         # The RAW text, not the repaired one: the fallback matches field
-        # NAMES itself (see :func:`_escapable`) and must hand back the
-        # assertion exactly as the model wrote it. Feeding it the repaired
-        # text would only make it read doubled backslashes.
+        # NAMES itself (see :func:`_escapable`). Feeding it the repaired text
+        # would only make it read doubled backslashes in ordinary values.
         return _regex_response(text)
+    except ResponseContractError:
+        raise
     except (ResponseParseError, ValidationError, json.JSONDecodeError) as exc:
         errors.append(f"regex fallback: {exc}")
     raise ResponseParseError(f"JSON extraction: {'; '.join(errors)}")
@@ -92,10 +97,17 @@ def _escapable(name: str) -> str:
     A model that markdown-escapes its own output escapes the underscores of
     the schema's field names too. Accepting ``has\\_normative\\_statements``
     as the name it plainly is costs nothing here — the fallback is looking
-    for a fixed identifier, not for content — and it keeps the repair out of
-    the captured assertion, which has to stay verbatim.
+    for a fixed identifier, not for content.
     """
     return name.replace("_", r"\\?_")
+
+
+def _contains_reference_fragment(text: str) -> bool:
+    """Return whether text still exposes any source-reference field token."""
+    reference_fields = "|".join(
+        _escapable(name) for name in ("source_id", "start_id", "end_id", "scopes")
+    )
+    return re.search(rf"\b(?:{reference_fields})\b", text, re.I) is not None
 
 
 def _regex_response(text: str) -> AuthorityProseResponse:
@@ -106,16 +118,28 @@ def _regex_response(text: str) -> AuthorityProseResponse:
         raise ResponseParseError("expected exactly one has_normative_statements flag")
     has_normative = flags[0].lower() == "true"
     if not has_normative:
-        if re.search(r"[\"']?(assertion|scopes)[\"']?\s*[:=]", text, re.I):
-            raise ResponseParseError("false classification contains assertion fields")
+        if _contains_reference_fragment(text):
+            raise ResponseParseError("false classification contains source-reference fields")
         return AuthorityProseResponse(has_normative_statements=False, assertions=())
     pattern = re.compile(
-        r"[\"']assertion[\"']\s*:\s*[\"']([^\"'\r\n]+)[\"']\s*,\s*"
+        rf"[\"']{_escapable('source_id')}[\"']\s*:\s*[\"']([^\"'\r\n]+)[\"']\s*,\s*"
+        rf"[\"']{_escapable('start_id')}[\"']\s*:\s*[\"']([^\"'\r\n]+)[\"']\s*,\s*"
+        rf"[\"']{_escapable('end_id')}[\"']\s*:\s*[\"']([^\"'\r\n]+)[\"']\s*,\s*"
         r"[\"']scopes[\"']\s*:\s*(\[[^\]\r\n]+\])",
         re.I,
     )
+    matches = tuple(pattern.finditer(text))
+    residual = pattern.sub("", text)
+    if _contains_reference_fragment(residual):
+        raise ResponseContractError("normative response contains an incomplete source reference")
     assertions = tuple(
-        NormativeAssertion(assertion=match.group(1), scopes=tuple(json.loads(match.group(2)))) for match in pattern.finditer(text)
+        NormativeAssertion(
+            source_id=match.group(1),
+            start_id=match.group(2),
+            end_id=match.group(3),
+            scopes=tuple(json.loads(match.group(4))),
+        )
+        for match in matches
     )
     if not assertions:
         raise ResponseParseError("normative response contains no parseable assertions")

@@ -124,9 +124,7 @@ class _FakeHubClient:
             slots={"chatgpt": 0},
         )
 
-    def session_stats(
-        self, *, session_id: str, timeout: float | None = None
-    ) -> HubSessionStats:
+    def session_stats(self, *, session_id: str, timeout: float | None = None) -> HubSessionStats:
         del timeout
         if self.unavailable:
             raise HubUnavailableError("Hub down")
@@ -135,16 +133,14 @@ class _FakeHubClient:
             status="released",
             released=True,
             backends=[
-                HubBackendSessionStats(
-                    backend="chatgpt", message_count=2, answered=True
-                ),
+                HubBackendSessionStats(backend="chatgpt", message_count=2, answered=True),
             ],
         )
 
 
 def _app(client: _FakeHubClient) -> ControlPlaneApplication:
     return ControlPlaneApplication(
-        routes=ControlPlaneApplicationRoutes(hub_routes=MultiLlmHubRoutes(client))
+        writer_lease_required=False, routes=ControlPlaneApplicationRoutes(hub_routes=MultiLlmHubRoutes(client))
     )
 
 

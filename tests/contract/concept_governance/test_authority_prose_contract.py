@@ -6,24 +6,46 @@ import hashlib
 
 import pytest
 from concept_governance.baseline import BaselineEntry
-from concept_governance.models import PROMPT_VERSION, AuthorityFinding, AuthorityProseResponse
+from concept_governance.models import (
+    PROMPT_VERSION,
+    AuthorityFinding,
+    AuthorityProseResponse,
+    NormativeAssertion,
+)
 from concept_governance.prompt import PROMPT_PATH, PROMPT_TEMPLATE_SHA256
 from pydantic import ValidationError
 
 
 def test_prompt_version_and_template_hash_are_pinned() -> None:
-    assert PROMPT_VERSION == "authority-prose/v1"
+    assert PROMPT_VERSION == "authority-prose/v2"
     template = PROMPT_PATH.read_text(encoding="utf-8")
     assert hashlib.sha256(template.encode("utf-8")).hexdigest() == PROMPT_TEMPLATE_SHA256
     assert "has_normative_statements" in template
     assert "assertions" in template
-    assert "\\u0022" in template
+    assert "source_id" in template
+    assert "start_id" in template
+    assert "end_id" in template
+    assert "Schreibe Quelltext niemals ab" in template
+    assert "vorherige Antwort" not in template
 
 
 def test_response_and_baseline_contracts_forbid_extra_keys() -> None:
+    assert set(NormativeAssertion.model_fields) == {
+        "source_id",
+        "start_id",
+        "end_id",
+        "scopes",
+    }
     with pytest.raises(ValidationError):
         AuthorityProseResponse.model_validate(
             {"has_normative_statements": False, "assertions": [], "verdict": "PASS"}
+        )
+    with pytest.raises(ValidationError):
+        AuthorityProseResponse.model_validate(
+            {
+                "has_normative_statements": True,
+                "assertions": [{"assertion": "copied text", "scopes": ["scope"]}],
+            }
         )
     with pytest.raises(ValidationError):
         BaselineEntry.model_validate(
@@ -46,12 +68,12 @@ def test_finding_and_baseline_key_contract_is_exact() -> None:
     }
     finding = AuthorityFinding(
         code="UNAUTHORIZED_SCOPE_ASSERTION", doc="d.md", anchor="a", assertion="x",
-        scope="lock.lifecycle", prompt_version="authority-prose/v1", model="fixed/v1",
+        scope="lock.lifecycle", prompt_version="authority-prose/v2", model="fixed/v1",
         prompt_sha256="a" * 64, message="unauthorized",
     )
     assert finding.key == (
         "UNAUTHORIZED_SCOPE_ASSERTION", "d.md", "a", "x", "lock.lifecycle",
-        "authority-prose/v1", "fixed/v1",
+        "authority-prose/v2", "fixed/v1",
     )
     entry = BaselineEntry(
         code=finding.code, doc=finding.doc, anchor=finding.anchor,

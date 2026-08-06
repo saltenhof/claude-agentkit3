@@ -174,8 +174,10 @@ def _serve_auth_process(
         auth_middleware=middleware,
     )
     serve_control_plane(
-        host="127.0.0.1",
-        port=port,
+        ui_host="127.0.0.1",
+        ui_port=0,
+        project_api_host="127.0.0.1",
+        project_api_port=port,
         certfile=Path(certfile),
         keyfile=Path(keyfile),
         app=app,
@@ -336,10 +338,7 @@ def _store_handed_off_token_process(
         (
             exit_code,
             os.environ.get("AGENTKIT_AUTH_CONFIG"),
-            any(
-                "STRATEGIST" in name.upper() or "ADMIN_PASSWORD" in name.upper()
-                for name in os.environ
-            ),
+            any("STRATEGIST" in name.upper() or "ADMIN_PASSWORD" in name.upper() for name in os.environ),
             tuple(prompts),
         ),
     )
@@ -406,7 +405,7 @@ def _wait_for_https_health(
             with urllib.request.urlopen(request, context=context, timeout=1) as response:
                 if response.status == HTTPStatus.OK:
                     return
-        except (OSError, urllib.error.URLError):
+        except OSError, urllib.error.URLError:
             multiprocessing.Event().wait(timeout=0.1)
     raise AssertionError("Serve process did not become ready")
 
@@ -463,6 +462,7 @@ def _auth_app(auth_path: Path) -> tuple[ControlPlaneApplication, AuthRoutes]:
     )
     return (
         ControlPlaneApplication(
+            writer_lease_required=False,
             routes=ControlPlaneApplicationRoutes(auth_routes=routes),
             auth_middleware=middleware,
         ),
@@ -565,18 +565,21 @@ def _bootstrap_and_issue_token_via_admin_cli(
     )
     _create_project_over_admin_surface(session, project_key=project_key)
     capsys.readouterr()
-    assert main(
-        [
-            "auth",
-            "issue-token",
-            "--base-url",
-            base_url,
-            "--ca-file",
-            str(certfile),
-            "--project-key",
-            project_key,
-        ],
-    ) == 0
+    assert (
+        main(
+            [
+                "auth",
+                "issue-token",
+                "--base-url",
+                base_url,
+                "--ca-file",
+                str(certfile),
+                "--project-key",
+                project_key,
+            ],
+        )
+        == 0
+    )
     output = capsys.readouterr()
     issued = json.loads(output.out.strip().splitlines()[-1])
     token = issued["project_api_token"]
@@ -609,11 +612,7 @@ def test_authenticated_non_loopback_request_finds_no_http_bootstrap_route(
 def test_production_route_sources_contain_no_http_bootstrap_contract() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     production_root = repo_root / "src" / "agentkit"
-    matches = [
-        source
-        for source in production_root.rglob("*.py")
-        if "/v1/auth/bootstrap" in source.read_text(encoding="utf-8")
-    ]
+    matches = [source for source in production_root.rglob("*.py") if "/v1/auth/bootstrap" in source.read_text(encoding="utf-8")]
     assert matches == []
 
 
@@ -712,12 +711,15 @@ def test_ac1b_client_operator_stores_and_uses_handoff_without_admin_secret(
             project_key=project_key,
         )
         assert credential.project_api_token == handed_off_token
-        assert _bearer_get_status(
-            f"{base_url}/v1/projects/{project_key}/stories",
-            token=credential.project_api_token,
-            project_key=project_key,
-            context=tls_context,
-        ) == HTTPStatus.OK
+        assert (
+            _bearer_get_status(
+                f"{base_url}/v1/projects/{project_key}/stories",
+                token=credential.project_api_token,
+                project_key=project_key,
+                context=tls_context,
+            )
+            == HTTPStatus.OK
+        )
 
     assert not (laptop_root / "auth.json").exists()
     assert not (laptop_root / ".config" / "agentkit" / "auth.json").exists()
@@ -993,14 +995,17 @@ def test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d(
             return admin_password
 
         monkeypatch.setattr("getpass.getpass", _read_role_secret)
-        assert main(
-            [
-                "auth",
-                "bootstrap",
-                "--auth-config",
-                str(auth_path),
-            ],
-        ) == 0
+        assert (
+            main(
+                [
+                    "auth",
+                    "bootstrap",
+                    "--auth-config",
+                    str(auth_path),
+                ],
+            )
+            == 0
+        )
         session = authenticate_strategist(
             base,
             password=admin_password,
@@ -1008,60 +1013,69 @@ def test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d(
         )
         _create_project_over_admin_surface(session, project_key="fresh-project")
         capsys.readouterr()
-        assert main(
-            [
-                "auth",
-                "issue-token",
-                "--base-url",
-                base_url,
-                "--ca-file",
-                str(certfile),
-                "--project-key",
-                "fresh-project",
-            ],
-        ) == 0
+        assert (
+            main(
+                [
+                    "auth",
+                    "issue-token",
+                    "--base-url",
+                    base_url,
+                    "--ca-file",
+                    str(certfile),
+                    "--project-key",
+                    "fresh-project",
+                ],
+            )
+            == 0
+        )
         issue_output = capsys.readouterr()
         issued_payload = json.loads(issue_output.out.strip().splitlines()[-1])
         handed_off_token = cast("str", issued_payload["project_api_token"])
         assert issue_output.out.count(handed_off_token) == 1
         assert handed_off_token not in issue_output.err
-        assert main(
-            [
-                "auth",
-                "store-token",
-                "--base-url",
-                base_url,
-                "--ca-file",
-                str(certfile),
-                "--project-key",
-                "fresh-project",
-                "--project-root",
-                str(project_root),
-            ],
-        ) == 0
-        assert main(
-            [
-                "register-project",
-                "--project-key",
-                "fresh-project",
-                "--project-name",
-                "Fresh Project",
-                "--project-root",
-                str(project_root),
-                "--github-owner",
-                "openai",
-                "--github-repo",
-                "openai-python",
-                "--weaviate-http-endpoint",
-                "http://127.0.0.1:9903",
-                "--weaviate-grpc-endpoint",
-                "127.0.0.1:50051",
-                "--control-plane-base-url",
-                base_url,
-                "--control-plane-ca-file",
-                str(certfile),
-            ],
-        ) == 0
+        assert (
+            main(
+                [
+                    "auth",
+                    "store-token",
+                    "--base-url",
+                    base_url,
+                    "--ca-file",
+                    str(certfile),
+                    "--project-key",
+                    "fresh-project",
+                    "--project-root",
+                    str(project_root),
+                ],
+            )
+            == 0
+        )
+        assert (
+            main(
+                [
+                    "register-project",
+                    "--project-key",
+                    "fresh-project",
+                    "--project-name",
+                    "Fresh Project",
+                    "--project-root",
+                    str(project_root),
+                    "--github-owner",
+                    "openai",
+                    "--github-repo",
+                    "openai-python",
+                    "--weaviate-http-endpoint",
+                    "http://127.0.0.1:9903",
+                    "--weaviate-grpc-endpoint",
+                    "127.0.0.1:50051",
+                    "--control-plane-base-url",
+                    base_url,
+                    "--control-plane-ca-file",
+                    str(certfile),
+                ],
+            )
+            == 0
+        )
         first = load_active_project_credentials(
             project_credentials_path(project_root),
             project_key="fresh-project",
@@ -1111,18 +1125,24 @@ def test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d(
         )
         protected_url = f"{base_url}/v1/projects/fresh-project/stories"
         assert replacement.superseded_token_id == first.token_id
-        assert _bearer_get_status(
-            protected_url,
-            token=first.project_api_token,
-            project_key="fresh-project",
-            context=tls_context,
-        ) == HTTPStatus.OK
-        assert _bearer_get_status(
-            protected_url,
-            token=second.project_api_token,
-            project_key="fresh-project",
-            context=tls_context,
-        ) == HTTPStatus.OK
+        assert (
+            _bearer_get_status(
+                protected_url,
+                token=first.project_api_token,
+                project_key="fresh-project",
+                context=tls_context,
+            )
+            == HTTPStatus.OK
+        )
+        assert (
+            _bearer_get_status(
+                protected_url,
+                token=second.project_api_token,
+                project_key="fresh-project",
+                context=tls_context,
+            )
+            == HTTPStatus.OK
+        )
         revoke_project_token(
             recovered_session,
             project_key="fresh-project",
@@ -1130,18 +1150,24 @@ def test_role_separated_public_flow_uses_handed_off_token_for_default_cp10d(
             op_id="op-token-revoke-superseded",
             credential_path=project_credentials_path(project_root),
         )
-        assert _bearer_get_status(
-            protected_url,
-            token=first.project_api_token,
-            project_key="fresh-project",
-            context=tls_context,
-        ) == HTTPStatus.UNAUTHORIZED
-        assert _bearer_get_status(
-            protected_url,
-            token=second.project_api_token,
-            project_key="fresh-project",
-            context=tls_context,
-        ) == HTTPStatus.OK
+        assert (
+            _bearer_get_status(
+                protected_url,
+                token=first.project_api_token,
+                project_key="fresh-project",
+                context=tls_context,
+            )
+            == HTTPStatus.UNAUTHORIZED
+        )
+        assert (
+            _bearer_get_status(
+                protected_url,
+                token=second.project_api_token,
+                project_key="fresh-project",
+                context=tls_context,
+            )
+            == HTTPStatus.OK
+        )
         rotation_payload = {
             "new_password": "operator-known-replacement",
             "op_id": "op-password-response-loss",

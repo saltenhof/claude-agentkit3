@@ -406,35 +406,35 @@ trifft:
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude pre branch_guard" },
-          { "type": "command", "command": "agentkit-hook-claude pre story_creation_guard" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre branch_guard" },
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre story_creation_guard" }
         ]
       },
       {
         "matcher": "Read|Grep|Glob|Bash",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude pre orchestrator_guard" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre orchestrator_guard" }
         ]
       },
       {
         "matcher": "Write|Edit|Bash",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude pre integrity_guard" },
-          { "type": "command", "command": "agentkit-hook-claude pre self_protection_guard" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre integrity_guard" },
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre self_protection_guard" }
         ]
       },
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude pre qa_agent_guard" },
-          { "type": "command", "command": "agentkit-hook-claude pre adversarial_guard" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre qa_agent_guard" },
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre adversarial_guard" }
         ]
       },
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude pre health_monitor" },
-          { "type": "command", "command": "agentkit-hook-claude pre ccag_gatekeeper" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre health_monitor" },
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre ccag_gatekeeper" }
         ]
       }
     ],
@@ -442,25 +442,25 @@ trifft:
       {
         "matcher": "Agent|Bash|*_send",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude post telemetry" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> post telemetry" }
         ]
       },
       {
         "matcher": "*_send",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude post review_guard" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> post review_guard" }
         ]
       },
       {
         "matcher": "WebSearch|WebFetch",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude post budget" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> post budget" }
         ]
       },
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude post health_monitor" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> post health_monitor" }
         ]
       }
     ]
@@ -468,8 +468,8 @@ trifft:
 }
 ```
 
-Die obigen Hook-Befehle sind logische
-Hook-Identifikatoren, kein direkter `python -m`-Modulpfad. Der
+Die obigen Hook-Befehle sind die tatsaechliche Claude-Code-Materialisierung; `<absolute-agentkit-hook-claude-wrapper>` wird vor dem Schreiben durch den absoluten Wrapperpfad neben dem zentral aufgeloesten Interpreter ersetzt.
+Die nachfolgenden Argumente sind logische Hook-Identifikatoren, kein direkter `python -m`-Modulpfad. Der
 harness-spezifische Wrapper (`agentkit-hook-claude`,
 `agentkit-hook-codex`) liest stdin im jeweiligen Harness-Format,
 ruft den Codex-/Claude-Adapter zur Normalisierung auf das
@@ -502,13 +502,13 @@ normalen Story-Runs.
 1. Der Story-Reset darf nur ueber offizielle AgentKit-CLI-Kommandos
    ausgeloest werden, nicht ueber freie `git`, `rm`, `del` oder
    Dateibearbeitungsbefehle.
-2. Guards blockieren weiterhin manuelle Umgehungen, lassen aber den
-   offiziellen `StoryResetService`-Pfad zu.
-3. Der Hook-Kontext fuer `agentkit reset-story ...` oder aequivalente
+2. Guards blockieren weiterhin manuelle Umgehungen, lassen aber nur den HTTPS-
+   Kontrollpfad zum `StoryResetService` im aktiven Writer zu, nie lokalen CLI-Bau.
+3. Der Hook-Kontext fuer `<absolute-agentkit-wrapper> reset-story ...` oder aequivalente
    offizielle Reset-Kommandos gilt als administrativer Kontrollpfad,
    nicht als freier Agent-Eingriff.
-4. Dasselbe gilt fuer `agentkit split-story ...` und den offiziellen
-   `StorySplitService`-Pfad.
+4. Dasselbe gilt fuer `<absolute-agentkit-wrapper> split-story ...`, `<absolute-agentkit-wrapper> exit-story ...` und
+   die Writer-Pfade zum `StorySplitService` beziehungsweise `StoryExitService`.
 5. Ein Agent darf diese Pfade nicht selbststaendig waehlen; zulaessig
    ist nur die ausdrueckliche menschliche CLI-Ausfuehrung.
 
@@ -898,7 +898,7 @@ insert_event(
 Der Mensch kann die Violations über CLI abfragen:
 
 ```bash
-agentkit query-telemetry --story ODIN-042 --event integrity_violation
+<absolute-agentkit-wrapper> query-telemetry --story ODIN-042 --event integrity_violation
 ```
 
 ## 30.8 Teststrategie für Guards

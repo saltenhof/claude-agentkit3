@@ -129,6 +129,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from agentkit.backend.installer.interpreter import render_ak3_interpreter_command
+
 try:
     from . import (
         runmodel_digests,
@@ -193,7 +195,9 @@ def _add_writer_arguments(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Build the mutating semantic-gate argument parser."""
     parser = _UsageErrorParser(
-        prog="python tools/agentkit/concept_toolchain/semantic_gate.py",
+        prog=render_ak3_interpreter_command(
+            "tools/agentkit/concept_toolchain/semantic_gate.py"
+        ),
         description="Mutating semantic-gate mechanics (FK-78): unit derivation, request packs, receipt import.",
     )
     parser.add_argument("--project-root", default=".", help="Target-project root (default: current directory).")

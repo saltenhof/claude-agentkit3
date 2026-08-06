@@ -6,10 +6,14 @@ from typing import TYPE_CHECKING
 
 from concept_governance.finding_types import FindingLocus
 from concept_governance.scope_models import ScopeConsistencyFinding, ScopePartition
+from concept_governance.source_spans import (
+    ExtractedSourceSpan,
+    SourceSpanContractError,
+    build_source_span_map,
+    extract_source_spans,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from concept_governance.scope_contracts import QuotedAssertion, ScopeEvaluation
     from concept_governance.scope_models import ScopeAssertionChunk
 
@@ -24,9 +28,22 @@ def evaluate_scope_policy(
 ) -> tuple[ScopeConsistencyFinding, ...]:
     """Validate reported evidence and turn each contradiction into ERROR."""
     candidates = {item.chunk_id: item for item in partition.assertions}
+    sources = tuple(build_source_span_map(item.chunk_id, item.text) for item in partition.assertions)
     findings: dict[tuple[str, ...], ScopeConsistencyFinding] = {}
     for group in evaluation.response.contradictions:
-        loci = tuple(sorted((_validate_locus(item, candidates) for item in group.loci), key=_locus_key))
+        try:
+            extracted = extract_source_spans(group.loci, sources)
+        except SourceSpanContractError as exc:
+            raise ScopeEvaluationContractError(str(exc)) from exc
+        loci = tuple(
+            sorted(
+                (
+                    _validate_locus(item, candidates[item.source_id], evidence)
+                    for item, evidence in zip(group.loci, extracted, strict=True)
+                ),
+                key=_locus_key,
+            )
+        )
         primary, *related = loci
         finding = ScopeConsistencyFinding(
             code="SCOPE_CONTRADICTION",
@@ -47,16 +64,12 @@ def evaluate_scope_policy(
 
 def _validate_locus(
     locus: QuotedAssertion,
-    candidates: Mapping[str, ScopeAssertionChunk],
+    candidate: ScopeAssertionChunk,
+    extracted: ExtractedSourceSpan,
 ) -> FindingLocus:
-    candidate = candidates.get(locus.chunk_id)
-    if candidate is None:
-        raise ScopeEvaluationContractError(f"reported foreign chunk {locus.chunk_id!r}")
-    if (locus.doc, locus.anchor) != (candidate.doc, candidate.anchor):
-        raise ScopeEvaluationContractError(f"reported locus metadata mismatches {locus.chunk_id!r}")
-    if locus.assertion not in candidate.text:
-        raise ScopeEvaluationContractError(f"reported quote is absent from {locus.chunk_id!r}")
-    return FindingLocus(doc=locus.doc, anchor=locus.anchor, assertion=locus.assertion)
+    if locus.source_id != extracted.source_id:
+        raise ScopeEvaluationContractError("extracted evidence order mismatches response")
+    return FindingLocus(doc=candidate.doc, anchor=candidate.anchor, assertion=extracted.text)
 
 
 def _locus_key(locus: FindingLocus) -> tuple[str, str, str]:

@@ -14,8 +14,14 @@ Postgres backend. Binds the shared per-test isolated schema fixture.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
+from agentkit.backend.control_plane.repository import ControlPlaneWriterLeaseRepository
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+)
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     FreshClaim,
     IdempotencyRequest,
@@ -27,6 +33,26 @@ from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
 )
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+
+@pytest.fixture(autouse=True)
+def _boot_claim_sender(postgres_backend_env: object) -> Iterator[None]:
+    """Establish the boot identity required by every productive claim."""
+
+    from datetime import UTC, datetime
+    del postgres_backend_env
+    lease = ControlPlaneWriterLeaseRepository().acquire()
+    identity = boot_backend_instance_identity_global(
+        "contract-inflight-guard", datetime(2026, 8, 4, tzinfo=UTC),
+    )
+    lease.bind_identity(identity)
+    try:
+        yield
+    finally:
+        lease.release()
 
 
 def _req(
@@ -62,6 +88,54 @@ def test_fresh_claim_wins_and_parallel_same_op_id_is_in_flight_real_store(
 
 
 @pytest.mark.contract
+def test_every_generic_claim_persists_boot_sender_and_fencing_epoch(
+    postgres_backend_env: object,
+) -> None:
+    """AG3-214 AC2: the generic guard has no sender-less claim path."""
+
+    from agentkit.backend.state_backend.operation_ledger import (
+        load_inflight_operation_row_global,
+    )
+
+    del postgres_backend_env
+    request = _req("op-generic-sender", {"action": "rotate"})
+    assert isinstance(StateBackendInflightIdempotencyGuard().claim(request), FreshClaim)
+
+    row = load_inflight_operation_row_global(request.op_id)
+    assert row is not None
+    assert row["backend_instance_id"] == "contract-inflight-guard"
+    assert row["instance_incarnation"] == 1
+    assert row["operation_epoch"] == 1
+
+
+@pytest.mark.contract
+def test_generic_claim_sender_does_not_follow_mutated_database_singleton(
+    postgres_backend_env: object,
+) -> None:
+    """The claim sender is the immutable lease owner, not a fresh DB read."""
+
+    from datetime import UTC, datetime
+
+    from agentkit.backend.state_backend.operation_ledger import (
+        load_inflight_operation_row_global,
+    )
+
+    del postgres_backend_env
+    changed = boot_backend_instance_identity_global(
+        "ignored-candidate",
+        datetime(2026, 8, 4, 0, 0, 1, tzinfo=UTC),
+    )
+    assert changed.instance_incarnation == 2
+
+    request = _req("op-bound-sender", {"action": "rotate"})
+    assert isinstance(StateBackendInflightIdempotencyGuard().claim(request), FreshClaim)
+    row = load_inflight_operation_row_global(request.op_id)
+    assert row is not None
+    assert row["backend_instance_id"] == "contract-inflight-guard"
+    assert row["instance_incarnation"] == 1
+
+
+@pytest.mark.contract
 def test_winner_finalizes_then_retry_replays_stored_result_real_store(
     postgres_backend_env: object,
 ) -> None:
@@ -78,6 +152,33 @@ def test_winner_finalizes_then_retry_replays_stored_result_real_store(
     replay = guard.claim(req)
     assert isinstance(replay, ReplayOutcome)
     assert replay.result_payload == payload
+
+
+@pytest.mark.contract
+def test_generic_finalize_requires_unchanged_operation_epoch_real_store(
+    postgres_backend_env: object,
+) -> None:
+    """AG3-214: the productive guard passes its claim epoch into the SQL CAS."""
+
+    from agentkit.backend.state_backend import postgres_store
+
+    del postgres_backend_env
+    guard = StateBackendInflightIdempotencyGuard()
+    req = _req("op-guard-epoch-cas", {"title": "T"})
+    first = guard.claim(req)
+    assert isinstance(first, FreshClaim)
+
+    # Sanctioned test-only fault injection: move only the fence while preserving
+    # status and owner so the epoch predicate is the deciding CAS condition.
+    with postgres_store._connect_global() as conn:  # noqa: SLF001
+        conn.execute(
+            "UPDATE control_plane_operations "
+            "SET operation_epoch = operation_epoch + 1 WHERE op_id = ?",
+            (req.op_id,),
+        )
+
+    assert guard.finalize(req, first, {"status_code": 201, "body": {}}) is False
+    assert isinstance(guard.classify(req), InFlightOutcome)
 
 
 @pytest.mark.contract
@@ -158,20 +259,16 @@ def test_crash_window_claim_without_finalize_retry_is_in_flight_real_store(
 
 
 @pytest.mark.contract
-def test_exact_domain_proof_recovers_orphan_claim_real_store(
+def test_orphan_claim_has_no_unattributed_domain_recovery_bypass(
     postgres_backend_env: object,
 ) -> None:
-    """A matching orphan can be finalized only after the route proves its result."""
+    """A domain-looking payload cannot terminalize an unproven orphan claim."""
     del postgres_backend_env
     guard = StateBackendInflightIdempotencyGuard()
     req = _req("op-guard-domain-recovery", {"title": "T"})
     assert isinstance(guard.claim(req), FreshClaim)
-    payload = {"status_code": 201, "body": {"task_id": "TM-recovered"}}
-
-    assert guard.recover(req, payload) is True
-    replay = guard.claim(req)
-    assert isinstance(replay, ReplayOutcome)
-    assert replay.result_payload == payload
+    retry = guard.claim(req)
+    assert isinstance(retry, InFlightOutcome)
 
 
 @pytest.mark.contract

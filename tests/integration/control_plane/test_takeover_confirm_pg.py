@@ -128,6 +128,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     commit_takeover_invalidation_global,
     commit_takeover_reissue_global,
     delete_object_mutation_claim_global,
+    finalize_control_plane_disown_global,
     load_control_plane_operation_global,
     reconcile_takeover_confirm_cas_loss_global,
     save_control_plane_operation_global,
@@ -988,6 +989,7 @@ def test_cli_takeover_confirm_requires_real_strategist_session_and_is_403_withou
         )
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=routes,
         runtime_service=service,
         auth_middleware=auth,
@@ -1088,7 +1090,7 @@ def test_deployed_edge_tool_agent_commands_are_server_fail_closed(
     )
     tokens.insert(issued.record)
     auth = AuthMiddleware(token_repository=tokens)
-    app = ControlPlaneApplication(runtime_service=service, auth_middleware=auth)
+    app = ControlPlaneApplication(writer_lease_required=False, runtime_service=service, auth_middleware=auth)
 
     with _live_http_app(app) as base_url:
         client = ProjectEdgeClient(
@@ -1099,8 +1101,10 @@ def test_deployed_edge_tool_agent_commands_are_server_fail_closed(
             ),
             publisher=LocalEdgePublisher(project_root=tmp_path / "edge-state"),
         )
+
         def factory(_root: Path) -> ProjectEdgeClient:
             return client
+
         common = [
             "--project-root",
             str(tmp_path),
@@ -1785,6 +1789,7 @@ def test_recovery_missing_reason_returns_400(
     _admit_run(service, story_id=story_id, run_id=run_id)
     auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
     response = ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=service,
         auth_middleware=auth,
     ).handle_request(
@@ -1842,6 +1847,7 @@ def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
     )
     tokens.insert(issued.record)
     read_response = ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=service,
         auth_middleware=AuthMiddleware(token_repository=tokens),
     ).handle_request(
@@ -3192,7 +3198,7 @@ def test_human_bff_takeover_deny_reaches_global_governance_stream_and_blocks_con
     assert pending is not None
     echo = _challenge_id_from_current(story_id, pending.challenge_ref)
     auth = AuthMiddleware()
-    app = ControlPlaneApplication(runtime_service=service, auth_middleware=auth)
+    app = ControlPlaneApplication(writer_lease_required=False, runtime_service=service, auth_middleware=auth)
     human_session = auth.session_store.create()
 
     response = app.handle_request(
@@ -3405,6 +3411,7 @@ def test_token_authenticated_takeover_deny_is_forbidden_and_writes_nothing(
     )
     tokens.insert(issued.record)
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=service,
         auth_middleware=AuthMiddleware(token_repository=tokens),
     )
@@ -3862,6 +3869,7 @@ def _run_real_invalidating_predecessor(
                 architecture_blockers=("human architecture decision required",),
             ),
             now_fn=lambda: _NOW,
+            instance_identity=service._current_instance_identity(),
         ).exit_story(
             StoryExitRequest(
                 project_key=_PROJECT,
@@ -3888,7 +3896,10 @@ def _run_real_invalidating_predecessor(
             run_scope=ports,
             escalation_evidence=ports,
             competing_operation=ports,
-            fence=ResetDisownAdapter(cp_repo),
+            fence=ResetDisownAdapter(
+                cp_repo,
+                instance_identity=service._current_instance_identity(),
+            ),
             runtime_purge=ports,
             lock_purge=ports,
             read_model_purge=ports,
@@ -4044,9 +4055,7 @@ def test_verify_evidence_result_after_real_terminal_predecessor_has_no_write(
         request_digest="d" * 64,
         preflight_template_version=1,
         deadline_at=_NOW,
-        repositories=(
-            VerifyEvidenceRepository(repo_id=_REPO, expected_head_sha=_SHA),
-        ),
+        repositories=(VerifyEvidenceRepository(repo_id=_REPO, expected_head_sha=_SHA),),
         spawn_worktree_repo=_REPO,
     )
     command_id = f"{run_id}::collect_verify_evidence::base_collection::{payload.generation}"
@@ -4121,14 +4130,10 @@ def test_current_owner_verify_evidence_result_terminalizes_only_command_record(
         request_digest="d" * 64,
         preflight_template_version=1,
         deadline_at=_NOW,
-        repositories=(
-            VerifyEvidenceRepository(repo_id=_REPO, expected_head_sha=_SHA),
-        ),
+        repositories=(VerifyEvidenceRepository(repo_id=_REPO, expected_head_sha=_SHA),),
         spawn_worktree_repo=_REPO,
     )
-    command_id = (
-        f"{run_id}::collect_verify_evidence::base_collection::{payload.generation}"
-    )
+    command_id = f"{run_id}::collect_verify_evidence::base_collection::{payload.generation}"
     EdgeCommandRepository().insert_command(
         EdgeCommandRecord(
             command_id=command_id,
@@ -4315,7 +4320,11 @@ def test_terminal_uow_fault_rolls_back_marker_status_and_revocation_together(
         commit_operation_with_side_effects=partial(
             commit_control_plane_operation_with_side_effects_global,
             fault_after_step=fail_after_status,
-        )
+        ),
+        finalize_disown=partial(
+            finalize_control_plane_disown_global,
+            fault_after_step=fail_after_status,
+        ),
     )
     if terminal_kind == "story_exit":
         op_id = f"op-uow-{terminal_kind}"
@@ -4334,6 +4343,7 @@ def test_terminal_uow_fault_rolls_back_marker_status_and_revocation_together(
                 architecture_blockers=("human decision",),
             ),
             now_fn=lambda: _NOW,
+            instance_identity=setup._current_instance_identity(),
         )
         with pytest.raises(RuntimeError, match="injected terminal-uow fault"):
             service.exit_story(
@@ -4401,7 +4411,20 @@ def test_terminal_uow_fault_rolls_back_marker_status_and_revocation_together(
                 )
             )
 
-    assert load_control_plane_operation_global(op_id) is None
+    operation = load_control_plane_operation_global(op_id)
+    if terminal_kind == "story_exit":
+        # Exit acquires its durable sender-stamped claim before artifact work.
+        # A later UoW fault rolls back the terminal transition but deliberately
+        # leaves that claim for startup/admin recovery; it must never look
+        # committed when the binding/ownership changes rolled back.
+        assert operation is not None
+        assert operation.status == "claimed"
+        assert operation.operation_epoch == 1
+        assert operation.backend_instance_id is not None
+        assert operation.instance_incarnation is not None
+        assert operation.finalized_at is None
+    else:
+        assert operation is None
     active = load_active_run_ownership_record_global(_PROJECT, story_id)
     assert active is not None
     assert active.status.value == "active"
@@ -5250,7 +5273,7 @@ def test_reconcile_obligation_blocks_until_attested_admin_clear_and_story_upsert
 
     auth = AuthMiddleware()
     attested_session = auth.session_store.create()
-    app = ControlPlaneApplication(runtime_service=service, auth_middleware=auth)
+    app = ControlPlaneApplication(writer_lease_required=False, runtime_service=service, auth_middleware=auth)
     clear_response = app.handle_request(
         method="POST",
         path=f"/v1/project-edge/story-runs/{run_id}/ownership/takeover-reconcile-clear",

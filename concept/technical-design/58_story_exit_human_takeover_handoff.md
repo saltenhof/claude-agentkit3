@@ -49,7 +49,7 @@ glossary:
         Offizieller administrativer Pfad zum kontrollierten Uebergang
         von story_execution nach ai_augmented, wenn der Story-Vertrag
         nicht mehr passend ist. Nur per explizitem menschlichem
-        CLI-Befehl (agentkit exit-story). Kein normaler Phase-Schritt
+        CLI-Befehl (<absolute-agentkit-wrapper> exit-story). Kein normaler Phase-Schritt
         und kein Ersatz fuer Story-Split.
       see_also:
         - term: operating-mode
@@ -176,19 +176,34 @@ kurze administrative Entscheidung treffen muessen.
 Der offizielle Pfad ist bewusst leichtgewichtig:
 
 ```bash
-agentkit exit-story --story ODIN-042 --reason solution_viability_requires_human_design --note "Ich uebernehme ab hier fallbezogen."
+<absolute-agentkit-wrapper> exit-story --story ODIN-042 \
+  --reason solution_viability_requires_human_design \
+  --note "Ich uebernehme ab hier fallbezogen." --project odin \
+  --run run-42 --project-root /srv/odin --base-url https://127.0.0.1:9702
 ```
 
 Pflicht ist:
 
 - `--story`
 - `--reason`
+- `--project`
+- `--run`
+- `--project-root`
+- `--base-url`
 
 Optional:
 
 - `--note`
 
 Die Notiz ist als Kurzkommentar gedacht, nicht als Aktenlage.
+
+Die CLI ist ein duenner HTTPS-Adapter auf
+`POST /v1/projects/{project_key}/stories/{story_id}/exit`. Sie meldet den
+Menschen als Strategen an und fuehrt Session-Cookie plus CSRF; Principal- oder
+Session-Attestierungen im Payload sind unzulaessig. Der Writer loest die durch
+`run_id` bezeichnete aktive Ziel-Session aus seinem autoritativen Ownership-
+State auf und baut erst dort den `StoryExitService` unter der gehaltenen Lease.
+Der CLI-Prozess besitzt keinen Control-Plane-Writer.
 
 ## 58.6 Ergebnis des Exits
 
@@ -212,6 +227,12 @@ Fehlversuche. Der Run-Ownership-Record der beendeten Umsetzung
 wechselt auf `status = ended` und ist fortan reiner Audit-Fakt
 (FK-56 §56.8a).
 
+Vor der ersten Exit-Mutation claimt der Writer die Operation mit
+`operation_epoch >= 1`, `backend_instance_id` und
+`instance_incarnation`. Operation, terminale Binding-Entwertung, Locks und
+Events committen nur ueber die Claim-Owner-CAS derselben Epoche. Fehlende
+Claim-Absender oder ein veralteter Finalizer scheitern ohne State-Write.
+
 ### 58.6a Worktree-Schicksal beim Exit
 
 Worktree und Branch bleiben nach dem Exit als Arbeitsstand erhalten;
@@ -219,7 +240,7 @@ es gibt **keinen** Auto-Teardown. Der Exit ist gerade der "Mensch
 uebernimmt die Arbeit"-Pfad (`exit_class=viability_handoff`): der
 vorhandene Stand ist das Uebergabegut, nicht Abraum. Aufgeraeumt wird
 erst durch die Closure einer Nachfolge-Umsetzung oder durch einen
-expliziten Reset-/Cleanup-Pfad (FK-53 bzw. `agentkit cleanup`). Das
+expliziten Reset-/Cleanup-Pfad (FK-53 bzw. `<absolute-agentkit-wrapper> cleanup`). Das
 Loesen von Story-Locks, Session-Bindung und Guard-Regime (§58.6)
 bleibt davon unberuehrt: die Governance-Bindung endet, der
 Arbeitsstand besteht fort.

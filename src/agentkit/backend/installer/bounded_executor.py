@@ -32,5 +32,10 @@ class BoundedThreadExecutor:
         future.add_done_callback(lambda _future: self._slots.release())
         return future
 
+    def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
+        """Reject new work and shut down the owned worker pool."""
+
+        self._executor.shutdown(wait=wait, cancel_futures=cancel_futures)
+
 
 __all__ = ["BoundedThreadExecutor"]

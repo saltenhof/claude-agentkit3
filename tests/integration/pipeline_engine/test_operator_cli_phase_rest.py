@@ -199,6 +199,7 @@ def _boundary_dispatcher(*, overrides: dict[str, object] | None = None) -> Phase
 def _serve(service: ControlPlaneRuntimeService) -> tuple[HTTPServer, str]:
     """Serve the REAL handshake-gated control-plane app on a localhost socket."""
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=service,
         # Production-accurate: the real listener is handshake-gated (FK-91 §91.1a
         # Rule 11). run-phase/resume must carry the version handshake or 426.

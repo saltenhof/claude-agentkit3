@@ -1,11 +1,10 @@
 """Level-1 Core bootstrap: the single serve implementation + UI provisioning.
 
 FK-10 §10.2.5 / §10.7.2-§10.7.4 define the Core bootstrap verbs of installation
-level 1 (the central core). The AK3 backend is **one** server process (FK-72
-§72.8); the ``--ui-bff`` and ``--project-api`` profiles are the same
-control-plane listener bound to a profile-specific default port. There is
-therefore exactly **one** serve implementation (:func:`run_serve`) and exactly
-one transport path.
+level 1 (the central core). The AK3 backend is **one** writer process with two
+HTTPS listeners: UI-BFF and Project-API. They share one application, boot
+identity and startup reconciliation. There is therefore exactly **one** serve
+implementation (:func:`run_serve`) and exactly one writer lifecycle.
 
 ``agentkit ui`` provisions the SPA frontend (a static bundle), a
 distinct artifact from the backend listener; it never provisions Postgres nor
@@ -15,7 +14,6 @@ runs DB migrations (those are ops-driven, §10.2.5).
 from __future__ import annotations
 
 import sys
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -30,24 +28,18 @@ if TYPE_CHECKING:
     from http.server import SimpleHTTPRequestHandler
 
 
-class ServeProfile(Enum):
-    """Backend serve profile of the Core listener (FK-10 §10.7.2/§10.7.4)."""
-
-    UI_BFF = "ui-bff"
-    PROJECT_API = "project-api"
-
-
-_PROFILE_DEFAULT_PORTS: dict[ServeProfile, int] = {
-    ServeProfile.UI_BFF: CORE_UI_BFF_PORT,
-    ServeProfile.PROJECT_API: CORE_PROJECT_API_PORT,
-}
-
-
 class ServeFn(Protocol):
     """The control-plane listener entrypoint (one shared implementation)."""
 
     def __call__(
-        self, *, host: str, port: int, certfile: Path, keyfile: Path | None
+        self,
+        *,
+        ui_host: str,
+        ui_port: int,
+        project_api_host: str,
+        project_api_port: int,
+        certfile: Path,
+        keyfile: Path | None,
     ) -> None: ...
 
 
@@ -57,34 +49,25 @@ class UiServeFn(Protocol):
     def __call__(self, *, host: str, port: int, dist_dir: Path) -> None: ...
 
 
-def resolve_serve_port(profile: ServeProfile, explicit_port: int | None) -> int:
-    """Resolve the listener port: an explicit ``--port`` overrides the profile default."""
-    if explicit_port is not None:
-        return explicit_port
-    return _PROFILE_DEFAULT_PORTS[profile]
-
-
 def run_serve(
     *,
-    profile: ServeProfile,
-    host: str,
+    ui_host: str,
+    project_api_host: str,
     certfile: Path,
     keyfile: Path | None,
-    port: int | None = None,
+    ui_port: int | None = None,
+    project_api_port: int | None = None,
     serve_fn: ServeFn | None = None,
 ) -> int:
-    """Run the Core backend listener for ``profile`` (the SINGLE serve impl).
-
-    Both ``serve --ui-bff`` and ``serve --project-api`` funnel through here, so
-    there is exactly one transport path. The profile only selects the default
-    port; an explicit ``--port`` overrides it.
+    """Run UI-BFF and Project-API in the one Core writer process.
 
     Args:
-        profile: The backend serve profile (UI-BFF or Project-API).
-        host: The bind host.
+        ui_host: Bind host for the UI-BFF surface.
+        project_api_host: Bind host for the Project-API surface.
         certfile: The TLS certificate path (the listener is HTTPS, fail-closed).
         keyfile: The optional TLS key path.
-        port: An explicit port override; defaults to the profile port.
+        ui_port: UI-BFF port override; defaults to the central port registry.
+        project_api_port: Project-API port override; defaults likewise.
         serve_fn: Injection seam for the control-plane entrypoint (tests assert
             delegation without binding a socket); defaults to the productive
             ``serve_control_plane``.
@@ -94,8 +77,12 @@ def run_serve(
     """
     resolved_serve = serve_fn if serve_fn is not None else _default_serve_fn()
     resolved_serve(
-        host=host,
-        port=resolve_serve_port(profile, port),
+        ui_host=ui_host,
+        ui_port=CORE_UI_BFF_PORT if ui_port is None else ui_port,
+        project_api_host=project_api_host,
+        project_api_port=(
+            CORE_PROJECT_API_PORT if project_api_port is None else project_api_port
+        ),
         certfile=certfile,
         keyfile=keyfile,
     )
@@ -208,11 +195,9 @@ def _build_spa_handler(dist_dir: Path) -> type[SimpleHTTPRequestHandler]:
 
 __all__ = [
     "ServeFn",
-    "ServeProfile",
     "LoopbackBindHostError",
     "UiServeFn",
     "default_ui_dist_dir",
-    "resolve_serve_port",
     "run_serve",
     "run_ui",
 ]

@@ -3,9 +3,9 @@
 This module is the agent-skills BC's Fachlogik owner for the SECOND, materialized
 binding mode. For a placeholder-bearing skill (a bundle ``.md`` file carrying at
 least one ``{{...}}`` token) the installer must deliver the SUBSTITUTED content to
-the harness — the four FK-03 placeholders and the manifest-fed
-``{{AGENT_SPAWN_SKILL_PROOF}}`` (AG3-110) must be resolved in the content the
-harness actually reads through the bind point (FK-43 §43.2.3/§43.4.2, FK-31 §31.7.4).
+the harness — config-, manifest-, and installer-fed placeholders must be resolved
+in the content the harness actually reads through the bind point
+(FK-43 §43.2.3/§43.4.2, FK-31 §31.7.4).
 
 LIEFERMUSTER (FK-43 §43.4.1.1): the installer materializes a substituted COPY of the
 neutral skill representation into a SEPARATE store in the AK3 install area and links
@@ -44,6 +44,9 @@ from agentkit.backend.skills.links import (
     remove_directory_link,
 )
 from agentkit.backend.skills.placeholder import PlaceholderSubstitutor
+from agentkit.backend.skills.version_policy import (
+    _reject_norm_violating_bundle_version,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -115,14 +118,17 @@ def _materialize_variant_tree(
     config: ProjectConfig,
     project_root: Path,
     substitutor: PlaceholderSubstitutor,
+    *,
+    ak3_interpreter_command: str,
+    ak3_wrapper_command: str,
 ) -> None:
     """Copy *bundle_root* into *variant_dir*, substituting every ``.md`` file.
 
     Non-``.md`` bundle files are copied verbatim (FK-43 §43.4.2: substitution touches
     ``.md`` only). ``.md`` files run through
-    :meth:`PlaceholderSubstitutor.substitute_spawn_header` which resolves all five
-    placeholders (four FK-03 + the manifest-fed ``{{AGENT_SPAWN_SKILL_PROOF}}``) and
-    raises ``UnknownPlaceholderError`` fail-closed when the manifest token is missing.
+    :meth:`PlaceholderSubstitutor.substitute_materialized` which resolves config-,
+    manifest-, and installer-fed placeholders and raises fail-closed when an
+    authoritative value is missing.
     """
     import shutil
 
@@ -132,8 +138,12 @@ def _materialize_variant_tree(
         dst = variant_dir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         if src.suffix == ".md":
-            substituted = substitutor.substitute_spawn_header(
-                src.read_text(encoding="utf-8"), config, project_root
+            substituted = substitutor.substitute_materialized(
+                src.read_text(encoding="utf-8"),
+                config,
+                project_root,
+                ak3_interpreter_command=ak3_interpreter_command,
+                ak3_wrapper_command=ak3_wrapper_command,
             )
             _write_variant_if_changed(dst, substituted)
         elif not (dst.is_file() and dst.read_bytes() == src.read_bytes()):
@@ -201,14 +211,16 @@ def bind_skill_materialized(
     binding_id: str,
     bundle_id: str,
     bundle_version: str,
+    ak3_interpreter_command: str,
+    ak3_wrapper_command: str,
 ) -> SkillBinding:
     """Materialize a substituted variant and link the harness bind points at it.
 
     The SECOND binding mode (FK-43 §43.4.1.1) for a placeholder-bearing skill:
 
-    1. substitute every bundle ``.md`` (all five placeholders) into *variant_dir*
+    1. substitute every bundle ``.md`` (all supported placeholders) into *variant_dir*
        (digest-keyed, computed by the installer BC) — fail-closed if the manifest
-       token is missing (``substitute_spawn_header`` raises);
+       token is missing (``substitute_materialized`` raises);
     2. link ``.claude/skills/<skill>`` and ``.codex/skills/<skill>`` at *variant_dir*
        (NOT the raw ``bundle_root``);
     3. persist a ``SkillBinding`` (UNCHANGED schema — the materialized mode is derived
@@ -223,13 +235,17 @@ def bind_skill_materialized(
         skill_name: Logical skill name.
         bundle_root: Systemwide bundle directory (neutral representation).
         project_root: Target-project root (bind points + ``.installed-manifest.json``).
-        config: Project configuration (resolves the four FK-03 placeholders).
+        config: Project configuration (resolves the five FK-03 placeholders).
         variant_dir: The digest-keyed variant directory in the AK3 install store
             (computed by the installer via ``installer.paths``).
         binding_repo: Persistence port for the ``SkillBinding`` row.
         binding_id: Deterministic binding id (installer-supplied, matches ``bind_skill``).
         bundle_id: Bundle identifier (persisted on the binding row).
         bundle_version: Bundle version (persisted on the binding row).
+        ak3_interpreter_command: Shell-rendered absolute interpreter supplied by
+            the installer owner.
+        ak3_wrapper_command: Shell-rendered absolute ``agentkit`` wrapper supplied
+            by the installer owner.
 
     Returns:
         The persisted ``SkillBinding`` (status ``VERIFIED``).
@@ -237,11 +253,17 @@ def bind_skill_materialized(
     Raises:
         UnknownPlaceholderError: When a ``.md`` placeholder cannot be resolved
             (e.g. the manifest token is missing — fail-closed, install aborts).
-        SkillBindingFailedError: When a bind point cannot be linked.
+        SkillBindingFailedError: When the bundle is below its productive version
+            floor or a bind point cannot be linked.
         SkillBindingPartialStateError: When a failure's rollback left a residual link.
     """
     import shutil
 
+    _reject_norm_violating_bundle_version(
+        skill_name,
+        bundle_id,
+        bundle_version,
+    )
     substitutor = PlaceholderSubstitutor()
     variant_written = False
     # Track whether a binding row has been persisted so the rollback path can
@@ -251,7 +273,13 @@ def bind_skill_materialized(
     try:
         # 1. Materialize the substituted variant (fail-closed on a missing token).
         _materialize_variant_tree(
-            bundle_root, variant_dir, config, project_root, substitutor
+            bundle_root,
+            variant_dir,
+            config,
+            project_root,
+            substitutor,
+            ak3_interpreter_command=ak3_interpreter_command,
+            ak3_wrapper_command=ak3_wrapper_command,
         )
         variant_written = True
         from agentkit.backend.skills.bundle_store import bundle_content_digest

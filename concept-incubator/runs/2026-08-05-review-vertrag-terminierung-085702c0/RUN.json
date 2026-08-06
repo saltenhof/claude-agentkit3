@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-08-05-review-vertrag-terminierung-085702c0",
+  "title": "Vertrag und Terminierung der Review",
+  "profile": "LIGHT_INCUBATION",
+  "state": "STAFFING",
+  "state_revision": 4,
+  "lease_fencing_token": 1,
+  "current_round": 0,
+  "base_revision": {
+    "kind": "digest",
+    "value": "bd723db4024443a4b068be3ed6fe0979aab003f8bfb7460abe719d247f263c57"
+  },
+  "data_class": "internal",
+  "actor": {
+    "role": "council-orchestrator",
+    "harness": "claude-code",
+    "model": "claude-code",
+    "principal_id": "council-orchestrator.claude-code",
+    "session_ref": "claude-code-current-session"
+  },
+  "participants": [
+    {
+      "participant_id": "worker-a",
+      "model": "codex",
+      "backend": "codex",
+      "spawn_mode": "harness-bridge",
+      "principal_id": "council-worker.worker-a.codex",
+      "session_ref": null,
+      "data_release": {
+        "max_data_class": "internal",
+        "source_ids": [],
+        "package_ids": [
+          "PKG-085702c0-01"
+        ],
+        "approved_by_user": true
+      },
+      "status": "active"
+    },
+    {
+      "participant_id": "worker-b",
+      "model": "codex",
+      "backend": "codex",
+      "spawn_mode": "harness-bridge",
+      "principal_id": "council-worker.worker-b.codex",
+      "session_ref": null,
+      "data_release": {
+        "max_data_class": "internal",
+        "source_ids": [],
+        "package_ids": [
+          "PKG-085702c0-01"
+        ],
+        "approved_by_user": true
+      },
+      "status": "active"
+    }
+  ],
+  "register_digests": {
+    "corpus_baseline": "bd723db4024443a4b068be3ed6fe0979aab003f8bfb7460abe719d247f263c57",
+    "source_intake_input_head": null,
+    "source_intake_final_head": null,
+    "source_register_input": null,
+    "source_units_input": null,
+    "claims_inventory_input": null,
+    "derived_claims": null,
+    "disposition_ledger": null,
+    "source_register_final": null,
+    "source_units_final": null,
+    "atom_register": null
+  },
+  "blocked": null,
+  "recheck": null,
+  "last_completed_action": "record-staffing",
+  "next_action": "dispatch-round-1",
+  "updated_at": "2026-08-05T10:35:38Z"
+}

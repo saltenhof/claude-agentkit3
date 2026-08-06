@@ -62,11 +62,11 @@ glossary:
           domain: governance-and-guards
     - id: harness-port
       definition: >
-        Schmale, harness-neutrale Schnittstelle, ueber die AK3-BCs den
-        Agent-Harness ansprechen (z. B. Settings-Materialisierung, Invocation,
-        Capability-Abfrage), ohne harness-spezifische Dateien (.claude/...,
-        .codex/...) zu kennen. Konkrete Adapter implementieren den Port; die
-        Verdrahtung erfolgt ueber die Composition-Root.
+        Schmale clientseitige Schnittstelle, ueber die Project Edge und die
+        Installationsbindung den Harness ansprechen (Settings, Invocation,
+        Capabilities), ohne harness-spezifische Dateien zu kennen. Backend-BCs
+        duerfen den Port nicht direkt verwenden; Rueckdelegationen erreichen
+        ihn nur ueber Project Edge. Konkrete Adapter implementieren den Port.
       see_also:
         - term: harness-adapter
           domain: harness-integration
@@ -85,13 +85,13 @@ glossary:
 
 ## 76.1 Zweck
 
-AK3 ist ein **Meta-Harness**: ein Harness auf dem Harness. Die konkreten
-Agent-Harnesses **Claude Code** und **Codex** liefern bereits allgemeine
-Agent-Faehigkeiten (Datei-Edit, Shell, Git, Tool-Aufrufe). AK3 fuegt **keine**
-allgemeinen Agent-Faehigkeiten hinzu, sondern **prozessuale und
-Governance-Capabilities** (Story-Pipeline, 4-Schichten-QA, Guards, Telemetrie,
-Closure), damit Agents grosse, anspruchsvolle Softwareprojekte hochautomatisiert
-umsetzen koennen.
+Ein **Agent** ist die Einheit aus dem auf der Client-Maschine laufenden Harness
+und dem von ihm verwendeten, cloudseitigen LLM. Die Agent-Harnesses **Claude
+Code** und **Codex** liefern allgemeine Agent-Faehigkeiten (Datei-Edit, Shell,
+Git, Tool-Aufrufe). Das AK3-Backend ist kein Agent und stellt diese Faehigkeiten
+nicht bereit. AK3 ist ein **Meta-Harness**: Es erweitert die Agent-Harnesses um
+prozessuale und Governance-Capabilities (Story-Pipeline, QA, Guards,
+Telemetrie, Closure), damit Agents Softwareprojekte automatisiert umsetzen.
 
 FK-76 ist das Heim der **harness-spezifischen Anbindung** dieser Meta-Harness-
 Erweiterung an die jeweilige Agent-Laufzeit:
@@ -224,7 +224,7 @@ Handler-Liste):
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude pre branch_guard" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> pre branch_guard" }
         ]
       }
     ],
@@ -232,7 +232,7 @@ Handler-Liste):
       {
         "matcher": "Agent|Bash|*_send",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-claude post telemetry" }
+          { "type": "command", "command": "<absolute-agentkit-hook-claude-wrapper> post telemetry" }
         ]
       }
     ]
@@ -244,7 +244,7 @@ Identitaet eines AK3-Handlers ist `(hook_event_name, matcher, command)` —
 mehrere Guards duerfen denselben Matcher teilen (z. B. `Bash` fuer
 `branch_guard` UND `story_creation_guard`) und werden als mehrere Handler in
 derselben Matcher-Gruppe materialisiert; ein Merge nach Matcher allein ist
-unzulaessig (verwirft Guards).
+unzulaessig (verwirft Guards). Ein Handler-Typ ausser `command` ist fuer dieses Schema unbekannt und wird fail-closed abgelehnt; ein Auditor darf seinen Inhalt nicht ueberspringen.
 
 ### 76.5.2 Codex — `.codex/hooks.json`
 
@@ -258,7 +258,7 @@ Handler-Liste), mit Codex-spezifischem Wrapper und Matcher-Mapping:
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "agentkit-hook-codex pre branch_guard" }
+          { "type": "command", "command": "<absolute-agentkit-hook-codex-wrapper> pre branch_guard" }
         ]
       }
     ]
@@ -269,8 +269,8 @@ Handler-Liste), mit Codex-spezifischem Wrapper und Matcher-Mapping:
 Regeln (verifiziert gegen `developers.openai.com/codex/hooks`; die Live-Doku ist
 Drift-Check, dieses Schema ist die Spezifikation):
 
-- Command-Wrapper: `agentkit-hook-claude {phase} {hook_id}` →
-  `agentkit-hook-codex {phase} {hook_id}` (parse/validate; abweichende Form →
+- Command-Wrapper: `<absolute-agentkit-hook-claude-wrapper> {phase} {hook_id}` →
+  `<absolute-agentkit-hook-codex-wrapper> {phase} {hook_id}` (parse/validate; abweichende Form →
   typisierter Fehler, kein stiller Passthrough).
 - Tool-Matcher-Mapping (tokenweise) gegen das reale Codex-Tool-Vokabular:
   `Bash`→`Bash`; `Write`+`Edit`→ EIN `apply_patch`; bekannt-nicht-
@@ -441,7 +441,7 @@ FK-76 bleibt eine **duenne** BC (keine „God-Foundation"):
 - Keine Story-, Prompt-, QA- oder Telemetrie-Semantik.
 - Keine Installations-Strategie jenseits der adapter-spezifischen Artefakte (FK-50).
 - Keine Plugin-Registry, keine Harness-Selection-Policy.
-- Oeffentliche Surface klein: `HarnessPort`, `HarnessInvocation`,
+- Clientseitige oeffentliche Surface klein: `HarnessPort`, `HarnessInvocation`,
   `HarnessHookEnvelope`, `HarnessCapability`, `HarnessAdapterResult` plus die
   Settings-Writer.
 
@@ -454,7 +454,22 @@ FK-76 bleibt eine **duenne** BC (keine „God-Foundation"):
   harness-neutralen Port + Dependency-Injection (Composition-Root), nicht ueber
   einen harten Import konkreter Adapter.
 - `installation-and-bootstrap` ruft `harness_integration` zur Install-Zeit auf.
-- `prompt-runtime` darf den `HarnessPort` nutzen, kennt aber keine
-  `.claude`/`.codex`-Interna.
-- Andere BCs greifen nur ueber die exponierte Surface zu; konkrete Adapter sind
-  nicht direkt importierbar.
+- `prompt-runtime` und andere Backend-BCs duerfen den `HarnessPort` nicht
+  direkt nutzen. Sie adressieren Rueckdelegationen ausschliesslich ueber den
+  Project-Edge-Vertrag aus FK-91 §91.1b.
+- Clientseitig greifen nur Project Edge und die Installationsbindung ueber die
+  exponierte Surface zu; konkrete Adapter sind sonst nicht direkt importierbar.
+
+## 76.10 Project Edge als Harness-Relais
+
+Das Backend besitzt keine direkte Schnittstelle zu den Harness-Installationen
+auf Client-Maschinen. **Project Edge ist das einzige Relais in beiden
+Richtungen:** Agent → Project Edge → AK3 fuer agentische Aufrufe und AK3 →
+Project Edge → Harness fuer Rueckdelegationen. Eine Rueckdelegation wird daher
+nicht durch einen Backend-Zugriff auf Harness-Dateien, einen Backend-Spawn oder
+einen Agenten-Aufruf der Operator-CLI ersetzt.
+
+FK-76 besitzt diese Harness-Anbindung und die Relais-Topologie. Die
+Trust-Boundary-Bedingung fuer einen etablierten Knoten besitzt FK-01 §1.1a; den
+Wire-, Adressierungs- und Rueckmeldevertrag der Gegenrichtung einschliesslich
+des Review-Orchestrator-Bypasses besitzt FK-91 §91.1b.

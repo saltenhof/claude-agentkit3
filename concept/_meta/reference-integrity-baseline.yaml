@@ -92,23 +92,23 @@ unresolved_references:
     reason: Runtime-created quarantine location, absent until an adversarial failure occurs.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 297
+    line: 314
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 460
+    line: 516
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
 
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/51_upgrade_migration_customization_preservation.md
-    line: 200
+    line: 219
     reference: tools/hooks/pre-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/51_upgrade_migration_customization_preservation.md
-    line: 257
+    line: 278
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH

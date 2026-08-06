@@ -50,7 +50,7 @@ def compose_runtime(
     concepts_dir: Path,
     stories_dir: Path,
     client: CorpusClientPort | None = None,
-    command: str = "python",
+    command: str | None = None,
     args: tuple[str, ...] = (),
     cwd: str = ".",
 ) -> McpToolService:
@@ -59,12 +59,24 @@ def compose_runtime(
     Ensures the StoryContext collection exists idempotently. Fails closed on any
     binding or connection fault.
     """
+    from agentkit.backend.installer.interpreter import resolve_ak3_interpreter
     from agentkit.backend.vectordb.corpus_store import WeaviateCorpusStore
     from agentkit.backend.vectordb.mcp_server import McpToolService
     from agentkit.backend.vectordb.provisioning import ensure_corpus_collections
     from agentkit.backend.vectordb.retrieval import WeaviateRetrievalPort
 
-    binding = RuntimeBinding.from_env(env, command=command, args=args, cwd=cwd)
+    owner_command = str(resolve_ak3_interpreter())
+    if command is not None and command != owner_command:
+        raise RuntimeBindingError(
+            "VectorDB runtime command diverges from the central AK3 interpreter "
+            f"owner: {command!r} != {owner_command!r}."
+        )
+    binding = RuntimeBinding.from_env(
+        env,
+        command=owner_command,
+        args=args,
+        cwd=cwd,
+    )
     resolved_client = client if client is not None else connect_real_client(binding)
     # Idempotent collection creation. The schema-OWNER (schema.py) declares the
     # property set via ``weaviate_property_specs()`` + the FK-13 §13.2

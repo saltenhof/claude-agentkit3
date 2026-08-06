@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from agentkit.backend.control_plane.ownership import OwnershipStatus
 from agentkit.backend.control_plane.records import (
-    BindingDeleteScope,
+    BackendInstanceIdentityRecord,
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
@@ -95,45 +95,50 @@ class _RepoState:
 
 
 def _repo(state: _RepoState) -> ControlPlaneRuntimeRepository:
-    def _commit(
+    def _claim(record: ControlPlaneOperationRecord) -> bool:
+        if record.op_id in state.operations:
+            return False
+        state.operations[record.op_id] = record
+        return True
+
+    def _finalize_disown(
         record: ControlPlaneOperationRecord,
         *,
-        binding_to_save: SessionRunBindingRecord | None,
-        binding_to_delete: BindingDeleteScope | None,
+        owner_token: str,
+        owner_claimed_at: str | None,
+        owner_operation_epoch: int | None,
+        revoked_binding: SessionRunBindingRecord,
+        ownership_status_target: OwnershipStatus,
         locks: tuple[StoryExecutionLockRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
-        ownership_status_target: OwnershipStatus | None = None,
-    ) -> None:
+    ) -> bool:
+        existing = state.operations.get(record.op_id)
+        if (
+            existing is None
+            or existing.status != "claimed"
+            or existing.claimed_by != owner_token
+            or existing.operation_epoch != owner_operation_epoch
+            or existing.claimed_at is None
+            or existing.claimed_at.isoformat() != owner_claimed_at
+        ):
+            return False
         state.commits.append(
-            (record.operation_kind, binding_to_delete is not None, len(locks), len(events))
+            (record.operation_kind, False, len(locks), len(events))
         )
         state.operations[record.op_id] = record
-        if binding_to_save is not None:
-            state.bindings[binding_to_save.session_id] = binding_to_save
-        if ownership_status_target is not None:
-            assert ownership_status_target is OwnershipStatus.ENDED
-        if binding_to_delete is not None:
-            existing = state.bindings.get(binding_to_delete.session_id)
-            if existing is not None and (
-                existing.project_key,
-                existing.story_id,
-                existing.run_id,
-            ) != (
-                binding_to_delete.project_key,
-                binding_to_delete.story_id,
-                binding_to_delete.run_id,
-            ):
-                raise RuntimeError("binding collision")
-            state.bindings.pop(binding_to_delete.session_id, None)
+        state.bindings[revoked_binding.session_id] = revoked_binding
+        assert ownership_status_target is OwnershipStatus.ENDED
         for lock in locks:
             state.locks[(lock.project_key, lock.story_id, lock.run_id, lock.lock_type)] = (
                 lock
             )
         state.events.extend(events)
+        return True
 
     return ControlPlaneRuntimeRepository(
         load_operation=state.operations.get,
-        commit_operation_with_side_effects=_commit,
+        claim_operation=_claim,
+        finalize_disown=_finalize_disown,
         has_committed_story_exit_operation_for_run=lambda project_key, story_id, run_id: any(
             op.status == "committed"
             and op.operation_kind == "story_exit"
@@ -212,6 +217,11 @@ def _service(
         artifact_root=tmp_path,
         run_state_loader=lambda _request: run_state or _valid_run_state(),
         now_fn=lambda: NOW,
+        instance_identity=BackendInstanceIdentityRecord(
+            backend_instance_id="test-story-exit-writer",
+            instance_incarnation=1,
+            updated_at=NOW,
+        ),
     )
 
 
@@ -355,6 +365,11 @@ def test_story_exit_canonical_order_and_no_closure_operation(tmp_path: Path) -> 
     assert state.bindings["sess-1"].status == "revoked"
     assert state.bindings["sess-1"].revocation_reason == "story_ended"
     assert state.operations["exit-1"].operation_kind == "story_exit"
+    assert state.operations["exit-1"].operation_epoch == 1
+    assert state.operations["exit-1"].backend_instance_id == "test-story-exit-writer"
+    assert state.operations["exit-1"].instance_incarnation == 1
+    assert state.operations["exit-1"].finalized_at == NOW
+    assert state.operations["exit-1"].claimed_by is None
     assert all(op.operation_kind != "closure_complete" for op in state.operations.values())
 
 

@@ -206,6 +206,69 @@ Interpreter dieser Runtime. Mit `poison-bin` vor dem PATH (ein nacktes `python`
 endet dort mit Exit 97) gelang der Commit
 `5d2756ff4eb1f9ba0a5093a22e60b3ae8c0e0c94`.
 
+### ABSCHLUSS 2026-08-06 — Feststellungen des PO und des Orchestrators
+
+**1. AC 2 ist erfuellt; die unten stehende Freigabeforderung war gegenstandslos.**
+Der Zustand wurde am 2026-08-06 direkt gemessen, nicht angenommen:
+
+```text
+pip show agentkit             -> Package(s) not found: agentkit
+python -c "import agentkit"   -> ModuleNotFoundError   (mit und ohne -I)
+_editable_impl_agentkit.pth   -> existiert nicht
+site-packages *agentkit*      -> leer (User- und Program-Files-Ebene)
+```
+
+Der Nachweis aus AC 2 gilt damit woertlich: ein PATH-Python loest
+`import agentkit` nicht auf. Der Abschnitt darunter beschreibt einen Ablauf, der
+nicht mehr ausgefuehrt werden muss; er bleibt als Dokumentation des Weges
+stehen, falls die Kontamination je erneut entsteht.
+
+**2. Ab Runde 19 wurde storyfremder Inhalt umgesetzt — PO-Feststellung.**
+Die Runden 19 bis 22 haben Detach und den Eigentumsbeweis vor zerstoerenden
+Schritten behandelt: `installer/lifecycle/detach.py`, die Ownership-
+Klassifikation in `core_types/mcp_server_registration.py` und die
+MCP-Projektionen in JSON und TOML. **Nichts davon steht in dieser Story** —
+weder in den Akzeptanzkriterien noch in der Datei-Matrix noch im Scope.
+
+Der Weg hinein war schleichend und deshalb unbemerkt: AC 3 verlangt zu wissen,
+welche Kommandos AK3 gehoeren; wer das weiss, wird als naechstes gefragt, was
+beim Entfernen passiert. Weil dahinter ein Datenverlustpfad lag, hat der Review
+ihn zu Recht verfolgt — aber „welche Eintraege darf ich loeschen" ist eine
+**andere Zusage** als „es gibt genau einen Interpreterbegriff", mit einem
+eigenen, nie aufgezaehlten Universum. Genau diese Form erzeugt eine
+Endlosschleife: 22 Runden und vier Abschlussreviews.
+
+**Der PO hat das am 2026-08-06 als Regelverstoss festgestellt:** Inhalte, die
+nicht in der User Story stehen, brauchen seine gesonderte Freigabe. Die haette
+vor Runde 19 eingeholt werden muessen. Zusaetzlich hat der Orchestrator den
+vereinbarten Rundendeckel (vier bis fuenf, dann Eskalation) um das Fuenffache
+ueberschritten, ohne die Eskalation auszuloesen — nicht durch eine Entscheidung,
+sondern durch 22 einzeln plausible Ausnahmen.
+
+**3. Die in den Runden 19-22 entstandene Arbeit bleibt.** Sie behebt reale
+Datenverlustdefekte und ist mit Gegenbeweisen gegen den Produktionscode belegt.
+Sie zurueckzunehmen wuerde einen Loeschpfad mit bekannten Loechern hinterlassen.
+Sie ist damit **nicht** Erfuellung eines Akzeptanzkriteriums dieser Story,
+sondern mitgelieferte Nacharbeit an einer fremden Zusage.
+
+**4. Ergebnis der letzten Runde (R22), mit Gegenbeweisen:**
+
+```text
+T1 candidate=T:\FOREIGN TOOL\python.exe   shape_matches=False  mcp_preserved=True
+T2 empty_snapshot_ownership=mixed         hook_preserved=True
+T3 junction=C:\Documents and Settings     isjunction=True  is_symlink=False
+                                          owner_match=False
+```
+
+Verifikation: `2 failed, 2791 passed, 9 skipped` — beide Fehlschlaege
+ausschliesslich `ControlPlaneWriterRequired` aus dem gesperrten AG3-214-Scope
+und **nicht** Teil dieses Commits. `mypy` gruen auf win32/linux/darwin
+(1065 Dateien je Lauf). Fuenf der sechs Konzept-Gates gruen; die
+Referenzintegritaet bleibt unveraendert bei den bekannten 5 Fremdfehlern.
+`ruff` meldet ausschliesslich den gesperrten AG3-218-Befund `C901`.
+`check_interpreter_entrypoints.py`: **OK**, mit vollstaendiger sichtbarer
+Ausnahmeliste.
+
 ### Vorbereitete, nicht freigegebene AC-2-Bereinigung
 
 Die aktuelle Kontamination ist weiterhin sichtbar unter dem Benutzer-

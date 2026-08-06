@@ -27,8 +27,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.backend.boundary.filesystem import matches_resolved_path_owner
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_SERVER_SHAPES,
+    MCP_JSON_STDIO_TYPE,
     REGISTERED_ENV_KEYS,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
@@ -563,16 +565,27 @@ def render_mcp_json_text(
     return text, changed
 
 
-def render_mcp_json_without_ak3(raw: bytes) -> str:
-    """Surgically remove AK3 registration fields and preserve foreign JSON."""
+def render_mcp_json_without_ak3(
+    raw: bytes,
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str] | None = None,
+) -> str:
+    """Surgically remove recognised AK3 fields and preserve foreign JSON."""
     loaded = _strict_detach_root(raw)
     servers = loaded.get("mcpServers")
     if servers is not None and not isinstance(servers, dict):
         raise McpServerRegistrationError(".mcp.json mcpServers must be an object")
     if isinstance(servers, dict):
-        _remove_owned_mcp_servers(servers)
-        if not servers:
+        removed = _remove_owned_mcp_servers(
+            servers,
+            project_root=project_root,
+            resolved_command_owners=resolved_command_owners,
+        )
+        if removed and not servers:
             del loaded["mcpServers"]
+        if not removed:
+            return raw.decode("utf-8")
     return json.dumps(loaded, indent=2, sort_keys=True, allow_nan=False) + "\n"
 
 
@@ -592,7 +605,7 @@ def _strict_detach_root(raw: bytes) -> dict[str, object]:
             parse_constant=reject_non_json_constant,
             object_pairs_hook=reject_duplicate_object_pairs,
         )
-    except ValueError as exc:
+    except (RecursionError, ValueError) as exc:
         raise McpServerRegistrationError(f"Cannot surgically detach .mcp.json: {exc}") from exc
     if not isinstance(loaded, dict):
         raise McpServerRegistrationError(".mcp.json root must be an object")
@@ -605,21 +618,56 @@ def _strict_detach_root(raw: bytes) -> dict[str, object]:
     return loaded
 
 
-def _remove_owned_mcp_servers(servers: dict[str, object]) -> None:
+def _remove_owned_mcp_servers(
+    servers: dict[str, object],
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str] | None,
+) -> bool:
+    removed = False
     for name, shape in AK3_SERVER_SHAPES.items():
         entry = servers.get(name)
         if not isinstance(entry, dict):
             continue
+        owned_fields = {"type", "command", "args", "cwd", "env"}
+        owned_entry = {
+            field: value for field, value in entry.items() if field in owned_fields
+        }
+        if set(owned_entry) != owned_fields:
+            continue
+        if owned_entry["type"] != MCP_JSON_STDIO_TYPE:
+            continue
         args = entry.get("args")
-        if not shape.matches_command(entry.get("command")) or not isinstance(args, list):
+        resolved_owner = (
+            None
+            if resolved_command_owners is None
+            else resolved_command_owners.get(name)
+        )
+        if not shape.matches_command(
+            entry.get("command"),
+            resolved_owner_command=resolved_owner,
+            path_owner_matcher=matches_resolved_path_owner,
+        ) or not isinstance(args, list):
             continue
         if tuple(args) != shape.args:
             continue
-        for field in ("type", "command", "args", "cwd", "env"):
+        cwd = owned_entry["cwd"]
+        if not isinstance(cwd, str) or not cwd.strip():
+            continue
+        if not matches_resolved_path_owner(cwd, str(project_root.absolute())):
+            continue
+        env = owned_entry["env"]
+        if not isinstance(env, dict) or set(env) != set(shape.env_keys):
+            continue
+        if not all(isinstance(value, str) and value.strip() for value in env.values()):
+            continue
+        for field in owned_fields:
             if field in entry:
                 del entry[field]
+                removed = True
         if not entry:
             del servers[name]
+    return removed
 
 
 __all__ = [

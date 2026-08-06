@@ -54,6 +54,12 @@ from agentkit.backend.installer.runner import (
     _deploy_static_resource_files,
     _resources_target_project_dir,
 )
+from agentkit.backend.state_backend.store.governance_hook_repository import (
+    StateBackendHookRegistrationRepository,
+)
+from agentkit.backend.state_backend.store.project_management_repository import (
+    StateBackendProjectRepository,
+)
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
@@ -105,6 +111,8 @@ def _context(
         root,
         bundle_store_root=root.parent / "bundles",
         registration_repo=registration_repo,
+        project_repo=StateBackendProjectRepository(root),
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
         features_vectordb=True,
         **probe_kwargs,
     )

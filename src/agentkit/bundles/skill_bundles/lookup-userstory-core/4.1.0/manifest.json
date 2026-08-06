@@ -1,0 +1,10 @@
+{
+  "bundle_id": "lookup-userstory-core",
+  "bundle_version": "4.1.0",
+  "manifest_digest": "c9ab383e51d674d807232054fbfb70ae4c3b3d01f95ccc3eb5632c05aa5b4bec",
+  "profile": "CORE",
+  "skill_name": "lookup-userstory",
+  "variants": {
+    "CORE": "lookup-userstory"
+  }
+}

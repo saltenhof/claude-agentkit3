@@ -1,0 +1,10 @@
+{
+  "bundle_id": "concept-incubation-core",
+  "bundle_version": "4.1.0",
+  "manifest_digest": "831de437eca9d3c86d6fa73ade8fbe6df9574c07e48c25964d11be6c9b630196",
+  "profile": "CORE",
+  "skill_name": "concept-incubation",
+  "variants": {
+    "CORE": "concept-incubation"
+  }
+}

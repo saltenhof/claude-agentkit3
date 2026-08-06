@@ -40,6 +40,12 @@ from agentkit.backend.control_plane.third_party_models import (
     ThirdPartyValidationResponse,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
+from agentkit.backend.story_exit.http_models import StoryExitMutationRequest, StoryExitMutationResponse
+from agentkit.backend.story_reset.http_models import StoryResetMutationRequest, StoryResetMutationResponse
+from agentkit.backend.story_split.http_models import (
+    StorySplitMutationRequest,
+    StorySplitMutationResponse,
+)
 from agentkit.backend.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
@@ -822,6 +828,63 @@ class ProjectEdgeClient:
         )
         data.pop("correlation_id", None)
         return ControlPlaneMutationResult.model_validate(data)
+
+    def split_story(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        request: StorySplitMutationRequest,
+    ) -> StorySplitMutationResponse:
+        """Execute an administrative split through the active writer."""
+        project_segment = urllib.parse.quote(project_key, safe="")
+        story_segment = urllib.parse.quote(story_id, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=(
+                f"/v1/projects/{project_segment}/stories/"
+                f"{story_segment}/split"
+            ),
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return StorySplitMutationResponse.model_validate(data)
+
+    def reset_story(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        request: StoryResetMutationRequest,
+    ) -> StoryResetMutationResponse:
+        """Execute an administrative reset through the active writer."""
+        project_segment = urllib.parse.quote(project_key, safe="")
+        story_segment = urllib.parse.quote(story_id, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=f"/v1/projects/{project_segment}/stories/{story_segment}/reset",
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return StoryResetMutationResponse.model_validate(data)
+
+    def exit_story(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        request: StoryExitMutationRequest,
+    ) -> StoryExitMutationResponse:
+        """Execute a human story exit through the active writer."""
+        project_segment = urllib.parse.quote(project_key, safe="")
+        story_segment = urllib.parse.quote(story_id, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=f"/v1/projects/{project_segment}/stories/{story_segment}/exit",
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return StoryExitMutationResponse.model_validate(data)
 
     def takeover_request(
         self,

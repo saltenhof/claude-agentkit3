@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import json
 import sys
 from typing import TYPE_CHECKING
@@ -12,13 +13,17 @@ if TYPE_CHECKING:
 
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
 
-from ._operator_recovery_phase import _build_control_plane_client
+from ._operator_recovery_config import _ConfigResolutionError, _resolve_project_key
+from ._operator_recovery_phase import _build_strategist_control_plane_client
 
 
 def _cmd_admin_abort(
     args: argparse.Namespace,
     *,
-    client_builder: Callable[[str, str], ProjectEdgeClient] = _build_control_plane_client,
+    client_builder: Callable[
+        [str, str, str, str, str, str | None], ProjectEdgeClient
+    ] = _build_strategist_control_plane_client,
+    password_reader: Callable[[str], str] | None = None,
 ) -> int:
     """Handle ``agentkit admin-abort`` (AG3-138, FK-91 Rule 10, FK-55 §55.5).
 
@@ -52,6 +57,18 @@ def _cmd_admin_abort(
         )
         return 1
     try:
+        project_key = _resolve_project_key(args)
+    except _ConfigResolutionError as exc:
+        print(f"admin-abort failed [ConfigResolutionError]: {exc}", file=sys.stderr)
+        return 1
+    if not project_key:
+        print(
+            "admin-abort failed [MissingProjectKey]: --project, --config-derived "
+            "key, or AGENTKIT_PROJECT_KEY is required.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
         request = AdminAbortRequest(
             session_id=args.session,
             principal_type=args.principal,
@@ -63,7 +80,15 @@ def _cmd_admin_abort(
 
     project_root = str(getattr(args, "project_root", ".") or ".")
     try:
-        client = client_builder(str(base_url), project_root)
+        password = (password_reader or getpass.getpass)("Strategist password: ")
+        client = client_builder(
+            str(base_url),
+            project_root,
+            project_key,
+            str(getattr(args, "username", "admin")),
+            password,
+            getattr(args, "ca_file", None),
+        )
         result = client.admin_abort_operation(op_id=args.op_id, request=request)
     except ControlPlaneApiError as exc:
         print(f"admin-abort failed [{exc.error_code}]: {exc}", file=sys.stderr)

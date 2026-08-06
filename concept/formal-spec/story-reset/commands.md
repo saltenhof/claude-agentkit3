@@ -23,7 +23,7 @@ kind: command-set
 context: story-reset
 commands:
   - id: story-reset.command.execute
-    signature: agentkit reset-story --story <story_id> --reason <reason>
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> reset-story --story <story_id> --reason <reason>
     allowed_statuses:
       - story-reset.status.requested
       - story-reset.status.fenced

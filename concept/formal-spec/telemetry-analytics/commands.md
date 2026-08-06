@@ -52,7 +52,7 @@ commands:
     emits:
       - telemetry-analytics.event.facts.refreshed
   - id: telemetry-analytics.command.query-dashboard
-    signature: agentkit dashboard or internal dashboard api query
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> dashboard or internal dashboard api query
     allowed_statuses:
       - telemetry-analytics.status.facts_refreshed
     requires:

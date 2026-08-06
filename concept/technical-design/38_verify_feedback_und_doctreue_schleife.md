@@ -182,7 +182,7 @@ von Runden begrenzt:
   durch die Engine): Status wird `ESCALATED`, `qa_cycle_status` wird
   `"escalated"`. Die Story ist permanent blockiert bis ein Mensch
   interveniert.
-- Menschliche Intervention: `agentkit reset-escalation` CLI-Kommando
+- Menschliche Intervention: `<absolute-agentkit-wrapper> reset-escalation` CLI-Kommando
   setzt `qa_feedback_rounds` zurueck und erlaubt erneute Bearbeitung.
 - Wenn der QA-Subflow nach Remediation erneut durchlaufen wird (Status
   `awaiting_remediation`): `advance_qa_cycle()` feuert und

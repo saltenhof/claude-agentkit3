@@ -485,7 +485,9 @@ Die Templates liegen in `prompts/sparring/`:
 
 > Der Review-Versand des Workers wird ueber die
 > Komponente `EvidenceAssembler` (`agentkit.backend.verify_system.evidence_assembler`)
-> abgewickelt (CLI: `agentkit evidence assemble`).
+> und den Project-Edge-Vertrag `collect_verify_evidence` abgewickelt. Die
+> gleichnamige CLI-Surface ist ausschliesslich menschliche Operator-Recovery
+> (FK-28 §28.7), kein Worker-Aufrufpfad.
 > Der Worker kuratiert keine `merge_paths` selbst; das
 > deterministisch assemblierte BundleManifest liefert die
 > `merge_paths` fuer den Review-Versand. Details: **FK-28**.

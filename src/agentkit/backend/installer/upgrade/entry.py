@@ -1,10 +1,8 @@
-"""Productive upgrade boundary control — wires the real backend + governance.
+"""Upgrade boundary control for writer-backed state dependencies.
 
 The CLI boundary control for ``upgrade-project`` (FK-51 §51.2 — the installer is
-transport-agnostic; the CLI is a boundary control of the calling BC). It lives in
-the ``installer_upgrade`` layer (the highest intra-BC layer), so it may compose
-the lower installer layers and the state-backend adapters; it wires the
-productive :class:`ProjectRegistrationRepository` and governance top surface and
+transport-agnostic; the CLI is a boundary control of the calling BC). It accepts
+the authenticated writer-backed registration, skill and governance surfaces and
 delegates to :func:`run_upgrade`, which builds and runs the SHARED AG3-088
 checkpoint engine over the upgrade flow (story §6 — upgrade is an engine-driven
 flow, not a second installer).
@@ -20,8 +18,11 @@ from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.installer.upgrade.cleanup import CleanupPlan
+    from agentkit.backend.installer.upgrade.hook_migration import HookRegistrationSurface
     from agentkit.backend.installer.upgrade.upgrade_flow import UpgradeResult
+    from agentkit.backend.skills import Skills
 
 
 def run_checkpoint_upgrade(
@@ -35,11 +36,13 @@ def run_checkpoint_upgrade(
     bundle_version_changed: bool = False,
     explicit_binding_switch: bool = False,
     cleanup_plan: CleanupPlan | None = None,
+    registration_repo: ProjectRegistrationRepository | None = None,
+    governance: HookRegistrationSurface | None = None,
+    skills: Skills | None = None,
 ) -> UpgradeResult:
     """Run the FK-51 upgrade flow through the engine for a productive project.
 
-    Wires the productive registration repository and (in mutating mode) the
-    governance top surface, then delegates to the engine-driven
+    Validates the writer-backed dependencies, then delegates to the engine-driven
     :func:`run_upgrade`.
 
     Args:
@@ -68,37 +71,15 @@ def run_checkpoint_upgrade(
             detail={"project_root": str(project_root)},
         )
 
-    from agentkit.backend.governance.runner import Governance
-    from agentkit.backend.state_backend.store.governance_hook_repository import (
-        StateBackendHookRegistrationRepository,
-    )
-    from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
-    from agentkit.backend.state_backend.store.project_registration_repository import (
-        StateBackendProjectRegistrationRepository,
-    )
-
-    registration_repo = StateBackendProjectRegistrationRepository(project_root)
-    governance: Governance | None = None
-    if mode.mutations_allowed:
-        # Governance is only needed for the mutating §51.6 hook registration.
-        governance = Governance(
-            hook_repo=StateBackendHookRegistrationRepository(project_root),
-            lock_repo=LockRecordRepository(project_root),
-            project_key=project_key,
-            project_root=project_root,
+    if registration_repo is None or governance is None or skills is None:
+        raise ProjectError(
+            "upgrade-project requires the authenticated active control-plane "
+            "writer; no local State-Backend fallback is permitted",
+            detail={
+                "cause": "ControlPlaneWriterRequired",
+                "project_key": project_key,
+            },
         )
-    # The skills surface is needed in EVERY mode, not only for mutating steps:
-    # ``up_02`` inspects the persisted pins for norm-violating bundle versions,
-    # and a guard that cannot see the bindings would silently pass.
-    from agentkit.backend.skills import SkillBundleStore, Skills
-    from agentkit.backend.state_backend.store.skill_binding_repository import (
-        StateBackendSkillBindingRepository,
-    )
-
-    skills = Skills(
-        bundle_store=SkillBundleStore(),
-        binding_repo=StateBackendSkillBindingRepository(project_root),
-    )
     return run_upgrade(
         project_root,
         project_key=project_key,

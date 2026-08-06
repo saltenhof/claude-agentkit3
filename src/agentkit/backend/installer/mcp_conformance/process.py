@@ -78,15 +78,31 @@ def build_minimal_env(extra: Mapping[str, str] | None) -> dict[str, str]:
 
 
 def resolve_command(command: str, *, cwd: str | Path | None) -> str | None:
-    """Resolve command against ``cwd`` for relative paths; PATH for bare names."""
+    """Resolve external commands but reject relative AK3/Python selectors.
+
+    MCP registrations are deployed to foreign projects and machines. Resolving
+    an AK3 wrapper or Python selector here would let target-project content or
+    the target machine's ``PATH`` replace the executable CP 10 actually proved
+    and published. AK3-owned registrations must therefore arrive absolute.
+    Generic non-AK3 MCP commands retain the conformance check's existing CWD/PATH
+    lookup contract.
+    """
     import shutil
 
     if not command or not command.strip():
         return None
 
     candidate = Path(command)
-    base = Path(cwd) if cwd is not None else Path.cwd()
+    if not candidate.is_absolute():
+        selector = candidate.name.casefold()
+        if selector.endswith(".exe"):
+            selector = selector[:-4]
+        if selector in {"python", "python3", "agentkit"} or selector.startswith(
+            "agentkit-"
+        ):
+            return None
 
+    base = Path(cwd) if cwd is not None else Path.cwd()
     if candidate.is_absolute():
         return str(candidate) if candidate.is_file() else None
 
@@ -98,7 +114,6 @@ def resolve_command(command: str, *, cwd: str | Path | None) -> str | None:
     under_cwd = (base / candidate).resolve()
     if under_cwd.is_file():
         return str(under_cwd)
-
     return shutil.which(command)
 
 

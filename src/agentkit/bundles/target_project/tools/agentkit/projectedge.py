@@ -32,6 +32,7 @@ from agentkit.backend.exceptions import (
     ConflictAdjudicationUnavailableError,
     ControlPlaneApiError,
 )
+from agentkit.backend.installer.interpreter import render_ak3_interpreter_command
 from agentkit.backend.story_creation.conflict_adjudicator import (
     CreateTimeConflictAdjudicationError,
 )
@@ -85,7 +86,7 @@ def main(
         rejection, ``2`` on an argparse usage error.
     """
     parser = argparse.ArgumentParser(
-        prog="python tools/agentkit/projectedge.py",
+        prog=render_ak3_interpreter_command("tools/agentkit/projectedge.py"),
         description="Project-local wrapper for AgentKit control-plane calls",
     )
     parser.add_argument("--project-root", default=".")

@@ -136,9 +136,10 @@ und FK-01 §1.1a (technische Topologie).
   Duplikation, zeigt nie auf den entfernten Core.
 - Nur der Core (Zustand + Orchestrierung) zentralisiert; die Bundles nicht.
 
-**Kommandokanal:** technisch unidirektional (Arm initiiert immer, Pull-Modell;
-Core pusht nie zur Dev-Seite, kein fs-Zugriff hinein), fachlich bidirektional
-(Core-Response kann Auftrag sein).
+**Kommandokanal:** Die normative Richtungs- und Trust-Boundary-Regel gehoert
+ausschliesslich FK-01 §1.1a; der Gegenrichtungs-Wirevertrag FK-91 §91.1b und
+die Harness-Anbindung des Project-Edge-Relais FK-76 §76.10. Dieser BC-Schnitt
+setzt daneben keine zweite Richtungsregel.
 
 **D1 — deterministische Logik serverseitig:** Phase Runner, Structural-/Policy-/
 Integrity-Gate, Closure-Orchestrierung, Governance-Adjudication sind Core-Logik.

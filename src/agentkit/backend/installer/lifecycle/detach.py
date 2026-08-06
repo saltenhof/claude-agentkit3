@@ -21,14 +21,33 @@ from __future__ import annotations
 
 import hashlib
 import json
-import posixpath
 import shlex
 import shutil
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from types import MappingProxyType
+from typing import TYPE_CHECKING, cast
 
-from agentkit.backend.installer.codex_settings import CODEX_HOOK_COMMAND
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+from agentkit.backend.boundary.filesystem import (
+    FilesystemContainmentError,
+    assert_project_local_file_path,
+    matches_resolved_path_owner,
+)
+from agentkit.backend.core_types.mcp_server_registration import (
+    ARE_MCP_SERVER,
+    ARE_MCP_WRAPPER_NAME,
+    CODEX_HOOK_WRAPPER_NAME,
+    STORY_KNOWLEDGE_BASE_SERVER,
+)
+from agentkit.backend.installer.interpreter import (
+    render_resolved_command,
+    resolve_ak3_interpreter,
+    resolve_ak3_wrapper,
+)
 from agentkit.backend.installer.mcp_registration import render_mcp_json_without_ak3
 from agentkit.backend.installer.paths import (
     AGENTKIT_DIR,
@@ -36,7 +55,6 @@ from agentkit.backend.installer.paths import (
     CLAUDE_DIR,
     CODEX_DIR,
     STATIC_PROMPTS_DIR,
-    STORIES_DIR,
     claude_settings_path,
     codex_config_path,
 )
@@ -65,7 +83,12 @@ _AK3_HOOK_WRAPPER_EXECUTABLES = frozenset(
 _MATCHER_GROUP_STRUCTURAL_KEYS = frozenset({"matcher", "hooks"})
 
 
-def _is_ak3_hook_command(command: object) -> bool:
+def _is_ak3_hook_command(
+    command: object,
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str],
+) -> bool:
     """Return whether ``command`` is an AK3-owned hook command.
 
     Ownership is decided on the command's TOKENS, not on a substring of the
@@ -94,7 +117,11 @@ def _is_ak3_hook_command(command: object) -> bool:
         len(executed) >= 3 and executed[1] == ":" and executed[2] == "/"
     )
     if executable_is_absolute and executable_name in _AK3_HOOK_WRAPPER_EXECUTABLES:
-        return True
+        wrapper_name = executable_name.removesuffix(".exe")
+        return matches_resolved_path_owner(
+            executed,
+            resolved_command_owners.get(wrapper_name),
+        )
     # The bundled target-project settings register the project-local script
     # through the central interpreter. Only PYTHON is modelled: a
     # flag grammar shared across python, bash, node and pwsh does not exist
@@ -102,11 +129,18 @@ def _is_ak3_hook_command(command: object) -> bool:
     # made detach delete foreign hooks. What no producer writes is not claimed.
     if executable_name not in _PYTHON_INTERPRETERS:
         return False
+    if not matches_resolved_path_owner(
+        executed,
+        resolved_command_owners.get(STORY_KNOWLEDGE_BASE_SERVER),
+    ):
+        return False
     script = _python_script_argument(tokens[1:])
-    return script is not None and _is_ak3_hooks_path(script)
+    return script is not None and _is_ak3_hooks_path(script, project_root=project_root)
 
 
-#: The only interpreter AK3 registers hook scripts through.
+#: Interpreter basenames used to recognise both current absolute
+#: interpreter-bound script hooks and older bare hook text. This table is parser
+#: vocabulary only; detach never launches or selects an interpreter from it.
 _PYTHON_INTERPRETERS = frozenset({"python", "python3", "python.exe", "python3.exe"})
 #: Python options that consume the NEXT argument -- it is not the script.
 _PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
@@ -114,20 +148,27 @@ _PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
 _PYTHON_INLINE_OPTIONS = frozenset({"-c", "-m"})
 
 
-def _is_ak3_hooks_path(token: str) -> bool:
-    """Whether ``token`` resolves INTO the AK3-owned hooks directory.
+def _is_ak3_hooks_path(token: str, *, project_root: Path) -> bool:
+    """Whether ``token`` stays inside this project's AK3 hooks directory.
 
-    ``.agentkit`` and ``hooks`` must be adjacent segments in that order, and
-    ``..`` is resolved first: ``/opt/.agentkit/cache/hooks/foreign.sh`` is not
-    ours, and neither is ``.agentkit/hooks/../foreign.py``, which lands outside
-    the directory it appears to name.
+    Relative script arguments are interpreted from the project root, matching
+    the hook producer's working-directory contract. The shared R1 ownership
+    proof rejects symlinks before ``..`` normalisation and ensures that an
+    absolute lookalike in another project's ``.agentkit/hooks`` tree is foreign.
     """
-    normalized = posixpath.normpath(token.replace("\\", "/"))
-    segments = normalized.split("/")
-    return any(
-        first == ".agentkit" and second == "hooks"
-        for first, second in zip(segments, segments[1:], strict=False)
-    ) and len(segments) > segments.index("hooks") + 1
+    absolute_project = (
+        project_root if project_root.is_absolute() else Path.cwd() / project_root
+    )
+    script_path = Path(token)
+    candidate = (
+        script_path if script_path.is_absolute() else absolute_project / script_path
+    )
+    hooks_owner = absolute_project / AGENTKIT_DIR / "hooks"
+    return matches_resolved_path_owner(
+        str(candidate),
+        str(hooks_owner),
+        allow_descendants=True,
+    ) and not matches_resolved_path_owner(str(candidate), str(hooks_owner))
 
 
 def _python_script_argument(arguments: list[str]) -> str | None:
@@ -195,10 +236,18 @@ def detach_project(project_root: Path) -> DetachResult:
         msg = f"project root does not exist: {project_root}"
         raise FileNotFoundError(msg)
 
+    resolved_command_owners = _resolved_detach_command_owners()
     detached_junctions = _detach_skill_junctions(project_root)
-    removed_ak3, preserved = _strip_all_ak3_hooks(project_root)
+    removed_ak3, preserved = _strip_all_ak3_hooks(
+        project_root,
+        resolved_command_owners=resolved_command_owners,
+    )
     preserved_files: list[str] = []
-    removed_bindings = _remove_ak3_bindings(project_root, preserved_files)
+    removed_bindings = _remove_ak3_bindings(
+        project_root,
+        preserved_files,
+        resolved_command_owners=resolved_command_owners,
+    )
 
     return DetachResult(
         project_root=project_root,
@@ -222,19 +271,46 @@ def _detach_skill_junctions(project_root: Path) -> list[str]:
         skills_dir = project_root / harness_dir / "skills"
         if not skills_dir.is_dir():
             continue
+        removed_from_bind_point = False
         for entry in sorted(skills_dir.iterdir()):
             if is_directory_link(entry):
                 remove_directory_link(entry)
                 detached.append(str(entry.relative_to(project_root)))
+                removed_from_bind_point = True
+        if (
+            removed_from_bind_point
+            and not is_directory_link(skills_dir)
+            and not any(skills_dir.iterdir())
+        ):
+            skills_dir.rmdir()
+            harness_path = project_root / harness_dir
+            if (
+                not is_directory_link(harness_path)
+                and harness_path.is_dir()
+                and not any(harness_path.iterdir())
+            ):
+                harness_path.rmdir()
     return detached
 
 
-def _strip_all_ak3_hooks(project_root: Path) -> tuple[list[str], list[str]]:
+def _strip_all_ak3_hooks(
+    project_root: Path,
+    *,
+    resolved_command_owners: Mapping[str, str],
+) -> tuple[list[str], list[str]]:
     """Surgically strip AK3 hook blocks from both harness settings files."""
     removed: list[str] = []
     preserved: list[str] = []
-    claude_removed, claude_kept = _strip_claude_hooks(claude_settings_path(project_root))
-    codex_removed, codex_kept = _strip_codex_hooks(project_root / CODEX_DIR / "hooks.json")
+    claude_removed, claude_kept = _strip_claude_hooks(
+        claude_settings_path(project_root),
+        project_root=project_root,
+        resolved_command_owners=resolved_command_owners,
+    )
+    codex_removed, codex_kept = _strip_codex_hooks(
+        project_root / CODEX_DIR / "hooks.json",
+        project_root=project_root,
+        resolved_command_owners=resolved_command_owners,
+    )
     removed.extend(claude_removed)
     removed.extend(codex_removed)
     preserved.extend(claude_kept)
@@ -242,7 +318,12 @@ def _strip_all_ak3_hooks(project_root: Path) -> tuple[list[str], list[str]]:
     return removed, preserved
 
 
-def _strip_claude_hooks(settings_path: Path) -> tuple[list[str], list[str]]:
+def _strip_claude_hooks(
+    settings_path: Path,
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str],
+) -> tuple[list[str], list[str]]:
     """Remove AK3 handlers from ``.claude/settings.json`` (three-level shape).
 
     Keeps foreign matcher groups, handlers and any non-``hooks`` settings keys. Fail-closed
@@ -272,7 +353,13 @@ def _strip_claude_hooks(settings_path: Path) -> tuple[list[str], list[str]]:
             # Unexpected shape for this event: preserve verbatim, strip nothing.
             new_hooks[event_key] = groups
             continue
-        kept_groups = _strip_hook_matcher_groups(groups, removed, preserved)
+        kept_groups = _strip_hook_matcher_groups(
+            groups,
+            removed,
+            preserved,
+            project_root=project_root,
+            resolved_command_owners=resolved_command_owners,
+        )
         if kept_groups:
             new_hooks[event_key] = kept_groups
     if not removed:
@@ -288,7 +375,12 @@ def _strip_claude_hooks(settings_path: Path) -> tuple[list[str], list[str]]:
     return removed, preserved
 
 
-def _strip_codex_hooks(hooks_path: Path) -> tuple[list[str], list[str]]:
+def _strip_codex_hooks(
+    hooks_path: Path,
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str],
+) -> tuple[list[str], list[str]]:
     """Remove AK3 handlers from ``.codex/hooks.json`` (three-level shape).
 
     Foreign matcher groups and foreign handlers within a shared group are
@@ -317,7 +409,13 @@ def _strip_codex_hooks(hooks_path: Path) -> tuple[list[str], list[str]]:
             # Malformed event value: preserve verbatim, strip nothing.
             new_hooks[event_key] = groups
             continue
-        kept_groups = _strip_hook_matcher_groups(groups, removed, preserved)
+        kept_groups = _strip_hook_matcher_groups(
+            groups,
+            removed,
+            preserved,
+            project_root=project_root,
+            resolved_command_owners=resolved_command_owners,
+        )
         if kept_groups:
             new_hooks[event_key] = kept_groups
     if not removed:
@@ -333,7 +431,14 @@ def _strip_codex_hooks(hooks_path: Path) -> tuple[list[str], list[str]]:
     return removed, preserved
 
 
-def _strip_hook_matcher_groups(groups: list[object], removed: list[str], preserved: list[str]) -> list[object]:
+def _strip_hook_matcher_groups(
+    groups: list[object],
+    removed: list[str],
+    preserved: list[str],
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str],
+) -> list[object]:
     """Filter AK3 handlers out of an event's matcher groups (helper).
 
     A malformed group (not an object, ``hooks`` not a list, or a non-object
@@ -350,7 +455,13 @@ def _strip_hook_matcher_groups(groups: list[object], removed: list[str], preserv
         kept_handlers = [
             handler
             for handler in cast("list[dict[str, object]]", handlers)
-            if not _record_ak3_command(handler.get("command", ""), removed, preserved)
+            if not _record_ak3_command(
+                handler.get("command", ""),
+                removed,
+                preserved,
+                project_root=project_root,
+                resolved_command_owners=resolved_command_owners,
+            )
         ]
         if kept_handlers:
             group["hooks"] = kept_handlers
@@ -383,16 +494,32 @@ def _is_well_formed_hook_handlers(handlers: object) -> bool:
     return isinstance(handlers, list) and all(isinstance(h, dict) for h in handlers)
 
 
-def _record_ak3_command(command: object, removed: list[str], preserved: list[str]) -> bool:
+def _record_ak3_command(
+    command: object,
+    removed: list[str],
+    preserved: list[str],
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str],
+) -> bool:
     """Classify a hook command; record it and return whether it is AK3-owned."""
-    if _is_ak3_hook_command(command):
+    if _is_ak3_hook_command(
+        command,
+        project_root=project_root,
+        resolved_command_owners=resolved_command_owners,
+    ):
         removed.append(str(command))
         return True
     preserved.append(str(command))
     return False
 
 
-def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list[str]:
+def _remove_ak3_bindings(
+    project_root: Path,
+    preserved_files: list[str],
+    *,
+    resolved_command_owners: Mapping[str, str],
+) -> list[str]:
     """Remove the remaining AK3 binding artifacts (launcher, ``.agentkit/``, etc.).
 
     Each tree removal is guarded against a junction so a stray reparse point is
@@ -403,22 +530,33 @@ def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list
     code").
     """
     removed: list[str] = []
-    removed.extend(_remove_ak3_mcp_json(project_root, preserved_files))
-    removed.extend(_remove_ak3_codex_config(project_root, preserved_files))
+    removed.extend(
+        _remove_ak3_mcp_json(
+            project_root,
+            preserved_files,
+            resolved_command_owners=resolved_command_owners,
+        )
+    )
+    codex_config_removed = _remove_ak3_codex_config(
+        project_root,
+        preserved_files,
+        resolved_command_owners=resolved_command_owners,
+    )
+    removed.extend(codex_config_removed)
+    if codex_config_removed:
+        removed.extend(_remove_empty_dir(project_root / CODEX_DIR, project_root))
     removed.extend(_safe_remove_tree(project_root / AGENTKIT_TOOLS_DIR, project_root))
-    removed.extend(_remove_empty_dir(project_root / "tools", project_root))
     removed.extend(_safe_remove_tree(project_root / AGENTKIT_DIR, project_root))
     removed.extend(_remove_ak3_prompt_bindings(project_root, preserved_files))
-    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "context", project_root))
-    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "skills", project_root))
-    removed.extend(_remove_empty_dir(project_root / CODEX_DIR / "skills", project_root))
-    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR, project_root))
-    removed.extend(_remove_empty_dir(project_root / CODEX_DIR, project_root))
-    removed.extend(_remove_empty_dir(project_root / STORIES_DIR, project_root))
     return removed
 
 
-def _remove_ak3_mcp_json(project_root: Path, preserved_files: list[str]) -> list[str]:
+def _remove_ak3_mcp_json(
+    project_root: Path,
+    preserved_files: list[str],
+    *,
+    resolved_command_owners: Mapping[str, str],
+) -> list[str]:
     """Remove only AK3 MCP values and retain foreign JSON value-equal."""
     from agentkit.backend.core_types.mcp_server_registration import (
         McpServerRegistrationError,
@@ -429,8 +567,16 @@ def _remove_ak3_mcp_json(project_root: Path, preserved_files: list[str]) -> list
     if not path.is_file():
         return []
     try:
-        rendered = render_mcp_json_without_ak3(path.read_bytes())
+        raw = path.read_bytes()
+        rendered = render_mcp_json_without_ak3(
+            raw,
+            project_root=project_root,
+            resolved_command_owners=resolved_command_owners,
+        )
     except (OSError, McpServerRegistrationError):
+        preserved_files.append(str(path.relative_to(project_root)))
+        return []
+    if rendered.encode("utf-8") == raw:
         preserved_files.append(str(path.relative_to(project_root)))
         return []
     if rendered.strip() == "{}":
@@ -440,7 +586,12 @@ def _remove_ak3_mcp_json(project_root: Path, preserved_files: list[str]) -> list
     return []
 
 
-def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> list[str]:
+def _remove_ak3_codex_config(
+    project_root: Path,
+    preserved_files: list[str],
+    *,
+    resolved_command_owners: Mapping[str, str],
+) -> list[str]:
     """Remove ``.codex/config.toml`` ONLY when it is semantically AK3-owned.
 
     AG3-175 replaces the former byte comparison against a FIXED string. That
@@ -464,11 +615,22 @@ def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> 
     * Not decodable / not parsable -> ``UNREADABLE`` -> preserved. Never delete
       what cannot be read.
 
-    Unchanged: only the classification predicate. No new detach behaviour, and
-    every non-``AK3_ONLY`` outcome still reports through ``preserved_files``
-    (FK-10 §10.2.9, "preserve project code").
+    ARE ownership additionally requires the real path returned by the central
+    wrapper owner. A same-named foreign executable, a symlink, or unavailable
+    wrapper resolution is ``MIXED`` and remains in the file. The mutation
+    mechanics are unchanged: every non-``AK3_ONLY`` remainder still reports
+    through ``preserved_files`` (FK-10 §10.2.9, "preserve project code").
     """
     config_path = codex_config_path(project_root)
+    try:
+        config_path = assert_project_local_file_path(
+            project_root,
+            Path(CODEX_DIR) / "config.toml",
+        )
+    except FilesystemContainmentError:
+        if config_path.exists():
+            preserved_files.append(str(config_path.relative_to(project_root)))
+        return []
     if not config_path.is_file():
         return []
     try:
@@ -478,9 +640,19 @@ def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> 
     if raw is None:
         preserved_files.append(str(config_path.relative_to(project_root)))
         return []
+    hook_owner = resolved_command_owners.get(CODEX_HOOK_WRAPPER_NAME)
+    hook_command = render_resolved_command(hook_owner) if hook_owner else ""
     try:
-        rendered = render_without_ak3(raw, hook_command=CODEX_HOOK_COMMAND)
+        rendered = render_without_ak3(
+            raw,
+            hook_command=hook_command,
+            project_root=project_root,
+            resolved_command_owners=resolved_command_owners,
+        )
     except CodexConfigError:
+        preserved_files.append(str(config_path.relative_to(project_root)))
+        return []
+    if rendered.encode("utf-8") == raw:
         preserved_files.append(str(config_path.relative_to(project_root)))
         return []
     if not rendered.strip():
@@ -490,6 +662,48 @@ def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> 
     atomic_write_text(config_path, rendered)
     preserved_files.append(str(config_path.relative_to(project_root)))
     return []
+
+
+def detach_codex_config(project_root: Path) -> tuple[str, ...]:
+    """Securely remove only proven AK3 content from Codex configuration.
+
+    This is the standalone public path used by the installer settings edge.
+    It delegates to the same snapshot and surgery as :func:`detach_project`, so
+    no exported callable can bypass ownership classification.
+    """
+    preserved_files: list[str] = []
+    removed = _remove_ak3_codex_config(
+        project_root,
+        preserved_files,
+        resolved_command_owners=_resolved_detach_command_owners(),
+    )
+    if removed:
+        removed.extend(_remove_empty_dir(project_root / CODEX_DIR, project_root))
+    return tuple(removed)
+
+
+def _resolved_detach_command_owners() -> Mapping[str, str]:
+    """Return one immutable snapshot of centrally resolved command owners.
+
+    Wrapper resolution can legitimately fail after the AK3 environment was
+    removed. Omitting that owner is the fail-closed result: the corresponding
+    MCP table or hook stays mixed/foreign instead of inheriting deletion
+    authority from an executable basename. Owners are resolved independently so
+    one missing wrapper does not hide a different, still-provable AK3 binding.
+    """
+    owners: dict[str, str] = {}
+    with suppress(OSError, RuntimeError, ValueError):
+        owners[STORY_KNOWLEDGE_BASE_SERVER] = str(resolve_ak3_interpreter())
+    for owner_key, wrapper_name in (
+        (ARE_MCP_SERVER, ARE_MCP_WRAPPER_NAME),
+        (AK3_CLAUDE_HOOK_WRAPPER, AK3_CLAUDE_HOOK_WRAPPER),
+        (CODEX_HOOK_WRAPPER_NAME, CODEX_HOOK_WRAPPER_NAME),
+    ):
+        try:
+            owners[owner_key] = str(resolve_ak3_wrapper(wrapper_name))
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return MappingProxyType(owners)
 
 
 def _remove_ak3_prompt_bindings(project_root: Path, preserved_files: list[str]) -> list[str]:
@@ -650,7 +864,7 @@ def _safe_remove_tree(path: Path, project_root: Path) -> list[str]:
 
 def _remove_empty_dir(path: Path, project_root: Path) -> list[str]:
     """Remove a directory only when it exists and is empty."""
-    if not path.is_dir() or any(path.iterdir()):
+    if is_directory_link(path) or not path.is_dir() or any(path.iterdir()):
         return []
     path.rmdir()
     return [str(path.relative_to(project_root))]

@@ -8,6 +8,7 @@ doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: api-catalog
+  - scope: edge-delegation-contract
 defers_to:
   - FK-53
   - FK-54
@@ -103,6 +104,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/auth/login` | `POST` | Strategenpasswort pruefen und kurzlebige Cookie-/CSRF-Session erzeugen. Auth-Handshake, keine kanonische Projektmutation; deshalb kein Operation-Ledger-`op_id`. |
 | `/v1/auth/logout` | `POST` | Aktuelle Strategen-Session widerrufen. Wiederholung ist auch bei bereits fehlender Session erfolgreich und erzeugt keine fachliche Zweitwirkung. |
 | `/v1/auth/password` | `POST` | Strategenpasswort im authentifizierten Projektkontext rotieren und alle Strategen-Sessions widerrufen. Client-beigestellte `op_id`, Body-Hash, In-Flight-Claim und gespeicherter Replay nach erneuter Anmeldung mit dem neuen Passwort sind Pflicht (Regel 5). |
+| `/v1/projects` | `POST` | Enger strategengeschuetzter Bootstrap eines noch nicht vorhandenen und damit credential-losen kernseitigen Projektkontexts vor der ersten Tokenausstellung. Ein vorhandener Project-Key endet ohne Mutation in `409`; der Pfad aktualisiert kein Projekt und ist nicht Teil von `register-project`. |
 | `/v1/projects/{project_key}/api-tokens` | `GET` | Projekt-Token-Metadaten ohne Hash und Klartext auflisten; ausschliesslich Strategen-Session. |
 | `/v1/projects/{project_key}/api-tokens` | `POST` | Clientseitig vorbereitete Token-ID und Token-Hash insert-only registrieren; ausschliesslich Strategen-Session, Regel-5-Idempotenz. |
 | `/v1/projects/{project_key}/api-tokens/{token_id}` | `DELETE` | Benanntes Projekt-Token widerrufen; ausschliesslich Strategen-Session, Regel-5-Idempotenz. |
@@ -113,24 +115,40 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/projects/{project_key}/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
-| `/v1/projects/{project_key}/installation/third-party-validation` | `POST` | Synchrone, read-only Dritt-System-Probes fuer Sonar, Jenkins und feature-gated ARE ueber den Backend-`ThirdPartyPreflightService`. Request traegt `op_id` und ausschliesslich `token_env`-Referenzen; Response traegt Gesamtentscheid sowie typisiertes Einzelresultat/`error_code` je System. Tenant-Scope, Versions-Handshake und Regel-5-Idempotenz sind Pflicht; regulaer authentifiziert das Projekt-Token. Ausschliesslich waehrend `register-project` nach CP7 und vor Aktivierung der ersten Credential darf die bereits authentifizierte Strategen-Session desselben Projektkontexts diese Route verwenden. Eine unskopierte oder anonyme Variante existiert nicht. |
-| `/v1/projects/{project_key}/installation/branch-plugin-self-test` | `POST` | Explizite on-demand Annahme des schweren, mutierenden Branch-Plugin-Conformance-Self-Tests. Antwort `202` plus `op_id`; Lebenszyklus im `ControlPlaneOperationRecord`, Poll ueber `/v1/project-edge/operations/{op_id}`. Niemals implizit durch `register-project` oder `verify-project`. |
+| `/v1/projects/{project_key}/installation/third-party-validation` | `POST` | Synchrone, read-only Dritt-System-Probes fuer Sonar, Jenkins und feature-gated ARE ueber den Backend-`ThirdPartyPreflightService`. Request traegt `op_id` und ausschliesslich `token_env`-Referenzen; Response traegt Gesamtentscheid sowie typisiertes Einzelresultat/`error_code` je System. Tenant-Scope, Versions-Handshake und Regel-5-Idempotenz sind Pflicht; regulaer authentifiziert das Projekt-Token. Die enge Strategen-Ausnahme ist serverseitig nur zulaessig, solange fuer den Projektkontext **noch kein einziges** Project-Token existiert; ab dem ersten Token wird auch eine gueltige Strategen-Session `403` abgewiesen. Der heutige `register-project`-Ablauf verwendet diese Ausnahme nicht: `store-token` und die aktive Projekt-Credential sind Vorbedingung. Eine unskopierte oder anonyme Variante existiert nicht. |
+| `/v1/projects/{project_key}/installation/branch-plugin-self-test` | `POST` | Explizite on-demand Annahme des schweren, mutierenden Branch-Plugin-Conformance-Self-Tests. Antwort `202` plus `op_id`; Lebenszyklus im `ControlPlaneOperationRecord`, Poll ueber `/v1/project-edge/operations/{op_id}`. Die Executor-Future bleibt bis zur terminalen Guard-Finalisierung Writer-Arbeit: geordneter Shutdown draint sie vor Unlock, Lease-Verlust sperrt ihre Finalisierung und jeden Pool-Fallback/Late-Commit. Niemals implizit durch `register-project` oder `verify-project`. |
+| `/v1/projects/{project_key}/installation/writer-ready` | `GET` | Project-Token-geschuetzter, versionsverhandelter Readiness-Nachweis des aktiven lease-haltenden Writers. `register-project` und `upgrade-project` rufen ihn vor jeder projektbezogenen lokalen Wirkung auf; fehlende Lease, Authentisierung oder Erreichbarkeit ist fail-closed und hat keinen lokalen State-Fallback. |
+| `/v1/projects/{project_key}/installation/register-project` | `POST` | CP-7-Aggregatkommando fuer `project_registry` und die sichtbare `projects`-Entitaet. Ausschliesslich der aktive Writer baut die produktiven Repositories. Der Request traegt Projektmetadaten, die streng gelesene `project.yaml` und einen aus dem CLI-Root-`op_id` stabil abgeleiteten Claim; `project_root` ist Registrierungsdatum und wird vom Core nicht als Filesystem-Locator dereferenziert. |
+| `/v1/projects/{project_key}/installation/project-registration` | `GET` | Projektgeskoppelter Read der CP-7-Registrierung fuer Plan, Verify und Upgrade-Footprint. |
+| `/v1/projects/{project_key}/installation/project-registrations` | `GET` | Projektgeskoppelte Listenform des Registrierungs-Reads; sie liefert fuer das authentisierte Projekt hoechstens dessen eigene Registrierung. |
+| `/v1/projects/{project_key}/installation/skill-bindings` | `GET` | Projektgeskoppelter Read aller kanonischen Skill-Bindings fuer CP 8, Verify und Upgrade-Footprint. |
+| `/v1/projects/{project_key}/installation/skill-bindings/{skill_name}` | `GET`/`POST` | Read bzw. writer-seitiges Persistieren eines CP-8-Binding-Lifecycle-Zustands. Der POST traegt einen stabilen wirkungsspezifischen Child-`op_id`; physische Links bleiben Dev-lokal. |
+| `/v1/projects/{project_key}/installation/skill-bindings/{skill_name}/delete` | `POST` | Writer-seitiges Loeschen eines Binding-Records im ehrlichen Rollback; gemeinsamer Claim-/Replay-Vertrag, kein lokaler Repository-Fallback. |
+| `/v1/projects/{project_key}/installation/governance-hooks` | `GET`/`POST` | Projektgeskoppelter Read bzw. writer-seitige Persistenz der CP-9-/UP-04-Hook-Definitionen. Harness-Settings werden danach Dev-lokal materialisiert; der CLI-Prozess baut weder Hook- noch Lock-Repository. |
+| `/v1/projects/{project_key}/installation/governance-hooks/clear` | `POST` | Writer-seitiges, replaybares Leeren der projektgeskoppelten Hook-Registrierungen fuer den Repository-Vertrag. |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-request` | `POST` | Expliziten Ownership-Transfer (Takeover) fuer einen aktiven Story-Run anfragen (formal: `operating-modes.command.request-run-ownership-takeover`). Antwort ist nie der Vollzug, sondern eine von zwei Varianten: menschlich initiierte Requests (`human_cli`/UI via BFF) erhalten einen versionierten **Challenge** (`offered`: Eigentumslage inkl. `owner_session_id`, `ownership_epoch`, `binding_version`, Phasenstand, Anzeigedaten aus dem Owner-BC); agenteninitiierte Requests erhalten deterministisch **`pending_human_approval`** (Vollzug erfordert menschliche Frontend-Freigabe; Ausgang beobachtbar ueber `GET /v1/project-edge/operations/{op_id}`). Jede Anfrage traegt eine Begruendungspflicht (auditiert) |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm` | `POST` | Takeover per Referenz auf die gespeicherte Challenge vollziehen (formal: `operating-modes.command.confirm-run-ownership-takeover`; Klasse `admin_transition`, FK-55 §55.5). Payload: `challenge_id` (Selektor) + Audit-Metadaten (`op_id`, `reason`, `source_component`) — kein Challenge-Echo, keine Identitaets- oder Entscheidungsfelder im Body; der CAS laeuft serverseitig gegen die persistierte Challenge-Basis (`owner_session_id`/`ownership_epoch`/`binding_version`, FK-56 §56.13a). Antworten: Vollzug; **`challenge_reissued`** (Challenge-TTL abgelaufen, Approval gueltig, Eigentumslage unveraendert — frische Challenge in der Antwort, Vollzug erst per zweitem Confirm mit neuem `op_id`); Fehlerbild bei invalidiertem/veraltetem Challenge (zwischenzeitlicher Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt): deterministischer fail-closed Fehlschlag ohne Vollzug, Challenge terminal `invalidated` — erneuter Request gegen die aktuelle Eigentumslage noetig |
 | `/v1/project-edge/story-runs/{run_id}/ownership/recover` | `POST` | Explizite Crash-Recovery-Akquisition (formal: `operating-modes.command.recover-run-ownership`, Klasse `admin_transition`): ausschliesslich ein attestierter `human_cli` mit Pflicht-`reason`, client-beigestelltem `op_id` und typisierter `worktree_disposition` (`adopt` oder `reset`, Default `adopt`) darf den exakt einen aktiven, durch `{run_id}` bezeichneten Ownership-Record atomar superseden. Der alte Record wird im selben UoW `transferred`, seine Bindung mit `recovery_superseded` widerrufen und ein neuer Run auf denselben `worktree_roots` mit `acquired_via=recovery` angelegt. `adopt` uebernimmt den Worktree unveraendert; `reset` beauftragt im selben UoW pro teilnehmendem Repo einen Edge-Auftrag `reset_worktree`, der den vorhandenen Worktree auf dessen eigenes `HEAD` zuruecksetzt und unversionierte Dateien entfernt. Das Backend fuehrt dabei kein Git aus. Aktive Freeze-Zustaende, eine offene `takeover_reconcile`-Obligation, eine laufende Story-Mutation oder fehlende/konkurrierende aktive Ownership blockieren fail-closed; Recovery loest keinen Freeze. Agent-Principals erhalten deterministisch `recovery_requires_human_cli` und werden nicht in die Approval-Queue aufgenommen. |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-reconcile-worktree` | `POST` | Reconcile des uebernommenen Worktrees durch den neuen Owner melden — **SHA-Semantik**: Abgleich gegen den beim Confirm materialisierten `takeover_base_sha` des Transfer-Records (`state-storage.entity.takeover-transfer-record`, FK-56 §56.13c), nicht gegen einen Datei-Snapshot. Erfolg (Worktree exakt auf `takeover_base_sha` ausgerichtet, Quarantaene abgeschlossen — FK-56 §56.13e) hebt den Edge-Zustand `takeover_reconcile_required` auf (Guard-Semantik und Exklusivitaet dieses Pfads: FK-30 §30.6.3). Fehlerbilder (benannte Zustaende, FK-30 §30.6.3): Scheitern oder unklare Worktree-Identitaet → `contested_local_writes` (read-only Konflikt-Freeze, FK-56 §56.13f); Remote-Head ≠ `takeover_base_sha` → `remote_branch_diverged_after_takeover`; altes/schmutziges Provisionierungsziel → `local_stale_or_dirty_takeover_target`. Mutierende Operation: client-beigestelltes `op_id` (Regel 5), Serialisierungsobjekt `(project_key, story_id)` (Regel 13); zulaessig nur fuer den aktuellen Owner (Fence auf `owner_session_id`/`ownership_epoch`, FK-56 §56.8a) |
-| `/v1/project-edge/operations/{op_id}/admin-abort` | `POST` | Haengende serverseitige In-Flight-Operation administrativ abbrechen (`admin_abort_inflight_operation`, Klasse `admin_transition`, FK-55 §55.5; auditiert). Betrifft ausschliesslich servereigene Claims und leitet niemals Client-Ownership aus Stille ab (Regel 16). Das Finalize ist per `operation_epoch`-CAS gefenct: Late-Commits eines physisch noch weiterlaufenden Alt-Executors scheitern deterministisch am Operation-Fence und registrieren hoechstens einen No-op-/Abort-Vermerk; hat die abgebrochene Mutation bereits Teil-Writes hinterlassen, geht die Operation in einen expliziten, auditierten Reconcile-/Repair-Zustand statt stillschweigend in `failed` |
+| `/v1/project-edge/operations/{op_id}/admin-abort` | `POST` | Haengende serverseitige In-Flight-Operation administrativ abbrechen (`admin_abort_inflight_operation`, Klasse `admin_transition`, FK-55 §55.5; auditiert). Der produktive Operator-Aufrufer meldet sich zuerst als Stratege an und fuehrt Session-Cookie plus CSRF-Token; ein anonymer, Project-Token- oder nur im Payload behaupteter Principal ist unzulaessig. Betrifft ausschliesslich servereigene Claims und leitet niemals Client-Ownership aus Stille ab (Regel 16). Das Finalize ist per `operation_epoch`-CAS gefenct: Late-Commits eines physisch noch weiterlaufenden Alt-Executors scheitern deterministisch am Operation-Fence und registrieren hoechstens einen No-op-/Abort-Vermerk; hat die abgebrochene Mutation bereits Teil-Writes hinterlassen, geht die Operation in einen expliziten, auditierten Reconcile-/Repair-Zustand statt stillschweigend in `failed` |
 | `/v1/compat` | `GET` | Unterstuetztes Versionsfenster lesen: `min`/`recommended`/`blocked` fuer Agent-Runtime und Wire (dev↔central-Handshake, FK-10 §10.2.7) |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
 | `/v1/telemetry/events` | `GET` | Kanonische Execution-Events einer `(project_key, story_id)`-Sicht lesen (optional `event_type`-Filter); server-vermittelter Read fuer den Hook-Emitter (FK-10 §10.1.0 I1, AG3-129) |
 | `/v1/governance/guard-counters` | `POST` | Guard-Invocation-Counter server-vermittelt mutieren (`record` inkl. Week-Rollover oder `housekeeping`-Sweep, FK-61 §61.4.3); reiner Volume-Counter, nicht-blockierend (FK-30), Dev-Seite ist REST-Anforderer (FK-10 §10.1.0 I1, AG3-129). Traegt `op_id` (Regel 5): ein wiederholtes `op_id` zaehlt **exakt einmal** — Counter-Increment und `idempotency_keys`-Eintrag committen **atomar in EINER Transaktion** (kein Doppelzaehlen und kein verlorener Increment bei Crash/Retry); gleiches `op_id` mit ABWEICHENDEM Body ⇒ fail-closed `409 idempotency_mismatch` |
-| `/v1/governance/worker-health` | `GET` | Kanonischen Worker-Health-State einer `(story_id, worker_id)`-Sicht lesen; fail-closed Gate-Operation (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129) |
+| `/v1/governance/worker-health` | `GET` | Mit `story_id` und `worker_id` den kanonischen Worker-Health-State der exakten Sicht lesen; mit `story_id` allein alle Worker-States der Story neueste zuerst lesen. Damit bleibt auch `watch-worker` ein duenner REST-Anforderer ohne lokalen State-Writer. Fail-closed Gate-Operation (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129) |
 | `/v1/governance/takeover-approvals` | `GET` | Projektuebergreifender, read-only Initial-GET offener Takeover-Freigaben fuer den Lossy-Re-Sync des globalen Overlays; Strategen-Cookie-only, formal: `frontend-contracts.entity.takeover_approval_request` (FK-91 §91.8.2, FK-72 §72.14.7) |
 | `/v1/governance/worker-health` | `POST` | Kanonischen Worker-Health-State server-vermittelt schreiben; fail-closed Gate-Operation (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129). Der Save ist ein **idempotenter Upsert** auf `(story_id, worker_id)` — ein Retry ueberschreibt denselben State (harmlos), daher kein separates `op_id` noetig |
 | `/v1/governance/permission-requests` | `GET` | Run-skopierte kanonische Permission-Requests lesen und abgelaufene offene Requests lazy deterministisch als `expired` mit `resolution=denied` materialisieren; ausschliesslich passendes `project_api_token`, lokale Request-Dateien sind nur kurzlebige Read-Projektionen (FK-10 §10.1.0 I5, FK-55 §55.10.4a/§55.10.9a, AG3-131) |
 | `/v1/governance/permission-requests` | `POST` | Operation `open`: auditierbaren Request als passendes `project_api_token` zentral oeffnen; Operation `resolve`: `approved` oder `denied` ausschliesslich als Strategen-Cookie-Session entscheiden. Die Auth-Pruefung erfolgt vor jeder Mutation; Persistenzfehler blockieren sichtbar fail-closed (FK-42 §42.5, FK-55 §55.10.4, AG3-131) |
 | `/v1/governance/permission-leases` | `POST` | Operation `grant`: ausschliesslich als Strategen-Cookie-Session eine an den genehmigten Request gebundene, ablaufende Lease mit `max_uses` erzeugen, ohne Auto-Resume; Operation `consume`: als passendes `project_api_token` genau eine Nutzung atomar verbrauchen. Auth-Pruefung erfolgt vor Mutation; Postgres ist der einzige Owner (FK-55 §55.9a, AG3-131) |
 | `/v1/projects/{project_key}/stories/{story_id}` | `GET` | Projekt-skopierte Story-Detailansicht (`StoryDetail`→`StorySummary`, inkl. Wire-Key `story_type`); vom Governance-Hook als **server-vermittelter Story-Typ-Read** konsumiert (FK-24 §24.3.2, FK-10 §10.1.0 I1, AG3-129) — fehlender Record ⇒ `404 story_not_found` ⇒ Hook fail-closed UNRESOLVED |
+| `/v1/projects/{project_key}/stories/{story_id}/split` | `POST` | Strategen-geschuetzte administrative Story-Split-Mutation. Der Operator-CLI sendet den validierten Plantext, Run-Bezug und die Projektwurzel ueber HTTPS; ausschliesslich der aktive Control-Plane-Writer baut und vollzieht den `StorySplitService` unter seiner bereits gebundenen Lease-Identitaet. Der CLI-Prozess erhoeht keine Boot-Inkarnation, reconciliiert keine Claims und oeffnet keinen zweiten State-Schreibpfad. Plan-`project_key` und `source_story_id` muessen den Route-Segmenten entsprechen. |
+| `/v1/projects/{project_key}/stories/{story_id}/reset` | `POST` | Strategen-geschuetzter Story-Reset (FK-53). Die handelnde Identitaet stammt aus der authentisierten Session; Principal-/Session-Attestierungen im Payload sind unzulaessig. Ausschliesslich der aktive Writer baut den `StoryResetService`, stampft den Claim mit seiner gebundenen Instanzidentitaet und finalisiert Reset/Disown per `operation_epoch`-CAS. |
+| `/v1/projects/{project_key}/stories/{story_id}/exit` | `POST` | Strategen-geschuetzter Story-Exit (FK-58). Die handelnde Identitaet stammt aus der authentisierten Session; die aktive Ziel-Session wird anhand des `run_id` aus dem autoritativen Writer-State aufgeloest und nicht vom Client attestiert. Operation, Binding, Locks und Events finalisieren unter der Writer-Lease per `operation_epoch`-CAS. |
+| `/v1/projects/{project_key}/failure-corpus/incidents` | `POST` | Strategen-geschuetzte Incident-Erfassung (FK-41). Der CLI-Prozess sendet Kandidat und client-beigestelltes `op_id`; ausschliesslich der aktive Writer claimt, baut den `FailureCorpus` und persistiert auf seiner reservierten Session. |
+| `/v1/projects/{project_key}/failure-corpus/patterns/{pattern_id}/review` | `POST` | Strategen-geschuetzte menschliche Pattern-Entscheidung (FK-41) mit gemeinsamem `op_id`-/Body-Hash-/In-Flight-Vertrag; kein lokaler Repository-Fallback im CLI-Prozess. |
+| `/v1/projects/{project_key}/failure-corpus/checks/{check_id}/review` | `POST` | Strategen-geschuetzte menschliche Check-Entscheidung (FK-41) mit gemeinsamem `op_id`-/Body-Hash-/In-Flight-Vertrag; der aktive Writer vollzieht alle Proposal- und Story-Anlage-Wirkungen. |
+| `/v1/projects/{project_key}/failure-corpus/effectiveness-report` | `POST` | Strategen-geschuetzter mutierender Effektivitaetslauf (FK-41) mit gemeinsamem `op_id`-/Body-Hash-/In-Flight-Vertrag; Updates und Auto-Deaktivierungen laufen ausschliesslich im aktiven Writer. |
 | `/v1/projects/{project_key}/planning/dependency-graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen (FK-72 §72.8.2) |
 | `/v1/projects/{project_key}/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
 | `/v1/projects/{project_key}/planning/execution-plan` | `GET` | Kritischen Pfad, Waves, empfohlenen Batch und maximale Parallelisierung lesen |
@@ -182,10 +200,15 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    `session.json`, den `story_execution`-Lock und alle fuer lokale
    Guard-Entscheidungen erforderlichen Zusatzlocks wie
    `qa_artifact_write`.
-   Die beiden Installer-Validierungsendpunkte sind keine Story-/Session-
-   Mutation und erzeugen deshalb kein Edge-Materialisierungs-Bundle: ihr
-   vollstaendiges Resultat ist der typisierte Validierungsentscheid bzw. der
-   ueber `op_id` lesbare Operation-Record.
+   Die Installer-Validierungsendpunkte, die projektgeskoppelten
+   Installer-Writer-Mutationen fuer CP 7, CP 8 und CP 9/UP 04 sowie die vier
+   ausschliesslich menschlich-administrativen Failure-Corpus-Mutationen sind
+   keine lokale Story-/Session-Guard-Mutation und erzeugen deshalb kein Edge-
+   Materialisierungs-Bundle: ihr vollstaendiges Resultat ist der typisierte
+   Validierungs- beziehungsweise Mutationsentscheid plus der ueber `op_id`
+   rekonstruierbare Operation-Record. Lokale Installer-Artefakte entstehen
+   weiterhin ausschliesslich im Dev-Prozess; sie sind kein vom Core geliefertes
+   Guard-Materialisierungs-Bundle.
 5. Jeder kanonisch mutierende Endpoint muss `op_id` als Idempotenzschluessel
    akzeptieren; Wiederholungen mit derselben `op_id` duerfen keine
    zweite Mutation erzeugen. Das `op_id` wird **vom Client
@@ -206,11 +229,24 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    unterschiedlicher Schutztiefe (Claim-Pfad mit In-Flight-Schutz
    neben einem Idempotenz-Schluessel-Pfad ohne) sind unzulaessig.
    Fuer den Crash zwischen nachweislich abgeschlossenem Domain-Commit und
-   Finalisierung des Claims gilt kein freies Re-Execute und kein TTL-Takeover:
-   nur derselbe Request darf den passenden `claimed`-Record finalisieren, und
-   nur wenn der zustaendige Domain-Owner das exakte terminale Ergebnis aus
-   seiner autoritativen Persistenz belegt. Ohne diesen Beleg bleibt
-   `operation_in_flight` bestehen.
+   Finalisierung des Claims gilt kein freies Re-Execute und kein TTL-Takeover.
+   Nur ein Domain-Owner mit dauerhafter, nicht ueberschreibbarer Zuordnung des
+   terminalen Ergebnisses zu genau dieser `op_id` duerfte einen Erfolg
+   rekonstruieren. Die Auth-Wirkungen besitzen diese Zuordnung nicht; ihre
+   eigenen frueheren Orphans werden beim Start deshalb ohne Erfolgsbehauptung
+   und ohne Admin-Eingriff als `failed` finalisiert. Das macht eine moeglicherweise
+   bereits publizierte Credential-Wirkung nicht rueckgaengig, sperrt aber eine
+   erneute Ausfuehrung unter derselben `op_id`; der Retry erhaelt
+   `409 operation_conflict`.
+   Projektgeskoppelte Installer- und Failure-Corpus-Mutationen schliessen das
+   Commit/Finalize-Fenster strenger: Ihre gesamten Domainwirkungen und die
+   erfolgreiche Finalisierung des aeusseren Claims committen in EINER
+   Transaktion auf der reservierten Writer-Session. Eine Exception, eine
+   serverseitige Fehlerantwort oder ein verlorener Finalize-CAS rollt alle
+   Domainwirkungen zurueck, bevor der Claim freigegeben wird. Dadurch kann ein
+   Same-`op_id`-Retry weder einen CP-7-Teilerfolg noch eine doppelte
+   Implementation-Story, eine blockierte REVISE-Revision oder einen teilweise
+   aktualisierten Effektivitaetslauf erzeugen.
 6. Die API ist die fachlich autoritative Zielgrenze. CLI und
    `Project Edge Client` erzeugen keine zweite Befehls- oder
    Event-Semantik neben der API; sie sind ausschliesslich
@@ -228,12 +264,33 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    verwendet. Externe Referenzen sind niemals Wahrheitsquelle fuer
    Story-Identitaet, -Status oder -Story-Attribute; sie duerfen
    hoechstens als read-only Anzeige gespiegelt werden.
-10. Jeder CLI-Befehl in §91.1 ist Adapter auf einen
-    Control-Plane-Endpoint. Die einzige Ausnahme ist `agentkit auth bootstrap`:
-    dieser Erstzugang ist gemaess FK-15 §15.10.3 eine lokale, interaktive
-    Credential-Owner-Mutation auf der Core-Maschine und besitzt absichtlich
-    keinen HTTP-Endpunkt. Weitere eigenstaendige CLI-Implementierungen ohne
-    API-Vertrag sind unzulaessig.
+10. Jeder **mutierende** CLI-Befehl in §91.1 ist Adapter auf einen
+    Control-Plane-Endpoint,
+    ausser den zwei genau benannten lokalen Credential-Owner-Operationen:
+    `agentkit auth bootstrap` initialisiert gemaess FK-15 §15.10.3 interaktiv
+    das Core-Credential ohne HTTP-Endpunkt; `agentkit auth store-token` prueft
+    das ausgehaendigte Token ueber einen authentifizierten HTTPS-Read und
+    publiziert es danach gemaess FK-15 §15.10.4 im lokalen Client-Speicher.
+    Weitere eigenstaendige mutierende CLI-Implementierungen ohne API-Vertrag
+    sind unzulaessig. **BEHOBENER VERSTOSS — Stand 2026-08-05, AG3-214
+    Runde 4:** `agentkit register-project` und `agentkit upgrade-project`
+    verletzten diese Regel. Ihre CLI-Einstiege in
+    `src/agentkit/backend/cli/installer_commands.py` in `_cmd_register_project`
+    und `_cmd_upgrade_project` bauen ueber
+    `src/agentkit/backend/installer/runner.py` sowie
+    `src/agentkit/backend/installer/upgrade/entry.py` in
+    `run_checkpoint_upgrade`
+    produktive Repositories im CLI-Prozess. Sie schrieben `project_registry`,
+    `projects`, Skill-Bindings und Governance-Hook-Registrierungen ohne die
+    Writer-Lease; die damalige Hook-Migration liegt in
+    `src/agentkit/backend/installer/upgrade/engine.py` in
+    `up_04_migrate_hooks`. Heute pruefen beide Verben vor ihrer ersten lokalen
+    Projektwirkung den authentisierten aktiven Writer. Sie verwenden fuer CP 7,
+    Skill-Binding-State und CP 9/UP 04 ausschliesslich die projektgeskoppelten
+    Installer-Routen; produktive State-Backend-Repositories entstehen nur im
+    Writer-Prozess. Ein sichtbares Root-`op_id` erzeugt stabile Child-Claims pro
+    Wirkung unter Regel 5. Unerreichbarkeit endet benannt fail-closed; es gibt
+    weder lokalen Fallback noch eine vom Installer selbst erworbene Lease.
 11. **Versions-Handshake (dev↔central):** Jeder Dev→Control-Plane-Request
     fuehrt die Agent-Runtime-Version (Paketversion) und das gebundene
     Skill-Bundle als Header (z. B. `X-AK3-Client`, `X-AK3-Skill-Bundle`).
@@ -284,9 +341,29 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     `(project_key)`-Serialisierung, Lock-Set-Erwerbsordnung und
     Queue-Fairness waren mechanik ohne Aufrufer und sind entfallen).
     Die projekt-skopierten Installer-Validierungen mutieren keine Story und
-    nehmen keinen Story-Claim. Ihre Exactly-once-/In-Flight-Serialisierung ist
-    ausschliesslich an das client-beigestellte `op_id` im gemeinsamen
-    `ControlPlaneOperationRecord` gebunden.
+    nehmen keinen Story-Claim. Die Installer-Writer-Mutationen fuer CP 7, CP 8
+    und CP 9/UP 04 mutieren zwar projektgeskoppelten Control-Plane-State, aber
+    ebenfalls keine Story; auch sie nehmen keinen Story-Claim. Ihr
+    Serialisierungsobjekt ist jeweils der vor Dispatch erworbene, projekt- und
+    Session-gebundene `ControlPlaneOperationRecord` fuer das client-beigestellte
+    Root- beziehungsweise stabile Child-`op_id`. Er verhindert Replay,
+    Body-Mismatch und parallele Doppelausfuehrung. Bei einem mehrstufigen
+    CP-8-Bind wird ein unklar beantworteter Save nicht kompensierend geloescht:
+    die moeglicherweise persistierte Zeile bleibt fuer die Konvergenz desselben
+    Child-Claims erhalten, waehrend der lokale Lauf ehrlich als partiell
+    fehlschlaegt; der Same-`op_id`-Retry replayt beziehungsweise vervollstaendigt
+    bis `VERIFIED`. Dasselbe Serialisierungsobjekt gilt fuer die vier
+    Failure-Corpus-Admin-Mutationen: Pattern-, Check- und Incident-Identitaeten
+    sind Domainziele, aber kein Story-Claim-Scope; ihr vor Dispatch erworbener
+    `ControlPlaneOperationRecord` serialisiert exakt die client-beigestellte
+    `op_id` und verhindert Replay, Body-Mismatch und parallele
+    Doppelausfuehrung.
+    Bei diesen storylosen Writer-Mutationen umfasst die Transaktion auf der
+    reservierten Session nicht nur einen einzelnen Repository-Aufruf, sondern
+    alle Domain-Schritte und die terminale Claim-Finalisierung. Der projekt- und
+    sessiongebundene Operation-Record bleibt ihr deklariertes
+    Serialisierungsobjekt; die gemeinsame Transaktionsgrenze ist sein
+    Commit-Vertrag, kein neues Projekt-Lock.
 14. **Synchrone Umsetzung, Rekonsiliierung bei Verbindungsabbruch.**
     Objekt-serialisierte Mutationen sind wo moeglich kurz und
     transaktional. Laenger laufende Umsetzungsarbeit (z. B. LLM-Phasen
@@ -330,17 +407,49 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     `execution_contract_digest` (FK-44 §44.3a; Run-Pinning-/Audit-
     Artefakt, kein Fence-Praedikat mehr).
 16. **In-Flight-Claims sind instanzgebunden, nie wanduhrgebunden.**
-    Jeder In-Flight-Claim traegt eine stabile Instanz-Identitaet
-    (`backend_instance_id` + Boot-Inkarnation) und endet nur auf zwei
-    Wegen: durch die **Start-Rekonsiliierung der eigenen Instanz**
-    (beim Serverstart, vor Beginn der Request-Annahme, werden
-    verwaiste Claims der eigenen Identitaet aus frueheren
-    Inkarnationen deterministisch als gescheitert finalisiert) oder
-    durch den expliziten administrativen Abbruch
+    Jeder In-Flight-Claim traegt die am Writer-Lock unveraenderlich gebundene
+    Instanz-Identitaet (`backend_instance_id` + Boot-Inkarnation), nie einen neu
+    gelesenen globalen Singleton. Verwaiste Claims enden durch die
+    **Start-Rekonsiliierung der eigenen Instanz** (Runtime-Claims werden vor
+    Request-Annahme deterministisch `failed`/`repair`) oder durch den expliziten
+    administrativen Abbruch
     (`admin_abort_inflight_operation`) — **niemals** durch Wanduhr,
-    TTL oder Lease-Ablauf. Betriebsannahme (normativ): **genau eine
-    aktive Control-Plane-Writer-Instanz pro Datenbank**
-    (FK-10 §10.5.4).
+    TTL oder Lease-Ablauf. Genau benannte Auth-Claims (Tokenanlage,
+    Tokenwiderruf, Passwortrotation) werden beim Start ohne Admin-Eingriff als
+    `failed` finalisiert: Sie besitzen keine Engine-Schreibwirkung, aus der ein
+    `repair`-Fall folgen koennte, und ihr Credential-Ergebnis darf mangels
+    dauerhafter eindeutiger Zuordnung nicht als `committed` rekonstruiert werden.
+    Eine moeglicherweise bereits publizierte Credential-Wirkung wird dadurch
+    nicht rueckgaengig gemacht; Retry bleibt mit `409 operation_conflict`
+    blockiert. Betriebsvertrag (normativ): **genau eine
+    aktive Control-Plane-Writer-Instanz pro Datenbank**; ein
+    datenbankweiter, sessiongebundener Lebensdauer-Lock wird vor
+    Inkarnationswechsel und Reconciliation erworben; alle innerhalb des aktiven
+    Writers ausgefuehrten State-Zugriffe laufen ueber diese Session. Der in
+    Regel 10 historisch benannte Installer-Verstoss ist behoben: CP 7, CP 8,
+    CP 9 und UP 04 schreiben nur noch ueber projektgeskoppelte Routen dieses
+    Writers. Jeder neue Claim muss
+    `operation_epoch >= 1`, `backend_instance_id` und
+    `instance_incarnation` tragen; jede Claim-Schreibgrenze weist fehlende
+    Absenderfelder unabhaengig vom Aufrufer hart ab. Ein applikationseigener
+    Liveness-Monitor prueft die Lease regelmaessig aktiv ueber dieselbe
+    reservierte Session, auch wenn kein Request anliegt. Angenommene Handler halten einen Request-Fence
+    bis zum Ruecklauf, pruefen nichttransaktionale Auth-Wirkungen commit-nah und
+    werden vor geordneter Freigabe gedraint. Angenommene asynchrone Writer-
+    Futures zaehlen bis zur terminalen Claim-Finalisierung ebenfalls als aktive
+    Arbeit und werden vor Unlock gedraint; bei Lease-Verlust sind weitere
+    Finalisierung, Pool-Fallback und Late-Commit verboten. Erkannter Lease-Verlust beendet
+    beide Listener ohne Erfolgsantwort. UI-BFF und Project-API laufen als zwei Listener dieser einen
+    Boot-Identitaet (FK-10 §10.5.4).
+    Fuer fruehere eigene Claims der atomaren storylosen Installer- und
+    Failure-Corpus-Writer-Operationen gilt dagegen ein beweisbarer Sonderfall:
+    Steht ihr Record nach einem Bootwechsel noch auf `claimed`, konnte die
+    gemeinsame Domain-/Finalize-Transaktion nicht committet haben. Die
+    Start-Rekonsiliierung gibt deshalb den eigentuemer- und epochengefencten
+    Placeholder frei, statt ihn terminal `failed` zu setzen; derselbe `op_id`
+    kann die vollstaendige Wirkung danach erneut ausfuehren und konvergieren.
+    Ein nullable `story_id` bleibt dabei `null` und wird niemals als
+    wertartig aussehender String `"None"` materialisiert.
 17. **Transport-Timeouts haben keine fachliche Bedeutung.**
     HTTP-/Proxy-Timeouts duerfen existieren, sind aber kein
     Steuerungsinstrument fuer Ownership oder Operations-Semantik: ein
@@ -365,12 +474,35 @@ Result. Der Bundle-Sync (`POST /v1/project-edge/sync`, §91.1a)
 bleibt reine Zustands-/Result-Projektion und wird nicht mit
 Auftraegen ueberladen.
 
+**Delegationsvertrag der Gegenrichtung.** Ob ein Knoten fuer eine
+Rueckdelegation etabliert und damit zulaessig ist, bestimmt ausschliesslich
+FK-01 §1.1a. Wire-seitig wird dieser Knoten durch die projekt-, run- und
+session-gebundene Command-Queue-Bindung des vorherigen Project-Edge-Aufrufs
+adressiert. Das Backend darf nur in genau diese bestehende Bindung einen
+Review-Auftrag einstellen; es darf weder einen beliebigen Knoten adressieren
+noch selbst eine Verbindung zu einer Harness-Installation oeffnen. Die
+physische Zustellung bleibt ein Pull des lokalen Project Edge ueber den
+`GET`-Endpoint unten.
+
+Beim Auftrag `start_review_agents` ist Project Edge selbst der lokale
+Empfaenger und startet die Review-Agenten ueber die Harness-Anbindung aus
+FK-76 §76.10. Der Auftrag wird bewusst nicht an den Orchestrator-Agenten
+zugestellt; Review-Prompts, Zwischenrunden und Ergebnisse laufen ueber Project
+Edge und den Result-Pfad unten am Orchestrator-Kontext vorbei. **Diese
+Kontextschonung ist Zweck und Pflicht des Bypasses:** Der Orchestrator darf
+nicht mit den Sparringsrunden belastet werden, weil sein Kontext die knappe
+Ressource fuer den Ueberblick ueber den Gesamtablauf ist. Eine Zustellung an
+den Orchestrator mit anschliessendem Sub-Agent-Spawn erfuellt den Vertrag
+nicht.
+
 | Endpoint | Methode | Beschreibung |
 |----------|---------|--------------|
 | `/v1/project-edge/story-runs/{run_id}/commands` | `GET` | Offene Edge-Auftraege (Command-Records) der eigenen Session abrufen; der Abruf quittiert die Zustellung (Ack). Read — nimmt keine Sperren (Regel 13) |
 | `/v1/project-edge/commands/{command_id}/result` | `POST` | Ergebnis eines Edge-Auftrags melden. Mutierende Operation: client-beigestelltes `op_id` (Regel 5), Serialisierungsobjekt `(project_key, story_id)` (Regel 13); der Abschluss-Commit ist nach Regel 15 gegen den aktiven Ownership-Record gefenct |
 
-**Auftragsarten:** `provision_worktree` (FK-22 §22.6.2),
+**Auftragsarten:** `start_review_agents` (Review-Beauftragung auf dem
+etablierten Knoten nach dem Delegationsvertrag oben),
+`provision_worktree` (FK-22 §22.6.2),
 `teardown_worktree` (FK-12 §12.5.3), `preflight_probe`
 (FK-22 §22.3.1), `sync_push` (FK-10 §10.2.4b), `takeover_reconcile`
 (FK-30 §30.6.3; das Ergebnis wird ueber den Wire-Contract
@@ -425,8 +557,12 @@ supersedet eine alte offene Generation vor Commissioning der neuen.
 ## 91.1 Operator-Recovery-CLI (agentkit)
 
 **Akteur:** Die CLI ist ausschliesslich ein menschlicher und
-administrativer Pfad. Mit der genau benannten Erstzugangs-Ausnahme
-`agentkit auth bootstrap` ist sie Adapter auf die Control-Plane-API (§91.1a).
+administrativer Pfad. Ihr bindender Vertrag ist mit den zwei genau benannten
+lokalen Credential-Owner-Operationen `agentkit auth bootstrap` und
+`agentkit auth store-token` die Adapterrolle auf die Control-Plane-API
+(§91.1a). Der in §91.1a Regel 10 datierte Installer-Verstoss ist behoben;
+`register-project` und `upgrade-project` sind Project-Token-geschuetzte
+HTTPS-Adapter auf den aktiven Writer.
 Agents duerfen die CLI niemals direkt aufrufen; ihr Zugriff laeuft
 ueber den `Project Edge Client` gegen die REST-API. Die folgenden
 Befehle sind damit fachlich gleichbedeutend mit dem zugehoerigen
@@ -440,12 +576,14 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 | Befehl | Kapitel | Beschreibung |
 |--------|---------|-------------|
 | `agentkit auth bootstrap [--auth-config {path}]` | 15 | Einzige Nicht-API-Ausnahme: initialisiert das Strategenpasswort einmalig direkt beim lokalen Credential-Owner der Core-Maschine; interaktives Terminal und doppelte Passworteingabe sind Pflicht, eine anonyme HTTP-Entsprechung existiert nicht |
-| `agentkit auth login --project-key {project_key} --base-url {url}` | 15 | Duenner Adapter auf `POST /v1/auth/login`; prueft das Strategenpasswort und verwirft die kurzlebige Session nach dem Nachweis |
-| `agentkit auth rotate-password --project-key {project_key} --base-url {url} [--op-id {op_id}]` | 15 | Duenner Adapter auf Login und `POST /v1/auth/password`; zeigt die clientseitige `op_id` vor dem Request und nimmt sie nach Antwortverlust fuer den Regel-5-Replay wieder entgegen |
-| `agentkit auth issue-token --project-key {project_key} --project-root {path} --base-url {url}` | 15 | Duenner Adapter auf Login und `POST /v1/projects/{project_key}/api-tokens`; erzeugt und publiziert das Klartext-Token ausschliesslich im geschuetzten Edge-Credential-Speicher |
-| `agentkit auth revoke-token --project-key {project_key} --project-root {path} --token-id {token_id} --base-url {url} [--op-id {op_id}]` | 15 | Duenner Adapter auf Login und `DELETE /v1/projects/{project_key}/api-tokens/{token_id}`; zeigt die clientseitige `op_id` vor dem Request, akzeptiert sie beim Retry erneut und bindet die lokale Rotationsbestaetigung an denselben Regel-5-Uebergang |
-| `agentkit register-project --gh-owner {owner} --gh-repo {repo}` | 50 | Projekt registrieren bzw. idempotent erneut registrieren |
-| `agentkit register-project --gh-owner {owner} --gh-repo {repo} --dry-run` | 50 | Checkpoint-Vorschau ohne Mutation |
+| `agentkit auth login --project-key {project_key} --base-url {url} [--ca-file {path}]` | 15 | Duenner Adapter auf `POST /v1/auth/login`; prueft das Strategenpasswort und verwirft die kurzlebige Session nach dem Nachweis |
+| `agentkit auth rotate-password --project-key {project_key} --base-url {url} [--ca-file {path}] [--op-id {op_id}]` | 15 | Duenner Adapter auf Login und `POST /v1/auth/password`; zeigt die clientseitige `op_id` vor dem Request und nimmt sie nach Antwortverlust fuer den Regel-5-Replay wieder entgegen |
+| `agentkit auth issue-token --project-key {project_key} --base-url {url} [--ca-file {path}] [--label {label}]` | 15 | Duenner Admin-Adapter auf Login und `POST /v1/projects/{project_key}/api-tokens`; gibt das Klartext-Token einmalig im Admin-Terminal aus und publiziert keine Client-Credential |
+| `agentkit auth store-token --project-key {project_key} --project-root {path} --base-url {url} [--ca-file {path}] [--label {label}] [--replace]` | 15 | Rollengetrennter Client-Adapter: liest das ausgehaendigte Token ohne Strategenpasswort, prueft es per HTTPS und publiziert die projektlokale Credential atomar |
+| `agentkit auth revoke-token --project-key {project_key} --token-id {token_id} --base-url {url} [--ca-file {path}] [--op-id {op_id}]` | 15 | Duenner Admin-Adapter auf Login und `DELETE /v1/projects/{project_key}/api-tokens/{token_id}`; zeigt die clientseitige `op_id` vor dem Request und akzeptiert sie beim Retry erneut; ein Laptop-Dateibaum ist nicht Teil dieses Pfads |
+| `agentkit register-project --project-key {project_key} --project-name {name} --project-root {path} --github-owner {owner} --github-repo {repo} [--control-plane-base-url {url}] [--control-plane-ca-file {path}] [--op-id {op_id}]` | 50 | Project-Token-geschuetzter Adapter auf den aktiven Writer. Readiness wird vor jeder Projektwirkung geprueft; CP 7, Skill-Binding-State und CP 9 laufen ueber die Installer-Routen. Root-`op_id` wird vor Transport offengelegt; kein lokaler State-Repository-Fallback. |
+| `agentkit register-project --project-key {project_key} --project-name {name} --project-root {path} --github-owner {owner} --github-repo {repo} --dry-run [--control-plane-base-url {url}] [--control-plane-ca-file {path}] [--op-id {op_id}]` | 50 | Checkpoint-Vorschau ohne Mutation; authentisierte Writer-Readiness und kanonische Reads bleiben Pflicht. |
+| `agentkit upgrade-project --project-key {project_key} --project-root {path} --target-config-version {version} [--control-plane-base-url {url}] [--control-plane-ca-file {path}] [--op-id {op_id}]` | 51 | Project-Token-geschuetzter Adapter auf den aktiven Writer. Registration-/Binding-Reads und UP-04-Hook-Persistenz laufen ueber die Installer-Routen; fehlender Writer endet vor jeder lokalen Upgrade-Wirkung fail-closed. |
 | `agentkit verify-project` | 50 | Read-only Verifikation des Registrierungszustands |
 | `agentkit run-phase {phase} --story {story_id} --run {run_id} --session {session_id} --principal {principal_type} --worktree {path} --project {project_key} --base-url {url}` | 45 | Pipeline-Phase ausfuehren — **Operator-Recovery-Spezialfall**. Seit AG3-130 duenner REST-Anforderer: dispatcht ausschliesslich ueber `POST /v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/start` (§91.1a, FK-10 §10.1.0 I3), kein in-process Runtime-Build im CLI-Prozess |
 | `agentkit structural` | 33 | Structural Checks ausführen |
@@ -458,12 +596,13 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 | `agentkit takeover-confirm --story {story_id} --run {run_id} --challenge-id {challenge_id} --reason {reason} --project {project_key} --base-url {url}` | 56 | Duenner REST-Adapter auf `POST …/ownership/takeover-confirm`; **requires strategist session** (Login mit lokalem Passwort, Session-Cookie + CSRF), zeigt den Challenge-Selektor vor der interaktiven Bestaetigung und bietet keinen Force-Pfad |
 | `agentkit recover-story --story {story_id} --run {run_id} --reason {reason} --project {project_key} --base-url {url} [--discard]` | 20 | Duenner REST-Adapter auf `POST …/ownership/recover`; traegt `worktree_disposition=adopt` als Default (Uebernehmen) bzw. bei bestaetigtem `--discard` `worktree_disposition=reset` (Verwerfen ueber den Edge-Auftrag) |
 | `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
-| `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen — **Operator-Notfallpfad** |
-| `agentkit split-story --story {story_id}` | 54 | Scope-Explosion kontrolliert in Nachfolger-Stories überführen — **Operator-Notfallpfad** |
+| `agentkit reset-story --story {story_id} --reason {reason} --project {project_key} --project-root {path} --base-url {url} [--ca-file {path}] [--escalation-ref {ref}] [--dry-run] [--force]` | 53 | Duenner Strategen-Adapter auf `POST /v1/projects/{project_key}/stories/{story_id}/reset`. Die serverseitig authentisierte Session ersetzt Payload-Attestierungen; ausschliesslich der aktive Writer claimt und finalisiert per `operation_epoch`-CAS. |
+| `agentkit admin-abort {op_id} --session {session_id} --principal {principal_type} --reason {reason} --project {project_key} --base-url {url} [--ca-file {path}]` | 55/91 | Duenner Strategen-Adapter auf `POST /v1/project-edge/operations/{op_id}/admin-abort`; Login, Session-Cookie und CSRF sind Pflicht, Payload-Identitaet wird serverseitig durch die authentifizierte Session ersetzt. |
+| `agentkit split-story --story {story_id} --plan {path} --reason {reason} --project {project_key} --run {run_id} --project-root {path} --base-url {url} [--ca-file {path}]` | 54 | Scope-Explosion kontrolliert ueber den strategengeschuetzten Writer-Endpunkt `/v1/projects/{project_key}/stories/{story_id}/split` in Nachfolger-Stories ueberfuehren; der CLI-Prozess mutiert keinen State und fuehrt keine Boot-Reconciliation aus. |
 | `agentkit resolve-conflict --story {story_id} --decision {decision}` | 55 | Autoritativen Snapshot-/Normkonflikt offiziell auflösen |
 | `agentkit approve-integration-manifest --story {story_id} --manifest {path}` | 57 | Integrations-Scope-Manifest fuer systemische E2E-/Stabilisierungsstory offiziell freigeben |
 | `agentkit amend-integration-manifest --story {story_id} --manifest {path}` | 57 | Erweiterung oder Rekonfiguration eines laufenden Integrations-Manifests offiziell anfordern |
-| `agentkit exit-story --story {story_id} --reason {reason}` | 58 | Story-Execution offiziell beenden und in Human-Takeover uebergeben — **Operator-Notfallpfad** |
+| `agentkit exit-story --story {story_id} --run {run_id} --reason {reason} --project {project_key} --project-root {path} --base-url {url} [--ca-file {path}] [--note {note}]` | 58 | Duenner Strategen-Adapter auf `POST /v1/projects/{project_key}/stories/{story_id}/exit`. Die handelnde Identitaet kommt aus der Session; der aktive Writer loest die Ziel-Session aus dem Ownership-State auf und finalisiert per `operation_epoch`-CAS. |
 | `agentkit approve-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch freigeben, optional als Lease |
 | `agentkit reject-permission-request --request {request_id}` | 55 | Offenen Permission-Einzelfall als Mensch ablehnen |
 | `agentkit guard-status` | 56 | Aktuellen Betriebsmodus, Run-Bindung und aktives Guard-Regime anzeigen |
@@ -472,11 +611,11 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 | `agentkit dashboard [--port {port}]` | 63 | Read-only Dashboard für Runtime- und Analytics-Daten starten |
 | `agentkit weekly-review` | 52 | Wöchentlichen Review-Slot anzeigen |
 | `agentkit failure-corpus suggest-patterns` | 41 | Pattern-Kandidaten vorschlagen |
-| `agentkit failure-corpus review-patterns` | 41 | Patterns reviewen |
-| `agentkit failure-corpus review-checks` | 41 | Check-Proposals reviewen |
-| `agentkit failure-corpus effectiveness-report` | 41 | Wirksamkeits-Report |
+| `agentkit failure-corpus review-patterns --project-key {project_key} --project-root {path} --base-url {url} [--ca-file {path}] [--op-id {op_id}]` | 41 | Duenner Strategen-Adapter auf den Pattern-Review-Writer-Endpoint; kein lokaler State-Writer; `op_id` wird vor Transport offengelegt |
+| `agentkit failure-corpus review-checks --project-key {project_key} --project-root {path} --base-url {url} [--ca-file {path}] [--op-id {op_id}]` | 41 | Duenner Strategen-Adapter auf den Check-Review-Writer-Endpoint; kein lokaler State-Writer; `op_id` wird vor Transport offengelegt |
+| `agentkit failure-corpus effectiveness-report --project-key {project_key} --project-root {path} --base-url {url} [--ca-file {path}] [--op-id {op_id}]` | 41 | Duenner Strategen-Adapter auf den mutierenden Effektivitaets-Writer-Endpoint; kein lokaler State-Writer; `op_id` wird vor Transport offengelegt |
 | `agentkit failure-corpus list-checks` | 41 | Aktive Checks anzeigen |
-| `agentkit failure-corpus add-incident` | 41 | Incident manuell erfassen |
+| `agentkit failure-corpus add-incident --project-key {project_key} --project-root {path} --base-url {url} [--ca-file {path}] [--op-id {op_id}]` | 41 | Incident ueber den strategengeschuetzten Writer-Endpoint manuell erfassen; kein lokaler State-Writer; `op_id` wird vor Transport offengelegt |
 | `agentkit evidence assemble` | 26 | Evidence-Bundle für Review assemblieren (3-Stufen: Git-Diff, Import-Resolver, Worker-Hints) |
 
 ## 91.2 Telemetrie-Event-Typen

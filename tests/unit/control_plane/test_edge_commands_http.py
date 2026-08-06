@@ -59,7 +59,11 @@ class _FakeEdgeCommandRuntimeService(ControlPlaneRuntimeService):
         self.post_calls: list[tuple[str, EdgeCommandResultRequest]] = []
 
     def list_and_ack_open_commands(
-        self, run_id: str, *, project_key: str, session_id: str,
+        self,
+        run_id: str,
+        *,
+        project_key: str,
+        session_id: str,
     ) -> OpenEdgeCommandsResponse:
         if self.error is not None:
             raise self.error
@@ -67,7 +71,9 @@ class _FakeEdgeCommandRuntimeService(ControlPlaneRuntimeService):
         return self._open_commands
 
     def submit_command_result(
-        self, command_id: str, request: EdgeCommandResultRequest,
+        self,
+        command_id: str,
+        request: EdgeCommandResultRequest,
     ) -> EdgeCommandMutationResult:
         if self.error is not None:
             raise self.error
@@ -78,6 +84,7 @@ class _FakeEdgeCommandRuntimeService(ControlPlaneRuntimeService):
 
 def _app(runtime: ControlPlaneRuntimeService) -> ControlPlaneApplication:
     return ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=runtime,
         story_service=_FakeStoryService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -178,7 +185,9 @@ def _post_result(app: ControlPlaneApplication, *, command_id: str, body: dict[st
 def test_post_command_result_completed_returns_201() -> None:
     runtime = _FakeEdgeCommandRuntimeService(
         result=EdgeCommandMutationResult(
-            status="completed", command_id="cmd-1", op_id="op-1",
+            status="completed",
+            command_id="cmd-1",
+            op_id="op-1",
         )
     )
     app = _app(runtime)

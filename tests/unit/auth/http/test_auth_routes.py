@@ -6,15 +6,18 @@ from http import HTTPStatus
 from threading import Event, Thread
 from typing import TYPE_CHECKING
 
+import pytest
 from argon2 import PasswordHasher
 from argon2.low_level import Type
 
 from agentkit.backend.auth.credentials import StrategistCredentialStore
 from agentkit.backend.auth.entities import ProjectApiToken, StrategistCredentials
+from agentkit.backend.auth.errors import AuthFailedError
 from agentkit.backend.auth.http.routes import AuthRoutes
-from agentkit.backend.auth.middleware import AuthMiddleware
+from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
 from agentkit.backend.auth.sessions import FileSessionStore, InMemorySessionStore
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
+from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseLostError
 from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     IdempotencyRequest,
@@ -26,8 +29,6 @@ from agentkit.harness_client.projectedge.credentials import prepare_project_api_
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 class _InMemoryTokenRepository:
@@ -70,24 +71,6 @@ class _InMemoryTokenRepository:
         self.tokens[token_id] = token.model_copy(update={"revoked_at": token.created_at})
 
 
-class _PausingRecoveryGuard(InMemoryInflightIdempotencyGuard):
-    """Expose the exact recovery-finalize window to a deterministic test."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.recover_entered = Event()
-        self.allow_recover = Event()
-
-    def recover(
-        self,
-        request: IdempotencyRequest,
-        result_payload: dict[str, object],
-    ) -> bool:
-        self.recover_entered.set()
-        assert self.allow_recover.wait(timeout=5)
-        return super().recover(request, result_payload)
-
-
 def _json_body(response: HttpResponse) -> dict[str, object]:
     body = json.loads(response.body)
     assert isinstance(body, dict)
@@ -125,6 +108,7 @@ def _app(
     )
     middleware = AuthMiddleware(session_store=sessions, token_repository=tokens)
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(auth_routes=routes),
         auth_middleware=middleware,
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -153,6 +137,7 @@ def _file_session_app(
     middleware = AuthMiddleware(session_store=sessions, token_repository=tokens)
     return (
         ControlPlaneApplication(
+            writer_lease_required=False,
             routes=ControlPlaneApplicationRoutes(auth_routes=routes),
             auth_middleware=middleware,
             tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -408,11 +393,14 @@ def test_project_token_cannot_administer_strategist_or_project_tokens(tmp_path: 
 
     assert replacement.record.token_id not in tokens.tokens
     assert tokens.tokens[owner_token.record.token_id].revoked_at is None
-    assert app.handle_request(
-        method="POST",
-        path="/v1/auth/login",
-        body=json.dumps({"username": "admin", "password": "secret"}).encode("utf-8"),
-    ).status_code == HTTPStatus.OK
+    assert (
+        app.handle_request(
+            method="POST",
+            path="/v1/auth/login",
+            body=json.dumps({"username": "admin", "password": "secret"}).encode("utf-8"),
+        ).status_code
+        == HTTPStatus.OK
+    )
 
 
 def test_password_validation_error_never_echoes_request_input(tmp_path: Path) -> None:
@@ -579,6 +567,7 @@ def test_parallel_old_password_login_cannot_survive_rotation(
         idempotency_guard=InMemoryInflightIdempotencyGuard(),
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(auth_routes=routes),
         auth_middleware=AuthMiddleware(session_store=sessions, token_repository=tokens),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -689,6 +678,66 @@ def test_password_rotation_in_flight_is_rejected_without_changing_secret(
     assert new_login.status_code == HTTPStatus.UNAUTHORIZED
 
 
+def test_password_rotation_rechecks_writer_after_transition_lock_before_publish(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Lease loss during Argon2 hashing cannot publish the computed password."""
+
+    credentials = StrategistCredentialStore(tmp_path / "auth.json")
+    credentials.initialize_password("secret")
+    routes = AuthRoutes(
+        credential_store=credentials,
+        session_store=InMemorySessionStore(),
+        token_repository=_InMemoryTokenRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
+    checks = 0
+    hash_completed = False
+    original_hash = PasswordHasher.hash
+
+    def hash_then_lose_lease(
+        hasher: PasswordHasher,
+        password: str | bytes,
+        *,
+        salt: bytes | None = None,
+    ) -> str:
+        nonlocal hash_completed
+        result = original_hash(hasher, password, salt=salt)
+        hash_completed = True
+        return result
+
+    monkeypatch.setattr(PasswordHasher, "hash", hash_then_lose_lease)
+
+    def fail_commit_near_check() -> None:
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            assert hash_completed
+            raise ControlPlaneWriterLeaseLostError("simulated lease loss")
+
+    routes.bind_writer_authority(fail_commit_near_check)
+
+    with pytest.raises(ControlPlaneWriterLeaseLostError, match="simulated lease loss"):
+        routes.handle_post(
+            "/v1/auth/password",
+            {"new_password": "must-not-publish", "op_id": "op-lease-loss"},
+            "req-lease-loss",
+            request_headers=None,
+            auth_result=AuthResult(
+                auth_kind="strategist_session",
+                project_key="tenant-a",
+            ),
+        )
+
+    credentials.verify(StrategistCredentials(username="admin", password="secret"))
+    with pytest.raises(AuthFailedError, match="Authentication failed"):
+        credentials.verify(
+            StrategistCredentials(username="admin", password="must-not-publish"),
+        )
+    assert checks == 2
+
+
 def test_same_as_current_password_cannot_terminalize_a_live_rotation_claim(
     tmp_path: Path,
 ) -> None:
@@ -715,7 +764,7 @@ def test_same_as_current_password_cannot_terminalize_a_live_rotation_claim(
     assert isinstance(guard.classify(request), InFlightOutcome)
 
 
-def test_password_rotation_recovers_crash_after_hash_publish_before_finalize(
+def test_password_rotation_does_not_guess_crash_outcome_from_current_hash(
     tmp_path: Path,
 ) -> None:
     guard = InMemoryInflightIdempotencyGuard()
@@ -738,13 +787,13 @@ def test_password_rotation_recovers_crash_after_hash_publish_before_finalize(
         op_id="op-password-orphan",
     )
 
-    recovered = app.handle_request(
+    first_retry = app.handle_request(
         method="POST",
         path="/v1/auth/password",
         body=json.dumps(payload).encode("utf-8"),
         request_headers=headers,
     )
-    replay = app.handle_request(
+    second_retry = app.handle_request(
         method="POST",
         path="/v1/auth/password",
         body=json.dumps(payload).encode("utf-8"),
@@ -756,81 +805,43 @@ def test_password_rotation_recovers_crash_after_hash_publish_before_finalize(
         ),
     )
 
-    assert recovered.status_code == HTTPStatus.OK
-    assert replay.status_code == HTTPStatus.OK
-    assert _json_body(replay) == _json_body(recovered)
+    assert first_retry.status_code == HTTPStatus.CONFLICT
+    assert second_retry.status_code == HTTPStatus.CONFLICT
+    assert _json_body(first_retry)["error_code"] == "operation_in_flight"
+    assert _json_body(second_retry)["error_code"] == "operation_in_flight"
 
 
-def test_password_recovery_holds_credential_lock_through_claim_finalization(
+def test_later_password_rotation_cannot_falsely_prove_older_claim(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    guard = _PausingRecoveryGuard()
+    guard = InMemoryInflightIdempotencyGuard()
     app, _tokens = _app(tmp_path, guard=guard)
-    payload = {
-        "new_password": "published-before-recovery",
-        "op_id": "op-password-atomic-recovery",
-    }
+    payload = {"new_password": "older-password", "op_id": "op-password-older"}
     request = IdempotencyRequest(
-        op_id="op-password-atomic-recovery",
+        op_id="op-password-older",
         operation_kind="strategist_password_rotate",
         body_hash=compute_body_hash(payload),
         project_key="tenant-a",
     )
-    headers = _auth_headers(app, "req-password-atomic-recovery")
     guard.claim(request)
-    StrategistCredentialStore(tmp_path / "auth.json").rotate_password(
-        "published-before-recovery",
-        op_id=request.op_id,
-    )
-    recovered: list[HttpResponse] = []
-    later_store = StrategistCredentialStore(tmp_path / "auth.json")
-    later_write_entered = Event()
-    later_rotation_finished = Event()
+    credential_store = StrategistCredentialStore(tmp_path / "auth.json")
+    credential_store.rotate_password("older-password", op_id=request.op_id)
+    credential_store.rotate_password("later-password", op_id="op-password-later")
 
-    def observe_later_write(
-        password: str,
-        *,
-        last_rotation_op_id: str | None = None,
-    ) -> None:
-        del password, last_rotation_op_id
-        later_write_entered.set()
-
-    monkeypatch.setattr(later_store, "_write_password", observe_later_write)
-
-    recovery = Thread(
-        target=lambda: recovered.append(
-            app.handle_request(
-                method="POST",
-                path="/v1/auth/password",
-                body=json.dumps(payload).encode("utf-8"),
-                request_headers=headers,
-            ),
+    retry = app.handle_request(
+        method="POST",
+        path="/v1/auth/password",
+        body=json.dumps(payload).encode("utf-8"),
+        request_headers=_auth_headers(
+            app,
+            "req-password-older-retry",
+            password="later-password",
         ),
     )
 
-    def rotate_later() -> None:
-        later_store.rotate_password(
-            "later-password",
-            op_id="op-later-password",
-        )
-        later_rotation_finished.set()
-
-    later_rotation = Thread(target=rotate_later)
-    recovery.start()
-    assert guard.recover_entered.wait(timeout=5)
-    later_rotation.start()
-    later_rotation_was_blocked = not later_write_entered.wait(timeout=0.1)
-    guard.allow_recover.set()
-    recovery.join(timeout=5)
-    later_rotation.join(timeout=5)
-
-    assert not recovery.is_alive()
-    assert not later_rotation.is_alive()
-    assert later_rotation_was_blocked
-    assert later_write_entered.is_set()
-    assert later_rotation_finished.is_set()
-    assert recovered[0].status_code == HTTPStatus.OK
+    assert retry.status_code == HTTPStatus.CONFLICT
+    assert _json_body(retry)["error_code"] == "operation_in_flight"
+    assert isinstance(guard.classify(request), InFlightOutcome)
 
 
 def test_password_rotation_cleanup_failure_preserves_claim_and_revokes_generation(
@@ -890,11 +901,12 @@ def test_password_rotation_cleanup_failure_preserves_claim_and_revokes_generatio
     assert isinstance(claim_after_failure, InFlightOutcome)
     assert claim_was_preserved
     assert stale_session.status_code == HTTPStatus.UNAUTHORIZED
-    assert retry.status_code == HTTPStatus.OK
-    assert not isinstance(guard.classify(request), InFlightOutcome)
+    assert retry.status_code == HTTPStatus.CONFLICT
+    assert _json_body(retry)["error_code"] == "operation_in_flight"
+    assert isinstance(guard.classify(request), InFlightOutcome)
 
 
-def test_create_token_recovers_crash_after_insert_before_finalize(tmp_path: Path) -> None:
+def test_create_token_does_not_guess_matching_record_belongs_to_claim(tmp_path: Path) -> None:
     guard = InMemoryInflightIdempotencyGuard()
     app, tokens = _app(tmp_path, guard=guard)
     headers = _auth_headers(app, "req-token-orphan")
@@ -924,14 +936,14 @@ def test_create_token_recovers_crash_after_insert_before_finalize(tmp_path: Path
         ),
     )
 
-    recovered = _create_token(
+    first_retry = _create_token(
         app,
         headers,
         op_id="op-token-orphan",
         token_id="a" * 32,
         token_hash="b" * 64,
     )
-    replay = _create_token(
+    second_retry = _create_token(
         app,
         headers,
         op_id="op-token-orphan",
@@ -939,9 +951,10 @@ def test_create_token_recovers_crash_after_insert_before_finalize(tmp_path: Path
         token_hash="b" * 64,
     )
 
-    assert recovered.status_code == HTTPStatus.CREATED
-    assert replay.status_code == HTTPStatus.CREATED
-    assert _json_body(replay) == _json_body(recovered)
+    assert first_retry.status_code == HTTPStatus.CONFLICT
+    assert second_retry.status_code == HTTPStatus.CONFLICT
+    assert _json_body(first_retry)["error_code"] == "operation_in_flight"
+    assert _json_body(second_retry)["error_code"] == "operation_in_flight"
     assert tokens.save_count == 1
 
 

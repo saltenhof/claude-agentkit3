@@ -205,16 +205,37 @@ class _ClaimMixin:
             ),
         )
 
-    def _release_my_claim(self, op_id: str, owner_token: str, owner_claimed_at: str | None) -> None:
+    def _release_my_claim(
+        self,
+        op_id: str,
+        owner_token: str,
+        owner_claimed_at: str | None,
+        owner_operation_epoch: int | None,
+    ) -> None:
         """Ownership-scoped release of MY claim (never a foreign / terminal row).
 
         WARNING-4 fix (#4): the release CAS matches BOTH the owner token AND MY
         claim instant (``owner_claimed_at``), so a stale generation (a reused token
         in DI/test wiring) cannot delete a NEWER claim generation.
         """
-        self._repo.release_operation(op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at)
+        applied = self._repo.release_operation(
+            op_id,
+            owner_token=owner_token,
+            owner_claimed_at=owner_claimed_at,
+            owner_operation_epoch=owner_operation_epoch,
+        )
+        if not applied:
+            raise RuntimeError(
+                f"control-plane claim release CAS did not apply for op_id={op_id!r}",
+            )
 
-    def _release_my_claim_best_effort(self, op_id: str, owner_token: str, owner_claimed_at: str | None) -> None:
+    def _release_my_claim_best_effort(
+        self,
+        op_id: str,
+        owner_token: str,
+        owner_claimed_at: str | None,
+        owner_operation_epoch: int | None,
+    ) -> None:
         """Release MY claim without masking an in-flight original error (#1).
 
         Used on the exception path: a release failure must NOT replace the original
@@ -222,7 +243,16 @@ class _ClaimMixin:
         propagates (NO ERROR BYPASSING). The CAS is claim-instant-scoped (#4).
         """
         try:
-            self._repo.release_operation(op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at)
+            applied = self._repo.release_operation(
+                op_id,
+                owner_token=owner_token,
+                owner_claimed_at=owner_claimed_at,
+                owner_operation_epoch=owner_operation_epoch,
+            )
+            if not applied:
+                raise RuntimeError(
+                    f"control-plane claim release CAS did not apply for op_id={op_id!r}",
+                )
         except Exception:  # noqa: BLE001 -- never mask the original error
             logger.warning(
                 "control-plane claim release failed for op_id=%s (original error "

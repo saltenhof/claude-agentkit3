@@ -16,6 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.fixtures.installer_writer import (
+    InMemoryInstallerRegistrationRepository,
+)
 from tests.fixtures.vectordb_installer import ready_vectordb_install_kwargs
 
 from agentkit.backend.config.loader import load_project_config
@@ -25,6 +28,7 @@ from agentkit.backend.installer.runner import MANDATORY_SKILLS
 from agentkit.backend.skills import Skills, create_directory_link
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
 from agentkit.backend.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.skills.version_policy import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS
 
 
 def _directory_links_supported() -> bool:
@@ -43,6 +47,10 @@ def _directory_links_supported() -> bool:
 
 _LINKS_AVAILABLE = _directory_links_supported()
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
+_PRODUCTIVE_BUNDLE_VERSIONS = {
+    name: MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(bundle_id, "4.0.0")
+    for name, bundle_id in _BUNDLE_IDS.items()
+}
 
 
 def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleStore]:
@@ -55,13 +63,14 @@ def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleSto
     """
     store = SkillBundleStore(store_root=bundle_store_root)
     for skill_name in MANDATORY_SKILLS:
-        bundle_root = bundle_store_root / f"{skill_name}-core" / "4.0.0"
+        bundle_version = _PRODUCTIVE_BUNDLE_VERSIONS[skill_name]
+        bundle_root = bundle_store_root / f"{skill_name}-core" / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
                 bundle_id=f"{skill_name}-core",
-                bundle_version="4.0.0",
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -267,12 +276,16 @@ def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     # binding step (AG3-048 AC#5) resolves and the scaffold is produced. The
     # systemwide store is unique per project_root to keep installs isolated.
     skills, store = _provisioned_skills(project_root.parent / f".skill-bundles-{project_root.name}")
+    registration_repo = InMemoryInstallerRegistrationRepository()
     return InstallConfig(
         project_root=project_root,
         default_project_structure=True,
         skills=skills,
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
+        registration_repo=registration_repo,
+        project_repo=registration_repo.project_repo,
+        hook_registration_repo=registration_repo.hook_repo,
         **ready_vectordb_install_kwargs(),
         **kwargs,
     )

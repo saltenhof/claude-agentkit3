@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 #: MCP server key of the FK-13 story-knowledge-base server (FK-50 §50.3 CP 10).
 STORY_KNOWLEDGE_BASE_SERVER: str = "story-knowledge-base"
@@ -101,10 +101,9 @@ class Ak3ServerShape:
     KEYS are fully determined.
 
     Attributes:
-        command: Executable command AK3 registers for this server name, or
-            :data:`AK3_INTERPRETER_COMMAND` when the command is the ABSOLUTE
-            path of the interpreter that provides AK3 (resolved per machine at
-            registration time, see below).
+        command: Executable command AK3 registers for this server name, or one
+            of the absolute-command sentinels when the concrete interpreter or
+            wrapper path is resolved per machine at registration time.
         args: Argument vector AK3 registers for this server name.
         env_keys: Exact set of environment keys AK3 registers.
     """
@@ -113,23 +112,36 @@ class Ak3ServerShape:
     args: tuple[str, ...]
     env_keys: frozenset[str]
 
-    def matches_command(self, candidate: object) -> bool:
+    def matches_command(
+        self,
+        candidate: object,
+        *,
+        resolved_owner_command: str | None = None,
+        path_owner_matcher: Callable[[object, str | None], bool] | None = None,
+    ) -> bool:
         """Return whether ``candidate`` is a command AK3 itself would register.
 
-        For :data:`AK3_INTERPRETER_COMMAND` shapes the concrete value is a
-        machine-specific interpreter PATH, so it cannot be compared to a literal.
-        What AK3 always writes there — and what a bare tool name never is — is a
-        path: it carries a separator. That stays checkable without touching the
-        filesystem (a detach still recognises its own entry after the venv is
-        gone) and OS-independently (a POSIX path is not "absolute" to
-        ``PureWindowsPath`` and vice versa). The remaining ownership weight is
-        carried by the rest of the shape — server name, exact ``args``, exact
-        field and env-key sets, ``cwd`` — which already over-determines it.
+        For absolute-command shapes the concrete value is a machine-specific
+        interpreter or wrapper path, so it cannot be compared to a literal. The
+        candidate must be accepted by the filesystem boundary's injected owner
+        matcher against the concrete command already proved by the central owner
+        for this operation. Keeping filesystem I/O outside this leaf contract
+        preserves the ``core_types`` architecture boundary. A missing matcher or
+        owner therefore fails closed.
+
+        Candidate symlinks are deliberately rejected even when their current
+        target is the owner. The comparison never follows the candidate, so a
+        later link swap cannot make a different path compare equal. AK3's central
+        resolver never publishes a symlink, and accepting one would turn mutable
+        link state into deletion authority.
         """
         if not isinstance(candidate, str) or not candidate.strip():
             return False
-        if self.command == AK3_INTERPRETER_COMMAND:
-            return "/" in candidate or "\\" in candidate
+        if self.command in {AK3_INTERPRETER_COMMAND, AK3_WRAPPER_COMMAND}:
+            return path_owner_matcher is not None and path_owner_matcher(
+                candidate,
+                resolved_owner_command,
+            )
         return candidate == self.command
 
 
@@ -143,6 +155,19 @@ class Ak3ServerShape:
 #: use, with the installer having reported success.
 AK3_INTERPRETER_COMMAND: str = "<ak3-interpreter>"
 
+#: Sentinel for an installed console-script wrapper resolved beside the absolute
+#: AK3 interpreter. The wrapper name remains an installer concern; the harness
+#: registration contract records only that the published command is absolute.
+AK3_WRAPPER_COMMAND: str = "<ak3-wrapper>"
+
+#: Distribution entry-point name owned by AG3-173 and resolved by the central
+#: interpreter owner before CP 10 renders or probes any registration.
+ARE_MCP_WRAPPER_NAME: str = "agentkit-are-mcp"
+
+#: Distribution entry-point name of the Codex hook wrapper. It is also the
+#: command-owner snapshot key used by destructive Codex configuration decisions.
+CODEX_HOOK_WRAPPER_NAME: str = "agentkit-hook-codex"
+
 
 #: Expected registration per AK3-owned server name. SINGLE SOURCE OF TRUTH: the
 #: installer derives the values it writes from here, and the harness adapter
@@ -155,7 +180,7 @@ AK3_SERVER_SHAPES: dict[str, Ak3ServerShape] = {
         env_keys=frozenset(REGISTERED_ENV_KEYS),
     ),
     ARE_MCP_SERVER: Ak3ServerShape(
-        command="agentkit-are-mcp",
+        command=AK3_WRAPPER_COMMAND,
         args=(),
         env_keys=frozenset({ARE_MCP_SERVER_ENV_KEY}),
     ),
@@ -192,8 +217,7 @@ class DesiredMcpServer:
     Attributes:
         name: Server key in the harness configuration (``mcpServers.<name>`` /
             ``[mcp_servers.<name>]``).
-        command: Executable command, resolved by the harness against ``cwd`` or
-            ``PATH``.
+        command: Absolute executable command resolved by AK3 before publication.
         args: Full argument vector.
         cwd: Working / containment boundary. NOT a configuration source (D2).
         env: Fully rendered environment as ordered ``(key, value)`` pairs.
@@ -424,8 +448,11 @@ __all__ = [
     "AK3_MCP_SERVER_NAMES",
     "AK3_INTERPRETER_COMMAND",
     "AK3_SERVER_SHAPES",
+    "AK3_WRAPPER_COMMAND",
     "ARE_MCP_SERVER",
     "ARE_MCP_SERVER_ENV_KEY",
+    "ARE_MCP_WRAPPER_NAME",
+    "CODEX_HOOK_WRAPPER_NAME",
     "MCP_JSON_STDIO_TYPE",
     "REGISTERED_ENV_KEYS",
     "STORY_KNOWLEDGE_BASE_SERVER",

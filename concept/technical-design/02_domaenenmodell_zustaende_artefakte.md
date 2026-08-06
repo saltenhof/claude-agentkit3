@@ -41,7 +41,7 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 | **Guard** | Permanenter Hook-basierter Schutzmechanismus. Blockiert verbotene Aktionen. | Python-Skript, PreToolUse-Hook, exit(0)/exit(2) |
 | **Gate** | Einmaliger oder mehrstufiger Prüfpunkt innerhalb eines Flows. Blockiert bei Failure den Fortschritt. | `Gate`-Knoten der Prozess-DSL + deterministischer Gate-Runner |
 | **Execution Policy** | Regel, ob ein Schritt immer, nur einmal oder nur bis zum Erfolg ausgeführt werden darf. | Enum auf `NodeDefinition` |
-| **Override** | Expliziter, auditierbarer Eingriff von Mensch/Orchestrator in den Ablauf. | Override-Record / CLI-Kommando, durch Engine ausgewertet |
+| **Override** | Expliziter, auditierbarer Eingriff von Mensch/Orchestrator in den Ablauf. | Override-Record; Mensch via Operator-CLI, Orchestrator via Project Edge, durch Engine ausgewertet |
 | **Artefakt** | Maschinenlesbares Ergebnis eines Pipeline-Schritts. | Strukturierter Record im zentralen State-Backend; optional als JSON exportierbar |
 | **Incident** | Einzelbeobachtung eines Agent-Fehlverhaltens. | JSONL-Eintrag in Failure Corpus |
 | **Pattern** | Wiederkehrendes Muster über mehrere Incidents. | JSONL-Eintrag in Failure Corpus |

@@ -18,8 +18,13 @@ Split of responsibilities (AG3-175):
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.backend.boundary.filesystem import (
+    FilesystemContainmentError,
+    assert_project_local_file_path,
+)
 from agentkit.backend.exceptions import InstallationError
 from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.paths import CODEX_DIR, codex_config_path
@@ -33,7 +38,6 @@ from agentkit.harness_client.harness_adapters.codex_config_toml import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
     from agentkit.backend.core_types.mcp_server_registration import DesiredMcpServer
 
@@ -60,37 +64,17 @@ def assert_project_local_codex_config(project_root: Path) -> Path:
             file itself is a symlink, or the resolved directory escapes the
             project root. Nothing is read or written in that case.
     """
-    # Lazy import on purpose: importing ``agentkit.backend.skills`` at module level
-    # would execute the whole agent-skills package (including its telemetry edge)
-    # while the installer package is being imported, which surfaces a latent
-    # import cycle in ``agentkit.backend.telemetry``. The installer already uses
-    # lazy imports for exactly this reason elsewhere (e.g. CP 10d -> runner).
-    from agentkit.backend.skills.links import is_directory_link
-
-    root = project_root.resolve()
-    codex_dir = project_root / CODEX_DIR
-    if is_directory_link(codex_dir):
-        raise CodexConfigError(
-            CodexConfigRejection.PATH_ESCAPES_PROJECT_ROOT,
-            f"{codex_dir} is a symlink/junction; refusing to write Codex "
-            "configuration through a reparse point (a user path must never be "
-            "written, AG3-175 AC 3).",
+    try:
+        return assert_project_local_file_path(
+            project_root,
+            Path(CODEX_DIR) / "config.toml",
         )
-    path = codex_config_path(project_root)
-    if path.is_symlink():
+    except FilesystemContainmentError as exc:
         raise CodexConfigError(
             CodexConfigRejection.PATH_ESCAPES_PROJECT_ROOT,
-            f"{path} is a symlink; refusing to write Codex configuration through "
-            "it (a user path must never be written, AG3-175 AC 3).",
-        )
-    resolved_dir = codex_dir.resolve() if codex_dir.exists() else (root / CODEX_DIR)
-    if not resolved_dir.is_relative_to(root):
-        raise CodexConfigError(
-            CodexConfigRejection.PATH_ESCAPES_PROJECT_ROOT,
-            f"{resolved_dir} resolves outside the project root {root} "
+            f"Codex configuration is not provably project-local: {exc} "
             "(containment violation, fail-closed).",
-        )
-    return path
+        ) from exc
 
 
 def read_codex_config_bytes(project_root: Path) -> bytes | None:
@@ -234,25 +218,16 @@ def write_codex_settings(project_root: Path) -> str | None:
 
 
 def remove_codex_settings(project_root: Path) -> tuple[str, ...]:
-    """Remove the AgentKit Codex settings file and empty parent directory.
+    """Remove only Codex settings proven to be owned by AgentKit.
 
-    Note: this helper has no production caller — uninstall goes through
-    ``lifecycle.detach``, which classifies ownership before removing anything. It
-    is retained unchanged for the existing focused test.
+    The public interface remains available, but destructive authority lives in
+    the detach lifecycle. Importing lazily avoids a module cycle during normal
+    installer startup while ensuring this helper cannot bypass the detach-time
+    owner snapshot and semantic preservation rules.
     """
+    from agentkit.backend.installer.lifecycle.detach import detach_codex_config
 
-    removed: list[str] = []
-    config_path = codex_config_path(project_root)
-    if config_path.exists():
-        config_path.unlink()
-        removed.append(str(config_path.relative_to(project_root)))
-
-    codex_dir = project_root / CODEX_DIR
-    if codex_dir.is_dir() and not any(codex_dir.iterdir()):
-        codex_dir.rmdir()
-        removed.append(CODEX_DIR)
-
-    return tuple(removed)
+    return detach_codex_config(project_root)
 
 
 __all__ = [

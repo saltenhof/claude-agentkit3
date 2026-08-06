@@ -105,58 +105,23 @@ class _InMemoryFactRepo:
         self._pipeline = pipeline or []
         self._corpus = corpus or []
 
-    def list_fact_stories(
-        self, project_key: str, period: PeriodFilter | None = None
-    ) -> list[FactStory]:
+    def list_fact_stories(self, project_key: str, period: PeriodFilter | None = None) -> list[FactStory]:
         rows = [s for s in self._stories if s.project_key == project_key]
         if period is not None:
-            rows = [
-                s
-                for s in rows
-                if s.closed_at is not None
-                and period.start <= s.closed_at < period.end
-            ]
+            rows = [s for s in rows if s.closed_at is not None and period.start <= s.closed_at < period.end]
         return rows
 
-    def list_fact_guards(
-        self, project_key: str, period: PeriodFilter
-    ) -> list[FactGuardPeriod]:
-        return [
-            g
-            for g in self._guards
-            if g.project_key == project_key
-            and period.start <= g.period_start < period.end
-        ]
+    def list_fact_guards(self, project_key: str, period: PeriodFilter) -> list[FactGuardPeriod]:
+        return [g for g in self._guards if g.project_key == project_key and period.start <= g.period_start < period.end]
 
-    def list_fact_pool(
-        self, project_key: str, period: PeriodFilter
-    ) -> list[FactPoolPeriod]:
-        return [
-            p
-            for p in self._pools
-            if p.project_key == project_key
-            and period.start <= p.period_start < period.end
-        ]
+    def list_fact_pool(self, project_key: str, period: PeriodFilter) -> list[FactPoolPeriod]:
+        return [p for p in self._pools if p.project_key == project_key and period.start <= p.period_start < period.end]
 
-    def list_fact_pipeline(
-        self, project_key: str, period: PeriodFilter
-    ) -> list[FactPipelinePeriod]:
-        return [
-            p
-            for p in self._pipeline
-            if p.project_key == project_key
-            and period.start <= p.period_start < period.end
-        ]
+    def list_fact_pipeline(self, project_key: str, period: PeriodFilter) -> list[FactPipelinePeriod]:
+        return [p for p in self._pipeline if p.project_key == project_key and period.start <= p.period_start < period.end]
 
-    def list_fact_corpus(
-        self, project_key: str, period: PeriodFilter
-    ) -> list[FactCorpusPeriod]:
-        return [
-            c
-            for c in self._corpus
-            if c.project_key == project_key
-            and period.start <= c.period_start < period.end
-        ]
+    def list_fact_corpus(self, project_key: str, period: PeriodFilter) -> list[FactCorpusPeriod]:
+        return [c for c in self._corpus if c.project_key == project_key and period.start <= c.period_start < period.end]
 
     # Write methods (not exercised in read-only tests but required by Protocol).
     def get_sync_state(self, project_key: str, key: str) -> None:
@@ -231,16 +196,13 @@ def _make_app(
             default_worker_count=2,
             repositories=["repo-a"],
         )
-        project_repo.save(
-            create_project(
-                "tenant-a", "Tenant A", "AG3", config, repositories=["repo-a"]
-            )
-        )
+        project_repo.save(create_project("tenant-a", "Tenant A", "AG3", config, repositories=["repo-a"]))
 
     tenant_scope = TenantScopeMiddleware(repository=project_repo)
     kpi_routes = KpiAnalyticsRoutes(kpi_analytics=analytics)
 
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             kpi_analytics_routes=kpi_routes,
         ),
@@ -321,9 +283,7 @@ def test_kpi_root_endpoint_exists(tmp_path: object) -> None:
 
 
 @pytest.mark.parametrize("dimension", ["stories", "guards", "pools", "pipeline", "corpus"])
-def test_empty_rollup_returns_200_with_empty_status(
-    tmp_path: object, dimension: str
-) -> None:
+def test_empty_rollup_returns_200_with_empty_status(tmp_path: object, dimension: str) -> None:
     """AC7: empty FactStore → HTTP 200, status=EMPTY, rows=[]."""
     analytics = _make_kpi_analytics()
     app = _make_app(tmp_path, analytics)
@@ -488,9 +448,7 @@ def test_kpi_unknown_project_returns_error(tmp_path: object) -> None:
     app = _make_app(tmp_path, analytics, seed_project=True)
 
     # "unknown-project" was not seeded — middleware should reject it.
-    status, _body = _get(
-        app, "/v1/projects/unknown-project/kpi/stories", _PERIOD_QUERY
-    )
+    status, _body = _get(app, "/v1/projects/unknown-project/kpi/stories", _PERIOD_QUERY)
     # Middleware returns 404 (project not found) or 403 (forbidden).
     assert status in (403, 404), f"Expected 403/404, got {status}"
 
@@ -617,11 +575,7 @@ def test_comparison_period_parsed_and_surfaced(tmp_path: object) -> None:
     app = _make_app(tmp_path, analytics)
 
     path = f"/v1/projects/{_PROJECT}/kpi/stories"
-    compare_query = (
-        f"{_PERIOD_QUERY}"
-        "&compare_from=2025-01-01T00:00:00Z"
-        "&compare_to=2025-12-31T00:00:00Z"
-    )
+    compare_query = f"{_PERIOD_QUERY}&compare_from=2025-01-01T00:00:00Z&compare_to=2025-12-31T00:00:00Z"
     status, body = _get(app, path, compare_query)
 
     assert status == 200
@@ -651,11 +605,7 @@ def test_comparison_period_overlapping_main_period_returns_400(
 
     path = f"/v1/projects/{_PROJECT}/kpi/stories"
     # compare_to=2026-06-01 is AFTER period.start=2026-01-01 → invalid
-    bad_query = (
-        f"{_PERIOD_QUERY}"
-        "&compare_from=2025-01-01T00:00:00Z"
-        "&compare_to=2026-06-01T00:00:00Z"
-    )
+    bad_query = f"{_PERIOD_QUERY}&compare_from=2025-01-01T00:00:00Z&compare_to=2026-06-01T00:00:00Z"
     status, body = _get(app, path, bad_query)
 
     assert status == 400
@@ -706,9 +656,7 @@ def test_kpi_stories_scoped_to_project_key(tmp_path: object) -> None:
         ("tenant-a", "Tenant A", "AG3", "repo-a"),
         ("tenant-b", "Tenant B", "TB", "repo-b"),
     ]:
-        config = ProjectConfiguration(
-            repo_url="", default_branch="main", default_worker_count=1, repositories=[repo]
-        )
+        config = ProjectConfiguration(repo_url="", default_branch="main", default_worker_count=1, repositories=[repo])
         project_repo.save(create_project(key, name, prefix, config, repositories=[repo]))
 
     story_a = FactStory(
@@ -735,6 +683,7 @@ def test_kpi_stories_scoped_to_project_key(tmp_path: object) -> None:
     tenant_scope = TenantScopeMiddleware(repository=project_repo)
     kpi_routes = KpiAnalyticsRoutes(kpi_analytics=analytics)
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(kpi_analytics_routes=kpi_routes),
         tenant_scope_middleware=tenant_scope,
     )
@@ -765,9 +714,7 @@ def test_kpi_routes_do_not_access_story_service() -> None:
     from agentkit.backend.kpi_analytics.http import routes as routes_module
 
     source = inspect.getsource(routes_module)
-    assert "StoryService" not in source, (
-        "KpiAnalyticsRoutes must NOT reference StoryService (DRIFT-AG3-038 fix)"
-    )
+    assert "StoryService" not in source, "KpiAnalyticsRoutes must NOT reference StoryService (DRIFT-AG3-038 fix)"
 
 
 # ---------------------------------------------------------------------------
@@ -809,9 +756,7 @@ def test_reset_story_purged_upstream_is_absent_from_kpi(tmp_path: object) -> Non
     # Phase 1: before purge — both stories are in the repo.
     analytics_before = _make_kpi_analytics(stories=[clean_story, reset_story])
     app_before = _make_app(tmp_path, analytics_before)
-    status_before, body_before = _get(
-        app_before, f"/v1/projects/{_PROJECT}/kpi/stories", _PERIOD_QUERY
-    )
+    status_before, body_before = _get(app_before, f"/v1/projects/{_PROJECT}/kpi/stories", _PERIOD_QUERY)
     assert status_before == 200
     ids_before = [r["story_id"] for r in body_before["rows"]]
     assert "CLEAN-001" in ids_before, "Clean story must be present before purge"
@@ -820,15 +765,11 @@ def test_reset_story_purged_upstream_is_absent_from_kpi(tmp_path: object) -> Non
     # Phase 2: after purge — RESET-002 is deleted upstream; only CLEAN-001 remains.
     analytics_after = _make_kpi_analytics(stories=[clean_story])
     app_after = _make_app(tmp_path, analytics_after)
-    status_after, body_after = _get(
-        app_after, f"/v1/projects/{_PROJECT}/kpi/stories", _PERIOD_QUERY
-    )
+    status_after, body_after = _get(app_after, f"/v1/projects/{_PROJECT}/kpi/stories", _PERIOD_QUERY)
     assert status_after == 200
     ids_after = [r["story_id"] for r in body_after["rows"]]
     assert "CLEAN-001" in ids_after, "Clean story must still be present after purge"
-    assert "RESET-002" not in ids_after, (
-        "Purged reset story must NOT appear in KPI results (no late-query compensation)"
-    )
+    assert "RESET-002" not in ids_after, "Purged reset story must NOT appear in KPI results (no late-query compensation)"
 
 
 def test_read_path_has_no_late_compensation_code(tmp_path: object) -> None:
@@ -850,12 +791,9 @@ def test_read_path_has_no_late_compensation_code(tmp_path: object) -> None:
 
     for pattern in forbidden:
         assert pattern not in top_src.lower(), (
-            f"get_dashboard_view_with_filter must not contain late-compensation code "
-            f"({pattern!r})"
+            f"get_dashboard_view_with_filter must not contain late-compensation code ({pattern!r})"
         )
-        assert pattern not in routes_src.lower(), (
-            f"_handle_kpi_dimension must not contain late-compensation code ({pattern!r})"
-        )
+        assert pattern not in routes_src.lower(), f"_handle_kpi_dimension must not contain late-compensation code ({pattern!r})"
 
 
 # ---------------------------------------------------------------------------
@@ -894,11 +832,7 @@ def test_comparison_period_triggers_second_factstore_read(tmp_path: object) -> N
 
     path = f"/v1/projects/{_PROJECT}/kpi/stories"
     # Primary period: 2026. Comparison period: 2025 (entirely before primary.start).
-    compare_query = (
-        f"{_PERIOD_QUERY}"
-        "&compare_from=2025-01-01T00:00:00Z"
-        "&compare_to=2025-12-31T00:00:00Z"
-    )
+    compare_query = f"{_PERIOD_QUERY}&compare_from=2025-01-01T00:00:00Z&compare_to=2025-12-31T00:00:00Z"
     status, body = _get(app, path, compare_query)
 
     assert status == 200
@@ -910,9 +844,7 @@ def test_comparison_period_triggers_second_factstore_read(tmp_path: object) -> N
     # comparison_rows must include COMP-002 (completed in 2025).
     assert "comparison_rows" in body, "comparison_rows must be present in response"
     comp_ids = [r["story_id"] for r in body["comparison_rows"]]
-    assert "COMP-002" in comp_ids, (
-        "COMP-002 must appear in comparison_rows (second FactStore read with comparison period)"
-    )
+    assert "COMP-002" in comp_ids, "COMP-002 must appear in comparison_rows (second FactStore read with comparison period)"
     assert "PRIMARY-001" not in comp_ids  # out of comparison period
 
 

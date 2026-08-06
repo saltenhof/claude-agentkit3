@@ -35,6 +35,7 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
 )
 from agentkit.backend.control_plane.records import (
+    BackendInstanceIdentityRecord,
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
@@ -71,6 +72,12 @@ if TYPE_CHECKING:
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 
+_TEST_INSTANCE_IDENTITY = BackendInstanceIdentityRecord(
+    backend_instance_id="contract-operation-store",
+    instance_incarnation=1,
+    updated_at=datetime(2026, 8, 4, tzinfo=UTC),
+)
+
 
 def _op(
     op_id: str,
@@ -80,6 +87,11 @@ def _op(
     claimed_at: datetime | None = None,
 ) -> ControlPlaneOperationRecord:
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
+    resolved_claimed_by = claimed_by
+    resolved_claimed_at = claimed_at
+    if status == "claimed":
+        resolved_claimed_by = claimed_by or "owner-A"
+        resolved_claimed_at = claimed_at or now
     return ControlPlaneOperationRecord(
         op_id=op_id,
         project_key="tenant-a",
@@ -92,8 +104,11 @@ def _op(
         response_payload={},
         created_at=now,
         updated_at=now,
-        claimed_by=claimed_by,
-        claimed_at=claimed_at,
+        claimed_by=resolved_claimed_by,
+        claimed_at=resolved_claimed_at,
+        operation_epoch=1,
+        backend_instance_id="contract-test-writer",
+        instance_incarnation=1,
     )
 
 
@@ -311,7 +326,10 @@ def test_two_concurrent_same_op_id_starts_dispatch_once_real_store(
     del postgres_backend_env
     _seed_pg_story_context(tmp_path)
     dispatcher = _CountingDispatcher()
-    service = ControlPlaneRuntimeService(phase_dispatcher=dispatcher)  # type: ignore[arg-type]
+    service = ControlPlaneRuntimeService(
+        phase_dispatcher=dispatcher,  # type: ignore[arg-type]
+        instance_identity=_TEST_INSTANCE_IDENTITY,
+    )
     request = _pg_setup_request("op-pg-race-001")
 
     first = service.start_phase(run_id="run-100", phase="setup", request=request)
@@ -363,7 +381,10 @@ def test_exception_after_claim_releases_real_store_claim(
             )
 
     dispatcher = _ExplodingThenAdmitted()
-    service = ControlPlaneRuntimeService(phase_dispatcher=dispatcher)  # type: ignore[arg-type]
+    service = ControlPlaneRuntimeService(
+        phase_dispatcher=dispatcher,  # type: ignore[arg-type]
+        instance_identity=_TEST_INSTANCE_IDENTITY,
+    )
     request = _pg_setup_request("op-pg-boom-001")
 
     with pytest.raises(RuntimeError, match="dispatch boom"):
@@ -418,6 +439,7 @@ def test_concurrent_claims_one_wins_loser_in_flight_real_store(
     loser_dispatcher = _CountingDispatcher()
     loser = ControlPlaneRuntimeService(
         phase_dispatcher=loser_dispatcher,  # type: ignore[arg-type]
+        instance_identity=_TEST_INSTANCE_IDENTITY,
         now_fn=lambda: now + timedelta(minutes=1),  # AG3-139: age never matters
         # WARNING-5 (#5): the minted owner token must be UUID-shaped; the loser's
         # token only needs to be valid + distinct (it never wins here).
@@ -893,6 +915,16 @@ def test_finalize_release_are_claim_generation_scoped_real_store(
         _claimed_op(op_id, owner="owner-X", claimed_at=new_epoch)
     ) is True
 
+    # The CURRENT owner and claim timestamp still cannot release a generation
+    # whose operation_epoch changed after a startup/admin scan.
+    assert release_control_plane_operation_global(
+        op_id,
+        owner_token="owner-X",
+        owner_claimed_at=new_epoch.isoformat(),
+        owner_operation_epoch=2,
+    ) is False
+    assert load_control_plane_operation_global(op_id) is not None
+
     # The PREVIOUS generation's release (same token, OLD epoch) is a no-op.
     release_control_plane_operation_global(
         op_id, owner_token="owner-X", owner_claimed_at=start.isoformat()
@@ -982,7 +1014,10 @@ def test_complete_phase_collision_writes_no_side_effects_real_store(
     op_id = "op-pg-complete-collision"
     _seed_live_claimed_start(op_id, now=now)
 
-    service = ControlPlaneRuntimeService(now_fn=lambda: now)
+    service = ControlPlaneRuntimeService(
+        now_fn=lambda: now,
+        instance_identity=_TEST_INSTANCE_IDENTITY,
+    )
     result = service.complete_phase(
         run_id="run-100",
         phase="implementation",
@@ -1037,7 +1072,10 @@ def test_complete_closure_collision_writes_no_side_effects_real_store(
     op_id = "op-pg-closure-collision"
     _seed_live_claimed_start(op_id, now=now)
 
-    service = ControlPlaneRuntimeService(now_fn=lambda: now)
+    service = ControlPlaneRuntimeService(
+        now_fn=lambda: now,
+        instance_identity=_TEST_INSTANCE_IDENTITY,
+    )
     result = service.complete_closure(
         run_id="run-100",
         request=ClosureCompleteRequest(
@@ -1213,7 +1251,10 @@ def test_standard_closure_foreign_binding_protected_real_store(
         )
     )
 
-    service = ControlPlaneRuntimeService(now_fn=lambda: now)
+    service = ControlPlaneRuntimeService(
+        now_fn=lambda: now,
+        instance_identity=_TEST_INSTANCE_IDENTITY,
+    )
     result = service.complete_closure(
         run_id="run-OLD",
         request=ClosureCompleteRequest(
@@ -1276,7 +1317,10 @@ def test_phase_start_reused_op_id_different_body_mismatch_real_store(
 
     del postgres_backend_env
     _seed_pg_story_context(tmp_path)
-    service = ControlPlaneRuntimeService(phase_dispatcher=_CountingDispatcher())  # type: ignore[arg-type]
+    service = ControlPlaneRuntimeService(
+        phase_dispatcher=_CountingDispatcher(),  # type: ignore[arg-type]
+        instance_identity=_TEST_INSTANCE_IDENTITY,
+    )
 
     first = service.start_phase(
         run_id="run-100",
@@ -1328,6 +1372,7 @@ def test_closure_reused_op_id_different_body_mismatch_real_store(
     service = ControlPlaneRuntimeService(
         phase_dispatcher=_CountingDispatcher(),  # type: ignore[arg-type]
         push_barrier_evidence=_FakeBarrierPort((_verified_input("api"),)),  # type: ignore[arg-type]
+        instance_identity=_TEST_INSTANCE_IDENTITY,
     )
     # Admit the run: a committed setup start materializes the run-matched evidence
     # closure requires (a session binding + a committed setup phase_start).

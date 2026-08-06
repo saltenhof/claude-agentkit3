@@ -3,10 +3,11 @@
 Two repairs, deliberately kept apart, because the leaked backslash means
 something different on each side of a JSON pair:
 
-* In a **value** it may be content. Our chunks are markdown and a model
-  that quotes one back quotes its escapes with it, so the backslash has to
-  SURVIVE — :func:`repair_markdown_escapes` therefore escapes it instead
-  of dropping it, and the decoded value stays character-identical.
+* In a **value** it may be content, for example a W3 explanation. The
+  backslash has to SURVIVE — :func:`repair_markdown_escapes` therefore
+  escapes it instead of dropping it, and the decoded value stays
+  character-identical. W2/W3 v2 evidence itself is source-referenced and
+  never passes through this repair.
 * In a **key** it can never be content. The response schemas are closed
   vocabularies of ``snake_case`` identifiers; a key with a backslash
   matches no field and is rejected as an unknown one. There the backslash
@@ -33,13 +34,10 @@ _ANY_ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|.)", re.S)
 def repair_markdown_escapes(text: str) -> str:
     """Escape backslashes that JSON does not recognise as escapes.
 
-    Our concept prose is markdown, and markdown escapes the pipes and
-    underscores inside tables (``\\|``, ``\\_``). Models quote those cells
-    back verbatim, where the backslash is no longer an escape but a syntax
-    error: ``Invalid JSON: invalid escape``. A single such cell used to end
-    a whole governance run (AG3-179), and patching one character class at a
-    time only moves the next failure one table over — ``\\_`` was fixed
-    before, ``\\|`` came next.
+    Model-produced JSON values can contain markdown escapes such as ``\\|``
+    and ``\\_``. A single such value used to end a governance run (AG3-179),
+    and patching one character class at a time only moves the next failure
+    one table over — ``\\_`` was fixed before, ``\\|`` came next.
 
     The stray backslash is DOUBLED, never dropped. Dropping it produces
     valid JSON that decodes to different text: the quoted cell

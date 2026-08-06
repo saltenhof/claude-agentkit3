@@ -15,6 +15,7 @@ from __future__ import annotations
 import http.client
 import json
 import threading
+from contextlib import contextmanager
 from http import HTTPStatus
 from http.server import HTTPServer
 from pathlib import Path
@@ -25,6 +26,7 @@ import pytest
 from agentkit.backend.control_plane.models import TelemetryEventAccepted
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
+    ControlPlaneSurface,
     _build_handler,
     serve_control_plane,
 )
@@ -46,6 +48,34 @@ _TELEMETRY_PATH = "/v1/telemetry/events"
 #: ``cli.serve``, FK-10 §10.7.2). These tests never bind a real socket -- the
 #: HTTPS server class is faked -- so any explicit port states the intent.
 _TEST_LISTENER_PORT = 9702
+_TEST_UI_PORT = 9701
+
+
+class _HeldTestLease:
+    """Held lease seam for transport-only serve wiring tests."""
+
+    def assert_held(self) -> None:
+        return None
+
+    def bind_identity(self, identity: object) -> None:
+        del identity
+
+    @contextmanager
+    def request_scope(self) -> Iterator[None]:
+        yield
+
+    def quiesce_requests(self) -> None:
+        return None
+
+    def release(self) -> None:
+        return None
+
+
+def _wire_held_test_lease(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "agentkit.backend.control_plane_http.app.run_pre_serve_startup",
+        lambda _runtime_service: _HeldTestLease(),
+    )
 
 
 class _RecordingTelemetryService:
@@ -83,11 +113,15 @@ def too_old_core() -> Iterator[tuple[str, _RecordingTelemetryService]]:
     telemetry = _RecordingTelemetryService()
     window = CompatWindow(
         agent_runtime=VersionAxisWindow(
-            min="999.0.0", max="999.0.0", recommended="999.0.0", blocked=(),
+            min="999.0.0",
+            max="999.0.0",
+            recommended="999.0.0",
+            blocked=(),
         ),
         wire=VersionAxisWindow(min="1", max="1", recommended="1", blocked=()),
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         version_handshake_middleware=VersionHandshakeMiddleware(window=window),
         telemetry_service=telemetry,  # type: ignore[arg-type]
     )
@@ -106,6 +140,7 @@ def compatible_core() -> Iterator[tuple[str, _RecordingTelemetryService]]:
     """A core whose default window admits the installed client version."""
     telemetry = _RecordingTelemetryService()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         version_handshake_middleware=VersionHandshakeMiddleware(),
         telemetry_service=telemetry,  # type: ignore[arg-type]
     )
@@ -129,7 +164,9 @@ def test_too_old_runtime_is_rejected_426_over_real_wire(
 
     with pytest.raises(ControlPlaneApiError) as exc_info:
         transport.send(
-            method="POST", path=_TELEMETRY_PATH, payload=_telemetry_payload(),
+            method="POST",
+            path=_TELEMETRY_PATH,
+            payload=_telemetry_payload(),
         )
 
     assert exc_info.value.http_status == HTTPStatus.UPGRADE_REQUIRED
@@ -145,7 +182,9 @@ def test_compatible_runtime_mutates_over_real_wire(
     transport = HttpsJsonTransport(base_url=base_url, skill_bundle_version="bundle-1")
 
     data = transport.send(
-        method="POST", path=_TELEMETRY_PATH, payload=_telemetry_payload(),
+        method="POST",
+        path=_TELEMETRY_PATH,
+        payload=_telemetry_payload(),
     )
 
     assert data["status"] == "accepted"
@@ -177,7 +216,10 @@ def test_compat_window_readable_over_real_wire(
 
 
 def _raw_post(
-    base_url: str, path: str, headers: dict[str, str], body: dict[str, object],
+    base_url: str,
+    path: str,
+    headers: dict[str, str],
+    body: dict[str, object],
 ) -> tuple[int, dict[str, object]]:
     """POST over a raw HTTP socket with EXACT headers (no transport header magic)."""
     host_port = base_url.removeprefix("http://")
@@ -200,11 +242,15 @@ def gated_core() -> Iterator[tuple[str, _RecordingTelemetryService]]:
     telemetry = _RecordingTelemetryService()
     window = CompatWindow(
         agent_runtime=VersionAxisWindow(
-            min="1.0.0", max="3.0.0", recommended="2.0.0", blocked=(),
+            min="1.0.0",
+            max="3.0.0",
+            recommended="2.0.0",
+            blocked=(),
         ),
         wire=VersionAxisWindow(min="1", max="1", recommended="1", blocked=()),
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         version_handshake_middleware=VersionHandshakeMiddleware(window=window),
         telemetry_service=telemetry,  # type: ignore[arg-type]
     )
@@ -289,6 +335,9 @@ class _FakeHttpsServer:
     def serve_forever(self) -> None:
         """No-op (the test never blocks on a real listener)."""
 
+    def shutdown(self) -> None:
+        """No-op."""
+
     def server_close(self) -> None:
         """No-op."""
 
@@ -300,16 +349,21 @@ def test_serve_control_plane_app_none_is_handshake_gated(
     captured: dict[str, ControlPlaneApplication] = {}
     real_build_handler = _build_handler
 
-    def _spy_build_handler(app: ControlPlaneApplication) -> object:
+    def _spy_build_handler(
+        app: ControlPlaneApplication,
+        surface: ControlPlaneSurface,
+    ) -> object:
         captured["app"] = app
-        return real_build_handler(app)
+        return real_build_handler(app, surface)
 
     monkeypatch.setattr(
         "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
+    _wire_held_test_lease(monkeypatch)
     monkeypatch.setattr(
-        "agentkit.backend.control_plane_http.app._build_handler", _spy_build_handler,
+        "agentkit.backend.control_plane_http.app._build_handler",
+        _spy_build_handler,
     )
 
     # AG3-138: this E2E test verifies handshake gating, not the pre-serve startup
@@ -317,10 +371,12 @@ def test_serve_control_plane_app_none_is_handshake_gated(
     # has its own dedicated tests). Inject a no-op hook so the handshake-gating
     # wiring is exercised without a live control-plane backend.
     serve_control_plane(
-        port=_TEST_LISTENER_PORT,
+        ui_host="127.0.0.1",
+        ui_port=_TEST_UI_PORT,
+        project_api_host="127.0.0.1",
+        project_api_port=_TEST_LISTENER_PORT,
         certfile=Path("tls/control-plane.pem"),
         app=None,
-        startup_hook=lambda _app: None,
     )
 
     # The production builder must never serve an ungated app (FK-91 Regel 11).
@@ -344,16 +400,23 @@ def test_serve_control_plane_gates_injected_ungated_app_over_socket(
         "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
+    _wire_held_test_lease(monkeypatch)
     # AG3-138: no-op startup hook (handshake-gating concern only; see above).
     serve_control_plane(
-        port=_TEST_LISTENER_PORT,
+        ui_host="127.0.0.1",
+        ui_port=_TEST_UI_PORT,
+        project_api_host="127.0.0.1",
+        project_api_port=_TEST_LISTENER_PORT,
         certfile=Path("tls/control-plane.pem"),
         app=ungated,
-        startup_hook=lambda _app: None,
     )
 
     # serve_control_plane must have injected the fail-closed handshake middleware.
     assert ungated._version_handshake is not None
+    # ``serve_control_plane`` has completed its fake-server lifecycle and
+    # correctly released its lease. Rebind the held seam while the captured
+    # handler is exercised below; this test isolates handshake ordering.
+    ungated._writer_lease = _HeldTestLease()  # type: ignore[assignment]  # noqa: SLF001
 
     handler_cls = _FakeHttpsServer.last_handler_cls
     server = HTTPServer(("127.0.0.1", 0), handler_cls)  # type: ignore[arg-type]
@@ -362,7 +425,10 @@ def test_serve_control_plane_gates_injected_ungated_app_over_socket(
     host, port = server.server_address
     try:
         status, payload = _raw_post(
-            f"http://{host}:{port}", _TELEMETRY_PATH, {}, _telemetry_payload(),
+            f"http://{host}:{port}",
+            _TELEMETRY_PATH,
+            {},
+            _telemetry_payload(),
         )
     finally:
         server.shutdown()
@@ -382,12 +448,15 @@ def test_auth_login_without_handshake_works_through_production_wiring(
         "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
+    _wire_held_test_lease(monkeypatch)
     # AG3-138: no-op startup hook (handshake-gating concern only; see above).
     serve_control_plane(
-        port=_TEST_LISTENER_PORT,
+        ui_host="127.0.0.1",
+        ui_port=_TEST_UI_PORT,
+        project_api_host="127.0.0.1",
+        project_api_port=_TEST_LISTENER_PORT,
         certfile=Path("tls/control-plane.pem"),
         app=None,
-        startup_hook=lambda _app: None,
     )
 
     handler_cls = _FakeHttpsServer.last_handler_cls

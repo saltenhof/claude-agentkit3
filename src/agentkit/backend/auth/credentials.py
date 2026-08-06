@@ -31,7 +31,7 @@ from agentkit.backend.boundary.filesystem.private_files import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from agentkit.backend.auth.entities import StrategistCredentials
 
@@ -112,12 +112,17 @@ class StrategistCredentialStore:
         password: str,
         *,
         op_id: str,
+        before_publish: Callable[[], None] | None = None,
     ) -> CredentialVerification:
         """Atomically replace an existing strategist password hash."""
         with self._mutation_lock():
             if not self._path.is_file():
                 raise CredentialStateError("Strategist password is not configured")
-            self._write_password(password, last_rotation_op_id=op_id)
+            self._write_password(
+                password,
+                last_rotation_op_id=op_id,
+                before_publish=before_publish,
+            )
         return CredentialVerification(username=_DEFAULT_USERNAME)
 
     def is_configured(self) -> bool:
@@ -217,13 +222,19 @@ class StrategistCredentialStore:
         password: str,
         *,
         last_rotation_op_id: str | None = None,
+        before_publish: Callable[[], None] | None = None,
     ) -> None:
+        # Argon2 hashing is intentionally completed before the commit-near fence:
+        # it can be expensive, so a writer that loses its lease while hashing must
+        # be rejected before the resulting credential is atomically published.
         payload = _StoredStrategistCredential(
             username=_DEFAULT_USERNAME,
             password_hash=self._password_hasher.hash(password),
             hash_algorithm="argon2id",
             last_rotation_op_id=last_rotation_op_id,
         )
+        if before_publish is not None:
+            before_publish()
         atomic_write_private_text(
             self._path,
             json.dumps(payload.model_dump(), sort_keys=True),

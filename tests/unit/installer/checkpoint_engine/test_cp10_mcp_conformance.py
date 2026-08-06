@@ -25,13 +25,11 @@ from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
 )
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.checkpoint_engine.reasons import (
-    DRY_RUN_PLAN_MARKER,
     REASON_MCP_COMMAND_NOT_FOUND,
     REASON_MCP_CONFIGURATION_INVALID,
     REASON_MCP_PROCESS_EXITED,
     REASON_MCP_PROTOCOL_ERROR,
     REASON_MCP_TOOLS_LIST_EMPTY,
-    REASON_PLANNED_NO_MUTATION,
 )
 from agentkit.backend.installer.registration import CheckpointStatus
 from agentkit.backend.installer.strict_json import (
@@ -349,7 +347,7 @@ def test_cp10_dry_run_and_verify_never_start_processes(
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    """P0-4: dry-run/verify must not invoke the live conformance probe."""
+    """P0-4/AG3-189: read-only modes resolve ARE fail-closed without probing."""
     calls: list[str] = []
 
     def _boom(_cmd: object, **_kwargs: object) -> object:
@@ -362,14 +360,9 @@ def test_cp10_dry_run_and_verify_never_start_processes(
         ctx = _ctx(tmp_path, registration_repo, features_are=True, mode=mode)
         result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
         assert calls == []
-        assert result.status in (
-            CheckpointStatus.CREATED,
-            CheckpointStatus.UPDATED,
-            CheckpointStatus.PASS,
-        )
-        if mode is ExecutionMode.DRY_RUN:
-            assert result.reason == REASON_PLANNED_NO_MUTATION
-            assert DRY_RUN_PLAN_MARKER in (result.detail or "")
+        assert result.status is CheckpointStatus.FAILED
+        assert result.reason == REASON_MCP_COMMAND_NOT_FOUND
+        assert "central AK3 interpreter owner" in (result.detail or "")
         assert not (tmp_path / ".mcp.json").exists()
 
 

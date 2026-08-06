@@ -95,6 +95,15 @@ _PROJECT_STORY_REJECT = re.compile(
 _PROJECT_STORY_CANCEL = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/cancel$",
 )
+_PROJECT_STORY_SPLIT = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/split$",
+)
+_PROJECT_STORY_RESET = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/reset$",
+)
+_PROJECT_STORY_EXIT = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/exit$",
+)
 _PROJECT_STORY_FIELDS = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/fields$",
 )

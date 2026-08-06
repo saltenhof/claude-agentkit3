@@ -42,35 +42,42 @@ def test_ag3_180_decision_record_and_secret_class_contract_are_present() -> None
     assert "Credential-Dateien sind weder allgemeine Konfiguration" in normalized_fk15
     assert "Argon2id-Hash" in fk15
     assert "### 15.10.4 Thin-Client-Token (Project-API)" in fk15
-    assert "`agentkit auth store-token`" in fk15
+    assert (
+        "`<absolute-agentkit-wrapper> auth store-token` ausschliesslich das "
+        "ausgehaendigte Token ein"
+        in normalized_fk15
+    )
     assert "Backend-Admin und Client-Bediener" in fk15
     assert "ausserhalb von AK3" in fk15
     assert "Strategenpasswort ist weder Eingabe noch Umgebungsvariable noch Datei" in normalized_fk15
     assert "Windows eine geschuetzte DACL" in fk15
     assert "`/v1/auth/password`" in fk91
     assert "gespeicherter Replay nach erneuter Anmeldung" in fk91
-    assert "vor Aktivierung der ersten Credential" in fk91
+    assert "noch kein einziges" in fk91
     assert "### 15.8.1 Dienstspezifische Bind-Grenzen" in fk15
     assert "Loopback oder dedizierter Server gemaess FK-10" in normalized_fk15
     assert "Logout-Replay bei bereits fehlender Zielsitzung" in normalized_fk15
-    assert "Profile derselben Control-Plane-Anwendung" in normalized_fk15
-    assert "prozessuebergreifenden Session-Store" in normalized_fk15
+    assert "zwei HTTPS-Listener **derselben Control-Plane-Laufzeit" in normalized_fk15
+    assert "eigenen Auth-Middleware-Kontext" in normalized_fk15
     assert "an die beim Login aktive Passwortgeneration gebunden" in normalized_fk15
     assert "greift nicht auf den Laptop-Dateibaum zu" in normalized_fk15
     assert "FK-72 §72.8 BFF-Topologie" in record
     assert "schema-geschlossen" in normalized_fk15
     assert "`last_rotation_op_id`" in normalized_fk15
-    assert "[--op-id {op_id}]` | 15 | Duenner Adapter auf Login und `DELETE" in fk91
+    assert "[--op-id {op_id}]` | 15 | Duenner Admin-Adapter auf Login und `DELETE" in fk91
     assert "Alle AgentKit-Dienste laufen auf `localhost`" not in fk15
     for auth_command in (
         "agentkit auth bootstrap",
         "agentkit auth login",
         "agentkit auth rotate-password",
         "agentkit auth issue-token",
+        "agentkit auth store-token",
         "agentkit auth revoke-token",
     ):
         assert auth_command in fk91
-    assert "einzige Ausnahme ist `agentkit auth bootstrap`" in " ".join(fk91.split())
+    assert "zwei genau benannten lokalen Credential-Owner-Operationen" in " ".join(
+        fk91.split(),
+    )
 
 
 def test_ag3_180_does_not_create_a_shared_deployment_unit_or_edge_backend_import() -> None:

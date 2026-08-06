@@ -459,8 +459,9 @@ nicht über einen Hook läuft.
 Neben Hook- und Runtime-Erzeugern bleibt die offizielle
 Control-Plane-API ein zulaessiger Producer-Pfad fuer Telemetrie:
 
-- Phase- und Closure-Aufrufe koennen kuenftig ueber offizielle
-  AgentKit-REST-Operationen statt ueber die lokale CLI erfolgen
+- Agentische Phase- und Closure-Aufrufe erfolgen ueber Project Edge und die
+  offiziellen AgentKit-REST-Operationen; die lokale CLI bleibt dem Menschen
+  als Operator-Recovery-Pfad vorbehalten
 - Agenten oder Adapter muessen dabei feste Request-Templates nutzen,
   keine frei formulierten HTTP-Aufrufe
 - die API darf nur denselben kanonischen Event-Vertrag produzieren,

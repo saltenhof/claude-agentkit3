@@ -14,12 +14,14 @@ import pytest
 
 from agentkit.backend.control_plane.ownership import OwnershipStatus
 from agentkit.backend.control_plane.records import (
-    BindingDeleteScope,
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.governance.principal_capabilities.principals import Principal
+from agentkit.backend.state_backend.backend_instance_identity_types import (
+    BackendInstanceIdentityRecord,
+)
 from agentkit.backend.story_exit import (
     ExitReason,
     ExitRunState,
@@ -53,28 +55,47 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _exit_repository(state: _ExitState) -> ControlPlaneRuntimeRepository:
-    def _commit(
+    def _claim(record: ControlPlaneOperationRecord) -> bool:
+        if record.op_id in state.operations:
+            return False
+        state.operations[record.op_id] = record
+        return True
+
+    def _finalize_disown(
         record: ControlPlaneOperationRecord,
         *,
-        binding_to_save: SessionRunBindingRecord | None,
-        binding_to_delete: BindingDeleteScope | None,
+        owner_token: str,
+        owner_claimed_at: str | None,
+        owner_operation_epoch: int | None,
+        revoked_binding: SessionRunBindingRecord,
+        ownership_status_target: OwnershipStatus,
         locks: tuple[StoryExecutionLockRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
-        ownership_status_target: OwnershipStatus | None = None,
-    ) -> None:
-        del events, binding_to_delete
+    ) -> bool:
+        del events
+        existing = state.operations.get(record.op_id)
+        if (
+            existing is None
+            or existing.status != "claimed"
+            or existing.claimed_by != owner_token
+            or existing.operation_epoch != owner_operation_epoch
+            or existing.claimed_at is None
+            or existing.claimed_at.isoformat() != owner_claimed_at
+        ):
+            return False
         assert ownership_status_target is OwnershipStatus.ENDED
         state.operations[record.op_id] = record
-        if binding_to_save is not None:
-            state.bindings[binding_to_save.session_id] = binding_to_save
+        state.bindings[revoked_binding.session_id] = revoked_binding
         for lock in locks:
             state.locks[(lock.project_key, lock.story_id, lock.run_id, lock.lock_type)] = (
                 lock
             )
+        return True
 
     return ControlPlaneRuntimeRepository(
         load_operation=state.operations.get,
-        commit_operation_with_side_effects=_commit,
+        claim_operation=_claim,
+        finalize_disown=_finalize_disown,
         has_committed_story_exit_operation_for_run=lambda project_key, story_id, run_id: any(
             operation.operation_kind == "story_exit"
             and operation.project_key == project_key
@@ -160,6 +181,11 @@ def test_story_exit_preserves_worktree_branch_and_commissions_no_cleanup(
             architecture_blockers=("human architecture decision required",),
         ),
         now_fn=lambda: _NOW,
+        instance_identity=BackendInstanceIdentityRecord(
+            backend_instance_id="test-story-exit-writer",
+            instance_incarnation=1,
+            updated_at=_NOW,
+        ),
     )
 
     result = service.exit_story(

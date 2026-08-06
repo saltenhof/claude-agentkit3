@@ -83,7 +83,7 @@ mit realen Daten befuellt werden.
 Das AgentKit QA Dashboard ist eine Single-Page-Applikation:
 
 - **Technologie**: Python stdlib HTTP-Server + Chart.js 4.4.7 (CDN)
-- **Start**: `agentkit dashboard [--port 9700]`
+- **Start**: `<absolute-agentkit-wrapper> dashboard [--port 9700]`
 - **Datenquelle**: Liest read-only aus PostgreSQL (runtime/analytics)
 - **5 Tabs**: QA Findings, Stage Results, Story Metrics,
   Failure Corpus, Trends

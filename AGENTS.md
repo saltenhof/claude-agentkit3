@@ -98,9 +98,15 @@ Auftraggeber iterieren.
   `T:\seu\agentkit3-secrets.cmd` und werden von den Codex-Startern fuer
   CLI und App geladen. Die Datei setzt `SONAR_URL`, `SONAR_PROJECT_KEY`,
   `SONAR_USER`, `SONAR_PASSWORD`, `JENKINS_URL`, `JENKINS_USER`,
-  `JENKINS_PASSWORD` und `JENKINS_API_TOKEN` (die JENKINS_*-User/Token
-  sind bei `SecurityRealm=None` Platzhalter, damit Tooling mit
-  Pflicht-Credentials nicht scheitert).
+  `JENKINS_PASSWORD` und `JENKINS_API_TOKEN`. Diese Werte sind **echt und
+  erforderlich**, keine Platzhalter — der frueher hier stehende Zusatz
+  „bei `SecurityRealm=None` Platzhalter" gehoert zur widerlegten Annahme
+  oben und ist entfernt.
+- **Der Jenkins-Benutzer heisst `admin`, nicht `saltenhof`.** Ein falscher
+  Benutzername liefert `401` (nicht `403`) und sieht damit aus wie ein
+  Token-Problem, obwohl das Token stimmt. Kurzprobe:
+  `Invoke-RestMethod http://localhost:9900/api/json?tree=jobs[name]` mit
+  praeemptivem Basic-Header muss `claude-agentkit3` zurueckgeben.
 - Remote-Gates mit `scripts/ci/check_remote_gates.ps1` pruefen; das Script
   nutzt die geladenen Env-Vars und scheitert hart, wenn Jenkins oder Sonar
   nicht gruen sind.

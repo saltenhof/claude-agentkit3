@@ -1,0 +1,38 @@
+story_id: AG3-219
+story_title_short: "zitatnachweis-ohne-abschreiben"
+title: "Das Autoritaets-Prosa-Gate verlangt vom Bewerter zeichengenaues Abschreiben und scheitert daran reproduzierbar -- der Nachweis wird auf Zeigen statt Abschreiben umgestellt."
+type: bugfix
+status: ready
+phase: setup
+created: "2026-08-05"
+size: M
+# Herkunft: 2026-08-05, erster Lauf des Gates gegen den echten Arbeitsbaum,
+# nachdem der Multi-LLM-Hub nach drei Tagen Ausfall wieder lief.
+#
+# Zweimal hintereinander, identisch:
+#
+#   concept-authority-prose: ERROR (errors=1, reports=0)
+#   [ERROR] INVALID_EVALUATION_RESPONSE
+#     technical-design/10_runtime_deployment_speicher.md#10-1-0-...-002
+#     assertion='reported quote is absent from ...'
+#
+# Kein Befund ueber FK-10. Das Gate faengt seinen eigenen Bewerter ab und
+# faellt fail-closed -- das Verhalten ist richtig. Falsch ist, dass es
+# reproduzierbar passiert und das Gate damit nie gruen werden kann.
+#
+# URSACHE GEMESSEN (R1, 2026-08-05): Das Modell setzt hart umgebrochene
+# Quellzeilen zu fortlaufender Prosa zusammen und ersetzt den physischen
+# Zeilenumbruch durch ein Leerzeichen: aus "und" + LF + "Business-Kern" wird
+# "und" + SPACE + "Business-Kern". Alle sechs Assertions scheiterten daran.
+#
+# WIDERLEGT: Die urspruengliche Vermutung dieser Story -- Normalisierung
+# deutscher Typografie -- ist nicht die Ursache. Der Halbgeviertstrich blieb
+# im gemessenen Beispiel erhalten. Die Vermutung stand als Tatsache in der
+# Story, bevor sie gemessen war; sie bleibt dort als widerlegt sichtbar.
+#
+# BLOCKIERT ALLE STORYS: check_concept_authority_prose ist Pflicht-Gate in
+# jeder Definition of Done. Solange es an dieser Stelle immer scheitert, ist
+# keine Story sauber abschliessbar -- und ein Gate, das nie gruen wird, wird
+# irgendwann umgangen. Deshalb Vorrang vor den uebrigen offenen Storys.
+depends_on: []
+unblocks: ["AG3-189", "AG3-212", "AG3-213", "AG3-214", "AG3-215", "AG3-216", "AG3-217", "AG3-218"]

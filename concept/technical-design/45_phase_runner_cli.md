@@ -100,6 +100,13 @@ die Phase aus, aktualisiert den Phase-State und gibt eine normierte
 Antwort zurueck. Der Orchestrator liest den Phase-State und
 entscheidet, was als naechstes passiert.
 
+Dieses Pull-Modell bleibt der Standardweg des Orchestrators. Es schliesst die
+eng begrenzte Gegenrichtung AK3 → Project Edge → Agent nicht aus. Deren
+Zulaessigkeitsgrenze besitzt ausschliesslich FK-01 §1.1a, ihren
+Delegationsvertrag FK-91 §91.1b und ihre Harness-Relais-Topologie FK-76 §76.10.
+Die Gegenrichtung fuehrt weder zu einer direkten Backend-Schnittstelle zum
+Harness noch zu einem zulaessigen Agenten-CLI-Pfad.
+
 ### 45.1.2 Interner Phasen-Dispatch
 
 ```python
@@ -314,7 +321,7 @@ Referenz: DK-02 §Phase-Transition-Enforcement, FK-23 §23.4
 | `setup` COMPLETED | `mode: execution` oder `exploration`, `agents_to_spawn: [worker]` | Spawnt Worker (oder Exploration-Worker bei Exploration Mode) |
 | `setup` ESCALATED | `escalation_reason: "preflight_fail"`, `errors: [...]` | Eskalation an Mensch — Preflight-Checks fehlgeschlagen, kein automatischer Remediation-Pfad (FK-20 §20.6.1). |
 | `exploration` COMPLETED | `agents_to_spawn: [worker]` | Spawnt Implementation-Worker |
-| `exploration` PAUSED | `pause_reason: "awaiting_design_review"` oder `"awaiting_design_challenge"` | Orchestrator wartet auf externe Klärung (Design-Review bzw. Design-Challenge). Resume nach Abschluss via `POST /phases/exploration/start` (Service-Resume) oder Operator-CLI `agentkit resume` (§45.4). |
+| `exploration` PAUSED | `pause_reason: "awaiting_design_review"` oder `"awaiting_design_challenge"` | Orchestrator wartet auf externe Klärung (Design-Review bzw. Design-Challenge). Resume nach Abschluss via `POST /phases/exploration/start` (Service-Resume) oder Operator-CLI `<absolute-agentkit-wrapper> resume` (§45.4). |
 | `setup` PAUSED | `pause_reason: "awaiting_edge_provisioning"` | Orchestrator wartet auf die vom Project Edge gemeldete Worktree-Provisionierung/Preflight-Probe (FK-10 §10.2.4a, FK-91 §91.1b). Kein Mensch nötig; der Agent treibt seinen Edge-Command-Loop und resumiert nach der Meldung via Service-Resume (`POST /phases/setup/start`). |
 | `exploration` ESCALATED | `escalation_reason: "doc_fidelity_fail"` oder `"design_review_rejected"` | Eskalation an Mensch. Auslöser: (1) Dokumententreue FAIL (doc_fidelity_fail), (2) Design-Review FAIL non-remediable oder Rundenlimit überschritten (gate_status = REJECTED → design_review_rejected). |
 | `implementation` COMPLETED (QA-Subflow PASS) | `agents_to_spawn: []`, `payload.qa_cycle_status: pass` | Startet `POST /phases/closure/start`. Implementation kann COMPLETED nur erreichen, wenn der interne QA-Subflow `qa_cycle_status = pass` erreicht. |
@@ -326,7 +333,7 @@ Referenz: DK-02 §Phase-Transition-Enforcement, FK-23 §23.4
 
 ## 45.4 Operator-Recovery-CLI (Spezialfall)
 
-Die CLI `agentkit run-phase ...` ist **kein Standard-Aufrufweg**.
+Die CLI `<absolute-agentkit-wrapper> run-phase ...` ist **kein Standard-Aufrufweg**.
 Sie ist ausschliesslich fuer menschliche Operator-Recovery-Szenarien
 vorgesehen, in denen kein Orchestrator-Agent verfuegbar ist oder
 ein defekter Run manuell weitergeschrieben werden muss.
@@ -335,21 +342,23 @@ ein defekter Run manuell weitergeschrieben werden muss.
 
 ```bash
 # Nur als Operator-Recovery, nicht als normaler Aufrufweg
-agentkit run-phase {phase} --story {story_id} [--config {path}]
-agentkit resume --story {story_id}
-agentkit reset-escalation --story {story_id}
-agentkit cleanup --story {story_id}
+<absolute-agentkit-wrapper> run-phase {phase} --story {story_id} [--config {path}]
+<absolute-agentkit-wrapper> resume --story {story_id}
+<absolute-agentkit-wrapper> reset-escalation --story {story_id}
+<absolute-agentkit-wrapper> cleanup --story {story_id}
 ```
 
 **Unveraenderlich CLI-basiert (kein Service-Aequivalent):**
 
 | Befehl | Grund |
 |--------|-------|
-| `agentkit-hook-claude` / `agentkit-hook-codex` | Harness-Hooks sind OS-Prozesse mit stdin/stdout-Pipes — unausweichlich CLI (FK-30 §30.3.1) |
-| `agentkit register-project` / `agentkit verify-project` | Einmaliges Operator-Bootstrap/Setup (FK-50) |
-| `agentkit reset-story`, `agentkit split-story`, `agentkit exit-story` | Operator-Notfallpfade (FK-53, FK-54, FK-58) |
+| `<absolute-agentkit-hook-claude-wrapper>` / `<absolute-agentkit-hook-codex-wrapper>` | Harness-Hooks sind OS-Prozesse mit stdin/stdout-Pipes — unausweichlich CLI (FK-30 §30.3.1) |
+| `<absolute-agentkit-wrapper> register-project` / `<absolute-agentkit-wrapper> verify-project` | Einmaliges Operator-Bootstrap/Setup (FK-50) |
+| `<absolute-agentkit-wrapper> reset-story`, `<absolute-agentkit-wrapper> split-story`, `<absolute-agentkit-wrapper> exit-story` | Operator-Notfallpfade (FK-53, FK-54, FK-58) |
 
 **Normative Regel:** Kein Agent darf die CLI direkt aufrufen.
 Agents greifen ausschliesslich ueber den `Project Edge Client`
 gegen die Control-Plane-API (FK-91 §91.1a) zu.
 Die CLI ist menschlicher und administrativer Adapterpfad (FK-91 §91.1).
+Auch die Gegenrichtung nutzt keine CLI; ihr ausschliesslicher Weg ist der
+Project-Edge-Delegationsvertrag aus FK-91 §91.1b.

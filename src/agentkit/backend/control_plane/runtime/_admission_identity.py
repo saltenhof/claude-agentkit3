@@ -187,7 +187,7 @@ class _AdmissionIdentityMixin:
         self._instance_identity = identity
 
     def _current_instance_identity(self) -> BackendInstanceIdentityRecord:
-        """Return THIS boot's instance identity, resolving it once when needed.
+        """Return the identity already bound to the active writer lease.
 
         Every newly-acquired claim is stamped with the backend instance identity
         (AG3-138 AC3, FK-91 §91.1a rule 16). The identity is never invented and
@@ -202,28 +202,21 @@ class _AdmissionIdentityMixin:
           branch below is never reached on the serving path.
         * A **DI-injected** repository binds a deterministic identity in
           ``__init__`` (the test / alternative-wiring seam).
-        * For a **directly-constructed default-store** service the identity is
-          resolved here lazily on first claim and memoized -- mirroring
-          :meth:`_require_postgres_backend_on_first_use`, the default store is
-          self-sufficient to resolve its OWN identity from the store. It never
-          fabricates or guesses an identity (trap: own vs foreign); when the
-          Postgres store is unavailable it fails CLOSED (K5) rather than stamping
-          a fabricated identity onto a claim.
+        * A directly constructed default-store service may only consume the
+          identity already bound to the process-wide writer lease. It never
+          increments the boot incarnation or performs reconciliation itself.
         """
         if self._instance_identity is not None:
             return self._instance_identity
         if self._uses_default_store:
-            from agentkit.backend.control_plane.instance_identity import (
-                resolve_backend_instance_identity,
-            )
-            from agentkit.backend.control_plane.repository import (
-                BackendInstanceIdentityRepository,
+            from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+                load_bound_control_plane_writer_identity,
             )
 
-            self._instance_identity = resolve_backend_instance_identity(
-                BackendInstanceIdentityRepository(),
-            )
-            return self._instance_identity
+            identity = load_bound_control_plane_writer_identity()
+            if identity is not None:
+                self._instance_identity = identity
+                return identity
         # A DI repository without an explicit identity has one bound in __init__;
         # reaching here would be a wiring error -- fail closed rather than stamp
         # an unresolved claim.
@@ -231,8 +224,8 @@ class _AdmissionIdentityMixin:
 
         raise ConfigError(
             "control-plane claim acquisition requires a resolved backend "
-            "instance identity (AG3-138 IMPL-003/IMPL-004, fail-closed): no "
-            "identity is bound and no default-store resolution seam is available.",
+            "instance identity (AG3-138 IMPL-003/IMPL-004, fail-closed): the "
+            "active writer lease has no bound identity.",
         )
 
     def _require_postgres_backend_on_first_use(self) -> None:

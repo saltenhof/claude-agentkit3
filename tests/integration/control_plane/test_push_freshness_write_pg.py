@@ -28,6 +28,7 @@ from agentkit.backend.control_plane.ownership import (
     OwnershipStatus,
 )
 from agentkit.backend.control_plane.records import (
+    BackendInstanceIdentityRecord,
     EdgeCommandRecord,
     RunOwnershipRecord,
 )
@@ -45,6 +46,11 @@ _RUN = "run-1"
 _SESSION = "sess-A"
 _SHA_A = "a" * 40
 _SHA_B = "b" * 40
+_INSTANCE_IDENTITY = BackendInstanceIdentityRecord(
+    backend_instance_id="push-freshness-test",
+    instance_incarnation=1,
+    updated_at=_NOW,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -95,7 +101,7 @@ def _result_request(*, op_id: str, outcome: str, head_sha: str | None) -> EdgeCo
 def test_sync_push_pushed_result_writes_push_freshness() -> None:
     """AC3: a ``pushed`` sync_push result advances the freshness pushed head."""
     _seed_owner_and_command("run-1::sync_push::phase_completion:op-1::repo-a")
-    service = ControlPlaneRuntimeService()
+    service = ControlPlaneRuntimeService(instance_identity=_INSTANCE_IDENTITY)
 
     outcome = service.submit_command_result(
         "run-1::sync_push::phase_completion:op-1::repo-a",
@@ -118,7 +124,7 @@ def test_sync_push_behind_remote_result_writes_visible_backlog() -> None:
     """AC4: a ``behind_remote`` result raises a visible backlog, preserving the
     last known pushed head."""
     _seed_owner_and_command("run-1::sync_push::phase_completion:op-1::repo-a")
-    service = ControlPlaneRuntimeService()
+    service = ControlPlaneRuntimeService(instance_identity=_INSTANCE_IDENTITY)
     service.submit_command_result(
         "run-1::sync_push::phase_completion:op-1::repo-a",
         _result_request(op_id="op-1", outcome="pushed", head_sha=_SHA_A),
@@ -158,7 +164,7 @@ def test_sync_push_behind_remote_result_writes_visible_backlog() -> None:
 def test_sync_push_command_error_writes_visible_backlog() -> None:
     """A post-gate git failure must not leave a stale successful freshness row."""
     _seed_owner_and_command("run-1::sync_push::phase_completion:op-1::repo-a")
-    service = ControlPlaneRuntimeService()
+    service = ControlPlaneRuntimeService(instance_identity=_INSTANCE_IDENTITY)
     service.submit_command_result(
         "run-1::sync_push::phase_completion:op-1::repo-a",
         _result_request(op_id="op-1", outcome="pushed", head_sha=_SHA_A),

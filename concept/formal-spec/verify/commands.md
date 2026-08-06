@@ -15,7 +15,7 @@ prose_refs:
 # Verify Commands
 
 Verify ist eine Capability und keine Top-Phase. Es gibt keinen
-`agentkit run-phase verify`-Aufruf. Der QA-Subflow wird intern aus
+`<absolute-agentkit-wrapper> run-phase verify`-Aufruf. Der QA-Subflow wird intern aus
 der aufrufenden Phase (Exploration-Exit-Gate, Implementation-QA-Subflow)
 ueber den Capability-Vertrag `run_qa_subflow` ausgeloest.
 

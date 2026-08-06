@@ -43,3 +43,16 @@ def test_remove_codex_settings_removes_file_and_empty_dir(tmp_path: Path) -> Non
     assert ".codex\\config.toml" in removed or ".codex/config.toml" in removed
     assert ".codex" in removed
     assert not (tmp_path / ".codex").exists()
+
+
+def test_remove_codex_settings_preserves_a_foreign_file(tmp_path: Path) -> None:
+    """The exported helper cannot bypass detach ownership classification."""
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir()
+    content = '[user]\nname = "foreign"\n'
+    config_path.write_text(content, encoding="utf-8")
+
+    removed = remove_codex_settings(tmp_path)
+
+    assert removed == ()
+    assert config_path.read_text(encoding="utf-8") == content

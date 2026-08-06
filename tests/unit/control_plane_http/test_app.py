@@ -14,7 +14,12 @@ from __future__ import annotations
 
 import json
 import re
+import socket
+from contextlib import contextmanager
 from http import HTTPStatus
+from http.client import HTTPConnection
+from http.server import HTTPServer
+from threading import Event, Thread
 from typing import TYPE_CHECKING
 
 import pytest
@@ -24,12 +29,17 @@ from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
 # AC1: compat re-export must resolve to the SAME class
 from agentkit.backend.control_plane.http import ControlPlaneApplication as CompatCPA
 from agentkit.backend.control_plane.http import HttpResponse as CompatHttpResponse
+from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseLostError
 
 # AC1: canonical namespace is owner
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
+    ControlPlaneSurface,
     HttpResponse,
+    ThreadingHTTPSServer,
+    _build_handler,
+    _enforce_surface_policy,
 )
 from agentkit.backend.control_plane_http.takeover_handlers import (
     dispatch_project_edge_takeover_post,
@@ -38,6 +48,7 @@ from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
 from agentkit.harness_client.projectedge.credentials import prepare_project_api_token
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from agentkit.backend.auth.entities import ProjectApiToken
@@ -57,7 +68,121 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def test_production_profiles_share_the_file_backed_session_owner(
+def test_https_listener_address_is_exclusive() -> None:
+    assert ThreadingHTTPSServer.allow_reuse_address is False
+    server = ThreadingHTTPSServer.__new__(ThreadingHTTPSServer)
+    server.socket = socket.socket()
+    server.server_address = ("127.0.0.1", 0)
+    competing = socket.socket()
+    try:
+        server.server_bind()
+        server.socket.listen()
+        competing.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        with pytest.raises(OSError):
+            competing.bind(server.server_address)
+        exclusive_option = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive_option is not None:
+            assert server.socket.getsockopt(socket.SOL_SOCKET, exclusive_option) == 1
+    finally:
+        competing.close()
+        server.server_close()
+
+
+def test_request_detecting_writer_lease_loss_signals_fatal_server_stop() -> None:
+    class _LoseOnReturnLease:
+        def assert_held(self) -> None:
+            return None
+
+        def bind_identity(self, identity: object) -> None:
+            del identity
+
+        @contextmanager
+        def request_scope(self) -> Iterator[None]:
+            yield
+            raise ControlPlaneWriterLeaseLostError("writer session disappeared")
+
+        def release(self) -> None:
+            return None
+
+    app = ControlPlaneApplication(writer_lease_required=True)
+    # Directly inject the lease seam whose request-boundary behavior is under test.
+    app._writer_lease = _LoseOnReturnLease()  # noqa: SLF001
+
+    response = app.handle_request(method="GET", path="/healthz", body=b"")
+
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert _json_body(response)["error_code"] == "control_plane_writer_lease_lost"  # type: ignore[index]
+    assert app.writer_lease_loss_reason == "writer session disappeared"
+
+
+def test_real_handler_keeps_request_lease_while_streaming_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wire body is emitted before the outer request lease scope exits."""
+
+    class _DepthLease:
+        depth = 0
+
+        def assert_held(self) -> None:
+            if self.depth <= 0:
+                raise ControlPlaneWriterLeaseLostError("asserted outside request scope")
+
+        def bind_identity(self, identity: object) -> None:
+            del identity
+
+        @contextmanager
+        def request_scope(self) -> Iterator[None]:
+            self.depth += 1
+            try:
+                self.assert_held()
+                yield
+                self.assert_held()
+            finally:
+                self.depth -= 1
+
+        def release(self) -> None:
+            return None
+
+    lease = _DepthLease()
+    stream_depths: list[int] = []
+
+    def chunks() -> Iterator[bytes]:
+        for chunk in (b"a", b"b"):
+            stream_depths.append(lease.depth)
+            yield chunk
+
+    app = ControlPlaneApplication(writer_lease_required=True)
+    app._writer_lease = lease  # noqa: SLF001 -- injected port seam
+
+    def streamed_response(**_kwargs: object) -> HttpResponse:
+        return HttpResponse(
+            HTTPStatus.OK,
+            b"",
+            headers=(("Content-Type", "application/octet-stream"),),
+            stream=chunks(),
+        )
+
+    monkeypatch.setattr(app, "_handle_request_with_writer_authority", streamed_response)
+    server = HTTPServer(("127.0.0.1", 0), _build_handler(app))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    connection = HTTPConnection(*server.server_address, timeout=5)
+    try:
+        connection.request("GET", "/stream")
+        response = connection.getresponse()
+        assert response.status == HTTPStatus.OK
+        assert response.read() == b"ab"
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert stream_depths == [1, 1]
+    assert lease.depth == 0
+
+
+def test_production_listeners_have_separate_auth_contexts_with_shared_owners(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -68,10 +193,271 @@ def test_production_profiles_share_the_file_backed_session_owner(
     application = _build_production_application()
 
     assert isinstance(application._auth_routes.session_store, FileSessionStore)  # noqa: SLF001
-    assert (  # noqa: SLF001
-        application._auth_routes.session_store  # noqa: SLF001
-        is application._auth_middleware.session_store  # noqa: SLF001
+    ui_auth = application._auth_middlewares[ControlPlaneSurface.UI_BFF]  # noqa: SLF001
+    project_auth = application._auth_middlewares[  # noqa: SLF001
+        ControlPlaneSurface.PROJECT_API
+    ]
+    assert ui_auth is not project_auth
+    assert ui_auth.session_store is project_auth.session_store
+    assert ui_auth.token_repository is project_auth.token_repository
+    assert application._auth_routes.session_store is ui_auth.session_store  # noqa: SLF001
+
+
+def test_first_credential_authorization_is_atomic_with_token_publication() -> None:
+    """A token cannot appear after the strategist check but before its handler."""
+
+    from agentkit.backend.auth.http.routes import AuthRoutes
+    from agentkit.backend.auth.sessions import InMemorySessionStore
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        InMemoryInflightIdempotencyGuard,
     )
+
+    class _BlockingValidationRoutes:
+        def __init__(self) -> None:
+            self.entered = Event()
+            self.allow_return = Event()
+
+        def handle_post(
+            self,
+            route_path: str,
+            payload: object,
+            correlation_id: str,
+        ) -> HttpResponse | None:
+            del payload
+            if not route_path.endswith("/installation/third-party-validation"):
+                return None
+            self.entered.set()
+            assert self.allow_return.wait(timeout=5)
+            return HttpResponse(
+                status_code=HTTPStatus.OK,
+                body=json.dumps({"status": "validated"}).encode(),
+                headers=(("X-Correlation-Id", correlation_id),),
+            )
+
+    tokens = _InMemoryTokenRepository()
+    sessions = InMemorySessionStore()
+    session = sessions.create()
+    auth_routes = AuthRoutes(
+        session_store=sessions,
+        token_repository=tokens,
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
+    validation_routes = _BlockingValidationRoutes()
+    app = ControlPlaneApplication(
+        writer_lease_required=False,
+        routes=ControlPlaneApplicationRoutes(
+            auth_routes=auth_routes,
+            third_party_validation_routes=validation_routes,  # type: ignore[arg-type]
+        ),
+        auth_middleware=AuthMiddleware(
+            session_store=sessions,
+            token_repository=tokens,
+        ),
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+    headers = {
+        "Cookie": f"ak3_session={session.session_id}",
+        "X-CSRF-Token": session.csrf_token,
+        "X-Project-Key": "tenant-a",
+    }
+    validation_responses: list[HttpResponse] = []
+    token_responses: list[HttpResponse] = []
+    token_finished = Event()
+
+    validation_thread = Thread(
+        target=lambda: validation_responses.append(
+            app.handle_request(
+                method="POST",
+                path="/v1/projects/tenant-a/installation/third-party-validation",
+                body=b"{}",
+                request_headers=headers,
+            ),
+        ),
+    )
+
+    def create_token() -> None:
+        token_responses.append(
+            app.handle_request(
+                method="POST",
+                path="/v1/projects/tenant-a/api-tokens",
+                body=json.dumps(
+                    {
+                        "label": "edge",
+                        "token_id": "a" * 32,
+                        "token_hash": "b" * 64,
+                        "op_id": "op-first-token",
+                    },
+                ).encode(),
+                request_headers=headers,
+            ),
+        )
+        token_finished.set()
+
+    token_thread = Thread(target=create_token)
+    validation_thread.start()
+    assert validation_routes.entered.wait(timeout=5)
+    token_thread.start()
+    token_was_blocked = not token_finished.wait(timeout=0.1)
+    validation_routes.allow_return.set()
+    validation_thread.join(timeout=5)
+    token_thread.join(timeout=5)
+
+    assert token_was_blocked
+    assert validation_responses[0].status_code == HTTPStatus.OK
+    assert token_responses[0].status_code == HTTPStatus.CREATED
+    assert not validation_thread.is_alive()
+    assert not token_thread.is_alive()
+
+
+def test_project_context_bootstrap_check_and_create_are_serialized() -> None:
+    """Concurrent bootstrap requests cannot both pass the absent-project check."""
+
+    class _BlockingProjectBootstrapRoutes:
+        def __init__(self) -> None:
+            self.exists = False
+            self.first_entered = Event()
+            self.allow_first_create = Event()
+            self.calls = 0
+
+        def handle_post(
+            self,
+            route_path: str,
+            payload: object,
+            correlation_id: str,
+        ) -> HttpResponse | None:
+            del payload, correlation_id
+            if route_path != "/v1/projects":
+                return None
+            self.calls += 1
+            if self.exists:
+                return HttpResponse(HTTPStatus.CONFLICT, b"{}")
+            self.first_entered.set()
+            assert self.allow_first_create.wait(timeout=5)
+            self.exists = True
+            return HttpResponse(HTTPStatus.CREATED, b"{}")
+
+    routes = _BlockingProjectBootstrapRoutes()
+    app = ControlPlaneApplication(
+        writer_lease_required=False,
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=routes,  # type: ignore[arg-type]
+        ),
+    )
+    responses: list[HttpResponse] = []
+    second_finished = Event()
+
+    first = Thread(
+        target=lambda: responses.append(
+            app.handle_request(method="POST", path="/v1/projects", body=b"{}"),
+        ),
+    )
+    second = Thread(
+        target=lambda: (
+            responses.append(
+                app.handle_request(method="POST", path="/v1/projects", body=b"{}"),
+            ),
+            second_finished.set(),
+        ),
+    )
+    first.start()
+    assert routes.first_entered.wait(timeout=5)
+    second.start()
+    assert not second_finished.wait(timeout=0.1)
+    routes.allow_first_create.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert routes.calls == 2
+    assert sorted(response.status_code for response in responses) == [
+        HTTPStatus.CREATED,
+        HTTPStatus.CONFLICT,
+    ]
+
+
+def test_listener_surface_policy_enforces_principal_and_route_separation() -> None:
+    ui_block = _enforce_surface_policy(
+        surface=ControlPlaneSurface.UI_BFF,
+        method="POST",
+        route_path="/v1/project-edge/sync",
+        auth_result=AuthResult(auth_kind="project_api_token", project_key="tenant-a"),
+        correlation_id="corr-ui-token",
+    )
+    assert ui_block is not None and ui_block.status_code == HTTPStatus.FORBIDDEN
+    assert _json_body(ui_block)["error_code"] == "listener_principal_forbidden"  # type: ignore[index]
+
+    project_block = _enforce_surface_policy(
+        surface=ControlPlaneSurface.PROJECT_API,
+        method="GET",
+        route_path="/v1/projects/tenant-a/dashboard/board",
+        auth_result=AuthResult(auth_kind="strategist_session", project_key="tenant-a"),
+        correlation_id="corr-project-dashboard",
+    )
+    assert project_block is not None and project_block.status_code == HTTPStatus.NOT_FOUND
+    assert _json_body(project_block)["error_code"] == "listener_route_not_exposed"  # type: ignore[index]
+
+    mutation_block = _enforce_surface_policy(
+        surface=ControlPlaneSurface.PROJECT_API,
+        method="POST",
+        route_path="/v1/projects/tenant-a/story-runs/run-1/phases/implementation/start",
+        auth_result=AuthResult(auth_kind="strategist_session", project_key="tenant-a"),
+        correlation_id="corr-project-strategist-mutation",
+    )
+    assert mutation_block is not None
+    assert mutation_block.status_code == HTTPStatus.FORBIDDEN
+    assert _json_body(mutation_block)["error_code"] == "listener_principal_forbidden"  # type: ignore[index]
+
+    allowed_admin = _enforce_surface_policy(
+        surface=ControlPlaneSurface.PROJECT_API,
+        method="POST",
+        route_path="/v1/projects/tenant-a/api-tokens",
+        auth_result=AuthResult(auth_kind="strategist_session", project_key="tenant-a"),
+        correlation_id="corr-project-strategist-admin",
+    )
+    assert allowed_admin is None
+
+    allowed_project_context_bootstrap = _enforce_surface_policy(
+        surface=ControlPlaneSurface.PROJECT_API,
+        method="POST",
+        route_path="/v1/projects",
+        auth_result=AuthResult(auth_kind="strategist_session", project_key=None),
+        correlation_id="corr-project-context-bootstrap",
+    )
+    assert allowed_project_context_bootstrap is None
+
+    ui_project_context_bootstrap = _enforce_surface_policy(
+        surface=ControlPlaneSurface.UI_BFF,
+        method="POST",
+        route_path="/v1/projects",
+        auth_result=AuthResult(auth_kind="strategist_session", project_key=None),
+        correlation_id="corr-ui-project-context-bootstrap",
+    )
+    assert ui_project_context_bootstrap is not None
+    assert ui_project_context_bootstrap.status_code == HTTPStatus.NOT_FOUND
+
+    token_project_context_bootstrap = _enforce_surface_policy(
+        surface=ControlPlaneSurface.PROJECT_API,
+        method="POST",
+        route_path="/v1/projects",
+        auth_result=AuthResult(
+            auth_kind="project_api_token",
+            project_key="tenant-a",
+        ),
+        correlation_id="corr-token-project-context-bootstrap",
+    )
+    assert token_project_context_bootstrap is not None
+    assert token_project_context_bootstrap.status_code == HTTPStatus.FORBIDDEN
+
+    strategist_project_list = _enforce_surface_policy(
+        surface=ControlPlaneSurface.PROJECT_API,
+        method="GET",
+        route_path="/v1/projects",
+        auth_result=AuthResult(auth_kind="strategist_session", project_key=None),
+        correlation_id="corr-project-list",
+    )
+    assert strategist_project_list is not None
+    assert strategist_project_list.status_code == HTTPStatus.FORBIDDEN
 
 
 def test_compat_reexport_is_same_class() -> None:
@@ -146,14 +532,14 @@ class _NoopTenantScope:
 class _RejectingTenantScope:
     """Always rejects as unknown project (404)."""
 
-    def validate(
-        self, *, method: str, route_path: str, correlation_id: str
-    ) -> HttpResponse:
-        body = json.dumps({
-            "error_code": "project_not_found",
-            "error": "Project not found",
-            "correlation_id": correlation_id,
-        }).encode()
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> HttpResponse:
+        body = json.dumps(
+            {
+                "error_code": "project_not_found",
+                "error": "Project not found",
+                "correlation_id": correlation_id,
+            }
+        ).encode()
         return HttpResponse(
             status_code=int(HTTPStatus.NOT_FOUND),
             body=body,
@@ -164,16 +550,16 @@ class _RejectingTenantScope:
 class _ArchivedTenantScope:
     """Rejects mutations (archived project -> 403); passes GET."""
 
-    def validate(
-        self, *, method: str, route_path: str, correlation_id: str
-    ) -> HttpResponse | None:
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> HttpResponse | None:
         mutation_methods = {"POST", "PUT", "PATCH", "DELETE"}
         if method in mutation_methods:
-            body = json.dumps({
-                "error_code": "forbidden",
-                "error": "Project is archived; mutations are not allowed",
-                "correlation_id": correlation_id,
-            }).encode()
+            body = json.dumps(
+                {
+                    "error_code": "forbidden",
+                    "error": "Project is archived; mutations are not allowed",
+                    "correlation_id": correlation_id,
+                }
+            ).encode()
             return HttpResponse(
                 status_code=int(HTTPStatus.FORBIDDEN),
                 body=body,
@@ -193,19 +579,13 @@ class _FakeStoryContextRoutes:
     ) -> None:
         return None
 
-    def handle_post(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_post(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
-    def handle_patch(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_patch(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
-    def handle_put(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_put(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
 
@@ -220,19 +600,13 @@ class _FakeProjectRoutes:
     ) -> None:
         return None
 
-    def handle_post(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_post(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
-    def handle_patch(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_patch(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
-    def handle_put(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_put(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
 
@@ -247,14 +621,10 @@ class _FakeConceptRoutes:
 
 
 class _FakeHubRoutes:
-    def handle_get(
-        self, route_path: str, query: dict[str, list[str]], correlation_id: str
-    ) -> None:
+    def handle_get(self, route_path: str, query: dict[str, list[str]], correlation_id: str) -> None:
         return None
 
-    def handle_post(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_post(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
 
@@ -262,14 +632,10 @@ class _FakePlanningRoutes:
     def handle_get(self, route_path: str, correlation_id: str) -> None:
         return None
 
-    def handle_post(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_post(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
-    def handle_put(
-        self, route_path: str, payload: object, correlation_id: str
-    ) -> None:
+    def handle_put(self, route_path: str, payload: object, correlation_id: str) -> None:
         return None
 
     def handle_delete(self, route_path: str, correlation_id: str) -> None:
@@ -337,24 +703,12 @@ class _FakeReadModelRoutes:
     on ``body["story_id"]`` work without needing a real project repo.
     """
 
-    _ARE_EVIDENCE_PATH = re.compile(
-        r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/are-evidence$"
-    )
-    _ACCEPTANCE_PATH = re.compile(
-        r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/acceptance$"
-    )
-    _FLOW_PATH = re.compile(
-        r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/flow$"
-    )
-    _COUNTERS_PATH = re.compile(
-        r"^/v1/projects/(?P<project_key>[^/]+)/stories/counters$"
-    )
-    _MODE_LOCK_PATH = re.compile(
-        r"^/v1/projects/(?P<project_key>[^/]+)/mode-lock$"
-    )
-    _LIMITS_PATH = re.compile(
-        r"^/v1/projects/(?P<project_key>[^/]+)/execution-input/limits$"
-    )
+    _ARE_EVIDENCE_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/are-evidence$")
+    _ACCEPTANCE_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/acceptance$")
+    _FLOW_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/flow$")
+    _COUNTERS_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/stories/counters$")
+    _MODE_LOCK_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/mode-lock$")
+    _LIMITS_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/execution-input/limits$")
 
     def handle_get(
         self,
@@ -557,11 +911,7 @@ class _FakeTakeoverRuntime:
         from agentkit.backend.control_plane.models import ControlPlaneMutationResult
 
         self.recovery_calls.append(command)
-        error_code = (
-            "nothing_to_recover"
-            if command.actor_principal_type == "human_cli"
-            else "recovery_requires_human_cli"
-        )
+        error_code = "nothing_to_recover" if command.actor_principal_type == "human_cli" else "recovery_requires_human_cli"
         return ControlPlaneMutationResult(
             status="rejected",
             op_id=command.request.op_id,
@@ -582,6 +932,7 @@ def _make_app(
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
 
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -617,6 +968,7 @@ def test_token_agent_cannot_forge_human_takeover_confirm_and_writes_nothing() ->
     tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -675,6 +1027,7 @@ def test_human_takeover_confirm_rejects_body_identity_and_decision_fields(
     auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
     session = auth.session_store.create()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -719,6 +1072,7 @@ def test_human_takeover_confirm_constructs_attested_command() -> None:
     auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
     session = auth.session_store.create()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -796,6 +1150,7 @@ def test_spa_takeover_decisions_use_cookie_csrf_and_approval_project_attestation
     auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
     session = auth.session_store.create()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -835,6 +1190,7 @@ def test_token_takeover_request_derives_agent_principal_from_auth_not_body() -> 
     tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -879,6 +1235,7 @@ def test_token_takeover_request_derives_agent_principal_from_auth_not_body() -> 
 def test_unattested_takeover_request_does_not_trust_body_principal() -> None:
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -919,6 +1276,7 @@ def test_unattested_takeover_request_does_not_trust_body_principal() -> None:
 def test_unknown_takeover_request_principal_is_rejected_fail_closed() -> None:
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -961,6 +1319,7 @@ def test_null_scope_human_takeover_request_is_forbidden_before_runtime() -> None
     auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
     session = auth.session_store.create()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -1016,6 +1375,7 @@ def test_cross_project_token_takeover_request_is_forbidden_before_runtime() -> N
     tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -1064,6 +1424,7 @@ def test_cross_project_human_takeover_confirm_is_forbidden_before_runtime() -> N
     auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
     session = auth.session_store.create()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -1115,6 +1476,7 @@ def test_token_agent_cannot_forge_human_takeover_deny_and_writes_nothing() -> No
     tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -1170,6 +1532,7 @@ def test_human_takeover_deny_rejects_body_identity_fields(
     auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
     session = auth.session_store.create()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -1218,6 +1581,7 @@ def test_token_agent_cannot_forge_takeover_reconcile_clear_and_writes_nothing() 
     tokens.insert(issued.record)
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
@@ -1264,9 +1628,7 @@ def test_takeover_reconcile_clear_without_attested_session_is_forbidden() -> Non
     runtime = _FakeTakeoverRuntime()
 
     response = dispatch_project_edge_takeover_post(
-        route_path=(
-            "/v1/project-edge/story-runs/run-100/ownership/takeover-reconcile-clear"
-        ),
+        route_path=("/v1/project-edge/story-runs/run-100/ownership/takeover-reconcile-clear"),
         payload={
             "project_key": "tenant-a",
             "story_id": "AG3-100",
@@ -1295,10 +1657,7 @@ def test_takeover_reconcile_clear_without_attested_session_is_forbidden() -> Non
 def test_takeover_reconcile_worktree_route_passes_typed_per_repo_result() -> None:
     runtime = _FakeTakeoverRuntime()
     response = dispatch_project_edge_takeover_post(
-        route_path=(
-            "/v1/project-edge/story-runs/run-100/ownership/"
-            "takeover-reconcile-worktree"
-        ),
+        route_path=("/v1/project-edge/story-runs/run-100/ownership/takeover-reconcile-worktree"),
         payload={
             "project_key": "tenant-a",
             "story_id": "AG3-100",
@@ -1474,28 +1833,18 @@ class _Real405ReadModelRoutes:
     def _match(self, route_path: str, correlation_id: str) -> object:
         from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
 
-        return ReadModelRoutes._method_not_allowed_if_matches(
-            self._matcher, route_path, correlation_id
-        )
+        return ReadModelRoutes._method_not_allowed_if_matches(self._matcher, route_path, correlation_id)
 
-    def handle_get(
-        self, route_path: str, _query: dict[str, list[str]], correlation_id: str
-    ) -> None:
+    def handle_get(self, route_path: str, _query: dict[str, list[str]], correlation_id: str) -> None:
         return None
 
-    def handle_post(
-        self, route_path: str, _payload: object, correlation_id: str
-    ) -> object:
+    def handle_post(self, route_path: str, _payload: object, correlation_id: str) -> object:
         return self._match(route_path, correlation_id)
 
-    def handle_put(
-        self, route_path: str, _payload: object, correlation_id: str
-    ) -> object:
+    def handle_put(self, route_path: str, _payload: object, correlation_id: str) -> object:
         return self._match(route_path, correlation_id)
 
-    def handle_patch(
-        self, route_path: str, _payload: object, correlation_id: str
-    ) -> object:
+    def handle_patch(self, route_path: str, _payload: object, correlation_id: str) -> object:
         return self._match(route_path, correlation_id)
 
     def handle_delete(self, route_path: str, correlation_id: str) -> object:
@@ -1504,14 +1853,12 @@ class _Real405ReadModelRoutes:
 
 def _assert_read_only_405(response: HttpResponse, *, method: str) -> None:
     assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED, (
-        f"{method} on a read-only path must be 405 regardless of body, "
-        f"got {response.status_code}"
+        f"{method} on a read-only path must be 405 regardless of body, got {response.status_code}"
     )
     body = _json_body(response)
     assert isinstance(body, dict)
     assert body["error_code"] == "method_not_allowed", (
-        f"{method} must NOT degrade to invalid_json for an empty/non-JSON "
-        f"body; got error_code={body.get('error_code')!r}"
+        f"{method} must NOT degrade to invalid_json for an empty/non-JSON body; got error_code={body.get('error_code')!r}"
     )
     allow = _header(response, "Allow")
     assert allow is not None and "GET" in allow
@@ -1519,9 +1866,7 @@ def _assert_read_only_405(response: HttpResponse, *, method: str) -> None:
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
 @pytest.mark.parametrize("body", [b"", b"not json"])
-def test_read_only_mutation_returns_405_for_empty_or_non_json_body(
-    method: str, body: bytes
-) -> None:
+def test_read_only_mutation_returns_405_for_empty_or_non_json_body(method: str, body: bytes) -> None:
     """ERROR 1: read-only 405 fires before body decode (empty AND non-JSON body).
 
     The previous dispatch decoded the body first, so an empty/non-JSON body on
@@ -1539,9 +1884,7 @@ def test_read_only_mutation_returns_405_for_empty_or_non_json_body(
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
 @pytest.mark.parametrize("body", [b"", b"not json"])
-def test_read_only_coverage_mutation_returns_405_for_empty_or_non_json_body(
-    method: str, body: bytes
-) -> None:
+def test_read_only_coverage_mutation_returns_405_for_empty_or_non_json_body(method: str, body: bytes) -> None:
     """ERROR 1: same guarantee on a coverage read-only endpoint."""
     app = _make_app(read_model_routes=_Real405ReadModelRoutes())
     response = app.handle_request(
@@ -1576,9 +1919,7 @@ def test_non_read_only_mutation_still_decodes_body(body: bytes) -> None:
         path="/v1/telemetry/events",
         body=body,
     )
-    assert response.status_code == HTTPStatus.BAD_REQUEST, (
-        "non-read-only mutation must still decode the body and 400 on bad JSON"
-    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST, "non-read-only mutation must still decode the body and 400 on bad JSON"
     decoded = _json_body(response)
     assert isinstance(decoded, dict)
     assert decoded["error_code"] == "invalid_json"
@@ -1729,6 +2070,7 @@ def _make_app_with_real_story_routes(
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
 
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
             story_routes=_make_story_routes(),  # type: ignore[arg-type]
@@ -1749,26 +2091,28 @@ def _create_story_via_app(app: ControlPlaneApplication, project_key: str = "proj
     resp = app.handle_request(
         method="POST",
         path=f"/v1/projects/{project_key}/stories",
-        body=json.dumps({
-            "op_id": "op-setup-001",
-            "project_key": project_key,
-            "title": "Test story",
-            "type": "implementation",
-            "repos": [project_key],
-            # AG3-068 (FK-21 §21.4/§21.12): the agent-facing create path is
-            # fail-closed without typed reconciliation evidence. This setup helper
-            # carries a minimal VALID evidence block to get past the gate (there
-            # is no in-body escape hatch; §21.13.2 Zone-2/admin direct creation
-            # uses the StoryService in-process, not this route).
-            "reconciliation": {
-                "weaviate_ready": True,
-                "total_hits": 0,
-                "hits_above_threshold": 0,
-                "hits_classified_conflict": 0,
-                "threshold_value": 0.7,
-                "verdict": "PASS",
-            },
-        }).encode(),
+        body=json.dumps(
+            {
+                "op_id": "op-setup-001",
+                "project_key": project_key,
+                "title": "Test story",
+                "type": "implementation",
+                "repos": [project_key],
+                # AG3-068 (FK-21 §21.4/§21.12): the agent-facing create path is
+                # fail-closed without typed reconciliation evidence. This setup helper
+                # carries a minimal VALID evidence block to get past the gate (there
+                # is no in-body escape hatch; §21.13.2 Zone-2/admin direct creation
+                # uses the StoryService in-process, not this route).
+                "reconciliation": {
+                    "weaviate_ready": True,
+                    "total_hits": 0,
+                    "hits_above_threshold": 0,
+                    "hits_classified_conflict": 0,
+                    "threshold_value": 0.7,
+                    "verdict": "PASS",
+                },
+            }
+        ).encode(),
     )
     assert resp.status_code == 201, f"Story creation failed: {resp.status_code} {resp.body}"
     return str(json.loads(resp.body)["story_id"])
@@ -2034,13 +2378,15 @@ def test_story_mutation_on_archived_project_returns_403() -> None:
     response = app.handle_request(
         method="POST",
         path="/v1/projects/archived-proj/stories",
-        body=json.dumps({
-            "op_id": "op-1",
-            "project_key": "archived-proj",
-            "title": "Forbidden story",
-            "type": "implementation",
-            "repos": ["r"],
-        }).encode(),
+        body=json.dumps(
+            {
+                "op_id": "op-1",
+                "project_key": "archived-proj",
+                "title": "Forbidden story",
+                "type": "implementation",
+                "repos": ["r"],
+            }
+        ).encode(),
     )
     # Archived project -> tenant-scope blocks mutation -> 403
     assert response.status_code == HTTPStatus.FORBIDDEN

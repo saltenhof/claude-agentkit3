@@ -1,8 +1,9 @@
 """PlaceholderSubstitutor for skill content (AG3-027 / AG3-110, FK-43 §43.4.2).
 
-This substitutor handles the four mandatory FK-03 placeholders that may appear in
-skill template content, PLUS one manifest-fed placeholder (``AGENT_SPAWN_SKILL_PROOF``,
-AG3-110). It is the FK-43 §43.4.2 read-time substitution service for the skill
+This substitutor handles the five mandatory FK-03 placeholders that may appear in
+skill template content, one manifest-fed placeholder (``AGENT_SPAWN_SKILL_PROOF``,
+AG3-110), and the installer-fed executable bindings used by shell commands in a
+materialized skill. It is the FK-43 §43.4.2 substitution service for the skill
 consumer.
 
 IMPORTANT: ``PlaceholderSubstitutor`` is NOT called by ``bind_skill``.
@@ -10,10 +11,10 @@ Link-based binding (invariant ``project_binding_is_link_only``) copies nothing �
 placeholders are resolved at read-time by skill consumers.
 
 AG3-110 (FK-31 §31.7.1/§31.7.2/§31.7.4): the ``story_execution`` spawn header in
-``SKILL.md`` carries ``skill_proof={{AGENT_SPAWN_SKILL_PROOF}}``. That fifth
+``SKILL.md`` carries ``skill_proof={{AGENT_SPAWN_SKILL_PROOF}}``. That sixth
 placeholder is resolved from the INSTALLED MANIFEST (``.installed-manifest.json`` ->
 ``agent_spawn_skill_proof``), NOT from ``project.yaml`` — hence it is modelled
-separately from the four FK-03 placeholders, with its own manifest-fed source.
+separately from the five FK-03 placeholders, with its own manifest-fed source.
 FAIL-CLOSED: when no manifest / no token is installed, the placeholder is NOT
 substituted with a dummy or empty value — :meth:`substitute_spawn_header` raises so
 the header stays unresolved and the AG3-086 guard blocks the spawn fail-closed.
@@ -52,6 +53,11 @@ _MANDATORY_PLACEHOLDERS: frozenset[str] = frozenset(
 #: is the installed manifest's ``agent_spawn_skill_proof`` token, NOT ``project.yaml``.
 SPAWN_SKILL_PROOF_PLACEHOLDER = "AGENT_SPAWN_SKILL_PROOF"
 
+#: Installer-fed executable placeholders. Their values are rendered by the single
+#: interpreter owner and passed into this BC; agent-skills never imports the installer.
+AK3_INTERPRETER_PLACEHOLDER = "AK3_INTERPRETER"
+AK3_WRAPPER_PLACEHOLDER = "AK3_WRAPPER"
+
 
 class PlaceholderSubstitutor:
     """Substitutes FK-43 §43.4.2 placeholder tokens in skill content.
@@ -72,9 +78,13 @@ class PlaceholderSubstitutor:
     aggregates ``PipelineConfig`` and carries all FK-03 §3.2 fields).
     Read-only access — no mutation, no state held.
 
-    The fifth placeholder ``{{AGENT_SPAWN_SKILL_PROOF}}`` (AG3-110) is resolved by
-    :meth:`substitute_spawn_header` ONLY — its source is the installed manifest, not
-    the config. :meth:`substitute` alone (config-only) treats it as unknown.
+    The manifest placeholder ``{{AGENT_SPAWN_SKILL_PROOF}}`` (AG3-110) is
+    resolved by the two explicitly installed-context paths:
+    :meth:`substitute_spawn_header` for read-time spawn headers and
+    :meth:`substitute_materialized` for bind-time materialized content. Both
+    use the same manifest reader and replacement implementation. Its source is
+    the installed manifest, not the config; :meth:`substitute` alone
+    (config-only) treats it as unknown.
 
     Raises ``UnknownPlaceholderError`` on any unrecognised token
     (fail-closed per FK-43 §43.4.2).
@@ -84,9 +94,9 @@ class PlaceholderSubstitutor:
     """
 
     def substitute(self, content: str, config: ProjectConfig) -> str:
-        """Replace the four FK-03 placeholder tokens in *content* (FK-43 §43.4.2).
+        """Replace the five FK-03 placeholder tokens in *content* (FK-43 §43.4.2).
 
-        This is the config-only path: it resolves exactly the four FK-03 placeholders
+        This is the config-only path: it resolves exactly the five FK-03 placeholders
         and treats every other token — including the manifest-fed
         ``{{AGENT_SPAWN_SKILL_PROOF}}`` — as unknown (fail-closed). Use
         :meth:`substitute_spawn_header` to additionally resolve the manifest-fed
@@ -109,10 +119,10 @@ class PlaceholderSubstitutor:
     def substitute_spawn_header(
         self, content: str, config: ProjectConfig, project_root: Path
     ) -> str:
-        """Resolve all five read-time placeholders incl. the manifest-fed proof.
+        """Resolve all six read-time placeholders incl. the manifest-fed proof.
 
         AG3-110 (FK-31 §31.7.4 / FK-43 §43.4.2): the read-time substitution path for
-        the ``story_execution`` spawn header. It resolves the four FK-03 placeholders
+        the ``story_execution`` spawn header. It resolves the five FK-03 placeholders
         from *config* AND ``{{AGENT_SPAWN_SKILL_PROOF}}`` from the installed manifest
         (``.installed-manifest.json`` -> ``agent_spawn_skill_proof``) read from
         *project_root*.
@@ -126,12 +136,12 @@ class PlaceholderSubstitutor:
 
         Args:
             content: Raw skill content carrying ``{{...}}`` tokens (e.g. SKILL.md).
-            config: The project configuration (resolves the four FK-03 placeholders).
+            config: The project configuration (resolves the five FK-03 placeholders).
             project_root: The target-project root whose ``.installed-manifest.json``
                 carries the authoritative ``agent_spawn_skill_proof`` token.
 
         Returns:
-            The content with all five placeholders resolved.
+            The content with all six placeholders resolved.
 
         Raises:
             UnknownPlaceholderError: When an unrecognised placeholder is found, OR when
@@ -146,6 +156,48 @@ class PlaceholderSubstitutor:
         # When the token is missing/empty we deliberately do NOT add it to ``values``;
         # a present ``{{AGENT_SPAWN_SKILL_PROOF}}`` then raises UnknownPlaceholderError
         # in ``_apply`` (fail-closed). Content WITHOUT the placeholder still resolves.
+        return self._apply(content, values)
+
+    def substitute_materialized(
+        self,
+        content: str,
+        config: ProjectConfig,
+        project_root: Path,
+        *,
+        ak3_interpreter_command: str,
+        ak3_wrapper_command: str,
+    ) -> str:
+        """Resolve every token available to an installed materialized skill.
+
+        The installer owns executable resolution and passes already rendered,
+        absolute commands into this BC. Keeping their replacement in this method
+        preserves one substitution implementation while avoiding an agent-skills
+        dependency on the installer BC.
+
+        Args:
+            content: Raw materialized skill content.
+            config: Project configuration for the FK-03 tokens.
+            project_root: Project whose installed manifest carries the spawn proof.
+            ak3_interpreter_command: Shell-rendered absolute AK3 interpreter.
+            ak3_wrapper_command: Shell-rendered absolute ``agentkit`` wrapper.
+
+        Returns:
+            Content with config-, manifest-, and installer-fed tokens resolved.
+
+        Raises:
+            UnknownPlaceholderError: If any token lacks an authoritative value.
+            ValueError: If an installer-fed command is empty.
+        """
+        if not ak3_interpreter_command.strip():
+            raise ValueError("ak3_interpreter_command must be non-empty")
+        if not ak3_wrapper_command.strip():
+            raise ValueError("ak3_wrapper_command must be non-empty")
+        values = self._config_values(config)
+        token = self._installed_skill_proof(project_root)
+        if token:
+            values[SPAWN_SKILL_PROOF_PLACEHOLDER] = token
+        values[AK3_INTERPRETER_PLACEHOLDER] = ak3_interpreter_command
+        values[AK3_WRAPPER_PLACEHOLDER] = ak3_wrapper_command
         return self._apply(content, values)
 
     @staticmethod

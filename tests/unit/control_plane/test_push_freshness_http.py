@@ -50,7 +50,11 @@ class _FakePushFreshnessRuntimeService(ControlPlaneRuntimeService):
         self.calls: list[tuple[str, str, str]] = []
 
     def list_push_freshness(
-        self, run_id: str, *, project_key: str, story_id: str,
+        self,
+        run_id: str,
+        *,
+        project_key: str,
+        story_id: str,
     ) -> PushFreshnessListResponse:
         if self.error is not None:
             raise self.error
@@ -60,6 +64,7 @@ class _FakePushFreshnessRuntimeService(ControlPlaneRuntimeService):
 
 def _app(runtime: ControlPlaneRuntimeService) -> ControlPlaneApplication:
     return ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=runtime,
         story_service=_FakeStoryService(),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
@@ -96,10 +101,7 @@ def test_get_push_freshness_returns_the_wired_response() -> None:
 
     response = app.handle_request(
         method="GET",
-        path=(
-            "/v1/project-edge/story-runs/run-1/push-freshness"
-            "?project_key=tenant-a&story_id=AG3-147"
-        ),
+        path=("/v1/project-edge/story-runs/run-1/push-freshness?project_key=tenant-a&story_id=AG3-147"),
         body=b"",
     )
 
@@ -139,17 +141,12 @@ def test_get_push_freshness_missing_story_id_only_returns_400() -> None:
 
 def test_get_push_freshness_non_postgres_backend_fails_closed_503() -> None:
     """AC5/AC13: the read surface is Postgres-only; a ConfigError -> 503."""
-    runtime = _FakePushFreshnessRuntimeService(
-        error=ConfigError("Postgres state backend required")
-    )
+    runtime = _FakePushFreshnessRuntimeService(error=ConfigError("Postgres state backend required"))
     app = _app(runtime)
 
     response = app.handle_request(
         method="GET",
-        path=(
-            "/v1/project-edge/story-runs/run-1/push-freshness"
-            "?project_key=tenant-a&story_id=AG3-147"
-        ),
+        path=("/v1/project-edge/story-runs/run-1/push-freshness?project_key=tenant-a&story_id=AG3-147"),
         body=b"",
     )
 

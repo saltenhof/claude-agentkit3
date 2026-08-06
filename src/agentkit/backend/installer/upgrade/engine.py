@@ -36,8 +36,6 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from packaging.version import InvalidVersion, Version
-
 from agentkit.backend.installer.registration import CheckpointResult, CheckpointStatus
 from agentkit.backend.installer.upgrade.cleanup import run_cleanup
 from agentkit.backend.installer.upgrade.config_migration import migrate_config_file
@@ -64,7 +62,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.governance.hook_registration import HookDefinition
-    from agentkit.backend.governance.runner import Governance
     from agentkit.backend.installer.checkpoint_engine.engine import CheckpointHandler
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
@@ -72,6 +69,7 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.upgrade.hook_migration import (
         GitHookMigrationOutcome,
         HookMigrationOutcome,
+        HookRegistrationSurface,
     )
     from agentkit.backend.installer.upgrade.scenarios import UpgradeScenarioDecision
     from agentkit.backend.skills import Skills
@@ -88,6 +86,7 @@ UP_03_MIGRATE_CONFIG = "up_03_migrate_config"
 UP_04_MIGRATE_HOOKS = "up_04_migrate_hooks"
 UP_05_MIGRATE_GIT_HOOK = "up_05_migrate_git_hook"
 UP_06_CLEANUP = "up_06_cleanup"
+REASON_NORM_VIOLATING_SKILL_PIN = "norm_violating_skill_pin"
 
 
 @dataclass(frozen=True)
@@ -124,7 +123,7 @@ class UpgradeRequest:
     explicit_binding_switch: bool = False
     is_subagent: bool = False
     skills: Skills | None = None
-    governance: Governance | None = None
+    governance: HookRegistrationSurface | None = None
     desired_hook_definitions: list[HookDefinition] | None = None
     current_hook_matchers: frozenset[str] = frozenset()
     cleanup_plan: CleanupPlan | None = None
@@ -227,39 +226,32 @@ def up_01_detect_footprint(context: UpgradeRunContext) -> CheckpointResult:
 
 
 def _norm_violating_pins(req: UpgradeRequest) -> list[str]:
-    """Report mandatory skills pinned below their minimum conform version.
+    """Report every persisted skill pinned below its bundle's conform floor.
 
-    Read-only. A skill without a persisted binding, or a pin that is not a
-    comparable version, is NOT reported here: this check answers exactly one
-    question, and the binding's own verification owns the rest.
+    Read-only. Bundles without a policy floor are outside this check. A pin for
+    a floored bundle that is not a comparable version fails closed because it
+    cannot prove conformance.
     """
-    from agentkit.backend.installer.runner import (  # noqa: PLC0415 - runtime import keeps the spine import-light
-        DEFAULT_MANDATORY_SKILL_BUNDLE_IDS,
-        MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS,
-    )
+    from agentkit.backend.skills import assess_bundle_version  # noqa: PLC0415
 
     if req.skills is None:
         return []  # no skills surface in this run: nothing to inspect, not a finding
     violating: list[str] = []
-    for skill_name in DEFAULT_MANDATORY_SKILL_BUNDLE_IDS:
-        binding = req.skills.resolve_binding(req.project_root, skill_name)
-        if binding is None:
-            continue
+    for binding in req.skills.list_bound_skills(req.project_root):
         # Keyed on the ACTUALLY bound bundle, not on the expected default id:
         # a project may legitimately run a different bundle, and that one has
         # its own floor (or none at all).
-        floor = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(binding.bundle_id)
+        assessment = assess_bundle_version(binding.bundle_id, binding.bundle_version)
+        floor = assessment.minimum_version
         if floor is None:
             continue
-        try:
-            outdated = Version(binding.bundle_version) < Version(floor)
-        except InvalidVersion:
+        if not assessment.is_comparable:
             # Fail-closed: this bundle HAS a floor, and a pin that cannot be
             # compared against it cannot be shown to satisfy it. Skipping here
             # would wave through exactly the case the floor exists for.
             violating.append(f"{binding.bundle_id}@{binding.bundle_version} (not comparable to {floor})")
             continue
-        if outdated:
+        if not assessment.is_conform:
             violating.append(f"{binding.bundle_id}@{binding.bundle_version} < {floor}")
     return violating
 
@@ -290,6 +282,7 @@ def up_02_guard_binding(context: UpgradeRunContext) -> CheckpointResult:
             UP_02_GUARD_BINDING,
             status=CheckpointStatus.FAILED,
             detail="Norm-violating skill pin(s): " + "; ".join(violating) + ". Rebind before upgrading.",
+            reason=REASON_NORM_VIOLATING_SKILL_PIN,
             start=start,
         )
     if not (context.mode.mutations_allowed and req.explicit_binding_switch):
@@ -597,6 +590,7 @@ __all__ = [
     "UP_04_MIGRATE_HOOKS",
     "UP_05_MIGRATE_GIT_HOOK",
     "UP_06_CLEANUP",
+    "REASON_NORM_VIOLATING_SKILL_PIN",
     "UPGRADE_FLOW_ID",
     "UPGRADE_FLOW_OWNER",
     "UpgradeRequest",

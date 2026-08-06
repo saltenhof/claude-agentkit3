@@ -10,6 +10,10 @@ from agentkit.backend.control_plane_http.responses import (
 )
 
 if TYPE_CHECKING:
+    from agentkit.backend.auth.middleware import AuthResult
+    from agentkit.backend.control_plane_http.installer_writer_routes import (
+        InstallerWriterRoutes,
+    )
     from agentkit.backend.control_plane_http.third_party_validation_routes import (
         ThirdPartyValidationRoutes,
     )
@@ -22,12 +26,14 @@ class InstallerDispatchMixin:
     if TYPE_CHECKING:
         _project_routes: ProjectManagementRoutes
         _third_party_validation_routes: ThirdPartyValidationRoutes
+        _installer_writer_routes: InstallerWriterRoutes
 
     def _dispatch_installer_post(
         self,
         route_path: str,
         payload: object,
         correlation_id: str,
+        auth_result: AuthResult | None,
     ) -> HttpResponse | None:
         """Dispatch project registration and installer mediation writes."""
         project_response = self._project_routes.handle_post(
@@ -35,6 +41,14 @@ class InstallerDispatchMixin:
         )
         if project_response is not None:
             return _project_response_to_http_response(project_response)
+        writer_response = self._installer_writer_routes.handle_post(
+            route_path,
+            payload,
+            correlation_id,
+            auth_result,
+        )
+        if writer_response is not None:
+            return writer_response
         return self._third_party_validation_routes.handle_post(
             route_path, payload, correlation_id
         )

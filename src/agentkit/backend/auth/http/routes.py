@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
 import json
 import re
 from dataclasses import dataclass
@@ -129,6 +128,7 @@ class AuthRoutes:
         self._session_store = session_store or InMemorySessionStore()
         self._token_repository = token_repository
         self._strategist_transition_lock = RLock()
+        self._writer_authority_check: Callable[[], None] = lambda: None
         #: FK-91 §91.1a Rule 5 (AG3-140): the unified in-flight idempotency guard.
         #: ``None`` resolves the stateless Postgres-backed production guard lazily
         #: per call; unit tests inject a shared in-memory guard so claim state
@@ -146,6 +146,11 @@ class AuthRoutes:
         """Return the project API token repository."""
 
         return self._token_repository
+
+    def bind_writer_authority(self, check: Callable[[], None]) -> None:
+        """Bind the productive commit-near writer-lease assertion."""
+
+        self._writer_authority_check = check
 
     def handle_get(
         self,
@@ -244,6 +249,7 @@ class AuthRoutes:
                 )
             except (ValidationError, AuthFailedError):
                 return _unauthorized_response(correlation_id)
+            self._writer_authority_check()
             session = self._session_store.create()
         return _json_response(
             HTTPStatus.OK,
@@ -263,6 +269,7 @@ class AuthRoutes:
     ) -> AuthRouteResponse:
         session_id = _session_cookie_from_headers(request_headers)
         if session_id is not None:
+            self._writer_authority_check()
             self._session_store.revoke(session_id)
         return _json_response(
             HTTPStatus.OK,
@@ -301,11 +308,6 @@ class AuthRoutes:
             idempotency_request,
             lambda: self._do_rotate_password(request, correlation_id),
             correlation_id,
-            recover_inflight=lambda finalize: self._recover_rotated_password(
-                request,
-                correlation_id,
-                finalize,
-            ),
         )
 
     def _do_rotate_password(
@@ -318,8 +320,10 @@ class AuthRoutes:
             self._credential_store.rotate_password(
                 request.new_password,
                 op_id=request.op_id,
+                before_publish=self._writer_authority_check,
             )
             try:
+                self._writer_authority_check()
                 self._session_store.revoke_all()
             except Exception as exc:
                 raise CommittedMutationError(
@@ -335,34 +339,6 @@ class AuthRoutes:
             correlation_id=correlation_id,
             headers=(_clear_session_cookie(),),
         )
-
-    def _recover_rotated_password(
-        self,
-        request: RotateStrategistPasswordRequest,
-        correlation_id: str,
-        finalize: Callable[[AuthRouteResponse], bool],
-    ) -> AuthRouteResponse | None:
-        """Recover an orphan claim only when its requested password is active."""
-        with self._credential_store.transition_lock(), self._strategist_transition_lock:
-            try:
-                self._credential_store.verify_applied_rotation(
-                    StrategistCredentials(username="admin", password=request.new_password),
-                    op_id=request.op_id,
-                )
-            except AuthFailedError:
-                return None
-            self._session_store.revoke_all()
-            response = _json_response(
-                HTTPStatus.OK,
-                {
-                    "status": "rotated",
-                    "op_id": request.op_id,
-                    "correlation_id": correlation_id,
-                },
-                correlation_id=correlation_id,
-                headers=(_clear_session_cookie(),),
-            )
-            return response if finalize(response) else None
 
     # ------------------------------------------------------------------
     # Unified in-flight idempotency guard (AG3-140 / FK-91 §91.1a Rule 5)
@@ -382,19 +358,13 @@ class AuthRoutes:
         request: IdempotencyRequest,
         mutate: Callable[[], AuthRouteResponse],
         correlation_id: str,
-        *,
-        recover_inflight: Callable[
-            [Callable[[AuthRouteResponse], bool]],
-            AuthRouteResponse | None,
-        ]
-        | None = None,
     ) -> AuthRouteResponse:
         """Run one mutation under the unified idempotency contract.
 
         claim -> mutate -> finalize/release:
-          * ``ReplayOutcome`` -> rebuild and return the stored response verbatim
-            (the mutation ran exactly once; e.g. a replayed token-create returns
-            the SAME plaintext token, never a freshly minted second one).
+          * ``ReplayOutcome`` -> rebuild and return the stored response verbatim.
+            Token creation stores and replays metadata only; plaintext is never
+            present in an HTTP response or idempotency record.
           * ``MismatchOutcome`` -> ``409 idempotency_mismatch``.
           * ``InFlightOutcome`` -> ``409 operation_in_flight``.
           * ``FreshClaim`` -> run ``mutate``; a deterministic business outcome
@@ -405,7 +375,7 @@ class AuthRoutes:
             return run_route_idempotent(
                 self._guard(),
                 request,
-                mutate=mutate,
+                mutate=lambda: self._run_writer_authorized_mutation(mutate),
                 replay=lambda payload: self._replay_response(payload, correlation_id),
                 conflict=lambda error_code, message, detail: _error_response(
                     HTTPStatus.CONFLICT,
@@ -414,15 +384,27 @@ class AuthRoutes:
                     correlation_id=correlation_id,
                     detail=detail,
                 ),
-                recover_inflight=recover_inflight,
             )
         except CommittedMutationError:
             return _error_response(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 error_code="operation_completion_failed",
-                message="operation committed but completion failed; retry the same op_id",
+                message=(
+                    "operation side effect may be committed; the retained in-flight "
+                    "claim is finalized by same-writer startup reconciliation or an "
+                    "explicit administrative abort"
+                ),
                 correlation_id=correlation_id,
             )
+
+    def _run_writer_authorized_mutation(
+        self,
+        mutate: Callable[[], AuthRouteResponse],
+    ) -> AuthRouteResponse:
+        """Recheck writer authority after claim and immediately before mutation."""
+
+        self._writer_authority_check()
+        return mutate()
 
     def _replay_response(
         self,
@@ -482,12 +464,6 @@ class AuthRoutes:
             req,
             lambda: self._do_create_token(project_key, request, correlation_id),
             correlation_id,
-            recover_inflight=lambda finalize: self._recover_created_token(
-                project_key,
-                request,
-                correlation_id,
-                finalize,
-            ),
         )
 
     def _do_create_token(
@@ -519,26 +495,6 @@ class AuthRoutes:
                 correlation_id=correlation_id,
             )
         return self._created_token_response(token, request, correlation_id)
-
-    def _recover_created_token(
-        self,
-        project_key: str,
-        request: CreateProjectApiTokenRequest,
-        correlation_id: str,
-        finalize: Callable[[AuthRouteResponse], bool],
-    ) -> AuthRouteResponse | None:
-        """Recover only the exact active hash record committed before a crash."""
-        token = self._token_repository.get(request.token_id)
-        if (
-            token is None
-            or token.project_key != project_key
-            or token.label != request.label
-            or token.revoked_at is not None
-            or not hmac.compare_digest(token.token_hash, request.token_hash)
-        ):
-            return None
-        response = self._created_token_response(token, request, correlation_id)
-        return response if finalize(response) else None
 
     @staticmethod
     def _created_token_response(
@@ -597,13 +553,6 @@ class AuthRoutes:
             req,
             lambda: self._do_revoke_token(project_key, token_id, request, correlation_id),
             correlation_id,
-            recover_inflight=lambda finalize: self._recover_revoked_token(
-                project_key,
-                token_id,
-                request,
-                correlation_id,
-                finalize,
-            ),
         )
 
     def _do_revoke_token(
@@ -638,39 +587,6 @@ class AuthRoutes:
             },
             correlation_id=correlation_id,
         )
-
-    def _recover_revoked_token(
-        self,
-        project_key: str,
-        token_id: str,
-        request: RevokeProjectApiTokenRequest,
-        correlation_id: str,
-        finalize: Callable[[AuthRouteResponse], bool],
-    ) -> AuthRouteResponse | None:
-        """Recover a committed revocation or deterministic missing-token result."""
-        token = self._token_repository.get(token_id)
-        if token is None:
-            response = _error_response(
-                HTTPStatus.NOT_FOUND,
-                error_code="project_api_token_not_found",
-                message="Project API token not found",
-                correlation_id=correlation_id,
-            )
-            return response if finalize(response) else None
-        if token.project_key != project_key or token.revoked_at is None:
-            return None
-        response = _json_response(
-            HTTPStatus.OK,
-            {
-                "status": "committed",
-                "op_id": request.op_id,
-                "operation_kind": "project_api_token_revoke",
-                "correlation_id": correlation_id,
-            },
-            correlation_id=correlation_id,
-        )
-        return response if finalize(response) else None
-
 
 def _token_payload(token: ProjectApiToken) -> dict[str, object]:
     return token.model_dump(

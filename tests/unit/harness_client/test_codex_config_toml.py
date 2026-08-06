@@ -8,14 +8,17 @@ Pure text-to-text: no filesystem, no process.
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from pathlib import Path
 
 import pytest
 
+from agentkit.backend.boundary.filesystem import matches_resolved_path_owner
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_SERVER_SHAPES,
     ARE_MCP_SERVER,
+    CODEX_HOOK_WRAPPER_NAME,
     REGISTERED_ENV_KEYS,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
@@ -24,13 +27,19 @@ from agentkit.harness_client.harness_adapters.codex_config_toml import (
     CodexConfigError,
     CodexConfigOwnership,
     CodexConfigRejection,
-    classify_ownership,
     is_recognised_ak3_server_table,
+    load_codex_config,
     render_canonical_codex_config,
     render_codex_config,
 )
+from agentkit.harness_client.harness_adapters.codex_config_toml import (
+    classify_ownership as _classify_ownership,
+)
+from agentkit.harness_client.harness_adapters.codex_config_toml import (
+    render_without_ak3 as _render_without_ak3,
+)
 
-_HOOK = "agentkit-hook-codex"
+_HOOK = str((Path.cwd() / ".test-ak3" / "agentkit-hook-codex.exe").absolute())
 _ROOT = Path("C:/proj")
 
 
@@ -41,6 +50,51 @@ def _ak3_command() -> str:
     )
 
     return resolve_story_knowledge_base_command()
+
+
+def _owner_snapshot(
+    additional: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return a real-shape command-owner snapshot for destructive unit cases."""
+    owners = {
+        CODEX_HOOK_WRAPPER_NAME: _HOOK,
+        STORY_KNOWLEDGE_BASE_SERVER: _ak3_command(),
+    }
+    if additional is not None:
+        owners.update(additional)
+    return owners
+
+
+def classify_ownership(
+    raw: bytes | None,
+    *,
+    hook_command: str,
+    project_root: Path,
+    resolved_command_owners: dict[str, str] | None = None,
+) -> CodexConfigOwnership:
+    """Classify with the owner snapshot a real detach would supply."""
+    return _classify_ownership(
+        raw,
+        hook_command=hook_command,
+        project_root=project_root,
+        resolved_command_owners=_owner_snapshot(resolved_command_owners),
+    )
+
+
+def render_without_ak3(
+    raw: bytes,
+    *,
+    hook_command: str,
+    project_root: Path,
+    resolved_command_owners: dict[str, str] | None = None,
+) -> str:
+    """Render with the owner snapshot a real detach would supply."""
+    return _render_without_ak3(
+        raw,
+        hook_command=hook_command,
+        project_root=project_root,
+        resolved_command_owners=_owner_snapshot(resolved_command_owners),
+    )
 
 
 def _server(
@@ -60,7 +114,7 @@ def _server(
 
 
 def _are_server() -> DesiredMcpServer:
-    """ARE server matching its EXPECTED shape (AK3_SERVER_SHAPES)."""
+    """ARE shape fixture carrying the non-publishable wrapper sentinel."""
     shape = AK3_SERVER_SHAPES[ARE_MCP_SERVER]
     return DesiredMcpServer(
         name=ARE_MCP_SERVER,
@@ -69,6 +123,30 @@ def _are_server() -> DesiredMcpServer:
         cwd=str(_ROOT),
         env=tuple((key, "value") for key in sorted(shape.env_keys)),
     )
+
+
+def _absolute_are_server(*, command: str | None = None) -> DesiredMcpServer:
+    """ARE server carrying the absolute wrapper path CP 10 publishes."""
+    shape = AK3_SERVER_SHAPES[ARE_MCP_SERVER]
+    return DesiredMcpServer(
+        name=ARE_MCP_SERVER,
+        command=(
+            str(_ROOT.resolve() / ".venv" / "bin" / "agentkit-are-mcp")
+            if command is None
+            else command
+        ),
+        args=shape.args,
+        cwd=str(_ROOT),
+        env=tuple((key, "value") for key in sorted(shape.env_keys)),
+    )
+
+
+def _make_are_owner(tmp_path: Path) -> Path:
+    """Materialise the regular wrapper file the central owner would return."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    owner = tmp_path / "agentkit-are-mcp.exe"
+    owner.write_text("wrapper", encoding="utf-8")
+    return owner
 
 
 def _render(raw: bytes | None, *servers: DesiredMcpServer) -> str:
@@ -93,7 +171,7 @@ def _hook_plus_mcp() -> bytes:
 def test_fresh_render_carries_the_hook_entry() -> None:
     text = _render(None)
     assert "[hooks.pre_tool_use]" in text
-    assert f'command = "{_HOOK}"' in text
+    assert tomllib.loads(text)["hooks"]["pre_tool_use"]["command"] == _HOOK
     assert "mcp_servers" not in text
 
 
@@ -360,9 +438,86 @@ def test_foreign_hook_key_is_mixed() -> None:
     assert classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT) is CodexConfigOwnership.MIXED
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        (
+            b"[hooks.pre_tool_use]\n"
+            b'command = "agentkit-hook-codex"\n'
+            b'future_option = "keep"\n'
+        ),
+        (
+            b"[hooks.pre_tool_use]\n"
+            b'command = "agentkit-hook-codex" # keep inline\n'
+        ),
+        (
+            b"[hooks.pre_tool_use] # keep table comment\n"
+            b'command = "agentkit-hook-codex"\n'
+        ),
+    ],
+)
+def test_detach_preserves_foreign_content_inside_owned_hook_table(raw: bytes) -> None:
+    """A matching command alone never authorizes deletion of hook extensions."""
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+    )
+    assert "agentkit-hook-codex" in detached
+    assert "keep" in detached
+
+
+def test_hook_without_detach_time_owner_is_mixed_and_preserved() -> None:
+    """The import-time writer value cannot stand in for a detach snapshot."""
+    raw = _hook_only()
+
+    assert (
+        _classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners={},
+        )
+        is CodexConfigOwnership.MIXED
+    )
+    assert (
+        load_codex_config(
+            _render_without_ak3(
+                raw,
+                hook_command=_HOOK,
+                project_root=_ROOT,
+                resolved_command_owners={},
+            ).encode("utf-8")
+        )["hooks"]["pre_tool_use"]["command"]
+        == _HOOK
+    )
+def test_detach_preserves_inline_comment_on_hooks_parent_table() -> None:
+    """An emptied parent table remains when its header carries user content."""
+    raw = (
+        "[hooks] # keep parent note\n"
+        "[hooks.pre_tool_use]\n"
+        f"command = {json.dumps(_HOOK)}\n"
+    ).encode()
+
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+    )
+
+    assert "keep parent note" in detached
+    assert "agentkit-hook-codex" not in detached
+
+
 def test_different_hook_command_is_not_ak3_owned() -> None:
-    raw = _render(None).replace(_HOOK, "someone-elses-hook").encode("utf-8")
-    assert classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT) is CodexConfigOwnership.FOREIGN
+    raw = _render(None).replace(
+        json.dumps(_HOOK),
+        json.dumps("someone-elses-hook"),
+    ).encode("utf-8")
+    assert (
+        classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT)
+        is CodexConfigOwnership.MIXED
+    )
 
 
 def test_file_without_any_ak3_content_is_foreign() -> None:
@@ -382,18 +537,441 @@ def test_unreadable_file_is_unreadable_and_never_raises() -> None:
     )
 
 
-def test_ak3_only_file_with_are_server_is_classified_owned() -> None:
-    """Ownership is feature-flag independent: are-mcp counts as AK3 content."""
+def test_are_shape_sentinel_is_not_classified_owned() -> None:
+    """The internal shape sentinel is not a command AK3 can publish."""
     raw = _render(None, _are_server()).encode("utf-8")
-    assert classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT) is CodexConfigOwnership.AK3_ONLY
+    assert classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT) is CodexConfigOwnership.MIXED
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+    )
+    assert load_codex_config(detached.encode("utf-8")) == {
+        "mcp_servers": {
+            ARE_MCP_SERVER: {
+                "command": AK3_SERVER_SHAPES[ARE_MCP_SERVER].command,
+                "args": [],
+                "cwd": str(_ROOT),
+                "env": {"ARE_MCP_SERVER": "value"},
+                "required": True,
+            }
+        }
+    }
 
 
-def test_render_canonical_matches_classification_for_every_owned_subset() -> None:
+def test_ak3_only_file_with_central_are_server_is_classified_owned(
+    tmp_path: Path,
+) -> None:
+    """Only the real wrapper path supplied by the central owner is AK3-owned."""
+    owner = _make_are_owner(tmp_path)
+    raw = _render(
+        None,
+        _absolute_are_server(command=str(owner)),
+    ).encode("utf-8")
+    owners = {ARE_MCP_SERVER: str(owner)}
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners=owners,
+        )
+        is CodexConfigOwnership.AK3_ONLY
+    )
+    assert not render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+        resolved_command_owners=owners,
+    ).strip()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path spelling semantics")
+def test_are_owner_comparison_normalizes_windows_case_separators_and_spaces(
+    tmp_path: Path,
+) -> None:
+    """Equivalent Windows spellings still resolve to the central .exe owner."""
+    owner = _make_are_owner(tmp_path / "Owner With Spaces")
+    candidate = owner.as_posix().swapcase()
+    raw = _render(
+        None,
+        _absolute_are_server(command=candidate),
+    ).encode("utf-8")
+
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+        )
+        is CodexConfigOwnership.AK3_ONLY
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows UNC spelling semantics")
+def test_are_owner_comparison_normalizes_unc_case_and_separators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UNC spelling differences do not turn one owner path into two paths."""
+    monkeypatch.setattr(Path, "is_symlink", lambda _path: False)
+    shape = AK3_SERVER_SHAPES[ARE_MCP_SERVER]
+
+    assert shape.matches_command(
+        r"\\SERVER\AK3 Share\bin\AGENTKIT-ARE-MCP.EXE",
+        resolved_owner_command="//server/ak3 share/bin/agentkit-are-mcp.exe",
+        path_owner_matcher=matches_resolved_path_owner,
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ".venv/bin/agentkit-are-mcp",
+        r"tools\agentkit-are-mcp.exe",
+        "/opt/agentkit/bin/foreign-wrapper",
+        r"T:\FOREIGN TOOL\agentkit-are-mcp.exe",
+    ],
+)
+def test_are_command_recognition_rejects_every_non_owner_path(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    """Absolute form and a matching basename cannot substitute for owner identity."""
+    owner = _make_are_owner(tmp_path)
+    server = DesiredMcpServer(
+        name=ARE_MCP_SERVER,
+        command=command,
+        args=(),
+        cwd=str(_ROOT),
+        env=(("ARE_MCP_SERVER", "value"),),
+    )
+    raw = _render(None, server).encode("utf-8")
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+        )
+        is CodexConfigOwnership.MIXED
+    )
+
+
+def test_are_command_recognition_rejects_existing_same_named_foreign_wrapper(
+    tmp_path: Path,
+) -> None:
+    """Two real regular files prove identity, rather than existence or basename."""
+    owner = _make_are_owner(tmp_path / "owner")
+    foreign = _make_are_owner(tmp_path / "foreign")
+    raw = _render(
+        None,
+        _absolute_are_server(command=str(foreign)),
+    ).encode("utf-8")
+
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+        )
+        is CodexConfigOwnership.MIXED
+    )
+    assert render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+        resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+    ).strip()
+
+
+def test_are_command_recognition_rejects_symlink_even_to_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mutable link state never grants detach authority over an ARE table.
+
+    The narrow ``is_symlink`` seam keeps this unit deterministic on Windows
+    workers whose accounts do not hold the symbolic-link creation privilege.
+    """
+    owner = tmp_path / "owner" / "agentkit-are-mcp.exe"
+    owner.parent.mkdir()
+    owner.write_text("wrapper", encoding="utf-8")
+    link = tmp_path / "link" / "agentkit-are-mcp.exe"
+    link.parent.mkdir()
+    link.write_text("link placeholder", encoding="utf-8")
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda path: path == link or real_is_symlink(path),
+    )
+    raw = _render(
+        None,
+        _absolute_are_server(command=str(link)),
+    ).encode("utf-8")
+
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+        )
+        is CodexConfigOwnership.MIXED
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows symlink privilege is not portable")
+def test_are_command_recognition_rejects_real_symlink_to_owner(
+    tmp_path: Path,
+) -> None:
+    """A real filesystem link to the central owner remains foreign."""
+    owner = _make_are_owner(tmp_path / "owner")
+    link = tmp_path / "link" / "agentkit-are-mcp"
+    link.parent.mkdir()
+    link.symlink_to(owner)
+    raw = _render(
+        None,
+        _absolute_are_server(command=str(link)),
+    ).encode("utf-8")
+
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+        )
+        is CodexConfigOwnership.MIXED
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows symlink privilege is not portable")
+def test_are_command_recognition_rejects_symlinked_ancestor_before_dotdot(
+    tmp_path: Path,
+) -> None:
+    """A symlinked ancestor cannot disappear behind lexical ``..`` cleanup."""
+    project = tmp_path / "project"
+    owner = _make_are_owner(project / "bin")
+    foreign = _make_are_owner(tmp_path / "foreign" / "bin")
+    pivot_target = foreign.parent.parent / "subdir"
+    pivot_target.mkdir()
+    pivot = project / "pivot"
+    pivot.symlink_to(pivot_target, target_is_directory=True)
+    candidate = pivot / ".." / "bin" / owner.name
+
+    assert not AK3_SERVER_SHAPES[ARE_MCP_SERVER].matches_command(
+        str(candidate),
+        resolved_owner_command=str(owner),
+        path_owner_matcher=matches_resolved_path_owner,
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows symlink privilege is not portable")
+def test_are_command_recognition_rejects_symlinked_owner_ancestor_before_dotdot(
+    tmp_path: Path,
+) -> None:
+    """Owner input is subject to the same complete symlink-path proof."""
+    project = tmp_path / "project"
+    owner = _make_are_owner(project / "bin")
+    foreign = _make_are_owner(tmp_path / "foreign" / "bin")
+    pivot_target = foreign.parent.parent / "subdir"
+    pivot_target.mkdir()
+    pivot = project / "pivot"
+    pivot.symlink_to(pivot_target, target_is_directory=True)
+    owner_alias = pivot / ".." / "bin" / owner.name
+
+    assert not AK3_SERVER_SHAPES[ARE_MCP_SERVER].matches_command(
+        str(owner),
+        resolved_owner_command=str(owner_alias),
+        path_owner_matcher=matches_resolved_path_owner,
+    )
+
+
+def test_are_command_recognition_without_owner_resolution_is_mixed_and_preserved(
+    tmp_path: Path,
+) -> None:
+    """A missing central wrapper after uninstall fails closed and survives detach."""
+    owner = _make_are_owner(tmp_path)
+    raw = _render(
+        None,
+        _absolute_are_server(command=str(owner)),
+    ).encode("utf-8")
+
+    assert (
+        classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT)
+        is CodexConfigOwnership.MIXED
+    )
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+    )
+    assert ARE_MCP_SERVER in load_codex_config(detached.encode("utf-8"))[
+        "mcp_servers"
+    ]
+
+
+def test_detach_preserves_are_table_with_altered_owned_value(tmp_path: Path) -> None:
+    """A path-shaped command cannot make a foreign owned-field value deletable."""
+    owner = _make_are_owner(tmp_path)
+    owners = {ARE_MCP_SERVER: str(owner)}
+    raw = _render(None, _absolute_are_server(command=str(owner))).replace(
+        "required = true",
+        "required = false",
+    ).encode("utf-8")
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners=owners,
+        )
+        is CodexConfigOwnership.MIXED
+    )
+
+    detached = load_codex_config(
+        render_without_ak3(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners=owners,
+        ).encode("utf-8")
+    )
+    assert detached["mcp_servers"][ARE_MCP_SERVER]["required"] is False
+
+
+def test_unresolvable_cwd_is_mixed_and_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resolution failure never turns a reserved server name into ownership."""
+    raw = _render(None, _absolute_are_server()).encode("utf-8")
+
+    def _unresolvable(_path: Path) -> Path:
+        raise RuntimeError("symlink loop")
+
+    monkeypatch.setattr(Path, "resolve", _unresolvable)
+
+    assert (
+        classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT)
+        is CodexConfigOwnership.MIXED
+    )
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+    )
+    assert ARE_MCP_SERVER in load_codex_config(detached.encode("utf-8"))[
+        "mcp_servers"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("[mcp_servers.are-mcp]", "[mcp_servers.are-mcp] # keep table note"),
+        ("required = true", "required = true # keep field note"),
+    ],
+)
+def test_detach_preserves_inline_comments_on_owned_are_server(
+    tmp_path: Path,
+    old: str,
+    new: str,
+) -> None:
+    """Inline comments are foreign content and keep the registration intact."""
+    owner = _make_are_owner(tmp_path)
+    owners = {ARE_MCP_SERVER: str(owner)}
+    raw = _render(None, _absolute_are_server(command=str(owner))).replace(
+        old,
+        new,
+    ).encode("utf-8")
+    assert (
+        classify_ownership(
+            raw,
+            hook_command=_HOOK,
+            project_root=_ROOT,
+            resolved_command_owners=owners,
+        )
+        is CodexConfigOwnership.MIXED
+    )
+
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+        resolved_command_owners=owners,
+    )
+    assert "keep" in detached
+    assert ARE_MCP_SERVER in load_codex_config(detached.encode("utf-8"))["mcp_servers"]
+
+
+def test_detach_preserves_inline_comment_inside_owned_args_array() -> None:
+    """Comments attached to array elements are foreign content too."""
+    raw = _ak3_file_bytes().replace(
+        b'args = ["-m", "agentkit.backend.vectordb.engine"]',
+        (
+            b"args = [\n"
+            b'  "-m", # keep argument note\n'
+            b'  "agentkit.backend.vectordb.engine",\n'
+            b"]"
+        ),
+    )
+    assert classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT) is CodexConfigOwnership.MIXED
+
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+    )
+    assert "keep argument note" in detached
+    assert STORY_KNOWLEDGE_BASE_SERVER in load_codex_config(
+        detached.encode("utf-8")
+    )["mcp_servers"]
+
+
+def test_detach_preserves_inline_comment_on_mcp_servers_parent_table(
+    tmp_path: Path,
+) -> None:
+    """Removing an owned child must not delete its parent's inline comment."""
+    owner = _make_are_owner(tmp_path)
+    raw = _render(None, _absolute_are_server(command=str(owner))).replace(
+        "[mcp_servers.are-mcp]",
+        "[mcp_servers] # keep parent note\n\n[mcp_servers.are-mcp]",
+    ).encode("utf-8")
+
+    detached = render_without_ak3(
+        raw,
+        hook_command=_HOOK,
+        project_root=_ROOT,
+        resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+    )
+
+    assert "keep parent note" in detached
+    assert ARE_MCP_SERVER not in load_codex_config(detached.encode("utf-8")).get(
+        "mcp_servers", {}
+    )
+
+
+def test_render_canonical_matches_classification_for_every_owned_subset(
+    tmp_path: Path,
+) -> None:
     """Cross-check: whatever the canonical renderer emits classifies as AK3_ONLY."""
-    for servers in ((), (_server(),), (_server(), _are_server())):
+    owner = _make_are_owner(tmp_path)
+    for servers in (
+        (),
+        (_server(),),
+        (_server(), _absolute_are_server(command=str(owner))),
+    ):
         raw = _render(None, *servers).encode("utf-8")
         assert (
-            classify_ownership(raw, hook_command=_HOOK, project_root=_ROOT)
+            classify_ownership(
+                raw,
+                hook_command=_HOOK,
+                project_root=_ROOT,
+                resolved_command_owners={ARE_MCP_SERVER: str(owner)},
+            )
             is CodexConfigOwnership.AK3_ONLY
         ), servers
 
@@ -525,7 +1103,10 @@ def test_recognition_helper_accepts_only_the_expected_shape() -> None:
         "required": True,
     }
     assert is_recognised_ak3_server_table(
-        STORY_KNOWLEDGE_BASE_SERVER, good, project_root=_ROOT
+        STORY_KNOWLEDGE_BASE_SERVER,
+        good,
+        project_root=_ROOT,
+        resolved_command_owners=_owner_snapshot(),
     )
     for mutation in (
         {"command": "other"},

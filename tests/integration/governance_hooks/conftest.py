@@ -85,7 +85,7 @@ def control_plane_base_url(
         issuance_op_id="op-integration-hook",
     )
     activate_project_credentials(credential_path)
-    app = ControlPlaneApplication(auth_middleware=auth)
+    app = ControlPlaneApplication(writer_lease_required=False, auth_middleware=auth)
     server = HTTPServer(("127.0.0.1", 0), _build_handler(app))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -116,9 +116,7 @@ def write_control_plane_config(project_root: Path, base_url: str) -> None:
     """Write the local ``control-plane.json`` the hook REST client reads."""
     config_dir = project_root / ".agentkit" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "control-plane.json").write_text(
-        json.dumps({"base_url": base_url}), encoding="utf-8"
-    )
+    (config_dir / "control-plane.json").write_text(json.dumps({"base_url": base_url}), encoding="utf-8")
     project_config = config_dir / "project.yaml"
     if not project_config.exists():
         project_config.write_text(

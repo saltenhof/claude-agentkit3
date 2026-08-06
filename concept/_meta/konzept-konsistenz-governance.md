@@ -180,6 +180,16 @@ selbst muss nicht semantisch gefunden werden. Betrieb: nightly +
 vor Konzept-Merges; Befund-Baseline mit begruendeten Eintraegen
 (keine stillen Baselines).
 
+Der versionierte Bewertervertrag `authority-prose/v2` verlangt keine
+kopierte Aussage. Das Gate versieht jede physische Quellzeile eines Chunks
+deterministisch mit einer Span-ID; der Bewerter liefert je Aussage nur
+`source_id`, inklusive `start_id`/`end_id` und die betroffenen Scopes. Die
+Policy validiert Quelle, Grenzen, Reihenfolge, Nichtleere, Ueberlappungsfreiheit
+und die Obergrenze von 2000 Zeichen und extrahiert den Befundtext selbst aus
+dem unveraenderten Chunk. Zeilenumbrueche bleiben dadurch Bestandteil der
+Evidenz. Ungueltige Referenzen sind `INVALID_EVALUATION_RESPONSE`; es gibt
+keine Whitespace-, Unicode- oder Fuzzy-Normalisierung.
+
 ### W3 — `concept-scope-consistency` (LLM-Sweep pro Scope)
 
 Widerspruchssuche, kollabiert auf kleine Mengen: Pro
@@ -189,6 +199,18 @@ Widersprueche geprueft („lies diese ~20 Aussagen zu Lock-Lifecycle —
 widersprechen sich welche?"). Setzt W2/P1 voraus, um klein zu
 bleiben; ohne sie degeneriert die Pruefung zu O(n²) ueber den
 Gesamtkorpus. Betrieb: nightly, Baseline wie W2.
+
+Der versionierte Bewertervertrag `scope-consistency/v2` verwendet denselben
+Quellspannen-Nachweis. Ein W3-Locus enthaelt nur `source_id`, `start_id` und
+`end_id`; Dokument, Anker und Aussage werden ausschliesslich aus dem
+geschlossenen Eingabesatz abgeleitet. Die W2-Validierungsregeln fuer Grenzen,
+Nichtleere, Reihenfolge und Groesse gelten identisch. Ueberlappungen sind
+innerhalb einer Widerspruchsgruppe ungueltig; gruppenuebergreifend darf dieselbe
+Evidenz in mehreren unabhaengigen Widerspruechen wiederverwendet werden.
+Die W3-Partitionierung begrenzt den vollstaendig gerenderten v2-Prompt
+einschliesslich Template, JSON und Zeilenmarkern auf 30000 Zeichen; Rohtext ist
+keine Budgetgrundlage. Passt ein einzelner ungetrimmter Chunk nicht, scheitert
+der Sweep fail-closed statt den Chunk abzuschneiden.
 
 ### W4 — `concept-decision-record-gate` (Prozess-Gate)
 

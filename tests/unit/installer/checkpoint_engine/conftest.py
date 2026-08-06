@@ -12,6 +12,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
+from tests.fixtures.installer_writer import (
+    InMemoryInstallerHookRepository,
+    InMemoryInstallerProjectRepository,
+    InMemoryInstallerRegistrationRepository,
+)
 from tests.fixtures.vectordb_installer import (
     GRPC_ENDPOINT,
     HTTP_ENDPOINT,
@@ -20,57 +25,38 @@ from tests.fixtures.vectordb_installer import (
 )
 from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
-from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
-from agentkit.backend.installer.runner import MANDATORY_SKILLS, InstallConfig
-from agentkit.backend.skills import Skills
+from agentkit.backend.installer.registration import RuntimeProfile
+from agentkit.backend.installer.runner import (
+    MANDATORY_SKILLS,
+    InstallConfig,
+)
+from agentkit.backend.skills import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS, Skills
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
 from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from pathlib import Path
 
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
 
-class InMemoryRegistrationRepo:
-    """In-memory ``ProjectRegistrationRepository`` for unit isolation."""
-
-    def __init__(self) -> None:
-        self.rows: dict[str, ProjectRegistration] = {}
-        self.save_calls = 0
-        self.upgrade_calls = 0
-
-    def get(self, project_key: str) -> ProjectRegistration | None:
-        return self.rows.get(project_key)
-
-    def save(self, registration: ProjectRegistration) -> None:
-        self.rows[registration.project_key] = registration
-        self.save_calls += 1
-
-    def update_verified(self, project_key: str, verified_at: datetime) -> None:
-        reg = self.rows[project_key]
-        self.rows[project_key] = reg.model_copy(update={"last_verified_at": verified_at})
-
-    def update_upgraded(self, project_key: str, upgraded_at: datetime, new_digest: str) -> None:
-        reg = self.rows[project_key]
-        self.rows[project_key] = reg.model_copy(update={"last_upgraded_at": upgraded_at, "config_digest": new_digest})
-        self.upgrade_calls += 1
-
-    def list_all(self) -> list[ProjectRegistration]:
-        return [self.rows[k] for k in sorted(self.rows)]
+InMemoryRegistrationRepo = InMemoryInstallerRegistrationRepository
 
 
 def _provisioned_skills(bundle_store_root: Path) -> tuple[Skills, SkillBundleStore]:
     store = SkillBundleStore(store_root=bundle_store_root)
     for skill_name in MANDATORY_SKILLS:
-        bundle_root = bundle_store_root / f"{skill_name}-core" / "4.0.0"
+        bundle_id = f"{skill_name}-core"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        bundle_root = bundle_store_root / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
-                bundle_id=f"{skill_name}-core",
-                bundle_version="4.0.0",
+                bundle_id=bundle_id,
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -87,6 +73,8 @@ def make_config(
     *,
     bundle_store_root: Path,
     registration_repo: InMemoryRegistrationRepo,
+    project_repo: InMemoryInstallerProjectRepository | None = None,
+    hook_registration_repo: InMemoryInstallerHookRepository | None = None,
     repo_existence_probe: object | None = None,
     features_vectordb: bool = True,
     features_are: bool = False,
@@ -115,6 +103,10 @@ def make_config(
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
         registration_repo=registration_repo,  # type: ignore[arg-type]
+        project_repo=project_repo or registration_repo.project_repo,
+        hook_registration_repo=(
+            hook_registration_repo or registration_repo.hook_repo
+        ),
         runtime_profile=RuntimeProfile.CORE,
         repo_existence_probe=repo_existence_probe,  # type: ignore[arg-type]
         features_vectordb=features_vectordb,

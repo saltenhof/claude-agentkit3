@@ -18,6 +18,7 @@ from agentkit.backend.core_types.mcp_server_registration import (
     AK3_SERVER_SHAPES,
     ARE_MCP_SERVER,
     ARE_MCP_SERVER_ENV_KEY,
+    ARE_MCP_WRAPPER_NAME,
     STORY_KNOWLEDGE_BASE_SERVER,
     DesiredMcpServer,
     McpServerRegistrationError,
@@ -29,6 +30,7 @@ from agentkit.backend.installer.checkpoint_engine import node_ids as nid
 from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_ALREADY_SATISFIED,
     REASON_CONFIGURATION_INVALID,
+    REASON_MCP_COMMAND_NOT_FOUND,
     REASON_MCP_CONFIGURATION_INVALID,
     REASON_REGISTRATION_INCOMPLETE,
 )
@@ -41,6 +43,10 @@ from agentkit.backend.installer.codex_settings import (
     read_codex_config_bytes,
     render_project_codex_config,
     write_codex_config_text,
+)
+from agentkit.backend.installer.interpreter import (
+    InterpreterResolutionError,
+    resolve_ak3_wrapper,
 )
 from agentkit.backend.installer.mcp_registration import (
     STORY_KNOWLEDGE_BASE_ARGS,
@@ -204,7 +210,7 @@ def _desired_mcp_servers(
         servers.append(
             DesiredMcpServer(
                 name=ARE_MCP_SERVER,
-                command=AK3_SERVER_SHAPES[ARE_MCP_SERVER].command,
+                command=str(resolve_ak3_wrapper(ARE_MCP_WRAPPER_NAME)),
                 args=AK3_SERVER_SHAPES[ARE_MCP_SERVER].args,
                 cwd=str(context.project_root),
                 env=((ARE_MCP_SERVER_ENV_KEY, mcp_server),),
@@ -381,6 +387,17 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
     # Phase 1 — derive ONE registration from the typed configuration.
     try:
         desired = _desired_mcp_servers(context)
+    except InterpreterResolutionError as exc:
+        return make_result(
+            nid.CP_10_MCP_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                "ARE MCP command cannot be resolved through the central AK3 "
+                f"interpreter owner: {exc} No file was written."
+            ),
+            reason=REASON_MCP_COMMAND_NOT_FOUND,
+            start=start,
+        )
     except (McpServerRegistrationError, ProjectBindingError) as exc:
         return make_result(
             nid.CP_10_MCP_REGISTRATION,
@@ -696,5 +713,3 @@ def _write_mcp_json_text(mcp_path: Path, content: str, context: CheckpointContex
 
 
 __all__ = ["cp10_mcp_registration"]
-
-

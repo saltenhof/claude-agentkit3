@@ -1,4 +1,4 @@
-"""Bounded acquire and best-effort release for W2 Hub epochs."""
+"""Bounded acquire and best-effort release for governance Hub epochs."""
 
 from __future__ import annotations
 
@@ -23,31 +23,34 @@ logger = logging.getLogger(__name__)
 
 def acquire_epoch_lease(
     hub: HubClientProtocol,
-    models: tuple[HubBackendName, ...],
+    model: HubBackendName,
     owner: str,
     description: str,
     epoch: int,
 ) -> HubSessionLease:
-    """Acquire exactly one slot for every configured backend in an epoch."""
+    """Acquire exactly one slot for the backend routed to this evaluation."""
     for attempt in range(1, MAX_ACQUIRE_RETRIES + 1):
         try:
             lease = hub.acquire(
                 owner=owner,
                 description=f"{description} epoch {epoch}",
-                llms=list(models),
+                llms=[model],
                 timeout=ACQUIRE_TIMEOUT_SECONDS,
             )
-            if set(lease.llms) != set(models):
+            if tuple(lease.llms) != (model,):
                 release_epoch_lease(hub, lease)
-                raise LlmClientError("W2 Hub epoch lease omitted a configured backend")
+                raise LlmClientError(
+                    "governance Hub epoch lease does not contain only "
+                    f"routed backend={model!r}"
+                )
             return lease
         except HubAcquireQueuedError as exc:
             if attempt == MAX_ACQUIRE_RETRIES:
                 raise LlmClientError(
-                    f"W2 Hub epoch acquire exhausted {MAX_ACQUIRE_RETRIES} attempts"
+                    f"governance Hub epoch acquire exhausted {MAX_ACQUIRE_RETRIES} attempts"
                 ) from exc
             time.sleep(min(exc.estimated_wait_seconds or 1.0, 5.0))
-    raise LlmClientError("W2 Hub epoch acquire returned no lease")  # pragma: no cover
+    raise LlmClientError("governance Hub epoch acquire returned no lease")  # pragma: no cover
 
 
 def release_epoch_lease(hub: HubClientProtocol, lease: HubSessionLease) -> None:
@@ -59,4 +62,8 @@ def release_epoch_lease(hub: HubClientProtocol, lease: HubSessionLease) -> None:
             timeout=RELEASE_TIMEOUT_SECONDS,
         )
     except Exception as exc:  # noqa: BLE001 -- release is explicitly best-effort
-        logger.warning("W2 Hub epoch release failed for session=%r: %s", lease.session_id, exc)
+        logger.warning(
+            "governance Hub epoch release failed for session=%r: %s",
+            lease.session_id,
+            exc,
+        )

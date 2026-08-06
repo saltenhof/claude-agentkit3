@@ -27,9 +27,29 @@ from agentkit.backend.installer.runner import (
     _run_cp7_state_backend_registration,
 )
 
+
+class _InMemoryProjectRepo:
+    def __init__(self) -> None:
+        self.rows: dict[str, Project] = {}
+
+    def get(self, key: str) -> Project | None:
+        return self.rows.get(key)
+
+    def list(self, *, include_archived: bool = False) -> list[Project]:
+        return [
+            project
+            for project in self.rows.values()
+            if include_archived or project.archived_at is None
+        ]
+
+    def save(self, project: Project) -> None:
+        self.rows[project.key] = project
+
 if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
+
+    from agentkit.backend.project_management.entities import Project
 
 
 class _InMemoryRepo:
@@ -37,6 +57,7 @@ class _InMemoryRepo:
 
     def __init__(self) -> None:
         self.rows: dict[str, ProjectRegistration] = {}
+        self.project_repo = _InMemoryProjectRepo()
         self.save_calls = 0
         self.upgrade_calls = 0
 
@@ -74,6 +95,7 @@ def _config(repo: _InMemoryRepo, root: Path, *, owner: str | None = "acme") -> I
         github_owner=owner,
         github_repo="demo" if owner is not None else None,
         registration_repo=repo,
+        project_repo=repo.project_repo,
         runtime_profile=RuntimeProfile.CORE,
     )
 

@@ -42,8 +42,11 @@ from agentkit.backend.installer.runner import (
     InstallConfig,
     install_agentkit,
 )
-from agentkit.backend.skills import Skills
+from agentkit.backend.skills import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS, Skills
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.state_backend.store.governance_hook_repository import (
+    StateBackendHookRegistrationRepository,
+)
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -60,13 +63,17 @@ _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 def _bundle_store_with_all_skills(root: Path) -> SkillBundleStore:
     store = SkillBundleStore(store_root=root / "skill-bundles")
     for skill_name in MANDATORY_SKILLS:
-        bundle_root = root / "skill-bundles" / f"{skill_name}-core" / "4.0.0"
+        bundle_id = f"{skill_name}-core"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        bundle_root = root / "skill-bundles" / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
-                bundle_id=f"{skill_name}-core",
-                bundle_version="4.0.0",
+                bundle_id=bundle_id,
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -105,6 +112,8 @@ def _make_config(
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
         registration_repo=registration_repo,
+        project_repo=StateBackendProjectRepository(root),
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
         runtime_profile=RuntimeProfile.CORE,
         # No live SonarQube here => conscious opt-out so CP 10d is SKIPPED.
         sonarqube_available=False,

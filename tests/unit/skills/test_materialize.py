@@ -32,6 +32,7 @@ from agentkit.backend.installer.paths import (
     materialized_skill_variant_input_digest,
 )
 from agentkit.backend.skills import (
+    bind_skill_materialized,
     bundle_has_placeholders,
     is_directory_link,
     read_directory_link_target,
@@ -41,16 +42,19 @@ from agentkit.backend.skills.errors import (
     SkillBindingPartialStateError,
     UnknownPlaceholderError,
 )
-from agentkit.backend.skills.materialize import bind_skill_materialized
 from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 _TOKEN = "deadbeefcafef00d"
+_AK3_INTERPRETER = '"C:\\Program Files\\AgentKit\\python.exe"'
+_AK3_WRAPPER = '"C:\\Program Files\\AgentKit\\agentkit.exe"'
 _PLACEHOLDER_MD = (
     "owner={{gh_owner}} repo={{gh_repo}} key={{project_key}} "
-    "pre={{project_prefix}} proof={{AGENT_SPAWN_SKILL_PROOF}} story=<STORY-ID> round=<ROUND>"
+    "pre={{project_prefix}} proof={{AGENT_SPAWN_SKILL_PROOF}} "
+    "interpreter={{AK3_INTERPRETER}} wrapper={{AK3_WRAPPER}} "
+    "story=<STORY-ID> round=<ROUND>"
 )
 
 
@@ -95,8 +99,11 @@ def _variant_dir(root: Path, *, token: str = _TOKEN) -> Path:
         gh_owner="acme",
         gh_repo="app",
         project_prefix="PROJ",
+        wiki_stories_dir="stories",
         bundle_id="b",
         bundle_version="4.0.0",
+        ak3_interpreter_command=_AK3_INTERPRETER,
+        ak3_wrapper_command=_AK3_WRAPPER,
     )
     return materialized_skill_variant_dir(
         "proj", "b", "4.0.0", digest, "myskill", store_root=root / "variant-store"
@@ -114,7 +121,43 @@ def _materialize(root: Path, bundle: Path, variant_dir: Path) -> object:
         binding_id="bid",
         bundle_id="b",
         bundle_version="4.0.0",
+        ak3_interpreter_command=_AK3_INTERPRETER,
+        ak3_wrapper_command=_AK3_WRAPPER,
     )
+
+
+def test_materialize_rejects_bundle_below_floor_before_side_effects(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_manifest(project, _TOKEN)
+    bundle = _bundle(tmp_path)
+    variant_dir = tmp_path / "variants" / "lookup-userstory"
+    repository = InMemorySkillBindingRepository()
+
+    with pytest.raises(
+        SkillBindingFailedError,
+        match="below the minimum conform version 4.1.0",
+    ):
+        bind_skill_materialized(
+            "lookup-userstory",
+            bundle,
+            project,
+            config=_project_config(project),
+            variant_dir=variant_dir,
+            binding_repo=repository,
+            binding_id="binding-id",
+            bundle_id="lookup-userstory-core",
+            bundle_version="4.0.0",
+            ak3_interpreter_command=_AK3_INTERPRETER,
+            ak3_wrapper_command=_AK3_WRAPPER,
+        )
+
+    assert repository.load(project.stem, "lookup-userstory") is None
+    assert not variant_dir.exists()
+    assert not (project / ".claude" / "skills" / "lookup-userstory").exists()
+    assert not (project / ".codex" / "skills" / "lookup-userstory").exists()
 
 
 class TestBundleHasPlaceholders:
@@ -153,6 +196,8 @@ class TestMaterializeResolvesAllPlaceholders:
             assert "key=proj" in content
             assert "pre=PROJ" in content
             assert f"proof={_TOKEN}" in content
+            assert f"interpreter={_AK3_INTERPRETER}" in content
+            assert f"wrapper={_AK3_WRAPPER}" in content
             # The non-placeholder spawn tokens are left untouched.
             assert "story=<STORY-ID>" in content
             assert "round=<ROUND>" in content
@@ -245,8 +290,11 @@ class TestIdempotencyAndDigest:
             gh_owner="acme",
             gh_repo="app",
             project_prefix="PROJ",
+            wiki_stories_dir="stories",
             bundle_id="b",
             bundle_version="4.0.0",
+            ak3_interpreter_command=_AK3_INTERPRETER,
+            ak3_wrapper_command=_AK3_WRAPPER,
         )
         changed = materialized_skill_variant_input_digest(
             project_key="proj",
@@ -254,8 +302,11 @@ class TestIdempotencyAndDigest:
             gh_owner="other-owner",
             gh_repo="app",
             project_prefix="PROJ",
+            wiki_stories_dir="stories",
             bundle_id="b",
             bundle_version="4.0.0",
+            ak3_interpreter_command=_AK3_INTERPRETER,
+            ak3_wrapper_command=_AK3_WRAPPER,
         )
         assert base != changed
 
@@ -268,8 +319,11 @@ class TestIdempotencyAndDigest:
             gh_owner="o",
             gh_repo="r",
             project_prefix="p",
+            wiki_stories_dir="stories",
             bundle_id="b",
             bundle_version="v",
+            ak3_interpreter_command=_AK3_INTERPRETER,
+            ak3_wrapper_command=_AK3_WRAPPER,
         )
         d2 = materialized_skill_variant_input_digest(
             project_key="a",
@@ -277,8 +331,11 @@ class TestIdempotencyAndDigest:
             gh_owner="o",
             gh_repo="r",
             project_prefix="p",
+            wiki_stories_dir="stories",
             bundle_id="b",
             bundle_version="v",
+            ak3_interpreter_command=_AK3_INTERPRETER,
+            ak3_wrapper_command=_AK3_WRAPPER,
         )
         assert d1 != d2
 
@@ -399,6 +456,8 @@ class TestTransactionalRollback:
                 binding_id="bid",
                 bundle_id="b",
                 bundle_version="4.0.0",
+                ak3_interpreter_command=_AK3_INTERPRETER,
+                ak3_wrapper_command=_AK3_WRAPPER,
             )
 
         # No orphan binding row — both keys should be absent after rollback.

@@ -121,9 +121,7 @@ _PROJECT_REPOS = ["ak3-backend", "ak3-frontend"]
 
 def _load_tool() -> ModuleType:
     """Load the REAL deployed tool module from its on-disk resource path."""
-    spec = importlib.util.spec_from_file_location(
-        "ak3_create_story_tool_under_test", _TOOL_PATH
-    )
+    spec = importlib.util.spec_from_file_location("ak3_create_story_tool_under_test", _TOOL_PATH)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -138,9 +136,7 @@ def _load_tool() -> ModuleType:
 
 
 class _FakeAdapter:
-    def __init__(
-        self, hits: list[StorySearchHit], *, raise_search: bool = False
-    ) -> None:
+    def __init__(self, hits: list[StorySearchHit], *, raise_search: bool = False) -> None:
         self._hits = hits
         self._raise = raise_search
 
@@ -172,9 +168,7 @@ class _FakeEvaluator:
     wrapping is exercised end-to-end.
     """
 
-    def __init__(
-        self, verdict: LlmVerdict, *, raise_malformed: bool = False
-    ) -> None:
+    def __init__(self, verdict: LlmVerdict, *, raise_malformed: bool = False) -> None:
         self._verdict = verdict
         self._raise_malformed = raise_malformed
 
@@ -193,9 +187,7 @@ class _FakeEvaluator:
         # adjudicator's internal ``StructuredEvaluator`` (called with ``run_id``).
         del role, bundle, previous_findings, qa_cycle_round, run_id
         if self._raise_malformed:
-            raise StructuredEvaluatorError(
-                "LLM response unparseable after 2 attempts (FK-11 §11.4.4)"
-            )
+            raise StructuredEvaluatorError("LLM response unparseable after 2 attempts (FK-11 §11.4.4)")
         return _FakeResult(self._verdict)
 
 
@@ -268,6 +260,7 @@ def _build_app(svc: StoryService) -> ControlPlaneApplication:
     in the router/route/service/middleware is stubbed.
     """
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             story_routes=StoryContextRoutes(story_service=svc),
         ),
@@ -302,15 +295,11 @@ class _RecordingTransport:
     ) -> dict[str, object]:
         sent = headers.get("X-Correlation-Id") if headers else None
         try:
-            data = self._inner.send(
-                method=method, path=path, payload=payload, headers=headers
-            )
+            data = self._inner.send(method=method, path=path, payload=payload, headers=headers)
         except ControlPlaneApiError as exc:
             self.correlation_exchange.append((sent, exc.correlation_id))
             raise
-        self.correlation_exchange.append(
-            (sent, str(data.get("correlation_id")) if data.get("correlation_id") else None)
-        )
+        self.correlation_exchange.append((sent, str(data.get("correlation_id")) if data.get("correlation_id") else None))
         return data
 
 
@@ -352,9 +341,7 @@ def _reconciler_factory(
         return StoryCreationReconciler(
             adapter=_FakeAdapter(hits or [], raise_search=raise_search),  # type: ignore[arg-type]
             evaluator=_FakeEvaluator(verdict, raise_malformed=raise_malformed),  # type: ignore[arg-type]
-            vectordb_config=VectorDbConfig(
-                similarity_threshold=0.7, max_llm_candidates=5
-            ),
+            vectordb_config=VectorDbConfig(similarity_threshold=0.7, max_llm_candidates=5),
             project_config=project_config,
         )
 
@@ -385,9 +372,7 @@ def _write_project_config(project_root: Path) -> None:
     (config_dir / "project.yaml").write_text(json.dumps(cfg), encoding="utf-8")
 
 
-def _argv(
-    project_root: Path, *, op_id: str, title: str = "Add native create"
-) -> list[str]:
+def _argv(project_root: Path, *, op_id: str, title: str = "Add native create") -> list[str]:
     return [
         "--project-root",
         str(project_root),
@@ -563,9 +548,7 @@ def test_create_story_tool_no_pool_configured_fails_closed_truthfully(
         return StoryCreationReconciler(
             adapter=_FakeAdapter(hits),  # type: ignore[arg-type]
             evaluator=FailClosedConflictEvaluator(),
-            vectordb_config=VectorDbConfig(
-                similarity_threshold=0.7, max_llm_candidates=5
-            ),
+            vectordb_config=VectorDbConfig(similarity_threshold=0.7, max_llm_candidates=5),
             project_config=project_config,
         )
 
@@ -612,18 +595,14 @@ def test_create_story_tool_malformed_llm_output_fails_closed(
     # a fake at the genuine LLM edge that raises the malformed-output error, so the
     # adjudicator's fail-closed wrapping runs for real.
     def factory(project_config: ProjectConfig) -> StoryCreationReconciler:
-        adjudicator = CreateTimeConflictAdjudicator.__new__(
-            CreateTimeConflictAdjudicator
-        )
+        adjudicator = CreateTimeConflictAdjudicator.__new__(CreateTimeConflictAdjudicator)
         adjudicator._evaluator = _FakeEvaluator(  # type: ignore[attr-defined]
             LlmVerdict.PASS, raise_malformed=True
         )
         return StoryCreationReconciler(
             adapter=_FakeAdapter(hits),  # type: ignore[arg-type]
             evaluator=adjudicator,
-            vectordb_config=VectorDbConfig(
-                similarity_threshold=0.7, max_llm_candidates=5
-            ),
+            vectordb_config=VectorDbConfig(similarity_threshold=0.7, max_llm_candidates=5),
             project_config=project_config,
         )
 
@@ -793,32 +772,19 @@ def test_create_story_tool_source_has_no_github_create_calls() -> None:
     import ast
 
     tree = ast.parse(_TOOL_PATH.read_text(encoding="utf-8"))
-    string_consts = [
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str)
-    ]
+    string_consts = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)]
     docstrings = {
         ast.get_docstring(node, clean=False)
         for node in ast.walk(tree)
-        if isinstance(
-            node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-        )
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     }
     executable_strings = [s for s in string_consts if s not in docstrings]
     joined = "\n".join(executable_strings)
     assert "gh issue create" not in joined
     assert "gh project" not in joined
     assert "gh api graphql" not in joined
-    imported = {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    } | {
-        node.module
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module is not None
+    imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names} | {
+        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None
     }
     assert "subprocess" not in imported
     assert not any("github" in (mod or "") for mod in imported)

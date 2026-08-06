@@ -159,24 +159,36 @@ def build_execution_contract_digest(
         reason += "(fail-closed, FK-44 §44.3a component 'story-spec fields')."
         return ExecutionContractDigestOutcome(digest=None, rejection_reason=reason)
 
-    from agentkit.backend.state_backend.store.skill_binding_repository import (
-        StateBackendSkillBindingRepository,
-    )
+    from agentkit.backend.bootstrap.composition_governance import build_skills
+    from agentkit.backend.skills import SkillBindingFailedError
+
+    skills = build_skills(registration.project_root)
+    try:
+        resolved_bindings = []
+        for persisted_binding in skills.list_bound_skills(registration.project_root):
+            binding = skills.resolve_binding(
+                registration.project_root,
+                persisted_binding.skill_name,
+            )
+            if binding is None:
+                raise SkillBindingFailedError(
+                    f"Skill {persisted_binding.skill_name!r} disappeared while "
+                    "the execution-contract inputs were being resolved",
+                )
+            resolved_bindings.append(binding)
+    except SkillBindingFailedError as exc:
+        reason = "execution_contract_digest could not be formed: a persisted "
+        reason += f"skill binding is not policy-conform ({exc}); fail-closed "
+        reason += "(FK-44 §44.3a component 'bound skill versions')."
+        return ExecutionContractDigestOutcome(digest=None, rejection_reason=reason)
 
     skill_versions = tuple(
-        sorted(
-            (
-                SkillVersionComponent(
-                    skill_name=binding.skill_name,
-                    bundle_id=binding.bundle_id,
-                    bundle_version=binding.bundle_version,
-                )
-                for binding in StateBackendSkillBindingRepository().list_for_project(
-                    request.project_key
-                )
-            ),
-            key=lambda component: component.skill_name,
+        SkillVersionComponent(
+            skill_name=binding.skill_name,
+            bundle_id=binding.bundle_id,
+            bundle_version=binding.bundle_version,
         )
+        for binding in resolved_bindings
     )
 
     try:

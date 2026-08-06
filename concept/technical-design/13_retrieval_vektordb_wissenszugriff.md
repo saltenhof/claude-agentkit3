@@ -321,7 +321,7 @@ Der MCP-Server wird bei Installation (Checkpoint 10) in
   "mcpServers": {
     "story-knowledge-base": {
       "type": "stdio",
-      "command": "python",
+      "command": "<absolute-ak3-interpreter>",
       "args": ["-m", "agentkit.backend.vectordb.engine"],
       "cwd": "{project_root}",
       "env": {
@@ -335,6 +335,11 @@ Der MCP-Server wird bei Installation (Checkpoint 10) in
   }
 }
 ```
+
+`<absolute-ak3-interpreter>` ist ein Registrierungsplatzhalter fuer den vom
+zentralen Interpreter-Owner aufgeloesten absoluten Pfad. CP 10 materialisiert
+diesen Wert; weder der Platzhalter noch ein nackter Interpretername wird als
+ausfuehrbarer Wert in `.mcp.json` publiziert.
 
 **Normative Praezisierung des Registrierungsvertrags** (AG3-175; Decision Record
 `2026-07-28-vectordb-endpoint-consolidation.md`):
@@ -788,7 +793,7 @@ kein Prozessschritt würde sie nutzen.
 | INDEX.yaml + concept_graph.json | **Post-Commit-Hook** (§30.5.4a) | Automatisch nach jedem Commit mit Änderungen unter dem konfigurierten `concepts_dir` | Pfadbasiertes Dispatching erkennt `concepts_dir`; `concept build` ist deterministisch, kein LLM, ~1s Laufzeit |
 | VectorDB-Sync (Erstindizierung) | **Installer** (CP 10a) | Einmalig bei Installation/Upgrade | Checkpoint-Engine (VektorDB ist Pflicht) |
 | VectorDB-Sync (laufend) | **Post-Commit-Hook** (§30.5.4a) | Nach `concept build` | Zwei getrennte Aufrufe: erst `concept build`, danach `concept sync` ohne `--full`; ein Build- oder Syncfehler publiziert keine neue Freshness |
-| VectorDB-Sync (manuell) | **Operator / Agent** | CLI `concept sync` oder MCP-Tool | Expliziter Aufruf |
+| VectorDB-Sync (manuell) | **Operator / Agent** | Operator: CLI `concept sync`; Agent: Project Edge oder MCP-Tool, niemals AK3-CLI | Expliziter Aufruf |
 | Freshness-Gate | **create-userstory Skill** | Vor Story-Erstellung | Vergleicht `corpus_revision` gegen Datei-Stand; Hard Stop bei Stale |
 
 **Kernprinzip:** Der Post-Commit-Hook ist der universelle Trigger

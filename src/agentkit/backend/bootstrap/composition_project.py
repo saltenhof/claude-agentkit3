@@ -22,12 +22,19 @@ def build_story_exit_service(*, project_key: str) -> object:
 
     from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
     from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+        load_bound_control_plane_writer_identity,
+    )
     from agentkit.backend.state_backend.store.governance_hook_repository import (
         StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_exit.service import StoryExitService
+
+    identity = load_bound_control_plane_writer_identity()
+    if identity is None:
+        raise RuntimeError("story exit requires the active control-plane writer identity")
 
     governance = Governance(
         hook_repo=StateBackendHookRegistrationRepository(),
@@ -38,6 +45,7 @@ def build_story_exit_service(*, project_key: str) -> object:
         control_plane_repository=ControlPlaneRuntimeRepository(),
         story_service=StoryService(),
         governance=governance,
+        instance_identity=identity,
     )
 
 
@@ -129,18 +137,14 @@ def build_story_split_service(
     Returns:
         A wired ``StorySplitService``.
     """
-    from agentkit.backend.control_plane.instance_identity import (
-        resolve_backend_instance_identity,
-    )
     from agentkit.backend.control_plane.repository import (
-        BackendInstanceIdentityRepository,
         ControlPlaneRuntimeRepository,
         ObjectMutationClaimRepository,
     )
-    from agentkit.backend.control_plane.startup_reconcile import (
-        run_startup_reconciliation,
-    )
     from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+        load_bound_control_plane_writer_identity,
+    )
     from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
     from agentkit.backend.state_backend.store.governance_hook_repository import (
         StateBackendHookRegistrationRepository,
@@ -186,21 +190,24 @@ def build_story_split_service(
         )
     project_id = resolve_split_export_project_id(project_root)
     corpus_root = Path(project_root)
-    index = WeaviateStoryIndex(
-        WeaviateStoryAdapter.connect(**resolve_adapter_endpoints(project_root)),  # type: ignore[arg-type]
-        recovery_journal=project_commit_recovery_journal(corpus_root),
-    )
+    try:
+        index = WeaviateStoryIndex(
+            WeaviateStoryAdapter.connect(**resolve_adapter_endpoints(project_root)),  # type: ignore[arg-type]
+            recovery_journal=project_commit_recovery_journal(corpus_root),
+        )
+    except VectorDbUnavailableError as exc:
+        raise RuntimeError(f"story split cannot connect to the configured VectorDB: {exc}") from exc
     if source_state_loader is None:
         source_state_loader = _default_split_source_state_loader
 
     control_plane_repository = ControlPlaneRuntimeRepository()
     object_claim_store = ObjectMutationClaimRepository()
-    identity = resolve_backend_instance_identity(BackendInstanceIdentityRepository())
-    run_startup_reconciliation(
-        control_plane_repository,
-        identity,
-        object_claim_repo=object_claim_store,
-    )
+    identity = load_bound_control_plane_writer_identity()
+    if identity is None:
+        raise RuntimeError(
+            "story split must execute through the active control-plane writer; "
+            "the caller does not own its bound writer identity",
+        )
 
     class _SuccessorExport:
         def export(self, *, story_id: str, story_dir: Path) -> object:
@@ -322,6 +329,9 @@ def build_story_reset_service(
     from agentkit.backend.state_backend.store.analytics_source import (
         StateBackendAnalyticsSource,
     )
+    from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+        load_bound_control_plane_writer_identity,
+    )
     from agentkit.backend.state_backend.store.fact_repository import (
         StateBackendFactRepository,
     )
@@ -334,6 +344,9 @@ def build_story_reset_service(
     )
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_reset import FileResetRecordStore, StoryResetService
+
+    if load_bound_control_plane_writer_identity() is None:
+        raise RuntimeError("story reset requires the active control-plane writer identity")
 
     resolved_root = project_root or store_dir
     lock_repo = LockRecordRepository(store_dir)

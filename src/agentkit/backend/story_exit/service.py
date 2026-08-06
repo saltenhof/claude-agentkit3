@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -36,6 +36,7 @@ from agentkit.backend.telemetry.events import EventType
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
     from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 
 
@@ -141,6 +142,7 @@ class StoryExitService:
         artifact_root: Path | str = Path("var/story_exit"),
         run_state_loader: Callable[[StoryExitRequest], ExitRunState] | None = None,
         now_fn: Callable[[], datetime] | None = None,
+        instance_identity: BackendInstanceIdentityRecord | None = None,
     ) -> None:
         self._repo = control_plane_repository
         self._story_service = story_service
@@ -148,6 +150,7 @@ class StoryExitService:
         self._artifact_root = Path(artifact_root)
         self._run_state_loader = run_state_loader or self._default_run_state
         self._now_fn = now_fn or (lambda: datetime.now(tz=UTC))
+        self._instance_identity = instance_identity
 
     def exit_story(self, request: StoryExitRequest) -> StoryExitResult:
         """Execute Phase A-E story exit with fence-first idempotency."""
@@ -180,6 +183,7 @@ class StoryExitService:
         )
         dossier = self._dossier(record, manifest)
         self.exit_gate(record=record, dossier=dossier)
+        self._acquire_claim(normalized, record=record, now=now)
 
         artifact_dir = self._artifact_dir(normalized.story_id, exit_id)
         artifact_paths = self._write_artifacts(
@@ -493,7 +497,7 @@ class StoryExitService:
     ) -> str:
         existing_operation = self._repo.load_operation(record.exit_id)
         if existing_operation is not None and not (
-            existing_operation.status == "committed"
+            existing_operation.status in {"claimed", "committed"}
             and existing_operation.operation_kind == "story_exit"
             and existing_operation.project_key == request.project_key
             and existing_operation.story_id == request.story_id
@@ -576,23 +580,87 @@ class StoryExitService:
                 now=now,
             ),
         )
-        op_record = self._operation_record(
+        if (
+            existing_operation is None
+            or existing_operation.status != "claimed"
+            or existing_operation.claimed_by is None
+            or existing_operation.claimed_at is None
+            or existing_operation.operation_epoch is None
+        ):
+            raise StoryExitError("story exit teardown requires its owned epoch-fenced claim")
+        terminal_template = self._operation_record(
             request,
             record=record,
             now=now,
             exit_status="binding_revoked",
         )
-        self._repo.commit_operation_with_side_effects(
-            op_record,
-            binding_to_save=disown_plan.revoked_binding,
-            binding_to_delete=None,
-            locks=(lock, qa_lock),
-            events=events,
-            ownership_status_target=disown_plan.ownership_status_target,
+        op_record = replace(
+            existing_operation,
+            status="committed",
+            response_payload=terminal_template.response_payload,
+            updated_at=now,
+            finalized_at=now,
+            claimed_by=None,
+            claimed_at=None,
         )
+        if not self._repo.finalize_disown(
+            op_record,
+            owner_token=existing_operation.claimed_by,
+            owner_claimed_at=existing_operation.claimed_at.isoformat(),
+            owner_operation_epoch=existing_operation.operation_epoch,
+            revoked_binding=disown_plan.revoked_binding,
+            ownership_status_target=disown_plan.ownership_status_target,
+            events=events,
+            locks=(lock, qa_lock),
+        ):
+            raise StoryExitError("story exit lost its operation-epoch finalize CAS")
         from agentkit.backend.control_plane.runtime import _resolve_operating_mode
 
         return _resolve_operating_mode(binding=disown_plan.revoked_binding, lock=lock)
+
+    def _acquire_claim(
+        self,
+        request: StoryExitRequest,
+        *,
+        record: StoryExitRecord,
+        now: datetime,
+    ) -> None:
+        """Acquire the sender-stamped operation claim before the first mutation."""
+
+        existing = self._repo.load_operation(record.exit_id)
+        if existing is not None:
+            if (
+                existing.status == "committed"
+                and existing.operation_kind == "story_exit"
+                and existing.project_key == request.project_key
+                and existing.story_id == request.story_id
+                and existing.run_id == request.run_id
+            ):
+                return
+            raise StoryExitError("story exit collides with an existing operation claim")
+        identity = self._instance_identity
+        if identity is None:
+            raise StoryExitError("story exit requires the active writer boot identity")
+        claim = ControlPlaneOperationRecord(
+            op_id=record.exit_id,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=request.run_id,
+            session_id=request.session_id,
+            operation_kind="story_exit",
+            phase=None,
+            status="claimed",
+            response_payload={"status": "claimed", "op_id": record.exit_id},
+            created_at=now,
+            updated_at=now,
+            claimed_by=f"story-exit-{uuid.uuid4().hex}",
+            claimed_at=now,
+            operation_epoch=1,
+            backend_instance_id=identity.backend_instance_id,
+            instance_incarnation=identity.instance_incarnation,
+        )
+        if not self._repo.claim_operation(claim):
+            raise StoryExitError("story exit claim is held by a concurrent caller")
 
     def _operation_record(
         self,

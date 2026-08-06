@@ -162,6 +162,7 @@ def _build_app(
     )
     fake = _FakeRoute()
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=fake,  # type: ignore[arg-type]
             story_routes=fake,  # type: ignore[arg-type]
@@ -226,9 +227,7 @@ class TestExecutionInputThroughFullApp:
         assert story_ref["story_id"] in {"S1", "S2"}
         reason = body["reason"]
         assert isinstance(reason, dict)
-        assert reason["active_tiebreaker"] == (
-            "critical_path_desc_then_story_number_asc"
-        )
+        assert reason["active_tiebreaker"] == ("critical_path_desc_then_story_number_asc")
 
     def test_unknown_project_fails_closed_through_middleware(self) -> None:
         """The full app fails closed (404) for an unknown project via tenant scope."""

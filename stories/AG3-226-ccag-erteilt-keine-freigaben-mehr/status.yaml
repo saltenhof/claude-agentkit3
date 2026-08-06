@@ -1,0 +1,39 @@
+story_id: AG3-226
+story_title_short: "ccag-erteilt-keine-freigaben-mehr"
+title: "Der CCAG-Gatekeeper bleibt als Hook bestehen, verliert aber seine Rolle als Genehmigungsinstanz -- kein Permission-Request-Verfahren, keine Freigaben, keine TTL-Eskalation."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-05"
+size: M
+# Herkunft: PO-Entscheid am 2026-08-05, ausgeloest durch Befund 1 der zweiten
+# Abschlussreview zu AG3-214.
+#
+# Der Befund lautete: `governance/runner.py:2165`
+# (`_escalate_expired_permission_requests`) liest abgelaufene
+# Permission-Requests ueber Project Edge, konstruiert dann aber ein
+# StateBackendPhaseEnvelopeRepository und schreibt den kanonischen PhaseState
+# DIREKT aus dem Hook-Prozess -- ohne Lease, ueber eine normale Pool-Session.
+# Erreichbar ueber beide installierten Hook-Einstiege.
+#
+# PO-ENTSCHEID, woertlich: "ccag hook sollte gar nicht mehr laufen. kein
+# loeschen aber deaktivieren" -- praezisiert zu: "Du kannst ja sonst auch den
+# CCAG Hook bestehen lassen, aber in die Zaehne ziehen im Sinne von, dass er
+# keine Freigaben mehr erteilt, sondern einfach nur die anderen Agentaufgaben
+# uebernimmt."
+#
+# WARUM DER HOOK BLEIBT: `principal_capabilities/enforcement.py:100-111` haelt
+# fest, dass FK-91 §91.4 den Sub-Agent-Spawn (`Agent`) UNTER dem
+# `ccag_gatekeeper`-Matcher katalogisiert. Die Capability-Schicht laesst den
+# Spawn bewusst mit ALLOW-Huelle durch und verlaesst sich darauf, dass danach
+# `prompt_integrity` (und CCAG) die eigentliche Autoritaet sind. Ein Entfernen
+# der Registrierung haette diesen Matcher mitgenommen.
+#
+# AUSLEGUNG DES ENTSCHEIDS (vom Orchestrator, korrigierbar): CCAG hoert auf,
+# Genehmigungsinstanz zu sein -- es erteilt keine Freigaben mehr und fuehrt
+# kein Permission-Request-Verfahren. Es bleibt als Hook registriert und
+# erfuellt seine uebrigen Aufgaben. Die Alternative waere gewesen, nur das
+# Genehmigen zu entfernen und das Blockieren nach Regel zu behalten; das ist
+# in der Story als offene Auslegungsfrage benannt (AC 2).
+depends_on: []
+unblocks: ["AG3-214"]

@@ -149,9 +149,9 @@ class _ClaimOutcome:
     whose token is reused (DI/test wiring) cannot match a NEWER claim generation.
 
     AG3-138: ``operation_epoch`` is the fencing token stamped on the claim at
-    acquisition time (``_build_claim_placeholder``), threaded to finalize so its
-    CAS additionally requires the stored epoch to be unchanged
-    (``operation_finalize_requires_cas_on_operation_epoch``).
+    acquisition time (``_build_claim_placeholder``), threaded to finalize and
+    release so both CAS operations additionally require the stored epoch to be
+    unchanged (``operation_finalize_requires_cas_on_operation_epoch``).
     """
 
     won: bool

@@ -2,9 +2,10 @@
 
 FK-76 §76.5.4 owns the Codex configuration FORMAT (the mirror of the Claude-Code
 ``.mcp.json`` contract); FK-50 §50.3 CP 10 owns whether/when a registration
-happens. This module is the format side and nothing else: pure text-to-text, no
-filesystem access (path resolution and containment stay in the installer edge,
-which owns the target-project layout).
+happens. This module is the format side and nothing else. Rendering remains
+text-to-text; ownership classification resolves only the supplied project and
+command paths so a destructive detach decision is based on real identity. The
+installer edge still owns discovery and supplies the centrally resolved wrapper.
 
 It replaces two competing truths that previously wrote the same file:
 
@@ -56,19 +57,21 @@ from __future__ import annotations
 
 import tomllib
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
+from agentkit.backend.boundary.filesystem import matches_resolved_path_owner
 from agentkit.backend.core_types.mcp_server_registration import (
     AK3_MCP_SERVER_NAMES,
     AK3_SERVER_SHAPES,
+    CODEX_HOOK_WRAPPER_NAME,
     DesiredMcpServer,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from pathlib import Path
 
 #: Header comment of an AK3-rendered Codex configuration.
 AK3_CONFIG_HEADER_COMMENT: str = "AgentKit-managed Codex hook configuration."
@@ -173,7 +176,7 @@ def load_codex_config(raw: bytes) -> dict[str, object]:
         ) from exc
     try:
         parsed: dict[str, object] = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
+    except (RecursionError, tomllib.TOMLDecodeError) as exc:
         raise CodexConfigError(
             CodexConfigRejection.UNPARSABLE_TOML,
             f"existing .codex/config.toml is not valid TOML: {exc}",
@@ -288,7 +291,13 @@ def _reject_foreign_occupation(parsed: Mapping[str, object], servers: Sequence[D
             )
 
 
-def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, project_root: Path) -> bool:
+def is_recognised_ak3_server_table(
+    name: str,
+    entry: Mapping[str, object],
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str] | None = None,
+) -> bool:
     """Return whether ``entry`` is the registration AK3 itself would write.
 
     Compares against the EXPECTED shape (:data:`AK3_SERVER_SHAPES` plus the
@@ -301,6 +310,8 @@ def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, pr
     Requires: exactly the AK3-owned field set, the expected ``command`` and
     ``args``, ``required is True``, a ``cwd`` resolving to ``project_root``, and an
     ``env`` whose KEY set is exactly the expected one with non-empty string values.
+    A machine-resolved interpreter or wrapper command additionally needs the
+    concrete path from its central owner; no owner value means no ownership proof.
     Environment VALUES are project configuration and therefore not checkable here;
     everything else about an AK3 registration is fully determined.
 
@@ -312,6 +323,8 @@ def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, pr
         name: The AK3-owned server name.
         entry: The parsed server table.
         project_root: The project whose configuration is being classified.
+        resolved_command_owners: Concrete per-server commands obtained from the
+            central interpreter/wrapper owners for this operation.
 
     Returns:
         ``True`` only for an unambiguous AK3 registration.
@@ -321,7 +334,16 @@ def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, pr
         return False
     if set(entry) != set(AK3_OWNED_SERVER_FIELDS):
         return False
-    if not shape.matches_command(entry.get("command")):
+    resolved_owner = (
+        None
+        if resolved_command_owners is None
+        else resolved_command_owners.get(name)
+    )
+    if not shape.matches_command(
+        entry.get("command"),
+        resolved_owner_command=resolved_owner,
+        path_owner_matcher=matches_resolved_path_owner,
+    ):
         return False
     args = entry.get("args")
     if not isinstance(args, list) or tuple(args) != shape.args:
@@ -331,10 +353,7 @@ def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, pr
     cwd = entry.get("cwd")
     if not isinstance(cwd, str) or not cwd.strip():
         return False
-    try:
-        if Path(cwd).resolve() != project_root.resolve():
-            return False
-    except OSError:  # pragma: no cover - unresolvable path is simply not ours
+    if not matches_resolved_path_owner(cwd, str(project_root.absolute())):
         return False
     env = entry.get("env")
     if not isinstance(env, dict) or set(env) != set(shape.env_keys):
@@ -342,7 +361,13 @@ def is_recognised_ak3_server_table(name: str, entry: Mapping[str, object], *, pr
     return all(isinstance(v, str) and v.strip() for v in env.values())
 
 
-def classify_ownership(raw: bytes | None, *, hook_command: str, project_root: Path) -> CodexConfigOwnership:
+def classify_ownership(
+    raw: bytes | None,
+    *,
+    hook_command: str,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str] | None = None,
+) -> CodexConfigOwnership:
     """Classify an existing Codex configuration by AK3 ownership.
 
     Two independent gates, in this order:
@@ -362,9 +387,14 @@ def classify_ownership(raw: bytes | None, *, hook_command: str, project_root: Pa
 
     Args:
         raw: The file's bytes, or ``None`` when the file does not exist.
-        hook_command: The AK3 hook command that an AK3-owned file carries.
+        hook_command: The rendered AK3 hook command that an AK3-owned file
+            carries. Destructive callers derive it from the raw owner snapshot
+            at decision time with the installer command renderer.
         project_root: The project being classified; an AK3 registration's ``cwd``
             resolves to it.
+        resolved_command_owners: Concrete per-server commands obtained from the
+            central interpreter/wrapper owners. Missing wrapper resolution is
+            deliberately not inferred from a basename.
 
     Returns:
         The ownership classification.
@@ -386,8 +416,18 @@ def classify_ownership(raw: bytes | None, *, hook_command: str, project_root: Pa
     foreign_servers = set(servers_table) - AK3_MCP_SERVER_NAMES
     ak3_named = {name: entry for name, entry in servers_table.items() if name in AK3_MCP_SERVER_NAMES and isinstance(entry, dict)}
     hook_entry = hooks_table.get(_PRE_TOOL_USE)
-    hook_is_ak3 = hook_entry == {"command": hook_command}
-    has_ak3_content = hook_is_ak3 or bool(ak3_named)
+    hook_owner = (
+        None
+        if resolved_command_owners is None
+        else resolved_command_owners.get(CODEX_HOOK_WRAPPER_NAME)
+    )
+    hook_is_ak3 = (
+        isinstance(hook_entry, dict)
+        and set(hook_entry) == {"command"}
+        and hook_entry.get("command") == hook_command
+        and matches_resolved_path_owner(hook_owner, hook_owner)
+    )
+    has_ak3_content = _PRE_TOOL_USE in hooks_table or bool(ak3_named)
 
     if not has_ak3_content:
         return CodexConfigOwnership.FOREIGN
@@ -395,7 +435,15 @@ def classify_ownership(raw: bytes | None, *, hook_command: str, project_root: Pa
         return CodexConfigOwnership.MIXED
     # VALUE gate: an AK3-reserved name occupied by anything other than AK3's own
     # registration makes the file foreign content that must be preserved.
-    if any(not is_recognised_ak3_server_table(name, entry, project_root=project_root) for name, entry in ak3_named.items()):
+    if any(
+        not is_recognised_ak3_server_table(
+            name,
+            entry,
+            project_root=project_root,
+            resolved_command_owners=resolved_command_owners,
+        )
+        for name, entry in ak3_named.items()
+    ):
         return CodexConfigOwnership.MIXED
     ak3_servers = ak3_named
 
@@ -538,7 +586,16 @@ def render_codex_config(
 
     parsed = load_codex_config(raw)
     _reject_foreign_occupation(parsed, servers)
-    ownership = classify_ownership(raw, hook_command=hook_command, project_root=project_root)
+    resolved_command_owners = {CODEX_HOOK_WRAPPER_NAME: hook_command}
+    resolved_command_owners.update(
+        {server.name: server.command for server in servers}
+    )
+    ownership = classify_ownership(
+        raw,
+        hook_command=hook_command,
+        project_root=project_root,
+        resolved_command_owners=resolved_command_owners,
+    )
     if ownership is CodexConfigOwnership.UNREADABLE:  # pragma: no cover - defensive
         raise CodexConfigError(
             CodexConfigRejection.UNPARSABLE_TOML,
@@ -635,51 +692,127 @@ def render_without_ak3(
     raw: bytes,
     *,
     hook_command: str,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str] | None = None,
 ) -> str:
-    """Surgically remove AK3-owned values while preserving all foreign TOML."""
+    """Surgically remove AK3-owned values while preserving all foreign TOML.
+
+    A reserved server name alone never establishes ownership. Its complete
+    AK3-owned field subset must match the expected shape for ``project_root``;
+    otherwise the entire server table is foreign and remains untouched.
+    """
+    parsed = load_codex_config(raw)
     raw_text = raw.decode("utf-8")
     foreign_comment_lines = _foreign_comment_lines(raw_text)
-    parsed = load_codex_config(raw)
     doc = tomlkit.parse(raw_text)
-    _remove_owned_hook(doc, hook_command)
-    _remove_owned_servers(doc, parsed)
+    hook_removed = _remove_owned_hook(
+        doc,
+        hook_command,
+        resolved_command_owners=resolved_command_owners,
+    )
+    server_removed = _remove_owned_servers(
+        doc,
+        parsed,
+        project_root=project_root,
+        resolved_command_owners=resolved_command_owners,
+    )
+    if not hook_removed and not server_removed:
+        return raw_text
     return _finish_surgical_render(tomlkit.dumps(doc), foreign_comment_lines)
 
 
-def _remove_owned_hook(doc: Any, hook_command: str) -> None:
+def _remove_owned_hook(
+    doc: Any,
+    hook_command: str,
+    *,
+    resolved_command_owners: Mapping[str, str] | None,
+) -> bool:
     hooks = doc.get(_HOOKS)
     if not isinstance(hooks, dict):
-        return
+        return False
     entry = hooks.get(_PRE_TOOL_USE)
-    if isinstance(entry, dict) and entry.get("command") == hook_command:
+    hook_owner = (
+        None
+        if resolved_command_owners is None
+        else resolved_command_owners.get(CODEX_HOOK_WRAPPER_NAME)
+    )
+    removed = (
+        isinstance(entry, dict)
+        and set(entry) == {"command"}
+        and entry.get("command") == hook_command
+        and matches_resolved_path_owner(hook_owner, hook_owner)
+        and not _has_inline_comment(entry)
+    )
+    if removed:
         del hooks[_PRE_TOOL_USE]
-    if not hooks:
+    if removed and not hooks and not _has_inline_comment(hooks):
         del doc[_HOOKS]
+    return removed
+
+
+def _has_inline_comment(item: object) -> bool:
+    """Return whether a tomlkit item or one of its descendants has a comment."""
+    trivia = getattr(item, "trivia", None)
+    if bool(getattr(trivia, "comment", "")):
+        return True
+    if isinstance(item, list):
+        groups = getattr(item, "_value", ())
+        if any(getattr(group, "comment", None) is not None for group in groups):
+            return True
+        item_method = getattr(item, "item", None)
+        for index, value in enumerate(item):
+            child = item_method(index) if callable(item_method) else value
+            if _has_inline_comment(child):
+                return True
+        return False
+    if not isinstance(item, dict):
+        return False
+    item_method = getattr(item, "item", None)
+    for key, value in item.items():
+        child = item_method(key) if callable(item_method) else value
+        if _has_inline_comment(child):
+            return True
+    return False
 
 
 def _remove_owned_servers(
     doc: Any,
     parsed: Mapping[str, object],
-) -> None:
+    *,
+    project_root: Path,
+    resolved_command_owners: Mapping[str, str] | None,
+) -> bool:
     servers = doc.get(_MCP_SERVERS)
     parsed_servers = parsed.get(_MCP_SERVERS)
     if not isinstance(servers, dict) or not isinstance(parsed_servers, dict):
-        return
+        return False
+    removed = False
     for name in AK3_MCP_SERVER_NAMES:
         entry = parsed_servers.get(name)
         shape = AK3_SERVER_SHAPES.get(name)
         if not isinstance(entry, dict) or shape is None:
             continue
-        args = entry.get("args")
-        if not shape.matches_command(entry.get("command")) or not isinstance(args, list):
-            continue
-        if tuple(args) != shape.args:
+        owned_entry = {
+            field: value
+            for field, value in entry.items()
+            if field in AK3_OWNED_SERVER_FIELDS
+        }
+        if not is_recognised_ak3_server_table(
+            name,
+            owned_entry,
+            project_root=project_root,
+            resolved_command_owners=resolved_command_owners,
+        ):
             continue
         target = servers.get(name)
         if isinstance(target, dict):
+            if _has_inline_comment(target):
+                continue
             _remove_owned_server_fields(servers, name, target)
-    if not servers:
+            removed = True
+    if removed and not servers and not _has_inline_comment(servers):
         del doc[_MCP_SERVERS]
+    return removed
 
 
 def _remove_owned_server_fields(

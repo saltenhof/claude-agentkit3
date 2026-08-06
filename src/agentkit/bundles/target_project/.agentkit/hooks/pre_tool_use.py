@@ -2,7 +2,7 @@
 
 Registered on ``Bash|Write|Edit|Read|Grep|Glob`` and started WITHOUT arguments,
 so it calls the argumentless collective entry point -- the per-guard CLI
-(``agentkit-hook-claude pre <id>``) would reject an empty argv with exit 2,
+(``<absolute-agentkit-hook-claude-wrapper> pre <id>``) would reject an empty argv with exit 2,
 which this interface reads as BLOCK.
 """
 

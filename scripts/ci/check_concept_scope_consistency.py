@@ -23,6 +23,7 @@ from concept_governance import (  # noqa: E402
     run_scope_consistency,
 )
 from concept_governance.scope_models import SCOPE_PROMPT_VERSION  # noqa: E402
+from concept_governance.scope_sets import DEFAULT_PARTITION_MAX_CHARS  # noqa: E402
 
 
 def main() -> int:
@@ -63,7 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Live authority_over scope; repeat for multiple touched scopes.",
     )
     parser.add_argument("--limit", type=int, help="Deterministically select only the first N scope sets (smoke runs only).")
-    parser.add_argument("--partition-max-chars", type=int, default=48_000)
+    parser.add_argument("--partition-max-chars", type=int, default=DEFAULT_PARTITION_MAX_CHARS)
     parser.add_argument("--partition-max-chunks", type=int, default=20)
     return parser
 

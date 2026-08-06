@@ -142,6 +142,23 @@ atexit.register(_dispose_pool)
 
 
 @contextmanager
+def _borrow_pool_or_writer_connection() -> Iterator[psycopg.Connection[Any]]:
+    """Use the lease session for writer traffic, otherwise the normal pool."""
+
+    from agentkit.backend.state_backend.postgres_store._writer_lease_runtime import (
+        borrow_active_writer_connection,
+    )
+
+    with borrow_active_writer_connection() as writer_connection:
+        if writer_connection is not None:
+            yield writer_connection
+            return
+    pool = _get_pool()
+    with pool.connection() as pooled_connection:
+        yield pooled_connection
+
+
+@contextmanager
 def _connect_global() -> Iterator[_CompatConnection]:
     # Borrow from the process-bound pool instead of opening a fresh connection per
     # operation (connection-churn elimination). ``pool.connection()`` commits on a
@@ -150,8 +167,7 @@ def _connect_global() -> Iterator[_CompatConnection]:
     # The staged commits below are unchanged and load-bearing: they release the
     # global DDL advisory lock before the heavy table/index bootstrap so parallel
     # schemas do not serialize behind one worker.
-    pool = _get_pool()
-    with pool.connection() as conn:
+    with _borrow_pool_or_writer_connection() as conn:
         compat = _CompatConnection(conn)
         _ensure_versioned_schema(compat)
         conn.commit()
@@ -199,10 +215,27 @@ def borrow_repository_connection() -> Iterator[psycopg.Connection[Any]]:
     holding one (verified: no Store<->Repo and no Repo<->Repo nesting), so the size-1
     pool cannot self-deadlock.
     """
-    pool = _get_pool()
-    with pool.connection() as conn:
+    with _borrow_pool_or_writer_connection() as conn:
         yield conn
         conn.commit()
+
+
+@contextmanager
+def borrow_control_plane_writer_lease_connection() -> Iterator[
+    psycopg.Connection[Any]
+]:
+    """Reserve one pooled connection for the control-plane writer lifetime.
+
+    The caller owns a PostgreSQL session advisory lock for as long as this
+    context remains entered.  This borrow deliberately performs no schema work:
+    the lease key is database-scoped and must be acquired before boot identity
+    mutation or startup reconciliation. While the lease is active, all writer
+    store/repository operations are serialized through this same session, so
+    losing the advisory lock session also destroys any in-flight DB transaction.
+    """
+
+    with _borrow_pool_or_writer_connection() as conn:
+        yield conn
 
 
 @contextmanager
@@ -221,7 +254,6 @@ def _borrow_pooled_connection_raw() -> Iterator[psycopg.Connection[Any]]:
     ``search_path``. Commits on clean exit; ``pool.connection()`` rolls back on
     exception.
     """
-    pool = _get_pool()
-    with pool.connection() as conn:
+    with _borrow_pool_or_writer_connection() as conn:
         yield conn
         conn.commit()

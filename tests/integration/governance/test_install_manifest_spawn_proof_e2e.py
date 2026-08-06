@@ -62,7 +62,14 @@ from agentkit.backend.installer.runner import (
 )
 from agentkit.backend.skills import PlaceholderSubstitutor
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.skills.version_policy import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.governance_hook_repository import (
+    StateBackendHookRegistrationRepository,
+)
+from agentkit.backend.state_backend.store.project_management_repository import (
+    StateBackendProjectRepository,
+)
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
@@ -99,13 +106,17 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
 def _bundle_store_with_all_skills(root: Path) -> SkillBundleStore:
     store = SkillBundleStore(store_root=root / "skill-bundles")
     for skill_name in MANDATORY_SKILLS:
-        bundle_root = root / "skill-bundles" / f"{skill_name}-core" / "4.0.0"
+        bundle_id = f"{skill_name}-core"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        bundle_root = root / "skill-bundles" / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         (bundle_root / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
-                bundle_id=f"{skill_name}-core",
-                bundle_version="4.0.0",
+                bundle_id=bundle_id,
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -130,6 +141,8 @@ def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
         registration_repo=StateBackendProjectRegistrationRepository(root),
+        project_repo=StateBackendProjectRepository(root),
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
         runtime_profile=RuntimeProfile.CORE,
         sonarqube_available=False,
         ci_available=False,

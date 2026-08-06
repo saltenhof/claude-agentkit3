@@ -76,16 +76,18 @@ class ScriptedScopeEvaluator:
         *,
         fail_at: int | None = None,
         error: Exception | None = None,
+        model: str = "fixed/v1",
     ) -> None:
         self._classify = classify
         self._fail_at = fail_at
         self._error = error
+        self._model = model
         self.calls: list[ScopePartition] = []
 
     @property
     def model(self) -> str:
         """Return the fixed model identity."""
-        return "fixed/v1"
+        return self._model
 
     def evaluate(self, partition: ScopePartition) -> ScopeEvaluation:
         """Return one fixed response or fail at the scripted call."""
@@ -124,8 +126,9 @@ defers_to: {defers_to}
 ## Rule
 
 {content}
-""",
+        """,
         encoding="utf-8",
+        newline="",
     )
 
 
@@ -133,3 +136,19 @@ def write_empty_baseline(path: Path) -> None:
     """Write the strict empty version-1 baseline."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("version: 1\nentries: []\n", encoding="utf-8")
+
+
+def source_reference_fields(source_id: str, text: str, evidence: str) -> dict[str, str]:
+    """Return boundary IDs for one exact test excerpt."""
+    from concept_governance.source_spans import build_source_span_map
+
+    start = text.index(evidence)
+    end = start + len(evidence)
+    span_map = build_source_span_map(source_id, text)
+    by_start = {span.start: span.span_id for span in span_map.spans}
+    by_end = {span.end: span.span_id for span in span_map.spans}
+    return {
+        "source_id": source_id,
+        "start_id": by_start[start],
+        "end_id": by_end[end],
+    }

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-08-05-review-vertrag-terminierung-085702c0",
+  "owner": {
+    "principal_id": "council-orchestrator.claude-code",
+    "harness": "claude-code",
+    "session_ref": "claude-code-current-session"
+  },
+  "fencing_token": 1,
+  "acquired_at": "2026-08-05T10:30:25Z",
+  "ttl_seconds": 86400,
+  "released": false
+}

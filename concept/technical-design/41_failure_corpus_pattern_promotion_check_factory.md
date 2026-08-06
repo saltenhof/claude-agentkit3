@@ -745,9 +745,35 @@ LLMs werden nur in Schritt 1 und 3 der Check-Ableitung eingesetzt
 Die `failure-corpus`-CLI-Befehle sind **Boundary-Controls des aufrufenden
 BC** (typischerweise `pipeline-framework` oder ein menschlicher Operator).
 `FailureCorpus`, `PatternPromotion` und `CheckFactory` sind
-transport-agnostisch; sie kennen keine CLI-Schnittstellen und werden von
-einer CLI-Adapter-Schicht (`agentkit.backend.failure_corpus.cli`) aufgerufen, die
-lediglich Argumente entgegennimmt und an die Top-Surface delegiert.
+transport-agnostisch; sie kennen keine CLI-Schnittstellen.
+
+Die vier mutierenden Verben `add-incident`, `review-patterns`, `review-checks`
+und `effectiveness-report` sind duenne Adapter auf strategengeschuetzte HTTPS-
+Routen unter `/v1/projects/{project_key}/failure-corpus/...`. Ausschliesslich
+der aktive Control-Plane-Writer baut dort `ProjectionAccessor` und
+`FailureCorpus`; dadurch laufen ihre Writes auf `fc_incidents`, `fc_patterns`
+und `fc_check_proposals` ueber die reservierte Writer-Session. Ist der Writer
+nicht erreichbar, endet das CLI-Verb sichtbar mit `BackendUnreachable` und
+ohne lokalen Repository- oder In-Process-Fallback. `suggest-patterns` und
+`list-checks` sind read-only und behalten ihren direkten Leseweg.
+
+Jede dieser vier Mutationen traegt ein vor dem HTTPS-Aufruf vom CLI
+offengelegtes, optional wiederverwendbares `op_id`. Der Writer claimt es im
+einheitlichen `ControlPlaneOperationRecord` vor der Domain-Mutation und
+finalisiert das gespeicherte HTTP-Ergebnis danach. Identisches Replay liefert
+dieses Ergebnis ohne zweite Mutation; abweichender Body unter derselben
+`op_id` endet mit `409 idempotency_mismatch`, ein noch aktiver Claim mit
+`409 operation_in_flight`. Die Mutationen erzeugen keinen lokalen Story-/
+Session-Guard-State und deshalb kein Project-Edge-Materialisierungsbundle;
+ihr vollstaendiges Ergebnis ist der typisierte HTTP-Body plus der per `op_id`
+rekonstruierbare Operation-Record.
+
+| CLI-Verb | Writer-Endpoint |
+|----------|-----------------|
+| `add-incident` | `POST /v1/projects/{project_key}/failure-corpus/incidents` |
+| `review-patterns` | `POST /v1/projects/{project_key}/failure-corpus/patterns/{pattern_id}/review` |
+| `review-checks` | `POST /v1/projects/{project_key}/failure-corpus/checks/{check_id}/review` |
+| `effectiveness-report` | `POST /v1/projects/{project_key}/failure-corpus/effectiveness-report` |
 
 **Beispielaufrufe (zur Illustration — normative Schnittstellen sind die
 Komponenten-Top-Surfaces in §41.3–41.6):**

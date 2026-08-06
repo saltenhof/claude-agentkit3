@@ -8,26 +8,35 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import contextmanager
+from enum import Enum
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPSServer
+from http.server import BaseHTTPRequestHandler
+from http.server import ThreadingHTTPSServer as _ThreadingHTTPSServer
+from threading import Event, RLock
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
 from agentkit.backend.auth.middleware import AuthMiddlewareResponse
-from agentkit.backend.config.defaults import CORE_LOOPBACK_HOST
 from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
+from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseLostError
 from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
     from pathlib import Path
 
     from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+    from agentkit.backend.control_plane.writer_lease import (
+        ControlPlaneWriterLease,
+    )
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.story.service import StoryService
     from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
@@ -35,15 +44,19 @@ if TYPE_CHECKING:
 from agentkit.backend.control_plane_http.default_routes import (
     _build_default_auth_routes,
     _build_default_concept_routes,
+    _build_default_failure_corpus_routes,
     _build_default_hub_routes,
+    _build_default_installer_writer_routes,
     _build_default_kpi_analytics_routes,
     _build_default_permission_routes,
     _build_default_planning_routes,
     _build_default_project_routes,
     _build_default_read_model_routes,
     _build_default_runtime_service,
+    _build_default_story_admin_routes,
     _build_default_story_routes,
     _build_default_story_service,
+    _build_default_story_split_routes,
     _build_default_takeover_approval_routes,
     _build_default_task_management_routes,
     _build_default_telemetry_routes,
@@ -95,12 +108,69 @@ from agentkit.backend.control_plane_http.takeover_handlers import (
 
 logger = logging.getLogger(__name__)
 
+_WRITER_LEASE_LIVENESS_INTERVAL_SECONDS = 0.1
+
 # Route path patterns (FK-72 §72.8.1) are defined in the sibling ``_route_patterns``
 # module (imported at the top of this file) so this module's executed top-level stays
 # lean (PY_MODULE_TOP_LEVEL_MAX_LOC_100); they are used under their original names, so
 # route matching is unchanged.
 
 _NOT_FOUND_MESSAGE = "Not found"
+
+
+class ThreadingHTTPSServer(_ThreadingHTTPSServer):
+    """HTTPS server whose listener address cannot be shared with another process."""
+
+    # On Windows SO_REUSEADDR permits unrelated processes to bind the same
+    # address, making requests nondeterministically reach the wrong security
+    # surface. Listener ownership is exclusive for the whole writer lifetime.
+    allow_reuse_address = False
+    daemon_threads = False
+    block_on_close = True
+
+    def server_bind(self) -> None:
+        """Bind with OS-enforced exclusivity before accepting any request."""
+
+        exclusive_option = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive_option is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive_option, 1)
+        super().server_bind()
+
+
+class ControlPlaneSurface(Enum):
+    """Security context of one listener in the shared writer process."""
+
+    UI_BFF = "ui-bff"
+    PROJECT_API = "project-api"
+
+
+_UI_ONLY_ROUTE_PATTERNS = (
+    re.compile(r"^/v1/projects/[^/]+/(?:dashboard|planning)(?:/|$)"),
+    re.compile(r"^/v1/governance/takeover-approvals(?:/|$)"),
+)
+_PROJECT_ONLY_ROUTE_PATTERNS = (
+    re.compile(r"^/v1/project-edge(?:/|$)"),
+    re.compile(r"^/v1/projects/[^/]+/installation(?:/|$)"),
+    re.compile(r"^/v1/telemetry/events(?:/|$)"),
+    re.compile(r"^/v1/governance/(?:guard-counters|worker-health)(?:/|$)"),
+)
+_PROJECT_STRATEGIST_ADMIN_ROUTE_PATTERNS = (
+    re.compile(r"^/v1/auth/(?:login|logout|password)$"),
+    re.compile(r"^/v1/projects/[^/]+/api-tokens(?:/[^/]+)?$"),
+    re.compile(r"^/v1/projects/[^/]+/installation/third-party-validation$"),
+    re.compile(
+        r"^/v1/project-edge/story-runs/[^/]+/ownership/"
+        r"(?:takeover-(?:request|confirm|deny|reconcile-clear|reconcile-worktree)|recover)$",
+    ),
+    re.compile(r"^/v1/project-edge/operations/[^/]+/admin-abort$"),
+    re.compile(r"^/v1/projects/[^/]+/stories/[^/]+/(?:split|reset|exit)$"),
+    re.compile(r"^/v1/projects/[^/]+/failure-corpus(?:/|$)"),
+    re.compile(r"^/v1/governance/permission-(?:requests|leases)$"),
+)
+_PROJECT_CREDENTIAL_TRANSITION_PATH = re.compile(
+    r"^/v1/projects(?:$|/[^/]+/(?:api-tokens(?:/[^/]+)?|"
+    r"installation/third-party-validation))$",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -323,8 +393,10 @@ class ControlPlaneApplication(
         story_service: StoryService | None = None,
         dashboard_service: DashboardService | None = None,
         auth_middleware: AuthMiddleware | None = None,
+        auth_middlewares: Mapping[ControlPlaneSurface, AuthMiddleware] | None = None,
         tenant_scope_middleware: TenantScopeMiddleware | None = None,
         version_handshake_middleware: VersionHandshakeMiddleware | None = None,
+        writer_lease_required: bool = True,
     ) -> None:
         r = routes or ControlPlaneApplicationRoutes()
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
@@ -338,7 +410,21 @@ class ControlPlaneApplication(
         self._story_service = story_service or _build_default_story_service()
         self._dashboard_service = self._resolve_dashboard_service(dashboard_service)
         self._auth_middleware = auth_middleware
+        self._auth_middlewares = dict(auth_middlewares or {})
+        self._writer_lease_required = writer_lease_required
+        self._writer_lease: ControlPlaneWriterLease | None = None
+        self._writer_lease_lost = Event()
+        self._writer_lease_loss_reason: str | None = None
+        # One writer process owns both listeners, so this process-local lock is
+        # the atomic project-credential boundary shared by both surfaces. It
+        # spans the strategist's "no token exists" authorization check and the
+        # installer handler, and also every token create/revoke request. A token
+        # therefore cannot appear in the former TOCTOU gap between middleware
+        # authorization and privileged installer execution.
+        self._project_credential_transition_lock = RLock()
         self._init_default_routes(r, auth_middleware)
+        if self._writer_lease_required:
+            self._auth_routes.bind_writer_authority(self._assert_writer_authority)
         self._tenant_scope = tenant_scope_middleware or TenantScopeMiddleware()
         # Opt-in like ``auth_middleware``; production wires it ON in
         # ``serve_control_plane`` (FK-91 §91.1a Rule 11). The announced
@@ -392,6 +478,18 @@ class ControlPlaneApplication(
             r.third_party_validation_routes
             or _build_default_third_party_validation_routes()
         )
+        self._story_split_routes = (
+            r.story_split_routes or _build_default_story_split_routes()
+        )
+        self._story_admin_routes = (
+            r.story_admin_routes or _build_default_story_admin_routes()
+        )
+        self._failure_corpus_routes = (
+            r.failure_corpus_routes or _build_default_failure_corpus_routes()
+        )
+        self._installer_writer_routes = (
+            r.installer_writer_routes or _build_default_installer_writer_routes()
+        )
 
     def ensure_version_handshake(self) -> None:
         """Guarantee a fail-closed handshake middleware on the production listener.
@@ -404,6 +502,25 @@ class ControlPlaneApplication(
         if self._version_handshake is None:
             self._version_handshake = VersionHandshakeMiddleware()
             self._compat_window = self._version_handshake.window
+
+    def require_productive_writer_lease(self) -> None:
+        """Reject every listener application configured without the lease fence."""
+
+        if not self._writer_lease_required:
+            raise RuntimeError(
+                "a productive control-plane server requires the writer lifetime lease",
+            )
+
+    def assert_productive_writer_ready(self) -> None:
+        """Prove the startup hook left a held lease before either socket binds."""
+
+        self.require_productive_writer_lease()
+        lease = self._writer_lease
+        if lease is None:
+            raise RuntimeError(
+                "control-plane startup completed without an active writer lease",
+            )
+        lease.assert_held()
 
     def run_pre_serve_startup_hook(self) -> None:
         """Resolve THIS boot's instance identity + reconcile orphans (AG3-138 IMPL-003).
@@ -424,7 +541,151 @@ class ControlPlaneApplication(
         Fail-closed (AC9): any failure propagates uncaught -- the process never
         reaches ``serve_forever()`` with an unclear claim inventory.
         """
-        run_pre_serve_startup(self._runtime_service)
+        if self._writer_lease is not None:
+            raise RuntimeError("pre-serve startup may run only once per application")
+        self._writer_lease = run_pre_serve_startup(self._runtime_service)
+
+    def release_writer_lease(self) -> None:
+        """Quiesce requests/background work, then release the lifetime fence."""
+
+        lease = self._writer_lease
+        if lease is not None:
+            lease.quiesce_requests()
+            if self._writer_lease_loss_reason is None:
+                self._third_party_validation_routes.drain_writer_work()
+            else:
+                self._third_party_validation_routes.abort_writer_work()
+            try:
+                lease.release()
+            finally:
+                self._writer_lease = None
+
+    @staticmethod
+    def _writer_lease_failure_response(
+        correlation_id: str,
+        *,
+        missing: bool,
+    ) -> HttpResponse:
+        """Return the fail-closed response for an absent or lost writer lease."""
+
+        error_code = (
+            "control_plane_writer_lease_missing"
+            if missing
+            else "control_plane_writer_lease_lost"
+        )
+        message = (
+            "The control-plane writer lifetime lease is not active"
+            if missing
+            else "The control-plane writer lifetime lease was lost"
+        )
+        return _error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error_code=error_code,
+            message=message,
+            correlation_id=correlation_id,
+        )
+
+    def _handle_request_with_writer_authority(
+        self,
+        *,
+        method: str,
+        path: str,
+        body: bytes,
+        request_headers: Mapping[str, str] | None,
+        surface: ControlPlaneSurface | None,
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Dispatch one request while its caller owns writer authority."""
+
+        split = urlsplit(path)
+        route_path = split.path
+        query = parse_qs(split.query)
+
+        if route_path == "/healthz":
+            return _handle_healthz(method, correlation_id)
+
+        if (
+            method in {"POST", "DELETE"}
+            and _PROJECT_CREDENTIAL_TRANSITION_PATH.fullmatch(route_path) is not None
+        ):
+            with self._project_credential_transition_lock:
+                return self._handle_routed_request(
+                    method=method,
+                    route_path=route_path,
+                    query=query,
+                    body=body,
+                    request_headers=request_headers,
+                    surface=surface,
+                    correlation_id=correlation_id,
+                )
+        return self._handle_routed_request(
+            method=method,
+            route_path=route_path,
+            query=query,
+            body=body,
+            request_headers=request_headers,
+            surface=surface,
+            correlation_id=correlation_id,
+        )
+
+    def _assert_writer_authority(self) -> None:
+        """Verify the productive lease immediately before an external effect."""
+
+        if not self._writer_lease_required:
+            return
+        lease = self._writer_lease
+        if lease is None:
+            raise RuntimeError("the control-plane writer lifetime lease is not active")
+        lease.assert_held()
+
+    @contextmanager
+    def _response_write_scope(self) -> Iterator[None]:
+        """Keep the writer lease through the complete HTTP wire response."""
+
+        if not self._writer_lease_required:
+            yield
+            return
+        lease = self._writer_lease
+        if lease is None:
+            raise ControlPlaneWriterLeaseLostError(
+                "the control-plane writer lifetime lease is not active",
+            )
+        with lease.request_scope():
+            yield
+
+    def _record_writer_lease_loss(self, exc: ControlPlaneWriterLeaseLostError) -> None:
+        """Mark lease loss as fatal for the shared two-listener runtime."""
+
+        logger.error("Control-plane writer lease lost: %s", exc)
+        self._writer_lease_loss_reason = str(exc)
+        self._writer_lease_lost.set()
+        self._third_party_validation_routes.abort_writer_work()
+
+    def wait_for_writer_lease_loss(self) -> None:
+        """Actively prove the reserved PostgreSQL lease session remains live."""
+
+        while not self._writer_lease_lost.wait(
+            _WRITER_LEASE_LIVENESS_INTERVAL_SECONDS,
+        ):
+            lease = self._writer_lease
+            if lease is None:
+                return
+            try:
+                lease.assert_held()
+            except ControlPlaneWriterLeaseLostError as exc:
+                self._record_writer_lease_loss(exc)
+                return
+
+    def wake_writer_lease_monitor(self) -> None:
+        """Wake the monitor during normal listener-coordinator teardown."""
+
+        self._writer_lease_lost.set()
+
+    @property
+    def writer_lease_loss_reason(self) -> str | None:
+        """Return the detected fatal lease loss, if any."""
+
+        return self._writer_lease_loss_reason
 
     def handle_request(
         self,
@@ -433,18 +694,54 @@ class ControlPlaneApplication(
         path: str,
         body: bytes,
         request_headers: Mapping[str, str] | None = None,
+        surface: ControlPlaneSurface | None = None,
     ) -> HttpResponse:
         """Dispatch one HTTP request."""
         correlation_id = _resolve_correlation_id(request_headers)
-        split = urlsplit(path)
-        route_path = split.path
-        query = parse_qs(split.query)
+        if not self._writer_lease_required:
+            return self._handle_request_with_writer_authority(
+                method=method,
+                path=path,
+                body=body,
+                request_headers=request_headers,
+                surface=surface,
+                correlation_id=correlation_id,
+            )
+        lease = self._writer_lease
+        if lease is None:
+            return self._writer_lease_failure_response(correlation_id, missing=True)
+        try:
+            with lease.request_scope():
+                return self._handle_request_with_writer_authority(
+                    method=method,
+                    path=path,
+                    body=body,
+                    request_headers=request_headers,
+                    surface=surface,
+                    correlation_id=correlation_id,
+                )
+        except ControlPlaneWriterLeaseLostError as exc:
+            self._record_writer_lease_loss(exc)
+            return self._writer_lease_failure_response(correlation_id, missing=False)
 
-        if route_path == "/healthz":
-            return _handle_healthz(method, correlation_id)
+    def _handle_routed_request(
+        self,
+        *,
+        method: str,
+        route_path: str,
+        query: dict[str, list[str]],
+        body: bytes,
+        request_headers: Mapping[str, str] | None,
+        surface: ControlPlaneSurface | None,
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Run middleware and dispatch after request-wide transition locking."""
 
+        surface_auth = (
+            self._auth_middlewares.get(surface) if surface is not None else None
+        )
         middleware_block, auth_result = _run_request_middleware(
-            auth_middleware=self._auth_middleware,
+            auth_middleware=surface_auth or self._auth_middleware,
             tenant_scope=self._tenant_scope,
             method=method,
             route_path=route_path,
@@ -453,6 +750,15 @@ class ControlPlaneApplication(
         )
         if middleware_block is not None:
             return middleware_block
+        surface_block = _enforce_surface_policy(
+            surface=surface,
+            method=method,
+            route_path=route_path,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if surface_block is not None:
+            return surface_block
 
         def _dispatch() -> HttpResponse:
             return self._dispatch_method(
@@ -628,6 +934,14 @@ class ControlPlaneApplication(
             return _planning_response_to_http_response(planning_response)
 
         # Project management routes (/v1/projects, /v1/projects/{key}):
+        installer_response = self._installer_writer_routes.handle_get(
+            route_path,
+            correlation_id,
+            auth_result,
+        )
+        if installer_response is not None:
+            return installer_response
+
         project_response = self._project_routes.handle_get(
             route_path, query, correlation_id,
         )
@@ -752,7 +1066,7 @@ class ControlPlaneApplication(
             return _auth_response_to_http_response(auth_response)
 
         installer_response = self._dispatch_installer_post(
-            route_path, payload, correlation_id,
+            route_path, payload, correlation_id, auth_result,
         )
         if installer_response is not None:
             return installer_response
@@ -809,7 +1123,7 @@ class ControlPlaneApplication(
 
         # Project-scoped story mutations:
         story_post = self._dispatch_project_story_post(
-            route_path, payload, correlation_id,
+            route_path, payload, correlation_id, auth_result,
         )
         if story_post is not None:
             return story_post
@@ -834,7 +1148,12 @@ class ControlPlaneApplication(
             )
 
         # Grounded BC POST routes (kpi_analytics, task_management):
-        bc_post = self._dispatch_new_bc_post(route_path, payload, correlation_id)
+        bc_post = self._dispatch_new_bc_post(
+            route_path,
+            payload,
+            correlation_id,
+            auth_result,
+        )
         if bc_post is not None:
             return bc_post
 
@@ -875,8 +1194,36 @@ class ControlPlaneApplication(
         route_path: str,
         payload: object,
         correlation_id: str,
+        auth_result: AuthResult | None,
     ) -> HttpResponse | None:
         """Dispatch POST for project-scoped story mutations (AG3-090)."""
+        story_split_match = _route_patterns._PROJECT_STORY_SPLIT.match(route_path)
+        if story_split_match is not None:
+            return self._story_split_routes.handle_post(
+                project_key=story_split_match.group("project_key"),
+                story_id=story_split_match.group("story_id"),
+                payload=payload,
+                correlation_id=correlation_id,
+                auth_result=auth_result,
+            )
+        story_reset_match = _route_patterns._PROJECT_STORY_RESET.match(route_path)
+        if story_reset_match is not None:
+            return self._story_admin_routes.handle_reset(
+                project_key=story_reset_match.group("project_key"),
+                story_id=story_reset_match.group("story_id"),
+                payload=payload,
+                correlation_id=correlation_id,
+                auth_result=auth_result,
+            )
+        story_exit_match = _route_patterns._PROJECT_STORY_EXIT.match(route_path)
+        if story_exit_match is not None:
+            return self._story_admin_routes.handle_exit(
+                project_key=story_exit_match.group("project_key"),
+                story_id=story_exit_match.group("story_id"),
+                payload=payload,
+                correlation_id=correlation_id,
+                auth_result=auth_result,
+            )
         if _route_patterns._PROJECT_STORIES_COLLECTION.match(route_path):
             return self._handle_post_story(payload, correlation_id)
 
@@ -908,6 +1255,7 @@ class ControlPlaneApplication(
         route_path: str,
         payload: object,
         correlation_id: str,
+        auth_result: AuthResult | None,
     ) -> HttpResponse | None:
         """Dispatch POST to the grounded BC http/ modules (AG3-090)."""
         for routes in (
@@ -917,7 +1265,12 @@ class ControlPlaneApplication(
             response = routes.handle_post(route_path, payload, correlation_id)
             if response is not None:
                 return _bc_response_to_http_response(response)
-        return None
+        return self._failure_corpus_routes.handle_post(
+            route_path,
+            payload,
+            correlation_id,
+            auth_result,
+        )
 
     def _handle_put_request(
         self,
@@ -1048,60 +1401,109 @@ class ControlPlaneApplication(
 
 def serve_control_plane(
     *,
-    port: int,
+    ui_host: str,
+    ui_port: int,
+    project_api_host: str,
+    project_api_port: int,
     certfile: Path,
-    host: str = CORE_LOOPBACK_HOST,
     keyfile: Path | None = None,
     app: ControlPlaneApplication | None = None,
     startup_hook: Callable[[ControlPlaneApplication], None] | None = None,
 ) -> None:
-    """Run the control-plane HTTPS server until interrupted.
+    """Run both HTTPS surfaces in one writer process until interrupted.
 
-    ``port`` is MANDATORY and carries no default: the listener does not own the
-    port registry. The profile-to-port mapping lives with the operator surface
-    (``cli.serve``, fed by ``config.defaults``); a default here would be a second
-    copy of that fact — the exact defect that let a stale ``9080`` survive here
-    while every other consumer had moved on.
+    Both listener coordinates are mandatory and carry no defaults: the listener
+    does not own the port registry.  UI-BFF and Project-API share this exact
+    application, boot identity, startup reconciliation and lifetime writer
+    lease; only their bind coordinates and per-surface security policy differ.
 
-    AG3-138 IMPL-003: ``startup_hook`` is the pre-serve hook run BETWEEN app
-    construction and ``serve_forever()``; it defaults to the productive
-    :meth:`ControlPlaneApplication.run_pre_serve_startup_hook` (instance-identity
-    resolution + orphan reconciliation, fail-closed). It is an injection seam so
-    a transport-wiring unit test can drive server start/close without a live
-    control-plane backend; the productive listener always runs the real hook.
+    AG3-138 IMPL-003: the productive startup (lease acquisition, instance
+    identity, reconciliation) always runs BETWEEN application construction and
+    ``serve_forever()``. ``startup_hook`` is an optional pre-start observer or
+    fault-injection seam; it cannot replace the productive startup sequence.
     """
 
+    if (ui_host, ui_port) == (project_api_host, project_api_port):
+        raise ValueError("UI-BFF and Project-API listeners require distinct bind addresses")
     application = _build_production_application() if app is None else app
     # GUARANTEE the real listener is handshake-gated even when an app was injected
     # without a handshake middleware (close the fail-OPEN path; FK-91 Rule 11).
     application.ensure_version_handshake()
+    application.require_productive_writer_lease()
     # AG3-138 IMPL-003: the pre-serve startup hook runs BEFORE the socket is bound
     # and BEFORE ``serve_forever()`` -- so the listener accepts its first request
     # only after instance-identity resolution + orphan reconciliation succeed. A
     # failure here (fail-closed, AC9) propagates uncaught: the server never starts
     # with an unclear claim inventory.
-    hook = startup_hook or (lambda a: a.run_pre_serve_startup_hook())
-    hook(application)
-    server = ThreadingHTTPSServer(
-        (host, port),
-        _build_handler(application),
-        certfile=str(certfile),
-        keyfile=str(keyfile) if keyfile is not None else None,
-    )
-    logger.info(
-        "Starting AgentKit control plane on https://%s:%d using %s",
-        host,
-        port,
-        certfile,
-    )
+    servers: list[ThreadingHTTPSServer] = []
     try:
-        server.serve_forever()
+        if startup_hook is not None:
+            startup_hook(application)
+        # Call the concrete boundary implementation, not an injected override:
+        # an arbitrary application/hook may not substitute a duck-typed lease
+        # for the mandatory PostgreSQL session acquisition.
+        ControlPlaneApplication.run_pre_serve_startup_hook(application)
+        application.assert_productive_writer_ready()
+        servers.append(
+            ThreadingHTTPSServer(
+                (ui_host, ui_port),
+                _build_handler(application, ControlPlaneSurface.UI_BFF),
+                certfile=str(certfile),
+                keyfile=str(keyfile) if keyfile is not None else None,
+            ),
+        )
+        servers.append(
+            ThreadingHTTPSServer(
+                (project_api_host, project_api_port),
+                _build_handler(application, ControlPlaneSurface.PROJECT_API),
+                certfile=str(certfile),
+                keyfile=str(keyfile) if keyfile is not None else None,
+            ),
+        )
+        logger.info(
+            "Starting AgentKit UI-BFF on https://%s:%d and Project-API on "
+            "https://%s:%d using %s",
+            ui_host,
+            ui_port,
+            project_api_host,
+            project_api_port,
+            certfile,
+        )
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="agentkit-listener") as pool:
+            server_futures = tuple(pool.submit(server.serve_forever) for server in servers)
+            monitor_future = pool.submit(application.wait_for_writer_lease_loss)
+            futures = (*server_futures, monitor_future)
+            try:
+                done, pending = wait(futures, return_when=FIRST_COMPLETED)
+            except BaseException:
+                # ``ThreadPoolExecutor.__exit__`` waits for its workers.  Stop
+                # both serve loops before leaving the context on Ctrl+C or any
+                # coordinator failure, otherwise shutdown would deadlock.
+                for server in servers:
+                    server.shutdown()
+                application.wake_writer_lease_monitor()
+                raise
+            # Either surface ending tears down the whole writer runtime.  Keeping
+            # one surface alive after its sibling failed would silently change
+            # the advertised security topology.
+            for server, future in zip(servers, server_futures, strict=True):
+                if future in pending:
+                    server.shutdown()
+            application.wake_writer_lease_monitor()
+            for future in done | pending:
+                future.result()
+            if application.writer_lease_loss_reason is not None:
+                raise ControlPlaneWriterLeaseLostError(
+                    application.writer_lease_loss_reason,
+                )
     finally:
-        server.server_close()
+        for server in servers:
+            server.server_close()
+        application.release_writer_lease()
 
 
 def _build_production_application() -> ControlPlaneApplication:
-    """Build one profile with the cross-process strategist session owner."""
+    """Build one runtime with separate listener auth contexts and shared owners."""
     from agentkit.backend.auth.credentials import StrategistCredentialStore
     from agentkit.backend.auth.http.routes import AuthRoutes
     from agentkit.backend.auth.middleware import AuthMiddleware
@@ -1109,21 +1511,112 @@ def _build_production_application() -> ControlPlaneApplication:
 
     credential_store = StrategistCredentialStore()
     session_store = FileSessionStore(credential_store)
-    auth_middleware = AuthMiddleware(session_store=session_store)
+    ui_auth = AuthMiddleware(session_store=session_store)
+    project_auth = AuthMiddleware(
+        session_store=session_store,
+        token_repository=ui_auth.token_repository,
+    )
     return ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
             auth_routes=AuthRoutes(
                 credential_store=credential_store,
                 session_store=session_store,
-                token_repository=auth_middleware.token_repository,
+                token_repository=ui_auth.token_repository,
             ),
         ),
-        auth_middleware=auth_middleware,
+        auth_middleware=ui_auth,
+        auth_middlewares={
+            ControlPlaneSurface.UI_BFF: ui_auth,
+            ControlPlaneSurface.PROJECT_API: project_auth,
+        },
         version_handshake_middleware=VersionHandshakeMiddleware(),
+        writer_lease_required=True,
     )
 
 
-def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]:
+class _ResponseWriteState:
+    """Track whether response headers have reached the socket."""
+
+    def __init__(self) -> None:
+        self.started = False
+
+
+def _write_handler_response(
+    handler: BaseHTTPRequestHandler,
+    app: ControlPlaneApplication,
+    response: HttpResponse,
+    state: _ResponseWriteState,
+    *,
+    fence_writer: bool,
+) -> None:
+    """Write one complete response while checking writer authority at wire edges."""
+
+    if fence_writer:
+        app._assert_writer_authority()
+    handler.send_response(response.status_code)
+    for key, value in response.headers:
+        handler.send_header(key, value)
+    if not _has_header(response.headers, "Content-Type"):
+        handler.send_header("Content-Type", "application/json")
+    if response.stream is None:
+        handler.send_header("Content-Length", str(len(response.body)))
+        if fence_writer:
+            app._assert_writer_authority()
+        handler.end_headers()
+        state.started = True
+        if fence_writer:
+            app._assert_writer_authority()
+        handler.wfile.write(response.body)
+        return
+    if fence_writer:
+        app._assert_writer_authority()
+    handler.end_headers()
+    state.started = True
+    for chunk in response.stream:
+        if fence_writer:
+            app._assert_writer_authority()
+        handler.wfile.write(chunk)
+        handler.wfile.flush()
+
+
+def _handle_http_exchange(
+    handler: BaseHTTPRequestHandler,
+    app: ControlPlaneApplication,
+    surface: ControlPlaneSurface | None,
+    body: bytes,
+) -> None:
+    """Fence application dispatch and the complete response as one request."""
+
+    request_headers = dict(handler.headers.items())
+    state = _ResponseWriteState()
+    try:
+        with app._response_write_scope():
+            response = app.handle_request(
+                method=handler.command,
+                path=handler.path,
+                body=body,
+                request_headers=request_headers,
+                surface=surface,
+            )
+            _write_handler_response(handler, app, response, state, fence_writer=True)
+    except ControlPlaneWriterLeaseLostError as exc:
+        app._record_writer_lease_loss(exc)
+        handler.close_connection = True
+        if not state.started:
+            # Status/headers may have been buffered but not sent. Discard them
+            # before writing the fail-closed response.
+            handler.__dict__["_headers_buffer"] = []
+            failure = app._writer_lease_failure_response(
+                _resolve_correlation_id(request_headers),
+                missing=False,
+            )
+            _write_handler_response(handler, app, failure, state, fence_writer=False)
+
+
+def _build_handler(
+    app: ControlPlaneApplication,
+    surface: ControlPlaneSurface | None = None,
+) -> type[BaseHTTPRequestHandler]:
     class ControlPlaneHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             self._handle()
@@ -1143,26 +1636,7 @@ def _build_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]
         def _handle(self) -> None:
             content_length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(content_length) if content_length > 0 else b""
-            response = app.handle_request(
-                method=self.command,
-                path=self.path,
-                body=body,
-                request_headers=dict(self.headers.items()),
-            )
-            self.send_response(response.status_code)
-            for key, value in response.headers:
-                self.send_header(key, value)
-            if not _has_header(response.headers, "Content-Type"):
-                self.send_header("Content-Type", "application/json")
-            if response.stream is None:
-                self.send_header("Content-Length", str(len(response.body)))
-                self.end_headers()
-                self.wfile.write(response.body)
-                return
-            self.end_headers()
-            for chunk in response.stream:
-                self.wfile.write(chunk)
-                self.wfile.flush()
+            _handle_http_exchange(self, app, surface, body)
 
         def log_message(self, message_format: str, *args: object) -> None:
             logger.info("control-plane %s", message_format % args)
@@ -1222,6 +1696,91 @@ def _run_request_middleware(
         if isinstance(tenant_result, HttpResponse):
             return tenant_result, authorized
     return None, authorized
+
+
+def _enforce_surface_policy(
+    *,
+    surface: ControlPlaneSurface | None,
+    method: str,
+    route_path: str,
+    auth_result: AuthResult | None,
+    correlation_id: str,
+) -> HttpResponse | None:
+    """Enforce listener-specific principal and route rights inside one process."""
+
+    if surface is None:
+        return None
+    blocked_patterns: tuple[re.Pattern[str], ...]
+    if surface is ControlPlaneSurface.UI_BFF:
+        if auth_result is not None and auth_result.auth_kind == "project_api_token":
+            return _error_response(
+                HTTPStatus.FORBIDDEN,
+                error_code="listener_principal_forbidden",
+                message="Project API tokens are not accepted by the UI-BFF listener",
+                correlation_id=correlation_id,
+            )
+        if method == "POST" and route_path == "/v1/projects":
+            return _error_response(
+                HTTPStatus.NOT_FOUND,
+                error_code="listener_route_not_exposed",
+                message=(
+                    "The credential-less project bootstrap is exposed only on "
+                    "the Project-API listener"
+                ),
+                correlation_id=correlation_id,
+            )
+        blocked_patterns = _PROJECT_ONLY_ROUTE_PATTERNS
+    else:
+        blocked_patterns = _UI_ONLY_ROUTE_PATTERNS
+        if any(pattern.match(route_path) is not None for pattern in blocked_patterns):
+            return _error_response(
+                HTTPStatus.NOT_FOUND,
+                error_code="listener_route_not_exposed",
+                message="This route is not exposed on the selected control-plane listener",
+                correlation_id=correlation_id,
+            )
+        project_context_bootstrap = method == "POST" and route_path == "/v1/projects"
+        if (
+            project_context_bootstrap
+            and auth_result is not None
+            and auth_result.auth_kind == "project_api_token"
+        ):
+            return _error_response(
+                HTTPStatus.FORBIDDEN,
+                error_code="listener_principal_forbidden",
+                message=(
+                    "Project API tokens cannot create the credential-less project "
+                    "context reserved for strategist bootstrap"
+                ),
+                correlation_id=correlation_id,
+            )
+        if (
+            auth_result is not None
+            and auth_result.auth_kind == "strategist_session"
+            and not project_context_bootstrap
+            and not any(
+                pattern.match(route_path) is not None
+                for pattern in _PROJECT_STRATEGIST_ADMIN_ROUTE_PATTERNS
+            )
+        ):
+            return _error_response(
+                HTTPStatus.FORBIDDEN,
+                error_code="listener_principal_forbidden",
+                message=(
+                    "Strategist sessions are accepted by Project-API only on "
+                    "explicit administrative routes"
+                ),
+                correlation_id=correlation_id,
+            )
+        return None
+    if any(pattern.match(route_path) is not None for pattern in blocked_patterns):
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="listener_route_not_exposed",
+            message="This route is not exposed on the selected control-plane listener",
+            correlation_id=correlation_id,
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------

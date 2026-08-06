@@ -28,6 +28,7 @@ import os
 import sys
 from pathlib import Path
 
+from agentkit.backend.boundary.filesystem import is_filesystem_link
 from agentkit.backend.skills.binding import SkillBindingMode
 
 _IS_WINDOWS = sys.platform == "win32"
@@ -87,7 +88,7 @@ def is_directory_link(path: Path) -> bool:
     A POSIX symlink is detected by :meth:`Path.is_symlink`; a Windows junction by
     :func:`os.path.isjunction` (which is ``False`` on POSIX for every path).
     """
-    return path.is_symlink() or os.path.isjunction(path)
+    return is_filesystem_link(path)
 
 
 def remove_directory_link(path: Path) -> None:

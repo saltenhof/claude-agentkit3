@@ -131,7 +131,7 @@ der Hauptagent als `Interactive Agent` behandelt. Für ihn gelten:
 | Code schreiben | ✅ |
 | Tests ausführen | ✅ |
 | Agents spawnen | ✅ |
-| Story-Workflow-State mutieren | ❌ außer über offizielle CLI-Pfade |
+| Story-Workflow-State mutieren | ❌ außer über offizielle Project-Edge-Pfade; die CLI bleibt dem Menschen vorbehalten |
 | Immer-aktive Basisschutzregeln umgehen | ❌ |
 
 *Guard = nur aktiv im Story-Execution-Modus (aktiver Lock-Record
@@ -144,7 +144,7 @@ Kap. 12.4.1). Im AI-Augmented-Modus sind Branch-Guards inaktiv.
 |--------------|------------|---------------------|
 | Orchestrator darf nicht auf Codebase zugreifen | `orchestrator_guard.py` (PreToolUse-Hook) | Nein — Hook ist Plattform-Infrastruktur |
 | Worker darf keine QA-Artefakte schreiben | zentraler Lock-Record + Hook (Kap. 02.7) | Nein — Lock-Record vom Pipeline-Tooling, nicht vom Agent |
-| Worker/Orchestrator dürfen keine DB-Credentials besitzen | State-Backend-Zugriff nur über Hook-/CLI-Principals | Nein — Credentials bleiben außerhalb der Agent-Prompts und Workspaces |
+| Worker/Orchestrator dürfen keine DB-Credentials besitzen | State-Backend-Zugriff nur über Hook- oder Project-Edge-Principals; CLI-Principals sind menschlich | Nein — Credentials bleiben außerhalb der Agent-Prompts und Workspaces |
 | Backend-Zugriff nur im Projekt-Scope | Principals sind auf genau einen `project_key` oder einen expliziten Admin-Scope begrenzt | Nein — Row-/Schema-Scope liegt außerhalb der Agent-Kontrolle |
 | Adversarial darf nur in Sandbox schreiben | CCAG-Regel `scope: subagent` | Nein — CCAG ist Hook-basiert |
 | Branch-Guard (Story-Execution) | `branch_guard.py` (PreToolUse-Hook) + aktiver Lock-/Run-Record | Nein — Hook + State-Backend |
@@ -515,19 +515,42 @@ Ein Worker-Agent geht nicht ueber HTTP an die Control-Plane — er
 laeuft in derselben Prozesssphaere wie AK3 und nutzt die fachlichen
 Komponenten direkt. Er braucht damit keinen API-Auth.
 
-UI-BFF und Project-API sind gemaess FK-10 Profile derselben
-Control-Plane-Anwendung, aber eigenstaendige REST-Endpunkte, die als getrennte
-Listener-Prozesse laufen koennen. Sie bilden trotzdem eine Sicherheitsdomaene:
-beide Prozesse verwenden denselben autoritativen Credential- und
-prozessuebergreifenden Session-Store; die Ein-Prozess-Regel aus FK-72 §72.8
-gilt innerhalb des UI-BFF und macht die Project-API nicht zu einem Modul dieses
-BFF-Prozesses. Die Portnamen beschreiben den primaeren Konsumenten. Login und
+UI-BFF und Project-API sind gemaess FK-10 zwei HTTPS-Listener **derselben
+Control-Plane-Laufzeit und desselben Writer-Prozesses**. Die fruehere
+Prozessgrenze ist keine Sicherheitsannahme mehr. Ihre Schutzwirkung wird
+innerhalb des Prozesses explizit hergestellt: jeder Listener hat einen eigenen
+Auth-Middleware-Kontext, beide Kontexte teilen ausschliesslich die autoritativen
+Credential-/Session-Owner, die Bind-Adressen sind getrennt konfigurierbar und
+werden exklusiv durch den Writer-Prozess gebunden; ein fremder Prozess darf
+keine Listener-Adresse mitbenutzen. Eine fail-closed Surface-Policy begrenzt die
+Routen. Angenommene Requests bleiben bis zu ihrem vollstaendigen Ruecklauf an
+die Writer-Lease gebunden; nichttransaktionale Auth-Wirkungen pruefen den Fence
+commit-nah erneut, und erkannter Lease-Verlust beendet beide Listener ohne
+Erfolgsantwort. Der UI-BFF akzeptiert keine
+Project-Tokens und exponiert keine Project-Edge-, Installer-, Telemetrie- oder
+maschinenbezogenen Governance-Routen. Die Project-API exponiert keine
+Dashboard-/Planning- und Takeover-Approval-UI-Routen. Die Portnamen beschreiben
+weiterhin den primaeren Konsumenten. Login und
 die nur Strategen erlaubten administrativen Auth-Routen sind auf beiden
 Profilen erreichbar: der Browser nutzt typischerweise 9701, die Operator-CLI
-waehrend `register-project` die konfigurierte Project-API-Basis (typischerweise
-9702). Autorisierung erfolgt am Principal: eine gueltige Strategen-Session darf
-diese Administrationsrouten verwenden; ein Project-Token wird dort stets mit
-`403 Forbidden` abgewiesen. Projektfachliche Project-API-Routen bleiben
+fuer Auth-Administration und den vorgelagerten Projektkontext-Bootstrap die
+konfigurierte Project-API-Basis (typischerweise 9702). `register-project`
+selbst verwendet ausschliesslich die zuvor gespeicherte Project-Credential.
+Autorisierung erfolgt am Principal: eine gueltige Strategen-Session darf
+diese Administrationsrouten sowie die expliziten Human-Governance-Routen fuer
+Takeover/Recovery, Admin-Abort, Story-Split, Story-Reset, Story-Exit und
+Permission-Entscheide verwenden. Bei diesen Story-Administrationsrouten ist
+die serverseitig authentisierte Strategen-Session die handelnde Identitaet;
+ein Payload darf weder Principal noch Session attestieren. Ziel-Identitaeten,
+etwa die aktive Run-Session beim Story-Exit, werden aus dem autoritativen
+Writer-State aufgeloest. Auf jeder anderen Project-API-Route wird die
+Strategen-Session `403 Forbidden` abgewiesen. Ein Project-Token
+wird auf Strategen-Administrationsrouten ebenfalls stets mit `403 Forbidden`
+abgewiesen. Die enge Strategen-Ausnahme der Third-Party-Validation vor der
+ersten Project-Credential und jede Tokenanlage/-widerrufung teilen ueber beide
+Listener dieselbe prozesslokale Credential-Transition-Grenze; zwischen der
+Pruefung "noch kein Token" und dem Domainhandler kann kein paralleler Request
+das erste Token publizieren. Projektfachliche Project-API-Routen bleiben
 projekt- und tokengebunden.
 
 ### 15.10.3 Strategen-Login (UI-BFF)
@@ -538,7 +561,7 @@ projekt- und tokengebunden.
   nachtraeglich angezeigt. Sein Klartext lebt nur im Speicher des
   Admin-CLI-Prozesses und des unmittelbar pruefenden Servers; er wird weder
   persistiert noch auf stdout/stderr oder in ein Zugriffsprotokoll geschrieben.
-- **Einmaliger Erstzugang**: `agentkit auth bootstrap` ist die einzige
+- **Einmaliger Erstzugang**: `<absolute-agentkit-wrapper> auth bootstrap` ist die einzige
   nicht-authentifizierte Mutation fuer das Strategenpasswort. Sie laeuft direkt
   im interaktiven Terminal auf der Core-Maschine und ruft den lokalen
   Credential-Owner auf; eine anonyme HTTP-Bootstrap-Route existiert nicht.
@@ -574,8 +597,9 @@ projekt- und tokengebunden.
 - **Session-Cookie** ist HttpOnly, Secure (sobald TLS aktiv), SameSite
   strict. Inhalt: opake Session-ID, server-seitig in einer owner-only
   geschuetzten, atomar geschriebenen Session-Datei gehalten, die beide
-  Listener-Prozesse unter demselben betriebssystemspezifischen Prozess-Lock
-  teilen. Jeder Session-Record ist an die beim Login aktive Passwortgeneration
+  Listener-Kontexte im selben Writer-Prozess unter demselben
+  betriebssystemspezifischen Prozess-Lock teilen. Jeder Session-Record ist an
+  die beim Login aktive Passwortgeneration
   gebunden. Lebensdauer z. B. 24 Stunden, automatische Verlaengerung bei
   Aktivitaet; abgelaufene Records werden beim naechsten Session-Zugriff unter
   dem Prozess-Lock aus der Datei entfernt.
@@ -584,18 +608,18 @@ projekt- und tokengebunden.
   zur authentifizierten Rotation ueber `POST /v1/auth/password`. Die Rotation
   traegt eine clientseitige `op_id`, laeuft unter dem einheitlichen
   Idempotenzvertrag aus FK-91 §91.1a und ersetzt den Hash atomar, bevor sie alle
-  vorhandenen Strategen-Sessions in beiden Listener-Prozessen widerruft; das
+  vorhandenen Strategen-Sessions in der gemeinsamen Listener-Laufzeit widerruft; das
   alte Passwort kann danach keine neue Session erzeugen. Passwortpruefung und
   Session-Erzeugung sowie Hash-Ersetzung und Gesamtwiderruf bilden jeweils eine
   gemeinsame Transition unter demselben Prozess-Lock. Session-Erzeugung,
   gleitende Validierung, einzelner Widerruf und Gesamtwiderruf sind ebenfalls
-  prozessuebergreifend serialisiert; eine parallel validierte Session kann nach
+  innerhalb des einen Writer-Prozesses serialisiert; eine parallel validierte Session kann nach
   dem Gesamtwiderruf nicht wieder in den Store publiziert werden. Die atomare
   Hash-Ersetzung wechselt zugleich die Passwortgeneration, sodass jede alte
   Session bereits bei der Validierung fail-closed abgelehnt wird, auch wenn die
   nachlaufende physische Bereinigung der Session-Datei scheitert. Nach einem
   solchen Post-Commit-Fehler bleibt der Idempotenz-Claim fuer denselben
-  Recovery-Aufruf erhalten; er wird nie als erneut ausfuehrbar freigegeben.
+  Klaerungsfall erhalten; er wird nie als erneut ausfuehrbar freigegeben.
   Geht die
   Antwort verloren,
   meldet sich der Backend-Admin mit
@@ -603,16 +627,19 @@ projekt- und tokengebunden.
   `op_id`/Body-Kombination; der Replay liefert das gespeicherte Ergebnis ohne
   zweite Rotation. Eine abweichende Body-Kombination zur gleichen `op_id` wird
   fail-closed abgewiesen. Die Operator-CLI zeigt die `op_id` vor dem
-  Netzwerkaufruf an und nimmt sie fuer diesen Recovery-Aufruf explizit wieder
+  Netzwerkaufruf an und nimmt sie fuer einen normalen Replay explizit wieder
   entgegen. Stirbt der Server nach atomarer Hash-Publikation, aber vor
-  Finalisierung des Idempotenz-Records, darf exakt dieser Retry den Orphan-Claim
-  nur dann mit dem Erfolgsresultat abschliessen, wenn der Credential-Owner das
-  angeforderte neue Passwort gegen den publizierten Hash verifiziert **und**
-  der schema-geschlossene Credential-Datensatz dieselbe `op_id` als
-  `last_rotation_op_id` traegt. Ein zufaellig bereits identisches Passwort ist
-  ohne diesen operationsspezifischen Marker kein Commit-Beleg;
-  andernfalls bleibt der Claim in-flight. Eine zeitbasierte Uebernahme oder
-  erneute Rotation gibt es nicht.
+  Finalisierung des Idempotenz-Records, ist der aktuelle Credential-Zustand
+  jedoch kein eindeutiger Beleg dafuer, dass genau dieser Claim ihn erzeugte:
+  `last_rotation_op_id` ist zugleich die aktuelle Passwortgeneration und kann
+  durch eine spaetere Rotation ersetzt werden. Die Start-Rekonsiliierung
+  rekonstruiert deshalb keinen Erfolg, sondern finalisiert den eigenen
+  frueheren Auth-Claim ohne Admin-Eingriff als `failed`. Das beendet den
+  Claim-Lebenszyklus, macht eine bereits atomar publizierte Passwortgeneration
+  aber nicht rueckgaengig. Derselbe Retry erhaelt
+  `409 operation_conflict`; eine zeitbasierte Uebernahme,
+  Erfolgsrekonstruktion aus einem lediglich passenden Hash oder erneute
+  Rotation unter dem alten Claim gibt es nicht.
 - **CSRF-Schutz**: SameSite-strict deckt den Hauptfall ab. Zusaetzlich
   wird ein CSRF-Token pro Session ausgegeben und bei jeder
   mutierenden Anfrage erwartet.
@@ -631,7 +658,7 @@ projekt- und tokengebunden.
 
 Detailparameter wie Session-ID-Format, Hash-Kosten und Dateiname bleiben
 Implementierungsdetail. Normativ sind Cookie-Session mit lokalem Passwort und
-der oben beschriebene gemeinsame, prozessuebergreifende Zustandsowner.
+der oben beschriebene gemeinsame Zustandsowner im einen Writer-Prozess.
 
 ### 15.10.4 Thin-Client-Token (Project-API)
 
@@ -639,7 +666,7 @@ der oben beschriebene gemeinsame, prozessuebergreifende Zustandsowner.
 - **Rollen und Erzeuger**: Backend-Admin und Client-Bediener sind verschiedene
   Personen auf verschiedenen Maschinen. Der Backend-Admin meldet sich mit dem
   Strategenpasswort an und erzeugt das Token kernseitig mit
-  `agentkit auth issue-token`. Die Core-CLI erzeugt Token-ID und kryptographisch
+  `<absolute-agentkit-wrapper> auth issue-token`. Die Core-CLI erzeugt Token-ID und kryptographisch
   zufaelliges Tokengeheimnis in ihrem Speicher; zum Server gelangen nur
   Token-ID und SHA-256-Hash. Weder HTTP-Antwort noch Idempotenz-Record enthalten
   den Klartext. Nach bestaetigter Registrierung gibt die CLI den Klartext genau
@@ -648,7 +675,7 @@ der oben beschriebene gemeinsame, prozessuebergreifende Zustandsowner.
 - **Uebergabe und Client-Annahme**: der Admin uebergibt das Token ausserhalb von
   AK3 an den Client-Bediener. AK3 besitzt dafuer weder Antrag, Freigabe,
   Warteschlange noch sonstigen Uebergabezustand. Auf dem Entwicklerrechner liest
-  `agentkit auth store-token` ausschliesslich das ausgehaendigte Token ein; das
+  `<absolute-agentkit-wrapper> auth store-token` ausschliesslich das ausgehaendigte Token ein; das
   Strategenpasswort ist weder Eingabe noch Umgebungsvariable noch Datei dieses
   Pfades. Vor der lokalen Publikation prueft die CLI das Token mit einem
   authentisierten, read-only Projektaufruf ueber HTTPS. Ein ungueltiges oder zum
@@ -662,6 +689,11 @@ der oben beschriebene gemeinsame, prozessuebergreifende Zustandsowner.
   registriertem Zielprojekt-Workspace).
 - **Erste Projektregistrierung ohne Rollenvermischung**: der Projektkontext
   besteht kernseitig, bevor der Admin ein daran gebundenes Token ausstellt. Der
+  Backend-Admin darf genau diesen noch nicht vorhandenen, credential-losen
+  Kontext ueber das strategengeschuetzte `POST /v1/projects` anlegen; ein
+  bereits vorhandener Project-Key wird ohne Mutation mit `409` abgewiesen.
+  Dieser vorgelagerte Bootstrap ist nicht `register-project` und darf kein
+  vorhandenes Projekt aktualisieren. Der
   Client-Bediener speichert das ausgehaendigte Token vor `register-project`.
   CP10d und jeder weitere Edge-Aufruf verwenden ausschliesslich diese aktive
   Projekt-Credential; `register-project` liest kein Strategenpasswort und baut

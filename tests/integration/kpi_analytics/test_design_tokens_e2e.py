@@ -98,6 +98,7 @@ def _build_app() -> ControlPlaneApplication:
     project_repo = _ProjectRepo()
     fake = _AbstainRoute()
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=fake,  # type: ignore[arg-type]
             story_routes=fake,  # type: ignore[arg-type]
@@ -174,9 +175,7 @@ def test_ac10_token_values_match_real_owner() -> None:
     assert isinstance(colors, dict)
     neutral = colors.get("neutral", {})
     assert isinstance(neutral, dict)
-    assert neutral.get("bg") == "#111214", (
-        "bg color does not match owner — stub may still be in place"
-    )
+    assert neutral.get("bg") == "#111214", "bg color does not match owner — stub may still be in place"
     assert neutral.get("text") == "#f0f0f0"
 
     status = colors.get("status", {})
@@ -217,10 +216,16 @@ def test_ac10_status_family_complete_in_e2e_response() -> None:
     assert isinstance(status, dict)
 
     required_keys = {
-        "success", "warning", "danger", "info",           # severity
-        "done", "cancelled",                                # terminal states
-        "status_backlog", "status_approved",               # workflow
-        "status_in_progress", "status_done",
+        "success",
+        "warning",
+        "danger",
+        "info",  # severity
+        "done",
+        "cancelled",  # terminal states
+        "status_backlog",
+        "status_approved",  # workflow
+        "status_in_progress",
+        "status_done",
         "status_cancelled",
     }
     for key in required_keys:
@@ -240,7 +245,5 @@ def test_ac10_not_implemented_error_is_gone() -> None:
         body=b"",
     )
     # If the NotImplementedError stub were still present, the app would return 500
-    assert response.status_code != 500, (
-        "Got 500 — the NotImplementedError stub may still be active"
-    )
+    assert response.status_code != 500, "Got 500 — the NotImplementedError stub may still be active"
     assert response.status_code == int(HTTPStatus.OK)

@@ -64,5 +64,17 @@ class RestWorkerHealthRepository:
         """
         self._client.save_worker_health(state.model_dump(mode="json"))
 
+    def load_latest_for_story(self, story_id: str) -> AgentHealthState | None:
+        """Load the newest worker-health state for a story via REST."""
+
+        states = self.list_for_story(story_id)
+        return states[0] if states else None
+
+    def list_for_story(self, story_id: str) -> list[AgentHealthState]:
+        """List worker-health states for a story via the writer-owned API."""
+
+        response = self._client.list_worker_health(story_id=story_id)
+        return [AgentHealthState.model_validate(state) for state in response.states]
+
 
 __all__ = ["RestWorkerHealthRepository"]

@@ -1,0 +1,10 @@
+{
+  "bundle_id": "llm-discussion-core",
+  "bundle_version": "4.1.0",
+  "manifest_digest": "166ad17da466537aff1041f6c1f48381cc6de715b827cbb177408c2ff554b893",
+  "profile": "CORE",
+  "skill_name": "llm-discussion",
+  "variants": {
+    "CORE": "llm-discussion"
+  }
+}

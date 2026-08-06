@@ -28,7 +28,7 @@ def _app(root: Path) -> ControlPlaneApplication:
     index = ConceptIndex(root)
     index.load()
     return ControlPlaneApplication(
-        routes=ControlPlaneApplicationRoutes(concept_routes=ConceptCatalogRoutes(index))
+        writer_lease_required=False, routes=ControlPlaneApplicationRoutes(concept_routes=ConceptCatalogRoutes(index))
     )
 
 
@@ -104,7 +104,7 @@ def test_get_concepts_lists_refs(tmp_path: Path) -> None:
 
 def test_default_concept_routes_load_real_repo_concept_root() -> None:
     response = ControlPlaneApplication(
-        routes=ControlPlaneApplicationRoutes(concept_routes=ConceptCatalogRoutes())
+        writer_lease_required=False, routes=ControlPlaneApplicationRoutes(concept_routes=ConceptCatalogRoutes())
     ).handle_request(
         method="GET",
         path="/v1/concepts",

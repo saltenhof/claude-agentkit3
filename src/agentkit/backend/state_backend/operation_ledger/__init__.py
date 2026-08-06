@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agentkit.backend.state_backend.operation_claim_validation import (
+    assert_complete_claim_sender,
+)
 from agentkit.backend.state_backend.state_backend_connection_manager import (
     _backend_module,
     _require_control_plane_backend,
@@ -51,6 +54,8 @@ def save_control_plane_operation_global(
     if not hasattr(backend, "save_control_plane_operation_global_row"):
         raise RuntimeError(_GLOBAL_CP_OP_UNSUPPORTED)
     row = mappers.control_plane_op_to_row(record)
+    if row.get("status") == "claimed":
+        assert_complete_claim_sender(row)
     backend.save_control_plane_operation_global_row(row)
 
 
@@ -66,6 +71,7 @@ def claim_control_plane_operation_global(
             "Atomic control-plane op claim is unsupported by the active backend",
         )
     row = mappers.control_plane_op_to_row(record)
+    assert_complete_claim_sender(row)
     return bool(backend.claim_control_plane_operation_global_row(row))
 
 
@@ -97,6 +103,7 @@ def finalize_control_plane_operation_global(
 
 def claim_inflight_operation_row_global(row: dict[str, Any]) -> bool:
     """Atomically claim an op_id from a caller-built row."""
+    assert_complete_claim_sender(row)
     backend = _backend_module()
     if not hasattr(backend, "claim_control_plane_operation_global_row"):
         raise RuntimeError(
@@ -119,8 +126,9 @@ def finalize_inflight_operation_row_global(
     *,
     owner_token: str,
     owner_claimed_at: str | None = None,
+    owner_operation_epoch: int,
 ) -> bool:
-    """Ownership-scoped terminal write from a caller-built row."""
+    """Owner- and epoch-CAS-scoped terminal write from a caller-built row."""
     backend = _backend_module()
     if not hasattr(backend, "finalize_control_plane_operation_global_row"):
         raise RuntimeError(
@@ -131,6 +139,7 @@ def finalize_inflight_operation_row_global(
             row,
             owner_token=owner_token,
             owner_claimed_at=owner_claimed_at,
+            owner_operation_epoch=owner_operation_epoch,
         )
     )
 
@@ -245,6 +254,8 @@ def finalize_control_plane_disown_global(
     revoked_binding: SessionRunBindingRecord,
     ownership_status_target: OwnershipStatus,
     events: tuple[ExecutionEventRecord, ...],
+    locks: tuple[StoryExecutionLockRecord, ...] = (),
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> bool:
     """Atomically finalize a claimed reset/split disown unit of work."""
 
@@ -261,6 +272,8 @@ def finalize_control_plane_disown_global(
             revoked_binding_row=mappers.session_binding_to_row(revoked_binding),
             ownership_status_target=ownership_status_target.value,
             event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+            lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
+            fault_after_step=fault_after_step,
         ),
     )
 
@@ -542,18 +555,20 @@ def release_control_plane_operation_global(
     *,
     owner_token: str,
     owner_claimed_at: str | None = None,
-) -> None:
-    """Ownership-scoped release of a claimed control-plane operation."""
+    owner_operation_epoch: int | None = None,
+) -> bool:
+    """Release a claimed operation under owner, generation, and epoch CAS."""
     backend = _backend_module()
     if not hasattr(backend, "release_control_plane_operation_global_row"):
         raise RuntimeError(
             "Control-plane op release is unsupported by the active backend",
         )
-    backend.release_control_plane_operation_global_row(
+    return bool(backend.release_control_plane_operation_global_row(
         op_id,
         owner_token=owner_token,
         owner_claimed_at=owner_claimed_at,
-    )
+        owner_operation_epoch=owner_operation_epoch,
+    ))
 
 
 def list_orphaned_claimed_control_plane_operations_global(

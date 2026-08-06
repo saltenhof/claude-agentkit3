@@ -678,7 +678,7 @@ class StoryResetService:
             project_key=record.project_key,
             story_id=record.story_id,
             run_id=run_id,
-            session_id=None,
+            session_id=record.requested_by,
             operation_kind=_RESET_OPERATION_KIND,
             phase=None,
             status="claimed",

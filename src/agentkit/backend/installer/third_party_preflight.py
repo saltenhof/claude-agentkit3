@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from threading import Event, RLock
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.control_plane.third_party_models import (
@@ -45,6 +46,8 @@ class AsyncExecutor(Protocol):
 
     def submit(self, fn: Callable[[], None]) -> Future[None]: ...
 
+    def shutdown(self, *, wait: bool, cancel_futures: bool) -> None: ...
+
 
 class ThirdPartyPreflightService:
     """Own light validation and the explicit heavy operation lifecycle."""
@@ -63,6 +66,8 @@ class ThirdPartyPreflightService:
         self._guard = guard
         self._operation_loader = operation_loader
         self._executor = executor
+        self._writer_stopping = Event()
+        self._writer_lifecycle_lock = RLock()
 
     def validate(self, request: ThirdPartyValidationRequest) -> ThirdPartyValidationResponse:
         """Run synchronous read-only external-system probes."""
@@ -112,26 +117,35 @@ class ThirdPartyPreflightService:
         self, project_key: str, request: BranchPluginSelfTestRequest
     ) -> BranchPluginSelfTestOperation:
         """Claim and enqueue the explicit side-effecting conformance operation."""
-        identity = _identity(project_key, request)
-        outcome = self._guard.claim(identity)
-        if isinstance(outcome, ReplayOutcome):
-            return BranchPluginSelfTestOperation.model_validate(outcome.result_payload)
-        if isinstance(outcome, InFlightOutcome):
+        with self._writer_lifecycle_lock:
+            if self._writer_stopping.is_set():
+                raise ThirdPartyServiceUnavailableError("control-plane writer is stopping")
+            identity = _identity(project_key, request)
+            outcome = self._guard.claim(identity)
+            if isinstance(outcome, ReplayOutcome):
+                return BranchPluginSelfTestOperation.model_validate(outcome.result_payload)
+            if isinstance(outcome, InFlightOutcome):
+                return _accepted(request.op_id)
+            if isinstance(outcome, MismatchOutcome):
+                raise ThirdPartyOperationConflictError(
+                    "idempotency_mismatch", "op_id body mismatch"
+                )
+            if isinstance(outcome, AbortedOutcome):
+                raise ThirdPartyOperationConflictError(
+                    "operation_conflict", "operation is terminal but uncommitted"
+                )
+            if not isinstance(outcome, FreshClaim):
+                raise ThirdPartyServiceUnavailableError("unexpected operation-claim outcome")
+            try:
+                self._executor.submit(
+                    lambda: self._complete_self_test(identity, outcome, request)
+                )
+            except RuntimeError as exc:
+                self._guard.release(identity, outcome)
+                raise ThirdPartyServiceUnavailableError(
+                    "self-test executor unavailable"
+                ) from exc
             return _accepted(request.op_id)
-        if isinstance(outcome, MismatchOutcome):
-            raise ThirdPartyOperationConflictError("idempotency_mismatch", "op_id body mismatch")
-        if isinstance(outcome, AbortedOutcome):
-            raise ThirdPartyOperationConflictError(
-                "operation_conflict", "operation is terminal but uncommitted"
-            )
-        if not isinstance(outcome, FreshClaim):
-            raise ThirdPartyServiceUnavailableError("unexpected operation-claim outcome")
-        try:
-            self._executor.submit(lambda: self._complete_self_test(identity, outcome, request))
-        except RuntimeError as exc:
-            self._guard.release(identity, outcome)
-            raise ThirdPartyServiceUnavailableError("self-test executor unavailable") from exc
-        return _accepted(request.op_id)
 
     def get_self_test_operation(self, op_id: str) -> BranchPluginSelfTestOperation | None:
         """Read a self-test operation without claiming or mutating it."""
@@ -153,7 +167,25 @@ class ThirdPartyPreflightService:
         )
 
         result = execute_branch_plugin_self_test(request, self._resolver, self._clients)
-        self._guard.finalize(identity, claim, result.model_dump(mode="json"))
+        with self._writer_lifecycle_lock:
+            if self._writer_stopping.is_set():
+                return
+            self._guard.finalize(identity, claim, result.model_dump(mode="json"))
+
+    def drain_writer_work(self) -> None:
+        """Drain every accepted self-test before the writer lease is released."""
+
+        self._executor.shutdown(wait=True, cancel_futures=False)
+
+    def abort_writer_work(self) -> None:
+        """Prevent queued or running self-tests from finalizing after lease loss."""
+
+        # Serializing the stop flag with the finalize call closes the check/use
+        # race: once this method returns, no worker can enter or remain inside a
+        # guard finalization before the app unregisters the reserved lease.
+        with self._writer_lifecycle_lock:
+            self._writer_stopping.set()
+        self._executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _identity(project_key: str, request: BranchPluginSelfTestRequest) -> IdempotencyRequest:

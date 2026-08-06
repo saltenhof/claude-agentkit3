@@ -30,6 +30,8 @@ from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from agentkit.backend.skills.binding import SkillBinding
+
 
 def test_run_upgrade_register_migrates_config_with_bak(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
     """register mode migrates 3->4 and writes a ``.bak`` (§51.4, scenario 3b path)."""
@@ -206,7 +208,11 @@ def test_run_upgrade_register_idempotent_when_already_current(
 class _SkillsWithBinding:
     """Agent-skills surface double returning a binding for one skill (footprint src)."""
 
-    def resolve_binding(self, project_root: Path, skill_name: str) -> object | None:
+    def resolve_binding(
+        self,
+        project_root: Path,
+        skill_name: str,
+    ) -> SkillBinding | None:
         from datetime import UTC, datetime
 
         from agentkit.backend.skills.binding import (
@@ -229,6 +235,12 @@ class _SkillsWithBinding:
             status=SkillLifecycleStatus.BOUND,
             pinned_at=datetime.now(tz=UTC),
         )
+
+    def list_bound_skills(self, project_root: Path) -> list[SkillBinding]:
+        """Return the same persisted binding through the expanded skills port."""
+        binding = self.resolve_binding(project_root, "execute-userstory")
+        assert binding is not None  # noqa: S101 -- fixed test-double contract
+        return [binding]
 
 
 def test_run_upgrade_explicit_binding_switch_blocks_detected_customization(

@@ -130,16 +130,21 @@ class _GovernanceMediationHandlers:
         """Read canonical worker-health state (AG3-129, FK-30 §30.10)."""
         story_id = _single_query_value(query, "story_id")
         worker_id = _single_query_value(query, "worker_id")
-        if not story_id or not worker_id:
+        if not story_id:
             return _error_response(
                 HTTPStatus.BAD_REQUEST,
                 error_code="invalid_worker_health_query",
-                message="story_id and worker_id query parameters are required",
+                message="story_id query parameter is required",
                 correlation_id=correlation_id,
             )
         try:
-            result = self._worker_health_service.load(
-                story_id=story_id, worker_id=worker_id
+            result = (
+                self._worker_health_service.load(
+                    story_id=story_id,
+                    worker_id=worker_id,
+                )
+                if worker_id
+                else self._worker_health_service.list_for_story(story_id=story_id)
             )
         except RuntimeError as exc:
             logger.warning("Worker-health read unavailable: %s", exc)

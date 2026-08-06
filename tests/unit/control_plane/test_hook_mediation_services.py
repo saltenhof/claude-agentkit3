@@ -206,6 +206,17 @@ class _FakeWorkerHealthRepo:
     def load(self, *, story_id: str, worker_id: str) -> AgentHealthState | None:
         return self._store.get((story_id, worker_id))
 
+    def list_for_story(self, story_id: str) -> list[AgentHealthState]:
+        return sorted(
+            (state for (candidate, _), state in self._store.items() if candidate == story_id),
+            key=lambda state: state.last_updated,
+            reverse=True,
+        )
+
+    def load_latest_for_story(self, story_id: str) -> AgentHealthState | None:
+        states = self.list_for_story(story_id)
+        return states[0] if states else None
+
 
 def test_worker_health_service_save_and_load() -> None:
     repo = _FakeWorkerHealthRepo()
@@ -260,11 +271,15 @@ class _FakeTransport:
         if path == "/v1/governance/worker-health" and method == "POST":
             return self.health_service.save(payload).model_dump(mode="json")
         if path.startswith("/v1/governance/worker-health"):
-            # GET load with query string story_id=&worker_id=
+            # GET load/list with query string story_id=&worker_id=
             params = dict(
                 pair.split("=", 1)
                 for pair in path.split("?", 1)[1].split("&")
             )
+            if "worker_id" not in params:
+                return self.health_service.list_for_story(
+                    story_id=params["story_id"],
+                ).model_dump(mode="json")
             return self.health_service.load(
                 story_id=params["story_id"], worker_id=params["worker_id"]
             ).model_dump(mode="json")
@@ -287,6 +302,17 @@ def test_rest_worker_health_repository_missing_is_none() -> None:
     client = GovernanceEdgeClient(transport=_FakeTransport())
     repo = RestWorkerHealthRepository(client)
     assert repo.load(story_id="none", worker_id="none") is None
+
+
+def test_rest_worker_health_repository_lists_latest_story_state() -> None:
+    client = GovernanceEdgeClient(transport=_FakeTransport())
+    repo = RestWorkerHealthRepository(client)
+    state = AgentHealthState(worker_id="w1", story_id="AG3-214", total_score=9)
+
+    repo.save(state)
+
+    assert repo.list_for_story("AG3-214") == [state]
+    assert repo.load_latest_for_story("AG3-214") == state
 
 
 def test_governance_client_mutate_guard_counter() -> None:

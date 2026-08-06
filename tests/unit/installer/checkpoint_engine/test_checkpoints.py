@@ -10,7 +10,8 @@ ARE-scope paths (pending_selection / resolved / are_disabled).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+import json
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from tests.unit.installer.checkpoint_engine.conftest import (
@@ -165,24 +166,24 @@ def test_cp09_calls_governance_register_hooks(
     registration_repo: InMemoryRegistrationRepo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC7: CP 9 invokes Governance.register_hooks."""
+    """AC7: CP 9 invokes the narrow writer-backed hook surface."""
     calls: list[int] = []
-    from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.installer.writer_client import InstallerHookGovernance
 
-    original = Governance.register_hooks
+    original = InstallerHookGovernance.register_hooks
 
-    def _spy(self: Governance, hook_definitions: object) -> object:
+    def _spy(self: InstallerHookGovernance, hook_definitions: object) -> object:
         calls.append(len(hook_definitions))  # type: ignore[arg-type]
         return original(self, hook_definitions)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(Governance, "register_hooks", _spy)
+    monkeypatch.setattr(InstallerHookGovernance, "register_hooks", _spy)
 
     root = tmp_path / "proj"
     root.mkdir()
     config = make_config(root, bundle_store_root=tmp_path / "b", registration_repo=registration_repo)
     result = run_checkpoint_install(config, mode=ExecutionMode.REGISTER)
     assert result.success
-    assert calls, "Governance.register_hooks was not called by CP 9"
+    assert calls, "The writer-backed hook surface was not called by CP 9"
 
 
 # --------------------------------------------------------------------------- #
@@ -203,6 +204,92 @@ def test_cp10_registers_mandatory_vectordb(tmp_path: Path, registration_repo: In
     result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.CREATED
     assert "story-knowledge-base" in (root / ".mcp.json").read_text(encoding="utf-8")
+
+
+def test_cp10_publishes_are_wrapper_from_central_absolute_resolver(
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AG3-189: ARE publication cannot preserve a CWD/PATH wrapper selector."""
+    from agentkit.backend.installer.bootstrap_checkpoints import (
+        cp10_mcp_registration as cp10_module,
+    )
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
+        cp05_pipeline_config,
+    )
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    wrapper = (tmp_path / "ak3-runtime" / "agentkit-are-mcp.exe").resolve()
+    wrapper.parent.mkdir()
+    wrapper.write_bytes(b"entrypoint supplied by AG3-173")
+    resolved_names: list[str] = []
+
+    def _resolve_wrapper(name: str) -> Path:
+        resolved_names.append(name)
+        return wrapper
+
+    monkeypatch.setattr(cp10_module, "resolve_ak3_wrapper", _resolve_wrapper)
+    config = make_config(
+        root,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        features_are=True,
+        are_module_scope_map={"app": "scope-a"},
+    )
+    context = _ctx(config, ExecutionMode.REGISTER)
+    cp05_pipeline_config(context)  # type: ignore[arg-type]
+
+    result = cp10_mcp_registration(context)  # type: ignore[arg-type]
+
+    assert result.status is CheckpointStatus.CREATED
+    assert resolved_names == ["agentkit-are-mcp"]
+    payload = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
+    assert payload["mcpServers"]["are-mcp"]["command"] == str(wrapper)
+    codex_text = (root / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert str(wrapper).replace("\\", "\\\\") in codex_text
+
+
+def test_cp10_are_fails_closed_when_central_wrapper_is_missing(
+    tmp_path: Path,
+    registration_repo: InMemoryRegistrationRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AG3-189/AG3-173 boundary: no ARE file is written without the wrapper."""
+    from agentkit.backend.installer.bootstrap_checkpoints import (
+        cp10_mcp_registration as cp10_module,
+    )
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
+        cp05_pipeline_config,
+    )
+    from agentkit.backend.installer.interpreter import InterpreterResolutionError
+
+    root = tmp_path / "proj"
+    root.mkdir()
+
+    def _missing_wrapper(_name: str) -> Path:
+        raise InterpreterResolutionError("ARE wrapper is not installed by AG3-173")
+
+    monkeypatch.setattr(cp10_module, "resolve_ak3_wrapper", _missing_wrapper)
+    config = make_config(
+        root,
+        bundle_store_root=tmp_path / "b",
+        registration_repo=registration_repo,
+        features_are=True,
+        are_module_scope_map={"app": "scope-a"},
+    )
+    context = _ctx(config, ExecutionMode.REGISTER)
+    cp05_pipeline_config(context)  # type: ignore[arg-type]
+
+    result = cp10_mcp_registration(context)  # type: ignore[arg-type]
+
+    assert result.status is CheckpointStatus.FAILED
+    assert result.reason == "mcp_command_not_found"
+    assert "ARE wrapper is not installed by AG3-173" in (result.detail or "")
+    assert "No file was written" in (result.detail or "")
+    assert not (root / ".mcp.json").exists()
+    assert not (root / ".codex" / "config.toml").exists()
 
 
 def test_vectordb_false_is_rejected_before_installer_effects(tmp_path: Path, registration_repo: InMemoryRegistrationRepo) -> None:
@@ -263,17 +350,12 @@ def _are_ctx(
         repositories=repositories,
     )
     ctx = build_checkpoint_context(config, mode, scope_interaction_mode=interaction)
-    # Publish project.yaml, then run the real CP 10 predecessor with a
-    # conforming ARE-MCP substitute (AG3-164). Product ``agentkit-are-mcp``
-    # does not exist; the fixture builder routes desired servers to the
-    # minimal real MCP test server so CP 10c consumes genuine predecessor
-    # state rather than hand-written production JSON.
+    # Publish project.yaml, then run the real CP 10 predecessor. AG3-173 does
+    # not yet provide the ARE wrapper, so the unit boundary supplies an absolute
+    # central-resolver result while retaining the production desired-server path.
     import sys
     from pathlib import Path
 
-    from agentkit.backend.core_types.mcp_server_registration import (
-        DesiredMcpServer,
-    )
     from agentkit.backend.installer.bootstrap_checkpoints import cp10_mcp_registration as cp10_mod
     from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp05_pipeline_config,
@@ -282,27 +364,12 @@ def _are_ctx(
 
     cp05_pipeline_config(ctx)
     if mode.mutations_allowed:
-        repo_root = Path(__file__).resolve().parents[4]
-        minimal = repo_root / "tests" / "fixtures" / "minimal_mcp_server.py"
-        original = cp10_mod._desired_mcp_servers
-
-        def _are_via_test_server(context: Any) -> tuple[DesiredMcpServer, ...]:
-            # AG3-175: the desired set is typed, so the substitute must be too.
-            return (
-                DesiredMcpServer(
-                    name="are-mcp",
-                    command=sys.executable,
-                    args=(str(minimal),),
-                    cwd=str(context.project_root),
-                    env=(),
-                ),
-            )
-
-        cp10_mod._desired_mcp_servers = _are_via_test_server  # type: ignore[assignment]
+        original = cp10_mod.resolve_ak3_wrapper
+        cp10_mod.resolve_ak3_wrapper = lambda _name: Path(sys.executable).resolve()
         try:
             cp10_result = cp10_mcp_registration(ctx)
         finally:
-            cp10_mod._desired_mcp_servers = original  # type: ignore[assignment]
+            cp10_mod.resolve_ak3_wrapper = original
         assert cp10_result.status in (
             CheckpointStatus.CREATED,
             CheckpointStatus.UPDATED,

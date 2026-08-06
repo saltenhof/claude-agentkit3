@@ -135,6 +135,14 @@ class WorkerHealthStateResponse(BaseModel):
     state: dict[str, object] | None = None
 
 
+class WorkerHealthStoryResponse(BaseModel):
+    """All canonical worker-health states for one story, newest first."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    states: tuple[dict[str, object], ...] = ()
+
+
 class WorkerHealthSaveAccepted(BaseModel):
     """HTTP response body for an accepted worker-health write."""
 

@@ -22,7 +22,7 @@ lauscht**.
 
 ## 1. Anlass
 
-`agentkit serve` kennt seit FK-10 §10.7.2 zwei Profile: `--ui-bff` (9701) und
+`<absolute-agentkit-wrapper> serve` kennt seit FK-10 §10.7.2 zwei Profile: `--ui-bff` (9701) und
 `--project-api` (9702). Der Installer schrieb bis heute
 `https://127.0.0.1:9080`. Der Wert stand als **handgeschriebenes Literal** im
 Default eines `InstallConfig`-Feldes; ein zweites Literal `port: int = 9080`
@@ -146,8 +146,8 @@ im selben Zug:
 
 ## 4. Konsequenzen
 
-- `agentkit serve-control-plane` existiert nicht mehr. Der eine Level-1-Verb ist
-  `agentkit serve --ui-bff|--project-api` (FK-10 §10.2.5).
+- `<absolute-agentkit-wrapper> serve-control-plane` existiert nicht mehr. Der eine Level-1-Verb ist
+  `<absolute-agentkit-wrapper> serve --ui-bff|--project-api` (FK-10 §10.2.5).
 - Eine legitime lokale Weaviate-Instanz (`http://localhost:9903`,
   `localhost:50051`) wird akzeptiert. Der Installer wurde damit real
   durchlaufen; CP 10 erreichte die MCP-Registrierung, statt vorher an der

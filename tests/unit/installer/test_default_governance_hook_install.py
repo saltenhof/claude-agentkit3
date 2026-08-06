@@ -28,6 +28,9 @@ import pytest
 from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.installer.runner import InstallConfig, _register_default_governance_hooks
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.governance_hook_repository import (
+    StateBackendHookRegistrationRepository,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -49,6 +52,7 @@ def _config(root: Path) -> InstallConfig:
         project_key="demo",
         project_name="Demo",
         project_root=root,
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
     )
 
 

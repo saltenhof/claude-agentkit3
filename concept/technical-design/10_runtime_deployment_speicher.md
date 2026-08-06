@@ -125,8 +125,9 @@ graph TB
         subgraph HARNESS["Agent-Harness (Claude Code / Codex; FK-76)"]
             ORCH["Orchestrator-Agent<br/>(LLM)"]
             SUBAGENTS["Worker- / Adversarial-Sub-Agents<br/>(LLM)"]
+            REVIEW["Review-Agent(en)<br/>(Orchestrator-Bypass)"]
         end
-        CLI["agentkit CLI<br/>(Operator-Einstieg)"]
+        CLI["Mensch / Operator<br/>agentkit CLI (Recovery / Administration)"]
         UI["AK3 Frontend (SPA)<br/>Dashboard / Control-Plane"]
     end
 
@@ -139,13 +140,11 @@ graph TB
         CORE --> STATEOWN
         CORE --> ADAPT
     end
-
     subgraph INFRA["Kanonische Infrastruktur und Drittsysteme (nur via Backend)"]
         PG["PostgreSQL<br/>State-Backend (:5432)"]
         TP["ARE, GitHub,<br/>SonarQube, Jenkins"]
         HUB["LLM-Hub<br/>Drehscheibe für mehrere LLM-Modelle<br/>(Unified REST, :9600)"]
     end
-
     subgraph DIRECT["Carve-out: direkte Dev-Kanten (FK-01 §1.1)"]
         WEAVIATE["Weaviate<br/>Story-Knowledge-Base (:9903)"]
     end
@@ -153,37 +152,38 @@ graph TB
     ORCH -->|"spawnt"| SUBAGENTS
     ORCH -->|"löst aus"| HOOKS
     SUBAGENTS -->|"löst aus"| HOOKS
-    ORCH -->|"Bash-Tool"| CLI
-
+    ORCH -->|"agentischer Aufruf"| EDGE
     HOOKS -->|"REST /v1 (I3)"| REST
     EDGE -->|"REST /v1 (I3)"| REST
     CLI -->|"REST /v1 (I3)"| REST
     UI -->|"REST /v1 (I6)"| REST
-
+    CORE -.->|"Review-Delegation<br/>nur etablierter Knoten"| EDGE
+    EDGE -.->|"Harness-Start<br/>ohne Orchestrator-Kontext"| REVIEW
     STATEOWN -->|"SQL (I1)"| PG
     ADAPT -->|"treibt (I2)"| TP
     ADAPT -->|"Unified REST (I2)"| HUB
-
     SUBAGENTS -.->|"Semantik (Carve-out)"| WEAVIATE
     SUBAGENTS -.->|"MCP-Sparring (Carve-out, §10.1.4)"| HUB
 ```
 
-Durchgezogene Kanten sind AK3-verantwortete Standardpfade (über den
-Kern). Gestrichelte Kanten sind direkter Dev-Zugriff im **Carve-out**
-(außerhalb AK3-verantworteter Vorgänge oder von AK3 mandatiert); der
-vollständige Katalog mit Zwei-Kriterien-Regel steht in **FK-01 §1.1**
-(u. a. Weaviate-Semantik, Hub-Sparring per MCP, `gh`/`git`-Worktree-
-Mechanik, Ad-hoc-Einsicht). Den LLM-Hub für **AK3-Bewertungen** treibt
-der Kern über Unified REST (§10.1.4).
+Durchgezogene Kanten sind AK3-verantwortete Standardpfade (über den Kern); die
+gestrichelten Dev-Kanten zu Weaviate und LLM-Hub sind der Carve-out aus FK-01 §1.1.
+Die gestrichelte Review-Kante bildet fachlich AK3 → Project Edge → Harness ab;
+physisch bleibt sie ein Pull des lokalen Project Edge aus der bestehenden Bindung,
+ohne direkte Backend-Verbindung zum Harness. FK-01 §1.1a besitzt die
+Etablierungsgrenze, FK-76 §76.10 die Relais-Topologie und FK-91 §91.1b den
+Wire-Vertrag. Agentische Aufrufe laufen nur ueber Project Edge; die CLI bleibt
+menschliche Recovery nach FK-45 §45.4. AK3-Hub-Bewertungen laufen via Unified REST.
 
 ### 10.1.2 Prozesstypen
 
 | Typ | Lebensdauer | Gestartet von | Rolle gegenüber dem Backend |
 |-----|-------------|---------------|------------------------------|
 | **AK3 Backend** (deterministischer Orchestrierungskern) | Dauerhaft | Zentrale Infrastruktur (`agentkit serve`) | Führt Pipeline/Verify/Closure/Governance aus und hält die Entscheidungs-Autorität; besitzt den kanonischen State (einzige Schreib-Autorität); treibt DB und Drittsystem-Werkzeuge |
-| **Harness-Session** (Claude Code / Codex; FK-76) | Minuten bis Stunden | Mensch (CLI `claude` oder `codex`) | Orchestrator/Worker/Adversarial; ruft kanonische Operationen per REST über CLI/Project-Edge an |
+| **Harness-Session** (Claude Code / Codex; FK-76) | Minuten bis Stunden | Mensch (Orchestrator/Worker/Adversarial via CLI `claude` oder `codex`); Project Edge ueber die Harness-Anbindung (Review-Rueckdelegation) | Orchestrator/Worker/Adversarial/Review; ruft kanonische Operationen per REST ausschliesslich über Project Edge auf und empfaengt Rueckdelegationen ueber dessen Harness-Anbindung |
 | **Hook-Prozess** | Millisekunden | Harness (pro Tool-Call, via Harness-Adapter) | REST-Client des Backends; kein DB-/Drittsystem-Zugriff (I1/I2/I3) |
-| **Project-Edge / CLI** | Sekunden bis Minuten | Agent via Bash-Tool oder Operator | Dünner REST-Client des Backends; keine eigene Fachlogik, keine zweite State-Quelle |
+| **Project Edge** | Sekunden bis Minuten | Agent-Harness oder projektlokaler Edge-Command-Loop | Dünner REST-Client des Backends und einziges Relais beider Richtungen; keine eigene Fachlogik, keine zweite State-Quelle |
+| **agentkit CLI** | Sekunden bis Minuten | Mensch / Operator | Menschlicher und administrativer Recovery-Adapter auf die REST-API; kein Agenten-Aufrufweg, keine eigene Fachlogik, keine zweite State-Quelle |
 | **AK3 Frontend** | Dauerhaft (Browser-Session) | Mensch (`agentkit ui`) | REST-Client des Backends (I6) |
 | **LLM-Hub** | Dauerhaft | Externe Infrastruktur | Drehscheibe (Provider) für mehrere LLM-Modelle; vom Kern über das Unified-REST-Interface getrieben (I2) |
 | **MCP-Server** | Dauerhaft | Mensch oder Autostart | Story-Knowledge-Base Weaviate (Pflicht, I4), ARE (optional) |
@@ -322,45 +322,46 @@ keinen kanonischen State:
 
 ```mermaid
 sequenceDiagram
-    participant M as Mensch
+    participant ADM as Backend-Admin
+    participant DEV as Client-Bediener
     participant INS as agentkit register-project
     participant BE as AK3 Backend (REST /v1)
     participant STATE as State-Backend (Postgres)
     participant PROJ as Zielprojekt
 
-    Note over M,INS: Vorbedingung — Ebene 2 vorhanden (agentkit-Paket + Bundle-Store, §10.2.6), Core erreichbar (Ebene 1, §10.2.5)
-    M->>INS: agentkit register-project --gh-owner acme --gh-repo platform
-    M->>INS: Strategenpasswort im interaktiven Terminal
-    INS->>BE: Strategen-Login (temporaere Cookie-/CSRF-Session)
-    INS->>BE: Projekt registrieren / Konfiguration validieren (REST)
+    Note over ADM,BE: Projektkontext besteht kernseitig vor der Tokenausstellung (FK-15 §15.10.4)
+    ADM->>BE: agentkit auth issue-token (Strategen-Session; Klartext nur im Admin-Terminal)
+    ADM-->>DEV: Token ausserhalb AK3 uebergeben
+    DEV->>INS: agentkit auth store-token --project-root ... (HTTPS-Pruefung + atomare Credential-Publikation)
+    Note over DEV,INS: Vorbedingung — Ebene 2 vorhanden, Core erreichbar und aktive Projekt-Credential vorhanden
+    DEV->>INS: agentkit register-project --gh-owner acme --gh-repo platform
+    INS->>BE: Projekt registrieren / Konfiguration validieren (Bearer, REST)
     BE->>STATE: Projekt-Record schreiben (nur Backend, I1)
-    INS->>BE: Dritt-System-Referenzen validieren (temporaere Strategen-Session, REST /v1)
-    Note over INS,BE: Nur beim Erstlauf ohne Project-Token; Dev sendet nur token_env-Referenzen, Backend loest Secrets auf und probt Sonar/Jenkins/ARE
+    INS->>BE: Dritt-System-Referenzen validieren (Bearer, REST /v1)
+    Note over INS,BE: Dev sendet nur token_env-Referenzen; Backend loest Secrets auf und probt Sonar/Jenkins/ARE
     INS->>PROJ: .agentkit/config/project.yaml + harness-spezifische Settings (z. B. .claude/settings.json, FK-76 §76.5)
     INS->>PROJ: harness-spezifische Skill-Links (Symlink/Junction) auf Bundle-Version
     INS->>PROJ: tools/agentkit/ Project-Edge-Launcher (REST-Client) binden
-    INS->>PROJ: Token + op_id als geschuetztes credentials.pending vorbereiten
-    INS->>BE: Token-ID + Hash idempotent registrieren (Strategen-Session)
-    BE->>STATE: Projekt-Token insert-only speichern
-    INS->>PROJ: credentials atomar aktivieren; Pending entfernen
-    Note over INS,BE: Danach endet die temporaere Session; regulaere Edge-Aufrufe nutzen ausschliesslich das Project-Token
-    Note over PROJ: Nur lokale Konfiguration, Skill-Bindungen und REST-Launcher —<br/>keine kopierten Skills/Prompts/DB-Dateien/Backend-Runtime
+    Note over INS,BE: register-project liest kein Strategenpasswort und erzeugt keine temporaere Strategen-Session
+    Note over PROJ: Nur lokale Konfiguration, Credential, Skill-Bindungen und REST-Launcher —<br/>keine kopierten Skills/Prompts/DB-Dateien/Backend-Runtime
 ```
 
 **Keine Docker-Abhängigkeit für AgentKit selbst.** Docker wird für
 Pflicht-Infrastrukturdienste benötigt (Weaviate).
 
-Der Erstlauf ist damit nicht zirkulaer: CP7 erzeugt zuerst den projektbezogenen
-Serverkontext, CP10d darf bis zur Tokenaktivierung genau die bereits
-authentifizierte Strategen-Session des bedienten Installers verwenden, und erst
-der erfolgreiche Gesamt-Installationslauf publiziert die ProjectEdge-Credential.
-Ein Project-Token ist keine Vorbedingung seiner eigenen Ausstellung.
+Der Erstlauf ist damit rollengetrennt: Der kernseitige Projektkontext ist die
+Vorbedingung der adminseitigen Tokenausstellung. Der Client-Bediener publiziert
+das ausgehaendigte Token mit `agentkit auth store-token` **vor**
+`register-project`. CP7, CP10d und jeder weitere Installer-Aufruf verwenden nur
+diese aktive Projekt-Credential. Ein fehlendes oder ungueltiges Credential
+blockiert vor dem ersten Installer-Netzwerkaufruf; eine Strategen-Session ist
+kein Ersatzpfad.
 
 ### 10.2.2 Laufzeitabhängigkeiten
 
 | Abhängigkeit | Pflicht/Optional | Prüfung |
 |-------------|-----------------|---------|
-| Python gemaess `[project].requires-python` in `pyproject.toml` (alleinige numerische Quelle) | Pflicht | Installer liest die Deklaration und prueft sie vor Checkpoint 1 |
+| Python gemaess `[project].requires-python` in `pyproject.toml` (alleinige numerische Quelle; tool-spezifische Overrides wie `tool.ruff.target-version` sind verboten) | Pflicht | Installer und Werkzeuge leiten ihre Zielversion aus dieser Deklaration ab; ein deterministisches Gate weist eine zweite Quelle zurueck |
 | Git ≥ 2.30 | Pflicht | Installer Checkpoint 2 |
 | Provider-CLI-Werkzeuge (z. B. `gh` bei GitHub) — nur im Provider-Adapter-Rahmen (FK-12 §12.1); die beauftragte Git-Mechanik des Project Edge nutzt die `git` CLI | Optional (provider-abhaengig) | Installer Checkpoint 2 (nur wenn Provider-Adapter sie erfordert) |
 | AK3 Backend erreichbar (REST /v1) | Pflicht | Installer Checkpoint CP7 (State-Backend + Control-Plane erreichbar) |
@@ -401,13 +402,13 @@ delegiert. Projektseitig laufen nur:
   und der Project-Edge-Launcher (dünne REST-Clients, keine eigene
   Fachlogik). „CLI" meint diese Paket-Entry-Points, kein separat
   installiertes Artefakt.
-- Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse; REST-Clients)
-- Zugriff auf Projektcode und Projektkonfiguration
+- Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse; REST-Clients) sowie Zugriff auf Projektcode und Projektkonfiguration
 
 Der projektlokale **Project-Edge-Launcher** unter `tools/agentkit/` ist
 ein Convenience-Einstieg für Agents. Er darf als Script oder natives
 Executable materialisiert werden; auch ein Aufruf mit vorgeschaltetem
-Interpreter, z. B. `python tools/agentkit/projectedge.py ...`, ist
+Interpreter, z. B.
+`<absolute-ak3-interpreter> tools/agentkit/projectedge.py ...`, ist
 zulässig, solange die fachlichen Subcommands und Parameter stabil und
 einfach bleiben. Der Launcher ist **nur dünner Adapter** auf die
 Control-Plane-REST-API des Backends; er ist keine projektlokale Runtime
@@ -580,11 +581,27 @@ hochentwickelten Checkpoint-Installer der Ebenen 2/3. Er wird mit
 - **Voraussetzung (nicht durch AK3 provisioniert):** eine erreichbare
   PostgreSQL-Instanz auf 5432 (§10.7.1). AK3 startet/provisioniert sie
   nicht.
+- **TLS-Quelle:** Der Operator provisioniert Zertifikat und privaten Schluessel
+  vor dem Start aus der Host-PKI. Fuer einen lokalen Wegwerf-/Entwicklungs-Core
+  darf er sie explizit mit OpenSSL erzeugen, z. B. mit
+  `mkdir var/core-tls` und danach
+  `openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout var/core-tls/core-key.pem -out var/core-tls/core-cert.pem -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"`.
+  Der private Schluessel ist owner-only zu schuetzen; eine fehlende oder
+  unlesbare TLS-Datei blockiert den Start.
 - **Operative Schritte (teils manuell):** `agentkit`-Paket auf dem
   Core-Host installieren → State-Backend-Schema anlegen/migrieren →
-  Backend als Dienst starten (`agentkit serve --ui-bff`,
-  `agentkit serve --project-api`) → Frontend bereitstellen
+  **einen** Backend-Writer mit beiden Listenern starten
+  (`agentkit serve --ui-host 127.0.0.1 --ui-port 9701 --project-host 127.0.0.1 --project-port 9702 --certfile var/core-tls/core-cert.pem --keyfile var/core-tls/core-key.pem`)
+  → Frontend bereitstellen
   (`agentkit ui`) → Erreichbarkeit verifizieren.
+- **Kollisionsfreier Wegwerf-Realitaetsnachweis:** Wenn die Defaultports auf dem
+  Pruefhost bereits durch einen installierten Core belegt sind, verwendet der
+  Nachweis dieselbe Zertifikatsquelle hostname-validierend auf freien
+  Testports: `agentkit serve --ui-host 127.0.0.1 --ui-port 19701 --project-host 127.0.0.1 --project-port 19702 --certfile var/core-tls/core-cert.pem --keyfile var/core-tls/core-key.pem`;
+  danach muessen
+  `curl --cacert var/core-tls/core-cert.pem https://127.0.0.1:19701/healthz` und
+  `curl --cacert var/core-tls/core-cert.pem https://127.0.0.1:19702/healthz`
+  jeweils `200` liefern. Die Testports sind kein neuer Default.
 - **Topologie:** Loopback (Einzelplatz) oder dedizierter Server
   (Team) — §10.2.4; der Installationsweg ist in beiden Fällen derselbe.
 - **Abgrenzung:** `agentkit register-project` (Ebene 3) **setzt einen
@@ -616,12 +633,26 @@ AK3 samt deklarierten Abhaengigkeiten dorthin und beendet den urspruenglichen
 globalen Installationsaufruf anschliessend mit ERROR. Die Fehlermeldung nennt
 Isolationsgrund, Zielpfad und ausfuehrbare CLI.
 
+Eine bereits sichtbare gleichnamige Fremd- oder Alt-Distribution darf diesen
+Bootstrap nicht blockieren. Die Paketgrenze ordnet Installationsmetadaten
+deshalb dem gerade importierten Paket ueber den aufgezeichneten Wheel-Dateipfad
+oder die standardisierte Editable-`direct_url.json`-Quelle zu; der Name
+`agentkit` allein ist kein Provenienznachweis. Nur Metadaten, die genau diese
+Importquelle besitzen, aktivieren die Runtime-Grenze. Damit bleibt der
+In-Tree-PEP-517-Einstieg auch bei einer vorhandenen gleichnamigen Distribution
+ladefaehig und kann die dedizierte Umgebung herstellen.
+
 Bei der direkten Installation eines bereits gebauten Wheels wird ein
 PEP-517-Build-Backend protokollbedingt nicht aufgerufen; das Wheel kann den
 Schreibvorgang von Paket und Abhaengigkeiten daher nicht vor dessen Ausfuehrung
 verweigern. Die paketweite Importgrenze und alle deklarierten Console-
 Entry-Points verweigern danach jedoch jede AK3-Nutzung ausserhalb einer
-isolierten Umgebung mit demselben benannten Grund und zulaessigen Weg. Diese
+isolierten Umgebung mit demselben benannten Grund und zulaessigen Weg. Eine
+virtuelle Umgebung gilt dabei nicht allein wegen abweichender Prefixe als
+isoliert: jede installierte AK3-Distribution durchlaeuft die vollstaendige
+zentrale Pruefung einschliesslich
+`pyvenv.cfg: include-system-site-packages = false`. Damit bleibt auch ein ueber
+`venv --system-site-packages` sichtbares globales Wheel unbenutzbar. Diese
 protokollbedingte Grenze und das absichtliche Umleitungsverhalten sind in
 `META-DEC-2026-08-04-INSTALLATIONSISOLATION` begruendet.
 
@@ -994,13 +1025,84 @@ den expliziten administrativen Abbruch
 (`admin_abort_inflight_operation`, FK-91 §91.1a). Kein Lease, kein
 TTL, keine PID-Heuristik (§10.4.2, §10.6.2).
 
-**Betriebsannahme (normativ): genau eine aktive
-Control-Plane-Writer-Instanz pro Datenbank.** Beim Serverstart — vor
-Beginn der Request-Annahme — finalisiert die Instanz verwaiste Claims
-**ihrer eigenen Identität aus früheren Inkarnationen** deterministisch
-als gescheitert (Start-Rekonsiliierung): Der Server muss über seinen
-eigenen Absturz nicht spekulieren; über das Schweigen eines Clients
-schon. Die Persistenz-Invarianten dazu sind in
+**Erzwungener Betriebsvertrag (normativ): genau eine aktive
+Control-Plane-Writer-Instanz pro Datenbank.** Der eine Prozess betreibt UI-BFF
+und Project-API als zwei HTTPS-Listener unter derselben Boot-Identitaet. Vor
+jeder Aenderung der Boot-Inkarnation erwirbt er einen datenbankweiten,
+sessiongebundenen Lebensdauer-Lock. Ein zweiter Prozess wird ohne Warten und mit
+dem Grund `ControlPlaneWriterAlreadyActive` abgewiesen; er darf weder die
+Inkarnation erhoehen noch Reconciliation ausfuehren. Verliert der aktive Prozess
+die Lock-Session, scheitert zugleich jede in ihm laufende oder weitere
+State-Operation: alle vom aktiven Writer ausgefuehrten Store-/Repository-
+Zugriffe werden durch dieselbe Lock-Session serialisiert. Ein
+applikationseigener Liveness-Monitor prueft die Lease in
+kurzem, begrenztem Intervall aktiv ueber genau diese reservierte Session; er
+wartet nicht darauf, dass ein spaeterer Request den Verlust sichtbar macht.
+Jeder angenommene Request haelt zusaetzlich einen
+Request-Lebensdauer-Fence, prueft die Lease am Eintritt, unmittelbar vor
+nichttransaktionalen Auth-Wirkungen und vor dem Antwortabschluss. Erkannter
+Lease-Verlust liefert keine Erfolgsantwort, beendet beide Listener und laesst
+den Writer-Prozess fehlschlagen. Beim geordneten Shutdown werden angenommene
+Handler und bereits angenommene asynchrone Writer-Arbeit vollstaendig gedraint,
+bevor die Session freigegeben wird. Eine `202`-Antwort beendet daher nur den
+HTTP-Request, nicht die Writer-Arbeit: deren Future bleibt bis zur terminalen
+Claim-Finalisierung Teil des Writer-Lebenszyklus. Bei Lease-Verlust werden
+weitere Submits und Finalisierungen gesperrt; ein spaeter zurueckkehrender
+Executor darf weder auf eine Pool-Verbindung ausweichen noch late committen.
+
+Diese Lease ist eine erzwungene Server-Eintrittsbedingung, keine kooperative
+Kompositionsoption: Die produktive Serve-Grenze bindet keinen der beiden
+Sockets, solange die ihr uebergebene Anwendung nicht nachweislich genau ihre
+aktive sessiongebundene Writer-Lease haelt. Das gilt ebenso fuer injizierte
+Anwendungen und Startup-Hooks. Der Anwendungsdefault verlangt die Lease;
+leasefreie In-Prozess-Anwendungen sind ausschliesslich eine direkte Testnaht und
+werden von der produktiven Serve-Grenze abgewiesen.
+
+**BEHOBENER VERSTOSS — Stand 2026-08-05, AG3-214 Runde 4:**
+`agentkit register-project` und `agentkit upgrade-project` bauten im separaten
+CLI-Prozess produktive State-Backend-Repositories und schrieben damit ohne
+Writer-Lease. Betroffen waren `project_registry`, `projects`, Skill-Bindings
+und Governance-Hook-Registrierungen. Die damaligen produktiven Locator waren
+`src/agentkit/backend/cli/installer_commands.py` in `_cmd_register_project` und
+`_cmd_upgrade_project`, `src/agentkit/backend/installer/runner.py` in
+`_resolve_registration_repo`, `_resolve_project_repo`, `_bind_resolved_skills`,
+`_register_default_governance_hooks` und `_run_cp7_state_backend_registration`
+sowie `src/agentkit/backend/installer/upgrade/entry.py` in
+`run_checkpoint_upgrade` und `src/agentkit/backend/installer/upgrade/engine.py`
+in `up_04_migrate_hooks`. Beide CLI-Verben setzen nun einen erreichbaren,
+lease-haltenden Core und die aktive Projekt-Credential voraus. Noch vor der
+ersten lokalen Installations- oder Upgrade-Wirkung prueft ein
+authentisierter HTTPS-Read die Writer-Bereitschaft. CP 7 konvergiert
+`project_registry` und `projects` als ein Writer-Kommando; CP 8 persistiert
+jeden Skill-Binding-Lifecycle und CP 9/UP 04 jede Hook-Registrierung ueber
+projektgeskoppte Writer-Routen. Das vom CLI vor Transport offengelegte Root-
+`op_id` erzeugt stabile, wirkungsspezifische Child-Claims unter demselben
+Body-Hash-, Replay-, Mismatch- und In-Flight-Vertrag wie die uebrigen
+Control-Plane-Mutationen. Der CLI-Prozess konstruiert dafuer kein produktives
+State-Backend-Repository; ein unerreichbarer Writer endet benannt fail-closed,
+ohne lokalen Fallback.
+Die Vorbedingung liegt insbesondere vor dem Anlegen des Credential-Verzeichnisses
+oder der persistenten `credentials.lock` sowie vor jeder Bereinigung eines
+Pending-Credential-Sidecars. Die Readiness-Pruefung selbst liest die vorhandene
+aktive Credential und ein etwaiges Sidecar nur; bei Unerreichbarkeit bleibt der
+gesamte lokale Projektbaum bytegleich.
+
+Jeder Listener-Bind
+ist exklusiv; eine bereits belegte Adresse blockiert den gesamten Zwei-Listener-
+Start, statt den Port mit einem fremden Prozess zu teilen. Beim Serverstart — vor
+Beginn der Request-Annahme — klassifiziert die Instanz verwaiste Claims **ihrer
+eigenen Identität aus früheren Inkarnationen**. Claims ohne nachgewiesene
+Engine-Schreibwirkung werden deterministisch als `failed`, Claims mit
+nachgewiesener partieller Engine-Schreibwirkung als `repair` finalisiert. Das
+gilt auch fuer die drei generisch geschuetzten Auth-Arten Tokenanlage,
+Tokenwiderruf und Passwortrotation: Sie schreiben keine Engine-Phasen- oder
+Flow-Daten und ihr Claim endet deshalb beim Neustart ohne Admin-Eingriff als
+`failed`. Dieser Ledger-Status behauptet nicht, dass eine ausserhalb der
+Ledger-Transaktion publizierte Credential-Wirkung rueckgaengig gemacht wurde;
+er schliesst den verwaisten Claim und verhindert eine erneute Ausfuehrung unter
+derselben `op_id`. Ein Retry derselben `op_id` liefert deshalb
+`409 operation_conflict`. Die
+Persistenz-Invarianten dazu sind in
 `formal.state-storage.invariants` normiert.
 
 ## 10.6 Fehlerbehandlung und Recovery
@@ -1089,8 +1191,8 @@ die 5432 belegen darf.
 | 5432 | PostgreSQL / zentrales DBMS (**native Host-Instanz, exklusiv**; Produktions-State-Backend; nur Backend verbindet; Tests nutzen Nicht-Standard-Ports) | Dateninfrastruktur | TCP | Pflicht (State-Backend) | Zentraler Dienst |
 | 9600 | LLM-Hub (Drehscheibe für mehrere LLM-Modelle; vom Kern über Unified REST getrieben, I2) | LLM-Provider | Unified REST (HTTP/JSON) | Pflicht (mind. 2 Modelle zusätzlich zu Claude) | Externe Infrastruktur |
 | 9700 | AgentKit UI | AgentKit | HTTP (SPA) | Optional | `agentkit ui` |
-| 9701 | AK3 Backend — UI-BFF (REST) | AgentKit (Backend) | HTTP/JSON | Optional (Pflicht wenn UI laeuft) | `agentkit serve --ui-bff` |
-| 9702 | AK3 Backend — Project-API (REST) | AgentKit (Backend) | HTTP/JSON | **Pflicht** (Kern-Endpunkt für Hooks/Edge/CLI; I3) | `agentkit serve --project-api` |
+| 9701 | AK3 Backend — UI-BFF (REST) | AgentKit (Backend) | HTTPS/JSON | **Pflicht als Listener des gemeinsamen Writer-Prozesses** (die SPA auf 9700 bleibt optional) | gemeinsamer Prozess `agentkit serve --certfile … [--keyfile …]` |
+| 9702 | AK3 Backend — Project-API (REST) | AgentKit (Backend) | HTTPS/JSON | **Pflicht** (Kern-Endpunkt für Hooks/Edge/CLI; I3) | gemeinsamer Prozess `agentkit serve --certfile … [--keyfile …]` |
 | 9800 | ARE Server (via Backend vermittelt) | Fachliche Integration | MCP | Optional (FK-40) | Manuell |
 | 9900 | Jenkins (Web-UI, via Backend vermittelt) | CI/CD | HTTP | Optional (externe Stage-Registry, FK-33) | Docker Compose |
 | 9901 | SonarQube (inkl. Community Branch Plugin, via Backend vermittelt) | Code-Qualitaet | HTTP | **Pflicht fuer codeproduzierende Projekte mit `sonarqube.available: true`** (`sonarqube.enabled: true`, FK-33 §33.6.3); sonst Optional (auch bei `available: false` → Gate NOT_APPLICABLE, FK-33 §33.6.5) | Systemdienst (Installer CP 10d) |
@@ -1126,8 +1228,8 @@ Die Ports sind konfigurierbar:
 |---------|-------------------|---------|
 | LLM-Hub | `project.yaml` → Hub-REST-Endpunkt (Unified REST; Schema in FK-03) | http://127.0.0.1:9600 |
 | UI | `agentkit ui --port N` | 9700 |
-| UI-BFF (Backend) | `agentkit serve --ui-bff --port N` | 9701 |
-| Project-API (Backend) | `agentkit serve --project-api --port N` | 9702 |
+| UI-BFF (Backend) | `agentkit serve --ui-host H --ui-port N --certfile CERT [--keyfile KEY]` | 9701 |
+| Project-API (Backend) | `agentkit serve --project-host H --project-port N --certfile CERT [--keyfile KEY]` | 9702 |
 | ARE | `project.yaml` → `are.base_url` | 9800 |
 | Weaviate | `project.yaml` → `vectordb.url` | 9903 |
 | Jenkins | `project.yaml` → Stage-Registry `external_tools` | 9900 (Jenkins Agent: 9902) |

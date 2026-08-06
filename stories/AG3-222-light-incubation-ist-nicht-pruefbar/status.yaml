@@ -1,0 +1,33 @@
+story_id: AG3-222
+story_title_short: "light-incubation-ist-nicht-pruefbar"
+title: "FK-78 normiert das Profil LIGHT_INCUBATION mit Coverage nur fuer beruehrte Dateien -- der Pruefer kann genau das nicht validieren. Das Profil bekommt einen pruefbaren Baseline-Vertrag."
+type: bugfix
+status: ready
+phase: setup
+created: "2026-08-05"
+size: M
+# Herkunft: Aufsetzen des ersten LIGHT_INCUBATION-Laufs am 2026-08-05
+# (`concept-incubator/runs/2026-08-05-review-vertrag-terminierung-085702c0`).
+#
+# Der Lauf ist strukturell korrekt, das Gate meldet aber:
+#
+#   [incubator] INCOMPLETE: INCOMPLETE_CHECK_SET:
+#   skipped=[baseline-rederivation: base_revision kind 'digest' is not diffable]
+#
+# findings=[] -- also kein Fehler im Lauf, sondern eine Luecke im Pruefer.
+#
+# Der Widerspruch, mit Locator:
+#   - incubator_check.py:624 -- base_revision.kind='digest' => Baseline-Pruefung
+#     grundsaetzlich unvollstaendig ("not diffable")
+#   - incubator_check.py:648 -- base_revision.kind='git' => verlangt ALLE Dateien
+#     saemtlicher concept_roots
+#   - FK-78 §78.16:1150 -- LIGHT_INCUBATION: "Coverage nur fuer beruehrte Dateien"
+#
+# Es gibt damit keinen Weg, einen LIGHT-Lauf gruen zu pruefen: Die eine Variante
+# ist per Definition unvollstaendig, die andere widerspricht dem Profil.
+#
+# Zweitbefund: `CLAUDE.md` liegt ausserhalb der konfigurierten `concept_roots`,
+# ist aber legitimes Baseline-Material (es traegt die PO-Grundregeln, um die es
+# in dem Lauf geht). Auch dafuer fehlt ein Vertrag.
+depends_on: []
+unblocks: []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import sys
 import uuid
 from dataclasses import dataclass
@@ -74,6 +75,41 @@ def _build_control_plane_client(base_url: str, project_root: str) -> ProjectEdge
             base_url=base_url,
             skill_bundle_version=read_bound_skill_bundle_version(root),
         ),
+        publisher=LocalEdgePublisher(project_root=root),
+    )
+
+
+def _build_strategist_control_plane_client(
+    base_url: str,
+    project_root: str,
+    project_key: str,
+    username: str,
+    password: str,
+    ca_file: str | None = None,
+) -> ProjectEdgeClient:
+    """Build a cookie/CSRF-authenticated client for human admin mutations."""
+    from agentkit.harness_client.projectedge.client import (
+        HttpsJsonTransport,
+        LocalEdgePublisher,
+        ProjectEdgeClient,
+    )
+    from agentkit.harness_client.projectedge.runtime import (
+        read_bound_skill_bundle_version,
+    )
+
+    root = Path(project_root)
+    ssl_context = ssl.create_default_context(cafile=ca_file) if ca_file else None
+    transport = HttpsJsonTransport(
+        base_url=base_url,
+        ssl_context=ssl_context,
+        skill_bundle_version=read_bound_skill_bundle_version(root),
+    ).authenticate_strategist(
+        username=username,
+        password=password,
+        project_key=project_key,
+    )
+    return ProjectEdgeClient(
+        transport=transport,
         publisher=LocalEdgePublisher(project_root=root),
     )
 
@@ -328,6 +364,7 @@ def _cmd_resume(
 __all__ = [
     "_PhaseCallContext",
     "_build_control_plane_client",
+    "_build_strategist_control_plane_client",
     "_cmd_resume",
     "_cmd_run_phase",
     "_invoke_control_plane_phase",

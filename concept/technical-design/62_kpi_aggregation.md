@@ -369,7 +369,7 @@ Kein Daemon, kein Cron. Zwei event-getriebene Trigger:
    Closure-Phase aufgerufen, nach MetricsCollector und Abschluss der
    kanonischen Runtime-Persistenz. Optionale JSONL-Exports sind davon getrennt.
 2. **Dashboard-Start** (Catch-up): `sync_analytics(trigger='dashboard')`
-   wird beim Start von `agentkit dashboard` aufgerufen. Bei Lock
+   wird beim Start von `<absolute-agentkit-wrapper> dashboard` aufgerufen. Bei Lock
    auf dem Analytics-Schema wird mit vorhandenem Stand gestartet.
 3. **Story-Reset** (Purge/Rebuild): Ein vollstaendiger Story-Reset
    startet einen Analytics-Cleanup fuer die betroffene Story und die

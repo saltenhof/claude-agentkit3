@@ -1097,6 +1097,29 @@ inklusive vollstaendiger Chunk-Digest-Rueckbindung an das Request-Pack.
 LLM-Zugang oder unvollstaendiger Sweep ⇒ betroffene Scopes
 `blocked_projection`; niemals stilles PASS.
 
+Fuer die im Uebergangsabsatz genannten AK3-eigenen W2/W3-Hub-Batches gilt der
+Quellspannen-Vertrag aus `META-CONCEPT-CONSISTENCY` W2/W3: Der Bewerter zeigt
+mit den versionierten Vertraegen `authority-prose/v2` beziehungsweise
+`scope-consistency/v2` ausschliesslich auf deterministisch markierte physische
+Quellzeilen. Der lokale Gate-Code validiert die Referenz und extrahiert die
+Originalaussage einschliesslich ihrer Zeilenumbrueche. Erst dieser extrahierte
+Text wird Befund- und Baseline-Evidenz; Modellprosa ist dafuer keine Quelle.
+Je Bewertung wird nur fuer das anhand der stabilen Chunk- beziehungsweise
+Partitions-ID geroutete Backend lazy eine Hub-Lease erworben; die gleichzeitige
+Bereitschaft aller konfigurierten Browser-Backends ist keine Vorbedingung.
+Liefert der Transport keine Antwort (Lease-Fehler, Backend nicht bereit,
+Sessionverlust, Timeout oder verlorene Antwort), wird derselbe gepinnte Prompt
+hoechstens viermal an dasselbe Backend gesendet, mit festem Backoff von 5, 10
+und 20 Sekunden. Erschoepfung bleibt ein blockierender, benannter Fehler mit
+Backend, Chunk beziehungsweise Partition, letzter Ursache und Versuchszahl.
+Sobald ein Antworttext vorliegt, ist das Bewerterurteil endgueltig: Weder
+Parserfehler noch `INVALID_EVALUATION_RESPONSE` werden wiederholt oder an ein
+anderes Backend umgeleitet.
+Diese Praezisierung gilt ausschliesslich fuer die AK3-eigene
+Uebergangsimplementierung. Sie aendert weder Form noch Provenienzvertrag des
+oben definierten generischen Request-Pack-/Semantik-Receipt-Pfads; dessen
+Weiterentwicklung ist nicht Bestandteil dieses Antwortvertrags.
+
 ## 78.15 Skill-Auslieferung
 
 Ein Skill-Bundle `concept-incubation-core` (FK-43-Format, Profil CORE,

@@ -120,6 +120,7 @@ def app(
     project_repo = _ProjectRepo()
     fake = _FakeRoute()
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=fake,  # type: ignore[arg-type]
             story_routes=fake,  # type: ignore[arg-type]
@@ -175,9 +176,7 @@ def _task_payload(**kwargs: object) -> dict:
 
 
 class TestTaskRoutesIntegration:
-    def test_create_and_read_task(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_create_and_read_task(self, app: ControlPlaneApplication) -> None:
         """POST /tasks -> 201 with server-allocated task_id; GET /tasks/{id} -> 200."""
         create = _post(app, f"/v1/projects/{_PROJ}/tasks", _task_payload(title="Create and Read"))
         assert create["status"] == 201
@@ -190,18 +189,14 @@ class TestTaskRoutesIntegration:
         assert read["status"] == 200
         assert read["body"]["task"]["task_id"] == task_id
 
-    def test_create_with_task_id_returns_422(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_create_with_task_id_returns_422(self, app: ControlPlaneApplication) -> None:
         """task_id in POST body is rejected with 422 (extra='forbid', finding 9)."""
         bad_payload = {**_task_payload(), "task_id": "TM-2026-0001"}
         resp = _post(app, f"/v1/projects/{_PROJ}/tasks", bad_payload)
         assert resp["status"] == 422
         assert resp["body"]["error_code"] == "invalid_task_payload"
 
-    def test_resolve_task_status_done(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_resolve_task_status_done(self, app: ControlPlaneApplication) -> None:
         """POST /tasks/{id}/resolve -> 200, status=done."""
         create = _post(app, f"/v1/projects/{_PROJ}/tasks", _task_payload(title="Resolve Test"))
         task_id = create["body"]["task"]["task_id"]
@@ -214,9 +209,7 @@ class TestTaskRoutesIntegration:
         assert resp["status"] == 200
         assert resp["body"]["task"]["status"] == "done"
 
-    def test_tenant_isolation(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_tenant_isolation(self, app: ControlPlaneApplication) -> None:
         """Tasks are strictly partitioned by project_key."""
         _post(app, f"/v1/projects/{_PROJ_A}/tasks", _task_payload(title="Task in A"))
         _post(app, f"/v1/projects/{_PROJ_B}/tasks", _task_payload(title="Task in B"))
@@ -231,9 +224,7 @@ class TestTaskRoutesIntegration:
         assert list_a["body"]["tasks"][0]["project_key"] == _PROJ_A
         assert list_b["body"]["tasks"][0]["project_key"] == _PROJ_B
 
-    def test_no_pipeline_coupling_in_task_response(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_no_pipeline_coupling_in_task_response(self, app: ControlPlaneApplication) -> None:
         """Task endpoint response contains no pipeline mechanics (no phases/gates/worktrees)."""
         create = _post(app, f"/v1/projects/{_PROJ}/tasks", _task_payload(title="No Pipeline"))
         task_id = create["body"]["task"]["task_id"]
@@ -247,17 +238,13 @@ class TestTaskRoutesIntegration:
         assert "worktree" not in task_body
         assert "phase" not in task_body
 
-    def test_list_tasks_empty_before_create(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_list_tasks_empty_before_create(self, app: ControlPlaneApplication) -> None:
         """GET /tasks on empty project returns 200 with empty list."""
         resp = _get(app, f"/v1/projects/{_PROJ}/tasks")
         assert resp["status"] == 200
         assert resp["body"]["tasks"] == []
 
-    def test_task_links_route_reachable_and_tenant_scoped(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_task_links_route_reachable_and_tenant_scoped(self, app: ControlPlaneApplication) -> None:
         """AG3-105/AC4+AC6: GET /task-links reachable through the real app, tenant-scoped.
 
         Proves the project-wide link read goes through TenantScopeMiddleware (it is a
@@ -310,9 +297,7 @@ class TestTaskRoutesIntegration:
             }
         ]
 
-    def test_task_links_unknown_tenant_rejected(
-        self, app: ControlPlaneApplication
-    ) -> None:
+    def test_task_links_unknown_tenant_rejected(self, app: ControlPlaneApplication) -> None:
         """AC6: an unknown project_key on /task-links is rejected by tenant-scope."""
         resp = _get(app, "/v1/projects/unknown-proj/task-links")
         assert resp["status"] in (403, 404)

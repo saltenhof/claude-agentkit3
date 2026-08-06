@@ -55,6 +55,9 @@ class AK3StoryCreationAdapter:
         Raises:
             RuntimeError: If story creation fails (FAIL-CLOSED).
         """
+        from agentkit.backend.state_backend.store.project_management_repository import (
+            StateBackendProjectRepository,
+        )
         from agentkit.backend.story_context_manager.service import StoryService
         from agentkit.backend.story_context_manager.story_model import (
             CreateStoryInput,
@@ -62,13 +65,23 @@ class AK3StoryCreationAdapter:
         )
 
         try:
+            project = StateBackendProjectRepository().get(self._project_key)
+            if project is None:
+                raise RuntimeError(
+                    f"project {self._project_key!r} does not exist",
+                )
+            repositories = list(project.configuration.repositories)
+            if not repositories:
+                raise RuntimeError(
+                    f"project {self._project_key!r} has no configured repositories",
+                )
             service = StoryService()
             title = f"[FC-CHECK] Implement check {check_id}: {invariant}"
             request = CreateStoryInput(
                 project_key=self._project_key,
                 title=title,
                 story_type=WireStoryType.IMPLEMENTATION,
-                repos=[self._project_key],
+                repos=repositories,
                 epic="failure-corpus",
                 module="failure-corpus",
                 owner="failure-corpus",

@@ -35,6 +35,7 @@ _build_engine_config = _installer_commands._build_engine_config
 
 __all__ = [
     "_build_control_plane_client",
+    "_build_strategist_control_plane_client",
     "_build_engine_config",
     "_build_story_attributes",
     "_build_weaviate_index",
@@ -131,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         resolve_ak3_interpreter()
     except InterpreterResolutionError as exc:
-        print(f"AgentKit CLI refused a non-isolated runtime: {exc}", file=sys.stderr)
+        print("AgentKit CLI refused a non-isolated runtime:", exc, file=sys.stderr)
         return 1
     arguments = list(sys.argv[1:]) if argv is None else list(argv)
     if _is_installer_invocation(arguments) and not _installer_commands._runtime_dependencies_ready():
@@ -171,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.version:
         from agentkit import __version__
 
-        print(f"agentkit {__version__}")
+        print("agentkit", __version__)
         return 0
 
     handled, exit_code = _dispatch_command(args, argv or sys.argv[1:])
@@ -246,6 +247,27 @@ def _build_control_plane_client(base_url: str, project_root: str) -> ProjectEdge
     return operator_recovery_commands._build_control_plane_client(base_url, project_root)
 
 
+def _build_strategist_control_plane_client(
+    base_url: str,
+    project_root: str,
+    project_key: str,
+    username: str,
+    password: str,
+    ca_file: str | None,
+) -> ProjectEdgeClient:
+    """Build the official strategist-session client for admin mutations."""
+    from agentkit.backend.cli import operator_recovery_commands
+
+    return operator_recovery_commands._build_strategist_control_plane_client(
+        base_url,
+        project_root,
+        project_key,
+        username,
+        password,
+        ca_file,
+    )
+
+
 def _invoke_control_plane_phase(
     verb: str,
     ctx: _PhaseCallContext,
@@ -263,7 +285,7 @@ def _invoke_control_plane_phase(
 
 
 def _cmd_export_story_md(args: argparse.Namespace) -> int:
-    """Handle ``agentkit export-story-md`` through the stable main-module seams."""
+    """Handle the ``export-story-md`` command through stable main-module seams."""
     from agentkit.backend.cli import story_commands
 
     return story_commands._cmd_export_story_md(
@@ -274,7 +296,7 @@ def _cmd_export_story_md(args: argparse.Namespace) -> int:
 
 
 def _cmd_repair_story_md(args: argparse.Namespace) -> int:
-    """Handle ``agentkit repair-story-md`` through the stable main-module seams."""
+    """Handle the ``repair-story-md`` command through stable main-module seams."""
     from agentkit.backend.cli import story_commands
 
     return story_commands._cmd_repair_story_md(
@@ -285,7 +307,7 @@ def _cmd_repair_story_md(args: argparse.Namespace) -> int:
 
 
 def _cmd_run_phase(args: argparse.Namespace) -> int:
-    """Handle ``agentkit run-phase`` through the stable main-module seam."""
+    """Handle the ``run-phase`` command through the stable main-module seam."""
     from agentkit.backend.cli import operator_recovery_commands
 
     return operator_recovery_commands._cmd_run_phase(
@@ -295,7 +317,7 @@ def _cmd_run_phase(args: argparse.Namespace) -> int:
 
 
 def _cmd_resume(args: argparse.Namespace) -> int:
-    """Handle ``agentkit resume`` through the stable main-module seam."""
+    """Handle the ``resume`` command through the stable main-module seam."""
     from agentkit.backend.cli import operator_recovery_commands
 
     return operator_recovery_commands._cmd_resume(
@@ -305,10 +327,10 @@ def _cmd_resume(args: argparse.Namespace) -> int:
 
 
 def _cmd_admin_abort(args: argparse.Namespace) -> int:
-    """Handle ``agentkit admin-abort`` through the stable main-module seam."""
+    """Handle the ``admin-abort`` command through the stable main-module seam."""
     from agentkit.backend.cli import operator_recovery_commands
 
     return operator_recovery_commands._cmd_admin_abort(
         args,
-        client_builder=_build_control_plane_client,
+        client_builder=_build_strategist_control_plane_client,
     )

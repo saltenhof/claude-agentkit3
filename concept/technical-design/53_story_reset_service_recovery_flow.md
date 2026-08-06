@@ -37,7 +37,7 @@ glossary:
         Administrative Recovery-Operation fuer eine Story, deren
         Umsetzungs-Epoche nicht mehr reparierbar ist. Kein automatischer
         Pipeline-Schritt; nur ueber expliziten menschlichen CLI-Befehl
-        (agentkit reset-story). Kappt die korrupte Epoche vollstaendig
+        (<absolute-agentkit-wrapper> reset-story). Kappt die korrupte Epoche vollstaendig
         und hinterlaesst eine saubere Startbasis fuer einen neuen Run.
       see_also:
         - term: story-split
@@ -92,17 +92,28 @@ spaetere Neuaufnahme der Story.
 Normativer Kontrollpfad:
 
 ```bash
-agentkit reset-story --story ODIN-042 --reason "irreparabler merge-konflikt"
+<absolute-agentkit-wrapper> reset-story --story ODIN-042 --reason "irreparabler merge-konflikt" \
+  --project odin --project-root /srv/odin --base-url https://127.0.0.1:9702
 ```
 
 Pflichtparameter:
 
 - `--story`
 - `--reason`
+- `--project`
+- `--project-root`
+- `--base-url`
 
 Optionale weitere Parameter wie `--escalation-ref`, `--dry-run` oder
 `--force` sind zulaessig, aendern aber nicht die Grundregel, dass der
-Reset nur ueber den offiziellen AgentKit-CLI-Pfad erfolgen darf.
+Reset nur ueber den offiziellen AgentKit-CLI-Pfad erfolgen darf. Dieser Pfad
+ist ein duenner HTTPS-Adapter auf
+`POST /v1/projects/{project_key}/stories/{story_id}/reset`: er meldet den
+Menschen als Strategen an und fuehrt Session-Cookie plus CSRF. `requested_by`
+wird ausschliesslich aus dieser serverseitig authentisierten Session gewonnen,
+nicht aus einer Payload-Attestierung. Nur der aktive Writer baut den
+`StoryResetService` unter seiner gebundenen Lease-Identitaet; der CLI-Prozess
+oeffnet weder Repository noch State-Backend.
 
 ## 53.4 Eingangsbedingungen
 
@@ -128,6 +139,13 @@ Vor jedem destruktiven Schritt muss `StoryResetService`:
 2. `story_id`, `reason` und optional `escalation_ref` binden
 3. einen dauerhaften Reset-Vorgang (`reset_id`) anlegen
 4. den Vorgang sofort auditierbar markieren
+
+Der zugehoerige Control-Plane-Claim muss vor der ersten Mutation
+`operation_epoch >= 1`, `backend_instance_id` und `instance_incarnation` aus
+der aktiven Writer-Identitaet tragen. Fehlende Absenderfelder sind an jeder
+Claim-Schreibgrenze ein harter Fehler. Die terminale Reset-/Disown-
+Finalisierung erfolgt als Claim-Owner-CAS auf diese Epoche; ein fremder oder
+veralteter Finalizer darf nichts committen.
 
 Minimaler Reset-Record:
 

@@ -487,7 +487,7 @@ class ControlPlaneOperationRecord:
 
     op_id: str
     project_key: str
-    story_id: str
+    story_id: str | None
     run_id: str | None
     session_id: str | None
     operation_kind: str

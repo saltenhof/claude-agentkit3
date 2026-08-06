@@ -242,7 +242,7 @@ inhärent ein Wartet-auf-Mensch-Zustand**, sondern ein
 außerhalb der deterministischen Maschine. Der `PauseReason` benennt
 diese Teilstrecke. Nach Abschluss löst der Orchestrator-Agent den
 offiziellen Resume-/Re-Entry-Pfad aus, regulär über Service-Resume bzw.
-den `Project Edge Client`; `agentkit resume` ist der
+den `Project Edge Client`; `<absolute-agentkit-wrapper> resume` ist der
 Operator-Recovery-Adapter. Ein Mensch ist nur bei ausdrücklich
 menschlich normierten Sonderfällen beteiligt, insbesondere
 `GOVERNANCE_INCIDENT` sowie Mandats-/Governance-Entscheidungen.

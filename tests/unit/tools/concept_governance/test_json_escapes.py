@@ -52,15 +52,10 @@ def test_only_invalid_escapes_are_repaired(raw: str, expected: str, verbatim: bo
 
 
 def test_a_quoted_markdown_cell_survives_the_repair_word_for_word() -> None:
-    """The exact chunk quotation the W2 run of 2026-08-02 had to reject.
+    """Retain the AG3-179 repair invariant for generic JSON value consumers.
 
-    W2 asks a model to quote a chunk VERBATIM. The chunk carries markdown
-    escapes, so the quotation does too. If the repair drops them, the
-    assertion no longer matches the chunk it quotes — a corruption the
-    toolchain introduced itself, which both gates now reject as a foreign
-    quote (``policy._require_verbatim_quote``,
-    ``scope_policy._validate_locus``). Rejecting our own damage is not a
-    fix; the repair has to preserve the quotation in the first place.
+    W2/W3 v2 no longer copy evidence text, but this shared repair must still
+    never change ordinary response values while making invalid escapes parseable.
     """
     cell = "`LIGHT" + BACKSLASH + "_INCUBATION` " + BACKSLASH + "| `FULL" + BACKSLASH + "_ATOM`"
     raw = '{"assertion":"' + cell + '"}'
@@ -154,13 +149,13 @@ def test_a_collision_inside_a_nested_object_is_found_too() -> None:
     """Every object is checked, not only the top-level one.
 
     The schema nests: assertions and contradiction loci are objects of
-    their own, and a merged ``assertion`` field there loses the quoted
-    evidence rather than a flag.
+    their own, and a merged boundary field there changes the referenced
+    source range rather than a flag.
     """
-    alias = '"asser' + BACKSLASH * 2 + '_tion"'
-    candidate = '{"assertions":[{"asser_tion":"a","scopes":[],' + alias + ':"b"}]}'
+    alias = '"start' + BACKSLASH * 2 + '_id"'
+    candidate = '{"assertions":[{"start_id":"a","scopes":[],' + alias + ':"b"}]}'
 
-    with pytest.raises(SchemaKeyCollisionError, match="carries two keys for field 'asser_tion'"):
+    with pytest.raises(SchemaKeyCollisionError, match="carries two keys for field 'start_id'"):
         normalize_schema_keys(candidate)
 
 

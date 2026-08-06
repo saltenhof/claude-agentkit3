@@ -1,6 +1,6 @@
 """Unit tests for the install-trinity lifecycle CLI verbs (AG3-122).
 
-Covers the pure dispatch/flag logic: the serve profiles share ONE
+Covers the pure dispatch/flag logic: both serve listeners share ONE process and
 implementation, the ``update`` fail-closed path, and the fact that every
 install-trinity level owns exactly one verb — no compat aliases beside them.
 """
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path, PurePath
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,8 +28,8 @@ def _isolate_auth_provisioning_boundary(monkeypatch: pytest.MonkeyPatch) -> None
         lambda _args, _context=None: 0,
     )
     monkeypatch.setattr(
-        "agentkit.backend.cli.auth_commands.prepare_installer_auth_context",
-        lambda _args: None,
+        "agentkit.backend.cli.installer_commands._wire_register_config_to_writer",
+        lambda _config, _args, _op_id: SimpleNamespace(clear_secret=lambda: None),
     )
 
 
@@ -37,10 +38,18 @@ def _capture_serve(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     captured: dict[str, object] = {}
 
     def fake_serve_control_plane(
-        *, host: str, port: int, certfile: object, keyfile: object | None
+        *,
+        ui_host: str,
+        ui_port: int,
+        project_api_host: str,
+        project_api_port: int,
+        certfile: object,
+        keyfile: object | None,
     ) -> None:
-        captured["host"] = host
-        captured["port"] = port
+        captured["ui_host"] = ui_host
+        captured["ui_port"] = ui_port
+        captured["project_api_host"] = project_api_host
+        captured["project_api_port"] = project_api_port
         captured["certfile"] = str(certfile)
         captured["keyfile"] = str(keyfile) if keyfile is not None else None
 
@@ -52,33 +61,38 @@ def _capture_serve(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
 
 class TestServe:
-    def test_serve_project_api_default_port_9702(
+    def test_serve_starts_both_default_listener_ports(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         captured = _capture_serve(monkeypatch)
-        exit_code = main(["serve", "--project-api", "--certfile", "tls/cp.pem"])
+        exit_code = main(["serve", "--certfile", "tls/cp.pem"])
         assert exit_code == 0
-        assert captured["port"] == 9702
+        assert captured["ui_port"] == 9701
+        assert captured["project_api_port"] == 9702
         assert captured["certfile"] == str(PurePath("tls/cp.pem"))
 
-    def test_serve_ui_bff_default_port_9701(
+    def test_serve_explicit_ports_override_both_defaults(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         captured = _capture_serve(monkeypatch)
-        exit_code = main(["serve", "--ui-bff", "--certfile", "tls/cp.pem"])
+        exit_code = main(
+            [
+                "serve",
+                "--ui-port",
+                "9911",
+                "--project-port",
+                "9912",
+                "--certfile",
+                "tls/cp.pem",
+            ],
+        )
         assert exit_code == 0
-        assert captured["port"] == 9701
-
-    def test_serve_explicit_port_overrides_profile_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        captured = _capture_serve(monkeypatch)
-        main(["serve", "--project-api", "--port", "9999", "--certfile", "tls/cp.pem"])
-        assert captured["port"] == 9999
+        assert captured["ui_port"] == 9911
+        assert captured["project_api_port"] == 9912
 
     @pytest.mark.parametrize("host", ["0.0.0.0", "192.0.2.10", "::"])
     def test_core_serve_preserves_remote_core_bind_topology(self, host: str) -> None:
-        from agentkit.backend.cli.serve import ServeProfile, run_serve
+        from agentkit.backend.cli.serve import run_serve
 
         captured: dict[str, object] = {}
 
@@ -86,21 +100,19 @@ class TestServe:
             captured.update(kwargs)
 
         assert run_serve(
-            profile=ServeProfile.PROJECT_API,
-            host=host,
+            ui_host="127.0.0.1",
+            project_api_host=host,
             certfile=Path("tls/cp.pem"),
             keyfile=None,
             serve_fn=_listener,
         ) == 0
-        assert captured["host"] == host
+        assert captured["ui_host"] == "127.0.0.1"
+        assert captured["project_api_host"] == host
 
-    def test_serve_requires_a_profile(self) -> None:
+    @pytest.mark.parametrize("obsolete_flag", ["--ui-bff", "--project-api", "--port"])
+    def test_serve_rejects_removed_single_listener_flags(self, obsolete_flag: str) -> None:
         with pytest.raises(SystemExit):
-            main(["serve", "--certfile", "tls/cp.pem"])
-
-    def test_serve_profiles_are_mutually_exclusive(self) -> None:
-        with pytest.raises(SystemExit):
-            main(["serve", "--ui-bff", "--project-api", "--certfile", "tls/cp.pem"])
+            main(["serve", obsolete_flag, "--certfile", "tls/cp.pem"])
 
     def test_serve_passes_cert_and_key_through(
         self, monkeypatch: pytest.MonkeyPatch
@@ -108,7 +120,6 @@ class TestServe:
         captured = _capture_serve(monkeypatch)
         main([
             "serve",
-            "--project-api",
             "--certfile",
             "tls/cp.pem",
             "--keyfile",
@@ -440,14 +451,14 @@ class TestControlPlaneEndpointWiring:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """REGRESSION (2026-08-02): the installed control-plane.json must name the
-        port ``agentkit serve --project-api`` actually binds.
+        Project-API port that the shared ``agentkit serve`` process binds.
 
         The original defect was a hand-written ``https://127.0.0.1:9080`` literal
         in ``InstallConfig`` that survived the listener's move to 9702, so every
         fresh install pointed at a dead port. Both sides now derive from the one
         owner in ``config.defaults``; this test binds them together.
         """
-        from agentkit.backend.cli.serve import ServeProfile, resolve_serve_port
+        from agentkit.backend.config.defaults import CORE_PROJECT_API_PORT
 
         captured: list[object] = []
 
@@ -477,8 +488,7 @@ class TestControlPlaneEndpointWiring:
             "--no-ci-available",
         ]) == 0
         base_url = captured[0].control_plane_base_url  # type: ignore[attr-defined]
-        serve_port = resolve_serve_port(ServeProfile.PROJECT_API, None)
-        assert base_url.endswith(f":{serve_port}")
+        assert base_url.endswith(f":{CORE_PROJECT_API_PORT}")
         assert "9080" not in base_url
 
     def test_control_plane_base_url_is_operator_configurable(

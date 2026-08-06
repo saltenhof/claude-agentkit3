@@ -300,8 +300,8 @@ Im `story_execution`-Modus laeuft der Pfad so:
 1. Hook erkennt fehlende Freigabe
 2. Hook emittiert `permission_request_opened`
 3. Hook blockiert den Tool-Call sofort
-4. Mensch entscheidet spaeter per `agentkit approve-permission-request`
-   oder `agentkit reject-permission-request`
+4. Mensch entscheidet spaeter per `<absolute-agentkit-wrapper> approve-permission-request`
+   oder `<absolute-agentkit-wrapper> reject-permission-request`
 5. Der Run ist damit `PAUSED`; bei TTL-Ablauf ohne Entscheidung wird er
    deterministisch `ESCALATED`
 6. Erst ein expliziter Resume-/Folgepfad setzt die Story fort

@@ -800,18 +800,21 @@ Reihenfolge der Assembly-Stufen.
 > Prompt-Template `review-preflight.md` sind normativ in **FK-47
 > (Request-DSL und Preflight-Turn)** beschrieben.
 
-## 28.7 CLI-Surface
+## 28.7 Menschliche Operator-Recovery-CLI
 
-### 28.7.1 `agentkit evidence assemble` (FK-28-014)
+### 28.7.1 `<absolute-agentkit-wrapper> evidence assemble` (FK-28-014)
 
-Worker-Templates referenzieren `agentkit evidence assemble` als
-CLI-Command. AgentKit CLI nutzt manuelles argparse-Subparser-Wiring
-(FK-43). Der neue Command wird als Subparser registriert.
+Die CLI-Surface ist ausschliesslich der menschliche Recovery- und
+Debugging-Adapter fuer die Evidence Assembly. Worker-Templates duerfen sie
+nicht referenzieren; ihr agentischer Weg laeuft ueber Project Edge und den
+`collect_verify_evidence`-Vertrag (FK-91 §91.1b). AgentKit CLI nutzt manuelles
+argparse-Subparser-Wiring (FK-43); der Command wird als Subparser registriert.
 
 **Command-Signatur:**
 
 ```
-agentkit evidence assemble \
+# Ausschliesslich menschliche Operator-Recovery
+<absolute-agentkit-wrapper> evidence assemble \
   --story-id ODIN-042 \
   --story-dir ./stories/ODIN-042 \
   --output-dir ./stories/ODIN-042/qa \
@@ -849,7 +852,7 @@ def _register_evidence_commands(subparsers) -> None:
 
 
 def _handle_evidence_assemble(args) -> int:
-    """Handler für 'agentkit evidence assemble'.
+    """Handler für '<absolute-agentkit-wrapper> evidence assemble'.
 
 1. Laedt den Edge-exportierten `context.json`-Evidence-Checkpoint
 2. Baut logische Repo-Kontexte ohne physische Worktree-Pfade
@@ -861,11 +864,11 @@ def _handle_evidence_assemble(args) -> int:
     ...
 ```
 
-**Begründung für CLI-Variante (statt reiner Python-API):**
+**Begründung für den zusaetzlichen menschlichen CLI-Adapter:**
 
 1. Konsistent mit bestehenden Commands (`structural`, `policy`,
-   `verify`) — einheitliche Nutzungsschnittstelle.
-2. Nutzbar in Worker-Prompts UND manuell/debugging.
+   `verify`) — einheitliche Operator-Nutzungsschnittstelle.
+2. Manuell fuer Recovery und Debugging nutzbar, nicht in Worker-Prompts.
 3. Testbar über Integrationstests mit subprocess.
 
 ## 28.8 Integration in den Review-Flow
@@ -908,10 +911,12 @@ erste LLM-Kontakt im Review-Flow.
 
 ### 28.8.2 Worker-Template-Aenderungen (FK-28-016)
 
-`worker-implementation.md` und `worker-bugfix.md` erhalten in
-der DoD-Review-Sektion eine Anweisung, den Evidence Assembler
-(`agentkit evidence assemble`) statt eigener `merge_paths`-Kuration
-zu verwenden. Der Assembler:
+`worker-implementation.md` und `worker-bugfix.md` erhalten in der
+DoD-Review-Sektion die Anweisung, die Evidence Assembly ueber Project Edge
+anzufordern und auf den `collect_verify_evidence`-Result-Pfad zu warten, statt
+eigene `merge_paths` zu kuratieren. Ein Aufruf von
+`<absolute-agentkit-wrapper> evidence assemble` durch den Worker ist
+unzulaessig. Der Assembler:
 
 1. Konsumiert das AG3-147-Change-Inventar und den Edge-Snapshot
 2. Sammelt normative Quellen (Story-Spec, Concepts, Guardrails)

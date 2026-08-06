@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _finding(*, prompt: str = "authority-prose/v1", model: str = "fixed/v1") -> AuthorityFinding:
+def _finding(*, prompt: str = "authority-prose/v2", model: str = "fixed/v1") -> AuthorityFinding:
     return AuthorityFinding(
         code="UNAUTHORIZED_SCOPE_ASSERTION",
         doc="domain-design/consumer.md",
@@ -77,9 +77,9 @@ def test_stale_baseline_is_error() -> None:
     assert result[0].severity == "ERROR"
 
 
-def test_prompt_or_model_change_surfaces_new_finding_and_stale_entry() -> None:
-    old = _finding()
-    changed = _finding(prompt="authority-prose/v2", model="fixed/v2")
+def test_v1_baseline_entry_is_stale_under_v2_and_cannot_suppress_new_finding() -> None:
+    old = _finding(prompt="authority-prose/v1")
+    changed = _finding(prompt="authority-prose/v2")
     baseline = BaselineDocument(version=1, entries=(_entry(old),))
 
     result = apply_baseline((changed,), baseline, "baseline.yaml")

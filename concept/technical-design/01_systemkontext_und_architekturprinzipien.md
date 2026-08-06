@@ -114,14 +114,20 @@ samt Bootstrap, Update und Uninstall sind in **FK-10 §10.2.0**
 ausdetailliert; die Versionsverträge (Agent-Runtime, Skill-Bundle, Wire
 `/v1`) in **FK-10 §10.2.7**.
 
-**Kommandokanal — technisch unidirektional, fachlich bidirektional.** Die
-Kommunikation geht *immer* vom Arm aus: der Orchestrator-Agent zieht über den
-Project-Edge-Launcher den jeweils nächsten Schritt beim Core ab (Pull-Modell,
-FK-45 §45.1.1); der Core antwortet mit einem fachlichen Response, der auch ein
+**Kommandokanal — transportseitig client-initiiert, fachlich bidirektional.**
+Der Standardweg bleibt das Pull-Modell: Der Orchestrator-Agent zieht über den
+Project-Edge-Launcher den jeweils nächsten Schritt beim Core ab (FK-45
+§45.1.1); der Core antwortet mit einem fachlichen Response, der auch ein
 Auftrag sein kann (z. B. „Merge-Konflikt auflösen"). **Der Core initiiert nie
-zur Dev-Seite und hat keinen Dateisystem-Zugriff auf den Entwicklerrechner.**
-Im Team-Deployment wird die Zone-2/Zone-3-Grenze (§1.4) damit zur Prozess- und
-Netzgrenze und ist entsprechend härter.
+gegenueber einem beliebigen Entwicklerrechner und hat keinen
+Dateisystem-Zugriff auf den Entwicklerrechner.** Ausschliesslich gegenueber
+einem durch einen vorherigen Project-Edge-Pull etablierten Knoten darf er eine
+Delegation initiieren, ausschliesslich ueber Project Edge als Relais und
+ausschliesslich fuer die bewusst am Orchestrator vorbeigefuehrte
+Review-Beauftragung. Der Delegations- und Rueckmeldevertrag liegt in FK-91
+§91.1b; die Harness-Anbindung des Relais in FK-76 §76.10. Im Team-Deployment
+wird die Zone-2/Zone-3-Grenze (§1.4) damit zur Prozess- und Netzgrenze und ist
+entsprechend härter.
 
 **Drittsystem-Vermittlung (Carve-out).** Eine direkte Lokal→Infra-Kante
 ist nur erlaubt, wenn der Aufruf (1) Eigenbedarf des Agents ist oder
@@ -155,6 +161,7 @@ graph TB
 
         subgraph CC["Harness-Session (Claude Code oder Codex; FK-76)"]
             AGENT["LLM-Agent<br/>(Orchestrator / Worker /<br/>QA / Adversarial)"]
+            REVIEW["Review-Agent(en)<br/>(Orchestrator-Bypass)"]
             HOOKS["Hook-Schicht<br/>PreToolUse / PostToolUse<br/>(lesen lokalen Cache, rufen Core)"]
             TOOLS["Tool-Ausführung + det. Executor<br/>(Build/Test, git-Mechanik)"]
             SETTINGS["Harness-Settings<br/>(.claude/settings.json bzw. Codex-Aequivalent)"]
@@ -191,6 +198,8 @@ graph TB
     end
 
     PE -->|"Pull / REST — Arm initiiert"| CORE
+    CORE -.->|"Review-Delegation<br/>nur etablierter Knoten"| PE
+    PE -.->|"Harness-Start<br/>ohne Orchestrator-Kontext"| REVIEW
     CORE --> SONAR
     CORE --> JENKINS
     CORE --> GH

@@ -507,7 +507,7 @@ Wenn ein Stratege Daten von einer alten in eine neue Version
 uebernehmen will, ist das eine **separate, gezielt gestartete
 Aktion** — nicht Auto-Boot-Verhalten. Der Mechanismus dafuer ist
 nicht-kriegsentscheidend; ein einfacher Migrations-Befehl wie
-`agentkit migrate --from=3.0.0 --to=3.1.0` reicht. Die detaillierte
+`<absolute-agentkit-wrapper> migrate --from=3.0.0 --to=3.1.0` reicht. Die detaillierte
 Mechanik wird erst bei der ersten realen Migrations-Anforderung
 spezifiziert; wesentlich sind das Side-by-Side-Verhalten und das
 Bootstrap-Auto-Anlage-Verhalten.

@@ -46,7 +46,7 @@ Ende-zu-Ende-Durchgang des realen Operator-Workflows hat die Annahme widerlegt.
    in FK-56 §56.13g gemeinte Fall "dieselbe Harness-Identitaet nimmt ihre eigene
    verwaiste Arbeit wieder auf". Das "Identitaets-Primitiv" ist die resumebare Session
    selbst — es ist **kein zusaetzliches Primitiv zu bauen**.
-2. `agentkit recover-story` (`acquired_via=recovery`, neuer Run, `human_cli`, auditiert
+2. `<absolute-agentkit-wrapper> recover-story` (`acquired_via=recovery`, neuer Run, `human_cli`, auditiert
    als `admin_transition`) ist der **Fallback** fuer den Fall, dass die Harness-Identitaet
    **nicht** wiederherstellbar ist (Session/Transcript verloren, bewusster Clean-Slate)
    oder waehrend der Ausfallzeit bereits ein Takeover die Story entzogen hat (Ex-Owner

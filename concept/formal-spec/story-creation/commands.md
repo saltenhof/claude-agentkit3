@@ -37,7 +37,7 @@ commands:
       - story-creation.event.story.classified
       - story-creation.event.story.backlog_created
   - id: story-creation.command.export-story-md
-    signature: agentkit export-story-md --story-id <story_id> --story-dir <story_dir>
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> export-story-md --story-id <story_id> --story-dir <story_dir>
     allowed_statuses:
       - story-creation.status.backlog
     requires:

@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from agentkit.backend.control_plane.writer_lease import (
+    ControlPlaneWriterAlreadyActiveError,
+    ControlPlaneWriterLease,
+    ControlPlaneWriterLeaseLostError,
+)
 from agentkit.backend.state_backend.governance_runtime_store import (
     load_story_execution_lock_global,
     save_story_execution_lock_global,
@@ -54,7 +60,6 @@ from agentkit.backend.state_backend.operation_ledger import (
     save_control_plane_operation_global,
 )
 from agentkit.backend.state_backend.state_backend_connection_manager import (
-    boot_backend_instance_identity_global,
     load_backend_instance_identity_global,
     save_backend_instance_identity_global,
 )
@@ -85,7 +90,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from datetime import datetime
 
     from agentkit.backend.control_plane.ownership import OwnershipStatus
@@ -212,7 +217,7 @@ class ControlPlaneRuntimeRepository:
     )
     #: AG3-054 owner-scoped claim: ownership-scoped release. Deletes the row ONLY when it
     #: is still ``claimed`` by the owner token (never a terminal / foreign row).
-    release_operation: Callable[..., None] = release_control_plane_operation_global
+    release_operation: Callable[..., bool] = release_control_plane_operation_global
     #: AG3-054 (#3): run-scoped admission evidence -- whether a COMMITTED op exists
     #: for THIS exact ``(project_key, story_id, run_id)``.
     has_committed_operation_for_run: Callable[[str, str, str], bool] = (
@@ -474,9 +479,97 @@ class BackendInstanceIdentityRepository:
     #: First boot ever persists ``candidate_backend_instance_id`` with
     #: incarnation 1; every later boot keeps the EXISTING stable id and
     #: increments the incarnation by exactly 1.
-    boot_identity: Callable[[str, datetime], BackendInstanceIdentityRecord] = (
-        boot_backend_instance_identity_global
-    )
+    @staticmethod
+    def boot_identity(
+        candidate_backend_instance_id: str,
+        now: datetime,
+    ) -> BackendInstanceIdentityRecord:
+        from agentkit.backend.state_backend.state_backend_connection_manager import (
+            boot_backend_instance_identity_global,
+        )
+        from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+            StateBackendControlPlaneWriterLeaseLostError,
+            assert_control_plane_writer_lease_acquired,
+        )
+
+        try:
+            assert_control_plane_writer_lease_acquired()
+        except StateBackendControlPlaneWriterLeaseLostError as exc:
+            raise ControlPlaneWriterLeaseLostError(str(exc)) from exc
+        return boot_backend_instance_identity_global(candidate_backend_instance_id, now)
+
+
+@dataclass
+class _RepositoryControlPlaneWriterLease:
+    """Translate state-adapter failures at the control-plane port boundary."""
+
+    delegate: Any
+
+    def assert_held(self) -> None:
+        from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+            StateBackendControlPlaneWriterLeaseLostError,
+        )
+
+        try:
+            self.delegate.assert_held()
+        except StateBackendControlPlaneWriterLeaseLostError as exc:
+            raise ControlPlaneWriterLeaseLostError(str(exc)) from exc
+
+    def bind_identity(self, identity: BackendInstanceIdentityRecord) -> None:
+        from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+            StateBackendControlPlaneWriterLeaseLostError,
+        )
+
+        try:
+            self.delegate.bind_identity(identity)
+        except StateBackendControlPlaneWriterLeaseLostError as exc:
+            raise ControlPlaneWriterLeaseLostError(str(exc)) from exc
+
+    @contextmanager
+    def request_scope(self) -> Iterator[None]:
+        """Translate request-lifetime lease failures at the port boundary."""
+
+        from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+            StateBackendControlPlaneWriterLeaseLostError,
+        )
+
+        try:
+            with self.delegate.request_scope():
+                yield
+        except StateBackendControlPlaneWriterLeaseLostError as exc:
+            raise ControlPlaneWriterLeaseLostError(str(exc)) from exc
+
+    def quiesce_requests(self) -> None:
+        """Stop request admission while retaining the reserved DB session."""
+
+        self.delegate.quiesce_requests()
+
+    def release(self) -> None:
+        from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+            StateBackendControlPlaneWriterLeaseLostError,
+        )
+
+        try:
+            self.delegate.release()
+        except StateBackendControlPlaneWriterLeaseLostError as exc:
+            raise ControlPlaneWriterLeaseLostError(str(exc)) from exc
+
+
+@dataclass(frozen=True)
+class ControlPlaneWriterLeaseRepository:
+    """Persistence adapter for the database-lifetime single-writer fence."""
+
+    def acquire(self) -> ControlPlaneWriterLease:
+        from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+            StateBackendControlPlaneWriterAlreadyActiveError,
+            acquire_control_plane_writer_lease,
+        )
+
+        try:
+            delegate = acquire_control_plane_writer_lease()
+        except StateBackendControlPlaneWriterAlreadyActiveError as exc:
+            raise ControlPlaneWriterAlreadyActiveError(str(exc)) from exc
+        return _RepositoryControlPlaneWriterLease(delegate)
 
 
 @dataclass(frozen=True)

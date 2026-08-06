@@ -332,7 +332,7 @@ Ausloeser:
 1. **Story-Closure** (primaer): Nach Metriken-Berechnung und
    Abschluss der kanonischen Runtime-Persistenz ruft die Closure-Phase
    `sync_analytics()` auf. Optionale JSONL-Exports sind davon getrennt.
-2. **Dashboard-Start** (Catch-up): `agentkit dashboard` ruft
+2. **Dashboard-Start** (Catch-up): `<absolute-agentkit-wrapper> dashboard` ruft
    beim Start `sync_analytics()` auf (best-effort, bei Lock
    wird mit vorhandenem Stand gestartet).
 

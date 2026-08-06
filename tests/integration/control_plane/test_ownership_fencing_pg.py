@@ -499,6 +499,7 @@ def test_t3_real_takeover_confirm_fences_ex_owner_mutations_but_allows_operation
     _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
     auth = AuthMiddleware()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         runtime_service=service,
         auth_middleware=auth,
     )
@@ -611,9 +612,7 @@ def _assert_real_freeze_block(
 
 def test_postgres_freeze_blocks_start_boundary_after_real_setup(tmp_path: Path) -> None:
     story_id, run_id, op_id = "AG3-650", "run-650", "op-freeze-start-pg"
-    service = _real_setup_then_freeze(
-        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-start"
-    )
+    service = _real_setup_then_freeze(tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-start")
     result = service.start_phase(
         run_id=run_id,
         phase="implementation",
@@ -624,9 +623,7 @@ def test_postgres_freeze_blocks_start_boundary_after_real_setup(tmp_path: Path) 
 
 def test_postgres_freeze_blocks_complete_boundary_after_real_setup(tmp_path: Path) -> None:
     story_id, run_id, op_id = "AG3-651", "run-651", "op-freeze-complete-pg"
-    service = _real_setup_then_freeze(
-        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-complete"
-    )
+    service = _real_setup_then_freeze(tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-complete")
     result = service.complete_phase(
         run_id=run_id,
         phase="setup",
@@ -637,9 +634,7 @@ def test_postgres_freeze_blocks_complete_boundary_after_real_setup(tmp_path: Pat
 
 def test_postgres_freeze_blocks_fail_boundary_after_real_setup(tmp_path: Path) -> None:
     story_id, run_id, op_id = "AG3-652", "run-652", "op-freeze-fail-pg"
-    service = _real_setup_then_freeze(
-        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-fail"
-    )
+    service = _real_setup_then_freeze(tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-fail")
     result = service.fail_phase(
         run_id=run_id,
         phase="setup",
@@ -650,9 +645,7 @@ def test_postgres_freeze_blocks_fail_boundary_after_real_setup(tmp_path: Path) -
 
 def test_postgres_freeze_blocks_resume_boundary_after_real_setup(tmp_path: Path) -> None:
     story_id, run_id, op_id = "AG3-653", "run-653", "op-freeze-resume-pg"
-    service = _real_setup_then_freeze(
-        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-resume"
-    )
+    service = _real_setup_then_freeze(tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-resume")
     result = service.resume_phase(
         run_id=run_id,
         phase="setup",
@@ -663,9 +656,7 @@ def test_postgres_freeze_blocks_resume_boundary_after_real_setup(tmp_path: Path)
 
 def test_postgres_freeze_blocks_closure_boundary_after_real_setup(tmp_path: Path) -> None:
     story_id, run_id, op_id = "AG3-654", "run-654", "op-freeze-closure-pg"
-    service = _real_setup_then_freeze(
-        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-closure"
-    )
+    service = _real_setup_then_freeze(tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-closure")
     result = service.complete_closure(
         run_id=run_id,
         request=ClosureCompleteRequest(
@@ -1052,9 +1043,7 @@ def test_postgres_resolving_repair_keeps_conflict_member_blocking_admission(
         story_id=story_id,
         op_id="op-freeze-family-still-blocked",
     )
-    assert tuple(record.kind for record in repo.read_freezes(story_id)) == (
-        FreezeKind.CONFLICT_FREEZE,
-    )
+    assert tuple(record.kind for record in repo.read_freezes(story_id)) == (FreezeKind.CONFLICT_FREEZE,)
 
 
 def test_postgres_freeze_epoch_is_db_monotone_with_conflict_default() -> None:

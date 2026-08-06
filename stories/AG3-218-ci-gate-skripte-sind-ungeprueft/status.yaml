@@ -1,0 +1,47 @@
+story_id: AG3-218
+story_title_short: "ci-gate-skripte-sind-ungeprueft"
+title: "Die CI-Gate-Skripte unter scripts/ setzen die Guardrails durch, unterliegen aber selbst weder ruff noch mypy -- das wird korrigiert."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-05"
+size: S
+# Herkunft: AG3-214 R3 (2026-08-05). Der Auftrag verlangte
+# `ruff check src tests scripts` -- also mit `scripts` -- und meldete prompt
+# einen ERROR, den niemand kannte:
+#
+#   C901 lint_l19_glossary_integrity is too complex (24 > 15)
+#   scripts/ci/check_concept_frontmatter.py:566
+#
+# Der Sub-Agent hat ihn korrekt als mandatsfremd zurueckgegeben statt ihn
+# nebenbei zu unterdruecken.
+#
+# Die Nachpruefung zeigte die eigentliche Ursache: `Jenkinsfile:103` fuehrt
+# `python -m ruff check src tests` aus -- **ohne `scripts`**. Dasselbe gilt
+# fuer mypy (`pyproject.toml [tool.mypy] packages = ["agentkit"]`, also nur
+# `src/agentkit`). Die Gate-Skripte sind damit der einzige produktive
+# Codebestand des Repos, der die Regeln durchsetzt, denen er selbst nicht
+# unterliegt.
+#
+# Der C901-Befund ist nicht der Kern der Story, sondern ihr Anlassfall: er
+# lag unbemerkt da, weil niemand hinsah. Wie viele weitere es sind, weiss
+# aktuell niemand -- das ist Teil der Umsetzung, nicht ihrer Vorbedingung.
+#
+# NACHTRAG 2026-08-05/06 -- zwei weitere Belege aus demselben Verzeichnis:
+#
+# 1. Zweiter C901 in `tools/concept_compiler/architecture_conformance.py:1409`.
+#    `tools/` ist damit genauso ungeprueft wie `scripts/` und gehoert in den
+#    Scope dieser Story.
+#
+# 2. FUNKTIONALER Defekt, nicht nur Lint: `scripts/ci/check_remote_gates.ps1:27`
+#    erhaelt von Jenkins `401`, waehrend die praeemptive Basic-Auth mit `admin`
+#    und `var/jenkins-api-token.txt` erfolgreich ist. Das Script zieht seine
+#    Zugangsdaten aus einer anderen Quelle als der, die traegt.
+#
+#    Das ist der schaerfste Beleg fuer die These der Story: Ein Gate-Pruefskript,
+#    das an der Authentifizierung scheitert statt am Gate, meldet "rot" ohne
+#    Aussage -- und niemand hat es gemerkt, weil `scripts/` von nichts geprueft
+#    wird. Gefunden wurde es zweimal unabhaengig: vom Orchestrator beim eigenen
+#    Jenkins-Zugriff und von AG3-189 R12/R20.
+depends_on: []
+unblocks: []

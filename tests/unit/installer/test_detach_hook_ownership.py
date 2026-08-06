@@ -8,9 +8,40 @@ that were removed in the field.
 
 from __future__ import annotations
 
+import shlex
+from pathlib import Path
+
 import pytest
 
+from agentkit.backend.core_types.mcp_server_registration import (
+    STORY_KNOWLEDGE_BASE_SERVER,
+)
 from agentkit.backend.installer.lifecycle.detach import _is_ak3_hook_command
+
+
+def _owner_context(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    project_root = tmp_path / "project"
+    (project_root / ".agentkit" / "hooks").mkdir(parents=True)
+    owner_dir = tmp_path / "ak3-runtime"
+    owner_dir.mkdir()
+    interpreter = owner_dir / "python.exe"
+    claude_wrapper = owner_dir / "agentkit-hook-claude.exe"
+    codex_wrapper = owner_dir / "agentkit-hook-codex.exe"
+    for path in (interpreter, claude_wrapper, codex_wrapper):
+        path.write_text("owner", encoding="utf-8")
+    return project_root, {
+        STORY_KNOWLEDGE_BASE_SERVER: str(interpreter),
+        "agentkit-hook-claude": str(claude_wrapper),
+        "agentkit-hook-codex": str(codex_wrapper),
+    }
+
+
+def _classify(command: object, project_root: Path, owners: dict[str, str]) -> bool:
+    return _is_ak3_hook_command(
+        command,
+        project_root=project_root,
+        resolved_command_owners=owners,
+    )
 
 
 @pytest.mark.parametrize(
@@ -57,29 +88,132 @@ from agentkit.backend.installer.lifecycle.detach import _is_ak3_hook_command
         "",
     ],
 )
-def test_foreign_hook_commands_are_not_claimed(command: str) -> None:
-    assert _is_ak3_hook_command(command) is False
+def test_foreign_hook_commands_are_not_claimed(tmp_path: Path, command: str) -> None:
+    project_root, owners = _owner_context(tmp_path)
+    if command.startswith("python "):
+        command = (
+            f"{shlex.quote(owners[STORY_KNOWLEDGE_BASE_SERVER])} {command[7:]}"
+        )
+    assert _classify(command, project_root, owners) is False
 
 
 @pytest.mark.parametrize(
-    "command",
+    "arguments",
     [
-        "/opt/agentkit/bin/agentkit-hook-claude pre branch_guard",
-        "T:/AgentKit/runtime/Scripts/agentkit-hook-codex.exe post commit_hook",
-        # The form the bundled target-project settings actually register.
-        "python .agentkit/hooks/pre_tool_use.py",
-        "python /srv/project/.agentkit/hooks/story_guard.py",
+        ".agentkit/hooks/pre_tool_use.py",
         # A value option does not hide the script -- and a boolean switch such
         # as `-O` must not swallow it either.
-        "python -W ignore .agentkit/hooks/story_guard.py",
-        "python -O .agentkit/hooks/pre_tool_use.py",
-        "python -B -u .agentkit/hooks/pre_tool_use.py",
+        "-W ignore .agentkit/hooks/story_guard.py",
+        "-O .agentkit/hooks/pre_tool_use.py",
+        "-B -u .agentkit/hooks/pre_tool_use.py",
     ],
 )
-def test_ak3_owned_hook_commands_are_claimed(command: str) -> None:
-    assert _is_ak3_hook_command(command) is True
+def test_project_hook_script_through_owned_interpreter_is_claimed(
+    tmp_path: Path,
+    arguments: str,
+) -> None:
+    project_root, owners = _owner_context(tmp_path)
+    command = (
+        f"{shlex.quote(owners[STORY_KNOWLEDGE_BASE_SERVER])} {arguments}"
+    )
+    assert _classify(command, project_root, owners) is True
 
 
-def test_unparsable_shell_is_left_alone() -> None:
+@pytest.mark.parametrize(
+    ("wrapper", "arguments"),
+    [
+        ("agentkit-hook-claude", "pre branch_guard"),
+        ("agentkit-hook-codex", "post commit_hook"),
+    ],
+)
+def test_centrally_owned_hook_wrapper_is_claimed(
+    tmp_path: Path,
+    wrapper: str,
+    arguments: str,
+) -> None:
+    project_root, owners = _owner_context(tmp_path)
+    command = f"{shlex.quote(owners[wrapper])} {arguments}"
+    assert _classify(command, project_root, owners) is True
+
+
+def test_foreign_absolute_wrapper_with_ak3_basename_is_not_claimed(
+    tmp_path: Path,
+) -> None:
+    project_root, owners = _owner_context(tmp_path)
+    foreign = tmp_path / "FOREIGN TOOL" / "agentkit-hook-claude.exe"
+    foreign.parent.mkdir()
+    foreign.write_text("foreign", encoding="utf-8")
+    command = shlex.join((str(foreign), "pre", "branch_guard"))
+
+    assert _classify(command, project_root, owners) is False
+
+
+def test_foreign_project_hook_script_is_not_claimed(tmp_path: Path) -> None:
+    project_root, owners = _owner_context(tmp_path)
+    foreign_script = tmp_path / "foreign" / ".agentkit" / "hooks" / "audit.py"
+    foreign_script.parent.mkdir(parents=True)
+    foreign_script.write_text("# foreign", encoding="utf-8")
+    command = shlex.join(
+        (owners[STORY_KNOWLEDGE_BASE_SERVER], str(foreign_script))
+    )
+
+    assert _classify(command, project_root, owners) is False
+
+
+def test_symlinked_command_owner_is_not_claimed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The narrow seam is required on Windows workers without symlink privilege."""
+    project_root, owners = _owner_context(tmp_path)
+    owner = Path(owners["agentkit-hook-claude"])
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda path: path == owner or real_is_symlink(path),
+    )
+    command = shlex.join((str(owner), "pre", "branch_guard"))
+
+    assert _classify(command, project_root, owners) is False
+
+
+def test_symlinked_script_ancestor_before_dotdot_is_not_claimed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lexical cleanup cannot erase a mutable script-path ancestor."""
+    project_root, owners = _owner_context(tmp_path)
+    pivot = project_root / ".agentkit" / "pivot"
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda path: path == pivot or real_is_symlink(path),
+    )
+    command = shlex.join(
+        (
+            owners[STORY_KNOWLEDGE_BASE_SERVER],
+            ".agentkit/pivot/../hooks/pre_tool_use.py",
+        )
+    )
+
+    assert _classify(command, project_root, owners) is False
+
+
+def test_unresolvable_command_owner_is_not_claimed(tmp_path: Path) -> None:
+    project_root, owners = _owner_context(tmp_path)
+    command = shlex.join(
+        (owners["agentkit-hook-codex"], "post", "commit_hook")
+    )
+
+    assert _classify(command, project_root, {}) is False
+
+
+def test_unparsable_shell_is_left_alone(tmp_path: Path) -> None:
     """What cannot be parsed cannot be proven ours -- so it stays."""
-    assert _is_ak3_hook_command('agentkit-hook-claude "unterminated') is False
+    project_root, owners = _owner_context(tmp_path)
+    assert (
+        _classify('agentkit-hook-claude "unterminated', project_root, owners)
+        is False
+    )

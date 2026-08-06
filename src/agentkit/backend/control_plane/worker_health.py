@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from agentkit.backend.control_plane.models import (
     WorkerHealthSaveAccepted,
     WorkerHealthStateResponse,
+    WorkerHealthStoryResponse,
 )
 
 if TYPE_CHECKING:
@@ -84,4 +85,12 @@ class ControlPlaneWorkerHealthService:
         self._repository_factory().save(state)
         return WorkerHealthSaveAccepted(
             story_id=state.story_id, worker_id=state.worker_id
+        )
+
+    def list_for_story(self, *, story_id: str) -> WorkerHealthStoryResponse:
+        """Read every canonical worker-health state for one story."""
+
+        states = self._repository_factory().list_for_story(story_id)
+        return WorkerHealthStoryResponse(
+            states=tuple(state.model_dump(mode="json") for state in states),
         )

@@ -135,7 +135,10 @@ Abhaengigkeits- und Package-Preflight. Ein globaler Interpreter, sichtbare
 System-Site-Packages oder ein nicht aufloesbarer Interpreter ergeben
 `runtime_not_isolated` und stoppen den Einstieg fail-closed; sie werden nicht
 als einer der zehn fachlichen Setup-Checks gezaehlt und nicht durch deren
-Ergebnis ueberstimmt.
+Ergebnis ueberstimmt. Ein abweichendes `sys.prefix` genuegt nicht als Nachweis:
+auch eine `venv --system-site-packages` durchlaeuft die zentrale
+`pyvenv.cfg`-Pruefung und wird abgelehnt, bevor ein importiertes Submodul oder
+der Phase Runner Fachlogik ausfuehrt.
 
 ## 22.2 Ablauf
 
@@ -253,7 +256,7 @@ der Preflight dem Menschen konkrete Hinweise:
 ```
 Preflight FAILED:
 - no_execution_artifacts: worker-manifest.json exists in _temp/qa/ODIN-042/
-  → Cleanup: agentkit cleanup --story ODIN-042
+  → Cleanup: <absolute-agentkit-wrapper> cleanup --story ODIN-042
 - no_story_branch: Branch story/ODIN-042 exists
   → Cleanup: git branch -d story/ODIN-042
 ```

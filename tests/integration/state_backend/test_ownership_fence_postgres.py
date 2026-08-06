@@ -99,6 +99,9 @@ def _op(
         updated_at=_NOW,
         claimed_by=claimed_by,
         claimed_at=claimed_at,
+        operation_epoch=1,
+        backend_instance_id="ownership-fence-test-writer",
+        instance_incarnation=1,
     )
 
 

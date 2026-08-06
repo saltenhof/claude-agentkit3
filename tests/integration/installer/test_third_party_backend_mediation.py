@@ -9,6 +9,7 @@ import urllib.request
 from http import HTTPStatus
 from http.server import HTTPServer
 from importlib.metadata import version
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -48,13 +49,22 @@ from agentkit.backend.installer.third_party_clients import (
     ThirdPartyClientFactory,
 )
 from agentkit.backend.installer.third_party_preflight import ThirdPartyPreflightService
-from agentkit.backend.skills import Skills
+from agentkit.backend.skills import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS, Skills
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
 from agentkit.backend.state_backend.operation_ledger import (
     load_control_plane_operation_global,
 )
+from agentkit.backend.state_backend.store.governance_hook_repository import (
+    StateBackendHookRegistrationRepository,
+)
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     StateBackendInflightIdempotencyGuard,
+)
+from agentkit.backend.state_backend.store.project_management_repository import (
+    StateBackendProjectRepository,
+)
+from agentkit.backend.state_backend.store.project_registration_repository import (
+    StateBackendProjectRegistrationRepository,
 )
 from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
@@ -106,13 +116,15 @@ class _TokenRepository:
 def _bundle_store(root: Path) -> SkillBundleStore:
     store = SkillBundleStore(store_root=root / "skill-bundles")
     for name in MANDATORY_SKILLS:
-        bundle_root = root / "skill-bundles" / f"{name}-core" / "4.0.0"
+        bundle_id = f"{name}-core"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(bundle_id, "4.0.0")
+        bundle_root = root / "skill-bundles" / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         (bundle_root / "SKILL.md").write_text(f"# {name}\n", encoding="utf-8")
         store.register_bundle(
             SkillBundle(
-                bundle_id=f"{name}-core",
-                bundle_version="4.0.0",
+                bundle_id=bundle_id,
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -150,11 +162,17 @@ def mediated_control_plane(
     )
     routes = ControlPlaneApplicationRoutes(third_party_validation_routes=ThirdPartyValidationRoutes(service))
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=routes,
         auth_middleware=AuthMiddleware(token_repository=tokens),
         version_handshake_middleware=VersionHandshakeMiddleware(),
     )
-    server = HTTPServer(("127.0.0.1", 0), _build_handler(app))
+    app.run_pre_serve_startup_hook()
+    try:
+        server = HTTPServer(("127.0.0.1", 0), _build_handler(app))
+    except Exception:
+        app.release_writer_lease()
+        raise
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address
@@ -164,6 +182,7 @@ def mediated_control_plane(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+        app.release_writer_lease()
 
 
 def _project_edge(root: Path, base_url: str, token: str) -> ProjectEdgeClient:
@@ -192,6 +211,9 @@ def _install_config(root: Path, store: SkillBundleStore, client: ProjectEdgeClie
         skills=skills,
         skill_bundle_store=store,
         skill_bundle_ids={name: f"{name}-core" for name in MANDATORY_SKILLS},
+        registration_repo=StateBackendProjectRegistrationRepository(root),
+        project_repo=StateBackendProjectRepository(root),
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
         project_edge_client=client,
         control_plane_base_url=base_url,
         sonarqube_token_env="SONAR_BACKEND_TOKEN",
@@ -307,6 +329,10 @@ def test_verify_collects_failed_third_party_verdict_and_later_checkpoints(
     monkeypatch.setattr(
         "agentkit.backend.cli.installer_commands._build_engine_config",
         lambda _args: config,
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.cli.installer_commands._wire_register_config_to_writer",
+        lambda _config, _args, _op_id: SimpleNamespace(clear_secret=lambda: None),
     )
 
     exit_code = _cmd_verify_project(argparse.Namespace(project_root=str(root)))

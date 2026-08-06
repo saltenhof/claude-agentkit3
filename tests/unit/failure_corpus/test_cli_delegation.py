@@ -10,6 +10,7 @@ Tests verify:
 from __future__ import annotations
 
 import argparse
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,6 +19,43 @@ from agentkit.backend.failure_corpus.cli import dispatch, register_subparsers
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+class _RecordingWriterClient:
+    """Capture mutating CLI requests at the authenticated HTTP client seam."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
+    def add_incident(self, project_key: str, request: object) -> object:
+        self.calls.append((project_key, request))
+        return SimpleNamespace(incident_id="FC-2026-0001")
+
+    def review_pattern(
+        self,
+        project_key: str,
+        pattern_id: str,
+        request: object,
+    ) -> object:
+        self.calls.append((project_key, request))
+        return SimpleNamespace(pattern_id=pattern_id)
+
+    def review_check(
+        self,
+        project_key: str,
+        check_id: str,
+        request: object,
+    ) -> object:
+        self.calls.append((project_key, request))
+        return SimpleNamespace(check_id=check_id)
+
+    def report_effectiveness(self, project_key: str, request: object) -> object:
+        self.calls.append((project_key, request))
+        return SimpleNamespace(
+            window_days=90,
+            updated_count=0,
+            deactivated_count=0,
+        )
 
 # ---------------------------------------------------------------------------
 # register_subparsers: all 6 subcommands registered
@@ -164,13 +202,7 @@ class TestReviewPatternsArgCoverage:
     def test_dispatch_review_patterns_accepted_delegates_promotion_rule(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """ERROR 7: dispatch routes --promotion-rule and --category to confirm_pattern.
-
-        This is a delegation test: the CLI adapter must pass promotion_rule and category
-        to the underlying corpus.confirm_pattern (no business logic in the adapter).
-        We intercept at the composition_root build to return a mock corpus.
-        """
-        from unittest.mock import MagicMock
+        """The writer request carries promotion-rule and category unchanged."""
 
         # Build args namespace as the parser would produce
         args = argparse.Namespace(
@@ -184,49 +216,32 @@ class TestReviewPatternsArgCoverage:
             category="test_omission",
         )
 
-        mock_corpus = MagicMock()
-        mock_corpus.confirm_pattern.return_value = MagicMock(pattern_id="FP-0001")
-
-        # Both build_failure_corpus and build_projection_accessor are lazy-imported
-        # inside each handler body (not at cli module level).  Patch at the source
-        # module so the lazy `from ... import` picks up the stub.
+        client = _RecordingWriterClient()
         monkeypatch.setattr(
-            "agentkit.backend.bootstrap.composition_root.build_failure_corpus",
-            lambda *a, **kw: mock_corpus,
-        )
-        monkeypatch.setattr(
-            "agentkit.backend.bootstrap.composition_root.build_projection_accessor",
-            lambda *a, **kw: MagicMock(),
+            "agentkit.backend.failure_corpus.cli._build_writer_client",
+            lambda _args: client,
         )
 
         from agentkit.backend.failure_corpus.cli import handle_review_patterns
         rc = handle_review_patterns(args)
         assert rc == 0
-        mock_corpus.confirm_pattern.assert_called_once()
-        call_kwargs = mock_corpus.confirm_pattern.call_args
-        # Verify promotion_rule and category were passed
-        assert call_kwargs.kwargs.get("promotion_rule") is not None or (
-            len(call_kwargs.args) > 2 and call_kwargs.args[2] is not None
-        )
-        assert call_kwargs.kwargs.get("category") is not None or (
-            len(call_kwargs.args) > 3 and call_kwargs.args[3] is not None
-        )
+        assert len(client.calls) == 1
+        request = client.calls[0][1]
+        assert request.promotion_rule.value == "high_severity"
+        assert request.category.value == "test_omission"
 
 
 # ---------------------------------------------------------------------------
-# ERROR A: every CLI subcommand builds the factory WITHOUT an LLM client
+# Read-only local composition and mutating writer delegation
 # ---------------------------------------------------------------------------
 
 
-class TestCliBuildsWithoutLlmClient:
-    """ERROR A regression: non-derive_check commands must build + delegate w/o LLM.
+class TestCliReadAndWriteDelegation:
+    """Keep local read composition separate from active-writer mutations.
 
-    These are PRODUCTION-PATH tests: they call the real handler against a real
-    SQLite backend (no mocked corpus). Before the fix, the composition root
-    unconditionally constructed ``LlmInvariantSharpener(None)`` which raised, so
-    EVERY subcommand crashed before reaching its handler. The fix builds the LLM
-    sharpener lazily (only when an llm_client is supplied), so these commands
-    build and delegate; ``derive_check`` stays fail-closed (covered below).
+    The read-only commands exercise the real top surface against SQLite. The
+    mutating commands exercise the writer-client seam and must not build local
+    repositories. ``derive_check`` remains fail-closed without an LLM client.
     """
 
     def _sqlite_env(
@@ -254,24 +269,25 @@ class TestCliBuildsWithoutLlmClient:
         finally:
             reset_backend_cache_for_tests()
 
-    def test_effectiveness_report_builds_and_delegates(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    def test_effectiveness_report_delegates_to_writer(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from agentkit.backend.failure_corpus.cli import handle_effectiveness_report
-        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
-        self._sqlite_env(tmp_path, monkeypatch)
-        try:
-            rc = handle_effectiveness_report(
-                argparse.Namespace(
-                    fc_command="effectiveness-report",
-                    project_key="proj-cli",
-                    window_days=90,
-                )
+        client = _RecordingWriterClient()
+        monkeypatch.setattr(
+            "agentkit.backend.failure_corpus.cli._build_writer_client",
+            lambda _args: client,
+        )
+        rc = handle_effectiveness_report(
+            argparse.Namespace(
+                fc_command="effectiveness-report",
+                project_key="proj-cli",
+                window_days=90,
             )
-            assert rc == 0, capsys.readouterr().err
-        finally:
-            reset_backend_cache_for_tests()
+        )
+        assert rc == 0, capsys.readouterr().err
+        assert [call[0] for call in client.calls] == ["proj-cli"]
 
     def test_list_checks_builds_and_delegates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -312,87 +328,81 @@ class TestCliBuildsWithoutLlmClient:
         finally:
             reset_backend_cache_for_tests()
 
-    def test_review_patterns_rejected_builds_and_delegates(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    def test_review_patterns_rejected_delegates_to_writer(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from agentkit.backend.failure_corpus.cli import handle_review_patterns
-        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
-        self._sqlite_env(tmp_path, monkeypatch)
-        try:
-            rc = handle_review_patterns(
-                argparse.Namespace(
-                    fc_command="review-patterns",
-                    project_key="proj-cli",
-                    pattern_id="FP-0001",
-                    decision="rejected",
-                    invariant=None,
-                    risk_level=None,
-                    promotion_rule=None,
-                    category=None,
-                )
+        client = _RecordingWriterClient()
+        monkeypatch.setattr(
+            "agentkit.backend.failure_corpus.cli._build_writer_client",
+            lambda _args: client,
+        )
+        rc = handle_review_patterns(
+            argparse.Namespace(
+                fc_command="review-patterns",
+                project_key="proj-cli",
+                pattern_id="FP-0001",
+                decision="rejected",
+                invariant=None,
+                risk_level=None,
+                promotion_rule=None,
+                category=None,
             )
-            assert rc == 0, capsys.readouterr().err
-        finally:
-            reset_backend_cache_for_tests()
+        )
+        assert rc == 0, capsys.readouterr().err
+        assert [call[0] for call in client.calls] == ["proj-cli"]
 
-    def test_add_incident_builds_and_delegates(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    def test_add_incident_delegates_to_writer(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from agentkit.backend.failure_corpus.cli import handle_add_incident
-        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
-        self._sqlite_env(tmp_path, monkeypatch)
-        try:
-            rc = handle_add_incident(
-                argparse.Namespace(
-                    fc_command="add-incident",
-                    project_key="proj-cli",
-                    story_id="AG3-001",
-                    run_id="run-1",
-                    category="scope_drift",
-                    severity="high",
-                    phase="implementation",
-                    role="worker",
-                    model="claude-opus",
-                    symptom="agent rewrote files outside scope",
-                    evidence="",
-                    merge_blocked=True,
-                )
+        client = _RecordingWriterClient()
+        monkeypatch.setattr(
+            "agentkit.backend.failure_corpus.cli._build_writer_client",
+            lambda _args: client,
+        )
+        rc = handle_add_incident(
+            argparse.Namespace(
+                fc_command="add-incident",
+                project_key="proj-cli",
+                story_id="AG3-001",
+                run_id="run-1",
+                category="scope_drift",
+                severity="high",
+                phase="implementation",
+                role="worker",
+                model="claude-opus",
+                symptom="agent rewrote files outside scope",
+                evidence="",
+                merge_blocked=True,
             )
-            assert rc == 0, capsys.readouterr().err
-        finally:
-            reset_backend_cache_for_tests()
+        )
+        assert rc == 0, capsys.readouterr().err
+        assert [call[0] for call in client.calls] == ["proj-cli"]
 
-    def test_review_checks_builds_without_sharpener_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    def test_review_checks_delegates_to_writer(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """review-checks against an unknown check fails 'not found' — NOT a sharpener crash.
-
-        The build itself must succeed (no LlmInvariantSharpener RuntimeError); the
-        handler then reaches approve_check and reports the proposal is missing.
-        """
         from agentkit.backend.failure_corpus.cli import handle_review_checks
-        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
-        self._sqlite_env(tmp_path, monkeypatch)
-        try:
-            rc = handle_review_checks(
-                argparse.Namespace(
-                    fc_command="review-checks",
-                    project_key="proj-cli",
-                    check_id="CHK-9999",
-                    decision="rejected",
-                    rejected_reason=None,
-                )
+        client = _RecordingWriterClient()
+        monkeypatch.setattr(
+            "agentkit.backend.failure_corpus.cli._build_writer_client",
+            lambda _args: client,
+        )
+        rc = handle_review_checks(
+            argparse.Namespace(
+                fc_command="review-checks",
+                project_key="proj-cli",
+                check_id="CHK-9999",
+                decision="rejected",
+                rejected_reason=None,
             )
-            err = capsys.readouterr().err
-            # Reached approve_check (delegation), did NOT crash building the sharpener.
-            assert "LlmInvariantSharpener" not in err
-            assert "not found" in err
-            assert rc == 1
-        finally:
-            reset_backend_cache_for_tests()
+        )
+        assert rc == 0, capsys.readouterr().err
+        assert [call[0] for call in client.calls] == ["proj-cli"]
 
     def test_derive_check_without_llm_client_still_fail_closed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

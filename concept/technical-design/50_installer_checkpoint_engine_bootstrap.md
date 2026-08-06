@@ -137,6 +137,23 @@ Der Installer ist transport-agnostisch. CLI-Aufrufe (`agentkit register-project`
 `agentkit verify-project`) sind Boundary-Controls des aufrufenden BC und
 werden dort dokumentiert. Beispiel-Aufrufe gehoeren nicht zum Installer-Vertrag.
 
+**Writer-Vorbedingung fuer Ebene 3:** `register-project` installiert den Core
+nicht und erwirbt dessen Writer-Lease nicht selbst. Der vorgelagerte Ebene-1-
+Bootstrap legt den kernseitigen Projektkontext an und stellt das Project-Token
+aus (FK-10 §10.2.1, FK-91); erst danach ist Ebene 3 zulaessig. Das CLI prueft
+den aktiven Writer per authentisiertem `GET
+/v1/projects/{project_key}/installation/writer-ready`, bevor ein Checkpoint
+eine Projektdatei, Bindung oder andere Installationswirkung veraendert. Ist der
+Writer nicht erreichbar, die Lease verloren oder die Credential ungueltig,
+endet das Verb fail-closed mit benannter Ursache. Ein lokaler State-Backend-
+Fallback und ein vom Installer selbst erworbener Writer-Lock sind verboten.
+
+Da bei der Erstregistrierung noch kein projektlokaler Prompt-Bundle-Lock
+existiert, traegt dieser erste Read die read-only aus dem zentralen
+Zielmanifest ermittelte geplante Bundle-Version im Versions-Handshake. Nach
+CP 8 gilt wieder die gebundene projektlokale Version. Das aendert keine
+Bundle-Authority und erzeugt keine lokale Ersatzwahrheit.
+
 **Unterstuetzte Ausfuehrungsmodi:**
 
 - Erstregistrierung: Checkpoint-Folge vollstaendig durchlaufen.
@@ -298,6 +315,9 @@ Project-Edge-Launcher unter `tools/agentkit/`. Auch mit diesen
 Carve-outs darf der Installer keine AgentKit-Runtime-Artefakte,
 kanonischen Skills, kanonischen Prompts, DB-Dateien oder Backend-
 Service-Artefakte in das Zielprojekt kopieren.
+Kanonischer Quell-Eigentuemer dieser Launcher ist ausschliesslich
+`src/agentkit/bundles/target_project/tools/agentkit/`; CP 9 materialisiert
+daraus den Zielprojekt-Locator und erzeugt keine zweite Launcher-Quelle.
 
 Der Installer muss den Repository-Modus beim Default-Scaffold abfragen
 oder aus explizit angegebenen Repositories ableiten:
@@ -381,6 +401,22 @@ Wenn `project_registry` bereits aktuell ist, die sichtbare Projektentitaet
 aber fehlt oder abweicht, repariert CP 7 genau diese Entitaet und meldet den
 Checkpoint nicht als reinen Skip.
 
+**Writer-Vertrag:** Der Dev-seitige Handler sendet Projektmetadaten und die
+bereits streng gelesene `project.yaml` an `POST
+/v1/projects/{project_key}/installation/register-project`. Ausschliesslich der
+aktive Writer baut dort die produktiven Repositories und konvergiert beide
+Tabellen auf seiner reservierten Session. `project_root` ist dabei kanonisches
+Registrierungsdatum, kein vom Core zu dereferenzierender Storage-Pfad. Der
+Request traegt einen stabil aus dem sichtbaren Root-`op_id` abgeleiteten
+CP-7-Claim; Antwortverlust wird durch Replay desselben Ergebnisses aufgeloest.
+Die beiden CP-7-Wirkungen und die erfolgreiche Finalisierung dieses Claims
+committen als eine Transaktion auf der reservierten Writer-Session. Scheitert
+der `projects`-Save nach dem `project_registry`-Save oder geht die Session vor
+der Claim-Finalisierung verloren, rollt die Transaktion beide Domainwirkungen
+zurueck. Ein Retry mit derselben `op_id` darf deshalb nicht einen gespeicherten
+FAILED-Teilzustand replayen, sondern fuehrt CP 7 erneut aus und konvergiert beide
+Tabellen bis zum erfolgreichen Ergebnis.
+
 ### CP 8: Skill-Links binden
 
 Bindet die projektlokalen Skill-Verzeichnisse pro Harness an die
@@ -406,6 +442,17 @@ bindenden Skill die Top-Surface des BC `agent-skills` auf:
 # Top-Surface BC agent-skills (FK-43)
 Skills.bind_skill(skill_name, bundle_root, project_root)
 ```
+
+Der kanonische Binding-State (`BOUND`, danach `VERIFIED`) wird dabei ueber
+stabile, aus dem sichtbaren Root-`op_id` abgeleitete Child-Claims an den aktiven
+Writer geschrieben. Ist das Ergebnis eines Save-Requests wegen Antwortverlust
+unklar, darf der Dev-Installer die moeglicherweise persistierte Zeile nicht mit
+einem separaten Delete-Claim kompensieren: Das wuerde den gespeicherten
+Save-Replay von seiner Wirkung trennen. Stattdessen entfernt er seine lokalen
+Links ehrlich soweit moeglich, meldet verbleibenden kanonischen State als
+partiellen Fehler und behaelt ihn fuer den Same-`op_id`-Retry. Dieser Retry
+replayt bereits bestaetigte Stufen und vervollstaendigt die Bindung bis
+`VERIFIED`; er meldet nie Erfolg bei geloeschter Binding-Zeile.
 
 Fuer die Prompt-Bundle-Bindung wird die Top-Surface des BC `prompt-runtime`
 aufgerufen:
@@ -435,6 +482,13 @@ T:\repo\.claude\skills\execute-userstory  ->  C:\ProgramData\AgentKit\bundles\4.
 **Idempotenz:** Bestehende korrekte Links bleiben unveraendert;
 falsche oder veraltete Bindungen werden gezielt ersetzt.
 
+Die physischen Symlink-/Junction-Wirkungen bleiben auf der Entwicklermaschine.
+Jeder kanonische Binding-Lifecycle (`save`/Rollback-`delete`) laeuft jedoch
+ueber die authentisierten projektgeskoppelten
+`/installation/skill-bindings`-Writer-Routen. Die `Skills`-Top-Surface erhaelt
+dazu im CLI-Prozess ausschliesslich den HTTPS-Repository-Adapter; sie baut dort
+kein produktives State-Backend-Repository.
+
 ### CP 9: Hooks registrieren
 
 Registriert AgentKit-Hooks fuer das Projekt. Der Installer ruft dazu
@@ -456,18 +510,46 @@ werden hinzugefuegt. Der Installer registriert pro Harness parallel.
 **Idempotenz:** `Governance.register_hooks` prueft ob jeder Hook bereits
 registriert ist.
 
+Die Hook-Definitionen werden zuerst ueber `POST
+/v1/projects/{project_key}/installation/governance-hooks` im aktiven Writer
+persistiert. Erst danach materialisiert der enge Installer-Governance-Adapter
+ueber `Governance.register_hooks` die harness-spezifischen Settings lokal. Sein
+Lock-Deaktivierungsport ist capability-seitig fail-closed und fuer diese enge
+Surface nicht exponiert; er konstruiert weder ein Hook- noch ein produktives
+Lock-Repository im CLI-Prozess. Retry verwendet denselben
+wirkungsspezifischen Claim; ein stiller lokaler Persistenzpfad existiert nicht.
+
 Zusaetzlich bindet der Installer die offiziellen lokalen
 `Project Edge Client`-Wrapper unter `tools/agentkit/`, damit Agents
 keine freien REST-Aufrufe formulieren muessen.
+Ihr kanonischer Quell-Eigentuemer ist
+`src/agentkit/bundles/target_project/tools/agentkit/`; der Installer bindet
+ausschliesslich diese paketierte Quelle in den genannten Zielprojekt-Locator.
 
 Diese Wrapper sind Convenience-Launcher fuer Agent-Kommandos, keine
 eigene Runtime. Sie duerfen als Python-Script oder natives Executable
 materialisiert werden. Ein Aufruf mit vorgeschaltetem Interpreter
-(`python tools/agentkit/projectedge.py ...`) ist zulaessig, wenn die
+(`<absolute-ak3-interpreter> tools/agentkit/projectedge.py ...`) ist zulaessig,
+wenn die
 fachlichen Subcommands und Parameter unveraendert bequem bleiben. Der
 Wrapper delegiert auf das systemweit installierte AgentKit-Paket und
 die Control-Plane-API; er darf keine zweite Befehlssemantik, keinen
 kanonischen Zustand und keine kopierten Skill-/Prompt-Quellen tragen.
+
+Enthaelt ein Skill-Bundle Materialisierungs-Tokens, ruft der Installer
+`Skills.bind_skill_materialized(...)` auf. Er liefert dabei den ueber den
+zentralen Interpreter-Owner shell-gerenderten absoluten AK3-Interpreter und
+den absoluten `agentkit`-Wrapper als Werte. Er ersetzt die Tokens nicht selbst;
+die einzige Substitutionsimplementierung bleibt beim BC `agent-skills`
+(FK-43 §43.4.2). Beide Werte fliessen in den Varianten-Digest ein. Eine Version
+unterhalb der fuer das Bundle deklarierten Mindest-Konformversion wird
+fail-closed abgelehnt. **Die numerischen Untergrenzen stehen hier bewusst
+nicht**: Floor-Daten und Vergleichsregel gehoeren dem BC `agent-skills` und
+liegen ausschliesslich in `src/agentkit/backend/skills/version_policy.py`
+(FK-43 §43.4.2). Install, Verify, Upgrade und das statische Gate konsumieren
+diese eine Policy. Eine zweite Floor-Tabelle — auch als Prosa-Aufzaehlung —
+waere eine zweite Autoritaet und driftet; genau das hat das statische Gate hier
+am 2026-08-05 gemeldet.
 
 ### CP 10: MCP-Server
 
@@ -485,7 +567,7 @@ Registriert die gewünschten MCP-Server in der **Zielprojekt**-`.mcp.json`
   "mcpServers": {
     "story-knowledge-base": {
       "type": "stdio",
-      "command": "python",
+      "command": "<absolute-ak3-interpreter>",
       "args": ["-m", "agentkit.backend.vectordb.engine"],
       "cwd": "{project_root}",
       "env": {
@@ -628,12 +710,13 @@ Registriert den konzeptspezifischen Pre-Commit-Hook (Kap. 13.9.9)
 in der materialisierten Zielprojekt-Hook-Datei pre-commit
 (relativ zum Zielprojekt, nicht Repo-Root; materialisiert unter tools/hooks).
 Der Pre-Commit-Hook fuehrt Secret-Detection immer aus und bei Aenderungen unter
-dem konfigurierten `concepts_dir` die Validierungs-Suite
-`python -m agentkit.backend.vectordb.cli --concepts-dir <concepts_dir>
+dem konfigurierten `concepts_dir` die Validierungs-Suite mit dem vom zentralen
+Owner aufgeloesten Interpreter
+`<absolute-ak3-interpreter> -m agentkit.backend.vectordb.cli --concepts-dir <concepts_dir>
 validate --staged` aus. Der Post-Commit-Hook fuehrt fuer Konzeptaenderungen zuerst
-`python -m agentkit.backend.vectordb.cli --concepts-dir <concepts_dir> build`
+`<absolute-ak3-interpreter> -m agentkit.backend.vectordb.cli --concepts-dir <concepts_dir> build`
 und nur nach dessen Erfolg den inkrementellen Aufruf
-`python -m agentkit.backend.vectordb.cli --concepts-dir <concepts_dir> sync`
+`<absolute-ak3-interpreter> -m agentkit.backend.vectordb.cli --concepts-dir <concepts_dir> sync`
 ohne `--full` aus; ein Build- oder Syncfehler publiziert keine neue Freshness.
 
 Die bestehende Secret-Detection (Kap. 15.5.2) bleibt global aktiv
@@ -731,7 +814,14 @@ besteht. Die schwere, mutierende Pruefung laeuft **niemals implizit** bei
 gestartet. Die Control Plane antwortet `202` plus `op_id`, persistiert den
 Lebenszyklus als `ControlPlaneOperationRecord` und der Project Edge Client
 pollt ueber `GET /v1/project-edge/operations/{op_id}`. Wiederholung derselben
-`op_id` ist idempotent und startet keine zweite Ausfuehrung. Ablauf auf einem
+`op_id` ist idempotent und startet keine zweite Ausfuehrung. Die angenommene
+Executor-Future bleibt bis zur vollstaendigen terminalen Guard-Finalisierung
+Writer-Arbeit, auch nachdem der `202`-Request geendet hat. Beim geordneten
+Writer-Shutdown werden neue Submits gesperrt und alle angenommenen Futures vor
+Freigabe der Writer-Lease gedraint. Bei Lease-Verlust setzt die Control Plane
+zuerst den fatalen Abbruchzustand: ein noch laufender oder blockierter
+Self-Test darf danach nicht finalisieren, keine normale Pool-Verbindung als
+Ersatz verwenden und keinen Late-Commit erzeugen. Ablauf auf einem
 **wegwerfbaren Mini-Projekt**. Dieses
 Mini-Projekt wird unmittelbar nach dem Anlegen an ein dediziertes, vom
 Installer provisioniertes Quality Gate `AgentKit3 CP10d Self-Test Gate`
@@ -903,6 +993,10 @@ Code: `.claude/skills/`; Codex: harness-eigenes Aequivalent — siehe
 FK-76) — plattformabhaengig Symlink (POSIX) bzw. Directory Junction
 (Windows; FK-43 §43.4.1.1). Der Installer erzeugt Links
 nicht direkt; er delegiert an die kanonische Schnittstelle des Owner-BC.
+Bei einem placeholder-tragenden Bundle delegiert er analog an
+`Skills.bind_skill_materialized` und uebergibt die vom Interpreter-Owner
+gerenderten absoluten Interpreter-/Wrapperwerte. Die Materialisierung und
+Substitution bleiben vollstaendig Eigentum von `agent-skills`.
 
 Analog dazu wird die Prompt-Bundle-Bindung ueber:
 
@@ -937,7 +1031,8 @@ Ein fehlendes Paket, ein fehlerhafter Import oder eine unlesbare Deklaration
 ist `FAILED`: CP 1 ist das einzige Ergebnis, keine Fremdsystem-Probe,
 Bundle-Zugriff oder Zielprojekt-Schreibvorgang beginnt. Ein
 abhaengigkeitsspezifischer Befund nennt Distribution, Ursache und ein
-Installationskommando fuer genau den Interpreter aus `sys.executable`; ein
+Installationskommando fuer genau den zentral durch `ak3_python_command()`
+aufgeloesten absoluten AK3-Interpreter; ein
 Deklarationsbefund nennt die nicht lesbare Deklarationsquelle und Ursache,
 weil ohne auswertbare Deklaration weder Distribution noch Installationskommando
 ableitbar sind. Ob dieser Interpreter global oder Teil einer venv ist,

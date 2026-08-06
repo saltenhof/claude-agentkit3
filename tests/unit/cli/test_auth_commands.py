@@ -518,10 +518,11 @@ def test_successful_register_project_invokes_project_credential_provisioning(
         clear_secret=lambda: None,
     )
     monkeypatch.setattr(installer_commands, "_build_engine_config", lambda _args: config)
-    monkeypatch.setattr(
-        "agentkit.backend.cli.auth_commands.prepare_installer_auth_context",
-        lambda _args: auth_context,
-    )
+    def _wire(received_config: object, _args: object, _op_id: str) -> object:
+        received_config.project_edge_client = auth_context.project_edge_client  # type: ignore[attr-defined]
+        return auth_context
+
+    monkeypatch.setattr(installer_commands, "_wire_register_config_to_writer", _wire)
     monkeypatch.setattr(
         "agentkit.backend.installer.bootstrap_checkpoints.orchestrator.run_checkpoint_install",
         lambda _config, *, mode: SimpleNamespace(success=True, checkpoint_results=[]),

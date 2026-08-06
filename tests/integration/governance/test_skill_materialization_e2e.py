@@ -53,7 +53,14 @@ from agentkit.backend.skills import (
     read_directory_link_target,
 )
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore, shipped_skill_bundles_root
+from agentkit.backend.skills.version_policy import MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.governance_hook_repository import (
+    StateBackendHookRegistrationRepository,
+)
+from agentkit.backend.state_backend.store.project_management_repository import (
+    StateBackendProjectRepository,
+)
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
@@ -70,6 +77,10 @@ if TYPE_CHECKING:
 # the bound story/run/session line up with the published edge binding.
 _STORY = "AG3-800"
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
+_PRODUCTIVE_BUNDLE_VERSIONS = {
+    name: MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(bundle_id, "4.0.0")
+    for name, bundle_id in _BUNDLE_IDS.items()
+}
 
 # A placeholder-bearing SKILL.md: the four FK-03 placeholders + the manifest-fed
 # spawn-proof, plus a story_execution QA header (role=story-qa keeps the spawn EXEMPT
@@ -109,7 +120,10 @@ def _bundle_store(root: Path, *, placeholder_skill: str | None = "execute-userst
     """
     store = SkillBundleStore(store_root=root / "skill-bundles")
     for skill_name in MANDATORY_SKILLS:
-        bundle_root = root / "skill-bundles" / f"{skill_name}-core" / "4.0.0"
+        bundle_version = _PRODUCTIVE_BUNDLE_VERSIONS[skill_name]
+        bundle_root = (
+            root / "skill-bundles" / f"{skill_name}-core" / bundle_version
+        )
         bundle_root.mkdir(parents=True, exist_ok=True)
         if placeholder_skill is not None and skill_name == placeholder_skill:
             content = _PLACEHOLDER_SKILL
@@ -119,7 +133,7 @@ def _bundle_store(root: Path, *, placeholder_skill: str | None = "execute-userst
         store.register_bundle(
             SkillBundle(
                 bundle_id=f"{skill_name}-core",
-                bundle_version="4.0.0",
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest="0" * 64,
             )
@@ -142,6 +156,8 @@ def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
         registration_repo=StateBackendProjectRegistrationRepository(root),
+        project_repo=StateBackendProjectRepository(root),
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
         runtime_profile=RuntimeProfile.CORE,
         sonarqube_available=False,
         ci_available=False,
@@ -215,7 +231,12 @@ def test_e2e_placeholder_free_skill_stays_raw_link(tmp_path: Path) -> None:
     assert is_directory_link(bindpoint)
     target = read_directory_link_target(bindpoint)
     assert "variant-store" not in str(target)
-    expected_bundle = (root.parent / "skill-bundles" / f"{raw_skill}-core" / "4.0.0").resolve()
+    expected_bundle = (
+        root.parent
+        / "skill-bundles"
+        / f"{raw_skill}-core"
+        / _PRODUCTIVE_BUNDLE_VERSIONS[raw_skill]
+    ).resolve()
     assert target.resolve() == expected_bundle
 
 
@@ -295,7 +316,7 @@ def test_e2e_reinstall_byte_identical_variant(tmp_path: Path) -> None:
 
 # ---------------------------------------------------------------------------
 # Real-bundle assertions (ERROR 2 fix — Codex gap: the synthetic bundle above
-# never exercises the SHIPPED execute-userstory-core/4.0.0 bundle).
+# never exercises the SHIPPED execute-userstory-core/4.1.0 bundle).
 # ---------------------------------------------------------------------------
 
 #: Matches a SCALAR placeholder token ``{{<word>}}`` — an identifier immediately
@@ -312,7 +333,7 @@ _SCALAR_PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 def _real_bundle_store_for(root: Path) -> SkillBundleStore:
     """Register the REAL shipped bundles, using the live on-disk resources.
 
-    ``execute-userstory-core/4.0.0`` is the only bundle that carries scalar
+    ``execute-userstory-core/4.1.0`` is the only bundle that carries scalar
     placeholders in the shipped tree; all others are registered from the same
     shipped root so the installer satisfies MANDATORY_SKILLS without synthetic
     fixtures.
@@ -321,12 +342,13 @@ def _real_bundle_store_for(root: Path) -> SkillBundleStore:
     store = SkillBundleStore(store_root=root / "skill-bundles")
     for skill_name in MANDATORY_SKILLS:
         bundle_id = f"{skill_name}-core"
-        bundle_root = shipped / bundle_id / "4.0.0"
+        bundle_version = _PRODUCTIVE_BUNDLE_VERSIONS[skill_name]
+        bundle_root = shipped / bundle_id / bundle_version
         manifest_info = read_json_object(bundle_root / "manifest.json")
         store.register_bundle(
             SkillBundle(
                 bundle_id=bundle_id,
-                bundle_version="4.0.0",
+                bundle_version=bundle_version,
                 bundle_root=bundle_root,
                 manifest_digest=str(manifest_info.get("manifest_digest", "0" * 64)),
             )
@@ -349,6 +371,8 @@ def _real_bundle_install_config(root: Path, *, store: SkillBundleStore) -> Insta
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,
         registration_repo=StateBackendProjectRegistrationRepository(root),
+        project_repo=StateBackendProjectRepository(root),
+        hook_registration_repo=StateBackendHookRegistrationRepository(root),
         runtime_profile=RuntimeProfile.CORE,
         sonarqube_available=False,
         ci_available=False,
@@ -360,13 +384,13 @@ def _real_bundle_install_config(root: Path, *, store: SkillBundleStore) -> Insta
 def test_e2e_real_bundle_scalar_placeholders_resolved_at_both_bindpoints(
     tmp_path: Path,
 ) -> None:
-    """Real ``execute-userstory-core/4.0.0`` bundle: all scalar ``{{word}}`` tokens
+    """Real ``execute-userstory-core/4.1.0`` bundle: all scalar ``{{word}}`` tokens
     resolved through BOTH harness bind points; block/section directives retained.
 
     Closes the Codex review gap: the synthetic-bundle E2E above never exercises the
     SHIPPED bundle.  This test:
 
-    - materializes the REAL on-disk ``execute-userstory-core/4.0.0`` through the REAL
+    - materializes the REAL on-disk ``execute-userstory-core/4.1.0`` through the REAL
       installer (no synthetic SKILL.md);
     - reads ``SKILL.md`` through BOTH ``.claude/skills/...`` AND ``.codex/skills/...``
       bind points (the real harness read path);

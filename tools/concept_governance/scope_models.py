@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from concept_governance.finding_types import FindingLocus, FormalizationCheck, finding_key
 
-SCOPE_PROMPT_VERSION = "scope-consistency/v1"
+SCOPE_PROMPT_VERSION = "scope-consistency/v2"
 _PARTITION_NAMESPACE = uuid.UUID("28ab3405-6260-56e0-aac0-917ef26e601d")
 class ScopeAssertionChunk(BaseModel):
     """One complete deterministic discovery chunk in a scope set."""

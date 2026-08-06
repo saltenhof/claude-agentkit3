@@ -7,20 +7,24 @@ small helper; an unreplaced placeholder or a loader issue fails the test.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from concept_toolchain import runmodel_locks, runmodel_projection, runmodel_promotion, runmodel_run
 from concept_toolchain.config import load_governance_config
 
+from agentkit.backend.skills.bundle_store import SkillBundleStore
+
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from concept_toolchain.runmodel_validation import Issue
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-TEMPLATES_DIR = REPO_ROOT / "src" / "agentkit" / "bundles" / "skill_bundles" / "concept-incubation-core" / "4.0.0" / "templates"
+CONCEPT_INCUBATION_BUNDLE = SkillBundleStore().get_bundle(
+    "concept-incubation-core"
+)
+TEMPLATES_DIR = CONCEPT_INCUBATION_BUNDLE.bundle_root / "templates"
 
 PLACEHOLDER_VALUES = {
     "<YYYY-MM-DD>": "2026-07-19",
@@ -72,6 +76,7 @@ LOADERS: dict[str, Callable[[Path], tuple[object, list[Issue]]]] = {
 
 
 def test_all_json_templates_are_covered() -> None:
+    assert CONCEPT_INCUBATION_BUNDLE.bundle_version == "4.1.0"
     shipped = {entry.name for entry in TEMPLATES_DIR.glob("*.json")}
     assert shipped == set(LOADERS) | {"concept-governance.json"}
 

@@ -437,9 +437,9 @@ Normative Aufruf-Parameter sind in FK-91 §91.1a (Service-API) bzw.
 
 ```bash
 # Operator-Recovery-CLI (Spezialfall; Standardweg ist POST /phases/{phase}/start):
-agentkit run-phase implementation --story ODIN-042 --config .agentkit/config/project.yaml
-agentkit structural --story ODIN-042 --repo-id backend --base-ref main
-agentkit install --gh-owner acme-corp --gh-repo trading-platform --dry-run
+<absolute-agentkit-wrapper> run-phase implementation --story ODIN-042 --config .agentkit/config/project.yaml
+<absolute-agentkit-wrapper> structural --story ODIN-042 --repo-id backend --base-ref main
+<absolute-agentkit-wrapper> install --gh-owner acme-corp --gh-repo trading-platform --dry-run
 ```
 
 ## 3.2 Konfigurationsvalidierung

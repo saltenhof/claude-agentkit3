@@ -10,6 +10,7 @@ from concept_governance.scope_parser import ScopeResponseParseError
 from concept_governance.scope_policy import ScopeEvaluationContractError, evaluate_scope_policy
 from concept_governance.scope_port import BatchScopeConsistencyEvaluator
 from concept_governance.scope_prompt import ScopePromptVersionError
+from concept_governance.transport_retry import EvaluationTransportExhaustedError
 
 if TYPE_CHECKING:
     from concept_governance.scope_models import ScopeConsistencyFinding, ScopePartition
@@ -50,6 +51,8 @@ def collect_scope_findings(
             completed += 1
         except ScopeResponseParseError as exc:
             raise ScopeSweepError("UNPARSEABLE_RESPONSE", partition, completed, exc, evaluator.model) from exc
+        except EvaluationTransportExhaustedError as exc:
+            raise ScopeSweepError("HUB_UNREACHABLE", partition, completed, exc, exc.backend) from exc
         except (LlmClientError, MultiLlmHubError, TimeoutError) as exc:
             raise ScopeSweepError("HUB_UNREACHABLE", partition, completed, exc, evaluator.model) from exc
         except OSError as exc:

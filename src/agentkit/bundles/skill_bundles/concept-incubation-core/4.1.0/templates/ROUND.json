@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "<run_id>",
+  "round": 1,
+  "participants": [
+    {
+      "participant_id": "<pid>",
+      "dispatch": { "sent_at": "<iso-utc>", "prompt_digest": "<sha256>", "input_digests": [] },
+      "receipt": { "received_at": "<iso-utc>", "proposal_digest": "<sha256>" },
+      "outcome": "received",
+      "outcome_reason": ""
+    }
+  ],
+  "sealed": false,
+  "seal": null
+}

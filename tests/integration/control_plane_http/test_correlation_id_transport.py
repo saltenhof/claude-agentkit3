@@ -37,7 +37,9 @@ if TYPE_CHECKING:
 @pytest.fixture()
 def control_plane_base_url() -> Iterator[str]:
     """Boot the REAL control-plane handler on a plain-HTTP localhost socket."""
-    app = ControlPlaneApplication()
+    app = ControlPlaneApplication(
+        writer_lease_required=False,
+    )
     server = HTTPServer(("127.0.0.1", 0), _build_handler(app))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

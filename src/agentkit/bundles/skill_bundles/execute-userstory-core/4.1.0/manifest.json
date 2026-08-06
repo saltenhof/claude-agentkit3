@@ -1,0 +1,10 @@
+{
+  "bundle_id": "execute-userstory-core",
+  "bundle_version": "4.1.0",
+  "manifest_digest": "9227741d941cbdb3feca5803f1341ecd12ad5da2ec33981501486fa6324b4d15",
+  "profile": "CORE",
+  "skill_name": "execute-userstory",
+  "variants": {
+    "CORE": "execute-userstory"
+  }
+}

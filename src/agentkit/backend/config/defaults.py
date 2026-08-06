@@ -48,10 +48,10 @@ CORE_UI_PORT: int = 9700
 """SPA frontend port (``agentkit ui``, FK-10 §10.7.2)."""
 
 CORE_UI_BFF_PORT: int = 9701
-"""Backend UI-BFF listener port (``agentkit serve --ui-bff``, FK-10 §10.7.2)."""
+"""UI-BFF listener port of the shared ``agentkit serve`` writer process."""
 
 CORE_PROJECT_API_PORT: int = 9702
-"""Backend Project-API listener port (``agentkit serve --project-api``)."""
+"""Project-API listener port of the shared ``agentkit serve`` writer process."""
 
 CORE_LOOPBACK_HOST: str = "127.0.0.1"
 """Loopback bind/dial host: AK3 Core is a localhost deployment (FK-15)."""

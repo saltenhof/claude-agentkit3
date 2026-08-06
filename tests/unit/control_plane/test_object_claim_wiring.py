@@ -136,11 +136,27 @@ class _MinimalControlPlaneRepo:
         return True
 
     def release_operation(
-        self, op_id: str, *, owner_token: str, owner_claimed_at: str | None
-    ) -> None:
-        del owner_token, owner_claimed_at
+        self,
+        op_id: str,
+        *,
+        owner_token: str,
+        owner_claimed_at: str | None,
+        owner_operation_epoch: int | None,
+    ) -> bool:
+        record = self.operations.get(op_id)
+        if (
+            record is None
+            or record.claimed_by != owner_token
+            or (
+                record.claimed_at.isoformat() if record.claimed_at is not None else None
+            )
+            != owner_claimed_at
+            or record.operation_epoch != owner_operation_epoch
+        ):
+            return False
         self.released_ops.append(op_id)
-        self.operations.pop(op_id, None)
+        del self.operations[op_id]
+        return True
 
 
 def _request(*, story_id: str = "AG3-100", op_id: str = "op-1") -> PhaseMutationRequest:

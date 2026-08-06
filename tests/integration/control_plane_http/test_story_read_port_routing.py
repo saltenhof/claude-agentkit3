@@ -68,22 +68,16 @@ class _FakeStoryReadPort:
     def list_story_contexts(self, project_key: str) -> list[StoryContext]:
         return [_context()]
 
-    def load_story_context(
-        self, project_key: str, story_id: str
-    ) -> StoryContext | None:
+    def load_story_context(self, project_key: str, story_id: str) -> StoryContext | None:
         return _context() if story_id == _STORY else None
 
     def load_phase_state(self, story_id: str) -> PhaseState | None:
         return None
 
-    def load_flow_execution(
-        self, project_key: str, story_id: str
-    ) -> FlowExecution | None:
+    def load_flow_execution(self, project_key: str, story_id: str) -> FlowExecution | None:
         return _flow(project_key, story_id)
 
-    def load_latest_story_metrics(
-        self, project_key: str, story_id: str
-    ) -> StoryMetricsRecord | None:
+    def load_latest_story_metrics(self, project_key: str, story_id: str) -> StoryMetricsRecord | None:
         return None
 
     def load_recent_execution_events(
@@ -93,14 +87,13 @@ class _FakeStoryReadPort:
 
 
 class _NoopTenantScope:
-    def validate(
-        self, *, method: str, route_path: str, correlation_id: str
-    ) -> None:
+    def validate(self, *, method: str, route_path: str, correlation_id: str) -> None:
         return None
 
 
 def _make_app() -> ControlPlaneApplication:
     return ControlPlaneApplication(
+        writer_lease_required=False,
         story_service=StoryService(repository=_FakeStoryReadPort()),
         tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
     )

@@ -88,9 +88,7 @@ class _FakeProjectEventSource:
         project_key: str,
     ) -> tuple[TakeoverApprovalRecord, ...]:
         self.approval_project_keys.append(project_key)
-        return tuple(
-            approval for approval in self.approvals if approval.project_key == project_key
-        )
+        return tuple(approval for approval in self.approvals if approval.project_key == project_key)
 
 
 def _record(
@@ -115,6 +113,7 @@ def _record(
 def test_project_events_endpoint_returns_sse_stream_and_filters_project() -> None:
     source = _FakeProjectEventSource()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(telemetry_routes=TelemetryRoutes(source)),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
@@ -139,6 +138,7 @@ def test_project_events_endpoint_returns_sse_stream_and_filters_project() -> Non
 def test_project_events_endpoint_includes_project_pending_takeover_approvals() -> None:
     source = _FakeProjectEventSource()
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(telemetry_routes=TelemetryRoutes(source)),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
@@ -161,9 +161,8 @@ def test_project_events_endpoint_includes_project_pending_takeover_approvals() -
 
 def test_project_events_endpoint_rejects_unknown_topics() -> None:
     app = ControlPlaneApplication(
-        routes=ControlPlaneApplicationRoutes(
-            telemetry_routes=TelemetryRoutes(_FakeProjectEventSource())
-        ),
+        writer_lease_required=False,
+        routes=ControlPlaneApplicationRoutes(telemetry_routes=TelemetryRoutes(_FakeProjectEventSource())),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
@@ -185,9 +184,8 @@ def test_project_events_endpoint_requires_auth_when_middleware_is_enabled() -> N
         token_repository=_InMemoryTokenRepository(),
     )
     app = ControlPlaneApplication(
-        routes=ControlPlaneApplicationRoutes(
-            telemetry_routes=TelemetryRoutes(_FakeProjectEventSource())
-        ),
+        writer_lease_required=False,
+        routes=ControlPlaneApplicationRoutes(telemetry_routes=TelemetryRoutes(_FakeProjectEventSource())),
         auth_middleware=middleware,
     )
 

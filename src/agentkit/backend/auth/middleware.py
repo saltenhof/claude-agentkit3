@@ -30,6 +30,9 @@ _OWNERSHIP_TRANSFER_PATH = re.compile(
     r"^/v1/project-edge/story-runs/[^/]+/ownership/"
     r"(?:takeover-(?:request|confirm|deny|reconcile-clear|reconcile-worktree)|recover)$",
 )
+_FIRST_CREDENTIAL_INSTALLER_PATH = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/installation/third-party-validation$",
+)
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -133,6 +136,19 @@ class AuthMiddleware:
             return _unauthorized_response(correlation_id)
         if method.upper() in _MUTATING_METHODS and not _csrf_matches(headers, session.csrf_token):
             return _forbidden_response(correlation_id)
+        first_credential_match = _FIRST_CREDENTIAL_INSTALLER_PATH.match(route_path)
+        if first_credential_match is not None:
+            # The narrow strategist exception exists only before the first
+            # server-side project credential.  Once any token exists, even a
+            # valid strategist session cannot pass this machine-facing route.
+            # The current registration flow stores and activates its handed-off
+            # project token first, so productive register-project calls use the
+            # normal bearer path and never depend on this exception.
+            tokens = self._token_repository.list_for_project(
+                first_credential_match.group("project_key"),
+            )
+            if tokens:
+                return _forbidden_response(correlation_id)
         return AuthResult(
             auth_kind="strategist_session",
             project_key=project_key,

@@ -24,7 +24,7 @@ kind: command-set
 context: story-split
 commands:
   - id: story-split.command.execute
-    signature: agentkit split-story --story <story_id> --plan <plan_ref> --reason <reason>
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> split-story --story <story_id> --plan <plan_ref> --reason <reason>
     allowed_statuses:
       - story-split.status.requested
       - story-split.status.fenced

@@ -11,7 +11,11 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.middleware import AuthMiddleware
     from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+    from agentkit.backend.control_plane_http.failure_corpus_routes import FailureCorpusRoutes
+    from agentkit.backend.control_plane_http.installer_writer_routes import InstallerWriterRoutes
     from agentkit.backend.control_plane_http.permission_routes import PermissionRoutes
+    from agentkit.backend.control_plane_http.story_admin_routes import StoryAdminRoutes
+    from agentkit.backend.control_plane_http.story_split_routes import StorySplitRoutes
     from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
     from agentkit.backend.control_plane_http.third_party_validation_routes import ThirdPartyValidationRoutes
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
@@ -181,3 +185,40 @@ def _build_default_third_party_validation_routes() -> ThirdPartyValidationRoutes
         ThirdPartyValidationRoutes,
     )
     return ThirdPartyValidationRoutes(build_third_party_preflight_service())
+
+
+def _build_default_story_split_routes() -> StorySplitRoutes:
+    """Build the administrative split adapter inside the active writer."""
+    from agentkit.backend.control_plane_http.story_split_routes import StorySplitRoutes
+
+    return StorySplitRoutes()
+
+
+def _build_default_story_admin_routes() -> StoryAdminRoutes:
+    """Build reset/exit adapters inside the active writer."""
+    from agentkit.backend.control_plane_http.story_admin_routes import StoryAdminRoutes
+
+    return StoryAdminRoutes()
+
+
+def _build_default_failure_corpus_routes() -> FailureCorpusRoutes:
+    """Build failure-corpus mutations inside the active writer."""
+    from agentkit.backend.control_plane_http.failure_corpus_routes import FailureCorpusRoutes
+
+    return FailureCorpusRoutes()
+
+
+def _build_default_installer_writer_routes() -> InstallerWriterRoutes:
+    """Build installer state routes inside the active control-plane writer."""
+    from agentkit.backend.bootstrap.composition_installer import (
+        build_installer_mutation_coordinator,
+        build_installer_writer_service,
+    )
+    from agentkit.backend.control_plane_http.installer_writer_routes import (
+        InstallerWriterRoutes,
+    )
+
+    return InstallerWriterRoutes(
+        owner=build_installer_writer_service(),
+        mutation_coordinator=build_installer_mutation_coordinator(),
+    )

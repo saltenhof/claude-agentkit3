@@ -133,10 +133,10 @@ die die Historie beschädigen oder den zugewiesenen Scope verlassen.
 |--------|---------|-----------|
 | Commit auf Story-Branch | `git commit -m "..."` | Normale Arbeit |
 | Push auf Story-Branch | `git push -u origin story/ODIN-042` | Normale Arbeit |
-| Offizieller Closure-Push auf Story-Branch | `POST /phases/closure/start` (Service-API) oder Operator-CLI `agentkit run-phase closure` → interner `git push origin story/{story_id}` | Vorgeschriebener Closure-Substep vor dem Merge |
-| Offizieller Closure-Merge mit `--no-ff` | `POST /phases/closure/start` mit `no_ff: true` (Service-API) oder Operator-CLI `agentkit run-phase closure --story ODIN-042 --no-ff` | Offizieller Pipeline-Fallback, kein Guard-Bypass |
-| Offizieller Story-Reset | `agentkit reset-story --story ODIN-042 --reason "..."` | Administrativer Recovery-Pfad, kein freier Git-Eingriff |
-| Offizieller Story-Split | `agentkit split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"` | Administrativer Split-Pfad, darf trotz aktivem Story-Lock die noetigen Git-/Repo- und Cleanup-Operationen ausfuehren |
+| Offizieller Closure-Push auf Story-Branch | `POST /phases/closure/start` (Service-API) oder Operator-CLI `<absolute-agentkit-wrapper> run-phase closure` → interner `git push origin story/{story_id}` | Vorgeschriebener Closure-Substep vor dem Merge |
+| Offizieller Closure-Merge mit `--no-ff` | `POST /phases/closure/start` mit `no_ff: true` (Service-API) oder Operator-CLI `<absolute-agentkit-wrapper> run-phase closure --story ODIN-042 --no-ff` | Offizieller Pipeline-Fallback, kein Guard-Bypass |
+| Offizieller Story-Reset | `<absolute-agentkit-wrapper> reset-story --story ODIN-042 --reason "..."` | Administrativer Recovery-Pfad, kein freier Git-Eingriff |
+| Offizieller Story-Split | `<absolute-agentkit-wrapper> split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"` | Administrativer Split-Pfad, darf trotz aktivem Story-Lock die noetigen Git-/Repo- und Cleanup-Operationen ausfuehren |
 | `git checkout -- datei` (File-Restore) | `git checkout -- src/main.py` | Datei wiederherstellen, kein Branch-Wechsel |
 
 **Normative Klarstellung:** Der Branch-Guard unterscheidet zwischen
@@ -626,7 +626,7 @@ Codex-Adapter materialisiert das Aequivalent):
         "hooks": [
           {
             "type": "command",
-            "command": "agentkit-hook-claude pre adversarial_guard"
+            "command": "<absolute-agentkit-hook-claude-wrapper> pre adversarial_guard"
           }
         ]
       }
@@ -634,6 +634,10 @@ Codex-Adapter materialisiert das Aequivalent):
   }
 }
 ```
+
+Der Platzhalter wird durch den Harness-Adapter vor der Registrierung mit dem
+absoluten Wrapperpfad neben dem zentral aufgeloesten AK3-Interpreter ersetzt.
+Ein nackter Wrappername ist kein zulaessiger Settings-Wert.
 
 ### 31.6.3 Test-Ausführung
 

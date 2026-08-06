@@ -36,7 +36,7 @@ commands:
     emits:
       - escalation.event.run.escalated
   - id: escalation.command.resume-run
-    signature: agentkit resume --story {story_id}
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> resume --story {story_id}
     allowed_statuses:
       - escalation.status.paused
     requires:
@@ -44,7 +44,7 @@ commands:
     emits:
       - escalation.event.run.resumed
   - id: escalation.command.reset-escalation
-    signature: agentkit reset-escalation --story {story_id}
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> reset-escalation --story {story_id}
     allowed_statuses:
       - escalation.status.escalated
     requires:
@@ -52,7 +52,7 @@ commands:
     emits:
       - escalation.event.run.reopened
   - id: escalation.command.redirect-to-split
-    signature: agentkit split-story --story {story_id} ...
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> split-story --story {story_id} ...
     allowed_statuses:
       - escalation.status.paused
     requires:

@@ -105,6 +105,7 @@ def _app(tmp_path: Path) -> ControlPlaneApplication:
     # SQLite file used by the test fixtures.
     tenant_scope = TenantScopeMiddleware(repository=project_repo)
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=ProjectManagementRoutes(
                 repository=project_repo,
@@ -286,8 +287,7 @@ def test_mode_lock_in_progress_fast_story_is_fast(tmp_path: Path) -> None:
     status, body = _get(app, "/v1/projects/tenant-a/mode-lock")
     assert status == HTTPStatus.OK
     assert body["mode_lock"]["mode"] == "fast", (  # type: ignore[index]
-        f"Expected mode='fast' for in-progress fast-mode story, "
-        f"got {body['mode_lock']['mode']!r}"  # type: ignore[index]
+        f"Expected mode='fast' for in-progress fast-mode story, got {body['mode_lock']['mode']!r}"  # type: ignore[index]
     )
     assert body["mode_lock"]["project_key"] == "tenant-a"  # type: ignore[index]
 
@@ -369,14 +369,9 @@ def test_story_flow_existing_story_returns_snapshot(tmp_path: Path) -> None:
     assert phase_names == ["setup", "exploration", "implementation", "closure"]
     for phase in snapshot["phases"]:
         # Backlog story -> all pending
-        assert phase["state"] == "pending", (
-            f"Phase {phase['phase']!r} expected pending for Backlog story, "
-            f"got {phase['state']!r}"
-        )
+        assert phase["state"] == "pending", f"Phase {phase['phase']!r} expected pending for Backlog story, got {phase['state']!r}"
         # Full substep sequences populated (not empty) for non-fast standard mode.
-        assert len(phase["substeps"]) > 0, (
-            f"Phase {phase['phase']!r} must have substeps in all-pending initial state"
-        )
+        assert len(phase["substeps"]) > 0, f"Phase {phase['phase']!r} must have substeps in all-pending initial state"
 
 
 # ---------------------------------------------------------------------------
@@ -608,9 +603,7 @@ def test_story_flow_wrong_project_returns_404(tmp_path: Path) -> None:
         app,
         f"/v1/projects/tenant-a/stories/{story_b.story_display_id}/flow",
     )
-    assert status == HTTPStatus.NOT_FOUND, (
-        f"Expected 404 for cross-project story access, got {status}"
-    )
+    assert status == HTTPStatus.NOT_FOUND, f"Expected 404 for cross-project story access, got {status}"
 
 
 def test_coverage_acceptance_wrong_project_returns_404(tmp_path: Path) -> None:
@@ -641,9 +634,7 @@ def test_coverage_acceptance_wrong_project_returns_404(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "POST"])
-def test_limits_mutation_returns_405(
-    tmp_path: Path, method: str
-) -> None:
+def test_limits_mutation_returns_405(tmp_path: Path, method: str) -> None:
     """AC10 ERROR E: PUT/PATCH/DELETE/POST on limits endpoint -> 405 with Allow: GET."""
     _seed_project(tmp_path)
     app = _app(tmp_path)
@@ -662,9 +653,7 @@ def test_limits_mutation_returns_405(
 
 
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "POST"])
-def test_coverage_acceptance_mutation_returns_405(
-    tmp_path: Path, method: str
-) -> None:
+def test_coverage_acceptance_mutation_returns_405(tmp_path: Path, method: str) -> None:
     """AC10 ERROR E: mutation on coverage/acceptance -> 405 with Allow: GET."""
     _seed_project(tmp_path)
     app = _app(tmp_path)
@@ -686,9 +675,7 @@ def test_coverage_acceptance_mutation_returns_405(
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
 @pytest.mark.parametrize("body", [b"", b"not json"])
-def test_limits_mutation_405_for_empty_or_non_json_body(
-    tmp_path: Path, method: str, body: bytes
-) -> None:
+def test_limits_mutation_405_for_empty_or_non_json_body(tmp_path: Path, method: str, body: bytes) -> None:
     """R5 ERROR 1: empty/non-JSON mutation body on limits -> 405, not 400.
 
     Drives the REAL ControlPlaneApplication + REAL ReadModelRoutes. The 405
@@ -704,13 +691,11 @@ def test_limits_mutation_405_for_empty_or_non_json_body(
         request_headers={"X-Correlation-Id": "req-405-empty"},
     )
     assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED, (
-        f"{method} with body={body!r} must be 405 (read-only), "
-        f"got {response.status_code}"
+        f"{method} with body={body!r} must be 405 (read-only), got {response.status_code}"
     )
     payload = json.loads(response.body.decode("utf-8"))
     assert payload["error_code"] == "method_not_allowed", (
-        f"{method} with body={body!r} must NOT be invalid_json; "
-        f"got {payload.get('error_code')!r}"
+        f"{method} with body={body!r} must NOT be invalid_json; got {payload.get('error_code')!r}"
     )
     allow_value = next(v for k, v in response.headers if k.lower() == "allow")
     assert "GET" in allow_value
@@ -718,9 +703,7 @@ def test_limits_mutation_405_for_empty_or_non_json_body(
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
 @pytest.mark.parametrize("body", [b"", b"not json"])
-def test_coverage_mutation_405_for_empty_or_non_json_body(
-    tmp_path: Path, method: str, body: bytes
-) -> None:
+def test_coverage_mutation_405_for_empty_or_non_json_body(tmp_path: Path, method: str, body: bytes) -> None:
     """R5 ERROR 1: empty/non-JSON mutation body on a coverage endpoint -> 405."""
     _seed_project(tmp_path)
     app = _app(tmp_path)
@@ -731,8 +714,7 @@ def test_coverage_mutation_405_for_empty_or_non_json_body(
         request_headers={"X-Correlation-Id": "req-405-empty-cov"},
     )
     assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED, (
-        f"{method} with body={body!r} must be 405 (read-only), "
-        f"got {response.status_code}"
+        f"{method} with body={body!r} must be 405 (read-only), got {response.status_code}"
     )
     payload = json.loads(response.body.decode("utf-8"))
     assert payload["error_code"] == "method_not_allowed"
@@ -789,13 +771,9 @@ def test_story_flow_all_phases_pending_when_no_phase_state(tmp_path: Path) -> No
     assert len(phases) == 4
     # All phases must be pending — no phase_state row exists for this story yet.
     for phase in phases:
-        assert phase["state"] == "pending", (
-            f"Phase {phase['phase']!r} is {phase['state']!r}, expected 'pending'"
-        )
+        assert phase["state"] == "pending", f"Phase {phase['phase']!r} is {phase['state']!r}, expected 'pending'"
         # R3: full substep sequences populated even in all-pending state.
-        assert len(phase["substeps"]) > 0, (
-            f"Phase {phase['phase']!r} must have substeps even in all-pending state (R3)"
-        )
+        assert len(phase["substeps"]) > 0, f"Phase {phase['phase']!r} must have substeps even in all-pending state (R3)"
 
 
 def test_story_flow_active_when_phase_state_persisted(tmp_path: Path) -> None:
@@ -858,6 +836,7 @@ def test_story_flow_active_when_phase_state_persisted(tmp_path: Path) -> None:
     )
     tenant_scope = TenantScopeMiddleware(repository=project_repo)
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=ProjectManagementRoutes(
                 repository=project_repo,
@@ -896,9 +875,7 @@ def test_story_flow_active_when_phase_state_persisted(tmp_path: Path) -> None:
         "exploration phase must be 'done' when implementation is active (R3 position-based derivation)"
     )
     # Later phase (position AFTER implementation) -> pending.
-    assert phases["closure"]["state"] == "pending", (
-        "closure phase must be 'pending' when implementation is active"
-    )
+    assert phases["closure"]["state"] == "pending", "closure phase must be 'pending' when implementation is active"
     # Full substep sequences populated for all non-skipped phases.
     assert len(phases["setup"]["substeps"]) > 0
     assert len(phases["implementation"]["substeps"]) > 0
@@ -933,16 +910,10 @@ def test_story_flow_done_story_all_phases_done(tmp_path: Path) -> None:
     phases = {p["phase"]: p for p in snapshot["phases"]}
 
     for phase_name in ("setup", "exploration", "implementation", "closure"):
-        assert phases[phase_name]["state"] == "done", (
-            f"Phase {phase_name!r} must be 'done' for a Done story"
-        )
-        assert len(phases[phase_name]["substeps"]) > 0, (
-            f"Phase {phase_name!r} must have substeps for a Done story"
-        )
+        assert phases[phase_name]["state"] == "done", f"Phase {phase_name!r} must be 'done' for a Done story"
+        assert len(phases[phase_name]["substeps"]) > 0, f"Phase {phase_name!r} must have substeps for a Done story"
         for substep in phases[phase_name]["substeps"]:
-            assert substep["state"] == "done", (
-                f"Substep {substep['substep']!r} in Done story must be 'done'"
-            )
+            assert substep["state"] == "done", f"Substep {substep['substep']!r} in Done story must be 'done'"
 
 
 # ---------------------------------------------------------------------------
@@ -1114,6 +1085,7 @@ def test_are_evidence_coverage_status_with_are_client_fake_transport(tmp_path: P
     )
     tenant_scope = TenantScopeMiddleware(repository=project_repo)
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=ProjectManagementRoutes(
                 repository=project_repo,
@@ -1145,9 +1117,7 @@ def test_are_evidence_coverage_status_with_are_client_fake_transport(tmp_path: P
     )
     # ARE-400 IS in uncovered -> uncovered; no evidence submitted
     assert reqs["ARE-400"]["coverage_status"] == "uncovered"
-    assert reqs["ARE-400"]["evidence_paths"] == [], (
-        "ARE-400 has no submitted evidence — evidence_paths must be empty list"
-    )
+    assert reqs["ARE-400"]["evidence_paths"] == [], "ARE-400 has no submitted evidence — evidence_paths must be empty list"
 
 
 # ---------------------------------------------------------------------------
@@ -1194,6 +1164,7 @@ def _app_with_real_phase_state(
     )
     tenant_scope = TenantScopeMiddleware(repository=project_repo)
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=ProjectManagementRoutes(
                 repository=project_repo,
@@ -1227,6 +1198,7 @@ def _start_story(tmp_path: Path, *, op_suffix: str) -> Story:
     svc.approve_story(story.story_display_id, op_id=f"op-approve-{op_suffix}")
     svc.begin_progress(story.story_display_id)
     return story
+
 
 def test_flow_implementation_payload_qa_cycle_round_through_real_db(
     tmp_path: Path,
@@ -1327,8 +1299,7 @@ def test_flow_closure_payload_progress_through_real_db(tmp_path: Path) -> None:
     sub_state = {s["substep"]: s["state"] for s in closure["substeps"]}
     # Done checkpoints -> done substeps (real ClosureProgress -> derivation).
     assert sub_state["integrity_gate"] == "done", (
-        "integrity_gate substep must be 'done' for real "
-        "ClosureProgress.integrity_passed=True via DB read path"
+        "integrity_gate substep must be 'done' for real ClosureProgress.integrity_passed=True via DB read path"
     )
     assert sub_state["branch_push"] == "done"
     assert sub_state["merge"] == "done"
@@ -1378,9 +1349,7 @@ def test_flow_exploration_payload_gate_status_through_real_db(tmp_path: Path) ->
     exploration = phases["exploration"]
     assert exploration["state"] == "active"
     # gate_status=approved -> non-optional substeps all 'done' (real derivation).
-    non_optional = [
-        s for s in exploration["substeps"] if not s["optional"]
-    ]
+    non_optional = [s for s in exploration["substeps"] if not s["optional"]]
     assert non_optional, "exploration must have non-optional substeps in standard mode"
     assert all(s["state"] == "done" for s in non_optional), (
         "exploration substeps must be 'done' for real "

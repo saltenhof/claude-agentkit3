@@ -6,23 +6,25 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-PROMPT_VERSION = "authority-prose/v1"
+PROMPT_VERSION = "authority-prose/v2"
 
 
 class NormativeAssertion(BaseModel):
-    """One normative assertion and the scopes it concerns."""
+    """One source-span reference and the scopes its assertion concerns."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    assertion: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    start_id: str = Field(min_length=1)
+    end_id: str = Field(min_length=1)
     scopes: tuple[str, ...] = Field(min_length=1)
 
-    @field_validator("assertion")
+    @field_validator("source_id", "start_id", "end_id")
     @classmethod
-    def assertion_must_be_non_empty(cls, value: str) -> str:
-        """Reject whitespace-only evidence text."""
+    def reference_fields_must_be_non_empty(cls, value: str) -> str:
+        """Reject whitespace-only source coordinates."""
         if not value.strip():
-            raise ValueError("assertion must be non-empty")
+            raise ValueError("source reference fields must be non-empty")
         return value
 
     @field_validator("scopes")

@@ -28,6 +28,7 @@ from agentkit.harness_client.projectedge.client import (
 from agentkit.harness_client.projectedge.credentials import (
     CredentialMissingError,
     CredentialStateError,
+    ProjectCredentialFile,
     load_active_project_credentials,
     load_pending_project_credentials,
     prepare_project_api_token,
@@ -65,12 +66,14 @@ class _DeferredProjectTokenTransport:
         project_root: Path,
         project_key: str,
         project_api_token: str,
+        planned_skill_bundle_version: str | None = None,
     ) -> None:
         self._base_url = base_url
         self._ca_file = ca_file
         self._project_root = project_root
         self._project_key = project_key
         self._project_api_token: str | None = project_api_token
+        self._planned_skill_bundle_version = planned_skill_bundle_version
         self._session: HttpsJsonTransport | None = None
 
     def authenticated_transport(self) -> HttpsJsonTransport:
@@ -85,9 +88,13 @@ class _DeferredProjectTokenTransport:
             self._ca_file,
             project_api_token=project_api_token,
             project_key=self._project_key,
-            skill_bundle_version=read_bound_skill_bundle_version(self._project_root),
+            skill_bundle_version=(
+                read_bound_skill_bundle_version(self._project_root)
+                or self._planned_skill_bundle_version
+            ),
         )
         self._project_api_token = None
+        self._planned_skill_bundle_version = None
         return self._session
 
     def send(
@@ -201,44 +208,54 @@ def dispatch_auth_command(args: argparse.Namespace) -> int:
     return handler(args)
 
 
-def prepare_installer_auth_context(args: argparse.Namespace) -> InstallerAuthContext:
-    """Lock and prepare the handed-off ProjectEdge token for registration."""
+def prepare_installer_auth_context(
+    args: argparse.Namespace,
+    *,
+    planned_skill_bundle_version: str | None = None,
+) -> InstallerAuthContext:
+    """Prove writer readiness, then lock and prepare the installer credential."""
     project_root = Path(args.project_root)
     project_key = str(args.project_key)
     credential_path = project_credentials_path(project_root)
+    active = _load_required_installer_credential(credential_path, project_key)
+    transport = _DeferredProjectTokenTransport(
+        base_url=str(args.control_plane_base_url),
+        ca_file=args.control_plane_ca_file,
+        project_root=project_root,
+        project_key=project_key,
+        project_api_token=active.project_api_token,
+        planned_skill_bundle_version=planned_skill_bundle_version,
+    )
+    from agentkit.backend.installer.writer_client import InstallerWriterClient
+
+    try:
+        InstallerWriterClient(
+            transport,
+            project_key=project_key,
+            op_id="writer-readiness-probe",
+        ).assert_ready()
+    except BaseException:
+        transport.clear_secret()
+        raise
+
+    # The readiness round-trip above is deliberately before this first local
+    # effect: acquiring the lifecycle lock creates its parent and persistent
+    # ``credentials.lock`` file, and later reconciliation may unlink a pending
+    # crash sidecar.
     credential_lock = exclusive_private_file_lock(credential_path)
     credential_lock.__enter__()
     try:
-        try:
-            active = load_active_project_credentials(
-                credential_path,
-                project_key=project_key,
+        locked_active = _load_required_installer_credential(
+            credential_path,
+            project_key,
+        )
+        if locked_active != active:
+            raise CredentialStateError(
+                "Project credential changed during writer readiness; retry with its current value",
             )
-        except CredentialMissingError as missing:
-            try:
-                pending = load_pending_project_credentials(credential_path)
-            except CredentialMissingError:
-                pending = None
-            if pending is not None:
-                is_initial_pending_state = pending.status == "pending" and pending.superseded_token_id is None
-                if pending.project_key != project_key or not is_initial_pending_state:
-                    raise CredentialStateError(
-                        "Pending project credential cannot initialize this project",
-                    ) from None
-                raise CredentialStateError(
-                    "Pending project credential cannot replace the required handed-off active token",
-                ) from None
-            raise CredentialMissingError(
-                "Project credential is missing; run 'agentkit auth store-token' on this client first",
-            ) from missing
-        else:
-            reconcile_pending_for_active_credentials(credential_path, active=active)
-        transport = _DeferredProjectTokenTransport(
-            base_url=str(args.control_plane_base_url),
-            ca_file=args.control_plane_ca_file,
-            project_root=project_root,
-            project_key=project_key,
-            project_api_token=active.project_api_token,
+        reconcile_pending_for_active_credentials(
+            credential_path,
+            active=locked_active,
         )
         return InstallerAuthContext(
             project_edge_client=ProjectEdgeClient(
@@ -249,8 +266,51 @@ def prepare_installer_auth_context(args: argparse.Namespace) -> InstallerAuthCon
             credential_lock=credential_lock,
         )
     except BaseException:
+        transport.clear_secret()
         credential_lock.__exit__(*sys.exc_info())
         raise
+
+
+def _load_required_installer_credential(
+    credential_path: Path,
+    project_key: str,
+) -> ProjectCredentialFile:
+    """Read the active credential without reconciling or creating local state."""
+
+    try:
+        active = load_active_project_credentials(
+            credential_path,
+            project_key=project_key,
+        )
+    except CredentialMissingError as missing:
+        try:
+            pending = load_pending_project_credentials(credential_path)
+        except CredentialMissingError:
+            pending = None
+        if pending is not None:
+            is_initial_pending_state = (
+                pending.status == "pending"
+                and pending.superseded_token_id is None
+            )
+            if pending.project_key != project_key or not is_initial_pending_state:
+                raise CredentialStateError(
+                    "Pending project credential cannot initialize this project",
+                ) from None
+            raise CredentialStateError(
+                "Pending project credential cannot replace the required handed-off active token",
+            ) from None
+        raise CredentialMissingError(
+            "Project credential is missing; run 'agentkit auth store-token' on this client first",
+        ) from missing
+    try:
+        pending = load_pending_project_credentials(credential_path)
+    except CredentialMissingError:
+        return active
+    if pending.model_copy(update={"status": "active"}) != active:
+        raise CredentialStateError(
+            "Active and pending project credentials describe different issuances",
+        )
+    return active
 
 
 def provision_installer_project_token(

@@ -109,9 +109,7 @@ _REQUIRED_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/project-edge/operations/[^/]+$"),
     # Installer third-system mediation (AG3-132): both the synchronous light
     # verdict and explicit heavy operation are Dev-agent -> Core capabilities.
-    re.compile(
-        r"^/projects/[^/]+/installation/(?:third-party-validation|branch-plugin-self-test)$"
-    ),
+    re.compile(r"^/projects/[^/]+/installation(?:/.*)?$"),
     # Story-run phase + closure mutations (bare and project-scoped forms).
     # AG3-130: ``resume`` is a phase mutation of the same story-runs family and is
     # therefore handshake-required like start/complete/fail (FK-91 §91.1a Rule 11).

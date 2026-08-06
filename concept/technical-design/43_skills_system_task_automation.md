@@ -367,15 +367,60 @@ bricht). Die substituierten Felder stammen ausschliesslich aus FK-03:
 Der Token `{{AGENT_SPAWN_SKILL_PROOF}}` ist **nicht** Config-, sondern
 **Manifest-gespeist** (FK-31 §31.7.4): seine autoritative
 Quelle ist der install-stabile Token im `.installed-manifest.json`, nicht
-`project.yaml`. Er wird ausschliesslich ueber `substitute_spawn_header`
-aufgeloest und auf dem reinen Config-Pfad fail-closed als unbekannt
-behandelt. Ebenso ist jeder bundle-relative Pfad (z. B. die
+`project.yaml`. Gemeinsamer Owner beider abgegrenzter Aufloesungswege ist der
+`PlaceholderSubstitutor`: `substitute_spawn_header` loest ihn im read-time
+Spawn-Header-Pfad, `substitute_materialized` im produktiven Bind-Zeit-Pfad
+zusammen mit den installer-gespeisten Befehlswerten. Beide Pfade verwenden
+dieselbe Manifest-Lese- und Ersetzungsimplementierung; keiner besitzt eine
+eigene Proof-Substitution. Auf dem reinen Config-Pfad bleibt der Token
+fail-closed unbekannt. Ebenso ist jeder bundle-relative
+Pfad (z. B. die
 Prompt-Templates eines Skill-Bundles) **kein** Token: er ist
 Bindungs-/Installationszustand (FK-43 §43.4.1 `bundle_root`,
 `.installed-manifest.json` `authorized_prompt_paths`) und wird im Skill
 bundle-relativ referenziert, nicht ueber `project.yaml` materialisiert
 (SSOT — keine install-spezifischen absoluten Pfade in der nutzer-
 editierbaren Projektkonfiguration).
+
+Ausfuehrbare Skill-Anweisungen duerfen einen Agenten nicht zum Aufruf der
+AK3-Operator-CLI anweisen; agentische AK3-Aufrufe laufen ausschliesslich ueber
+Project Edge (FK-45 §45.4, FK-91 §91.1a). Dokumentiert ein Bundle einen
+**menschlichen** Recovery-Pfad, muss es Akteur und Ausnahmecharakter
+ausdruecklich kennzeichnen. Nur fuer einen solchen Abschnitt darf es den
+installer-gespeisten Token `{{AK3_WRAPPER}}` fuer den absoluten installierten
+`agentkit`-Wrapper verwenden. `{{AK3_INTERPRETER}}` bezeichnet den
+shell-gerenderten absoluten Interpreter der dedizierten AK3-Umgebung und
+erlaubt fuer sich allein keinen Aufruf der AK3-CLI. Beide Tokens sind keine
+Config-Tokens und keine frei waehlbaren Bundle-Parameter. Der Installer loest
+sie ausschliesslich ueber den zentralen Interpreter-Owner (FK-10 §10.2.3) auf
+und uebergibt sie an den einen `PlaceholderSubstitutor`; eine zweite
+String-Substitution im Installer ist verboten. Beide Werte gehoeren zum Digest
+der materialisierten Variante, damit eine geaenderte Installationsbindung
+niemals einen bestehenden Variantenpfad inhaltlich umschreibt.
+
+Produktiv bindbare Bundle-Versionen werden deterministisch kontrolliert: Das
+Gate untersucht den Inhalt **jeder** Markdown-Code-Fence und erkennt
+Interpreter-/Wrapper-Kommandos anhand ihrer Befehlstokens, nicht anhand der
+deklarierten Fence-Sprache. `text`, `plain`, ein leerer oder ein unbekannter
+Sprach-Tag koennen einen nackten `python`/`python3`-Aufruf oder einen nackten
+`agentkit`-Wrapper aus `PATH` deshalb nicht aus der Pruefung nehmen. Eine
+Ueberschrift kann kommandofoermigen Inhalt ebenfalls nicht
+zur reinen Pfad-Inventur erklaeren; eine echte Inventur nennt nur Pfade oder
+Modulnamen und keinen ausfuehrbaren Selektor. Die Pruefung verbindet
+Shell-Fortsetzungszeilen und entfernt Backslashes sowie Shell-Quotes rein
+textuell. Enthaelt ein geprueftes Textstueck `$(`, einen Backtick oder `$'`,
+wird es allein aufgrund dieses Markers mit Locator und Rohtext als
+`undecidable` abgelehnt. Balance, Escape-Semantik und Shell-Auswertung werden
+dabei nicht betrachtet.
+Zusaetzlich ist jedes nackte Interpreter-/Wrapper-Selektorliteral in den
+Argumenten eines produktiven Python-Aufrufs unabhaengig von der Provenienz des
+Callables ein Befund; nachweisliche Datenwerte stehen locator-genau in der bei
+jedem erfolgreichen Lauf ausgegebenen Ausnahmeliste. Jedes erkannte
+Python-`-m`-Ziel muss als Moduldatei oder als Paket mit `__main__.py` in der
+Distribution existieren.
+Die Pruefung umfasst alle Versionen auf oder oberhalb der je Bundle definierten
+Mindest-Konformversion; unveraenderliche historische Versionen unterhalb der
+Grenze werden nicht nachtraeglich umgeschrieben.
 
 ```python
 # Schnittstelle: read-only auf ProjectConfig (FK-03)
@@ -415,6 +460,30 @@ Ein Projekt erhaelt eine neue Skill-Version erst, wenn seine
 Link-Bindungen (Symlink/Junction) bewusst auf die neue Bundle-Version
 umgestellt werden — das ist ausschliesslich eine bewusste (Re-)Install-/
 Upgrade-Aktion, kein Pipeline- oder Run-Schritt (siehe §43.5.3).
+
+Eine Mindest-Konformversion hebt die normale Pin-Stabilitaet nur dann auf,
+wenn eine aeltere unveraenderliche Bundle-Version einen inzwischen verbotenen
+produktiven Ausfuehrungspfad traegt. Die numerischen Untergrenzen gehoeren
+ausschliesslich `src/agentkit/backend/skills/version_policy.py`; Konzept und
+Gate duerfen keine zweite Floor-Tabelle fuehren. Historische unveraenderliche
+Varianten von `create-userstory-core` bleiben im Store, sind wegen ihrer vom
+aktuellen Gate nachgewiesenen Interpreter-Isolationsverletzungen aber nicht
+mehr produktiv bindbar.
+Historische unveraenderliche Varianten von `execute-userstory-core` verweisen
+ueber nackte PATH-Python-Aufrufe auf nicht existente Module und liegen deshalb
+unter der produktiven Grenze. Eine produktiv konforme Variante fuehrt die
+agentischen Phasenaufrufe ueber Project Edge; sie darf `run-phase` ueber
+`{{AK3_WRAPPER}}` nur als ausdruecklich menschlichen Recovery-Pfad zeigen.
+Historische unveraenderliche Varianten von `concept-incubation-core` enthalten
+nackte PATH-Python-Aufrufe in einem als `text` deklarierten Toolchain-Fence und
+liegen deshalb unter der produktiven Grenze. Die produktiv konforme Variante
+bindet beide Script-Aufrufe an `{{AK3_INTERPRETER}}`.
+Historische unveraenderliche Varianten von `lookup-userstory-core`
+veroeffentlichen den ausfuehrbaren Export-Aufruf ueber einen nackten
+`agentkit`-Wrapper aus `PATH` und liegen deshalb unter der produktiven Grenze.
+Eine produktiv konforme Variante beauftragt `export-story-md` agentisch ueber
+Project Edge; eine `{{AK3_WRAPPER}}`-Darstellung ist nur im ausdruecklich
+menschlichen Recovery-Abschnitt zulaessig.
 
 **Eigenstaendiger Skill-Pin:**
 

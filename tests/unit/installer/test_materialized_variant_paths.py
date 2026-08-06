@@ -28,8 +28,11 @@ def _digest(**overrides: str) -> str:
         "gh_owner": "acme",
         "gh_repo": "app",
         "project_prefix": "PROJ",
+        "wiki_stories_dir": "stories",
         "bundle_id": "b",
         "bundle_version": "4.0.0",
+        "ak3_interpreter_command": "/opt/agentkit/bin/python",
+        "ak3_wrapper_command": "/opt/agentkit/bin/agentkit",
     }
     base.update(overrides)
     return materialized_skill_variant_input_digest(**base)  # type: ignore[arg-type]
@@ -66,8 +69,11 @@ class TestDigest:
             ("gh_owner", "other"),
             ("gh_repo", "other"),
             ("project_prefix", "OTHER"),
+            ("wiki_stories_dir", "docs/stories"),
             ("bundle_id", "other"),
             ("bundle_version", "9.9.9"),
+            ("ak3_interpreter_command", "/other/python"),
+            ("ak3_wrapper_command", "/other/agentkit"),
         ):
             assert _digest(**{field: value}) != base, field
 
@@ -189,7 +195,13 @@ class TestVariantDirForUsesManifestKeys:
             project_key="proj", project_name="Proj", project_root=root
         )
         vd = _materialized_variant_dir_for(
-            install_config, project_config, root, "execute-userstory", bundle
+            install_config,
+            project_config,
+            root,
+            "execute-userstory",
+            bundle,
+            ak3_interpreter_command="/opt/agentkit/bin/python",
+            ak3_wrapper_command="/opt/agentkit/bin/agentkit",
         )
         assert "execute-userstory-core@4.0.0" in str(vd)
         assert str(vd).endswith("execute-userstory")

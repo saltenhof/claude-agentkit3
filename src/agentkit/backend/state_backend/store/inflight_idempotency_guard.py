@@ -39,10 +39,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from agentkit.backend.state_backend.operation_ledger import (
     claim_inflight_operation_row_global,
@@ -50,9 +52,18 @@ from agentkit.backend.state_backend.operation_ledger import (
     load_inflight_operation_row_global,
     release_control_plane_operation_global,
 )
+from agentkit.backend.state_backend.postgres_store._writer_lease_runtime import (
+    atomic_writer_mutation as state_backend_atomic_writer_mutation,
+)
+from agentkit.backend.state_backend.store.control_plane_writer_lease import (
+    load_bound_control_plane_writer_identity,
+)
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from contextlib import AbstractContextManager
 
 # ---------------------------------------------------------------------------
 # Body-hash computation (canonical, op_id-excluded)
@@ -108,12 +119,13 @@ class IdempotencyRequest:
 class FreshClaim:
     """This caller WON the claim: proceed to mutate, then ``finalize``/``release``.
 
-    ``owner_token`` and ``claimed_at_iso`` scope the ownership CAS of the later
-    ``finalize`` / ``release`` to THIS claim generation.
+    ``owner_token``, ``claimed_at_iso`` and ``operation_epoch`` scope the
+    ownership CAS of the later ``finalize`` to THIS claim generation.
     """
 
     owner_token: str
     claimed_at_iso: str
+    operation_epoch: int
 
 
 @dataclass(frozen=True)
@@ -199,12 +211,16 @@ class InflightIdempotencyGuard(Protocol):
         """
         ...
 
-    def release(self, request: IdempotencyRequest, claim: FreshClaim) -> None:
+    def release(self, request: IdempotencyRequest, claim: FreshClaim) -> bool:
         """Ownership-scoped release of the claim (idempotent).
 
         Called when the mutation raised cleanly BEFORE committing any side
         effect, so a retry may re-run. Deletes the row ONLY when it is still
         ``claimed`` by this owner; a terminal or foreign row is left intact.
+
+        Returns:
+            ``True`` exactly when the complete owner/generation/epoch CAS
+            deleted the claim; ``False`` when ownership changed.
         """
         ...
 
@@ -216,20 +232,6 @@ class InflightIdempotencyGuard(Protocol):
         :class:`InFlightOutcome`). Used on a ``finalize`` CAS loss to decide the
         fail-closed outcome (the caller must NOT return its success response when
         the claim was lost/taken-over). Never returns :class:`FreshClaim`.
-        """
-        ...
-
-    def recover(
-        self,
-        request: IdempotencyRequest,
-        result_payload: dict[str, object],
-    ) -> bool:
-        """Finalize a matching claimed row after domain state proves its outcome.
-
-        This is not a time-based takeover.  It applies only while the existing
-        row still matches the same operation kind and body hash, and only after
-        the route-specific recovery function has reconstructed the committed
-        outcome from its authoritative domain state.
         """
         ...
 
@@ -349,6 +351,12 @@ class StateBackendInflightIdempotencyGuard:
 
     def claim(self, request: IdempotencyRequest) -> ClaimOutcome:
         """See :meth:`InflightIdempotencyGuard.claim`."""
+        identity = load_bound_control_plane_writer_identity()
+        if identity is None:
+            raise RuntimeError(
+                "cannot acquire an in-flight claim before the control-plane boot "
+                "identity has been established",
+            )
         owner_token = uuid.uuid4().hex
         now_iso = datetime.now(UTC).isoformat()
         row: dict[str, Any] = {
@@ -366,18 +374,21 @@ class StateBackendInflightIdempotencyGuard:
             "claimed_by": owner_token,
             "claimed_at": now_iso,
             "request_body_hash": request.body_hash,
-            # The AG3-137/AG3-138 instance-fencing columns are populated only by
-            # the control-plane runtime's own operations; the generic guard
-            # leaves them NULL (its fence is the op_id PK + the ``claimed``
-            # status, not an instance epoch).
-            "operation_epoch": None,
-            "backend_instance_id": None,
-            "instance_incarnation": None,
+            # Every in-flight claim has a sender.  The op_id/status fence prevents
+            # duplicate execution, while these fields independently answer the
+            # recovery question "does the holder's boot still live?".
+            "operation_epoch": 1,
+            "backend_instance_id": identity.backend_instance_id,
+            "instance_incarnation": identity.instance_incarnation,
             "declared_serialization_scope": None,
         }
         won = claim_inflight_operation_row_global(row)
         if won:
-            return FreshClaim(owner_token=owner_token, claimed_at_iso=now_iso)
+            return FreshClaim(
+                owner_token=owner_token,
+                claimed_at_iso=now_iso,
+                operation_epoch=1,
+            )
         return self._resolve_loser(request)
 
     def _resolve_loser(self, request: IdempotencyRequest) -> ClaimOutcome:
@@ -426,45 +437,22 @@ class StateBackendInflightIdempotencyGuard:
             row,
             owner_token=claim.owner_token,
             owner_claimed_at=claim.claimed_at_iso,
+            owner_operation_epoch=claim.operation_epoch,
         )
 
-    def release(self, request: IdempotencyRequest, claim: FreshClaim) -> None:
+    def release(self, request: IdempotencyRequest, claim: FreshClaim) -> bool:
         """See :meth:`InflightIdempotencyGuard.release`."""
-        release_control_plane_operation_global(
+        applied = release_control_plane_operation_global(
             request.op_id,
             owner_token=claim.owner_token,
             owner_claimed_at=claim.claimed_at_iso,
+            owner_operation_epoch=claim.operation_epoch,
         )
+        return _report_release_result(request.op_id, applied)
 
     def classify(self, request: IdempotencyRequest) -> ClaimOutcome:
         """See :meth:`InflightIdempotencyGuard.classify`."""
         return self._resolve_loser(request)
-
-    def recover(
-        self,
-        request: IdempotencyRequest,
-        result_payload: dict[str, object],
-    ) -> bool:
-        """Finalize an exact orphan claim from independently proven domain state."""
-        existing = load_inflight_operation_row_global(request.op_id)
-        if existing is None:
-            return False
-        stored_hash = existing.get("request_body_hash")
-        if (
-            existing.get("status") != _CLAIM_STATUS
-            or existing.get("project_key") != request.project_key
-            or stored_hash != request.body_hash
-            or existing.get("operation_kind") != request.operation_kind
-            or not isinstance(existing.get("claimed_by"), str)
-            or not isinstance(existing.get("claimed_at"), str)
-        ):
-            return False
-        claim = FreshClaim(
-            owner_token=str(existing["claimed_by"]),
-            claimed_at_iso=str(existing["claimed_at"]),
-        )
-        return self.finalize(request, claim, result_payload)
-
 
 # ---------------------------------------------------------------------------
 # In-memory implementation (first-class unit-test impl -- NOT a mock)
@@ -478,6 +466,7 @@ class _MemRow:
     result_payload: dict[str, object]
     owner_token: str
     claimed_at_iso: str
+    operation_epoch: int
     operation_kind: str
     project_key: str
 
@@ -508,10 +497,15 @@ class InMemoryInflightIdempotencyGuard:
                 result_payload=dict(_CLAIM_PLACEHOLDER),
                 owner_token=owner_token,
                 claimed_at_iso=claimed_at_iso,
+                operation_epoch=1,
                 operation_kind=request.operation_kind,
                 project_key=request.project_key,
             )
-            return FreshClaim(owner_token=owner_token, claimed_at_iso=claimed_at_iso)
+            return FreshClaim(
+                owner_token=owner_token,
+                claimed_at_iso=claimed_at_iso,
+                operation_epoch=1,
+            )
         return self._classify_existing(request, existing)
 
     def _classify_existing(
@@ -544,13 +538,14 @@ class InMemoryInflightIdempotencyGuard:
             or existing.status != _CLAIM_STATUS
             or existing.owner_token != claim.owner_token
             or existing.claimed_at_iso != claim.claimed_at_iso
+            or existing.operation_epoch != claim.operation_epoch
         ):
             return False
         existing.status = _TERMINAL_STATUS
         existing.result_payload = dict(result_payload)
         return True
 
-    def release(self, request: IdempotencyRequest, claim: FreshClaim) -> None:
+    def release(self, request: IdempotencyRequest, claim: FreshClaim) -> bool:
         """See :meth:`InflightIdempotencyGuard.release`."""
         existing = self._rows.get(request.op_id)
         if (
@@ -558,8 +553,11 @@ class InMemoryInflightIdempotencyGuard:
             and existing.status == _CLAIM_STATUS
             and existing.owner_token == claim.owner_token
             and existing.claimed_at_iso == claim.claimed_at_iso
+            and existing.operation_epoch == claim.operation_epoch
         ):
             del self._rows[request.op_id]
+            return True
+        return _report_release_result(request.op_id, False)
 
     def classify(self, request: IdempotencyRequest) -> ClaimOutcome:
         """See :meth:`InflightIdempotencyGuard.classify`."""
@@ -567,31 +565,6 @@ class InMemoryInflightIdempotencyGuard:
         if existing is None:
             return InFlightOutcome(op_id=request.op_id)
         return self._classify_existing(request, existing)
-
-    def recover(
-        self,
-        request: IdempotencyRequest,
-        result_payload: dict[str, object],
-    ) -> bool:
-        """Finalize an exact in-memory orphan after domain-state recovery."""
-        existing = self._rows.get(request.op_id)
-        if (
-            existing is None
-            or existing.status != _CLAIM_STATUS
-            or existing.project_key != request.project_key
-            or existing.body_hash != request.body_hash
-            or existing.operation_kind != request.operation_kind
-        ):
-            return False
-        return self.finalize(
-            request,
-            FreshClaim(
-                owner_token=existing.owner_token,
-                claimed_at_iso=existing.claimed_at_iso,
-            ),
-            result_payload,
-        )
-
 
 # ---------------------------------------------------------------------------
 # Shared route window-logic (FK-91 §91.1a Rule 5; the claim/mutate/finalize
@@ -634,6 +607,17 @@ def _operation_conflict_message(op_id: str) -> str:
     )
 
 
+def _report_release_result(op_id: str, applied: bool) -> bool:
+    """Expose an unapplied release even when an exception caller ignores bool."""
+
+    if not applied:
+        logger.error(
+            "owner/generation/operation_epoch release CAS did not apply for op_id=%r",
+            op_id,
+        )
+    return applied
+
+
 def _route_loser_response[R: _RouteResponseLike](
     outcome: ClaimOutcome,
     *,
@@ -671,7 +655,7 @@ def run_route_idempotent[R: _RouteResponseLike](
     mutate: Callable[[], R],
     replay: Callable[[dict[str, object]], R],
     conflict: Callable[[str, str, dict[str, object]], R],
-    recover_inflight: Callable[[Callable[[R], bool]], R | None] | None = None,
+    mutation_scope: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> R:
     """Run one mutating HTTP route under the unified idempotency contract.
 
@@ -680,15 +664,14 @@ def run_route_idempotent[R: _RouteResponseLike](
 
     * The ``claimed`` placeholder is written by ``claim`` BEFORE ``mutate``.
     * A loser (replay / mismatch / in-flight) short-circuits before mutating.
-    * If ``mutate`` RAISES, the durable side effect is atomic-and-last, so the
-      raise means NO committed side effect: the owner-scoped claim is RELEASED
-      and the exception re-raised (a retry re-executes cleanly). A post-commit
-      failure is a PROCESS crash, not a catchable exception here, and leaves the
-      ``claimed`` row -> fail-closed in-flight on retry (AC3), never released,
-      unless this route supplies a domain-state proof that reconstructs the
-      exact committed result without re-executing the mutation.
-    * A ``>= 500`` route response (the BC mapped an unexpected fault to 500) also
-      releases the claim (pre-commit, retry-able).
+    * ``mutation_scope`` may bind the complete domain mutation and claim
+      finalization to one transaction. In that mode an exception, a ``>= 500``
+      response, or a lost finalization CAS rolls back every domain write before
+      the owner-scoped claim is released or classified.
+    * Without such a scope, a raised pre-outcome exception or ``>= 500`` route
+      response releases the claim. A caller that can already have committed a
+      domain effect must raise ``CommittedMutationError`` so the claim remains
+      fail-closed for route-specific recovery.
     * If ``finalize`` returns ``False`` the claim was lost/taken-over (e.g. an
       admin abort) between claim and finalize: the mutation is NOT durably
       recorded under this op_id, so the SUCCESS response is NOT returned;
@@ -702,29 +685,13 @@ def run_route_idempotent[R: _RouteResponseLike](
             validates ``{status_code, body}`` and fails closed on a malformed
             record).
         conflict: Builds a ``409`` response from ``(error_code, message, detail)``.
+        mutation_scope: Optional transaction boundary enclosing ``mutate`` and
+            the successful claim finalization.
 
     Returns:
         The BC route response (the mutation's, a replay, or a fail-closed 409).
     """
     outcome = guard.claim(request)
-    if isinstance(outcome, InFlightOutcome) and recover_inflight is not None:
-        def finalize_recovered(response: R) -> bool:
-            result_payload = {
-                "status_code": response.status_code,
-                "body": json.loads(response.body),
-            }
-            return guard.recover(request, result_payload)
-
-        recovered = recover_inflight(finalize_recovered)
-        if recovered is not None:
-            return recovered
-        resolved = _route_loser_response(
-            guard.classify(request),
-            replay=replay,
-            conflict=conflict,
-        )
-        if resolved is not None:
-            return resolved
     loser = _route_loser_response(outcome, replay=replay, conflict=conflict)
     if loser is not None:
         return loser
@@ -732,30 +699,22 @@ def run_route_idempotent[R: _RouteResponseLike](
         raise TypeError(f"unexpected claim outcome: {outcome!r}")
     claim = outcome
     try:
-        response = mutate()
-    except CommittedMutationError:
-        # At least one authoritative side effect is already durable. Preserve
-        # the claim for route-specific recovery; never make the op executable
-        # again merely because a later completion step failed.
-        raise
-    except Exception:
-        # Pre-outcome exception (durable write is atomic-and-last -> nothing
-        # committed): release the claim so a retry re-executes cleanly.
-        guard.release(request, claim)
-        raise
-    if response.status_code >= _SERVER_ERROR:
-        guard.release(request, claim)
-        return response
-    finalized = guard.finalize(
-        request,
-        claim,
-        {"status_code": response.status_code, "body": json.loads(response.body)},
-    )
-    if not finalized:
-        # The claim was lost/taken-over between claim and finalize: do NOT return
-        # the success response. Classify the existing row and return the
-        # fail-closed outcome (a concurrent identical finalize -> replay; a
-        # divergent body -> mismatch; otherwise an in-flight/lost conflict).
+        with mutation_scope():
+            response = mutate()
+            if response.status_code >= _SERVER_ERROR:
+                raise _RollbackRouteResponseError(response)
+            finalized = guard.finalize(
+                request,
+                claim,
+                {"status_code": response.status_code, "body": json.loads(response.body)},
+            )
+            if not finalized:
+                raise _ClaimFinalizationLostError
+    except _RollbackRouteResponseError as rollback:
+        if not guard.release(request, claim):
+            raise _ClaimReleaseLostError(request.op_id) from rollback
+        return cast("R", rollback.response)
+    except _ClaimFinalizationLostError:
         lost = _route_loser_response(
             guard.classify(request), replay=replay, conflict=conflict
         )
@@ -766,7 +725,43 @@ def run_route_idempotent[R: _RouteResponseLike](
             _operation_in_flight_message(request.op_id),
             {"op_id": request.op_id},
         )
+    except CommittedMutationError:
+        # At least one authoritative side effect is already durable. Preserve
+        # the claim for route-specific recovery; never make the op executable
+        # again merely because a later completion step failed.
+        raise
+    except Exception as exc:
+        # Pre-outcome exception (durable write is atomic-and-last -> nothing
+        # committed): release the claim so a retry re-executes cleanly.
+        if not guard.release(request, claim):
+            exc.add_note(
+                f"owner/generation/operation_epoch release CAS did not apply "
+                f"for op_id={request.op_id!r}",
+            )
+        raise
     return response
+
+
+class _RollbackRouteResponseError(Exception):
+    """Carry a 5xx response across the atomic transaction rollback."""
+
+    def __init__(self, response: _RouteResponseLike) -> None:
+        super().__init__()
+        self.response = response
+
+
+class _ClaimFinalizationLostError(Exception):
+    """Abort the atomic domain transaction when outer claim CAS is lost."""
+
+
+class _ClaimReleaseLostError(RuntimeError):
+    """Fail closed when a rolled-back route no longer owns its claim release."""
+
+    def __init__(self, op_id: str) -> None:
+        super().__init__(
+            "owner/generation/operation_epoch release CAS did not apply for "
+            f"op_id={op_id!r}",
+        )
 
 
 __all__ = [
@@ -784,4 +779,5 @@ __all__ = [
     "classify_terminal_row",
     "compute_body_hash",
     "run_route_idempotent",
+    "state_backend_atomic_writer_mutation",
 ]

@@ -60,6 +60,13 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
             ``claimed`` (the upsert would have clobbered a live claim).
     """
 
+    if row.get("status") == "claimed":
+        from agentkit.backend.state_backend.operation_claim_validation import (
+            assert_complete_claim_sender,
+        )
+
+        assert_complete_claim_sender(row)
+
     with _connect_global() as conn:
         cursor = conn.execute(
             """
@@ -152,6 +159,11 @@ def claim_control_plane_operation_global_row(row: dict[str, Any]) -> bool:
         the op_id already existed (a concurrent/earlier caller owns it).
     """
 
+    from agentkit.backend.state_backend.operation_claim_validation import (
+        assert_complete_claim_sender,
+    )
+
+    assert_complete_claim_sender(row)
     with _connect_global() as conn:
         cursor = conn.execute(
             """
@@ -1031,6 +1043,8 @@ def finalize_control_plane_disown_global_row(
     revoked_binding_row: dict[str, Any],
     ownership_status_target: str,
     event_rows: Sequence[dict[str, Any]],
+    lock_rows: Sequence[dict[str, Any]] = (),
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> bool:
     """CAS-finalize a claimed terminal-path disown in one transaction."""
 
@@ -1062,6 +1076,7 @@ def finalize_control_plane_disown_global_row(
             )
             if int(cursor.rowcount) != 1:
                 raise _NotOwnerError
+            _run_takeover_fault_hook(fault_after_step, "operation_marker")
             _transition_run_ownership_status_row(
                 conn,
                 project_key=str(op_row["project_key"]),
@@ -1069,7 +1084,11 @@ def finalize_control_plane_disown_global_row(
                 run_id=str(op_row["run_id"]),
                 target_status=ownership_status_target,
             )
+            _run_takeover_fault_hook(fault_after_step, "ownership_status")
             _revoke_session_binding_row(conn, revoked_binding_row)
+            _run_takeover_fault_hook(fault_after_step, "binding")
+            for lock_row in lock_rows:
+                _insert_story_execution_lock_row(conn, lock_row)
             for event_row in event_rows:
                 _insert_execution_event_row(conn, event_row)
     except _NotOwnerError:
@@ -1594,7 +1613,8 @@ def release_control_plane_operation_global_row(
     *,
     owner_token: str,
     owner_claimed_at: str | None = None,
-) -> None:
+    owner_operation_epoch: int | None = None,
+) -> bool:
     """Ownership-scoped release of a claimed op (AG3-054 owner-scoped claim).
 
     Deletes the row ONLY when it is still ``claimed`` by ``owner_token``. NEVER an
@@ -1605,19 +1625,36 @@ def release_control_plane_operation_global_row(
     WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW claim instant the owner
     stamped) is given, the delete CAS also matches ``claimed_at`` so it scopes to
     THIS claim generation -- a stale owner (a reused token in DI/test wiring)
-    cannot delete a NEWER claim. ``None`` keeps the legacy owner-only CAS.
+    cannot delete a NEWER claim. ``owner_operation_epoch`` adds the mandatory
+    admin/startup fence for callers that act on a previously scanned record.
+
+    Returns:
+        ``True`` exactly when this complete release CAS deleted the claimed row.
     """
 
-    epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)
+    claimed_at_clause, claimed_at_params = _owner_epoch_cas_clause(owner_claimed_at)
+    operation_epoch_clause = (
+        " AND operation_epoch = ?" if owner_operation_epoch is not None else ""
+    )
+    operation_epoch_params: tuple[object, ...] = (
+        (owner_operation_epoch,) if owner_operation_epoch is not None else ()
+    )
     with _connect_global() as conn:
-        # epoch_clause is a constant fragment, not user data.
-        conn.execute(
+        # CAS clauses are constant fragments, not user data.
+        cursor = conn.execute(
             f"""
             DELETE FROM control_plane_operations
-            WHERE op_id = ? AND status = 'claimed' AND claimed_by = ?{epoch_clause}
+            WHERE op_id = ? AND status = 'claimed' AND claimed_by = ?
+              {claimed_at_clause}{operation_epoch_clause}
             """,  # noqa: S608
-            (op_id, owner_token, *epoch_params),
+            (
+                op_id,
+                owner_token,
+                *claimed_at_params,
+                *operation_epoch_params,
+            ),
         )
+        return int(cursor.rowcount) == 1
 
 
 def delete_control_plane_operation_global_row(op_id: str) -> None:

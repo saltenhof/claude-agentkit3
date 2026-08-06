@@ -63,7 +63,6 @@ __all__ = (
     "run_startup_reconciliation",
 )
 
-
 class StartupReconciliationError(RuntimeError):
     """Fail-closed signal that startup reconciliation could not complete (AC9).
 
@@ -83,6 +82,10 @@ class ReconciliationOutcome:
     #: The subset of ``finalized_op_ids`` that went to the explicit
     #: reconcile/repair state (already-persisted engine writes, IMPL-005).
     repair_op_ids: tuple[str, ...]
+    #: Storyless atomic writer mutations have no possible committed domain
+    #: effect while their outer claim is still ``claimed``. Their earlier-boot
+    #: placeholders are released so the exact same op_id can converge.
+    released_op_ids: tuple[str, ...] = ()
 
 
 def _default_now() -> datetime:
@@ -149,6 +152,7 @@ def _run(
     )
     finalized: list[str] = []
     repaired: list[str] = []
+    released: list[str] = []
     for op in orphaned:
         if op.operation_epoch is None:
             #: Fail-closed (AC4/AC9): a scanned own-identity orphan ALWAYS carries an
@@ -164,6 +168,26 @@ def _run(
                 f"{identity.backend_instance_id!r} carries no operation_epoch; "
                 "refusing an unfenced finalize (fail-closed, AC4/AC9).",
             )
+        if _is_atomic_storyless_writer_operation(op):
+            if op.claimed_by is None or op.claimed_at is None:
+                raise StartupReconciliationError(
+                    f"atomic writer claim {op.op_id!r} has no owner CAS identity; "
+                    "refusing an unfenced release (fail-closed).",
+                )
+            applied = repo.release_operation(
+                op.op_id,
+                owner_token=op.claimed_by,
+                owner_claimed_at=op.claimed_at.isoformat(),
+                owner_operation_epoch=op.operation_epoch,
+            )
+            if not applied:
+                raise StartupReconciliationError(
+                    f"atomic writer claim {op.op_id!r} changed after the orphan "
+                    "scan; refusing to report or serve after an unapplied "
+                    "owner/claimed_at/operation_epoch release",
+                )
+            released.append(op.op_id)
+            continue
         status, note = _resolve_terminal_status(repo, op, identity=identity)
         response_payload = _orphan_result_payload(op, status=status, admin_note=note)
         applied = repo.finalize_orphaned_operation(
@@ -209,6 +233,15 @@ def _run(
     return ReconciliationOutcome(
         finalized_op_ids=tuple(finalized),
         repair_op_ids=tuple(repaired),
+        released_op_ids=tuple(released),
+    )
+
+
+def _is_atomic_storyless_writer_operation(op: ControlPlaneOperationRecord) -> bool:
+    """Return whether a claimed row proves its domain transaction did not commit."""
+
+    return op.story_id is None and op.operation_kind.startswith(
+        ("installer_", "failure_corpus_"),
     )
 
 
@@ -220,7 +253,10 @@ def _resolve_terminal_status(
 ) -> tuple[Literal["failed", "repair"], str]:
     """Decide ``failed`` vs ``repair`` for one orphaned claim (IMPL-005)."""
     since = op.claimed_at or op.created_at
-    has_writes = repo.has_engine_writes_since(op.story_id, since)
+    has_writes = (
+        op.story_id is not None
+        and repo.has_engine_writes_since(op.story_id, since)
+    )
     if has_writes:
         return (
             "repair",

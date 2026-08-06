@@ -55,18 +55,18 @@ stimmt und Probleme erkannt werden?
 | LLM-Hub | Erreichbar? Login aktiv? | Hub-Health-Aufruf über FK-75 |
 | Weaviate | Erreichbar? Daten aktuell? | `docker ps` + `story_search` Test-Query |
 | ARE (wenn aktiv) | MCP-Server erreichbar? | `are_check_gate` mit Test-Story |
-| PostgreSQL | Erreichbar? Rollen/Rechte korrekt? | `agentkit backend health` |
+| PostgreSQL | Erreichbar? Rollen/Rechte korrekt? | `<absolute-agentkit-wrapper> backend health` |
 | Git | Keine stale Worktrees/Branches | `git worktree list` |
-| Locks | Keine stale Locks | `agentkit query-state --locks` |
-| Audit-Export | Exportziel erreichbar | `agentkit export-telemetry --dry-run` |
-| Reset-Faehigkeit | Offizieller Reset-Pfad verfuegbar | `agentkit reset-story --help` |
-| Split-Faehigkeit | Offizieller Story-Split-Pfad verfuegbar | `agentkit split-story --help` |
-| Konfliktaufloesung | Offizieller Freeze-/Resolution-Pfad verfuegbar | `agentkit resolve-conflict --help` |
+| Locks | Keine stale Locks | `<absolute-agentkit-wrapper> query-state --locks` |
+| Audit-Export | Exportziel erreichbar | `<absolute-agentkit-wrapper> export-telemetry --dry-run` |
+| Reset-Faehigkeit | Offizieller Reset-Pfad verfuegbar | `<absolute-agentkit-wrapper> reset-story --help` |
+| Split-Faehigkeit | Offizieller Story-Split-Pfad verfuegbar | `<absolute-agentkit-wrapper> split-story --help` |
+| Konfliktaufloesung | Offizieller Freeze-/Resolution-Pfad verfuegbar | `<absolute-agentkit-wrapper> resolve-conflict --help` |
 
 ### 4.2.2 Status-Befehl
 
 ```bash
-agentkit status
+<absolute-agentkit-wrapper> status
 
 # Output:
 # AgentKit v1.0.0
@@ -108,16 +108,16 @@ agentkit status
 
 ```bash
 # Telemetrie einer Story
-agentkit query-telemetry --story ODIN-042
+<absolute-agentkit-wrapper> query-telemetry --story ODIN-042
 
 # Nur bestimmte Events
-agentkit query-telemetry --story ODIN-042 --event integrity_violation
+<absolute-agentkit-wrapper> query-telemetry --story ODIN-042 --event integrity_violation
 
 # Alle Events eines Runs
-agentkit query-telemetry --run a1b2c3d4-...
+<absolute-agentkit-wrapper> query-telemetry --run a1b2c3d4-...
 
 # Governance-Incidents
-agentkit query-telemetry --event governance_adjudication --since 7d
+<absolute-agentkit-wrapper> query-telemetry --event governance_adjudication --since 7d
 ```
 
 ## 4.4 Wöchentlicher Review-Slot
@@ -139,11 +139,11 @@ Das FK sieht einen wöchentlichen 15-Minuten-Review-Slot vor
 ### 4.4.2 Kein automatischer Trigger
 
 Es gibt keinen Kalendereintrag oder Wecker. Die Reports
-erscheinen automatisch bei jedem `agentkit status` oder
+erscheinen automatisch bei jedem `<absolute-agentkit-wrapper> status` oder
 explizitem Review-Aufruf:
 
 ```bash
-agentkit weekly-review
+<absolute-agentkit-wrapper> weekly-review
 
 # Output:
 # --- Failure Corpus Review ---
@@ -162,7 +162,7 @@ agentkit weekly-review
 ### 4.5.1 LLM-Hub nicht erreichbar
 
 ```
-Symptom: agentkit status zeigt den LLM-Hub als ERROR
+Symptom: <absolute-agentkit-wrapper> status zeigt den LLM-Hub als ERROR
 Ursache: Hub nicht gestartet oder Modell-Login abgelaufen (Hub-intern)
 
 Lösung:
@@ -187,19 +187,19 @@ explizit ueber einen offiziellen Recovery-Pfad.
 
 Loesung:
 1. Zustand lesen (reine Information):
-   agentkit status --story {story_id} (REST) bzw. Backend-State des Runs
+   <absolute-agentkit-wrapper> status --story {story_id} (REST) bzw. Backend-State des Runs
 2. Explizit-administrative Recovery-Entscheidung ueber einen offiziellen
    Pfad treffen (kein Warten auf Ablauf, kein manuelles Loeschen):
    - dieselbe Harness-Identitaet nimmt ihre Arbeit wieder auf →
      Session-Continuation via /resume (kein Transfer, kein
      Recovery-Ereignis; FK-56 §56.13g, FK-20 §20.7.3/§20.7.4)
    - Harness-Identitaet verloren / bewusster Clean-Slate →
-     agentkit recover-story --story {story_id} (neuer Run,
+     <absolute-agentkit-wrapper> recover-story --story {story_id} (neuer Run,
      acquired_via=recovery; Uebernehmen/Verwerfen: FK-20 §20.7.3)
    - fremde aktive Session soll uebernommen werden →
      Ownership-Takeover (§4.5.10, FK-56 §56.13)
 3. Nur bei bewusster Aufraeum-Entscheidung des Menschen:
-   agentkit cleanup --story {story_id} (Worktree, Branch, Locks, Artefakte)
+   <absolute-agentkit-wrapper> cleanup --story {story_id} (Worktree, Branch, Locks, Artefakte)
 ```
 
 ### 4.5.3 Integrity-Gate FAIL
@@ -209,11 +209,11 @@ Symptom: Story kann nicht geschlossen werden
 Ursache: Prozess nicht vollständig durchlaufen
 
 Lösung:
-1. agentkit query-telemetry --story {story_id} --event integrity_gate_result
+1. <absolute-agentkit-wrapper> query-telemetry --story {story_id} --event integrity_gate_result
 2. FAIL-Codes analysieren (z.B. MISSING_LLM_qa_review)
 3. Ursache beheben (z.B. Pool war offline während Run)
 4. Neuer Run oder Override:
-   agentkit override-integrity --story {story_id} --reason "..."
+   <absolute-agentkit-wrapper> override-integrity --story {story_id} --reason "..."
 ```
 
 ### 4.5.4 Stagnation (Story ohne Fortschritt)
@@ -223,10 +223,10 @@ Symptom: Story seit > 4 Stunden in derselben Phase
 Ursache: Agent hängt, Harness-Session (Claude Code / Codex; FK-76) abgelaufen, oder Loop
 
 Lösung:
-1. agentkit status --story {story_id}
-2. Phase-State prüfen: `agentkit query-state --story {story_id}`
+1. <absolute-agentkit-wrapper> status --story {story_id}
+2. Phase-State prüfen: `<absolute-agentkit-wrapper> query-state --story {story_id}`
 3. Telemetrie: letzte Events prüfen
-4. Wenn Loop: agentkit reset-escalation --story {story_id}
+4. Wenn Loop: <absolute-agentkit-wrapper> reset-escalation --story {story_id}
 5. Story-Anforderungen vereinfachen oder Mensch greift ein
 ```
 
@@ -237,12 +237,12 @@ Symptom: Closure ESCALATED mit Merge-Konflikt
 Ursache: Main hat sich seit Story-Start weiterentwickelt
 
 Lösung:
-1. Offiziellen Closure-Retry pruefen: `POST /phases/closure/start` mit `no_ff: true` (Service-API FK-91 §91.1a) oder Operator-CLI `agentkit run-phase closure --story {story_id} --no-ff` (FK-91 §91.1)
+1. Offiziellen Closure-Retry pruefen: `POST /phases/closure/start` mit `no_ff: true` (Service-API FK-91 §91.1a) oder Operator-CLI `<absolute-agentkit-wrapper> run-phase closure --story {story_id} --no-ff` (FK-91 §91.1)
 2. Wenn Closure damit sauber abschliesst: Story normal beenden
 3. Wenn weiterhin harter, nicht workflowfaehiger Konflikt vorliegt:
    Eskalation bestehen lassen und menschliche Entscheidung treffen
 4. Nur wenn die Umsetzung als korrupt oder unbrauchbar gilt:
-   `agentkit reset-story --story {story_id} --reason "..."`
+   `<absolute-agentkit-wrapper> reset-story --story {story_id} --reason "..."`
 ```
 
 ### 4.5.6 Scope-Explosion / Story-Split
@@ -255,7 +255,7 @@ Loesung:
 1. Gegenueberstellung erwartet vs. festgestellt pruefen
 2. Mensch entscheidet ueber Split-Plan und Nachfolger
 3. Offiziellen Split ausloesen:
-   agentkit split-story --story {story_id} --plan split-plan.json --reason "scope explosion"
+   <absolute-agentkit-wrapper> split-story --story {story_id} --plan split-plan.json --reason "scope explosion"
 4. Ergebnis pruefen:
    - Ausgangs-Story Status = Cancelled
    - keine externe Tracker-Mutation
@@ -279,7 +279,7 @@ Loesung:
 2. Keine freien Cleanup-, Git- oder ARE-Kuratierungsaktionen ausfuehren
 3. Mensch trifft die Aufloesungsentscheidung
 4. Offiziellen Pfad verwenden:
-   agentkit resolve-conflict --story {story_id} --decision {decision} --reason "..."
+   <absolute-agentkit-wrapper> resolve-conflict --story {story_id} --decision {decision} --reason "..."
 5. Ergebnis pruefen:
    - `conflict_freeze` aufgehoben oder in offiziellen Folgeservice ueberfuehrt
    - kein freier Orchestrator-Write waehrend des Freeze
@@ -302,7 +302,7 @@ Lösung:
 1. Eskalationsgrund und letzte gueltige Telemetrie pruefen
 2. Sicherstellen, dass normale Recovery-Pfade nicht mehr tragfaehig sind
 3. Reset ausloesen:
-   agentkit reset-story --story {story_id} --reason "..."
+   <absolute-agentkit-wrapper> reset-story --story {story_id} --reason "..."
 4. Ergebnis pruefen:
    - keine aktiven Locks
    - kein aktiver Runtime-State
@@ -322,9 +322,9 @@ Loesung:
 1. Offenen Permission-Request fuer `story_id` und `run_id` pruefen
 2. Entscheiden:
    - Einzelfall freigeben:
-     agentkit approve-permission-request --request {request_id}
+     <absolute-agentkit-wrapper> approve-permission-request --request {request_id}
    - Einzelfall ablehnen:
-     agentkit reject-permission-request --request {request_id}
+     <absolute-agentkit-wrapper> reject-permission-request --request {request_id}
 3. Nur bei bewusstem Mehrwert daraus spaeter eine Dauerregel machen
 4. Wenn ein Host-Prompt oder TTY-Effekt auftrat:
    - als `external_permission_interference_detected` dokumentieren
@@ -367,14 +367,14 @@ stillschweigend mitgenommen.
 
 Loesung:
 1. Anfrage stellen (Begruendungspflicht, auditiert):
-   agentkit takeover-request --story {story_id} --run {run_id} ...
+   <absolute-agentkit-wrapper> takeover-request --story {story_id} --run {run_id} ...
    (REST: POST .../ownership/takeover-request, FK-91 §91.1a)
    Antwort ist nie der Vollzug, sondern ein versionierter Challenge:
    Eigentumslage (owner_session_id, ownership_epoch, binding_version),
    Kandidaten-SHA + Push-Frische und der Verlustkorridor-Pflichttext
    (FK-56 §56.13a/§56.13c). Letzter API-Kontakt ist Nicht-Diagnose.
 2. Menschlich vollziehen (informierte Freigabe):
-   agentkit takeover-confirm --story {story_id} --challenge-id {id} ...
+   <absolute-agentkit-wrapper> takeover-confirm --story {story_id} --challenge-id {id} ...
    (REST: POST .../ownership/takeover-confirm). Der Confirm ist
    human-BFF-session-exklusiv (Strategen-Session; FK-91 §91.1) und
    waehlt die gespeicherte Challenge nur per challenge_id aus; der CAS

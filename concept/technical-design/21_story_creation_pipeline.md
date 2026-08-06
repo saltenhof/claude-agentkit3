@@ -58,7 +58,7 @@ glossary:
       definition: >
         Deterministisch aus den AK3-Story-Attributen erzeugtes Artefakt
         (story.md) im Story-Verzeichnis. Kein LLM-Produkt; erzeugt
-        durch agentkit export-story-md. Dient als Weaviate-Index-Quelle
+        durch die ueber Project Edge beauftragte Export-Operation. Dient als Weaviate-Index-Quelle
         und Git-Archiv. Weaviate-Indizierungsfehler beim Export sind
         harte Blocker.
     - id: vectordb-abgleich
@@ -167,7 +167,7 @@ flowchart TD
     end
     REPO_AFF --> PROJECT
 
-    BACKLOG --> EXPORT["Deterministischer<br/>story.md-Export<br/>(agentkit export-story-md)"]
+    BACKLOG --> EXPORT["Deterministischer<br/>story.md-Export<br/>(via Project Edge)"]
     EXPORT --> FREIGABE{"Mensch gibt frei?"}
     FREIGABE -->|Nein| REWORK["Nacharbeit an<br/>Story-Definition"]
     REWORK --> KONZEPT
@@ -644,6 +644,11 @@ Guardrail-Referenzen, Dependencies (siehe FK-91).
 Dependencies werden ueber das StoryDependency-Repository registriert,
 nicht ueber Free-Text-Referenzen.
 
+Der produktive Skill-Aufruf verwendet den durch den Installer materialisierten
+absoluten AK3-Interpreter vor dem projektlokalen
+`tools/agentkit/projectedge.py create-story`. Ein nacktes `python`/`python3`
+aus `PATH` ist im Skill-Bundle kein zulaessiger Aufrufpfad.
+
 ### 21.10.3 Status: Backlog
 
 Nach Erstellung steht die Story auf "Backlog". Sie ist **nicht
@@ -675,10 +680,14 @@ erstellt hat.
 
 ### 21.11.2 Mechanismus
 
-Der Export ist ein CLI-Befehl des AgentKit-Python-Pakets:
+Der Export ist eine deterministische AK3-Operation. Der Story-Erstellungs-Skill
+beauftragt sie ueber den offiziellen Project Edge Client; der Agent ruft keine
+AK3-CLI auf. Fuer menschliche Operator-Recovery steht derselben Operation der
+folgende CLI-Adapter gegenueber:
 
 ```bash
-agentkit export-story-md \
+# Ausschliesslich menschliche Operator-Recovery
+<absolute-agentkit-wrapper> export-story-md \
   --story-id "{story_id}" \
   --story-dir "{story_verzeichnis}"
 ```
@@ -748,9 +757,10 @@ Export fehl.
 
 1. **Weaviate-Readiness** (Pflichtprüfung):
 
-```bash
-python -m agentkit.backend.vectordb.wait_for_weaviate --timeout 10
-```
+Der produktive Skill fordert die Readiness-Pruefung ueber den offiziellen
+Project Edge Client an. Er startet weder ein AK3-Backend-Modul noch die
+Operator-CLI auf dem Entwicklerrechner; der konkrete Request-Vertrag gehoert
+FK-91.
 
 Exit 0 → Weaviate bereit, VektorDB-Suche verfügbar.
 Exit 1 → **Fehler** (VektorDB nicht erreichbar). Die Story-
@@ -759,14 +769,17 @@ Pflichtbestandteil (Kap. 13.8).
 
 2. **Concept-Corpus-Freshness** (Kap. 13.9.9, immer aktiv):
 
-Prüft ob ein valider `concept_graph.json` existiert und ob dessen
+Project Edge prueft, ob ein valider `concept_graph.json` existiert und ob dessen
 `corpus_revision` zum aktuellen Dateistand der Konzeptdokumente
 passt. Bei fehlendem, stalem oder invalidem Graph → **STOP**
-mit Hinweis "rebuild concept corpus first"
-(`agentkit concept build`). Der Concept-Graph ist deterministisch
-und unabhängig von der VektorDB — er muss immer verfügbar sein.
+mit Hinweis "rebuild concept corpus first". Der agentische Rebuild-Pfad laeuft
+ueber Project Edge; `<absolute-agentkit-wrapper> concept build` ist
+ausschliesslich ein ausdruecklich menschlicher Recovery-Pfad. Der Concept-Graph
+ist deterministisch und unabhängig von der VektorDB — er muss immer verfügbar
+sein.
 
-**Indizierung im Export:** Der `agentkit export-story-md`-Befehl
+**Indizierung im Export:** Die Export-Operation (im menschlichen Recovery-Pfad
+`<absolute-agentkit-wrapper> export-story-md`)
 führt nach dem story.md-Schreiben automatisch eine inkrementelle
 Weaviate-Synchronisierung durch (`build_closure_sync_fn` /
 `build_closure_sync_request` aus Kap. 13). Dabei werden
@@ -804,10 +817,10 @@ Aufgabe des Story-Erstellungsprozesses in den Schritten davor).
 ### 21.11.6 Repair-Funktion
 
 Für bestehende Stories mit fehlerhafter oder fehlender `story.md`
-existiert ein Batch-Repair-Befehl:
+existiert ein menschlicher Batch-Repair-Befehl:
 
 ```bash
-agentkit repair-story-md
+<absolute-agentkit-wrapper> repair-story-md
 ```
 
 **Ablauf:**
@@ -820,17 +833,14 @@ agentkit repair-story-md
 
 ### 21.11.7 Integration in den Story-Erstellungs-Skill
 
-Der `create-userstory`-Skill ruft nach der Story-Backend-Einstellung
-den Export als CLI-Befehl auf:
-
-```
-agentkit export-story-md --story-id "$STORY_ID" --story-dir "$STORY_DIR"
-```
-
-Der Agent schreibt story.md **nicht** selbst per Write-Tool. Der
-Skill-Text enthält die explizite Anweisung, den CLI-Befehl zu
-verwenden. Damit ist die Determinismus-Garantie auf Skill-Ebene
-verankert.
+Der `create-userstory`-Skill beauftragt nach der Story-Backend-Einstellung den
+Export ueber den offiziellen Project Edge Client. Der Agent schreibt
+`story.md` **nicht** selbst per Write-Tool und ruft weder
+`<absolute-agentkit-wrapper> export-story-md` noch einen anderen
+AK3-CLI-Einstieg auf. Damit ist die Determinismus-Garantie auf Skill-Ebene
+verankert; der Wire-Vertrag gehoert FK-91, die allgemeine Bundle-Regel FK-43
+§43.4.2. Ein im Bundle dokumentierter CLI-Recovery-Pfad muss ausdruecklich den
+Menschen als Akteur benennen.
 
 ## 21.12 VektorDB-Konflikt erzwingt Exploration Mode
 

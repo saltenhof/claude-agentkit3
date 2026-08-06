@@ -25,6 +25,10 @@ from agentkit.backend.installer.runner import (
     _bind_mandatory_skills,
     _rollback_bindings,
 )
+from agentkit.backend.skills import (
+    MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS,
+    assess_bundle_version,
+)
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
 
 if TYPE_CHECKING:
@@ -38,11 +42,14 @@ class _FakeStore:
         self._root = root
 
     def get_bundle(self, bundle_id: str) -> SkillBundle:
-        bundle_root = self._root / bundle_id / "4.0.0"
+        bundle_version = MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS.get(
+            bundle_id, "4.0.0"
+        )
+        bundle_root = self._root / bundle_id / bundle_version
         bundle_root.mkdir(parents=True, exist_ok=True)
         return SkillBundle(
             bundle_id=bundle_id,
-            bundle_version="4.0.0",
+            bundle_version=bundle_version,
             bundle_root=bundle_root,
             manifest_digest="0" * 64,
         )
@@ -376,22 +383,26 @@ def test_real_unbind_residual_maps_to_rollback_incomplete(tmp_path: Path, monkey
 
 
 def test_real_store_discovery_resolves_shipped_bundles() -> None:
-    """REAL-code proof for Codex-r2 ERROR 1: a default-built ``SkillBundleStore``
-    resolves all four FK-43 §43.3.1 mandatory bundles from the SHIPPED bundles
-    via filesystem discovery — no register_bundle, no monkeypatch.
+    """A real store resolves every productively version-governed shipped bundle.
+
+    The policy owner supplies the bundle set and minimum versions. Discovery is
+    responsible for selecting the highest shipped conforming version, so this
+    test must not duplicate either an exact version or a separate bundle list.
     """
     store = SkillBundleStore()  # default root == shipped bundles
-    for skill_name in MANDATORY_SKILLS:
-        bundle = store.get_bundle(f"{skill_name}-core")
-        expected_version = "4.1.0" if skill_name == "create-userstory" else "4.0.0"
-        assert bundle.bundle_version == expected_version
+    for bundle_id in sorted(MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS):
+        bundle = store.get_bundle(bundle_id)
+        assessment = assess_bundle_version(bundle_id, bundle.bundle_version)
+        assert assessment.minimum_version == MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS[bundle_id]
+        assert assessment.is_comparable
+        assert assessment.is_conform
         assert (bundle.bundle_root / "SKILL.md").is_file()
         assert (bundle.bundle_root / "manifest.json").is_file()
         # Bundle is resolved from AK3's own packaged bundles tree, NOT from
         # the AK2 source repo (which lives under .../claude-agentkit/userstory).
         assert bundle.bundle_root.parts[-2:] == (
-            f"{skill_name}-core",
-            expected_version,
+            bundle_id,
+            bundle.bundle_version,
         )
         assert "bundles" in bundle.bundle_root.parts
         assert "skill_bundles" in bundle.bundle_root.parts

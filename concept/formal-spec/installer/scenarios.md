@@ -48,7 +48,7 @@ scenarios:
       status: installer.status.verified
       launcher:
         target_path: tools/agentkit/projectedge.py
-        invocation_prefix: python
+        invocation_prefix: <absolute-ak3-interpreter>
         adapter_only: true
     requires:
       - installer.invariant.project_edge_launcher_is_adapter_only

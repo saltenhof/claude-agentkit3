@@ -9,7 +9,11 @@ if TYPE_CHECKING:
 
     from agentkit.backend.auth.http.routes import AuthRoutes
     from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
+    from agentkit.backend.control_plane_http.failure_corpus_routes import FailureCorpusRoutes
+    from agentkit.backend.control_plane_http.installer_writer_routes import InstallerWriterRoutes
     from agentkit.backend.control_plane_http.permission_routes import PermissionRoutes
+    from agentkit.backend.control_plane_http.story_admin_routes import StoryAdminRoutes
+    from agentkit.backend.control_plane_http.story_split_routes import StorySplitRoutes
     from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
     from agentkit.backend.control_plane_http.third_party_validation_routes import ThirdPartyValidationRoutes
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
@@ -51,3 +55,7 @@ class ControlPlaneApplicationRoutes:
     takeover_approval_routes: TakeoverApprovalRoutes | None = None
     permission_routes: PermissionRoutes | None = None
     third_party_validation_routes: ThirdPartyValidationRoutes | None = None
+    story_split_routes: StorySplitRoutes | None = None
+    story_admin_routes: StoryAdminRoutes | None = None
+    failure_corpus_routes: FailureCorpusRoutes | None = None
+    installer_writer_routes: InstallerWriterRoutes | None = None

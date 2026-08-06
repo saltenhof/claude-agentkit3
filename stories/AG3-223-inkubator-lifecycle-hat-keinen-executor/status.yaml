@@ -1,0 +1,31 @@
+story_id: AG3-223
+story_title_short: "inkubator-lifecycle-hat-keinen-executor"
+title: "FK-78 normiert Lauf-Lifecycle, Runden-Mechanik und CAS-Schreibprotokoll des Concept-Incubators -- implementiert ist nur die pruefende Haelfte. Der Lauf bekommt einen Executor."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-05"
+size: L
+# Herkunft: erster Versuch, einen Council-Lauf durch die Runden-Mechanik zu
+# fahren (2026-08-05, Lauf
+# `concept-incubator/runs/2026-08-05-review-vertrag-terminierung-085702c0`).
+#
+# Befund: `dispatch-round` und `seal-round` sind in
+# `concept/formal-spec/concept-incubation/commands.md:51,59` als mutierende
+# Commands normiert (Lease + CAS-Schreibprotokoll, nur in PROPOSING zulaessig).
+# Die Toolchain implementiert sie nicht -- vorhanden sind ausschliesslich
+# `units`, `prepare` und `import` (semantic_gate.py:195). Es existiert kein
+# einziger CAS-gesicherter RUN-Uebergang.
+#
+# Der Inkubator ist damit pruefbar, aber nicht fahrbar. `incubator_check.py`
+# validiert einen Zustand, den nichts herstellen kann.
+#
+# Bestaetigender Nebenbefund: Die beiden aelteren Laeufe unter
+# `concept-incubator/runs/` haben ueberhaupt keine `RUN.json`. Kein Lauf ist je
+# durch diese Zustandsmaschine gegangen; das Verfahren ist nie ausgefuehrt
+# worden, nur beschrieben.
+#
+# ABGRENZUNG zu AG3-222: Dort fehlt dem PRUEFER der LIGHT-Baseline-Vertrag.
+# Hier fehlt dem VERFAHREN der Executor. Unabhaengig behebbar, gleiche Familie.
+depends_on: []
+unblocks: []

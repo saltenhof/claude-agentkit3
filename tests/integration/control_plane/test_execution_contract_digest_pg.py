@@ -40,6 +40,11 @@ from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
 from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
 from agentkit.backend.prompt_runtime.execution_contract import ExecutionContractDigestRecord
+from agentkit.backend.skills import (
+    SkillBinding,
+    SkillBindingMode,
+    SkillLifecycleStatus,
+)
 from agentkit.backend.state_backend.prompt_runtime_store import (
     insert_execution_contract_digest_global,
     load_execution_contract_digest_global,
@@ -49,6 +54,9 @@ from agentkit.backend.state_backend.state_backend_connection_manager import (
 )
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
+)
+from agentkit.backend.state_backend.store.skill_binding_repository import (
+    StateBackendSkillBindingRepository,
 )
 from agentkit.backend.state_backend.store.story_repository import (
     StateBackendStoryRepository,
@@ -365,6 +373,46 @@ def test_setup_rejected_when_project_config_version_blank(
     )
 
     assert result.status == "rejected"
+    assert load_active_run_ownership_record_global(_PROJECT, story_id) is None
+    assert load_execution_contract_digest_global(_PROJECT, story_id, run_id) is None
+
+
+def test_setup_rejected_when_persisted_skill_pin_is_below_bundle_floor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale persisted pin cannot enter an accepted execution contract."""
+    story_id = "AG3-709"
+    run_id = "run-709"
+    project_root = _seed_story(tmp_path, story_id)
+    _seed_project_registration(project_root, config_digest="c" * 64)
+    _seed_prompt_binding(project_root, monkeypatch)
+    StateBackendSkillBindingRepository().save(
+        SkillBinding(
+            binding_id="binding-stale-create-userstory",
+            project_key=_PROJECT,
+            skill_name="create-userstory",
+            bundle_id="create-userstory-core",
+            bundle_version="4.1.0",
+            content_digest="d" * 64,
+            target_path=project_root / ".claude" / "skills" / "create-userstory",
+            binding_mode=SkillBindingMode.JUNCTION,
+            status=SkillLifecycleStatus.VERIFIED,
+            pinned_at=_T0,
+        ),
+    )
+    service = _real_digest_service(now=_T0, instance_id="inst-digest-skill-floor")
+
+    result = service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id="op-digest-9", session_id="sess-1"),
+    )
+
+    assert result.status == "rejected"
+    rejection_reason = result.phase_dispatch.rejection_reason or ""
+    assert "create-userstory-core@4.1.0" in rejection_reason
+    assert "below the minimum conform version 4.2.0" in rejection_reason
     assert load_active_run_ownership_record_global(_PROJECT, story_id) is None
     assert load_execution_contract_digest_global(_PROJECT, story_id, run_id) is None
 

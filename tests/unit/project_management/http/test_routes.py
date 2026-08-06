@@ -35,10 +35,7 @@ class _InMemoryProjectRepository:
 
     def save(self, project: Project) -> None:
         for existing in self.projects.values():
-            if (
-                existing.key != project.key
-                and existing.story_id_prefix == project.story_id_prefix
-            ):
+            if existing.key != project.key and existing.story_id_prefix == project.story_id_prefix:
                 from agentkit.backend.project_management.errors import (
                     ProjectStoryIdPrefixConflictError,
                 )
@@ -79,6 +76,7 @@ def _app(
         story_service=_StoryListStub(stories),
     )
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(
             project_routes=ProjectManagementRoutes(
                 repository=repository,
@@ -109,6 +107,7 @@ def _app_with_guard(
         idempotency_guard=guard,
     )
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(project_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
@@ -255,9 +254,7 @@ def test_patch_project_rejects_immutable_fields() -> None:
     response = _app(repository).handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a",
-        body=json.dumps(
-            {"story_id_prefix": "OTHER", "op_id": "op-patch-immutable-001"}
-        ).encode("utf-8"),
+        body=json.dumps({"story_id_prefix": "OTHER", "op_id": "op-patch-immutable-001"}).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-update"},
     )
 
@@ -429,9 +426,7 @@ def test_patch_configuration_updates_repositories() -> None:
     response = _app(repository).handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a/configuration",
-        body=json.dumps(
-            {"repositories": ["repo-a", "repo-b"], "op_id": "op-patch-config-001"}
-        ).encode("utf-8"),
+        body=json.dumps({"repositories": ["repo-a", "repo-b"], "op_id": "op-patch-config-001"}).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-patch-config"},
     )
 
@@ -456,6 +451,7 @@ def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
         idempotency_guard=InMemoryInflightIdempotencyGuard(),
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(project_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
@@ -463,9 +459,7 @@ def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
     response = app.handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a/configuration",
-        body=json.dumps(
-            {"repositories": ["new-repo"], "op_id": "op-patch-repos-in-use-001"}
-        ).encode("utf-8"),
+        body=json.dumps({"repositories": ["new-repo"], "op_id": "op-patch-repos-in-use-001"}).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-patch-repos-in-use"},
     )
 
@@ -504,6 +498,7 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
         idempotency_guard=InMemoryInflightIdempotencyGuard(),
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(project_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
@@ -511,9 +506,7 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
     response = app.handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a/configuration",
-        body=json.dumps(
-            {"repositories": ["repo-keep"], "op_id": "op-patch-repos-ok-001"}
-        ).encode("utf-8"),
+        body=json.dumps({"repositories": ["repo-keep"], "op_id": "op-patch-repos-ok-001"}).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-patch-repos-ok"},
     )
 
@@ -738,9 +731,7 @@ class TestArchiveIdempotency:
         repository.save(_project())
         app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
         path = "/v1/projects/tenant-a/archive"
-        first = _request(
-            app, method="POST", path=path, payload={"op_id": "op-archive-mismatch"}
-        )
+        first = _request(app, method="POST", path=path, payload={"op_id": "op-archive-mismatch"})
         assert first.status_code == HTTPStatus.OK
         second = _request(
             app,
@@ -762,13 +753,9 @@ class TestArchiveIdempotency:
         repository.save(_project_b())
         app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
         payload: dict[str, object] = {"op_id": "op-archive-crosstarget"}
-        first = _request(
-            app, method="POST", path="/v1/projects/tenant-a/archive", payload=payload
-        )
+        first = _request(app, method="POST", path="/v1/projects/tenant-a/archive", payload=payload)
         assert first.status_code == HTTPStatus.OK
-        second = _request(
-            app, method="POST", path="/v1/projects/tenant-b/archive", payload=payload
-        )
+        second = _request(app, method="POST", path="/v1/projects/tenant-b/archive", payload=payload)
         assert second.status_code == HTTPStatus.CONFLICT
         assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
         # tenant-b was NOT archived by the wrong-target replay.
@@ -848,13 +835,9 @@ class TestPatchDetailIdempotency:
         repository.save(_project_b())
         app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
         payload: dict[str, object] = {"name": "Renamed", "op_id": "op-patch-crosstarget"}
-        first = _request(
-            app, method="PATCH", path="/v1/projects/tenant-a", payload=payload
-        )
+        first = _request(app, method="PATCH", path="/v1/projects/tenant-a", payload=payload)
         assert first.status_code == HTTPStatus.OK
-        second = _request(
-            app, method="PATCH", path="/v1/projects/tenant-b", payload=payload
-        )
+        second = _request(app, method="PATCH", path="/v1/projects/tenant-b", payload=payload)
         assert second.status_code == HTTPStatus.CONFLICT
         assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
         tenant_b = repository.get("tenant-b")
@@ -886,10 +869,7 @@ class TestPatchConfigurationIdempotency:
             payload={"default_worker_count": 4},
         )
         assert resp.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
-        assert (
-            _json_body(resp.body)["error_code"]
-            == "invalid_project_configuration_patch"
-        )
+        assert _json_body(resp.body)["error_code"] == "invalid_project_configuration_patch"
 
     def test_patch_configuration_replay_returns_stored_result_and_runs_once(
         self,

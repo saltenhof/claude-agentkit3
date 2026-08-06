@@ -60,13 +60,59 @@ def _stub_repo_existence_probe(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _isolate_auth_provisioning_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep generic CLI unit tests independent of a live authenticated Core."""
+    class _WriterTransport:
+        def send(self, **_kwargs: object) -> dict[str, object]:
+            return {"ready": True}
+
+    class _AuthContext:
+        transport = _WriterTransport()
+        project_edge_client = None
+
+        def clear_secret(self) -> None:
+            pass
+
+    def wire_local_test_repositories(
+        config: object,
+        _args: object,
+        _op_id: str,
+    ) -> _AuthContext:
+        from agentkit.backend.skills import SkillBundleStore, Skills
+        from agentkit.backend.state_backend.store.governance_hook_repository import (
+            StateBackendHookRegistrationRepository,
+        )
+        from agentkit.backend.state_backend.store.project_management_repository import (
+            StateBackendProjectRepository,
+        )
+        from agentkit.backend.state_backend.store.project_registration_repository import (
+            StateBackendProjectRegistrationRepository,
+        )
+        from agentkit.backend.state_backend.store.skill_binding_repository import (
+            StateBackendSkillBindingRepository,
+        )
+
+        root = config.project_root
+        bundle_store = SkillBundleStore()
+        config.registration_repo = StateBackendProjectRegistrationRepository(root)
+        config.project_repo = StateBackendProjectRepository(root)
+        config.hook_registration_repo = StateBackendHookRegistrationRepository(root)
+        config.skills = Skills(
+            bundle_store=bundle_store,
+            binding_repo=StateBackendSkillBindingRepository(root),
+        )
+        config.skill_bundle_store = bundle_store
+        return _AuthContext()
+
     monkeypatch.setattr(
         "agentkit.backend.cli.auth_commands.provision_installer_project_token",
         lambda _args, _context=None: 0,
     )
     monkeypatch.setattr(
         "agentkit.backend.cli.auth_commands.prepare_installer_auth_context",
-        lambda _args: None,
+        lambda _args, **_kwargs: _AuthContext(),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.cli.installer_commands._wire_register_config_to_writer",
+        wire_local_test_repositories,
     )
 
 
@@ -213,34 +259,34 @@ class TestCLIMain:
         """AC2: --dry-run prints the planned purge domains and does not mutate."""
         import json as _json
 
-        from agentkit.backend.story_reset import (
-            PlannedPurge,
-            ResetPurgeDomain,
-            StoryResetService,
+        from agentkit.backend.story_reset.http_models import (
+            StoryResetMutationRequest,
+            StoryResetMutationResponse,
         )
 
         monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
 
-        class _DryRunService(StoryResetService):
-            def __init__(self) -> None:  # bypass the heavy real wiring
-                pass
-
-            def request_reset(self, request: object) -> object:  # type: ignore[override]
+        class _WriterClient:
+            def reset_story(self, **kwargs: object) -> StoryResetMutationResponse:
+                request = kwargs["request"]
+                assert isinstance(request, StoryResetMutationRequest)
                 assert request.dry_run is True
-                return PlannedPurge(
-                    project_key="ak3",
-                    story_id=request.story_id,
+                return StoryResetMutationResponse(
+                    mode="dry-run",
+                    status="planned",
+                    reset_id=request.op_id,
+                    story_id=str(kwargs["story_id"]),
                     run_id="run-x",
-                    reason=request.reason,
-                    planned_domains=(
-                        ResetPurgeDomain.RUNTIME_EXECUTION,
-                        ResetPurgeDomain.READ_MODELS,
-                    ),
+                    planned_domains=("runtime_execution", "read_models"),
                 )
 
         monkeypatch.setattr(
-            "agentkit.backend.bootstrap.composition_root.build_story_reset_service",
-            lambda **_kw: _DryRunService(),
+            "agentkit.backend.cli._operator_recovery_phase._build_strategist_control_plane_client",
+            lambda *_args: _WriterClient(),
+        )
+        monkeypatch.setattr(
+            "agentkit.backend.cli.story_commands.getpass.getpass",
+            lambda _prompt: "secret",
         )
 
         exit_code = main(
@@ -259,30 +305,19 @@ class TestCLIMain:
         assert out["mode"] == "dry-run"
         assert out["planned_domains"] == ["runtime_execution", "read_models"]
 
-    def test_split_story_spec_command_succeeds_end_to_end(
+    def test_split_story_command_routes_the_validated_plan_to_the_writer_client(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Finding #2: the EXACT §54.6 command (only --story/--plan/--reason)
-        succeeds end to end. The human-started CLI path IS the §54.4 approval, so
-        the resolved principal is human_cli and the entry gate (AK2/AK5) holds —
-        no hidden --ak3-principal-attest flag is required or accepted.
-
-        Drives the REAL CLI -> real principal -> real StorySplitService ->
-        real StoryService create/cancel/lineage. Only the storage seams
-        (control-plane, dependency repo, export, superseded reindex) are
-        in-memory; the productive split logic runs unchanged.
-        """
+        """The public command sends the exact validated plan to the REST client."""
         import json as _json
 
-        from tests.unit.story_split.test_service import (
-            _build_harness,
-            _good_source_state,
+        from agentkit.backend.story_split.http_models import (
+            StorySplitMutationRequest,
+            StorySplitMutationResponse,
         )
-
-        from agentkit.backend.governance.principal_capabilities.principals import Principal
 
         # The hidden attestation flag must no longer exist on the split parser:
         # passing it is an argparse error (the bare interface is the contract).
@@ -301,23 +336,28 @@ class TestCLIMain:
                 ]
             )
 
-        harness = _build_harness(source_state_loader=_good_source_state)
-        captured_principal: dict[str, object] = {}
-        original_split = harness.split_service.split_story
+        captured: dict[str, object] = {}
 
-        def _spy_split(request: object) -> object:
-            captured_principal["principal"] = getattr(request, "principal", None)
-            return original_split(request)  # type: ignore[arg-type]
+        class _WriterClient:
+            def split_story(self, **kwargs: object) -> StorySplitMutationResponse:
+                captured.update(kwargs)
+                return StorySplitMutationResponse(
+                    status="committed",
+                    split_id="split-1",
+                    source_story_id="AK3-001",
+                    successor_ids=("AK3-107", "AK3-108"),
+                    resumed=False,
+                )
 
-        harness.split_service.split_story = _spy_split  # type: ignore[assignment]
-
-        def _fake_build(**_kwargs: object) -> object:
-            return harness.split_service
+        def _fake_build(*args: object) -> object:
+            captured["builder_args"] = args
+            return _WriterClient()
 
         monkeypatch.setattr(
-            "agentkit.backend.bootstrap.composition_root.build_story_split_service",
+            "agentkit.backend.cli._operator_recovery_phase._build_strategist_control_plane_client",
             _fake_build,
         )
+        monkeypatch.setattr("agentkit.backend.cli.story_commands.getpass.getpass", lambda _prompt: "secret")
         monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
         monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
 
@@ -350,30 +390,23 @@ class TestCLIMain:
         )
 
         assert exit_code == 0
-        # The CLI resolved the human_cli principal (the bare command IS approval).
-        assert captured_principal["principal"] is Principal.HUMAN_CLI
+        assert captured["project_key"] == "ak3"
+        assert captured["story_id"] == "AK3-001"
+        request = captured["request"]
+        assert isinstance(request, StorySplitMutationRequest)
+        assert request.plan_text == plan_path.read_text(encoding="utf-8")
         out = _json.loads(capsys.readouterr().out)
         assert out["status"] == "committed"
         assert out["resumed"] is False
         assert len(out["successor_ids"]) == 2
-        # Source ended Cancelled via the administrative split-cancel path.
-        source = harness.story_service.get_story("AK3-001")
-        assert source is not None
-        assert source.status.value == "Cancelled"
 
-    def test_split_story_maps_an_unresolvable_vectordb_to_exit_one(
+    def test_split_story_maps_a_remote_builder_failure_to_exit_one(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """A fail-closed composition error must not surface as a traceback.
-
-        ``build_story_split_service`` refuses to default the Weaviate endpoints
-        (PO decision D-2). Refusing is right; leaving the exception uncaught at
-        the CLI boundary is not — the documented contract is a controlled exit
-        code with a message on stderr.
-        """
+        """A fail-closed authenticated-client error must not surface as a traceback."""
         import json as _json
 
         from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
@@ -381,13 +414,14 @@ class TestCLIMain:
         monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
         monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
 
-        def _refuse(**_kwargs: object) -> object:
+        def _refuse(*_args: object) -> object:
             raise VectorDbUnavailableError("story split requires an explicit project root")
 
         monkeypatch.setattr(
-            "agentkit.backend.bootstrap.composition_root.build_story_split_service",
+            "agentkit.backend.cli._operator_recovery_phase._build_strategist_control_plane_client",
             _refuse,
         )
+        monkeypatch.setattr("agentkit.backend.cli.story_commands.getpass.getpass", lambda _prompt: "secret")
 
         plan_path = tmp_path / "plan.json"
         plan_path.write_text(
@@ -431,11 +465,11 @@ class TestCLIMain:
         monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
         monkeypatch.setenv("AGENTKIT_SESSION_ID", "sess-1")
 
-        def _explode(**_kwargs: object) -> object:
-            raise AssertionError("service must not be built for an invalid plan")
+        def _explode(*_args: object) -> object:
+            raise AssertionError("client must not be built for an invalid plan")
 
         monkeypatch.setattr(
-            "agentkit.backend.bootstrap.composition_root.build_story_split_service",
+            "agentkit.backend.cli._operator_recovery_phase._build_strategist_control_plane_client",
             _explode,
         )
         bad_plan = tmp_path / "plan.json"
@@ -473,6 +507,48 @@ class TestCLIMain:
             "story_id": "AG3-080",
             "project_root": "T:/codebase/claude-agentkit3",
         }
+
+    def test_watch_worker_uses_the_existing_rest_repository(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """The sidecar CLI must not construct the state-backend writer."""
+
+        from agentkit.backend.implementation.worker_health.rest_repository import (
+            RestWorkerHealthRepository,
+        )
+
+        governance_client = object()
+        captured: dict[str, object] = {}
+
+        def build_client(root: Path) -> object:
+            captured["client_root"] = root
+            return governance_client
+
+        def run_sidecar(story_id: str, **kwargs: object) -> int:
+            captured["story_id"] = story_id
+            captured.update(kwargs)
+            return 0
+
+        monkeypatch.setattr(
+            "agentkit.harness_client.projectedge.governance_client.build_governance_edge_client",
+            build_client,
+        )
+        monkeypatch.setattr(
+            "agentkit.backend.implementation.worker_health.sidecar.run_worker_health_sidecar",
+            run_sidecar,
+        )
+
+        exit_code = main(
+            ["watch-worker", "AG3-214", "--project-root", str(tmp_path)],
+        )
+
+        assert exit_code == 0
+        assert captured["client_root"] == tmp_path
+        assert captured["project_root"] == tmp_path
+        assert captured["story_id"] == "AG3-214"
+        assert isinstance(captured["repository"], RestWorkerHealthRepository)
 
     @pytest.mark.skipif(
         not _LINKS_AVAILABLE,
@@ -1046,11 +1122,11 @@ class TestCLIMain:
                 ]
             )
 
-    def test_serve_project_api_command(
+    def test_serve_two_listener_command(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """``serve --project-api`` dispatches to the HTTP entrypoint.
+        """``serve`` dispatches both listener bindings to the HTTP entrypoint.
 
         The former ``serve-control-plane`` alias that also reached this seam is
         REMOVED (2026-08-02): it carried the dead ``9080`` port default.
@@ -1059,13 +1135,17 @@ class TestCLIMain:
 
         def fake_serve_control_plane(
             *,
-            host: str,
-            port: int,
+            ui_host: str,
+            ui_port: int,
+            project_api_host: str,
+            project_api_port: int,
             certfile: object,
             keyfile: object | None,
         ) -> None:
-            captured["host"] = host
-            captured["port"] = port
+            captured["ui_host"] = ui_host
+            captured["ui_port"] = ui_port
+            captured["project_api_host"] = project_api_host
+            captured["project_api_port"] = project_api_port
             captured["certfile"] = str(certfile)
             captured["keyfile"] = str(keyfile) if keyfile is not None else None
 
@@ -1077,11 +1157,14 @@ class TestCLIMain:
         exit_code = main(
             [
                 "serve",
-                "--project-api",
-                "--host",
+                "--ui-host",
                 "127.0.0.1",
-                "--port",
+                "--ui-port",
                 "9910",
+                "--project-host",
+                "0.0.0.0",
+                "--project-port",
+                "9911",
                 "--certfile",
                 "tls/control-plane.pem",
                 "--keyfile",
@@ -1091,8 +1174,10 @@ class TestCLIMain:
 
         assert exit_code == 0
         assert captured == {
-            "host": "127.0.0.1",
-            "port": 9910,
+            "ui_host": "127.0.0.1",
+            "ui_port": 9910,
+            "project_api_host": "0.0.0.0",
+            "project_api_port": 9911,
             "certfile": str(PurePath("tls/control-plane.pem")),
             "keyfile": str(PurePath("tls/control-plane.key")),
         }
@@ -1202,7 +1287,7 @@ class TestCLIMain:
         def fake_upgrade(project_root: Path, **kwargs: object) -> object:
             return SimpleNamespace(
                 scenario=SimpleNamespace(scenario=SimpleNamespace(value="unchanged")),
-                detail="Norm-violating skill pin(s): create-userstory-core@4.0.0 < 4.1.0.",
+                detail="Norm-violating skill pin(s): create-userstory-core@4.1.0 < 4.2.0.",
                 failed=True,
                 failed_checkpoints=("up_02_guard_binding",),
             )

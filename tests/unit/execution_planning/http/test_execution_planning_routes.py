@@ -100,11 +100,7 @@ class _DepRepo:
         self.edges = [
             edge
             for edge in self.edges
-            if not (
-                edge.story_id == story_id
-                and edge.depends_on_story_id == depends_on_story_id
-                and edge.kind == kind
-            )
+            if not (edge.story_id == story_id and edge.depends_on_story_id == depends_on_story_id and edge.kind == kind)
         ]
         if len(self.edges) == before:
             raise StoryDependencyNotFoundError("missing")
@@ -188,6 +184,7 @@ def _app(
         idempotency_guard=guard or InMemoryInflightIdempotencyGuard(),
     )
     return ControlPlaneApplication(
+        writer_lease_required=False,
         routes=ControlPlaneApplicationRoutes(planning_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
@@ -429,9 +426,7 @@ def test_create_dependency_replay_returns_stored_result() -> None:
 def test_create_dependency_same_op_id_different_body_returns_409_mismatch() -> None:
     app = _app(dep_repo=_DepRepo())
     first = app.handle_request(method="POST", path=_DEP_PATH, body=_create_body("op-c2"))
-    second = app.handle_request(
-        method="POST", path=_DEP_PATH, body=_create_body("op-c2", depends_on="AK3-001")
-    )
+    second = app.handle_request(method="POST", path=_DEP_PATH, body=_create_body("op-c2", depends_on="AK3-001"))
     assert first.status_code == HTTPStatus.CREATED
     assert second.status_code == HTTPStatus.CONFLICT
     assert _json(second.body)["error_code"] == "idempotency_mismatch"
@@ -490,9 +485,7 @@ def test_create_then_delete_dependency_same_op_id_returns_409_not_replay() -> No
     the delete never runs."""
     dep_repo = _DepRepo()
     app = _app(dep_repo=dep_repo)
-    created = app.handle_request(
-        method="POST", path=_DEP_PATH, body=_create_body("op-cross-cd")
-    )
+    created = app.handle_request(method="POST", path=_DEP_PATH, body=_create_body("op-cross-cd"))
     assert created.status_code == HTTPStatus.CREATED
     assert len(dep_repo.edges) == 1
 

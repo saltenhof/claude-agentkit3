@@ -56,7 +56,10 @@ def _test_window() -> CompatWindow:
     """A window with room for below-min / blocked / WARNING / PASS cases."""
     return CompatWindow(
         agent_runtime=VersionAxisWindow(
-            min="1.0.0", max="3.0.0", recommended="2.0.0", blocked=("1.5.0",),
+            min="1.0.0",
+            max="3.0.0",
+            recommended="2.0.0",
+            blocked=("1.5.0",),
         ),
         wire=VersionAxisWindow(min="1", max="1", recommended="1", blocked=()),
     )
@@ -66,6 +69,7 @@ def _build_app(
     telemetry: _RecordingTelemetryService | None = None,
 ) -> ControlPlaneApplication:
     return ControlPlaneApplication(
+        writer_lease_required=False,
         version_handshake_middleware=VersionHandshakeMiddleware(window=_test_window()),
         telemetry_service=telemetry,  # type: ignore[arg-type]
     )
@@ -116,7 +120,9 @@ def test_compat_endpoint_returns_full_window_without_handshake() -> None:
 
 def test_compat_endpoint_available_on_default_app_window() -> None:
     """AC1: the endpoint works on a default app (window = central default)."""
-    app = ControlPlaneApplication()
+    app = ControlPlaneApplication(
+        writer_lease_required=False,
+    )
 
     response = app.handle_request(method="GET", path="/v1/compat", body=b"")
 
@@ -135,7 +141,10 @@ def test_missing_both_headers_blocks_mutation_with_426() -> None:
     app = _build_app(telemetry)
 
     response = app.handle_request(
-        method="POST", path=_TELEMETRY_PATH, body=b"{}", request_headers={},
+        method="POST",
+        path=_TELEMETRY_PATH,
+        body=b"{}",
+        request_headers={},
     )
 
     assert response.status_code == int(HTTPStatus.UPGRADE_REQUIRED)
@@ -170,7 +179,10 @@ def test_guard_counter_mutation_missing_handshake_blocks_426() -> None:
     """FUND 4: POST /v1/governance/guard-counters with no handshake -> 426."""
     app = _build_app()
     response = app.handle_request(
-        method="POST", path=_GUARD_COUNTER_PATH, body=b"{}", request_headers={},
+        method="POST",
+        path=_GUARD_COUNTER_PATH,
+        body=b"{}",
+        request_headers={},
     )
     assert response.status_code == int(HTTPStatus.UPGRADE_REQUIRED)
     assert json.loads(response.body)["error_code"] == "upgrade_required"
@@ -180,7 +192,10 @@ def test_worker_health_write_missing_handshake_blocks_426() -> None:
     """FUND 4: POST /v1/governance/worker-health with no handshake -> 426."""
     app = _build_app()
     response = app.handle_request(
-        method="POST", path=_WORKER_HEALTH_PATH, body=b"{}", request_headers={},
+        method="POST",
+        path=_WORKER_HEALTH_PATH,
+        body=b"{}",
+        request_headers={},
     )
     assert response.status_code == int(HTTPStatus.UPGRADE_REQUIRED)
 
@@ -198,9 +213,7 @@ def test_guard_counter_mutation_with_handshake_passes_to_handler() -> None:
         request_headers=dict(_VALID_HANDSHAKE),
     )
     assert response.status_code == int(HTTPStatus.UNPROCESSABLE_ENTITY)
-    assert (
-        json.loads(response.body)["error_code"] == "invalid_guard_counter_payload"
-    )
+    assert json.loads(response.body)["error_code"] == "invalid_guard_counter_payload"
 
 
 def test_missing_client_header_blocks_with_426() -> None:
@@ -282,11 +295,15 @@ def test_runtime_blocked_matches_numeric_equal_notation() -> None:
     telemetry = _RecordingTelemetryService()
     window = CompatWindow(
         agent_runtime=VersionAxisWindow(
-            min="1.0.0", max="3.0.0", recommended="1.0.0", blocked=("1.2.0",),
+            min="1.0.0",
+            max="3.0.0",
+            recommended="1.0.0",
+            blocked=("1.2.0",),
         ),
         wire=VersionAxisWindow(min="1", max="1", recommended="1", blocked=()),
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         version_handshake_middleware=VersionHandshakeMiddleware(window=window),
         telemetry_service=telemetry,  # type: ignore[arg-type]
     )
@@ -309,11 +326,15 @@ def test_runtime_unparsable_blocked_entry_does_not_crash() -> None:
     telemetry = _RecordingTelemetryService()
     window = CompatWindow(
         agent_runtime=VersionAxisWindow(
-            min="1.0.0", max="3.0.0", recommended="1.0.0", blocked=("garbage", "1.2.0"),
+            min="1.0.0",
+            max="3.0.0",
+            recommended="1.0.0",
+            blocked=("garbage", "1.2.0"),
         ),
         wire=VersionAxisWindow(min="1", max="1", recommended="1", blocked=()),
     )
     app = ControlPlaneApplication(
+        writer_lease_required=False,
         version_handshake_middleware=VersionHandshakeMiddleware(window=window),
         telemetry_service=telemetry,  # type: ignore[arg-type]
     )
@@ -402,7 +423,7 @@ def test_read_only_endpoint_is_not_handshake_gated() -> None:
 def test_handshake_disabled_by_default_does_not_block_mutations() -> None:
     """Without an injected middleware, mutations are not handshake-gated."""
     telemetry = _RecordingTelemetryService()
-    app = ControlPlaneApplication(telemetry_service=telemetry)  # type: ignore[arg-type]
+    app = ControlPlaneApplication(writer_lease_required=False, telemetry_service=telemetry)  # type: ignore[arg-type]
 
     response = app.handle_request(
         method="POST",
@@ -443,7 +464,8 @@ def test_compat_window_axes_are_typed_and_closed() -> None:
     ],
 )
 def test_runtime_window_boundaries(
-    client_version: str, expected_status: int,
+    client_version: str,
+    expected_status: int,
 ) -> None:
     """Item 2: both bounds enforced — below-min/above-max 426, min/max admitted."""
     telemetry = _RecordingTelemetryService()
@@ -583,8 +605,10 @@ def _build_app_with_bundle_window(
     bundle_window: VersionAxisWindow,
 ) -> ControlPlaneApplication:
     return ControlPlaneApplication(
+        writer_lease_required=False,
         version_handshake_middleware=VersionHandshakeMiddleware(
-            window=_test_window(), bundle_window=bundle_window,
+            window=_test_window(),
+            bundle_window=bundle_window,
         ),
         telemetry_service=telemetry,  # type: ignore[arg-type]
     )
@@ -594,7 +618,10 @@ def test_stale_but_allowed_bundle_runs_with_warning_header() -> None:
     """Item 6 (AC3): a stale-but-allowed bundle runs and carries a WARNING header."""
     telemetry = _RecordingTelemetryService()
     bundle_window = VersionAxisWindow(
-        min="1.0.0", max="3.0.0", recommended="2.0.0", blocked=(),
+        min="1.0.0",
+        max="3.0.0",
+        recommended="2.0.0",
+        blocked=(),
     )
     app = _build_app_with_bundle_window(telemetry, bundle_window)
 
@@ -616,7 +643,10 @@ def test_blocked_bundle_warns_but_does_not_block() -> None:
     """Item 6: a centrally-outdated bundle hints (WARNING) but never bricks (FK-10 §10.2.8)."""
     telemetry = _RecordingTelemetryService()
     bundle_window = VersionAxisWindow(
-        min="1.0.0", max="3.0.0", recommended="2.0.0", blocked=("1.0.0",),
+        min="1.0.0",
+        max="3.0.0",
+        recommended="2.0.0",
+        blocked=("1.0.0",),
     )
     app = _build_app_with_bundle_window(telemetry, bundle_window)
 

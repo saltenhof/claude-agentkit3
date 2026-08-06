@@ -38,6 +38,7 @@ from agentkit.backend.control_plane.models import (
     TelemetryEventQueryResponse,
     WorkerHealthSaveAccepted,
     WorkerHealthStateResponse,
+    WorkerHealthStoryResponse,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.harness_client.projectedge.client import HttpsJsonTransport
@@ -209,6 +210,17 @@ class GovernanceEdgeClient:
         )
         data.pop("correlation_id", None)
         return WorkerHealthSaveAccepted.model_validate(data)
+
+    def list_worker_health(self, *, story_id: str) -> WorkerHealthStoryResponse:
+        """Read every canonical worker-health state for one story via REST."""
+
+        query = urllib.parse.urlencode({"story_id": story_id})
+        data = self._transport.send(
+            method="GET",
+            path=f"{_WORKER_HEALTH_PATH}?{query}",
+        )
+        data.pop("correlation_id", None)
+        return WorkerHealthStoryResponse.model_validate(data)
 
     # ------------------------------------------------------------------
     # Telemetry (FK-30 §30.3) -- non-blocking emit, server-mediated query.

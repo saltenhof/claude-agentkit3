@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
+import getpass
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,7 @@ from agentkit.backend.vectordb.project_binding import (
 )
 
 if TYPE_CHECKING:
+    import argparse
     from collections.abc import Callable
 
     from agentkit.backend.story_creation.story_md_export import (
@@ -64,6 +66,16 @@ def add_story_parsers(
         "--plan", required=True, help="Path to the human-approved split-plan JSON"
     )
     split_parser.add_argument("--reason", required=True, help="Split reason")
+    split_parser.add_argument("--project", required=False, help="Project key")
+    split_parser.add_argument("--run", required=False, help="Source run ID")
+    split_parser.add_argument("--project-root", default=None, help=_PROJECT_ROOT_HELP)
+    split_parser.add_argument(
+        "--base-url",
+        required=False,
+        help="Core Project-API base URL",
+    )
+    split_parser.add_argument("--username", default="admin", help="Strategist username")
+    split_parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
 
     reset_parser = subparsers.add_parser(
         "reset-story",
@@ -88,6 +100,11 @@ def add_story_parsers(
         action="store_true",
         help="Bypass the escalation-finding precondition (conscious operator override).",
     )
+    reset_parser.add_argument("--project", required=False, help="Project key")
+    reset_parser.add_argument("--project-root", default=None, help=_PROJECT_ROOT_HELP)
+    reset_parser.add_argument("--base-url", required=False, help="Core Project-API base URL")
+    reset_parser.add_argument("--username", default="admin", help="Strategist username")
+    reset_parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
 
     exit_parser = subparsers.add_parser(
         "exit-story", help="Administratively exit a bound story run",
@@ -95,12 +112,12 @@ def add_story_parsers(
     exit_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
     exit_parser.add_argument("--reason", required=True, help="FK-58 exit reason code")
     exit_parser.add_argument("--note", required=False, help="Optional human note")
-    exit_parser.add_argument(
-        "--ak3-principal-attest",
-        dest="ak3_principal_attest",
-        required=False,
-        help=argparse.SUPPRESS,
-    )
+    exit_parser.add_argument("--project", required=False, help="Project key")
+    exit_parser.add_argument("--run", required=False, help="Bound run ID")
+    exit_parser.add_argument("--project-root", default=None, help=_PROJECT_ROOT_HELP)
+    exit_parser.add_argument("--base-url", required=False, help="Core Project-API base URL")
+    exit_parser.add_argument("--username", default="admin", help="Strategist username")
+    exit_parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
 
     doctor_parser = subparsers.add_parser(
         "doctor", help="Check AgentKit installation health",
@@ -178,18 +195,28 @@ def _cmd_run_story(args: argparse.Namespace) -> int:
 
 
 def _cmd_watch_worker(args: argparse.Namespace) -> int:
-    """Handle ``agentkit watch-worker`` sidecar command."""
+    """Handle ``agentkit watch-worker`` through the writer-owned REST state."""
 
     from pathlib import Path
 
+    from agentkit.backend.implementation.worker_health.rest_repository import (
+        RestWorkerHealthRepository,
+    )
     from agentkit.backend.implementation.worker_health.sidecar import (
         run_worker_health_sidecar,
     )
+    from agentkit.harness_client.projectedge.governance_client import (
+        build_governance_edge_client,
+    )
 
     try:
+        project_root = Path(args.project_root)
         return run_worker_health_sidecar(
             args.story_id,
-            project_root=Path(args.project_root),
+            project_root=project_root,
+            repository=RestWorkerHealthRepository(
+                build_governance_edge_client(project_root),
+            ),
         )
     except Exception as exc:  # noqa: BLE001
         print(f"watch-worker failed: {exc}", file=sys.stderr)
@@ -197,16 +224,22 @@ def _cmd_watch_worker(args: argparse.Namespace) -> int:
 
 
 def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
-    """Handle ``agentkit split-story`` (FK-54 §54.6, AG3-072)."""
-    from agentkit.backend.bootstrap.composition_root import build_story_split_service
-    from agentkit.backend.governance.principal_capabilities.principals import Principal
-    from agentkit.backend.story_split import StorySplitError, StorySplitRequest, StorySplitService
+    """Handle ``agentkit split-story`` through the active writer's REST route."""
+    from agentkit.backend.cli._operator_recovery_phase import (
+        _build_strategist_control_plane_client,
+    )
+    from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
+    from agentkit.backend.story_split.http_models import StorySplitMutationRequest
     from agentkit.backend.story_split.plan_loader import SplitPlanError, load_split_plan
 
     del cli_args  # not consulted: the human-started CLI path IS the §54.4 approval.
-    project_key = os.environ.get("AGENTKIT_PROJECT_KEY", "").strip()
-    run_id = os.environ.get("AGENTKIT_RUN_ID", "").strip()
-    project_root = os.environ.get("AGENTKIT_PROJECT_ROOT", "").strip() or None
+    project_key = str(getattr(args, "project", "") or os.environ.get("AGENTKIT_PROJECT_KEY", "")).strip()
+    run_id = str(getattr(args, "run", "") or os.environ.get("AGENTKIT_RUN_ID", "")).strip()
+    project_root = str(
+        getattr(args, "project_root", "")
+        or os.environ.get("AGENTKIT_PROJECT_ROOT", "")
+        or ".",
+    )
     if not project_key or not run_id:
         print(
             "split-story failed: AGENTKIT_PROJECT_KEY and AGENTKIT_RUN_ID must "
@@ -222,153 +255,107 @@ def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
         print(f"split-story failed [InvalidPlan]: {exc}", file=sys.stderr)
         return 1
 
-    # FK-54 §54.4 / AK2+AK5: the human split approval is REPRESENTED by this
-    # human-started administrative CLI path carrying a valid --plan. The CLI
-    # invocation itself IS the approval, so the acting principal of this admin
-    # subcommand is human_cli; the bare --story/--plan/--reason command succeeds
-    # end to end (no hidden attestation flag).
-    principal = Principal.HUMAN_CLI
-
-    from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError  # noqa: PLC0415 - CLI-local
-
-    stories_root = Path("stories")
-    try:
-        service = build_story_split_service(
-            project_key=project_key,
-            stories_root=stories_root,
-            project_root=project_root,
-        )
-    except VectorDbUnavailableError as exc:
-        # Fail-closed is right; an uncaught traceback at a CLI boundary is not.
-        print(f"split-story failed: {exc}", file=sys.stderr)
-        return 1
-    if not isinstance(service, StorySplitService):
+    if plan.project_key != project_key or plan.source_story_id != args.story:
         print(
-            "split-story failed: composition root returned invalid service",
+            "split-story failed [PlanScopeMismatch]: plan project/source does "
+            "not match the requested route.",
             file=sys.stderr,
         )
         return 1
+    base_url = str(getattr(args, "base_url", "") or DEFAULT_CONTROL_PLANE_BASE_URL)
     try:
-        result = service.split_story(
-            StorySplitRequest(
-                project_key=project_key,
-                source_story_id=args.story,
-                plan=plan,
+        client = _build_strategist_control_plane_client(
+            base_url,
+            project_root,
+            project_key,
+            str(getattr(args, "username", "admin")),
+            getpass.getpass("Strategist password: "),
+            getattr(args, "ca_file", None),
+        )
+        result = client.split_story(
+            project_key=project_key,
+            story_id=str(args.story),
+            request=StorySplitMutationRequest(
                 plan_text=plan_text,
-                reason=args.reason,
-                requested_by=str(principal),
+                reason=str(args.reason),
                 run_id=run_id,
-                principal=principal,
-            )
+                project_root=project_root,
+            ),
         )
-    except StorySplitError as exc:
-        print(f"split-story failed: {exc}", file=sys.stderr)
-        return 1
+    except Exception as exc:  # noqa: BLE001 - CLI maps the authenticated remote boundary
+        from agentkit.backend.cli._operator_ownership_commands import _emit_error
+
+        return _emit_error("split-story", exc)
     print(
-        json.dumps(
-            {
-                "status": result.record.status.value,
-                "split_id": result.split_id,
-                "source_story_id": result.record.source_story_id,
-                "successor_ids": list(result.successor_ids),
-                "resumed": result.resumed,
-            },
-            sort_keys=True,
-        )
+        json.dumps(result.model_dump(mode="json"), sort_keys=True),
     )
+    if result.status != "committed":
+        return 1
     return 0
 
 
 def _cmd_reset_story(args: argparse.Namespace) -> int:
-    """Handle ``agentkit reset-story`` (FK-53 §53.3, AG3-071).
-
-    The official, human-triggered Story-Reset control path. ``--dry-run`` reports
-    the planned purge domains without any destructive mutation; otherwise the full
-    §53.7 flow runs (request -> execute) and the §53.8 clean-state verification is
-    reported.
-    """
-    from agentkit.backend.bootstrap.composition_root import build_story_reset_service
-    from agentkit.backend.story_reset import (
-        PlannedPurge,
-        StoryResetError,
-        StoryResetRequest,
-        StoryResetService,
+    """Handle ``agentkit reset-story`` through the active writer's REST route."""
+    from agentkit.backend.cli._operator_recovery_phase import (
+        _build_strategist_control_plane_client,
     )
+    from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
+    from agentkit.backend.story_reset.http_models import StoryResetMutationRequest
 
-    project_key = os.environ.get("AGENTKIT_PROJECT_KEY", "").strip()
+    project_key = str(
+        getattr(args, "project", "") or os.environ.get("AGENTKIT_PROJECT_KEY", ""),
+    ).strip()
     if not project_key:
         print(
             "reset-story failed: AGENTKIT_PROJECT_KEY must identify the project.",
             file=sys.stderr,
         )
         return 1
-    project_root = os.environ.get("AGENTKIT_PROJECT_ROOT", "").strip() or "."
-    store_dir = Path(project_root)
-
-    service = build_story_reset_service(
-        project_key=project_key,
-        store_dir=store_dir,
-        project_root=store_dir,
+    project_root = str(
+        getattr(args, "project_root", "")
+        or os.environ.get("AGENTKIT_PROJECT_ROOT", "")
+        or ".",
     )
-    if not isinstance(service, StoryResetService):
-        print(
-            "reset-story failed: composition root returned invalid service",
-            file=sys.stderr,
-        )
-        return 1
-
-    # The human-started CLI invocation IS the §53.2/§53.3 authorisation.
-    request = StoryResetRequest(
-        project_key=project_key,
-        story_id=args.story,
-        requested_by="human_cli",
-        reason=args.reason,
-        escalation_ref=args.escalation_ref,
-        dry_run=bool(args.dry_run),
-        force=bool(args.force),
-    )
+    base_url = str(getattr(args, "base_url", "") or DEFAULT_CONTROL_PLANE_BASE_URL)
     try:
-        outcome = service.request_reset(request)
-        if isinstance(outcome, PlannedPurge):
-            print(
-                json.dumps(
-                    {
-                        "mode": "dry-run",
-                        "story_id": outcome.story_id,
-                        "run_id": outcome.run_id,
-                        "planned_domains": [d.value for d in outcome.planned_domains],
-                    },
-                    sort_keys=True,
-                )
-            )
-            return 0
-        result = service.execute_reset(outcome.reset_id)
-    except StoryResetError as exc:
-        print(f"reset-story failed: {exc}", file=sys.stderr)
-        return 1
-    print(
-        json.dumps(
-            {
-                "status": result.record.status.value,
-                "reset_id": result.reset_id,
-                "story_id": result.record.story_id,
-                "clean_state": result.clean_state.is_clean,
-                "purge_summary": result.record.purge_summary,
-                "resumed": result.resumed,
-            },
-            sort_keys=True,
+        client = _build_strategist_control_plane_client(
+            base_url,
+            project_root,
+            project_key,
+            str(getattr(args, "username", "admin")),
+            getpass.getpass("Strategist password: "),
+            getattr(args, "ca_file", None),
         )
-    )
-    return 0 if result.clean_state.is_clean else 1
+        result = client.reset_story(
+            project_key=project_key,
+            story_id=str(args.story),
+            request=StoryResetMutationRequest(
+                op_id=f"story-reset-{uuid.uuid4().hex}",
+                reason=str(args.reason),
+                project_root=project_root,
+                escalation_ref=getattr(args, "escalation_ref", None),
+                dry_run=bool(args.dry_run),
+                force=bool(args.force),
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - CLI maps the authenticated remote boundary
+        from agentkit.backend.cli._operator_ownership_commands import _emit_error
+
+        return _emit_error("reset-story", exc)
+    print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
+    return 0 if result.mode == "dry-run" or result.clean_state else 1
 
 
 def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:
-    """Handle ``agentkit exit-story``."""
+    """Handle ``agentkit exit-story`` through the active writer's REST route."""
+    from agentkit.backend.cli._operator_recovery_phase import (
+        _build_strategist_control_plane_client,
+    )
+    from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
+    from agentkit.backend.story_exit import ExitReason
+    from agentkit.backend.story_exit.http_models import StoryExitMutationRequest
 
-    from agentkit.backend.bootstrap.composition_root import build_story_exit_service
-    from agentkit.backend.governance.guard_evaluation import HookEvent
-    from agentkit.backend.governance.principal_capabilities.principals import PrincipalResolver
-    from agentkit.backend.story_exit import ExitReason, StoryExitRequest, StoryExitService
+    del cli_args
 
     try:
         reason = ExitReason(args.reason)
@@ -376,57 +363,47 @@ def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:
         print(f"exit-story failed: invalid reason code {args.reason!r}", file=sys.stderr)
         return 1
 
-    project_key = os.environ.get("AGENTKIT_PROJECT_KEY", "").strip()
-    run_id = os.environ.get("AGENTKIT_RUN_ID", "").strip()
-    session_id = os.environ.get("AGENTKIT_SESSION_ID", "").strip()
-    if not project_key or not run_id or not session_id:
+    project_key = str(
+        getattr(args, "project", "") or os.environ.get("AGENTKIT_PROJECT_KEY", ""),
+    ).strip()
+    run_id = str(getattr(args, "run", "") or os.environ.get("AGENTKIT_RUN_ID", "")).strip()
+    if not project_key or not run_id:
         print(
-            "exit-story failed: AGENTKIT_PROJECT_KEY, AGENTKIT_RUN_ID and "
-            "AGENTKIT_SESSION_ID must identify the bound run.",
+            "exit-story failed: AGENTKIT_PROJECT_KEY and AGENTKIT_RUN_ID must "
+            "identify the bound run.",
             file=sys.stderr,
         )
         return 1
-
-    principal = PrincipalResolver().resolve(
-        HookEvent(
-            operation="bash_command",
-            freshness_class="mutation",
-            session_id=session_id,
-            cli_args=cli_args,
-            principal_kind="main",
-        )
+    project_root = str(
+        getattr(args, "project_root", "")
+        or os.environ.get("AGENTKIT_PROJECT_ROOT", "")
+        or ".",
     )
-    service = build_story_exit_service(project_key=project_key)
-    if not isinstance(service, StoryExitService):
-        print("exit-story failed: composition root returned invalid service", file=sys.stderr)
-        return 1
+    base_url = str(getattr(args, "base_url", "") or DEFAULT_CONTROL_PLANE_BASE_URL)
     try:
-        result = service.exit_story(
-            StoryExitRequest(
-                project_key=project_key,
-                story_id=args.story,
+        client = _build_strategist_control_plane_client(
+            base_url,
+            project_root,
+            project_key,
+            str(getattr(args, "username", "admin")),
+            getpass.getpass("Strategist password: "),
+            getattr(args, "ca_file", None),
+        )
+        result = client.exit_story(
+            project_key=project_key,
+            story_id=str(args.story),
+            request=StoryExitMutationRequest(
+                op_id=f"story-exit-{uuid.uuid4().hex}",
                 run_id=run_id,
-                session_id=session_id,
-                reason=reason,
-                note=args.note,
-                principal=principal,
-            )
+                reason=reason.value,
+                note=getattr(args, "note", None),
+            ),
         )
-    except Exception as exc:  # noqa: BLE001
-        print(f"exit-story failed: {exc}", file=sys.stderr)
-        return 1
-    print(
-        json.dumps(
-            {
-                "status": "committed",
-                "exit_id": result.exit_id,
-                "story_id": result.record.story_id,
-                "operating_mode": result.operating_mode,
-                "artifact_dir": str(result.artifact_dir),
-            },
-            sort_keys=True,
-        )
-    )
+    except Exception as exc:  # noqa: BLE001 - CLI maps the authenticated remote boundary
+        from agentkit.backend.cli._operator_ownership_commands import _emit_error
+
+        return _emit_error("exit-story", exc)
+    print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
     return 0
 
 

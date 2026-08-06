@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
+from agentkit.backend.installer.interpreter import render_ak3_python_command
 from agentkit.backend.vectordb.wait_for_weaviate import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -115,6 +116,21 @@ def test_main_exit_one_when_not_reachable(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(mod, "wait_for_weaviate", lambda **_: False)
     assert main(["--timeout", "1", "--host", "localhost", "--port", "8080"]) == 1
+
+
+def test_help_publishes_the_isolated_interpreter_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["--help"])
+
+    assert raised.value.code == 0
+    expected = render_ak3_python_command(
+        "agentkit.backend.vectordb.wait_for_weaviate"
+    )
+    output = capsys.readouterr().out
+    assert f"usage: {expected}" in output
+    assert "usage: python " not in output.lower()
 
 
 def test_resolve_host_port_defaults_without_project_root() -> None:
@@ -235,7 +251,7 @@ def test_main_with_project_root_exits_one_when_grpc_endpoint_is_missing(
 ) -> None:
     """Both endpoints are mandatory on the project-bound path (PO decision D-2).
 
-    This is the path the productive ``create-userstory-core`` 4.1.0 bundle uses,
+    This is the path the productive ``create-userstory-core`` 4.2.0 bundle uses,
     so a missing gRPC endpoint must fail closed here — and as a controlled exit
     code, not an uncaught traceback at a CLI boundary.
     """

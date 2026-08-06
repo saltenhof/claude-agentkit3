@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-08-05-review-vertrag-terminierung-085702c0",
+  "packages": [
+    {
+      "package_id": "PKG-085702c0-01",
+      "description": "Touched-file corpus baseline",
+      "paths": [
+        "CLAUDE.md",
+        "concept/_meta/assertion-authority.md",
+        "concept/_meta/konzept-konsistenz-governance.md",
+        "concept/technical-design/10_runtime_deployment_speicher.md",
+        "concept/technical-design/13_retrieval_vektordb_wissenszugriff.md",
+        "concept/technical-design/76_agent_harness_integration.md",
+        "concept/technical-design/78_concept_incubation_process.md",
+        "guardrails/testing-guardrails.md"
+      ],
+      "assigned_participants": [
+        "worker-a",
+        "worker-b"
+      ],
+      "redundancy": 2
+    }
+  ],
+  "integration_package_id": "PKG-085702c0-01"
+}

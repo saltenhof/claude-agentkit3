@@ -108,9 +108,21 @@ class _StartPhaseAdmissionMixin:
             self, *, project_key: str, story_id: str, op_id: str
         ) -> object_claims.ObjectClaimConflict | None: ...
 
-        def _release_my_claim(self, op_id: str, owner_token: str, claimed_at_raw: str | None) -> None: ...
+        def _release_my_claim(
+            self,
+            op_id: str,
+            owner_token: str,
+            claimed_at_raw: str | None,
+            operation_epoch: int | None,
+        ) -> None: ...
 
-        def _release_my_claim_best_effort(self, op_id: str, owner_token: str, claimed_at_raw: str | None) -> None: ...
+        def _release_my_claim_best_effort(
+            self,
+            op_id: str,
+            owner_token: str,
+            claimed_at_raw: str | None,
+            operation_epoch: int | None,
+        ) -> None: ...
 
         def _release_object_claim(self, *, project_key: str, story_id: str, op_id: str) -> None: ...
 
@@ -250,7 +262,12 @@ class _StartPhaseAdmissionMixin:
                 op_id=request.op_id,
             )
             if object_conflict is not None:
-                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
+                self._release_my_claim(
+                    request.op_id,
+                    owner_token,
+                    owner_claimed_at,
+                    owner_operation_epoch,
+                )
                 return _object_claim_busy_rejection(
                     op_id=request.op_id,
                     operation_kind="phase_start",
@@ -262,7 +279,12 @@ class _StartPhaseAdmissionMixin:
             if outcome.rejection is not None:
                 # Fail-closed rejection: release MY claims so NO committed op
                 # survives and a later retry (once admitted) re-evaluates.
-                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
+                self._release_my_claim(
+                    request.op_id,
+                    owner_token,
+                    owner_claimed_at,
+                    owner_operation_epoch,
+                )
                 self._release_object_claim(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -327,7 +349,12 @@ class _StartPhaseAdmissionMixin:
             #: fail-closed rejection (a later retry, once the foreign run releases the
             #: session, re-evaluates). The claim is not yet a terminal row, so the
             #: release is ownership-scoped and safe.
-            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
+            self._release_my_claim_best_effort(
+                request.op_id,
+                owner_token,
+                owner_claimed_at,
+                owner_operation_epoch,
+            )
             #: Codex-R1 (BLOCKER): the object-claim release on this handled-return
             #: rejection is NON-best-effort -- a release failure SURFACES (raises ->
             #: 5xx), never swallowed while a normal rejection is returned with the
@@ -356,7 +383,12 @@ class _StartPhaseAdmissionMixin:
             #: reconciliation or an explicit admin_abort_inflight_operation
             #: (AC1, Scope item 7).
             if not finalized:
-                self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
+                self._release_my_claim_best_effort(
+                    request.op_id,
+                    owner_token,
+                    owner_claimed_at,
+                    owner_operation_epoch,
+                )
                 self._release_object_claim_best_effort(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -389,6 +421,7 @@ class _StartPhaseAdmissionMixin:
                 request.op_id,
                 owner_token,
                 owner_claimed_at,
+                owner_operation_epoch,
             )
             return rejection
         terminal = _operation_record(

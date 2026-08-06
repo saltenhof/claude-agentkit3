@@ -57,11 +57,11 @@ Backend-Admin unbekanntes gueltiges Passwort entstehen.
 
 Backend-Admin und Client-Bediener sind getrennte Rollen auf getrennten
 Maschinen. Der authentifizierte Admin erzeugt das Projekt-Token mit
-`agentkit auth issue-token` kernseitig. Der Server erhaelt und persistiert nur
+`<absolute-agentkit-wrapper> auth issue-token` kernseitig. Der Server erhaelt und persistiert nur
 Token-ID und Hash; die Core-CLI gibt den Klartext nach der Registrierung einmal
 aus und schreibt keine lokale ProjectEdge-Credential. Die Uebergabe an den
 Client-Bediener liegt ausserhalb von AK3. Auf dem Entwicklerrechner prueft
-`agentkit auth store-token` den ausgehaendigten Bearer ueber einen read-only
+`<absolute-agentkit-wrapper> auth store-token` den ausgehaendigten Bearer ueber einen read-only
 HTTPS-Projektaufruf und publiziert ihn ohne Strategen-Login atomar als aktive
 `.agentkit/credentials`. Ein Anforderungs- oder Genehmigungsworkflow wird nicht
 eingefuehrt. Rotation wiederholt diese Uebergabe fuer das neue Token und endet

@@ -16,3 +16,4 @@ sichtbar sein) · `eingearbeitet` (normativer Gehalt verankert; Historie) ·
 | `runs/2026-07-19-conception-support-b4a7d375/STATE.md` | Wiederaufnahme-Cursor des Laufs | prozess | — |
 | `runs/2026-07-20-assertion-governance-c1d4e8f2/SYNTHESIS.md` | Finaler Plan Human Assurance normativer Aussagen inkl. PO-Entscheidung zur Haertungstiefe und benanntem Restrisiko | aktiv | Umsetzung offen; Reihenfolge nach FK-13-Vektorsuche |
 | `runs/2026-07-20-assertion-governance-c1d4e8f2/proposal-2-codex.md` | Gegenentwurf Codex (job-a67ac1e2): Granularitaet, Authentizitaet, zwoelf Falsch-Gruen-Pfade, FK-25-Normkonflikt | evidenz | Aufloesung in SYNTHESIS.md §5 |
+| `runs/2026-08-05-review-vertrag-terminierung-085702c0/` | LIGHT_INCUBATION-Lauf zu Vertrag und Terminierung der Review | prozess | `RUN.json` in STAFFING; Briefing und Baseline eingefroren, Worker-Dispatch ausstehend |

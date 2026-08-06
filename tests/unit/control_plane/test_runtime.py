@@ -483,20 +483,27 @@ class _FakeOps:
         *,
         owner_token: str,
         owner_claimed_at: str | None = None,
-    ) -> None:
+        owner_operation_epoch: int | None = None,
+    ) -> bool:
         # Ownership-scoped release: delete iff still claimed by owner_token (and
         # claim instant when given, #4).
         existing = self._state.operations.get(op_id)
         if existing is None or existing.status != "claimed":
-            return
+            return False
         if existing.claimed_by != owner_token:
-            return
+            return False
         if (
             owner_claimed_at is not None
             and _claimed_at_text(existing) != owner_claimed_at
         ):
-            return
+            return False
+        if (
+            owner_operation_epoch is not None
+            and existing.operation_epoch != owner_operation_epoch
+        ):
+            return False
         self._state.operations.pop(op_id, None)
+        return True
 
     def has_committed_for_run(
         self,
@@ -4488,8 +4495,9 @@ def _seed_live_claim(
     state: _RepoState,
     *,
     op_id: str,
-    story_id: str = "AG3-100",
+    story_id: str | None = "AG3-100",
     run_id: str = "run-100",
+    operation_kind: str = "phase_start",
     operation_epoch: int = 1,
     backend_instance_id: str = "inst-me",
     instance_incarnation: int = 1,
@@ -4502,7 +4510,7 @@ def _seed_live_claim(
         story_id=story_id,
         run_id=run_id,
         session_id="sess-001",
-        operation_kind="phase_start",
+        operation_kind=operation_kind,
         phase="implementation",
         status="claimed",
         response_payload={},
@@ -4513,7 +4521,9 @@ def _seed_live_claim(
         operation_epoch=operation_epoch,
         backend_instance_id=backend_instance_id,
         instance_incarnation=instance_incarnation,
-        declared_serialization_scope="tenant-a:AG3-100",
+        declared_serialization_scope=(
+            "tenant-a:AG3-100" if story_id is not None else None
+        ),
     )
 
 
@@ -4531,6 +4541,35 @@ def test_admin_abort_of_live_claim_returns_aborted_and_bumps_epoch() -> None:
     stored = state.operations["op-abort-1"]
     assert stored.status == "aborted"
     assert stored.operation_epoch == 2  # bumped for the epoch fence
+
+
+def test_admin_abort_of_storyless_claim_skips_engine_write_lookup() -> None:
+    """A project-scoped claim keeps ``story_id=None`` through abort resolution."""
+    from dataclasses import replace
+
+    state = _RepoState()
+    _seed_live_claim(
+        state,
+        op_id="op-abort-storyless",
+        story_id=None,
+        operation_kind="installer_cp7",
+    )
+    repository = replace(
+        _repository(state),
+        has_engine_writes_since=lambda story_id, since: pytest.fail(
+            f"storyless claim queried story-engine writes for {story_id!r} at {since}"
+        ),
+    )
+    service = ControlPlaneRuntimeService(repository=repository)
+
+    result = service.admin_abort_inflight_operation(
+        "op-abort-storyless", _admin_abort_request()
+    )
+
+    assert result.status == "aborted"
+    stored = state.operations["op-abort-storyless"]
+    assert stored.story_id is None
+    assert stored.operation_epoch == 2
 
 
 def test_admin_abort_unknown_op_raises_not_found() -> None:
@@ -4806,25 +4845,21 @@ def test_claim_stamps_instance_identity_and_operation_epoch() -> None:
     assert placeholder.status == "claimed"
 
 
-def test_default_store_resolves_identity_from_store_never_invents_it() -> None:
-    """A default-store service resolves its identity from the authoritative store.
+def test_default_store_never_boots_an_identity_without_the_writer_lease() -> None:
+    """A default-store service cannot invent a writer lifecycle on first use.
 
-    AG3-138 AC3 / trap (own vs foreign identity): the instance identity is never
-    invented and never foreign -- it is resolved from the Postgres session-
-    ownership store (``backend_instance_identity``), mirroring the class's
-    ``_require_postgres_backend_on_first_use`` lazy-first-use pattern. When that
-    store is unavailable (no Postgres backend configured) resolution fails CLOSED
-    rather than stamping a fabricated identity onto a claim (K5, Postgres-only).
-    The serving path never hits this lazily: ``serve_control_plane`` runs the
-    pre-serve startup hook (identity resolution + orphan reconciliation) before
-    the listener accepts any request (AC1/AC9), so the identity is bound there.
+    AG3-214 closes the old lazy-first-use path: only pre-serve startup may mutate
+    the boot incarnation, after it owns the database writer lease. Directly
+    constructed services therefore fail closed instead of creating a competing
+    incarnation.
     """
     from agentkit.backend.exceptions import ConfigError
 
     service = ControlPlaneRuntimeService()
-    # No Postgres backend configured here -> fail closed (K5), never a fabricated
-    # identity.
-    with pytest.raises(ConfigError, match="Postgres state backend"):
+    with pytest.raises(
+        ConfigError,
+        match="active writer lease has no bound identity",
+    ):
         service._current_instance_identity()
 
 

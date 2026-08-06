@@ -156,18 +156,23 @@ def materialized_skill_variant_input_digest(
     gh_owner: str,
     gh_repo: str,
     project_prefix: str,
+    wiki_stories_dir: str,
     bundle_id: str,
     bundle_version: str,
+    ak3_interpreter_command: str,
+    ak3_wrapper_command: str,
 ) -> str:
     """Return the input-digest that keys a materialized variant directory (AG3-111).
 
     FIX Q1: the variant directory is keyed by a SHA-256 over the FULL
     materialization-relevant input — ``project_key`` + the resolved
-    ``agent_spawn_skill_proof`` token + the four FK-03 config values
-    (``gh_owner``/``gh_repo``/``project_prefix``/``project_key``) +
-    ``bundle_id@bundle_version``. Any changed input yields a NEW, different digest
-    directory (immutable variants, no in-place mutation); an unchanged input yields
-    a stable digest -> byte-identical re-materialization (idempotency, FK-51).
+    ``agent_spawn_skill_proof`` token + the five FK-03 config values
+    (``gh_owner``/``gh_repo``/``project_prefix``/``project_key``/
+    ``wiki_stories_dir``) +
+    ``bundle_id@bundle_version`` + both installer-rendered executable commands.
+    Any changed input yields a NEW, different digest directory (immutable variants,
+    no in-place mutation); an unchanged input yields a stable digest -> byte-identical
+    re-materialization (idempotency, FK-51).
 
     The components are joined with a ``\\x00`` separator so no value can spoof a
     boundary (e.g. ``("ab", "c")`` differs from ``("a", "bc")``).
@@ -181,7 +186,10 @@ def materialized_skill_variant_input_digest(
         gh_owner,
         gh_repo,
         project_prefix,
+        wiki_stories_dir,
         f"{bundle_id}@{bundle_version}",
+        ak3_interpreter_command,
+        ak3_wrapper_command,
     )
     canonical = "\x00".join(components).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()

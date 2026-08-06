@@ -1,7 +1,9 @@
 """Failure-corpus CLI adapter (FK-41 §41.9, AG3-078).
 
-Thin boundary-layer over the ``FailureCorpus`` top-surface. Contains NO business
-logic — delegates only. All six subcommands are registered in ``cli/main.py``.
+Thin boundary-layer over the ``FailureCorpus`` top-surface. Mutating commands
+delegate to the authenticated active-writer contract; read-only commands use
+the local read composition. All six subcommands are registered in
+``cli/main.py``.
 
 Subcommands:
 - ``add-incident``: Record a new incident candidate via ``record_incident``.
@@ -20,11 +22,18 @@ Sources:
 
 from __future__ import annotations
 
+import getpass
+import json
+import ssl
 import sys
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import argparse
+
+    from agentkit.backend.failure_corpus.writer_client import FailureCorpusWriterClient
 
 # Shared argument help text (hoisted to avoid duplicated literals, Sonar S1192).
 _HELP_PROJECT_KEY = "Project key"
@@ -84,6 +93,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         action="store_true",
         help="Flag: merge is blocked by this incident",
     )
+    _add_writer_arguments(add_p)
 
     # suggest-patterns
     suggest_p = subparsers.add_parser(
@@ -129,6 +139,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         default=None,
         help=("FailureCategory wire value (e.g. 'test_omission'; required for accepted decision)"),
     )
+    _add_writer_arguments(review_pat_p)
 
     # review-checks
     review_chk_p = subparsers.add_parser(
@@ -149,6 +160,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         default=None,
         help="Optional rejection reason (used for rejected and revise decisions)",
     )
+    _add_writer_arguments(review_chk_p)
 
     # effectiveness-report
     eff_p = subparsers.add_parser(
@@ -162,6 +174,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         default=90,
         help="Observation window in days (default 90)",
     )
+    _add_writer_arguments(eff_p)
 
     # list-checks
     list_chk_p = subparsers.add_parser(
@@ -177,6 +190,74 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
     )
 
 
+def _add_writer_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the shared authenticated active-writer connection arguments."""
+
+    parser.add_argument("--project-root", default=".", help="Project root")
+    parser.add_argument("--base-url", required=False, help="Core Project-API base URL")
+    parser.add_argument("--username", default="admin", help="Strategist username")
+    parser.add_argument("--ca-file", default=None, help="Trusted control-plane CA certificate")
+    parser.add_argument(
+        "--op-id",
+        default=None,
+        help="Client-supplied idempotency key for replay after response loss",
+    )
+
+
+def _build_writer_client(args: argparse.Namespace) -> FailureCorpusWriterClient:
+    """Authenticate the CLI and return its failure-corpus writer client."""
+
+    from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
+    from agentkit.backend.failure_corpus.writer_client import FailureCorpusWriterClient
+    from agentkit.harness_client.projectedge.client import HttpsJsonTransport
+    from agentkit.harness_client.projectedge.runtime import read_bound_skill_bundle_version
+
+    root = Path(str(getattr(args, "project_root", ".") or "."))
+    ca_file = getattr(args, "ca_file", None)
+    ssl_context = ssl.create_default_context(cafile=ca_file) if ca_file else None
+    transport = HttpsJsonTransport(
+        base_url=str(getattr(args, "base_url", "") or DEFAULT_CONTROL_PLANE_BASE_URL),
+        ssl_context=ssl_context,
+        skill_bundle_version=read_bound_skill_bundle_version(root),
+    ).authenticate_strategist(
+        username=str(getattr(args, "username", "admin")),
+        password=getpass.getpass("Strategist password: "),
+        project_key=str(args.project_key),
+    )
+    return FailureCorpusWriterClient(transport)
+
+
+def _emit_writer_error(verb: str, exc: Exception) -> int:
+    """Map authenticated HTTP and transport failures without a local fallback."""
+
+    from urllib.error import URLError
+
+    from agentkit.backend.exceptions import ControlPlaneApiError
+
+    if isinstance(exc, ControlPlaneApiError):
+        print(
+            f"{verb} failed [{exc.error_code}] HTTP {exc.http_status}: {exc}",
+            file=sys.stderr,
+        )
+    elif isinstance(exc, URLError):
+        print(f"{verb} failed [BackendUnreachable]: {exc}", file=sys.stderr)
+    elif isinstance(exc, json.JSONDecodeError):
+        print(f"{verb} failed [TransportError]: {exc}", file=sys.stderr)
+    elif isinstance(exc, ValueError):
+        print(f"{verb} failed [InvalidRequest]: {exc}", file=sys.stderr)
+    else:
+        print(f"{verb} failed [TransportError]: {exc}", file=sys.stderr)
+    return 1
+
+
+def _operation_id(args: argparse.Namespace) -> str:
+    """Resolve and expose the client-owned idempotency key before transport."""
+
+    op_id = str(getattr(args, "op_id", None) or f"op-{uuid.uuid4().hex}")
+    print(f"Operation ID: {op_id}")
+    return op_id
+
+
 # ---------------------------------------------------------------------------
 # Command handlers (thin delegation only — no business logic here)
 # ---------------------------------------------------------------------------
@@ -185,7 +266,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
 def handle_add_incident(args: argparse.Namespace) -> int:
     """Handle ``failure-corpus add-incident``.
 
-    Delegates to ``FailureCorpus.record_incident`` via the composition root.
+    Delegate the incident mutation to the authenticated active writer.
 
     Args:
         args: Parsed CLI arguments.
@@ -193,46 +274,34 @@ def handle_add_incident(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 success, 1 failure).
     """
-    from agentkit.backend.bootstrap.composition_root import (
-        build_failure_corpus,
-        build_projection_accessor,
+    from agentkit.backend.failure_corpus.http_models import (
+        FailureCorpusIncidentMutationRequest,
     )
-    from agentkit.backend.core_types import FailureCategory
-    from agentkit.backend.failure_corpus.incident import IncidentCandidate
-    from agentkit.backend.failure_corpus.types import IncidentRole, IncidentSeverity
-
-    try:
-        category = FailureCategory(args.category)
-        severity = IncidentSeverity(args.severity)
-        role = IncidentRole(args.role)
-    except ValueError as exc:
-        print(f"add-incident: invalid argument: {exc}", file=sys.stderr)
-        return 1
 
     evidence = [e.strip() for e in args.evidence.split(",") if e.strip()]
 
-    candidate = IncidentCandidate(
-        project_key=args.project_key,
-        story_id=args.story_id,
-        run_id=args.run_id,
-        category=category,
-        severity=severity,
-        phase=args.phase,
-        role=role,
-        model=args.model,
-        symptom=args.symptom,
-        evidence=evidence,
-        merge_blocked=args.merge_blocked,
-    )
-
     try:
-        accessor = build_projection_accessor()
-        corpus = build_failure_corpus(accessor, project_key=args.project_key)
-        incident_id = corpus.record_incident(candidate)
-        print(f"Incident recorded: {incident_id}")
+        request = FailureCorpusIncidentMutationRequest(
+            op_id=_operation_id(args),
+            story_id=args.story_id,
+            run_id=args.run_id,
+            category=args.category,
+            severity=args.severity,
+            phase=args.phase,
+            role=args.role,
+            model=args.model,
+            symptom=args.symptom,
+            evidence=tuple(evidence),
+            merge_blocked=args.merge_blocked,
+        )
+        client = _build_writer_client(args)
+        result = client.add_incident(
+            str(args.project_key),
+            request,
+        )
+        print(f"Incident recorded: {result.incident_id}")
     except Exception as exc:
-        print(f"add-incident failed: {exc}", file=sys.stderr)
-        return 1
+        return _emit_writer_error("add-incident", exc)
 
     return 0
 
@@ -276,7 +345,7 @@ def handle_suggest_patterns(args: argparse.Namespace) -> int:
 def handle_review_patterns(args: argparse.Namespace) -> int:
     """Handle ``failure-corpus review-patterns``.
 
-    Delegates to ``FailureCorpus.confirm_pattern`` (human gate).
+    Delegate the human-gated decision to the authenticated active writer.
 
     Args:
         args: Parsed CLI arguments.
@@ -284,60 +353,26 @@ def handle_review_patterns(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 success, 1 failure).
     """
-    from agentkit.backend.bootstrap.composition_root import (
-        build_failure_corpus,
-        build_projection_accessor,
-    )
-    from agentkit.backend.core_types import FailureCategory
-    from agentkit.backend.failure_corpus.pattern import PatternRiskLevel, PromotionRule
-    from agentkit.backend.failure_corpus.top import PatternDecision
-    from agentkit.backend.failure_corpus.types import PatternId
+    from agentkit.backend.failure_corpus.http_models import FailureCorpusPatternReviewRequest
 
     try:
-        decision = PatternDecision(args.decision)
-    except ValueError as exc:
-        print(f"review-patterns: invalid decision: {exc}", file=sys.stderr)
-        return 1
-
-    risk_level = None
-    if args.risk_level is not None:
-        try:
-            risk_level = PatternRiskLevel(args.risk_level)
-        except ValueError as exc:
-            print(f"review-patterns: invalid risk-level: {exc}", file=sys.stderr)
-            return 1
-
-    promotion_rule = None
-    if args.promotion_rule is not None:
-        try:
-            promotion_rule = PromotionRule(args.promotion_rule)
-        except ValueError as exc:
-            print(f"review-patterns: invalid promotion-rule: {exc}", file=sys.stderr)
-            return 1
-
-    category = None
-    if args.category is not None:
-        try:
-            category = FailureCategory(args.category)
-        except ValueError as exc:
-            print(f"review-patterns: invalid category: {exc}", file=sys.stderr)
-            return 1
-
-    try:
-        accessor = build_projection_accessor()
-        corpus = build_failure_corpus(accessor, project_key=args.project_key)
-        result = corpus.confirm_pattern(
-            PatternId(args.pattern_id),
-            decision,
+        request = FailureCorpusPatternReviewRequest(
+            op_id=_operation_id(args),
+            decision=args.decision,
             invariant=args.invariant,
-            risk_level=risk_level,
-            promotion_rule=promotion_rule,
-            category=category,
+            risk_level=args.risk_level,
+            promotion_rule=args.promotion_rule,
+            category=args.category,
+        )
+        client = _build_writer_client(args)
+        result = client.review_pattern(
+            str(args.project_key),
+            str(args.pattern_id),
+            request,
         )
         print(f"Pattern {result.pattern_id}: decision={args.decision}")
     except Exception as exc:
-        print(f"review-patterns failed: {exc}", file=sys.stderr)
-        return 1
+        return _emit_writer_error("review-patterns", exc)
 
     return 0
 
@@ -345,7 +380,7 @@ def handle_review_patterns(args: argparse.Namespace) -> int:
 def handle_review_checks(args: argparse.Namespace) -> int:
     """Handle ``failure-corpus review-checks``.
 
-    Delegates to ``FailureCorpus.approve_check`` (3-valued decision).
+    Delegate the three-valued decision to the authenticated active writer.
 
     Args:
         args: Parsed CLI arguments.
@@ -353,31 +388,23 @@ def handle_review_checks(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 success, 1 failure).
     """
-    from agentkit.backend.bootstrap.composition_root import (
-        build_failure_corpus,
-        build_projection_accessor,
-    )
-    from agentkit.backend.failure_corpus.top import CheckApprovalDecision
-    from agentkit.backend.failure_corpus.types import CheckId
+    from agentkit.backend.failure_corpus.http_models import FailureCorpusCheckReviewRequest
 
     try:
-        decision = CheckApprovalDecision(args.decision)
-    except ValueError as exc:
-        print(f"review-checks: invalid decision: {exc}", file=sys.stderr)
-        return 1
-
-    try:
-        accessor = build_projection_accessor()
-        corpus = build_failure_corpus(accessor, project_key=args.project_key)
-        result = corpus.approve_check(
-            CheckId(args.check_id),
-            decision,
+        request = FailureCorpusCheckReviewRequest(
+            op_id=_operation_id(args),
+            decision=args.decision,
             rejected_reason=args.rejected_reason,
+        )
+        client = _build_writer_client(args)
+        result = client.review_check(
+            str(args.project_key),
+            str(args.check_id),
+            request,
         )
         print(f"Check {result.check_id}: decision={args.decision}")
     except Exception as exc:
-        print(f"review-checks failed: {exc}", file=sys.stderr)
-        return 1
+        return _emit_writer_error("review-checks", exc)
 
     return 0
 
@@ -385,7 +412,7 @@ def handle_review_checks(args: argparse.Namespace) -> int:
 def handle_effectiveness_report(args: argparse.Namespace) -> int:
     """Handle ``failure-corpus effectiveness-report``.
 
-    Delegates to ``FailureCorpus.report_effectiveness``.
+    Delegate the mutating effectiveness job to the authenticated active writer.
 
     Args:
         args: Parsed CLI arguments.
@@ -393,23 +420,25 @@ def handle_effectiveness_report(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 success, 1 failure).
     """
-    from agentkit.backend.bootstrap.composition_root import (
-        build_failure_corpus,
-        build_projection_accessor,
-    )
+    from agentkit.backend.failure_corpus.http_models import FailureCorpusEffectivenessRequest
 
     try:
-        accessor = build_projection_accessor()
-        corpus = build_failure_corpus(accessor, project_key=args.project_key)
-        report = corpus.report_effectiveness(window_days=args.window_days)
+        request = FailureCorpusEffectivenessRequest(
+            op_id=_operation_id(args),
+            window_days=args.window_days,
+        )
+        client = _build_writer_client(args)
+        report = client.report_effectiveness(
+            str(args.project_key),
+            request,
+        )
         print(
             f"Effectiveness report (window={report.window_days}d): "
             f"updated={report.updated_count} "
             f"deactivated={report.deactivated_count}"
         )
     except Exception as exc:
-        print(f"effectiveness-report failed: {exc}", file=sys.stderr)
-        return 1
+        return _emit_writer_error("effectiveness-report", exc)
 
     return 0
 

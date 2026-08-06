@@ -26,7 +26,7 @@ def build_hub_evaluator(
     *,
     epoch_chunk_limit: int | None = None,
 ) -> RoutedAuthorityProseEvaluator:
-    """Build W2 with one multi-backend lease per bounded epoch."""
+    """Build W2 with lazy single-backend leases for deterministic routes."""
     configured = os.environ.get(MODEL_ENV)
     if configured is not None and configured not in _ALLOWED_MODELS:
         raise ValueError(f"{MODEL_ENV} must be one of {sorted(_ALLOWED_MODELS)}")

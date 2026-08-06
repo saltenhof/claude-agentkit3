@@ -1,7 +1,7 @@
 """CLI entry point for Codex pre-tool governance hooks.
 
 Official CLI entry point for Codex hooks:
-``agentkit-hook-codex {phase} {hook_id}``
+``<absolute-agentkit-hook-codex-wrapper> {phase} {hook_id}``
 
 Invalid arguments (unknown phase or hook_id) return exit code 2 with a
 message on stderr.  Allowed decisions return exit code 0; blocked

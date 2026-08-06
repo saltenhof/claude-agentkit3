@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 from tests.unit.vectordb.corpus_doubles import RecordingWeaviateClient
 
+from agentkit.backend.skills.binding import (
+    SkillBinding,
+    SkillBindingMode,
+    SkillLifecycleStatus,
+)
 from agentkit.backend.skills.bundle_store import SkillBundleStore
 from agentkit.backend.skills.errors import SkillBindingFailedError
 from agentkit.backend.skills.links import (
@@ -29,7 +35,7 @@ from agentkit.integration_clients.vectordb.errors import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_BUNDLE = _REPO_ROOT / "src" / "agentkit" / "bundles" / "skill_bundles" / "create-userstory-core" / "4.1.0"
+_BUNDLE = _REPO_ROOT / "src" / "agentkit" / "bundles" / "skill_bundles" / "create-userstory-core" / "4.2.0"
 
 
 def _manifest_digest(manifest: dict[str, object]) -> str:
@@ -55,8 +61,8 @@ def test_effectively_installed_pinned_bundle_is_complete_and_fail_closed(
     )
     skill = (installed / "SKILL.md").read_text(encoding="utf-8")
 
-    assert binding.bundle_version == "4.1.0"
-    assert manifest["bundle_version"] == "4.1.0"
+    assert binding.bundle_version == "4.2.0"
+    assert manifest["bundle_version"] == "4.2.0"
     assert manifest["manifest_digest"] == _manifest_digest(manifest)
     assert len(skill) > 40_000
     assert "../4.0.0/SKILL.md" not in skill
@@ -71,6 +77,10 @@ def test_effectively_installed_pinned_bundle_is_complete_and_fail_closed(
     assert "IF_STORY_VECTORDB" not in skill
     assert "concept_search" in skill
     assert "optional concept_search" not in skill.lower()
+    assert "{{AK3_INTERPRETER}} -m agentkit.backend.vectordb.wait_for_weaviate" in skill
+    assert "{{AK3_WRAPPER}} concept" in skill
+    assert "{{AK3_INTERPRETER}} tools/agentkit/projectedge.py create-story" in skill
+    assert "{{AK3_WRAPPER}} export-story-md" in skill
 
 
 def _write_concept_corpus(root: Path, *, suffix: str) -> Path:
@@ -229,16 +239,22 @@ def test_effective_pinned_skill_freshness_contract_uses_real_cli_and_mcp_boundar
         _require_current_completion(changed_revision, failed)
 
 
-def _write_bundle(root: Path, version: str) -> Path:
-    bundle = root / "create-userstory-core" / version
+def _write_bundle(
+    root: Path,
+    version: str,
+    *,
+    bundle_id: str = "create-userstory-core",
+    skill_name: str = "create-userstory",
+) -> Path:
+    bundle = root / bundle_id / version
     bundle.mkdir(parents=True)
-    (bundle / "SKILL.md").write_text("# create-userstory\n", encoding="utf-8")
+    (bundle / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
     manifest: dict[str, object] = {
-        "bundle_id": "create-userstory-core",
+        "bundle_id": bundle_id,
         "bundle_version": version,
         "profile": "CORE",
-        "skill_name": "create-userstory",
-        "variants": {"CORE": "create-userstory"},
+        "skill_name": skill_name,
+        "variants": {"CORE": skill_name},
     }
     manifest["manifest_digest"] = _manifest_digest(manifest)
     (bundle / "manifest.json").write_text(
@@ -253,8 +269,8 @@ def test_verify_uses_persisted_pin_and_requires_identical_harness_targets(
 ) -> None:
     """A pin is honoured for the project's lifetime — and both harnesses must agree."""
     store_root = tmp_path / "store"
-    pinned = _write_bundle(store_root, "4.1.0")
-    newer = _write_bundle(store_root, "4.2.0")
+    pinned = _write_bundle(store_root, "4.2.0")
+    newer = _write_bundle(store_root, "4.4.0")
     project = tmp_path / "project"
     project.mkdir()
     skills = Skills(
@@ -266,7 +282,7 @@ def test_verify_uses_persisted_pin_and_requires_identical_harness_targets(
     # Deliberately NOT the newest available version: an existing project stays
     # valid on the version it explicitly chose.
     binding = skills.verify_pinned_binding(project, "create-userstory")
-    assert binding.bundle_version == "4.1.0"
+    assert binding.bundle_version == "4.2.0"
     assert (project / ".claude" / "skills" / "create-userstory").resolve() == pinned.resolve()
     assert (project / ".codex" / "skills" / "create-userstory").resolve() == pinned.resolve()
 
@@ -277,28 +293,191 @@ def test_verify_uses_persisted_pin_and_requires_identical_harness_targets(
         skills.verify_pinned_binding(project, "create-userstory")
 
 
-def test_verify_rejects_a_pin_below_the_minimum_conform_bundle_version(
+def test_bind_skill_rejects_a_pin_below_the_minimum_conform_bundle_version(
     tmp_path: Path,
 ) -> None:
-    """`create-userstory-core` 4.0.0 still carries the abolished VectorDB fallback.
+    """`create-userstory-core` 4.1.0 still publishes naked PATH commands.
 
     Honouring that pin would let a supported project pass VERIFY while running
-    the optionality path that decision 2026-07-21 Rand 1 removed — so this is
-    the one case where the lifetime-pin rule yields.
+    the naked PATH-Python commands that the interpreter-isolation contract
+    forbids — so this is one case where the lifetime-pin rule yields.
     """
     store_root = tmp_path / "store"
-    abolished = _write_bundle(store_root, "4.0.0")
-    _write_bundle(store_root, "4.1.0")
+    abolished = _write_bundle(store_root, "4.1.0")
+    _write_bundle(store_root, "4.2.0")
     project = tmp_path / "project"
     project.mkdir()
     skills = Skills(
         bundle_store=SkillBundleStore(store_root=store_root),
         binding_repo=InMemorySkillBindingRepository(),
     )
-    skills.bind_skill("create-userstory", abolished, project)
+    with pytest.raises(
+        SkillBindingFailedError,
+        match="below the minimum conform version 4.2.0",
+    ):
+        skills.bind_skill("create-userstory", abolished, project)
 
-    with pytest.raises(SkillBindingFailedError, match="below the minimum conform version 4.1.0"):
-        skills.verify_pinned_binding(project, "create-userstory")
+    assert skills.resolve_binding(project, "create-userstory") is None
+    assert not (project / ".claude" / "skills" / "create-userstory").exists()
+    assert not (project / ".codex" / "skills" / "create-userstory").exists()
+
+
+def test_bind_skill_materialized_rejects_bundle_below_floor_before_side_effects(
+    tmp_path: Path,
+) -> None:
+    from agentkit.backend.config.models import (
+        SUPPORTED_CONFIG_VERSION,
+        Features,
+        JenkinsConfig,
+        PipelineConfig,
+        ProjectConfig,
+        RepositoryConfig,
+        SonarQubeConfig,
+    )
+
+    store_root = tmp_path / "store"
+    abolished = _write_bundle(
+        store_root,
+        "4.0.0",
+        bundle_id="lookup-userstory-core",
+        skill_name="lookup-userstory",
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    config = ProjectConfig(
+        project_key="project",
+        project_name="Project",
+        repositories=[RepositoryConfig(name="project", path=project)],
+        pipeline=PipelineConfig(  # type: ignore[call-arg]
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
+            sonarqube=SonarQubeConfig(available=False, enabled=False),
+            ci=JenkinsConfig(available=False, enabled=False),
+        ),
+    )
+    repository = InMemorySkillBindingRepository()
+    skills = Skills(
+        bundle_store=SkillBundleStore(store_root=store_root),
+        binding_repo=repository,
+    )
+    variant_dir = tmp_path / "variants" / "lookup-userstory"
+
+    with pytest.raises(
+        SkillBindingFailedError,
+        match="below the minimum conform version 4.1.0",
+    ):
+        skills.bind_skill_materialized(
+            "lookup-userstory",
+            abolished,
+            project,
+            config=config,
+            variant_dir=variant_dir,
+            ak3_interpreter_command='"C:\\AgentKit\\python.exe"',
+            ak3_wrapper_command='"C:\\AgentKit\\agentkit.exe"',
+        )
+
+    assert repository.load(project.stem, "lookup-userstory") is None
+    assert not variant_dir.exists()
+    assert not (project / ".claude" / "skills" / "lookup-userstory").exists()
+    assert not (project / ".codex" / "skills" / "lookup-userstory").exists()
+
+
+def test_resolve_binding_rejects_persisted_bundle_below_floor(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    repository = InMemorySkillBindingRepository()
+    repository.save(
+        SkillBinding(
+            binding_id="binding-id",
+            project_key=project.stem,
+            skill_name="lookup-userstory",
+            bundle_id="lookup-userstory-core",
+            bundle_version="4.0.0",
+            content_digest="0" * 64,
+            target_path=project / ".claude" / "skills" / "lookup-userstory",
+            binding_mode=SkillBindingMode.SYMLINK,
+            status=SkillLifecycleStatus.VERIFIED,
+            pinned_at=datetime.now(tz=UTC),
+        )
+    )
+    skills = Skills(
+        bundle_store=SkillBundleStore(store_root=tmp_path / "store"),
+        binding_repo=repository,
+    )
+
+    with pytest.raises(
+        SkillBindingFailedError,
+        match="below the minimum conform version 4.1.0",
+    ):
+        skills.resolve_binding(project, "lookup-userstory")
+
+
+def test_verify_rejects_execute_userstory_400_below_its_conform_floor(
+    tmp_path: Path,
+) -> None:
+    store_root = tmp_path / "store"
+    abolished = _write_bundle(
+        store_root,
+        "4.0.0",
+        bundle_id="execute-userstory-core",
+        skill_name="execute-userstory",
+    )
+    _write_bundle(
+        store_root,
+        "4.1.0",
+        bundle_id="execute-userstory-core",
+        skill_name="execute-userstory",
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    skills = Skills(
+        bundle_store=SkillBundleStore(store_root=store_root),
+        binding_repo=InMemorySkillBindingRepository(),
+    )
+    with pytest.raises(
+        SkillBindingFailedError,
+        match="below the minimum conform version 4.1.0",
+    ):
+        skills.bind_skill("execute-userstory", abolished, project)
+
+
+def test_installer_resolution_never_selects_a_bundle_below_the_floor(
+    tmp_path: Path,
+) -> None:
+    from agentkit.backend.exceptions import InstallationError
+    from agentkit.backend.installer.runner import (
+        MANDATORY_SKILLS,
+        InstallConfig,
+        _resolve_mandatory_skill_bundles,
+    )
+
+    store_root = tmp_path / "store"
+    _write_bundle(store_root, "4.1.0")
+    store = SkillBundleStore(store_root=store_root)
+    skills = Skills(
+        bundle_store=store,
+        binding_repo=InMemorySkillBindingRepository(),
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    config = InstallConfig(
+        project_key="project",
+        project_name="Project",
+        project_root=project,
+        skills=skills,
+        skill_bundle_store=store,
+        skill_bundle_ids={name: "create-userstory-core" for name in MANDATORY_SKILLS},
+    )
+
+    with pytest.raises(
+        InstallationError,
+        match="below the minimum conform version 4.2.0",
+    ) as captured:
+        _resolve_mandatory_skill_bundles(config, project)
+
+    assert captured.value.detail["cause"] == "BundleVersionNonConform"
 
 
 def _relink_project_skill(project: Path, target: Path, *, both: bool) -> None:
@@ -313,8 +492,8 @@ def test_verify_rejects_both_links_to_same_outside_store_self_declared_version(
     tmp_path: Path,
 ) -> None:
     store_root = tmp_path / "store"
-    canonical = _write_bundle(store_root, "4.1.0")
-    outside = _write_bundle(tmp_path / "foreign-store", "4.1.0")
+    canonical = _write_bundle(store_root, "4.2.0")
+    outside = _write_bundle(tmp_path / "foreign-store", "4.2.0")
     (outside / "SKILL.md").write_text("# foreign content\n", encoding="utf-8")
     project = tmp_path / "project"
     project.mkdir()
@@ -333,7 +512,7 @@ def test_verify_rejects_changed_skill_even_with_recomputed_manifest_digest(
     tmp_path: Path,
 ) -> None:
     store_root = tmp_path / "store"
-    canonical = _write_bundle(store_root, "4.1.0")
+    canonical = _write_bundle(store_root, "4.2.0")
     project = tmp_path / "project"
     project.mkdir()
     skills = Skills(
@@ -359,8 +538,8 @@ def test_verify_rejects_only_one_same_version_foreign_harness_link(
     tmp_path: Path,
 ) -> None:
     store_root = tmp_path / "store"
-    canonical = _write_bundle(store_root, "4.1.0")
-    outside = _write_bundle(tmp_path / "foreign-store", "4.1.0")
+    canonical = _write_bundle(store_root, "4.2.0")
+    outside = _write_bundle(tmp_path / "foreign-store", "4.2.0")
     project = tmp_path / "project"
     project.mkdir()
     skills = Skills(
@@ -378,7 +557,7 @@ def test_verify_rejects_store_version_symlink_escape(
     tmp_path: Path,
 ) -> None:
     store_root = tmp_path / "store"
-    canonical = _write_bundle(store_root, "4.1.0")
+    canonical = _write_bundle(store_root, "4.2.0")
     project = tmp_path / "project"
     project.mkdir()
     skills = Skills(

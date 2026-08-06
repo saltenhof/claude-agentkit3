@@ -63,7 +63,7 @@ commands:
     emits:
       - principal-capabilities.event.conflict_freeze_entered
   - id: principal-capabilities.command.execute-official-service-path
-    signature: agentkit split-story|reset-story|cleanup|resolve-conflict through official service principal
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> split-story|reset-story|cleanup|resolve-conflict through official service principal
     allowed_statuses:
       - principal-capabilities.status.frozen
       - principal-capabilities.status.story_scoped
@@ -74,7 +74,7 @@ commands:
       - principal-capabilities.event.official_service_path_entered
       - principal-capabilities.event.official_service_path_completed
   - id: principal-capabilities.command.resolve-conflict
-    signature: agentkit resolve-conflict --story <story_id> --decision <decision> --reason <reason>
+    signature: human operator CLI invokes <absolute-agentkit-wrapper> resolve-conflict --story <story_id> --decision <decision> --reason <reason>
     allowed_statuses:
       - principal-capabilities.status.frozen
     requires:

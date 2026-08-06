@@ -97,3 +97,48 @@ def test_middleware_rejects_project_api_token_mismatch() -> None:
 
     assert isinstance(result, AuthMiddlewareResponse)
     assert result.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_first_credential_installer_exception_allows_strategist_before_any_token() -> None:
+    sessions = InMemorySessionStore()
+    session = sessions.create()
+    middleware = AuthMiddleware(
+        session_store=sessions,
+        token_repository=_InMemoryTokenRepository(),
+    )
+
+    result = middleware.authorize(
+        method="POST",
+        route_path="/v1/projects/tenant-a/installation/third-party-validation",
+        request_headers={
+            "Cookie": f"ak3_session={session.session_id}",
+            "X-CSRF-Token": session.csrf_token,
+        },
+        correlation_id="req-first-credential",
+    )
+
+    assert not isinstance(result, AuthMiddlewareResponse)
+    assert result.auth_kind == "strategist_session"
+
+
+def test_first_credential_installer_exception_rejects_strategist_after_token_exists() -> None:
+    sessions = InMemorySessionStore()
+    session = sessions.create()
+    repository = _InMemoryTokenRepository()
+    repository.insert(
+        prepare_project_api_token(project_key="tenant-a", label="thin-client").record,
+    )
+    middleware = AuthMiddleware(session_store=sessions, token_repository=repository)
+
+    result = middleware.authorize(
+        method="POST",
+        route_path="/v1/projects/tenant-a/installation/third-party-validation",
+        request_headers={
+            "Cookie": f"ak3_session={session.session_id}",
+            "X-CSRF-Token": session.csrf_token,
+        },
+        correlation_id="req-after-credential",
+    )
+
+    assert isinstance(result, AuthMiddlewareResponse)
+    assert result.status_code == HTTPStatus.FORBIDDEN

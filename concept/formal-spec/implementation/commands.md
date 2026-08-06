@@ -15,7 +15,7 @@ prose_refs:
 
 Implementation laeuft ueber den offiziellen Phase-Runner-Service.
 Normative Aufruf-Parameter (story_id, phase, mode) sind in FK-91 §91.1a definiert.
-Die Operator-Recovery-CLI `agentkit run-phase implementation --story <story_id>`
+Die Operator-Recovery-CLI `<absolute-agentkit-wrapper> run-phase implementation --story <story_id>`
 ist ein Spezialfall (FK-91 §91.1, FK-45 §45.4).
 
 <!-- FORMAL-SPEC:BEGIN -->

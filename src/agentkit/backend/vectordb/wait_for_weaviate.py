@@ -1,8 +1,8 @@
 """Weaviate readiness entrypoint (FK-21 §21.11.4, canonical FK module path).
 
-CLI-invokable as::
+The installer-bound CLI uses the absolute isolated AK3 interpreter::
 
-    python -m agentkit.backend.vectordb.wait_for_weaviate --timeout 10
+    <absolute-ak3-interpreter> -m agentkit.backend.vectordb.wait_for_weaviate --timeout 10
 
 Exit 0 -> Weaviate is ready (VectorDB search available).
 Exit 1 -> Weaviate is NOT reachable within the timeout (fail-closed). The
@@ -22,6 +22,7 @@ import sys
 import time
 from typing import TYPE_CHECKING, Final
 
+from agentkit.backend.installer.interpreter import render_ak3_python_command
 from agentkit.backend.vectordb.endpoints import split_http_endpoint
 from agentkit.integration_clients.vectordb import (
     VectorDbUnavailableError,
@@ -190,7 +191,9 @@ def main(argv: list[str] | None = None) -> int:
         timeout (fail-closed).
     """
     parser = argparse.ArgumentParser(
-        prog="python -m agentkit.backend.vectordb.wait_for_weaviate",
+        prog=render_ak3_python_command(
+            "agentkit.backend.vectordb.wait_for_weaviate"
+        ),
         description="Wait for the Weaviate story knowledge base to become ready.",
     )
     parser.add_argument(

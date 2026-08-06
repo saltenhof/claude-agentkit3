@@ -1,10 +1,10 @@
 """CCAG Gate-Keeper Hook CLI entry point.
 
-This module provides the ``python -m agentkit.backend.governance.ccag`` CLI entry
-point for the CCAG gate-keeper hook.  In production it is invoked by the
-``agentkit-hook-claude pre ccag_gatekeeper`` wrapper (the canonical path
-recommended by FK-42 §42.5.2 / F-42-030) which goes through the harness
-adapter and the Governance dispatcher.
+This module provides the standalone CCAG CLI entry point for the gate-keeper
+hook. In production it is invoked through the absolute ``agentkit-hook-claude``
+wrapper resolved beside the isolated AK3 interpreter (the canonical path from
+FK-42 §42.5.2 / F-42-030), which goes through the harness adapter and the
+Governance dispatcher.
 
 This standalone entry point exists as a convenience for:
 - Direct invocation during development/debugging.
@@ -12,7 +12,7 @@ This standalone entry point exists as a convenience for:
 
 **Recommended invocation (via harness adapter):**
 
-    agentkit-hook-claude pre ccag_gatekeeper
+    <absolute-agentkit-hook-claude-wrapper> pre ccag_gatekeeper
 
 This goes through:
     ``agentkit.harness_client.harness_adapters.claude_code:main``
@@ -21,7 +21,7 @@ This goes through:
 
 **Standalone invocation:**
 
-    python -m agentkit.backend.governance.ccag
+    <absolute-ak3-interpreter> -m agentkit.backend.governance.ccag
 
 Reads a PreToolUse JSON event from stdin, evaluates CCAG rules, and
 exits with 0 (allow) or 2 (block).

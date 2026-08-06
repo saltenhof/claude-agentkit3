@@ -57,6 +57,7 @@ from agentkit.backend.installer.project_structure import (
 from agentkit.backend.installer.project_structure import (
     scaffold_project_structure as scaffold_project_structure,
 )
+from agentkit.backend.skills import assess_bundle_version
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -68,6 +69,7 @@ if TYPE_CHECKING:
     # package re-exports ``SkillBundleStore``/``SkillProfile``/``Skills``.
     from agentkit.backend.config.models import ProjectConfig
     from agentkit.backend.control_plane.third_party_models import ThirdPartyValidationRequest
+    from agentkit.backend.governance.repository import HookRegistrationRepository
     from agentkit.backend.installer.integration_checkpoints.sonar_preflight import SonarPreflightResult
     from agentkit.backend.installer.mcp_registration import (
         ProbedRegistration,
@@ -77,8 +79,9 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.repo_probe import RepoExistenceProbe
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.installer.vectordb_preflight import VectorDbPreflightPort
+    from agentkit.backend.installer.writer_client import InstallerWriterClient
     from agentkit.backend.project_management.repository import ProjectRepository
-    from agentkit.backend.skills import SkillBundleStore, SkillProfile, Skills
+    from agentkit.backend.skills import SkillBundle, SkillBundleStore, SkillProfile, Skills
     from agentkit.backend.vectordb.client_port import CorpusClientPort
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
 
@@ -110,20 +113,6 @@ MANDATORY_SKILLS: tuple[str, ...] = (
 # it never silently skips (AG3-048 AC#5/AC#7, FK-50 §50.5).
 DEFAULT_MANDATORY_SKILL_BUNDLE_IDS: dict[str, str] = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
-# Lowest bundle version a persisted pin may still carry and remain conform.
-# A pin is normally honoured for the lifetime of a project — an existing project
-# stays valid on the version it explicitly chose (see
-# ``SkillTop.verify_pinned_binding``). That rule ends where an older bundle
-# still EXECUTES a path the norm abolished: ``create-userstory-core`` 4.0.0
-# carries the ``IF_STORY_VECTORDB`` / "Fallback — no VectorDB" branch, which
-# decision 2026-07-21 Rand 1 removed (FK-13 §13.1: mandatory infrastructure).
-# Leaving such a pin conform would let a supported project pass VERIFY while
-# running the abolished optionality path, so the floor is enforced instead.
-# Only add an entry here when an older bundle is genuinely norm-violating, never
-# to nudge projects onto a newer version.
-MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS: dict[str, str] = {
-    "create-userstory-core": "4.1.0",
-}
 MISSING_TEMPLATES_MESSAGE = "Prompt bundle manifest is missing templates"
 MALFORMED_TEMPLATE_ENTRY_MESSAGE = "Prompt bundle manifest template entry is malformed"
 MISSING_TEMPLATE_RELPATH_MESSAGE = "Prompt bundle manifest template entry is missing relpath"
@@ -219,17 +208,19 @@ class InstallConfig:
     ci_pipeline: str = "ak3-pre-merge"
     # AG3-039 (FK-50 §50.3 CP 7): the State-Backend project-registration port.
     # The installer (BC 12) depends only on the
-    # ``ProjectRegistrationRepository`` Protocol; the productive
-    # ``StateBackendProjectRegistrationRepository`` is wired in by the caller
-    # (composition root). When ``None`` the installer builds the default
-    # productive adapter scoped to ``project_root``. ``runtime_profile``
+    # ``ProjectRegistrationRepository`` Protocol. The active writer route wires
+    # the productive adapter; Dev-side callers receive an HTTPS adapter. None is
+    # a hard composition error, never a local State-Backend fallback.
+    # ``runtime_profile``
     # (``core``/``are``, FK-50 §50.3 CP 6/CP 7) is recorded in the registration
     # row; it defaults to ``core``.
     registration_repo: ProjectRegistrationRepository | None = None
     # CP 7 also synchronises the visible project-management entity used by
-    # ``GET /v1/projects``. Tests may inject an in-memory repository; the
-    # productive CLI leaves this unset and uses the canonical State-Backend.
+    # ``GET /v1/projects``. The writer injects the productive repository; tests
+    # may inject an in-memory port. The Dev-side CLI never constructs one.
     project_repo: ProjectRepository | None = None
+    writer_client: InstallerWriterClient | None = None
+    hook_registration_repo: HookRegistrationRepository | None = None
     runtime_profile: RuntimeProfile | None = None
     # AG3-088 (FK-50 §50.3 CP 10 / FK-03 §3.1): the installer CONSUMES the
     # feature decision (it does not define the config model, story §2.2). These
@@ -523,6 +514,14 @@ def _load_prompt_bundle_manifest(
     return manifest, manifest_text
 
 
+def resolve_planned_prompt_bundle_version(config: InstallConfig) -> str:
+    """Resolve the CP8 target bundle version without mutating project state."""
+
+    source = _resolve_prompt_source_dir(config)
+    manifest, _manifest_text = _load_prompt_bundle_manifest(source)
+    return str(manifest["bundle_version"])
+
+
 def _ensure_prompt_bundle_store_entry(
     prompt_source_dir: Path,
 ) -> tuple[Path, dict[str, object], str]:
@@ -813,18 +812,11 @@ def _resolve_skills_and_store(
             "split the bundle store.",
             detail={"cause": "InvalidConfig"},
         )
-    from agentkit.backend.skills import SkillBundleStore as _SkillBundleStore
-    from agentkit.backend.skills import Skills as _Skills
-    from agentkit.backend.state_backend.store.skill_binding_repository import (
-        StateBackendSkillBindingRepository,
+    raise InstallationError(
+        "The active control-plane writer is required for skill-binding state; "
+        "no local State-Backend fallback is permitted.",
+        detail={"cause": "ControlPlaneWriterRequired", "project_root": str(root)},
     )
-
-    bundle_store = _SkillBundleStore()
-    skills = _Skills(
-        bundle_store=bundle_store,
-        binding_repo=StateBackendSkillBindingRepository(root),
-    )
-    return skills, bundle_store
 
 
 def _rollback_bindings(
@@ -936,8 +928,45 @@ def _resolve_mandatory_skill_bundles(config: InstallConfig, root: Path) -> tuple
                     **exc.detail,
                 },
             ) from exc
+        _require_minimum_conform_bundle(bundle, skill_name=skill_name)
         resolved.append((skill_name, bundle.bundle_root))
     return skills, resolved
+
+
+def _require_minimum_conform_bundle(
+    bundle: SkillBundle,
+    *,
+    skill_name: str,
+) -> None:
+    """Reject a selected mandatory bundle below its productive version floor."""
+    assessment = assess_bundle_version(bundle.bundle_id, bundle.bundle_version)
+    floor = assessment.minimum_version
+    if floor is None:
+        return
+    if not assessment.is_comparable:
+        raise InstallationError(
+            f"Mandatory skill bundle {bundle.bundle_id!r} has non-comparable "
+            f"version {bundle.bundle_version!r}; minimum conform version is {floor}",
+            detail={
+                "cause": "BundleVersionNonConform",
+                "skill_name": skill_name,
+                "bundle_id": bundle.bundle_id,
+                "bundle_version": bundle.bundle_version,
+                "minimum_version": floor,
+            },
+        )
+    if not assessment.is_conform:
+        raise InstallationError(
+            f"Mandatory skill bundle {bundle.bundle_id}@{bundle.bundle_version} is "
+            f"below the minimum conform version {floor}",
+            detail={
+                "cause": "BundleVersionNonConform",
+                "skill_name": skill_name,
+                "bundle_id": bundle.bundle_id,
+                "bundle_version": bundle.bundle_version,
+                "minimum_version": floor,
+            },
+        )
 
 
 def _materialized_variant_dir_for(
@@ -946,14 +975,18 @@ def _materialized_variant_dir_for(
     root: Path,
     skill_name: str,
     bundle_root: Path,
+    *,
+    ak3_interpreter_command: str,
+    ak3_wrapper_command: str,
 ) -> Path:
     """Compute the digest-keyed variant directory for a materialized skill (AG3-111).
 
     The variant store path is owned by the installer BC (``installer/paths.py``,
     FIX Q1). The digest folds the FULL materialization-relevant input — project_key
-    + the resolved ``agent_spawn_skill_proof`` token + the four FK-03 config values +
-    ``bundle_id@bundle_version`` — so any changed input yields a NEW digest directory
-    (immutable variants) and an unchanged input a byte-identical one (idempotency).
+    + the resolved ``agent_spawn_skill_proof`` token + the FK-03 config values +
+    ``bundle_id@bundle_version`` + the installer-rendered absolute interpreter and
+    wrapper commands — so any changed input yields a NEW digest directory (immutable
+    variants) and an unchanged input a byte-identical one (idempotency).
     """
     from agentkit.backend.installer.installed_manifest import resolve_install_stable_skill_proof
     from agentkit.backend.installer.paths import (
@@ -966,7 +999,7 @@ def _materialized_variant_dir_for(
     bundle_version = str(bundle_info.get("bundle_version") or "0.0.0")
     # The token is already persisted (manifest-write precedes binding, AG3-111 §2.1
     # #2); ``resolve_install_stable_skill_proof`` reuses the on-disk token. If absent,
-    # ``substitute_spawn_header`` later raises fail-closed (no dummy token).
+    # ``substitute_materialized`` later raises fail-closed (no dummy token).
     token = resolve_install_stable_skill_proof(root)
     assert project_config.project_prefix is not None  # noqa: S101 -- validator-enforced
     digest = materialized_skill_variant_input_digest(
@@ -975,8 +1008,11 @@ def _materialized_variant_dir_for(
         gh_owner=project_config.github_owner or "",
         gh_repo=project_config.repositories[0].name,
         project_prefix=project_config.project_prefix,
+        wiki_stories_dir=project_config.wiki_stories_dir,
         bundle_id=bundle_id,
         bundle_version=bundle_version,
+        ak3_interpreter_command=ak3_interpreter_command,
+        ak3_wrapper_command=ak3_wrapper_command,
     )
     return materialized_skill_variant_dir(
         project_config.project_key,
@@ -1040,6 +1076,10 @@ def _bind_resolved_skills(
             (``cause=RollbackIncomplete``).
     """
     from agentkit.backend.config.loader import load_project_config
+    from agentkit.backend.installer.interpreter import (
+        render_ak3_interpreter_command,
+        render_ak3_wrapper_command,
+    )
     from agentkit.backend.skills.errors import SkillBindingPartialStateError
     from agentkit.backend.skills.materialize import bundle_has_placeholders
 
@@ -1063,16 +1103,28 @@ def _bind_resolved_skills(
             if bundle_has_placeholders(bundle_root):
                 # AG3-111: placeholder-bearing skill -> materialized substituted
                 # variant + link at the variant (FK-43 §43.4.1.1). Fail-closed: a
-                # missing manifest token makes ``substitute_spawn_header`` raise.
+                # missing manifest/installer input makes materialization raise.
                 if project_config is None:
                     project_config = load_project_config(root)
-                variant_dir = _materialized_variant_dir_for(config, project_config, root, skill_name, bundle_root)
+                ak3_interpreter_command = render_ak3_interpreter_command()
+                ak3_wrapper_command = render_ak3_wrapper_command("agentkit")
+                variant_dir = _materialized_variant_dir_for(
+                    config,
+                    project_config,
+                    root,
+                    skill_name,
+                    bundle_root,
+                    ak3_interpreter_command=ak3_interpreter_command,
+                    ak3_wrapper_command=ak3_wrapper_command,
+                )
                 skills.bind_skill_materialized(
                     skill_name,
                     bundle_root,
                     root,
                     config=project_config,
                     variant_dir=variant_dir,
+                    ak3_interpreter_command=ak3_interpreter_command,
+                    ak3_wrapper_command=ak3_wrapper_command,
                 )
             else:
                 # Placeholder-free skill -> unchanged raw ``bundle_root`` link.
@@ -1223,7 +1275,7 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
     # BEFORE the skill bind so a placeholder-bearing skill's materialization finds
     # the real ``agent_spawn_skill_proof`` token on disk. Reordered ahead of
     # ``_bind_resolved_skills`` (previously the bind ran first). Fail-closed: a
-    # missing token makes ``substitute_spawn_header`` raise -> install aborts.
+    # missing token makes ``substitute_materialized`` raise -> install aborts.
     installed_manifest = _write_installed_manifest(root, manifest=manifest, resolved_skill_bundles=resolved_skill_bundles)
     if installed_manifest is not None:
         created.append(installed_manifest)
@@ -1281,14 +1333,14 @@ def _canonical_config_digest(yaml_data: dict[str, object]) -> str:
 
 
 def _resolve_registration_repo(config: InstallConfig, root: Path) -> ProjectRegistrationRepository:
-    """Return the injected registration repo, or the default productive adapter."""
+    """Return the writer-backed registration repository or fail closed."""
     if config.registration_repo is not None:
         return config.registration_repo
-    from agentkit.backend.state_backend.store.project_registration_repository import (
-        StateBackendProjectRegistrationRepository,
+    raise InstallationError(
+        "The active control-plane writer is required for project registration; "
+        "no local State-Backend fallback is permitted.",
+        detail={"cause": "ControlPlaneWriterRequired", "project_root": str(root)},
     )
-
-    return StateBackendProjectRegistrationRepository(root)
 
 
 def _resolve_project_repo(config: InstallConfig, root: Path) -> ProjectRepository:
@@ -1296,11 +1348,11 @@ def _resolve_project_repo(config: InstallConfig, root: Path) -> ProjectRepositor
 
     if config.project_repo is not None:
         return config.project_repo
-    from agentkit.backend.state_backend.store.project_management_repository import (
-        StateBackendProjectRepository,
+    raise InstallationError(
+        "The active control-plane writer is required for visible project state; "
+        "no local State-Backend fallback is permitted.",
+        detail={"cause": "ControlPlaneWriterRequired", "project_root": str(root)},
     )
-
-    return StateBackendProjectRepository(root)
 
 
 def _derive_story_id_prefix(project_key: str) -> str:
@@ -1390,22 +1442,28 @@ def _register_default_governance_hooks(
     *,
     before: dict[Path, str] | None = None,
 ) -> list[str]:
-    """Register default project hooks through Governance and settings writers."""
+    """Register default hooks through the writer and local settings writers."""
 
     from agentkit.backend.governance.default_hook_definitions import (
         build_default_hook_definitions,
     )
-    from agentkit.backend.governance.runner import Governance
-    from agentkit.backend.state_backend.store.governance_hook_repository import (
-        StateBackendHookRegistrationRepository,
-    )
-    from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.backend.installer.writer_client import InstallerHookGovernance
+
+    hook_repo = config.hook_registration_repo
+    if hook_repo is None:
+        raise InstallationError(
+            "The active control-plane writer is required for governance hook "
+            "registration; no local State-Backend fallback is permitted.",
+            detail={
+                "cause": "ControlPlaneWriterRequired",
+                "project_root": str(root),
+            },
+        )
 
     watched_paths = _default_governance_hook_settings_paths(root)
     before_digests = before or _file_digests(watched_paths)
-    governance = Governance(
-        hook_repo=StateBackendHookRegistrationRepository(root),
-        lock_repo=LockRecordRepository(root),
+    governance = InstallerHookGovernance(
+        hook_repo=hook_repo,
         project_key=config.project_key,
         project_root=root,
     )
@@ -1555,6 +1613,16 @@ def _run_cp7_state_backend_registration(
             ),
             reason=REASON_INVALID_GITHUB_COORDINATES,
             duration_ms=_elapsed_ms(start),
+        )
+
+    if config.writer_client is not None:
+        return config.writer_client.register_project_state(
+            project_name=config.project_name,
+            project_root=root,
+            github_owner=owner,
+            github_repo=repo_name,
+            runtime_profile=config.runtime_profile or RuntimeProfile.CORE,
+            project_yaml=yaml_data,
         )
 
     repo = _resolve_registration_repo(config, root)
