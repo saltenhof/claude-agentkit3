@@ -1483,7 +1483,6 @@ def test_story_split_service_requires_an_explicit_project_root() -> None:
 
     with pytest.raises(VectorDbUnavailableError, match="explicit project root"):
         build_story_split_service(
-            project_key="ak3",
             stories_root=Path("stories"),
             project_root=None,
         )
@@ -1504,4 +1503,4 @@ def test_story_exit_service_requires_the_active_writer_identity() -> None:
     from agentkit.backend.bootstrap.composition_project import build_story_exit_service
 
     with pytest.raises(RuntimeError, match="active control-plane writer identity"):
-        build_story_exit_service(project_key="ak3")
+        build_story_exit_service()

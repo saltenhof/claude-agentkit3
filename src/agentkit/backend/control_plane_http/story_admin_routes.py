@@ -146,7 +146,7 @@ class StoryAdminRoutes:
             active = self._repository.load_active_ownership(project_key, story_id)
             if active is None or active.run_id != wire.run_id:
                 raise StoryExitError("story exit requires the active bound run")
-            service = self._build_exit_service(project_key)
+            service = self._build_exit_service()
             result = service.exit_story(
                 StoryExitRequest(
                     project_key=project_key,
@@ -232,13 +232,13 @@ class StoryAdminRoutes:
         service = builder(project_key=project_key, store_dir=root, project_root=root)
         return cast("_ResetServicePort", service)
 
-    def _build_exit_service(self, project_key: str) -> _ExitServicePort:
+    def _build_exit_service(self) -> _ExitServicePort:
         builder = self._exit_service_builder
         if builder is None:
             from agentkit.backend.bootstrap.composition_root import build_story_exit_service
 
             builder = build_story_exit_service
-        return cast("_ExitServicePort", builder(project_key=project_key))
+        return cast("_ExitServicePort", builder())
 
 
 __all__ = ["StoryAdminRoutes"]

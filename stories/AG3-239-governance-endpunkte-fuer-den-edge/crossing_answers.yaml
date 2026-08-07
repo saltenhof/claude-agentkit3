@@ -92,6 +92,34 @@ measurement:
     difference. The 42 of story.md is reproducible from no artefact in the
     repository and is discarded.
 
+# ---------------------------------------------------------------------------
+# Befunde, die diese Story SICHTBAR gemacht, aber NICHT angefasst hat.
+# Sie sind keine Ueberquerungen und stehen deshalb ausserhalb der Liste unten.
+# ---------------------------------------------------------------------------
+open_findings:
+  - id: AG3-239.finding.lock_deactivation_is_not_project_scoped
+    severity: offen -- Modellfrage, nicht entschieden
+    locators:
+      - src/agentkit/backend/state_backend/store/lock_record_repository.py:114
+      - src/agentkit/backend/state_backend/store/lock_record_repository.py:166
+    finding: >-
+      `LockRecordRepository.deactivate_locks_for_story(story_id)` nimmt KEINEN
+      `project_key`, obwohl der Primaerschluessel der Tabelle
+      `(project_key, story_id, run_id, lock_type)` ist. Fuehren in einer
+      Mehrprojekt-Installation zwei Projekte dieselbe Story-ID, deaktiviert ein
+      Aufruf die Locks BEIDER.
+    not_caused_here: >-
+      Vorbestehend. Der Code vor AG3-239 rief dieselbe Signatur; der Symbolschnitt
+      hat den Befund nur sichtbar gemacht, weil er `project_key` als toten
+      Parameter der Composition-Builder freilegte (Sonar python:S1172, 3x MAJOR).
+    why_untouched: >-
+      Ob Story-IDs projektuebergreifend eindeutig sind, ist eine Modellfrage. Die
+      Antwort entscheidet, ob das ein Defekt oder ein Nicht-Problem ist -- und
+      eine normative Grundentscheidung wird nicht durch einen Parameter-Default
+      ersetzt. Hier unveraendert sichtbar gelassen und gemeldet, nicht mitigiert
+      (CLAUDE.md, "Wer fremde Schuld mitigiert, uebernimmt sie").
+    addressee: PO -- Entscheid ueber die Eindeutigkeit von Story-IDs
+
 crossings:
 
   # -------------------------------------------------------------------

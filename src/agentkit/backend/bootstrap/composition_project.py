@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.bootstrap import composition_project_types as project_types
 
-def build_story_exit_service(*, project_key: str) -> object:
+def build_story_exit_service() -> object:
     """Build the productive FK-58 story-exit service."""
 
     from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
@@ -106,7 +106,6 @@ def resolve_split_export_project_id(project_root: str | None) -> str:
 
 def build_story_split_service(
     *,
-    project_key: str,
     stories_root: Path,
     project_root: str | None,
     source_state_loader: Callable[[project_types.StorySplitRequest], project_types.SplitSourceState] | None = None,
@@ -120,7 +119,6 @@ def build_story_split_service(
     successor export and the superseded-source re-index.
 
     Args:
-        project_key: The bound project key.
         stories_root: The ``stories/`` directory for successor ``story.md`` export.
         project_root: Project root carrying the Weaviate host/port config.
         source_state_loader: Loader for the §54.4 entry-gate source state. When

@@ -128,7 +128,7 @@ def build_closure_phase_handler(
         change_evidence_provider=merge_local_port.feedback_change_evidence,
     )
     config.vectordb_sync_port = _build_vectordb_sync_port()
-    config.guard_deactivation_port = _build_guard_deactivation_port(base_dir, project_key=project_key)
+    config.guard_deactivation_port = _build_guard_deactivation_port(base_dir)
     config.mode_lock_release_port = _build_mode_lock_release_port(base_dir)
     config.change_evidence_port = _SubprocessGitChangeEvidenceProvider(push_verification_port=build_push_verification_port())
     config.telemetry_evidence_port = _build_telemetry_evidence_port(base_dir, project_key=project_key)
@@ -429,7 +429,7 @@ def _build_vectordb_sync_port() -> closure_types.VectorDbSyncPort:
     return ProductiveVectorDbSyncPort()
 
 
-def _build_guard_deactivation_port(store_dir: Path, *, project_key: str) -> closure_types.GuardDeactivationPort:
+def _build_guard_deactivation_port(store_dir: Path) -> closure_types.GuardDeactivationPort:
     """Build the guard-deactivation seam (FK-29 §29.5, governance top surface).
 
     Delegates to ``Governance.deactivate_locks`` via a real ``Governance`` wired

@@ -2405,7 +2405,6 @@ def test_productive_split_composition_uses_the_already_bound_writer_identity(
     )
     try:
         service = composition_project.build_story_split_service(
-            project_key=_PROJECT,
             stories_root=tmp_path / "stories",
             project_root=str(tmp_path),
             source_state_loader=lambda _request: SplitSourceState(

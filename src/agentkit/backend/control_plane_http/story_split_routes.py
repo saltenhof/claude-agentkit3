@@ -76,7 +76,6 @@ class StorySplitRoutes:
             )
         try:
             service = self._build_service(
-                project_key=project_key,
                 project_root=wire_request.project_root,
             )
             result = service.split_story(
@@ -121,7 +120,6 @@ class StorySplitRoutes:
     def _build_service(
         self,
         *,
-        project_key: str,
         project_root: str,
     ) -> _StorySplitServicePort:
         builder = self._service_builder
@@ -131,7 +129,6 @@ class StorySplitRoutes:
             builder = build_story_split_service
         root = Path(project_root)
         service = builder(
-            project_key=project_key,
             stories_root=root / "stories",
             project_root=str(root),
         )
