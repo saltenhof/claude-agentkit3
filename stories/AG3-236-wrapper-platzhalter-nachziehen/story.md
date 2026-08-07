@@ -1,4 +1,4 @@
-# AG3-236 — Der zurückgezogene Platzhalter steht noch 154-mal im Korpus
+# AG3-236 — Der zurückgezogene Platzhalter steht noch 162-mal im Korpus
 
 - **Typ:** implementation
 - **Groesse:** M
@@ -10,7 +10,7 @@
 AG3-208 hat `<absolute-agentkit-wrapper>` **zurueckgezogen**. Der erste Versuch,
 ihn zentral als `agentkit-project-edge` umzudeuten, war der eigentliche Fehler:
 
-> Er korrigierte die 154 Fundstellen nicht, sondern machte aus bisher
+> Er korrigierte die 162 Fundstellen nicht, sondern machte aus bisher
 > **mehrdeutigen** Befehlen ausdruecklich **falsche**.
 
 ```
@@ -22,9 +22,10 @@ ihn zentral als `agentkit-project-edge` umzudeuten, war der eigentliche Fehler:
 
 An seine Stelle treten **vier eindeutige Platzhalter** — Edge-CLI, Kern-CLI und
 die beiden Hook-Wrapper — und die Aufloesungsregel ist nicht mehr „ein
-Platzhalter, eine Distribution", sondern:
+Platzhalter, eine Distribution", und auch nicht "das Verb entscheidet" —
+`auth` entscheidet gerade nicht —, sondern:
 
-> **Das Verb entscheidet.**
+> **Der vollstaendige Kommandopfad entscheidet.**
 
 Bis der Text nachgezogen ist, gilt jede Fundstelle als **veraltet**, nicht als
 gueltig. Diese Story zieht ihn nach.
@@ -32,9 +33,13 @@ gueltig. Diese Story zieht ihn nach.
 ## Umfang, gemessen
 
 ```
-154 Fundstellen in 49 Dateien
- 18 davon unter concept/formal-spec/*/commands.md  (Prosa-Formal-Audit)
-dazu aktive bare `agentkit …`-Kommandos in FK-91:575 und FK-41,
+Messscope: concept/   -- NICHT repo-weit. Repo-weit waeren es 171/166/53,
+                         weil die Storytexte mitzaehlen.
+
+162 Vorkommen auf 157 Zeilen in 49 Dateien
+ 18 dieser Dateien liegen unter concept/formal-spec/
+    (15 commands.md, 3 README.md)          -> Prosa-Formal-Audit
+dazu rund 40 bare `agentkit …`-Befehlszeilen in FK-91 Paragraph 91.1 und FK-41,
     obwohl FK-10 das Script `agentkit` zurueckzieht
 ```
 
@@ -46,13 +51,16 @@ denselben Auftrag, der normative Grundsatzfragen klaert — dort haette er die
 Reviewfaehigkeit des eigentlichen Zielbilds erdrueckt.
 
 **Aber es ist keine mechanische Ersetzung.** Jede Fundstelle braucht die
-Zuordnung ueber ihr **Verb**, und genau daran ist der zentrale Ansatz
-gescheitert. Ein `sed` ueber alle 154 Stellen wuerde denselben Fehler in
+Zuordnung ueber ihren **vollstaendigen Kommandopfad**, und genau daran ist der zentrale Ansatz
+gescheitert. Ein `sed` ueber alle 162 Stellen wuerde denselben Fehler in
 grossem Massstab wiederholen.
 
 ## Der Teil, der nicht geloest wird
 
-**Neun Verben aus den Fundstellen haben keine CLI-Entsprechung:**
+**Elf Kommandopfade haben keine CLI-Entsprechung** — acht aus den
+Fundstellen, drei zusaetzlich aus dem FK-91-Katalog
+(`approve-integration-manifest`, `amend-integration-manifest`,
+`guard-status`):
 `dashboard`, `resolve-conflict`, `structural`, `policy`, `stages`, `migrate`,
 `install`, `backend health`.
 
@@ -69,16 +77,18 @@ plausibel aussehen zu lassen.
 
 ### In Scope
 
-- Alle 154 Fundstellen tragen den Platzhalter, der zu ihrem **Verb** passt.
+- Alle 162 Vorkommen tragen den Platzhalter, der zu ihrem **vollstaendigen
+  Kommandopfad** passt. Bei `auth` entscheidet das Verb allein nicht:
+  `auth bootstrap` ist Kern, die uebrigen fuenf `auth`-Unterverben sind Edge.
 - Die bare `agentkit …`-Kommandos in FK-91 und FK-41 tragen den heutigen
   Scriptnamen.
-- Die neun verwaisten Verben sind an ihren Fundstellen als **nicht
+- Die elf verwaisten Kommandopfade sind an ihren Fundstellen als **nicht
   implementiert** kenntlich — nicht stillschweigend einer Distribution
   zugeschlagen.
 
 ### Out of Scope
 
-- Die Aufloesung der neun Verben. Owner PO.
+- Die Aufloesung der elf Kommandopfade. Owner PO.
 - Jede weitere normative Aussage. Diese Story wendet an, sie entscheidet nicht.
 - Produktionscode.
 
@@ -86,18 +96,21 @@ plausibel aussehen zu lassen.
 
 1. **Kein `<absolute-agentkit-wrapper>` mehr im Korpus**, nachgewiesen durch
    eine Suche mit Zahl — nicht durch Sichtpruefung.
-2. **Jede ersetzte Stelle traegt den Platzhalter ihres Verbs.** Je Fundstelle
-   ist die Zuordnung nachvollziehbar; eine pauschale Ersetzung erfuellt das
-   nicht. Stichprobenartig zu belegen an den Faellen, die AG3-208 namentlich
-   nennt (`serve`, `dashboard`).
-3. **Die neun verwaisten Verben sind kenntlich**, an jeder ihrer Fundstellen,
+2. **Jede ersetzte Stelle traegt den Platzhalter ihres vollstaendigen
+   Kommandopfads.** Je Vorkommen ist die Zuordnung nachvollziehbar; eine
+   pauschale Ersetzung erfuellt das nicht. Stichprobenartig zu belegen an den
+   Faellen, die AG3-208 namentlich nennt (`serve`, `dashboard`) und an
+   `auth bootstrap` gegen die uebrigen `auth`-Unterverben.
+3. **Die elf verwaisten Kommandopfade sind kenntlich**, an jeder ihrer Fundstellen,
    und nirgends einer Distribution zugeordnet.
-4. **Die 18 Fundstellen unter `formal-spec/*/commands.md`** sind mitgezogen und
+4. **Die 18 betroffenen Dateien unter `formal-spec/`** sind mitgezogen und
    die Formal-Spec kompiliert weiterhin.
 5. **Ein Rueckfall faellt auf.** Ein deterministischer Check weist den
    zurueckgezogenen Platzhalter und den baren Scriptnamen `agentkit` im Korpus
    ab. Er ist gegen einen kuenstlich eingefuegten Verstoss geprueft.
-6. Alle sieben deterministischen Konzept-Gates gruen; Referenzintegritaet ohne
+6. Alle **sechs** bindenden deterministischen Konzept-Gates gruen (AGENTS.md;
+   W2/W3 sind seit der PO-Entscheidung 2026-08-02 kein Abnahmekriterium und
+   werden nie als "gruen" mitgezaehlt); Referenzintegritaet ohne
    neue Baseline-Eintraege.
 
 ## Definition of Done
@@ -107,7 +120,7 @@ plausibel aussehen zu lassen.
 
 ## Guardrail-Referenzen
 
-- `CLAUDE.md` §ZERO DEBT RULE — die neun Verben werden sichtbar gelassen, nicht
+- `CLAUDE.md` §ZERO DEBT RULE — die elf Kommandopfade werden sichtbar gelassen, nicht
   durch eine Ersetzung plausibel gemacht
 - `CLAUDE.md` §SINGLE SOURCE OF TRUTH — ein Platzhalter, eine Bedeutung
 - `CLAUDE.md` §FAIL-CLOSED — AC 5

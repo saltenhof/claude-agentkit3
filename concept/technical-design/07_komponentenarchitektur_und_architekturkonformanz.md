@@ -459,8 +459,14 @@ den Entwicklerrechner getragen hat.
    Verstoss wie ein statischer Import und wird gesondert geprueft, weil
    die Importgraph-Analyse ihn nicht sieht (Anlassfall:
    `config/models.py:1004`, FK-10 §10.2.12 D).
-4a. **Symbolgenaue Grenze, wo die Modulgrenze nicht reicht.** Fuer
-   Module, die nur teilweise Vertragspaket sind, gibt FK-10 §10.2.12 D
+4a. **Symbolgenaue Grenze ist die Regel.** Die Distributionsgrenze
+   verlaeuft am Symbol. Eine Zuweisung ganzer Modulpraefixe ist eine
+   **Abkuerzung**, zulaessig nur dort, wo gemessen ist, dass das Modul
+   keine Belange mischt; wo es mischt, erbt die Zieldistribution alles
+   Uebrige. Ein Bereich, dessen Symbolinventar noch aussteht, wird
+   **nicht** zugewiesen; einen Auffangpfad, in den er fallen koennte, gibt
+   es nicht — das Gate meldet fuer ihn `NOT_RUN` mit Grund. Fuer Module,
+   die nur teilweise Vertragspaket sind, gibt FK-10 §10.2.12 D
    eine abschliessende Symbolliste vor. Sie ist die **Spezifikation des
    Schnitts**: AG3-209 teilt das Modul entlang dieser Liste, sodass
    danach die Praefixregel wieder allein traegt. Das Gate vergleicht die
@@ -470,9 +476,9 @@ den Entwicklerrechner getragen hat.
    eine Praefixregel allein zoege `backend/exceptions.py` mit allen 22
    Ausnahmeklassen ins Vertragspaket.
 5. **Wheel-/Dependency-Reachability.** Geprueft wird der Inhalt der
-   **gebauten** Artefakte, nicht der Quellbaum. Vier Teilaussagen, die
-   einzeln zu pruefen sind — jede fuer sich laesst sonst eine Verletzung
-   durch:
+   **gebauten** Artefakte, nicht der Quellbaum. **Fuenf** Teilaussagen
+   (a–e), die einzeln zu pruefen sind — jede fuer sich laesst sonst eine
+   Verletzung durch:
    a. Kein Wheel enthaelt ein Modul einer fremden Zugehoerigkeitsmenge.
    b. **Keine der drei Distributionen deklariert eine der beiden anderen
       als Paketabhaengigkeit** — ausser dass Edge und Kern jeweils
@@ -483,7 +489,13 @@ den Entwicklerrechner getragen hat.
       damit auf jedem Core-Host mitinstallieren.
    c. `agentkit-wire` deklariert **genau** `pydantic` und sonst nichts.
    d. Die aufgeloesten Metadaten werden **beidseitig** mit den normativen
-      Mengen aus FK-10 §10.2.12 E verglichen: jede deklarierte
+      Mengen verglichen. **Begriffsklaerung, ohne die (b) und (d)
+      einander widersprechen:** `runtime_dependencies` in
+      `formal.architecture-conformance.entities` meint **alle direkten
+      Paketabhaengigkeiten**, nicht nur Drittbibliotheken — `agentkit-wire`
+      steht deshalb in der Sollmenge von Edge und Kern. Waere es anders,
+      waere eine korrekte Edge-Metadatei zugleich Pflicht nach (b) und
+      Ueberschuss nach (d). Geprueft wird dann: jede deklarierte
       Abhaengigkeit steht in der Sollmenge ihrer Distribution
       (kein Ueberschuss — insbesondere keine als kern-only klassifizierte
       Distribution im Edge), **und** jede Abhaengigkeit der Sollmenge ist
@@ -491,11 +503,15 @@ den Entwicklerrechner getragen hat.
       Bibliothek gilt als nicht deklariert). Beidseitigkeit ist der Punkt:
       eine reine Verbotsliste haette den fehlenden `packaging`-Eintrag des
       Kerns nicht gefunden.
-   e. Doppeldeklarationen derselben Bibliothek in Edge **und** Kern sind
-      nur fuer die in FK-10 §10.2.12 E ausdruecklich als beidseitig
-      gefuehrte Menge zulaessig (heute: `pyyaml`). Jede weitere
-      Doppeldeklaration ist ein Verstoss, damit die abschliessende Liste
-      abschliessend bleibt.
+   e. Doppeldeklarationen derselben **Drittbibliothek** in Edge **und**
+      Kern sind nur fuer die Menge `dual_declared_dependencies` in
+      `formal.architecture-conformance.entities` zulaessig (heute:
+      `pydantic`, `pyyaml`). Jede weitere Doppeldeklaration ist ein
+      Verstoss, damit die abschliessende Liste abschliessend bleibt.
+      **AK3-eigene Distributionen sind ausgenommen:** dass Edge und Kern
+      beide `agentkit-wire` deklarieren, ist keine geduldete Doppelung,
+      sondern durch die Sollmengen und deren beidseitige
+      Gleichheitspruefung (Punkt d) vorgeschrieben.
 6. **Clean-Edge-Installation.** In einer zuvor leeren Umgebung wird
    ausschliesslich `agentkit-project-edge` installiert. Danach muss ein
    **echter** Hook-Prozess (`agentkit-hook-claude` oder
@@ -522,6 +538,7 @@ Pruefschritt neben der Konformanz-Suite. Verbindlich sind:
 | **Blockierend** | Ein Verstoss bricht den Lauf mit Exit-Code ≠ 0 ab. Kein WARNING-Pfad, keine Unterdrueckung per Konfiguration |
 | **Baseline-frei** | Es gibt keine Liste geduldeter Bestandsverstoesse. Ein Verstoss ist ein Verstoss, unabhaengig davon, wie alt er ist |
 | **„Nicht gelaufen" ≠ PASS** | Das Gate schreibt ein Ergebnisartefakt mit den drei Zustaenden `PASS`, `FAIL` und `NOT_RUN` (mit Grund). Ein fehlendes, leeres oder unlesbares Ergebnis wird wie `FAIL` behandelt. Ein uebersprungener Lauf — kein Build-Toolchain, keine Netzverbindung fuer die Dependency-Aufloesung, kein Interpreter — ist `NOT_RUN` **mit benanntem Grund** und niemals stillschweigend gruen |
+| **Unvollstaendige Zuordnung ≠ PASS** | Solange ein Bereich im ausstehenden Symbolinventar steht (FK-10 §10.2.12), ist die Zugehoerigkeitsfunktion nicht total. Das Gate meldet dann `NOT_RUN` mit genau diesem Grund — nicht `FAIL` (es hat nichts Falsches gemessen) und erst recht nicht `PASS` |
 | **Messgroessen benannt** | Das Ergebnis nennt: die drei Zugehoerigkeitsmengen mit Modulanzahl, die Zahl der gefundenen verbotenen Kanten mit Locator, den Wheel-Inhalt je Artefakt, die aufgeloeste Dependency-Menge der Edge-Installation und das Exit-Verhalten des echten Hook-Prozesses. Was das Gate **nicht** gemessen hat, steht als `NOT_RUN`-Zeile darin |
 | **Gegen das Artefakt, nicht gegen die Absicht** | Invariante 5 und 6 werden gegen gebaute Wheels und eine echte Installation ausgefuehrt. Ein Unit-Test oder ein Auflauf mit `--dry-run` erfuellt sie nicht |
 

@@ -2,7 +2,7 @@
 
 - **Typ:** concept
 - **Groesse:** M
-- **Abhaengigkeiten:** `depends_on: []`; entblockt AG3-209
+- **Abhaengigkeiten:** `depends_on: []`; entblockt **AG3-237** (Klassifikation/Symbolinventar) und **AG3-236** (Platzhalter-Nachzug). AG3-209 folgt erst nach AG3-237
 - **Quell-Konzept:** FK-10 §10.1.1/§10.1.2/§10.1.3, FK-01
   (Trust Boundaries), FK-30 (Guard-Engine/Adapter-Schnitt)
 - **Herkunft:** PO-Entscheidung vom 2026-08-03,
@@ -184,14 +184,16 @@ erneuter Endpunktbau gehoeren in diesen Strang.
 - FK-30s Guard-Engine/Adapter-Schnitt und Hook-Registrierung auf eine lokal
   ausgelieferte, harness-neutrale Edge-Engine erden; Harness-Adapter bleiben
   duenn, die Engine bleibt lokal und spricht fuer kanonischen Zustand HTTP.
-- Die vollstaendige Ownership-Matrix fuer die 20 gefundenen Quellmodule sowie
-  Installer, Operator-CLI, Bundle-Launcher, Story-Creation, Provider-Port,
-  MCP-Server und Dependencies festlegen. Zusaetzlich werden alle weiteren
-  Inhalte des heutigen Gesamt-Wheels (`frontend`, `integration_clients`,
-  `bundles`, Paket-Root und beim Schnitt neu vorhandene Deployment Units)
-  inventarisiert. Jede Einheit bekommt genau einen Auslieferungsbesitzer: Edge,
-  Kern oder Vertragspaket; innerhalb einer bisherigen Unit duerfen Module nach
-  ihrem tatsaechlichen Laufzeitbesitzer getrennt werden.
+- Die Ownership-Matrix festlegen, **soweit sie ohne Messung belegbar ist**:
+  `frontend`, `integration_clients`, `bundles`, Paket-Root, jede beim Schnitt
+  vorhandene Deployment Unit, die Drittsystem-Adapter und die Dependencies.
+  Jede Einheit bekommt genau einen Auslieferungsbesitzer: Edge, Kern oder
+  Vertragspaket.
+
+  **Die Klassifikation der 44 Backend-Subpakete gehoert nicht hierher**
+  (Zuschnittkorrektur 2026-08-07, siehe AC 3). Sie ist Gegenstand von AG3-237.
+  AG3-208 stellt nur fest, dass es 44 sind, und liefert die Regel, unter der
+  eine Zuordnung ueberhaupt zulaessig ist.
 - `PROJECT_STRUCTURE.md` und die Architektur-Conformance-Spezifikation so
   normieren, dass Distributionen und erlaubte Import-Richtungen maschinell
   ausdrueckbar sind.
@@ -238,15 +240,33 @@ erneuter Endpunktbau gehoeren in diesen Strang.
    und „regelfrei“ werden so praezisiert, dass lokale Guard-Evaluation und
    fs/worktree-gebundene Ausfuehrung erlaubt und gefordert sind, ohne lokale
    kanonische Wahrheit oder freie Fachautoritaet einzufuehren.
-3. **Die Ownership-Matrix ist vollstaendig.** Alle 20 Module der 40 Kanten,
-   alle Gegenkanten-Gruppen, `backend/story_creation/`,
-   `backend/code_backend/provider_port`, Installer, Operator-CLI,
-   Zielprojekt-Launcher, MCP-Registrierung, `frontend`,
-   `integration_clients`, `bundles`, Paket-Root, jede beim Schnitt vorhandene
-   Deployment Unit und jede Runtime-Dependency aus `pyproject.toml` haben genau
-   einen begruendeten Artefaktbesitzer. Das
-   Vertragspaket enthaelt nur beidseitig benoetigte HTTP-/Wire-Modelle und ist
-   ein I/O-freies Blatt; es wird kein Ablageort fuer beliebigen Shared-Code.
+3. **Die Ownership-Matrix ist vollstaendig, soweit sie AG3-208 gehoert.**
+
+   **ZUSCHNITTKORREKTUR 2026-08-07 (Orchestrator), nach dem dritten
+   AC-10-Review.** Die urspruengliche Fassung verlangte hier die vollstaendige
+   Klassifikation **auch der Backend-Subpakete**. Drei Reviewrunden haben
+   gezeigt, dass diese Klassifikation ohne Messung nicht zu haben ist: Sie
+   wurde dreimal behauptet und dreimal widerlegt — zuletzt stand `cli` als
+   „vollstaendig Edge" zehn Zeilen neben der Feststellung, dass es geteilt ist.
+   Eine Klassifikation ohne Messung ist keine Spezifikation, sondern eine
+   Vermutung mit Zahlen daran.
+
+   **Die Klassifikation der 44 Backend-Subpakete ist deshalb aus dieser Story
+   herausgenommen und Gegenstand von AG3-237** (Zaehleinheit definieren,
+   messen, zuordnen). AG3-208 liefert dafuer die Regel
+   (`symbol_boundary_is_the_rule`), den Mechanismus (`NOT_RUN` statt `PASS`,
+   solange die Klassifikation offen ist) und die Feststellung, dass es 44 sind.
+
+   **Was AG3-208 weiterhin vollstaendig festlegt:** die drei Artefakte und ihre
+   Importwurzeln, `frontend`, `integration_clients`, `bundles`, Paket-Root,
+   jede beim Schnitt vorhandene Deployment Unit, die Drittsystem-Adapter und
+   jede Runtime-Dependency aus `pyproject.toml` — je mit genau einem
+   begruendeten Artefaktbesitzer.
+
+   Das Vertragspaket enthaelt nur beidseitig benoetigte HTTP-/Wire-Modelle und
+   ist ein I/O-freies Blatt; es wird kein Ablageort fuer beliebigen
+   Shared-Code. **Sein Inhalt** wird von AG3-237 spezifiziert — hier steht nur
+   die Regel, die er erfuellen muss.
 4. **Entry-Point- und Namensvertrag ist eindeutig.** Fuer jedes heutige
    Console-Script und jedes CLI-Verb ist festgelegt, welche Distribution es
    ausliefert und auf welcher Maschine es laeuft. Es gibt keinen Alias, Shim,
@@ -297,7 +317,7 @@ erneuter Endpunktbau gehoeren in diesen Strang.
   `AGENTS.md` gruen; Sonar `violations=0`, `critical_violations=0`,
   `security_hotspots=0`.
 - Unabhaengiges Review erreicht eines der Abbruchkriterien aus `CLAUDE.md`.
-- AG3-209 wird erst nach `status: completed` dieser Story `ready`.
+- **AG3-237** wird nach `status: completed` dieser Story `ready`; **AG3-209** erst nach `status: completed` von AG3-237. AG3-208 allein entblockt AG3-209 nicht — die Klassifikation der 44 Backend-Subpakete fehlt bis dahin.
 
 ## Beantwortete Fragen — PO-Entscheidung 2026-08-03
 

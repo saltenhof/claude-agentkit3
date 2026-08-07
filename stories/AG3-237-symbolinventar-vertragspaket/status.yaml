@@ -1,0 +1,71 @@
+story_id: AG3-237
+story_title_short: "symbolinventar-vertragspaket"
+title: "Alle 44 Backend-Subpakete brauchen eine GEMESSENE Distributionszuordnung -- das Vertragspaket ist kein Umetikettieren bestehender Module, sondern neuer Code, in den Symbole wandern."
+type: concept
+status: ready
+phase: setup
+created: "2026-08-07"
+size: L
+# Herkunft: AG3-208 Runde 3 (2026-08-07), nach dem zweiten AC-10-Review.
+#
+# WURZEL, die zwei Reviewrunden an vier Stellen gefunden haben: Bestehende
+# Module wurden im Ganzen einer Distribution zugewiesen, obwohl sie Belange
+# mischen.
+#   backend/governance/   pauschal Edge -- FK-01 fuehrt PolicyEngine und
+#                         IntegrityGate ausdruecklich als Kern-Logik
+#   control_plane.models  vollstaendig Wire -- importiert Edge UND Kern, baut
+#                         HTTP-Antworten, schreibt ein Log
+#   config/models.py      als Wire -- importiert pathlib, das die Wire-Regel
+#                         selbst verbietet
+#
+# AG3-208 hat daraus die REGEL gemacht (symbol_boundary_is_the_rule) und die
+# vier Bereiche in pending_symbol_inventory gestellt. Diese Story fuellt es.
+#
+# UMFANG, AST-gemessen und als measured_evidence in
+# concept/formal-spec/architecture-conformance/entities.md hinterlegt:
+#   governance/          13 Submodule, Edge-only / Kern-only / beidseitig
+#   installer/           33 kernseitige gegen 4 Edge-only Symbole
+#   control_plane.models 63 Klassen, 66 Symbole: 21 Kern, 7 Edge, 38 beidseitig
+#   config/{models,defaults,worker_health}
+#   => rund 150 Symbole, jedes mit eigener Begruendung
+#
+# NICHT MECHANISCH: Jedes beidseitig importierte Symbol ist eine Entscheidung --
+# wandern, duplizieren, oder der beidseitige Import ist selbst der Fehler.
+#
+# ORCHESTRATOR-BEFUND 2026-08-07, damit er nicht falsch gelesen wird:
+#   `pending_symbol_inventory` kommt in tools/, scripts/, src/ und tests/ an
+#   KEINER Stelle vor. architecture_conformance.py implementiert ueberhaupt
+#   keine Distributionspruefung. Das ist kein Defekt -- das Packaging-Gate ist
+#   AG3-209s Liefergegenstand. Aber: heute setzt NICHTS die
+#   Distributionszugehoerigkeit durch. "blocks_pass: true" ist eine korrekt
+#   formulierte Anweisung an AG3-209, keine heute wirkende Schutzmassnahme.
+
+# ORCHESTRATOR-KORREKTUR 2026-08-07, nach dem dritten AC-10-Review.
+# ZWEI DEFEKTE IN DIESER STORY WAREN MEINE, nicht die des Agenten:
+#
+# 1. SCOPE-ZIRKEL: AC 6 verlangte einen geprueften NOT_RUN-Pfad des
+#    Packaging-Gates, waehrend dieselbe Story dessen Bau ausschloss und AG3-209
+#    ihn baut -- das seinerseits auf diese Story wartet. Der Revert-Red-Beweis
+#    ist jetzt Abnahmekriterium von AG3-209; hier bleibt nur, dass die
+#    Vorbedingung in der Gate-Checkliste referenziert ist.
+#
+# 2. UNDEFINIERTE ZAEHLEINHEIT: Die Messgrundlage mischte 13 Module, 33
+#    importierte Symbole, 63 Klassen und fuer config gar keine Zahl, ohne je zu
+#    definieren, was ein "Symbol" ist. Die Definition ist jetzt AC 1 und steht
+#    VOR der Messung. "Rund 150" ist ein Startwert, kein Sollwert.
+#
+# AUSWEITUNG AUF ALLE 44 SUBPAKETE: Der Schnitt auf nur die vier Pending-
+# Bereiche war eine Fluchttuer. Das Review hat gezeigt, dass dieselbe
+# Pauschalzuweisung anderswo weiterlaeuft --
+#   cli            gilt als "vollstaendig Edge" (FK-10:1183), ZEHN ZEILEN
+#                  nachdem dieselbe Datei es als geteilt mit vier
+#                  Kern-Kommandopfaden erklaert (FK-10:1173); der Dispatcher
+#                  bestaetigt die Mischung (cli/main.py:203-227)
+#   control_plane  gilt als "vollstaendig Kern", obwohl control_plane.models
+#                  auf Pending steht
+#   failure_corpus, bootstrap, implementation, telemetry
+#                  gelten als vollstaendig Kern und tragen Edge-Durchgriffe
+#
+# Damit war 3 + 6 + 35 = 44 eine Mengenaddition, kein Distributionsnachweis.
+depends_on: ["AG3-208"]
+unblocks: ["AG3-209"]

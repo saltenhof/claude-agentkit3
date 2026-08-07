@@ -156,20 +156,28 @@ Auslieferungseinheiten. Ausgeliefert wird AK3 in **drei** Distributionen
    Importwurzel ist der Distributionsname mit `-` → `_`. Grund: AK2
    liefert ein regulaeres Paket `agentkit` aus, das gleichnamige
    Namespace-Portionen vollstaendig verdeckt.
-2. **Ein Modul gehoert zu genau einer Distribution.** Die Zuordnung ist
-   total und disjunkt; die Auffangregel („was nicht als Edge oder Wire
-   benannt ist, ist Kern") steht in FK-10 §10.2.12 B.
+2. **Ein Modul gehoert zu genau einer Distribution** — sobald die
+   Zuordnung gemessen ist. Es gibt **keine Auffangregel**: ein Modul ohne
+   gemessene Zuordnung ist offen, nicht Kern. Eine Auffangregel wuerde
+   jedem ungemessenen Modul einen Eigentuemer ohne Beleg geben.
 3. **Der Namensraum entscheidet nicht, der Laufzeitbesitzer entscheidet.**
-   `backend/governance/`, `backend/installer/`, `backend/cli/`,
-   `backend/story_creation/`, `backend/vectordb/` und
-   `backend/config/`-Loader liegen heute unter `backend/`, laufen aber auf
-   dem Entwicklerrechner und gehoeren damit zur Edge-Distribution.
-4. **Das Vertragspaket ist kein Abstellraum.** Nur beidseitig benoetigte
-   HTTP-/Wire-Modelle. Hilfsfunktionen wie `utils/io` werden je
-   Distribution gefuehrt, nicht geteilt.
-5. **Kein Alias, kein Shim, kein Re-Export, kein Uebergangszeitraum.** Die
+   Ein Paket unter `backend/` kann zum Edge gehoeren, wenn es auf dem
+   Entwicklerrechner laeuft — und umgekehrt.
+4. **Die Grenze verlaeuft am Symbol, nicht am Modul.** Ein ganzes Modul
+   zuzuweisen ist eine Abkuerzung und nur zulaessig, wo **gemessen** ist,
+   dass es keine Belange mischt.
+   **Die Zuordnung der 44 unmittelbaren Backend-Subpakete ist offen und
+   gehoert AG3-237** (FK-10 §10.2.12 B0). Wer heute unter `backend/` Code
+   anfasst, darf keine Distributionszugehoerigkeit annehmen — auch nicht
+   fuer scheinbar eindeutige Pakete: `cli` etwa fuehrt vier
+   Kern-Kommandopfade im selben Dispatcher.
+5. **Das Vertragspaket ist kein Abstellraum und kein Umetikettieren.**
+   Nur beidseitig benoetigte HTTP-/Wire-Modelle; es ist neuer Code, in den
+   Symbole **wandern**, nicht ein umbenanntes Bestandsmodul.
+   Hilfsfunktionen wie `utils/io` werden je Distribution gefuehrt.
+6. **Kein Alias, kein Shim, kein Re-Export, kein Uebergangszeitraum.** Die
    Umstellung der Importwurzeln ist ein atomarer Schritt (AG3-209).
-6. **Eine Version fuer alle drei Artefakte**, gebunden an den
+7. **Eine Version fuer alle drei Artefakte**, gebunden an den
    Repository-Stand. Keine unabhaengigen Reihen, keine Versionsmatrix.
 
 ### Deployment-Unit-Regeln
@@ -242,17 +250,17 @@ Deployment Unit, die sie ausliefert:
 
 | Boundary | Code-Heimat | Distribution |
 |---|---|---|
-| Bediener-CLI (31 Verben + 5 `auth`-Unterverben) | `src/agentkit/backend/cli/` | Edge |
-| Kern-CLI (`serve`, `ui`, `decommission`, `auth bootstrap`) | `src/agentkit/backend/cli/` | Kern |
-| Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` | Kern |
-| Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` | Kern (Wire-Modelle: Vertragspaket) |
-| State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` | Kern |
-| State-Backend Record-Row Mapper | `src/agentkit/backend/state_backend/persistence_mappers/` | Kern |
-| Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` | Kern |
+| Bediener-CLI (31 Verben + 5 `auth`-Unterverben) | `src/agentkit/backend/cli/` | offen (AG3-237) — Ausfuehrung Edge |
+| Kern-CLI (`serve`, `ui`, `decommission`, `auth bootstrap`) | `src/agentkit/backend/cli/` | offen (AG3-237) — Ausfuehrung Kern; dasselbe Paket, vier Kern-Kommandopfade |
+| Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` | offen (AG3-237) |
+| Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` | offen (AG3-237) — `models.py` gemessen gemischt |
+| State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` | offen (AG3-237) |
+| State-Backend Record-Row Mapper | `src/agentkit/backend/state_backend/persistence_mappers/` | offen (AG3-237) |
+| Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` | offen (AG3-237) |
 | Drittsystem-Adapter | `src/agentkit/integration_clients/` | Kern, ausser `vectordb/` und `mcp/` (Edge) |
 | Harness-/ProjectEdge-Client | `src/agentkit/harness_client/` | Edge |
-| Guard-Engine / Hook-Registrierung | `src/agentkit/backend/governance/` | Edge |
-| Installer (Ebene 2/3) | `src/agentkit/backend/installer/` | Edge |
+| Guard-Engine / Hook-Registrierung | `src/agentkit/backend/governance/` | offen (AG3-237) — Engine Edge, `integrity_gate`/`principal_capabilities` Kern |
+| Installer (Ebene 2/3) | `src/agentkit/backend/installer/` | offen (AG3-237) — Ausfuehrung Edge, HTTP-Modelle und Writer-Koordinator Kern |
 
 Neue Boundary-Module duerfen nicht als weitere direkte Kinder von
 `src/agentkit/` entstehen. Sie gehoeren in die passende Deployment Unit.

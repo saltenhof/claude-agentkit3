@@ -1,0 +1,69 @@
+story_id: AG3-238
+story_title_short: "nichtblockierende-gates-gehen-unter"
+title: "Zwei Konzept-Gates drucken [ERROR] und lassen den Build gruen -- ein rotes W3 ist in Jenkins unsichtbar, und genau das ist passiert."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-07"
+size: M
+# ORCHESTRATOR-BEFUND 2026-08-07, entstanden beim Gegenpruefen einer
+# Agentenangabe in AG3-208 Runde 4.
+#
+# BEFUND: Jenkinsfile:342 (W2, check_concept_authority_prose) und
+# Jenkinsfile:384 (W3, check_concept_scope_consistency) enden BEIDE
+# unbedingt mit `exit 0`. Bei jedem Nicht-Null-Exit drucken sie eine
+# [ERROR]-Zeile und lassen den Build gruen.
+#
+# FOLGE: Ein rotes W3 ist im Jenkins-Buildstatus UNSICHTBAR. Build #1260
+# war SUCCESS, waehrend W3 auf demselben Stand exit=1 lieferte -- beides
+# ist vereinbar, weil die Stage nicht durchschlagen kann.
+#
+# DASS ES UNTERGEHT, IST KEINE VERMUTUNG: Der Lauf meldet
+# INCOMPLETE_SWEEP mit 17 leeren Scope-Sets (formal-spec-*,
+# bc-cut-decisions, story-derivation-methodology u. a.). Niemand hat es
+# gemerkt, bis ein Agent das Gate nebenbei lokal ausfuehrte.
+#
+# GUARDRAIL, der das entscheidet -- CLAUDE.md §SEVERITY-SEMANTIK:
+#   "Nicht jeder Befund braucht einen Warning-Pfad. Wo aufschiebbares
+#    Handeln in der Praxis nicht passiert (Erfahrung: Warnings gehen
+#    unter), ist ERROR die richtige Wahl. Ein Befund, fuer den niemand
+#    spaeter Zeit bekommt, ist im Effekt ein ignorierter Befund."
+#
+# Genau dieser Fall liegt vor, empirisch belegt.
+#
+# KORREKTUR 2026-08-07, noch am Tag der Anlage: Die Story hatte in ihrer
+# ersten Fassung die falsche Stossrichtung. Sie haette eine
+# PO-ENTSCHEIDUNG WIEDER AUFGEMACHT.
+#
+# AGENTS.md:127-142 haelt fest: Die W2/W3-Pre-Merge-Pflicht ist seit
+# 2026-08-02 durch PO-Entscheidung AUSGESETZT, mit einer belegten
+# Begruendung (Erfuellbarkeit, nicht Bequemlichkeit -- HUB_UNREACHABLE an
+# einer 35666-Zeichen-Partition, fehlender Retry in
+# collect_scope_findings). Die Nicht-Blockierung anzugreifen hiesse,
+# diese Entscheidung zu unterlaufen. Das ist NICHT Gegenstand.
+#
+# WAS TATSAECHLICH OFFEN IST, steht in derselben Quelle:
+#   "Ein Lauf bleibt erlaubt, und ein inhaltlicher Befund bleibt
+#    VERBINDLICH. Wer W2/W3 faehrt und einen Befund erhaelt, behebt ihn
+#    an der Wurzel oder traegt ihn begruendet in die Baseline ein.
+#    Ausgesetzt ist die Pflicht zum Lauf, nicht der Umgang mit dem
+#    Ergebnis."
+#
+# Genau dieser Umgang findet nicht statt. Der Befund ist verbindlich und
+# hat keinen Weg zu einem Menschen: Die Stage druckt ihn in ein Log, das
+# niemand liest, weil der Build gruen ist. 17 leere Scope-Sets standen
+# offen, bis ein Agent das Gate nebenbei lokal ausfuehrte.
+#
+# GEGENSTAND ist deshalb der WEG des Befundes, nicht die Blockierung:
+# Wie erfaehrt jemand von einem verbindlichen W2/W3-Befund, ohne dass
+# der Build rot wird? Die Unterscheidung NOT_DETERMINED (exit 3,
+# Laufzeitausfall) gegen inhaltlichen Befund (exit 1) ist dabei zu
+# ERHALTEN, nicht einzuebnen -- nur der zweite Fall braucht einen
+# Adressaten.
+#
+# Der Zustand der 17 leeren Scope-Sets selbst ist NICHT Teil dieser
+# Story -- sie macht ihn nur sichtbar. Die Ursache liegt vermutlich in
+# tools/concept_governance/scope_runner.py und source_spans.py, an denen
+# AG3-218 gearbeitet hat.
+depends_on: []
+unblocks: []

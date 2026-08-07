@@ -262,10 +262,17 @@ distribution_dependency_rules:
       agentkit-wire declares exactly pydantic and nothing else
   - id: architecture-conformance.rule.dual_declaration_list_is_closed
     scope: all-distributions
+    applies_to: third-party-distributions-only
     message: >-
-      a library declared by both edge and core must appear in
+      a THIRD-PARTY library declared by both edge and core must appear in
       dual_declared_dependencies; every further dual declaration is a violation,
-      so the closed list stays closed
+      so the closed list stays closed. AK3-owned distributions are out of scope:
+      their dual declaration is not tolerated but mandated. the mandate does NOT
+      come from no_inter_distribution_package_dependency -- that rule merely
+      PERMITS the edge->wire and core->wire edges (and forbids edge<->core). it
+      comes from the runtime dependency sets, which carry agentkit-wire on both
+      sides, together with declared_dependencies_match_normative_sets. listing
+      agentkit-wire here would file an obligation as an exception
   - id: architecture-conformance.rule.wire_surface_matches_symbol_boundaries
     scope: architecture-conformance.distribution.wire
     message: >-
@@ -273,14 +280,26 @@ distribution_dependency_rules:
       wire_exported_symbols in distribution_symbol_boundaries; every additional
       exported symbol is a violation. without this a prefix rule would drag all
       22 exception classes of backend/exceptions.py into the contract package
-  - id: architecture-conformance.rule.distribution_membership_is_total_and_disjoint
+  - id: architecture-conformance.rule.symbol_boundary_is_the_rule
     scope: all-distributions
     message: >-
+      the distribution boundary runs at symbol level. a module prefix
+      assignment is permitted only where measurement shows the module mixes no
+      concerns; where it mixes, the target distribution inherits everything
+      else the module does. modules listed in pending_symbol_inventory are
+      deliberately unassigned; there is no fallback distribution they could
+      drop into
+  - id: architecture-conformance.rule.distribution_membership_is_total_and_disjoint
+    scope: all-distributions
+    precondition: distribution_classification_status is closed
+    message: >-
       every module under the AK3 import root belongs to exactly one
-      distribution; membership resolves by longest matching module prefix,
-      unclaimed modules fall to default_distribution, and two equally long
-      matching prefixes owned by different distributions are a violation
-      rather than a resolution case
+      distribution; membership resolves by longest matching module prefix, and
+      two equally long matching prefixes owned by different distributions are a
+      violation rather than a resolution case. there is deliberately NO default
+      distribution: a fallback would assign an owner to every unmeasured module
+      without evidence. while distribution_classification_status is open the
+      function is NOT total and the gate reports NOT_RUN
   - id: architecture-conformance.rule.import_root_follows_distribution_name
     scope: all-distributions
     message: >-
@@ -303,6 +322,17 @@ packaging_gate:
     - NOT_RUN
   missing_result_is: FAIL
   not_run_requires_reason: true
+  # Solange pending_symbol_inventory nicht leer ist, ist die
+  # Zugehoerigkeitsfunktion unvollstaendig. Das Gate meldet dann NOT_RUN mit
+  # genau diesem Grund -- nicht PASS, und auch nicht FAIL: es hat nichts
+  # gemessen, was falsch waere, sondern etwas, das noch nicht entschieden ist.
+  pending_membership:
+    blocks_pass: true
+    result_state: NOT_RUN
+    reason: >-
+      distribution membership incomplete -- distribution_classification_status
+      is open; the classification of all 44 immediate backend subpackages is
+      owned by AG3-237
   checks:
     - id: architecture-conformance.gate.check.source_graph
       subject: source-import-graph
@@ -369,9 +399,12 @@ invariants:
   - id: architecture-conformance.invariant.wire_surface_is_symbol_bounded
     scope: build-artifact
     rule: the public surface of the built wire wheel equals the union of the declared wire_exported_symbols; modules whose boundary runs through them must be split as specified
+  - id: architecture-conformance.invariant.symbol_boundary_is_the_rule
+    scope: static-analysis
+    rule: the distribution boundary is defined at symbol level; module prefix assignment is an optimisation permitted only where the module provably mixes no concerns
   - id: architecture-conformance.invariant.distribution_membership_is_total_and_disjoint
     scope: static-analysis
-    rule: distribution membership is a total and disjoint function over the AK3 module set; no module is homeless and none has two owners
+    rule: distribution membership is a total and disjoint function over the AK3 module set once AG3-237 has closed the classification; no module is homeless and none has two owners, and there is no default distribution to hide an unmeasured module in. an open classification makes the gate report NOT_RUN, never PASS
   - id: architecture-conformance.invariant.packaging_gate_is_blocking_and_baseline_free
     scope: build-artifact
     rule: the packaging gate blocks on violation, keeps no baseline of tolerated findings, and distinguishes NOT_RUN with a named reason from PASS; a missing or unreadable result counts as FAIL

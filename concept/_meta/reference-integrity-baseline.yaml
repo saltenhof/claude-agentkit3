@@ -37,7 +37,7 @@ unresolved_references:
     reason: Installer target-project location, not a source-repository location.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/10_runtime_deployment_speicher.md
-    line: 564
+    line: 568
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH

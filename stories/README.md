@@ -617,19 +617,23 @@ ueber Edge->Kern-HTTP. Das heutige Einzel-Wheel packt trotzdem den gesamten
 Kern auf den Laptop. AG3-207 ist reserviert; der Umsetzungsstrang beginnt daher
 bei AG3-208.
 
-Die 40 gemessenen `harness_client -> backend`-Importstellen sind in AG3-208
-vollstaendig klassifiziert. Der Schnitt hat bewusst nur zwei Storys: zuerst das
-normative Zielbild, danach die gesamte Code-/Paketmigration inklusive Installer,
-Entry Points, Bundles, Tests und blockierendem Gate in einem Zug. Ein separates
-spaeteres Gate oder ein spaeterer Installer-Nachzug waere selbst ein verbotener
-Zwischenzustand.
+Die Kante `harness_client -> backend` umfasst am 2026-08-07 **49
+Importstellen ueber 25 Backend-Module** (die frueher genannten 40/20 sind
+ueberholt). Der Schnitt hat **drei** Storys: AG3-208 setzt Regel, Artefakte,
+Entry-Point- und Dependency-Vertraege sowie den Gate-Mechanismus; **AG3-237**
+misst und klassifiziert die 44 Backend-Subpakete und das Symbolinventar des
+Vertragspakets; AG3-209 vollzieht die Code-/Paketmigration inklusive
+Installer, Entry Points, Bundles, Tests und blockierendem Gate in einem Zug.
+Ein separates spaeteres Gate oder ein spaeterer Installer-Nachzug waere selbst
+ein verbotener Zwischenzustand.
 
 | ID | Titel | Typ | Groesse | Status | depends_on |
 |----|-------|-----|---------|--------|------------|
 | AG3-208 | Edge-/Kern-Distributionszielbild in FK-10, FK-01, FK-30, `PROJECT_STRUCTURE.md` und Formal-Spec | concept | M | ready | — |
-| AG3-209 | Edge, Kern und Wire-Vertrag atomar schneiden: Module, Dependencies, Entry Points, Installer, Bundles, Tests und Distribution-Gate | implementation | L | blocked | 208 |
+| AG3-237 | Symbolinventar des Vertragspakets und Klassifikation aller 44 Backend-Subpakete | concept | L | ready | 208 |
+| AG3-209 | Edge, Kern und Wire-Vertrag atomar schneiden: Module, Dependencies, Entry Points, Installer, Bundles, Tests und Distribution-Gate | implementation | L | blocked | 208, 237 |
 
-**Graph und gueltige Linearisierung:** `AG3-208 -> AG3-209`.
+**Graph und gueltige Linearisierung:** `AG3-208 -> AG3-237 -> AG3-209`.
 
 **Beruehrung bestehender Storys:** AG3-189 und AG3-206 bleiben mit ihren
 Isolation-/Vollstaendigkeitsinvarianten gueltig, enthalten aber

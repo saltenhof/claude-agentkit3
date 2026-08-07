@@ -2,7 +2,51 @@ story_id: AG3-208
 story_title_short: "edge-kern-distributionszielbild"
 title: "Edge-/Kern-Distributionszielbild: FK-10, FK-01, FK-30, PROJECT_STRUCTURE und Architektur-Conformance definieren Edge, Kern und kleines Wire-Vertragspaket eindeutig."
 type: concept
-status: ready
+status: done
+# PO-ENTSCHEID 2026-08-07 nach FUENF Reviewrunden: AG3-208 wird geschlossen.
+# Der PO waehlte "Schliessen, Reste an AG3-237" gegen "Runde 6" und "weiter bis
+# Codex freigibt".
+#
+# BEGRUENDUNG: Die verbleibenden Widersprueche liegen alle an Stellen, die
+# AG3-237 beim Messen ohnehin ueberschreibt. Sie jetzt konsistent zu machen
+# hiesse, den Schnitt an zwei Stellen nacheinander zu machen -- verboten nach
+# CLAUDE.md §KEINE KOMPATIBILITAETSSCHICHTEN.
+#
+# KEIN WEGERKLAEREN: CLAUDE.md §ZERO DEBT laesst zwei Wege -- den Eigentuemer
+# HERSTELLEN oder die Luecke UNVERAENDERT SICHTBAR lassen. Beides ist erfuellt:
+# Eigentuemer ist AG3-237, und die elf Widersprueche stehen dort vollstaendig
+# aufgezaehlt (A1-A3, B1-B7) als Eingangsliste, je mit Locator und Begruendung,
+# und in AG3-237s DoD als "zu ersetzen, nicht zu ergaenzen" verankert.
+#
+# DASS AUFZAEHLEN DIE RICHTIGE WAHL WAR, ZEIGTE SICH SOFORT: Beim reinen
+# Aufzaehlen -- ohne eine Zeile zu aendern -- fanden sich VIER Widersprueche,
+# die fuenf Reviewrunden uebersehen hatten (B2, B3, B5, B7), darunter dieselbe
+# Governance-Fehlzuweisung ein zweites Mal in FK-01 §1.4.3.
+#
+# NICHT ABGEGEBEN, SONDERN BEHOBEN (C1): Die Formal-Spec schrieb die Pflicht
+# zur beidseitigen agentkit-wire-Deklaration zweimal dem falschen Vertrag zu.
+# Das ist keine Klassifikationsfrage -- AG3-237 haette die Stelle nie
+# angefasst. Behoben in invariants.md und entities.md, Wortlaut aus Decision
+# Record §9.6 uebernommen statt neu erfunden. Vorher 2, nachher 0.
+#
+# WAS AG3-208 GELIEFERT HAT: drei Artefakte und ihre Importwurzeln, Maschinen-
+# und Zustandsgrenze, vollstaendiger CLI-/Entry-Point-Vertrag, Dependency-
+# Regeln, Packaging-Gate-Mechanismus, symbol_boundary_is_the_rule sowie die
+# ersatzlose Entfernung von default_distribution. Das vierte Review hat auf
+# ausdrueckliche Frage bestaetigt, dass die Story nach Abgabe der
+# Klassifikation NICHT ausgehoehlt ist.
+#
+# WAS AG3-208 BEWUSST NICHT LIEFERT: die Klassifikation der 44 Backend-
+# Subpakete. Sie wurde dreimal behauptet und dreimal widerlegt. Eine
+# Klassifikation ohne Messung ist keine Spezifikation, sondern eine Vermutung
+# mit Zahlen daran. Eigentuemer: AG3-237.
+#
+# ORCHESTRATOR-LEHRE: Die Runden 2-4 fanden ueberwiegend dieselbe Sache --
+# eine Entscheidung wurde am Entscheidungsort umgesetzt und nicht ueber den
+# Korpus gezogen. Das war ein AUFTRAGSFEHLER: vier Auftraege nannten
+# Einzelstellen statt zu verlangen, dass jede geaenderte Aussage aufgezaehlt
+# und auf Null getrieben wird. Erst Runde 5 forderte Vorher-/Nachher-Zahlen.
+# Fuer kuenftige Korpusarbeit gilt die Zahl als Beleg, nicht die Sichtpruefung.
 phase: setup
 created: "2026-08-03"
 size: M
@@ -10,4 +54,6 @@ size: M
 # 2026-08-03-edge-und-kern-sind-zwei-distributionen.md. AG3-207 ist laut
 # Auftraggeber reserviert; der Umsetzungsbacklog beginnt deshalb bei AG3-208.
 depends_on: []
-unblocks: ["AG3-209"]
+# AG3-208 entblockt AG3-237 (Klassifikation + Symbolinventar) und AG3-236
+# (Platzhalter-Nachzug). AG3-209 haengt zusaetzlich an AG3-237.
+unblocks: ["AG3-237", "AG3-236"]

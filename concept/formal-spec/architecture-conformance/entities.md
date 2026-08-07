@@ -1540,9 +1540,12 @@ boundary_modules:
 # den Target-Root ist EIN atomarer Schritt (AG3-209); es gibt keinen
 # Zeitraum, in dem beide aufloesen.
 #
-# `default_distribution` macht die Zuordnung total: jedes Modul unter
-# `agentkit.` das von keinem Prefix erfasst ist, gehoert zum Kern. Damit gibt
-# es kein heimatloses Modul.
+# KEIN default_distribution (AG3-208 Runde 4). Eine Auffangregel macht die
+# Zuordnung nur SCHEINBAR total: sie weist jedem nicht gemessenen Modul einen
+# Eigentuemer zu, ohne dafuer einen Beleg zu haben. Genau so sind drei Runden
+# lang unbelegte Zuweisungen entstanden. Module ohne gemessene Zuordnung sind
+# offen; die Klassifikation aller 44 unmittelbaren Backend-Subpakete ist
+# AG3-237 zugewiesen. Bis dahin meldet das Packaging-Gate NOT_RUN mit Grund.
 #
 # `distribution_prefix_resolution: longest-match-wins` macht sie disjunkt:
 # Prefixe verschiedener Distributionen duerfen sich schachteln, und das
@@ -1554,7 +1557,8 @@ boundary_modules:
 # Verstoss gegen architecture-conformance.rule.distribution_membership_is_total_and_disjoint,
 # kein Aufloesungsfall.
 # ---------------------------------------------------------------------------
-default_distribution: architecture-conformance.distribution.core
+distribution_classification_owner: AG3-237
+distribution_classification_status: open
 distribution_prefix_resolution: longest-match-wins
 distributions:
   - id: architecture-conformance.distribution.edge
@@ -1573,26 +1577,29 @@ distributions:
       - agentkit-hook-codex
       - agentkit-story-mcp
       - agentkit-are-mcp
+    # runtime_dependencies bedeutet: ALLE direkten Paketabhaengigkeiten der
+    # Distribution, nicht nur Drittbibliotheken. Deshalb steht agentkit-wire
+    # hier drin -- sonst waere eine korrekte Edge-Metadatei zugleich Pflicht
+    # (FK-07 Paragraph 7.9a.2 Punkt 5b) und Ueberschuss (Punkt 5d).
     runtime_dependencies:
+      - agentkit-wire
+      # Direkt importiert, nicht nur transitiv ueber agentkit-wire:
+      # harness_client/harness_adapters/claude_code_models.py:8 u. a.
+      # (8 Dateien, gemessen 2026-08-07).
+      - pydantic
       - pyyaml
       - tomlkit
       - mcp
       - weaviate-client
       - tokenizers
       - psutil
+    # KEINE `agentkit.backend.*`-Praefixe. Jede solche Zeile waere eine
+    # Klassifikation eines Backend-Subpakets und damit AG3-237 vorgegriffen --
+    # auch dann, wenn der Laufzeitbefund eindeutig scheint.
     module_prefixes:
       - agentkit.harness_client
       - agentkit.bundles
       - agentkit.concepts
-      - agentkit.backend.governance
-      - agentkit.backend.installer
-      - agentkit.backend.cli
-      - agentkit.backend.story_creation
-      - agentkit.backend.vectordb
-      - agentkit.backend.config.loader
-      - agentkit.backend.config.validators
-      - agentkit.backend.code_backend.provider_port
-      - agentkit.backend.core_types.mcp_server_registration
       - agentkit.integration_clients.vectordb
       - agentkit.integration_clients.mcp
   - id: architecture-conformance.distribution.core
@@ -1607,7 +1614,13 @@ distributions:
       Oeffnet nie eine Verbindung zu einem Entwicklerrechner.
     console_scripts:
       - agentkit-backend
+    # Siehe Kommentar bei der Edge-Distribution: ALLE direkten
+    # Paketabhaengigkeiten, inklusive agentkit-wire.
     runtime_dependencies:
+      - agentkit-wire
+      # Direkt importiert: backend/execution_planning/scheduling.py:34 u. a.
+      # (134 Dateien, gemessen 2026-08-07).
+      - pydantic
       - pyyaml
       - psycopg
       - psycopg-pool
@@ -1617,8 +1630,11 @@ distributions:
       # backend/skills/version_policy.py:7. Ohne Deklaration waere das
       # Kern-Wheel nach dem Split ohne notwendige Laufzeitabhaengigkeit baubar.
       - packaging
+    # KEIN Praefix `agentkit.backend`. Unter longest-match-wins wuerde er
+    # jedes nicht ueberschriebene Backend-Modul einfangen und damit die
+    # entfernte Auffangregel funktional wiederherstellen. Die Klassifikation
+    # der 44 Backend-Subpakete gehoert AG3-237.
     module_prefixes:
-      - agentkit.backend
       - agentkit.frontend
       - agentkit.integration_clients
   - id: architecture-conformance.distribution.wire
@@ -1634,13 +1650,11 @@ distributions:
     console_scripts: []
     runtime_dependencies:
       - pydantic
+    # VORLAEUFIG. Diese Praefixe benennen den heute erkannten Wire-Inhalt.
+    # Bestaetigt oder korrigiert werden sie durch das Symbolinventar in
+    # AG3-237; AG3-208 behauptet sie nicht als abgeschlossene Klassifikation.
     module_prefixes:
-      - agentkit.backend.control_plane.models
       - agentkit.backend.control_plane.third_party_models
-      - agentkit.backend.exceptions
-      - agentkit.backend.config.models
-      - agentkit.backend.config.defaults
-      - agentkit.backend.config.worker_health
       - agentkit.backend.core_types.operating_mode
       - agentkit.backend.core_types.verify_evidence
       - agentkit.backend.story_exit.http_models
@@ -1660,6 +1674,87 @@ distributions:
 # agentkit-wire-Wheels gegen exported_symbols; jedes zusaetzliche Symbol ist ein
 # Verstoss.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Gemischte Pakete: Zugehoerigkeit AUSSTEHEND (AG3-208 Runde 3)
+#
+# REGEL, nicht Ausnahme: Die Distributionsgrenze verlaeuft symbolgenau. Eine
+# Praefix-Zuweisung ist nur dort zulaessig, wo GEMESSEN ist, dass das Modul
+# keine Belange mischt. Wo ein Modul mischt, erbt die Zieldistribution sonst
+# alles, was das Modul sonst noch tut -- das ist in Runde 2 an vier Stellen
+# passiert.
+#
+# Die folgenden Pakete sind bereits gemessen gemischt. Sie sind Teil der
+# offenen Klassifikation (AG3-237) und hier nur als Eingangsmaterial gefuehrt:
+# es gibt keinen Auffangpfad, auf den sie zurueckfallen koennten. Das Gate
+# meldet NOT_RUN mit Grund (packaging_gate.pending_membership), niemals PASS.
+# ---------------------------------------------------------------------------
+pending_symbol_inventory:
+  - id: architecture-conformance.pending.backend_governance
+    module_prefix: agentkit.backend.governance
+    measured_evidence: >-
+      13 Submodule, symbolgenau vermessen 2026-08-07. Edge-only: runner
+      (Governance, parse_hook_wrapper_args, validate_hook_selector),
+      guard_evaluation.evaluate_pre_tool_use, guard_evaluation.Operation,
+      default_hook_definitions. Core-only: integrity_gate.*,
+      principal_capabilities.* (matrix, operations, paths, principals),
+      guard_system.records, guard_system.protected_paths,
+      guard_system.story_scoped_guards, locks, setup_preflight_gate.*,
+      protocols.ViolationType, errors.LockRecordNotFoundError,
+      errors.ModeLockConflictError. Beidseitig: guard_evaluation.HookEvent,
+      hook_registration.HookDefinition, protocols.GuardVerdict,
+      errors.HookRegistrationError.
+    why_not_assignable: >-
+      FK-01 fuehrt PolicyEngine, IntegrityGate und Governance-Adjudication
+      ausdruecklich als Kern-Logik. Eine pauschale Edge-Zuweisung zoege
+      integrity_gate und principal_capabilities auf den Entwicklerrechner.
+  - id: architecture-conformance.pending.backend_installer
+    module_prefix: agentkit.backend.installer
+    measured_evidence: >-
+      33 kernseitig importierte Symbole, darunter die vollstaendige
+      HTTP-Modellfamilie (ProjectRegistration*, SkillBinding*,
+      GovernanceHook*, InstallerWriterReadyResponse),
+      InstallerMutationCoordinator sowie Pfadhelfer (story_dir, qa_story_dir,
+      prompt_bundle_store_dir, prompt_instance_dir, resolve_qa_story_dir).
+      Edge-only: 4 Symbole.
+    why_not_assignable: >-
+      control_plane_http/installer_writer_routes.py und
+      bootstrap/composition_installer.py brauchen kernseitige
+      Installer-Modelle. Die Ausfuehrung ist Edge, die Wire-Modelle und der
+      Writer-Koordinator sind es nicht.
+  - id: architecture-conformance.pending.control_plane_models
+    module_prefix: agentkit.backend.control_plane.models
+    measured_evidence: >-
+      63 Klassen; 66 gemessene Importsymbole -- 21 nur Kern, 7 nur Edge,
+      38 beidseitig. Das Modul importiert selbst
+      story_creation.reconciliation_evidence (Edge) und telemetry.events
+      (Kern), baut HTTP-Antworten (HTTPStatus) und schreibt ein Log
+      (logging).
+    why_not_assignable: >-
+      Als I/O-freies Blatt untauglich und nur zu rund der Haelfte
+      beidseitiges Wire-Vokabular. Eine Modulzuweisung zoege 21 kernseitige
+      Symbole plus Logging und HTTP-Aufbau ins Vertragspaket.
+  - id: architecture-conformance.pending.backend_config_schema
+    module_prefix: agentkit.backend.config.models
+    also_covers:
+      - agentkit.backend.config.defaults
+      - agentkit.backend.config.worker_health
+    measured_evidence: >-
+      config/models.py importiert pathlib -- verboten fuer das I/O-freie
+      Blatt. config/defaults.py:37-65 traegt neben den ProjectConfig-Defaults
+      die Kern-Listener-Ports und die Kern-Base-URL, also kein
+      /v1-Vokabular.
+    why_not_assignable: >-
+      Das Konfigurationsschema ist Payload beider Seiten, seine Defaults und
+      Pfadmechanik sind es nicht. Die Grenze verlaeuft innerhalb der Module.
+  - id: architecture-conformance.pending.note
+    note: >-
+      Das Symbolinventar dieser vier Bereiche ist die inhaltliche
+      Spezifikation des Vertragspakets und zweier geteilter Pakete. Es
+      braucht eine eigene Messung, eine eigene Betroffenheitspruefung und ein
+      eigenes Review; AG3-208 stellt Regel, Mechanismus und Messgrundlage
+      bereit und weist die Zuordnung ausdruecklich NICHT zu. Solange dieser
+      Eintrag existiert, ist die Zugehoerigkeitsfunktion NICHT total, und das
+      Packaging-Gate darf nicht PASS melden.
 distribution_symbol_boundaries:
   - id: architecture-conformance.symbol_boundary.backend_exceptions
     module: agentkit.backend.exceptions
@@ -1714,10 +1809,21 @@ core_only_distributions:
   - psycopg-pool
   - argon2-cffi
   - agentkit-backend
-# Abschliessende Liste der Bibliotheken, die Edge UND Kern eigenstaendig
-# deklarieren duerfen. Jede weitere Doppeldeklaration ist ein Verstoss --
-# sonst hoert die Liste auf, abschliessend zu sein.
+# Abschliessende Liste der DRITTBIBLIOTHEKEN, die Edge UND Kern
+# eigenstaendig deklarieren duerfen. Jede weitere Doppeldeklaration ist ein
+# Verstoss -- sonst hoert die Liste auf, abschliessend zu sein.
+#
+# GELTUNGSBEREICH: nur Drittdistributionen. AK3-eigene Distributionen sind
+# ausgenommen, weil ihre beidseitige Deklaration nicht geduldet, sondern
+# VORGESCHRIEBEN ist. Die Pflicht kommt NICHT aus
+# no_inter_distribution_package_dependency: diese Regel *erlaubt* die Kanten
+# edge->wire und core->wire lediglich (und verbietet edge<->core).
+# Vorgeschrieben werden sie durch die Runtime-Sollmengen -- agentkit-wire steht
+# in beiden -- zusammen mit der beidseitigen Gleichheitspruefung
+# declared_dependencies_match_normative_sets. agentkit-wire hier zu fuehren
+# wuerde eine Pflicht als Ausnahme ausweisen.
 dual_declared_dependencies:
+  - pydantic
   - pyyaml
 ```
 <!-- FORMAL-SPEC:END -->

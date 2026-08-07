@@ -165,16 +165,17 @@ Kompatibilitaetsbereich und keine Versionsmatrix — eine Matrix waere genau
 die durch `CLAUDE.md` ausnahmslos verbotene Kompatibilitaetsschicht. Die
 Drahtebene deckt der `/v1/compat`-Handshake ab (§10.2.7, FK-91).
 
-**Nichterreichbarkeit des Entwicklerrechners (normativ).** Der Kern
-oeffnet **nie** eine Verbindung zu einem Entwicklerrechner und hat keinen
-Dateisystemzugriff auf ihn. Jede Kante zwischen beiden wird **vom Edge
-initiiert**. Das gilt ausnahmslos und auch fuer die fachlich
-rueckwaerts gerichtete Review-Delegation aus FK-01 §1.1a: Sie ist die
-**Antwort** auf einen vorangegangenen Project-Edge-Pull eines bereits
-etablierten Knotens, kein Ruf des Kerns auf den Laptop. Fachliche
-Bidirektionalitaet bei transportseitig client-initiiertem Kanal ist damit
-zulaessig; eine eingehende Netzverbindung auf dem Entwicklerrechner ist es
-nicht.
+**Deployment-Folge der Nichterreichbarkeit.** Die Nichterreichbarkeit
+des Entwicklerrechners ist **nicht** hier normiert: sie gehoert FK-01
+§1.1a/§1.4.3 (Trust Boundaries), und FK-10 verweist darauf, statt sie ein
+zweites Mal zu behaupten. Fuer den Distributionsschnitt folgt daraus genau
+eine Aussage, und die ist eine Deployment-Aussage:
+
+> Weil jede Kante vom Edge initiiert wird, braucht die Edge-Distribution
+> **keinen Listener** und die Kern-Distribution **keinen Client**. Ein
+> Edge-Artefakt, das einen Port oeffnet, oder ein Kern-Artefakt, das einen
+> Entwicklerrechner adressiert, ist ein Schnittfehler — unabhaengig davon,
+> ob die Trust Boundary es zusaetzlich verbietet.
 
 **Die Grenze ist maschinell wahr, nicht konventionell.** Was der Edge
 nicht importieren darf, ist auf dem Entwicklerrechner **nicht
@@ -192,8 +193,11 @@ AgentKit-Runtime und keine kanonischen AgentKit-Zustandsdateien.
 
 Die Dev-Seite wird vollstaendig aus der Edge-Distribution
 `agentkit-project-edge` (plus `agentkit-wire`) ausgeliefert, der zentrale
-Teil vollstaendig aus `agentkit-backend` (plus `agentkit-wire`). Kein
-Prozess des einen Artefakts laeuft auf der Maschine des anderen.
+Teil vollstaendig aus `agentkit-backend` (plus `agentkit-wire`). Getrennt
+sind die **Umgebungen**, nicht die Rechner: derselbe Host darf beide
+Artefakte tragen — die Loopback-Ko-Lokalisierung (§10.2.4) und die
+Einzelplatzentwicklung setzen das voraus —, aber nie in derselben
+Python-Umgebung (§10.2.0).
 
 ```mermaid
 graph TB
@@ -975,19 +979,24 @@ aus F1. Ein Kompatibilitaets-Alias ist ausgeschlossen.
 | `agentkit-are-mcp` | `agentkit-project-edge` | Entwicklerrechner | ARE-MCP-Wrapper (optional, `features.are: true`) |
 | `agentkit-backend` | `agentkit-backend` | Core-Host | Kern-CLI (`serve`, `ui`, `decommission`) |
 
-**Verb-Zuordnung.** Die heutige Einheits-CLI fuehrt 35 Verben. Drei davon
-sind Kern-Verben, die uebrigen 32 sind Bediener-/Projekt-Verben und laufen
-als REST-Clients auf dem Entwicklerrechner:
+**Zuordnungsregel: der vollstaendige Kommandopfad entscheidet.** Nicht
+das Verb — 34 der 35 Verben entscheiden zwar direkt, `auth` aber gerade
+nicht. Massgeblich ist deshalb der Pfad aus Verb **und** Unterverb.
+
+Die heutige Einheits-CLI fuehrt 35 Verben. **Vier Kommandopfade** liegen
+im Kern (`serve`, `ui`, `decommission`, `auth bootstrap`), alle uebrigen
+sind Bediener-/Projekt-Pfade und laufen als REST-Clients auf dem
+Entwicklerrechner:
 
 | Distribution | Verben |
 |---|---|
 | `agentkit-backend` | `serve`, `ui`, `decommission`, **`auth bootstrap`** |
 | `agentkit-project-edge` | `auth {login, rotate-password, issue-token, store-token, revoke-token}`, `register-project`, `verify-project`, `upgrade-project`, `update`, `detach`, `doctor`, `run-story`, `run-phase`, `resume`, `recover-story`, `admin-abort`, `cleanup`, `reset-escalation`, `override-integrity`, `status`, `query-state`, `query-telemetry`, `weekly-review`, `export-telemetry`, `watch-worker`, `split-story`, `reset-story`, `exit-story`, `takeover-request`, `takeover-confirm`, `export-story-md`, `repair-story-md`, `evidence`, `failure-corpus`, `hook-errors`, `concept` |
 
-**`auth bootstrap` ist das vierte Kern-Verb (Entscheidung, begruendet).**
+**`auth bootstrap` ist der vierte Kern-Kommandopfad (Entscheidung, begruendet).**
 Das Verb-Wort `auth` ist das einzige, das sich auf beide Distributionen
 verteilt. Das ist kein Versehen, sondern folgt aus einer bereits
-bestehenden Norm: FK-91 §91.4 fuehrt `auth bootstrap` als **einzige
+bestehenden Norm: FK-91 §91.1 fuehrt `auth bootstrap` als **einzige
 Nicht-API-Ausnahme** — es initialisiert das Strategenpasswort einmalig
 **direkt beim lokalen Credential-Owner der Core-Maschine**, verlangt ein
 interaktives Terminal, und „eine anonyme HTTP-Entsprechung existiert
@@ -1004,7 +1013,7 @@ Damit sind alle drei denkbaren Zuordnungen bis auf eine ausgeschlossen:
 
 Bleibt: **`agentkit-backend auth bootstrap`**, ausgefuehrt auf dem
 Core-Host. Das ist keine neue Entscheidung, sondern die Anwendung von
-FK-91 §91.4 auf den Distributionsschnitt. Die Aussage in §10.2.11
+FK-91 §91.1/§91.1a auf den Distributionsschnitt. Die Aussage in §10.2.11
 weiter unten — „der Backend-Admin ist eine Rolle, keine Maschine" —
 gilt fuer die fuenf **REST**-Unterverben und ausdruecklich **nicht** fuer
 `bootstrap`.
@@ -1025,12 +1034,12 @@ braucht der Core-Host keinen Client: eine lokale Ausfuehrung am
 insoweit dieselbe Edge-Distribution wie jeder andere Bediener — mit
 anderen Rechten, nicht mit anderem Code.
 
-`auth bootstrap` faellt **nicht** darunter. Es ist per FK-91 §91.4 die
+`auth bootstrap` faellt **nicht** darunter. Es ist per FK-91 §91.1 die
 einzige Nicht-API-Operation, laeuft auf dem Core-Host und gehoert zur
 Kern-CLI (Begruendung oben bei der Verb-Zuordnung).
 
 **Der Platzhalter `<absolute-agentkit-wrapper>` wird zurueckgezogen
-(normativ).** Der Korpus benutzt ihn an 154 Stellen in 49 Dateien fuer
+(normativ).** Der Korpus benutzt ihn an 162 Stellen in 49 Dateien fuer
 den absoluten Pfad „des" CLI-Wrappers neben dem zentral aufgeloesten
 Interpreter. Unter zwei ausfuehrbaren Artefakten kann ein Platzhalter
 nicht mehr eindeutig sein; er ist **ungueltig**, nicht umgedeutet. An
@@ -1044,35 +1053,46 @@ seine Stelle treten:
 | `<absolute-agentkit-hook-codex-wrapper>` | Hook-Wrapper Codex | `agentkit-project-edge` |
 
 **Warum nicht einfach umdeuten.** Ein zentraler Satz „der alte
-Platzhalter bedeutet ab sofort die Edge-CLI" haette die 154 Fundstellen
+Platzhalter bedeutet ab sofort die Edge-CLI" haette die 162 Vorkommen
 nicht korrigiert, sondern aus bisher **mehrdeutigen** Kommandos
 **ausdruecklich falsche** gemacht — `<absolute-agentkit-wrapper> serve`
 ist ein Kern-Verb und waere damit dem Edge zugeschrieben worden. Die
 Aufloesungsregel ist deshalb nicht „ein Platzhalter, eine Distribution",
-sondern: **das Verb entscheidet**, gemaess der Verb-Tabelle oben. Bis der
+sondern: **der vollstaendige Kommandopfad entscheidet**, gemaess der
+Tabelle oben. Bis der
 Text nachgezogen ist, gilt jede verbleibende Fundstelle als **veraltet**,
 nicht als gueltig.
 
-Das Nachziehen der 154 Fundstellen ist mechanisch, aber weder trivial
-noch Teil dieser Story: 18 der 49 Dateien sind
-`concept/formal-spec/*/commands.md` und unterliegen dem
-Prosa-Formal-Audit. Es ist als eigener Auftrag zu erteilen.
+Der Umfang, gemessen ueber `concept/`: **162 Vorkommen auf 157 Zeilen in
+49 Dateien**; 18 dieser Dateien liegen unter `concept/formal-spec/`
+(15 `commands.md`, 3 `README.md`) und unterliegen dem Prosa-Formal-Audit.
+Das Nachziehen ist mechanisch, aber weder trivial noch Teil dieser Story
+und als eigener Auftrag erteilt (AG3-236).
 
-**Neun Verben ohne Entsprechung — die Vollstaendigkeitsaussage
-praezisiert.** Die Verb-Tabelle oben ist vollstaendig ueber die
-**implementierte** CLI-Oberflaeche (35 Verben, erhoben aus
-`--help` des heutigen Wheels). Der Konzeptkorpus nennt daneben Verben,
-die es nicht gibt und die deshalb **keiner** Distribution zugeordnet
-werden koennen:
+**Elf Kommandopfade ohne Entsprechung — die Vollstaendigkeitsaussage
+praezisiert.** Die Tabelle oben ist vollstaendig ueber die
+**implementierte** CLI-Oberflaeche (35 Verben, erhoben aus `--help` des
+heutigen Wheels und gegen den Dispatcher `cli/main.py` geprueft). Der
+Konzeptkorpus nennt daneben elf Kommandopfade, die es nicht gibt und die
+deshalb **keiner** Distribution zugeordnet werden koennen:
 
-| Verb | Fundstellen | Disposition |
+| Kommandopfad | Fundstellen | Disposition |
 |---|---|---|
-| `dashboard` | FK-60, FK-62, FK-63, `formal.telemetry-analytics.commands` | vermutlich Vorlaeufer von `ui`; zu entscheiden |
-| `resolve-conflict` | FK-04, FK-55, `formal.principal-capabilities.commands` | in der CLI nicht vorhanden |
-| `structural`, `policy`, `stages` | FK-03, FK-33, `formal.deterministic-checks.commands` | in der CLI nicht vorhanden |
-| `migrate` | FK-18 | in der CLI nicht vorhanden |
+| `dashboard` | FK-60, FK-62, FK-63, `formal.telemetry-analytics.commands`, FK-91 §91.1 | vermutlich Vorlaeufer von `ui`; zu entscheiden |
+| `resolve-conflict` | FK-04, FK-55, `formal.principal-capabilities.commands`, FK-91 §91.1 | nicht im Dispatcher |
+| `structural` | FK-03, FK-33, `formal.deterministic-checks.commands` | nicht im Dispatcher |
+| `policy` | FK-33, `formal.deterministic-checks.commands` | nicht im Dispatcher |
+| `stages` | FK-33 | nicht im Dispatcher |
+| `migrate` | FK-18 | nicht im Dispatcher |
 | `install` | FK-03 | vermutlich Vorlaeufer von `register-project` |
-| `backend health` | FK-04 | in der CLI nicht vorhanden |
+| `backend health` | FK-04 | nicht im Dispatcher |
+| `approve-integration-manifest` | FK-91 §91.1 (Kap. 57) | nicht im Dispatcher |
+| `amend-integration-manifest` | FK-91 §91.1 (Kap. 57) | nicht im Dispatcher |
+| `guard-status` | FK-91 §91.1 (Kap. 56) | nicht im Dispatcher |
+
+Die Zahl ist gegen `cli/main.py` nachgezaehlt, nicht geschaetzt: elf
+verschiedene Kommandopfade, davon acht aus Platzhalter-Fundstellen und
+drei zusaetzlich aus dem FK-91-Katalog.
 
 Das ist **vorbestehende Drift** zwischen Konzept und CLI, die der
 Distributionsschnitt nur sichtbar macht. Sie wird hier benannt und nicht
@@ -1100,11 +1120,64 @@ ausdruecklich fuer abgeschafft erklaert.
 
 ### 10.2.12 Artefakt-Ownership-Matrix
 
-Diese Matrix ist die **vollstaendige** Zuordnung des heutigen Bestands zu
-den drei Artefakten. Sie ist eine **Totalfunktion**: jede Einheit hat genau
-einen Besitzer, und fuer den nicht namentlich genannten Rest gilt die
-Auffangregel in Abschnitt B. Grundlage ist der **Laufzeitbesitzer**, nicht
-der historische Namensraum.
+Grundlage der Zuordnung ist der **Laufzeitbesitzer**, nicht der
+historische Namensraum.
+
+**Die Grenze verlaeuft symbolgenau — das ist die Regel, nicht die
+Ausnahme.** Ein ganzes Modul einer Distribution zuzuweisen ist nur dort
+zulaessig, wo **gemessen** ist, dass es keine Belange mischt. Wo es
+mischt, erbt die Zieldistribution alles, was das Modul sonst noch tut.
+Das Vertragspaket ist deshalb **kein Umetikettieren bestehender Module**:
+es ist neuer Code, in den Symbole **wandern**.
+
+### B0 — Feststellung: die Klassifikation ist zu messen, nicht zu behaupten
+
+**Dieses Kapitel klassifiziert die Backend-Subpakete nicht.** Es stellt
+fest, dass sie klassifiziert werden **muessen**, unter welcher Regel das
+zulaessig ist, und wer es tut.
+
+Der Grund ist belegt, nicht vorsorglich. Drei aufeinanderfolgende
+unabhaengige Reviews haben je eine weitere Zuweisung widerlegt, die ohne
+Messung getroffen worden war — zuletzt `cli` als „vollstaendig Edge",
+zehn Zeilen nachdem dasselbe Kapitel vier Kern-Kommandopfade darin
+benannte. Vier bekannte Mischungen ehrlich offenzulegen und andere
+bekannte Mischungen weiter als rein zu fuehren, waere derselbe Fehler in
+kleinerem Massstab. **Eine Klassifikation, fuer die keine Messung
+vorliegt, ist keine Spezifikation, sondern eine Vermutung mit Zahlen
+daran.**
+
+Belegbar ist heute genau dies:
+
+| Aussage | Stand |
+|---|---|
+| Zahl der unmittelbaren Backend-Subpakete | **44**, plus das Wurzelmodul `exceptions.py` |
+| Zugehoerigkeit dieser 44 zu Edge / Kern / Vertragspaket | **offen** |
+| Regel, unter der eine Zuordnung zulaessig ist | `symbol_boundary_is_the_rule` — Praefixzuweisung nur, wo **gemessen** ist, dass das Modul keine Belange mischt |
+| Eigentuemer der Messung und Zuordnung | **AG3-237** (alle 44, Zaehleinheit dort als AC 1 definiert) |
+| Verhalten des Packaging-Gates bis dahin | `NOT_RUN` **mit Grund**, nie `PASS` (FK-07 §7.9a.3) |
+
+Vier Bereiche sind bereits vermessen; die Messung ist Eingangsmaterial
+fuer AG3-237 und steht als `measured_evidence` in
+`formal.architecture-conformance.entities`:
+
+| Bereich | Gemessener Mischbefund (2026-08-07, AST, symbolgenau) |
+|---|---|
+| `backend/governance/` | Edge-only: `runner`, Guard-Auswertung. **Kern**-only: `integrity_gate/`, `principal_capabilities/`, `setup_preflight_gate/`, `locks`, `guard_system.records`. FK-01 fuehrt `PolicyEngine`, `IntegrityGate` und Governance-Adjudication ausdruecklich als Kern-Logik |
+| `backend/installer/` | 33 kernseitig importierte Symbole (HTTP-Modellfamilie, `InstallerMutationCoordinator`, Pfadhelfer) gegen 4 Edge-only |
+| `backend/control_plane/models.py` | 63 Klassen, 66 Importsymbole: 21 nur Kern, 7 nur Edge, 38 beidseitig; importiert selbst `story_creation.reconciliation_evidence` (Edge) und `telemetry.events` (Kern), baut HTTP-Antworten, loggt |
+| `backend/config/{models,defaults,worker_health}.py` | `models.py` importiert `pathlib`; `defaults.py:37-65` traegt die Kern-Listener-Ports und die Kern-Base-URL |
+
+Weitere bekannte, noch nicht vermessene Mischungen — ausdruecklich
+genannt, damit AG3-237 nicht bei null anfaengt und niemand sie fuer rein
+haelt: `cli` (vier Kern-Kommandopfade im Dispatcher, `cli/main.py:203-227`),
+`control_plane` (enthaelt das gemischte `models.py`), `failure_corpus`
+(`writer_client.py:20`, `cli.py:212`), `bootstrap` (Composition Root,
+verdrahtet beide Seiten), `implementation` und `telemetry`.
+
+Die Zuordnungen in den folgenden Abschnitten A, C, D und E bleiben
+gueltig: sie betreffen **Deployment Units**, **Drittsystem-Adapter**,
+**Symbolgrenzen** und **Abhaengigkeiten** und sind je einzeln belegt. Nur
+die Klassifikation der Backend-Subpakete (Abschnitt B) faellt heraus.
 
 **A — Deployment Units unter `src/agentkit/` (Ist-Inventar, gemessen 2026-08-07).**
 
@@ -1120,23 +1193,27 @@ der historische Namensraum.
 | `shared/` | **leeres Verzeichnis** | **entfaellt** | Kein Inhalt, kein Besitzer, keine Deployment Unit. Es wird mit dem Schnitt entfernt, nicht umgehaengt |
 | Paket-Root (`__init__.py`, `py.typed`) | 2 Dateien | **je Distribution ein eigener Root** | Es gibt keinen gemeinsamen Paket-Root mehr. Jede Distribution bringt den Root ihrer eigenen Importwurzel mit; die Versionskonstante folgt dem gemeinsamen Repository-Stand (§10.2.7) |
 
-**B — `backend/`: Edge-Subpakete (abschliessend) und Auffangregel.**
+**B — `backend/`: keine Zuordnung in dieser Story.** Die folgende
+Tabelle ist **Eingangsmaterial fuer AG3-237**, keine Festlegung. Sie nennt
+fuer einzelne Subpakete den gemessenen Laufzeitbefund; die Zuordnung
+trifft AG3-237 nach der Messung aller 44. Wo „ausstehend" steht, ist der
+Mischbefund bereits belegt.
 
-| Subpaket | Besitzer | Begruendung / Beleg |
+| Subpaket | Gemessener Laufzeitbefund | Beleg |
 |---|---|---|
-| `governance/` | **Edge** | Die Guard-Engine (`governance.runner`, `governance.guard_evaluation`) laeuft im Hook-Prozess auf dem Entwicklerrechner (FK-30, §10.1.3). Sie liest das lokale Edge-Bundle und schreibt Harness-Settings — beides lokale Mechanik |
-| `installer/` | **Edge** | Projektregistrierung, Verify, Upgrade, Update, Detach, Hook- und MCP-Materialisierung, Interpreter-Aufloesung. Ebene 2 und 3 sind per Definition Entwicklermaschine |
-| `cli/` | **Edge**, ausser den drei Kern-Verben | Bediener-CLI (§10.2.11). `serve`, `ui` und `decommission` ziehen in die Kern-CLI um |
-| `story_creation/` | **Edge** | Der Reconciler wird vom Zielprojekt-Launcher lokal gebaut und ausgefuehrt; er spricht die VektorDB direkt an (Carve-out FK-01 §1.1a) |
-| `code_backend/provider_port` | **Edge** | Der Port wird im lokalen Service-Identity-Pfad des `command_executor` konsumiert; die Credential-Aufloesung laeuft am Entwicklerrechner. Der uebrige `code_backend/` bleibt Kern |
-| `vectordb/` | **Edge** | Enthaelt den lokal gestarteten MCP-Server (`engine`, `mcp_server`), den Ingest und den Concept-Corpus-Builder (F3) |
-| `config/loader.py`, `config/validators.py` | **Edge** | `project.yaml` ist eine Datei auf dem Entwicklerrechner. Der Kern parst sie **nicht** vom Dateisystem: er erhaelt die validierte Konfiguration ueber `/v1` und fuehrt sie als `ProjectManagement`-Zustand (I5, FK-07 §7.4.6) |
-| `config/models.py`, `config/defaults.py`, `config/worker_health.py` | **Vertragspaket** | Das Konfigurationsschema ist Payload der Registrierungs- und Update-Endpunkte. `defaults` und `worker_health` muessen mitgehen, weil `models` sie importiert — ein Blatt, das seine eigenen Bausteine nicht mitbringt, ist keines. Damit ist `config/loader.py:16 -> config.defaults` eine **Edge->Vertragspaket**-Kante und erlaubt |
-| `config/sqlite_gate.py` | **Kern** | einziger Konsument ist `state_backend/config.py` |
-| `core_types/mcp_server_registration` | **Edge** | Beschreibt lokal zu startende MCP-Prozesse |
-| `core_types/verify_evidence` (Grenzwerte, Request-/Repository-Vertrag) | **Vertragspaket** | Evidence wird lokal erhoben und ueber `/v1` eingereicht — beidseitiges Vokabular |
-| `utils/io` | **dupliziert, nicht geteilt** | Triviale Hilfsfunktionen (`atomic_write_text`, `read_json_object`). Sie sind **kein** Wire-Vokabular. Jede Distribution fuehrt ihre eigene Kopie; ein gemeinsames Utility-Paket waere der Abstellraum, den §10.1.0a verbietet |
-| **alle uebrigen Subpakete** | **Kern** | Auffangregel: was oben nicht steht, gehoert zum Kern. **Arithmetik der Totalfunktion:** 44 unmittelbare Subpakete = 5 vollstaendig Edge (`governance`, `installer`, `cli`, `story_creation`, `vectordb`) + 4 symbolweise geteilt (`config`, `code_backend`, `core_types`, `utils`) + **35** vollstaendig Kern. Dazu das Wurzelmodul `exceptions.py`, ebenfalls symbolweise geteilt (siehe D). Die 35 sind `pipeline_engine`, `verify_system`, `exploration`, `implementation`, `closure`, `state_backend`, `control_plane`, `control_plane_http`, `telemetry`, `telemetry_service`, `kpi_analytics`, `auth`, `project_management`, `story`, `story_context_manager`, `execution_planning`, `phase_state_store`, `artifacts`, `prompt_runtime`, `concept_catalog`, `failure_corpus`, `skills`, `task_management`, `requirements_coverage`, `integration_stabilization`, `project`, `project_ops`, `schemas`, `boundary`, `bootstrap`, `process`, `workers`, `story_exit`, `story_reset`, `story_split` |
+| `governance/` | ausstehend, gemischt | Die Guard-Engine (`runner`, `guard_evaluation`) laeuft im Hook-Prozess und ist Edge; `integrity_gate/`, `principal_capabilities/` und `setup_preflight_gate/` sind Kern-Logik (FK-01 §1.1a). Symbolinventar erforderlich |
+| `installer/` | ausstehend, gemischt | Die Ausfuehrung (Registrierung, Verify, Upgrade, Detach, Hook-/MCP-Materialisierung, Interpreter-Aufloesung) ist Edge; die HTTP-Modelle, der `InstallerMutationCoordinator` und die Pfadhelfer werden kernseitig gebraucht. Symbolinventar erforderlich |
+| `cli/` | ausstehend, gemischt | Bediener-CLI (§10.2.11), aber der Dispatcher (`cli/main.py:203-227`) fuehrt die vier Kern-Kommandopfade `serve`, `ui`, `decommission` und `auth bootstrap` im selben Modul. Die Ausfuehrung ist ueberwiegend Edge, das Paket ist es nicht |
+| `story_creation/` | laeuft auf dem Entwicklerrechner | Der Reconciler wird vom Zielprojekt-Launcher lokal gebaut und ausgefuehrt; er spricht die VektorDB direkt an (Carve-out FK-01 §1.1a) |
+| `code_backend/provider_port` | wird lokal konsumiert; restliches `code_backend/` nicht gemessen | Der Port wird im lokalen Service-Identity-Pfad des `command_executor` konsumiert; die Credential-Aufloesung laeuft am Entwicklerrechner. Der uebrige `code_backend/` bleibt Kern |
+| `vectordb/` | laeuft auf dem Entwicklerrechner | Enthaelt den lokal gestarteten MCP-Server (`engine`, `mcp_server`), den Ingest und den Concept-Corpus-Builder (F3) |
+| `config/loader.py`, `config/validators.py` | lesen eine Datei des Entwicklerrechners | `project.yaml` ist eine Datei auf dem Entwicklerrechner. Der Kern parst sie **nicht** vom Dateisystem: er erhaelt die validierte Konfiguration ueber `/v1` und fuehrt sie als `ProjectManagement`-Zustand (I5, FK-07 §7.4.6) |
+| `config/models.py`, `config/defaults.py`, `config/worker_health.py` | ausstehend, gemischt | Das Konfigurationsschema ist Payload beider Seiten, seine Defaults und seine Pfadmechanik sind es nicht: `models.py` importiert `pathlib`, `defaults.py:37-65` traegt die Kern-Listener-Ports. Die Grenze verlaeuft **innerhalb** dieser Module. Symbolinventar erforderlich |
+| `config/sqlite_gate.py` | nur kernseitig konsumiert | einziger Konsument ist `state_backend/config.py` |
+| `core_types/mcp_server_registration` | beschreibt lokale Prozesse | Beschreibt lokal zu startende MCP-Prozesse |
+| `core_types/verify_evidence` (Grenzwerte, Request-/Repository-Vertrag) | beidseitig genutzt; als Wire-Inhalt in Abschnitt D gefuehrt | Evidence wird lokal erhoben und ueber `/v1` eingereicht — beidseitiges Vokabular |
+| `utils/io` | beidseitig genutzt, aber kein Vertrag; Abschnitt D schliesst es aus dem Vertragspaket aus | Triviale Hilfsfunktionen (`atomic_write_text`, `read_json_object`). Sie sind **kein** Wire-Vokabular. Jede Distribution fuehrt ihre eigene Kopie; ein gemeinsames Utility-Paket waere der Abstellraum, den §10.1.0a verbietet |
+| **alle 44 unmittelbaren Subpakete** | **offen — Eigentuemer AG3-237** | Auch die Zeilen oben sind **Befund, nicht Zuordnung**: ein eindeutiger Laufzeitbefund ersetzt die Messung des ganzen Pakets nicht. Es gibt **keine** Auffangregel. Eine Zuordnung ohne Messung ist keine Spezifikation, sondern eine Vermutung mit Zahlen daran; siehe die Feststellung unter B0 |
 
 **Gegenkanten Kern→Edge.** Die am 2026-08-07 gemessenen 46 Importstellen
 aus `backend/` nach `harness_client/` (22 Dateien, 9 Zielmodule;
@@ -1176,12 +1253,12 @@ der `/v1`-Grenze brauchen:
 
 | Inhalt | Herkunft heute | Warum beidseitig |
 |---|---|---|
-| Request-/Response-/Command-/Report-Modelle der `/v1`-Grenze | `backend/control_plane/models`, `backend/control_plane/third_party_models` | Der Edge serialisiert, der Kern deserialisiert dieselben Strukturen |
+| Request-/Response-/Command-/Report-Modelle der `/v1`-Grenze | `backend/control_plane/third_party_models` **vollstaendig**; aus `backend/control_plane/models` **nur die 38 beidseitig genutzten Klassen** (Symbolinventar ausstehend) | Der Edge serialisiert, der Kern deserialisiert dieselben Strukturen. Die 21 nur kernseitig genutzten Klassen desselben Moduls bleiben im Kern |
 | Fehlervertrag (`ControlPlaneApiError` und Fehler-Payload) | `backend/exceptions` | Der Kern erzeugt ihn, der Edge liest ihn |
 | Story-Lifecycle-HTTP-Modelle (`story_exit`, `story_reset`, `story_split`) | `backend/story_*/http_models` | Beide Seiten sprechen sie auf dem Draht |
 | Evidence-Vertrag und Grenzwerte | `backend/core_types/verify_evidence` | Edge erhebt, Kern bewertet |
 | `OperatingMode` und weitere auf dem Draht transportierte Aufzaehlungen | `backend/core_types/operating_mode` | Wert wird uebertragen und beidseitig interpretiert |
-| Konfigurationsschema (`ProjectConfig` und Untermodelle) | `backend/config/models` | Payload der Registrierungs- und Update-Endpunkte; der Kern fuehrt die Konfiguration als Zustand, der Edge liest sie lokal ein |
+| Konfigurationsschema (`ProjectConfig` und Untermodelle) | aus `backend/config/models` **ohne** dessen `pathlib`-Mechanik und **ohne** die Kern-Listener-Defaults (Symbolinventar ausstehend) | Payload der Registrierungs- und Update-Endpunkte; der Kern fuehrt die Konfiguration als Zustand, der Edge liest sie lokal ein |
 | Compat-/Handshake-Modelle des `/v1/compat`-Vertrags | FK-91 | konstitutiv beidseitig |
 
 Ausdruecklich **nicht** aufgenommen:
@@ -1223,10 +1300,16 @@ ausdruecklich mit (§7.9a).
 Abhaengigkeit folgt ihrem Laufzeitbesitzer. Belege sind die gemessenen
 Importbereiche (2026-08-07, AST ueber alle 1042 Module).
 
+Die Sollmenge einer Distribution umfasst **alle direkten
+Paketabhaengigkeiten**, nicht nur Drittbibliotheken: Edge und Kern
+deklarieren beide zusaetzlich `agentkit-wire`. Ohne diese Festlegung
+waere eine korrekte Metadatei zugleich vorgeschrieben und ueberschuessig
+(FK-07 §7.9a.2 Punkt 5b gegen 5d).
+
 | Abhaengigkeit | Besitzer | Beleg (Importbereich) |
 |---|---|---|
-| `pydantic` | **Vertragspaket** | Die Wire-Modelle sind Pydantic-Modelle; Edge und Kern erhalten sie transitiv ueber `agentkit-wire`. Einzige Drittabhaengigkeit, die das I/O-freie Blatt tragen darf |
-| `pyyaml` | **Edge und Kern, je eigenstaendig deklariert** | Edge: `config/loader`, `installer/*`, `concepts/frontmatter`. Kern: `concept_catalog`, `utils/io`. Beide brauchen sie unabhaengig voneinander; das erzeugt keine Kopplung und keinen gemeinsamen Code. **Dies ist die einzige zulaessige beidseitige Deklaration; die Liste ist abschliessend** |
+| `pydantic` | **alle drei, je eigenstaendig deklariert** | Gemessen 2026-08-07: Edge und Kern importieren `pydantic` **direkt** (u. a. `harness_client/harness_adapters/claude_code_models.py:8`, `backend/execution_planning/scheduling.py:34`; 8 bzw. 134 Dateien). Eine transitive Versorgung ueber `agentkit-wire` waere nach der eigenen Definition — `runtime_dependencies` meint **alle direkten** Paketabhaengigkeiten — ein Fehlbestand. Fuer das Vertragspaket bleibt es die **einzige** zulaessige Drittabhaengigkeit |
+| `pyyaml` | **Edge und Kern, je eigenstaendig deklariert** | Edge: `config/loader`, `installer/*`, `concepts/frontmatter`. Kern: `concept_catalog`, `utils/io`. Beide brauchen sie unabhaengig voneinander; das erzeugt keine Kopplung und keinen gemeinsamen Code. Die abschliessende Menge zulaessiger Doppeldeklarationen steht als `dual_declared_dependencies` in der Formal-Spec (heute `pydantic`, `pyyaml`) |
 | `psycopg`, `psycopg-pool` | **Kern** | ausschliesslich `backend/state_backend/postgres_store` (9 + 1 Importstellen). Auf dem Entwicklerrechner **nicht installiert** |
 | `argon2-cffi` | **Kern** | ausschliesslich `backend/auth/credentials.py` |
 | `weaviate-client` | **Edge** | ausschliesslich `integration_clients/vectordb/weaviate_adapter.py`; F3 traegt diese Last bewusst, damit die semantische Suche nicht ueber den Netzweg laeuft |

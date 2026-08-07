@@ -9,5 +9,27 @@ size: L
 # Kein Zwischenstand mit alten und neuen Import-/Installationswegen. Das
 # Distribution-Gate landet im selben Diff wie der Schnitt; ein spaeteres Gate
 # waere eine nur konventionelle Grenze und widerspraeche dem Decision Record.
-depends_on: ["AG3-208"]
+# ORCHESTRATOR-ENTSCHEID 2026-08-07: zusaetzliche Abhaengigkeit auf AG3-237.
+#
+# AG3-208 hat den Distributionsschnitt zielbildhaft gesetzt, die
+# Klassifikation der Backend-Subpakete aber VOLLSTAENDIG an AG3-237 abgegeben
+# (PO-Entscheid 2026-08-07). Offen sind nicht vier Bereiche, sondern ALLE 44
+# unmittelbaren Backend-Subpakete: es gibt kein default_distribution und keine
+# Auffangregel mehr. Vier davon -- governance/, installer/,
+# control_plane.models und config/{models,defaults,worker_health} -- sind
+# bereits als gemischt VERMESSEN und stehen als Eingangsmaterial in
+# pending_symbol_inventory; die uebrigen 40 sind schlicht ungemessen.
+#
+# Ohne AG3-237 muesste AG3-209 die gesamte Klassifikation selbst erfinden --
+# genau das Raten, das der Schnitt vermeiden soll. Die Vorbedingung von
+# distribution_membership_is_total_and_disjoint greift erst, wenn
+# pending_symbol_inventory leer ist.
+#
+# BAUAUFTRAG, der hier bleibt: Das Packaging-Gate existiert heute NICHT.
+# architecture_conformance.py implementiert keine Distributionspruefung, und
+# `pending_symbol_inventory` kommt in tools/, scripts/, src/ und tests/ nicht
+# vor. Der in AG3-208 spezifizierte Fail-closed-Pfad (NOT_RUN statt PASS,
+# blocks_pass: true) ist eine Anweisung an DIESE Story -- er wirkt erst, wenn
+# sie ihn baut.
+depends_on: ["AG3-208", "AG3-237"]
 unblocks: []

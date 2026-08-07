@@ -1,6 +1,6 @@
 story_id: AG3-236
 story_title_short: "wrapper-platzhalter-nachziehen"
-title: "154 Fundstellen tragen einen zurueckgezogenen Platzhalter -- bis sie nachgezogen sind, gilt jede von ihnen als veraltet."
+title: "162 Fundstellen tragen einen zurueckgezogenen Platzhalter -- bis sie nachgezogen sind, gilt jede von ihnen als veraltet."
 type: implementation
 status: ready
 phase: setup
@@ -16,12 +16,19 @@ size: M
 #   `<absolute-agentkit-wrapper> dashboard`  obwohl es das Verb nicht gibt
 #
 # An seine Stelle treten vier eindeutige Platzhalter (Edge-CLI, Kern-CLI, zwei
-# Hook-Wrapper), und die Aufloesungsregel lautet: DAS VERB ENTSCHEIDET.
+# Hook-Wrapper), und die Aufloesungsregel lautet:
+# DER VOLLSTAENDIGE KOMMANDOPFAD ENTSCHEIDET.
+# NICHT "das Verb entscheidet" -- `auth` entscheidet gerade nicht:
+# `auth bootstrap` gehoert dem Kern, die REST-Unterverben dem Edge.
 #
-# UMFANG, gemessen: 154 Fundstellen in 49 Dateien, davon 18 unter
-# concept/formal-spec/*/commands.md (Prosa-Formal-Audit). Dazu aktive bare
-# `agentkit ...`-Kommandos in FK-91:575 und FK-41, obwohl FK-10 das Script
-# zurueckzieht.
+# UMFANG, NEU GEMESSEN 2026-08-07 (die frueher hier stehende Zahl 154 war
+# falsch): 162 Vorkommen auf 157 Zeilen in 49 Dateien.
+# MESSSCOPE IST AUSDRUECKLICH `concept/` -- repo-weit waeren es 171 Vorkommen
+# auf 166 Zeilen in 53 Dateien, weil die Storytexte mitzaehlen. Wer ohne
+# Scope misst, bekommt eine andere Zahl und haelt sie fuer dieselbe.
+# Unter concept/formal-spec/ sind es 18 DATEIEN (15 commands.md, 3 README.md),
+# nicht 18 Fundstellen. Dazu ~40 bare `agentkit ...`-Befehlszeilen in FK-91
+# 91.1 und FK-41, obwohl FK-10 das Script zurueckzieht.
 #
 # Das ist Schreibarbeit ohne fachliche Entscheidung -- die Entscheidung ist in
 # AG3-208 gefallen. Genau deshalb ist es eine eigene Story: ein Massenrename
@@ -33,5 +40,11 @@ size: M
 # weil ein Verb einer Distribution zuzuweisen, das es nicht gibt, ein
 # heimatloser Eintrag mit erfundenem Eigentuemer waere. Sie sind vorbestehende
 # Drift, Owner PO.
+#
+# KORREKTUR 2026-08-07: Es sind ELF Kommandopfade, nicht neun -- die alte Liste
+# enthielt rechnerisch nur acht verschiedene Pfade, und der Korpus traegt drei
+# weitere nicht implementierte Verben (approve-integration-manifest,
+# amend-integration-manifest, guard-status, FK-91 91.1). Gegen den Dispatcher
+# nachgezaehlt (cli/main.py, cli/auth_commands.py).
 depends_on: ["AG3-208"]
 unblocks: []

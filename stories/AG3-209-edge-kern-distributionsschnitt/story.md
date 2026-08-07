@@ -2,7 +2,9 @@
 
 - **Typ:** implementation
 - **Groesse:** L
-- **Abhaengigkeiten:** `depends_on: ["AG3-208"]`
+- **Abhaengigkeiten:** `depends_on: ["AG3-208", "AG3-237"]` — AG3-208 liefert
+  Regel, Artefakte und Vertraege; **AG3-237 liefert die Klassifikation** der
+  44 Backend-Subpakete und das Symbolinventar des Vertragspakets
 - **Quell-Konzept:** das in AG3-208 nachgezogene FK-10-Zielbild, FK-01
   (Trust Boundaries), FK-30 (lokale Guard-Engine), FK-07 §7.7-§7.9
 - **Herkunft:** PO-Entscheidung vom 2026-08-03,
@@ -13,10 +15,11 @@
 
 ### Der Ist-Zustand ist nicht nur ein Importproblem
 
-`pyproject.toml:74-80` baut heute ein Wheel `agentkit` aus dem gesamten
-`src/agentkit` und liefert drei Scripts daraus. Die 40 in AG3-208 vollstaendig
-inventarisierten Kanten aus `harness_client` greifen auf 20 Backend-Module zu:
-25 DTO-/Vertragskanten, 9 Engine-Kanten und 6 Hilfsfunktionskanten. In der
+`pyproject.toml` baut heute ein Wheel `agentkit` aus dem gesamten
+`src/agentkit` und liefert drei Scripts daraus. Die Kante aus `harness_client`
+umfasst am 2026-08-07 **49 Importstellen ueber 25 Backend-Module**; die
+Gegenrichtung **46 Stellen in 22 Dateien ueber 9 harness_client-Module**. Die
+frueher genannten 40/20 sind ueberholt. In der
 Gegenrichtung importieren vor allem Guard-Engine, Installer und gemischte CLI
 den ProjectEdge-Client und Harness-Writer.
 
@@ -73,11 +76,13 @@ enthaelt niemals einen Direkt-DB-Fallback.
   Story-Creation, ProjectEdge-Code, lokale Provider-Port-Anteile, Installer und
   Bediener-CLI zum Edge; Control-Plane, kanonische Services/Persistenz und
   Kern-CLI zum Kern; ausschliesslich beidseitige Wire-Modelle zum
-  Vertragspaket. `frontend`, `integration_clients`, `bundles`, der Paket-Root
-  und jede bis dahin hinzugekommene Deployment Unit werden gemaess der
-  AG3-208-Matrix mitgeschnitten; nichts bleibt nur deshalb in beiden Wheels,
+  Vertragspaket. **Klassifikationsquelle ist AG3-237**, nicht AG3-208:
+  AG3-208 liefert die Regel (`symbol_boundary_is_the_rule`), AG3-237 die
+  gemessene Zuordnung aller 44 Backend-Subpakete und das Symbolinventar.
+  `frontend`, `integration_clients`, `bundles` und der Paket-Root sind in
+  FK-10 §10.2.12 A/C zugeordnet; nichts bleibt nur deshalb in beiden Wheels,
   weil es heute unter dem gemeinsamen `src/agentkit` liegt.
-- Die 40 Vorwaertskanten, alle in AG3-208 inventarisierten Gegenkanten, die
+- Die 49 Vorwaerts- und 46 Gegenkanten, die
   zusaetzlichen Backend-Importe im deployten Target-Project-Launcher und alle
   Aufrufstellen in `src/`, `tests/`, `scripts/` und paketierten Assets im
   selben Zug migrieren. Alte Modulpfade werden geloescht, nicht re-exportiert.
@@ -130,11 +135,11 @@ enthaelt niemals einen Direkt-DB-Fallback.
 | `src/agentkit/bundles/target_project/**` | geaendert | Launcher-, Hook-, MCP- und Interpreterpfade zeigen ausschliesslich auf Edge |
 | `src/agentkit/backend/installer/**` bzw. neue Edge-Heimat | verschoben/geaendert | Projektinstallation ist Laptop-Laufzeit |
 | `src/agentkit/backend/cli/**` bzw. getrennte Edge-/Kern-CLI-Heimaten | verschoben/geaendert | kein gemeinsamer eager Dispatcher ueber beide Artefakte |
-| `concept/formal-spec/architecture-conformance/**` | ggf. synchron nachgezogen | die in AG3-208 normierten Pfade muessen zum realen Schnitt passen; keine neue Grundentscheidung |
+| `concept/formal-spec/architecture-conformance/**` | ggf. synchron nachgezogen | die in AG3-208 und AG3-237 normierten Pfade muessen zum realen Schnitt passen; keine neue Grundentscheidung |
 | `scripts/ci/check_distribution_boundaries.py` | neu | blockierendes Artefakt-/Import-/Dependency-Gate |
 | `Jenkinsfile`, `.githooks/pre-commit` | geaendert | Gate im Pflichtlauf; nicht gelaufen ist nie PASS |
 | `tests/{unit,integration,contract,e2e}/**` | verschoben/geaendert/neu | Imports, Distributionstestkontexte, Clean-Install- und echte Hook-Nachweise |
-| `PROJECT_STRUCTURE.md` | nur falls Pfadkorrektur noetig | format-/locator-treuer Nachzug zum in AG3-208 bereits entschiedenen Zielbild |
+| `PROJECT_STRUCTURE.md` | nur falls Pfadkorrektur noetig | format-/locator-treuer Nachzug zum in AG3-208 entschiedenen Zielbild und der AG3-237-Klassifikation |
 
 ## Akzeptanzkriterien
 
@@ -143,8 +148,8 @@ enthaelt niemals einen Direkt-DB-Fallback.
    `METADATA`, `Requires-Dist` und Console-Scripts entsprechen jeweils ihrer
    Ownership-Matrix. Weder Edge noch Kern packt den Quellbaum der anderen
    Distribution mit ein.
-2. **Ein atomarer Import-/Namespace-Schnitt:** Alle 40 Vorwaertskanten, alle
-   Gegenkanten und alle Target-Project-Launcher-Importe sind auf ihre neue
+2. **Ein atomarer Import-/Namespace-Schnitt:** Alle 49 Vorwaertskanten, alle
+   46 Gegenkanten und alle Target-Project-Launcher-Importe sind auf ihre neue
    Heimat migriert. Kein alter produktiver Modulpfad loest noch auf; ein
    Negativtest importiert repraesentative entfernte Engine-, DTO- und
    Helper-Pfade und erwartet `ModuleNotFoundError`. Es gibt keinen Re-Export,
@@ -188,7 +193,8 @@ enthaelt niemals einen Direkt-DB-Fallback.
 9. **Realitaetsnachweis auf einer kernfreien Edge-Maschine:** In einer neuen
    Windows-venv und einer neuen macOS-venv wird die Edge-Distribution normal
    aus den gebauten Wheels installiert; die Kern-Distribution und alle nach
-   AG3-208 core-only klassifizierten Pakete sind nachweislich nicht installiert.
+   **AG3-237** core-only klassifizierten Pakete sind nachweislich nicht
+   installiert.
    Ein auf einem separaten, vom Laptop nur ausgehend erreichbaren Host
    installierter Kern lauscht auf seiner echten HTTP-Schnittstelle; ein
    in-process oder in derselben venv gestarteter Kern erfuellt dieses Kriterium
@@ -237,8 +243,11 @@ enthaelt niemals einen Direkt-DB-Fallback.
   Exit-Code und HTTP-Nachweis.
 - Die drei Gate-Mutationen aus AC 8 sind dokumentiert und vollstaendig
   zurueckgenommen.
-- `.venv\Scripts\python -m pytest`, `ruff`, `mypy`, alle deterministischen
-  Konzept-/Architektur-Gates, Jenkins und Sonar sind gruen.
+- `ruff`, `mypy` und die sechs deterministischen Konzept-/Architektur-Gates
+  sind lokal gruen; die von der Aenderung betroffene Test-Teilmenge ist lokal
+  gruen. **Der vollstaendige Testnachweis kommt ausschliesslich aus Jenkins**
+  (`AGENTS.md`, PO-Anweisung 2026-08-04): ein lokaler `pytest`-Lauf ohne
+  Pfadangabe ist untersagt. Jenkins und Sonar sind gruen.
 - Unabhaengiges Codex-Review erreicht eines der Abbruchkriterien aus
   `CLAUDE.md`.
 - Kein bestehender Story-Status wird durch diese Story eigenmaechtig geaendert.

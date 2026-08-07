@@ -213,8 +213,9 @@ fuehrt. Sie sind hier benannt statt stillschweigend weggelassen:
 | FK-50 §50.1/§50.2/CP 1/§50.5.1/CP 10b (Ebene-2-Beschreibung, `agentkit register-project`, CP-1-Pflichtsatz, „die installierte Distribution", `-m agentkit.backend.vectordb.cli`) | **Widerspruch — in AG3-208 behoben** | Ebene 2 traegt jetzt benannt `agentkit-project-edge` + `agentkit-wire`; CP 1 prueft beide Distributionen **und** die Abwesenheit der kern-only Menge; die Git-Hook-Aufrufe sind als Edge-Entry-Point-Ziel normiert. |
 | FK-13 §13.4 (`-m agentkit.backend.vectordb.engine`) | **Widerspruch — in AG3-208 normativ aufgeloest, Umsetzung AG3-209** | Zielzustand ist der Edge-Entry-Point `agentkit-story-mcp`; `engine.main` bleibt der stdio-Einstieg, nur der Aufrufweg wechselt. |
 | FK-76 §76.2/§76.4 (`agentkit.harness_integration.*`) | **Widerspruch — in AG3-208 behoben** | Nannte eine dritte Paketwurzel, die weder `PROJECT_STRUCTURE.md` noch `entities.md` je gefuehrt haben und die es im Code nie gab. Soll-Pfad ist jetzt `agentkit_project_edge.harness_adapters.*`; zusaetzlich festgehalten, dass Bounded Context und Auslieferungsartefakt verschiedene Achsen sind. |
+| FK-91 §91.1 (rund 40 normative Befehlszeilen als `agentkit …`, darunter `auth bootstrap`) | **Widerspruch — Anker gesetzt, Textnachzug offen** | Der Anker fuer `auth bootstrap` liegt in §91.1/§91.1a (nicht §91.4, das ist der Hook-Katalog). Die Befehlszeilen sind **keine** Platzhalter-Fundstellen und fallen daher nicht unter den Platzhalter-Nachzug; sie brauchen denselben Auftrag, mit dem vollstaendigen Kommandopfad als Regel. §91.1 nennt zudem drei nicht implementierte Verben (`approve-integration-manifest`, `amend-integration-manifest`, `guard-status`). |
 | FK-92 §92.1.1 (Zielstruktur `src/agentkit/{component_name}/`, `integrations/`, `agentkit/process/language/`) | **Widerspruch — in AG3-208 behoben** | Widersprach bereits `PROJECT_STRUCTURE.md`; der Schnitt macht die Abweichung groesser, erzeugt sie aber nicht. Zielstruktur ist jetzt Deployment-Unit-first, der Adapterpfad `integration_clients/` mit Distributionszuordnung, die Prozesssprache im Kern. |
-| FK-45 §45.4 und rund 150 weitere Stellen mit `<absolute-agentkit-wrapper>` | **aufgeloest ohne Textaenderung** | Der Platzhalter bezeichnet ab sofort ausschliesslich das Edge-Script `agentkit-project-edge` (FK-10 §10.2.11). Damit ist er eindeutig; das Umschreiben des Platzhalter-Textes an 152 Stellen in 49 Dateien ist reine Schreibarbeit ohne fachliche Entscheidung und gehoert nicht in diese Story. |
+| FK-45 §45.4 und 153 weitere Stellen mit `<absolute-agentkit-wrapper>` | **Platzhalter zurueckgezogen, Textnachzug offen** | Der Platzhalter ist **ungueltig** (§9.2), nicht umgedeutet; an seine Stelle treten vier eindeutige Platzhalter (FK-10 §10.2.11). Jede verbleibende Fundstelle gilt als veraltet. Der Nachzug in 49 Dateien ist ein eigener Auftrag. |
 | FK-72 (Frontend) | **verortet in AG3-208** | Die Frontend-Deployment-Unit war im Zwei-Distributionen-Bild unverortet; FK-10 §10.2.12 A weist sie dem Kern zu (I6). FK-72 selbst enthaelt keine widersprechende Aussage. |
 | `guardrails/architecture-guardrails.md`, `guardrails/testing-guardrails.md` | **Luecke, Owner PO** | Kennen den Deployment-Unit-Begriff nicht und koennen die Distributionsgrenze deshalb nicht stuetzen. Beschluss 3.3 verlangt maschinelle Wahrheit; die Durchsetzung liegt jetzt in FK-07 §7.9a, nicht in den Guardrails. |
 | `concept/formal-spec/installer/*` | **Luecke, Owner AG3-209** | 300+ Installer-Aussagen, aber keine einzige nennt das installierte **Artefakt**. |
@@ -235,7 +236,7 @@ Das Drei-Achsen-Review hat acht Befunde erhoben. Drei davon sind
 **Entscheidungen**, die hier festgehalten werden, weil AG3-209 sie sonst
 selbst erfinden muesste:
 
-**9.1 `auth bootstrap` ist das vierte Kern-Verb.** Es ist per FK-91 §91.4
+**9.1 `auth bootstrap` ist der vierte Kern-Kommandopfad.** Es ist per FK-91 §91.1
 die einzige Nicht-API-Operation und schreibt beim lokalen Credential-Owner
 der Core-Maschine (`backend/cli/auth_commands.py:336`,
 `StrategistCredentialStore`). Als Edge-Verb waere es das einzige, das
@@ -248,27 +249,106 @@ das einzige, das sich auf beide Distributionen verteilt.
 
 **9.2 Der Platzhalter `<absolute-agentkit-wrapper>` wird zurueckgezogen,
 nicht umgedeutet.** Eine zentrale Umdeutung auf die Edge-CLI haette die
-154 Fundstellen nicht korrigiert, sondern aus mehrdeutigen Kommandos
+162 Vorkommen nicht korrigiert, sondern aus mehrdeutigen Kommandos
 ausdruecklich falsche gemacht — `<absolute-agentkit-wrapper> serve` ist ein
 Kern-Verb. Es gelten stattdessen vier eindeutige Platzhalter
-(FK-10 §10.2.11); die Aufloesungsregel ist **das Verb entscheidet**. Das
-Nachziehen der 154 Fundstellen in 49 Dateien, davon 18 unter
-`concept/formal-spec/*/commands.md`, ist ein eigener Auftrag. Bis dahin
+(FK-10 §10.2.11); die Aufloesungsregel ist **der vollstaendige
+Kommandopfad entscheidet**. Das
+Nachziehen ist ein eigener Auftrag (AG3-236). Umfang, gemessen ueber
+`concept/`: **162 Vorkommen auf 157 Zeilen in 49 Dateien**, davon 18
+Dateien unter `concept/formal-spec/` (15 `commands.md`, 3 `README.md`). Bis dahin
 gilt jede verbleibende Fundstelle als veraltet, nicht als gueltig.
 
-**9.3 Neun Verben im Konzeptkorpus haben keine CLI-Entsprechung**
-(`dashboard`, `resolve-conflict`, `structural`, `policy`, `stages`,
-`migrate`, `install`, `backend health`). Sie koennen **keiner**
+**9.3 Elf Kommandopfade im Konzeptkorpus haben keine CLI-Entsprechung.**
+Acht aus Platzhalter-Fundstellen (`dashboard`, `resolve-conflict`,
+`structural`, `policy`, `stages`, `migrate`, `install`, `backend health`)
+und drei zusaetzlich aus dem FK-91-Katalog
+(`approve-integration-manifest`, `amend-integration-manifest`,
+`guard-status`). Alle elf sind gegen den Dispatcher `cli/main.py`
+nachgezaehlt und dort nicht vorhanden. Sie koennen **keiner**
 Distribution zugeordnet werden, weil es sie nicht gibt. Vorbestehende
 Drift, vom Schnitt nur sichtbar gemacht; Owner der Entscheidung
 „implementieren oder streichen" ist der Product Owner.
 
-Die uebrigen fuenf Befunde sind Korrekturen ohne Entscheidungscharakter und
+**9.4 Die Symbolgrenze ist die Regel, nicht die Ausnahme — und vier
+Bereiche bleiben bewusst offen.** Das zweite Review zeigte, dass vier
+Modulzuweisungen aus Runde 2 falsch waren, alle aus derselben Wurzel:
+ein Modul wurde im Ganzen zugewiesen, obwohl es Belange mischt, und die
+Zieldistribution erbte alles Uebrige. Gemessen am 2026-08-07 (AST,
+symbolgenau):
+
+| Bereich | Mischbefund |
+|---|---|
+| `backend/governance/` | Edge-only `runner` und Guard-Auswertung; Kern-only `integrity_gate/`, `principal_capabilities/`, `setup_preflight_gate/`, `locks`, `guard_system.records` |
+| `backend/installer/` | 33 kernseitig importierte Symbole (HTTP-Modellfamilie, `InstallerMutationCoordinator`, Pfadhelfer) gegen 4 Edge-only |
+| `backend/control_plane/models.py` | 63 Klassen; 21 nur Kern, 7 nur Edge, 38 beidseitig; importiert selbst Edge- und Kern-Module, baut HTTP-Antworten, loggt |
+| `backend/config/{models,defaults,worker_health}.py` | `models` importiert `pathlib`; `defaults:37-65` traegt die Kern-Listener-Ports |
+
+Konsequenz: Die Zuordnung dieser vier Bereiche wird **nicht** getroffen.
+Sie stehen als `pending_symbol_inventory` in
+`formal.architecture-conformance.entities` und sind Eingangsmaterial fuer
+AG3-237; einen Auffangpfad, auf den sie zurueckfallen koennten, gibt es
+nicht. Das Packaging-Gate meldet fuer sie `NOT_RUN` mit Grund statt
+`PASS`. Eine Arithmetik ueber die 44 Subpakete gibt AG3-208 nicht mehr an
+(§9.5).
+
+**Warum offen und nicht entschieden.** Das Symbolinventar dieser vier
+Bereiche ist die inhaltliche Spezifikation des Vertragspakets und zweier
+geteilter Pakete — rund 150 Symbole mit je eigener Begruendung. Es
+braucht eine eigene Messung, eine eigene Betroffenheitspruefung und ein
+eigenes Review. Eine in derselben Runde nebenher erfundene Zuordnung
+waere genau der Fehler, der die drei Reviewrunden verursacht hat. AG3-208
+liefert Regel, Mechanismus und Messgrundlage; die Zuordnung ist eigener
+Auftrag.
+
+**9.5 Zuschnittentscheidung: die Klassifikation verlaesst AG3-208.** Das
+dritte Review zeigte, dass `symbol_boundary_is_the_rule` und vier
+Pending-Eintraege den Fehler nur verkleinert haben: `cli` galt weiter als
+„vollstaendig Edge", zehn Zeilen nachdem dasselbe Kapitel vier
+Kern-Kommandopfade darin benannte; `control_plane`, `failure_corpus`,
+`bootstrap`, `implementation` und `telemetry` galten als rein und tragen
+Edge-Durchgriffe. Jede Runde fand die naechste unbelegte Zuweisung.
+
+Deshalb behauptet AG3-208 die Klassifikation der 44 unmittelbaren
+Backend-Subpakete **nicht mehr**. Es liefert:
+
+- die **Regel** (`symbol_boundary_is_the_rule`) — eine Praefixzuweisung
+  ist nur zulaessig, wo gemessen ist, dass das Modul keine Belange mischt;
+- den **Mechanismus** (Symbolgrenzen, Packaging-Gate mit `NOT_RUN`-Semantik,
+  Distributions- und Dependency-Invarianten);
+- die **Feststellung**, dass die Klassifikation gemessen werden muss, mit
+  der bereits erhobenen Messung als Eingangsmaterial;
+- den **Eigentuemer**: AG3-237, fuer alle 44.
+
+Ersatzlos entfallen sind damit die Arithmetik `3 + 6 + 35` und —
+wichtiger — `default_distribution`. Eine Auffangregel macht die Zuordnung
+nur scheinbar total: sie weist jedem nicht gemessenen Modul einen
+Eigentuemer zu, ohne dafuer einen Beleg zu haben. Genau daraus sind die
+unbelegten Zuweisungen entstanden. Bis AG3-237 die Klassifikation
+schliesst, ist `distribution_classification_status: open` und das
+Packaging-Gate meldet `NOT_RUN` mit genau diesem Grund.
+
+**9.6 Zwei Vertragsfehler der eigenen Dependency-Regel.** `pydantic` galt
+als Wire-only mit transitiver Versorgung; gemessen importieren Edge (8
+Dateien) und Kern (134 Dateien) es **direkt**, was nach der eigenen
+Definition „alle direkten Paketabhaengigkeiten" ein Fehlbestand war. Es
+steht jetzt in allen drei Sollmengen und in `dual_declared_dependencies`.
+`agentkit-wire` kommt dort **nicht** hinein: seine beidseitige Deklaration
+ist nicht geduldet, sondern **vorgeschrieben** — eine Pflicht als Ausnahme
+zu fuehren waere falsch. **Praezisierung des Vertrags:**
+`no_inter_distribution_package_dependency` *erlaubt* die Kanten Edge→Wire
+und Kern→Wire lediglich; **vorgeschrieben** werden sie durch die
+Runtime-Sollmengen (`agentkit-wire` steht in beiden) zusammen mit der
+beidseitigen Gleichheitspruefung
+`declared_dependencies_match_normative_sets`. Die Duldungsregel gilt
+deshalb ausdruecklich nur fuer Drittdistributionen.
+
+Die uebrigen fuenf Befunde der zweiten Runde sind Korrekturen ohne Entscheidungscharakter und
 in den zustaendigen Kapiteln behoben: die Maschinen-/Umgebungsverwechslung
 (FK-10 §10.2.0), die Kollision zwischen Ownership-Matrix und Formal-Spec
 bei `backend/config/*` (FK-10 §10.2.12 B, `entities.md`), die undeklarierte
 Kern-Abhaengigkeit `packaging` (FK-10 §10.2.12 E, FK-01 P7,
 `entities.md`), die Zaehlfehler bei den Backend-Subpaketen (44 statt 46,
-mit nachpruefbarer Arithmetik 5 + 4 + 35) und die Luecken der
+— die Zaehlung selbst ist inzwischen ueberholt, siehe §9.5) und die Luecken der
 Dependency-Pruefung im Packaging-Gate (FK-07 §7.9a.2 Punkt 5,
 `invariants.md`).

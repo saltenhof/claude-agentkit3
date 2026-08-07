@@ -519,12 +519,18 @@ nur das Bild:
 | Distribution | Runtime-Dependencies | Zweck |
 |--------------|----------------------|-------|
 | `agentkit-wire` | `pydantic` | Wire-Modelle validieren (frozen, strict). Einzige Drittabhaengigkeit des I/O-freien Blatts |
-| `agentkit-project-edge` | `pyyaml`, `tomlkit`, `mcp` (≥ 1.2.0, < 2), `weaviate-client` (4.9–5.0), `tokenizers`, `psutil` — plus `pydantic` transitiv ueber `agentkit-wire` | lokale Konfiguration, Codex-Config-Merge, lokal gestartete MCP-Server, semantische Suche (Carve-out §1.1a), deterministische Chunk-Groesse, Prozessmonitoring der MCP-Registrierung |
-| `agentkit-backend` | `pyyaml`, `psycopg[binary]`, `psycopg-pool`, `argon2-cffi`, `packaging` — plus `pydantic` transitiv | Konzept-Korpus lesen, kanonischer State, Credential-Hashing, Skill-Versionspolitik |
+| `agentkit-project-edge` | `agentkit-wire`, `pydantic`, `pyyaml`, `tomlkit`, `mcp` (≥ 1.2.0, < 2), `weaviate-client` (4.9–5.0), `tokenizers`, `psutil` | lokale Konfiguration, Codex-Config-Merge, lokal gestartete MCP-Server, semantische Suche (Carve-out §1.1a), deterministische Chunk-Groesse, Prozessmonitoring der MCP-Registrierung |
+| `agentkit-backend` | `agentkit-wire`, `pydantic`, `pyyaml`, `psycopg[binary]`, `psycopg-pool`, `argon2-cffi`, `packaging` | Konzept-Korpus lesen, kanonischer State, Credential-Hashing, Skill-Versionspolitik |
 
 Die `mcp`-Grenze ist beidseitig: `mcp.server.fastmcp` gibt es erst ab
 1.2.0, und 2.0 liefert weder `mcp.server.fastmcp` noch `mcp.types`; das
 `cli`-Extra wird nicht gebraucht.
+
+`pydantic` wird von allen drei Artefakten **direkt** importiert und deshalb
+auch von allen drei deklariert (gemessen 2026-08-07: 8 Dateien im Edge,
+134 im Kern). Eine transitive Versorgung ueber `agentkit-wire` waere nach
+der Definition „alle direkten Paketabhaengigkeiten" ein Fehlbestand. Fuer
+das Vertragspaket bleibt es die einzige zulaessige Drittabhaengigkeit.
 
 `packaging` steht heute in **keiner** Dependency-Deklaration und kommt nur
 transitiv mit. Das faellt erst beim Schnitt auf: der Kern verlaesse sich
