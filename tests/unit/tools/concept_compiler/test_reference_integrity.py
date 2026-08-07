@@ -427,7 +427,18 @@ def test_production_scalar_defers_to_entries_are_not_invalid() -> None:
         repo_root / "concept/_meta/reference-integrity-baseline.yaml",
     )
 
-    assert scalar_count == 47
+    # Der Zweck dieser Zaehlung ist NICHT, den Korpusstand zu pinnen, sondern die
+    # Zusicherung darunter vor dem Leerlauf zu schuetzen: Gaebe es keinen einzigen
+    # skalaren defers_to-Eintrag, waere "kein INVALID_DEFERS_TO_EDGE" trivial wahr
+    # und der Test gruen, ohne etwas zu bewachen.
+    #
+    # Eine exakte Zahl leistet dafuer nichts zusaetzliches. Sie bricht bei jeder
+    # unabhaengigen Korpuserweiterung -- zuletzt am 2026-08-07, als AG3-237 einen
+    # Decision Record mit vier weiteren skalaren Kanten hinzufuegte (47 -> 51) und
+    # damit einen gruenen main rot machte, ohne dass an der geprueften Eigenschaft
+    # irgendetwas anders war. Wer hier wieder eine feste Zahl eintraegt, stellt den
+    # Fehler wieder her.
+    assert scalar_count > 0, "keine skalaren defers_to-Kanten im Korpus -- die Zusicherung unten liefe leer"
     assert not any(finding.code == "INVALID_DEFERS_TO_EDGE" for finding in result.findings)
 
 
