@@ -3004,7 +3004,8 @@ wire_target_modules:
 wire_target_symbol_total: 118
 wire_hull_addition_total: 23
 wire_deferred_symbols:
-  - module: agentkit.backend.config.models
+  - id: architecture-conformance.wire_deferred.config_models
+    module: agentkit.backend.config.models
     symbols:
       - symbol: ProjectConfig
         hull_blocker: "forbidden stdlib pathlib via agentkit.backend.config.models.OrchestratorGuardConfig"
@@ -3014,7 +3015,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.control_plane.models
+  - id: architecture-conformance.wire_deferred.control_plane_models
+    module: agentkit.backend.control_plane.models
     symbols:
       - symbol: CreateStoryInputs
         hull_blocker: "hull crosses to edge: agentkit.backend.story_creation.reconciliation_evidence.ReconciliationEvidence"
@@ -3028,7 +3030,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.core_types.verify_evidence
+  - id: architecture-conformance.wire_deferred.core_types_verify_evidence
+    module: agentkit.backend.core_types.verify_evidence
     symbols:
       - symbol: CollectVerifyEvidenceCommandPayload
         hull_blocker: "forbidden stdlib pathlib via agentkit.backend.core_types.verify_evidence._validated_relative_path"
@@ -3048,7 +3051,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.governance.errors
+  - id: architecture-conformance.wire_deferred.governance_errors
+    module: agentkit.backend.governance.errors
     symbols:
       - symbol: HookRegistrationError
         hull_blocker: "not proven as /v1 vocabulary (review round 2)"
@@ -3056,7 +3060,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.governance.guard_evaluation
+  - id: architecture-conformance.wire_deferred.governance_guard_evaluation
+    module: agentkit.backend.governance.guard_evaluation
     symbols:
       - symbol: HookEvent
         hull_blocker: "not proven as /v1 vocabulary (review round 2)"
@@ -3064,7 +3069,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.governance.guard_system.records
+  - id: architecture-conformance.wire_deferred.governance_guard_system_records
+    module: agentkit.backend.governance.guard_system.records
     symbols:
       - symbol: GuardDecisionOutcome
         hull_blocker: "not proven as /v1 vocabulary (review round 2)"
@@ -3072,7 +3078,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.governance.hook_ids
+  - id: architecture-conformance.wire_deferred.governance_hook_ids
+    module: agentkit.backend.governance.hook_ids
     symbols:
       - symbol: POST_HOOK_IDS
         hull_blocker: "local dispatch/validation logic (governance/hook_ids.py:5), not a contract field"
@@ -3086,7 +3093,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.governance.hook_registration
+  - id: architecture-conformance.wire_deferred.governance_hook_registration
+    module: agentkit.backend.governance.hook_registration
     symbols:
       - symbol: HookId
         hull_blocker: "local dispatch/validation logic (governance/hook_ids.py:5), not a contract field"
@@ -3096,7 +3104,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.governance.protocols
+  - id: architecture-conformance.wire_deferred.governance_protocols
+    module: agentkit.backend.governance.protocols
     symbols:
       - symbol: ViolationType
         hull_blocker: "not proven as /v1 vocabulary (review round 2)"
@@ -3104,7 +3113,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.implementation.worker_health.models
+  - id: architecture-conformance.wire_deferred.implementation_worker_health_models
+    module: agentkit.backend.implementation.worker_health.models
     symbols:
       - symbol: AgentHealthState
         hull_blocker: "hull reaches behaviour (function): agentkit.backend.implementation.worker_health.models.utc_now"
@@ -3112,7 +3122,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.installer.http_models
+  - id: architecture-conformance.wire_deferred.installer_http_models
+    module: agentkit.backend.installer.http_models
     symbols:
       - symbol: RegisterProjectStateRequest
         hull_blocker: "forbidden stdlib pathlib via agentkit.backend.installer.http_models.RegisterProjectStateRequest"
@@ -3122,7 +3133,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.installer.registration
+  - id: architecture-conformance.wire_deferred.installer_registration
+    module: agentkit.backend.installer.registration
     symbols:
       - symbol: ProjectRegistration
         hull_blocker: "forbidden stdlib pathlib via agentkit.backend.installer.registration.ProjectRegistration"
@@ -3130,7 +3142,8 @@ wire_deferred_symbols:
       decompose before the symbol can migrate: replace Path-typed wire
       fields with strings validated in the core, and move behaviour out of
       the payload type. until then the symbol stays with its current side.
-  - module: agentkit.backend.story_creation.reconciliation_evidence
+  - id: architecture-conformance.wire_deferred.story_creation_reconciliation_evidence
+    module: agentkit.backend.story_creation.reconciliation_evidence
     symbols:
       - symbol: ReconciliationEvidence
         hull_blocker: "hull crosses to core: agentkit.backend.verify_system.llm_evaluator.roles.LlmVerdict"
@@ -3174,21 +3187,24 @@ wire_deferred_symbol_total: 28
 wire_excluded_crossings_status: superseded-no-authority
 wire_excluded_crossings_owner: AG3-209
 wire_excluded_crossings:
-  - module: agentkit.backend.boundary.network
+  - id: architecture-conformance.wire_excluded.boundary_network
+    module: agentkit.backend.boundary.network
     symbols:
       - LoopbackBindHostError
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.code_backend.provider_port
+  - id: architecture-conformance.wire_excluded.code_backend_provider_port
+    module: agentkit.backend.code_backend.provider_port
     symbols:
       - StoryRefWriteCredentialClass
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.config.defaults
+  - id: architecture-conformance.wire_excluded.config_defaults
+    module: agentkit.backend.config.defaults
     symbols:
       - CORE_PROJECT_API_PORT
       - CORE_UI_BFF_PORT
@@ -3200,14 +3216,16 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.control_plane.writer_lease
+  - id: architecture-conformance.wire_excluded.control_plane_writer_lease
+    module: agentkit.backend.control_plane.writer_lease
     symbols:
       - ControlPlaneWriterAlreadyActiveError
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.core_types.mcp_server_registration
+  - id: architecture-conformance.wire_excluded.core_types_mcp_server_registration
+    module: agentkit.backend.core_types.mcp_server_registration
     symbols:
       - AK3_MCP_SERVER_NAMES
       - AK3_SERVER_SHAPES
@@ -3223,7 +3241,8 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.core_types.plane_artifact_names
+  - id: architecture-conformance.wire_excluded.core_types_plane_artifact_names
+    module: agentkit.backend.core_types.plane_artifact_names
     symbols:
       - AGENT_SPAWN_SKILL_PROOF_KEY
       - INSTALLED_MANIFEST_FILENAME
@@ -3231,14 +3250,16 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.core_types.qa_artifact_names
+  - id: architecture-conformance.wire_excluded.core_types_qa_artifact_names
+    module: agentkit.backend.core_types.qa_artifact_names
     symbols:
       - CHANGE_FRAME_FILE
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.exceptions
+  - id: architecture-conformance.wire_excluded.exceptions
+    module: agentkit.backend.exceptions
     symbols:
       - ConfigError
       - ConflictAdjudicationUnavailableError
@@ -3248,14 +3269,16 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.governance.errors
+  - id: architecture-conformance.wire_excluded.governance_errors
+    module: agentkit.backend.governance.errors
     symbols:
       - LockRecordNotFoundError
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.governance.locks
+  - id: architecture-conformance.wire_excluded.governance_locks
+    module: agentkit.backend.governance.locks
     symbols:
       - DeactivationResult
       - LockRecordId
@@ -3263,7 +3286,8 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.governance.principal_capabilities.operations
+  - id: architecture-conformance.wire_excluded.governance_principal_capabilities_operations
+    module: agentkit.backend.governance.principal_capabilities.operations
     symbols:
       - WEB_FETCH
       - WEB_SEARCH
@@ -3271,14 +3295,16 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.installer.paths
+  - id: architecture-conformance.wire_excluded.installer_paths
+    module: agentkit.backend.installer.paths
     symbols:
       - QA_DIR
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (edge) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.installer.third_party_errors
+  - id: architecture-conformance.wire_excluded.installer_third_party_errors
+    module: agentkit.backend.installer.third_party_errors
     symbols:
       - ThirdPartyOperationConflictError
       - ThirdPartyServiceUnavailableError
@@ -3286,21 +3312,24 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (edge) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.installer.writer_service
+  - id: architecture-conformance.wire_excluded.installer_writer_service
+    module: agentkit.backend.installer.writer_service
     symbols:
       - InstallerMigrationWitnessError
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (edge) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.integration_stabilization.state
+  - id: architecture-conformance.wire_excluded.integration_stabilization_state
+    module: agentkit.backend.integration_stabilization.state
     symbols:
       - IS_MANIFEST_FILE
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.process.language.model
+  - id: architecture-conformance.wire_excluded.process_language_model
+    module: agentkit.backend.process.language.model
     symbols:
       - FlowLevel
       - NodeKind
@@ -3308,14 +3337,16 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.project_management.entities
+  - id: architecture-conformance.wire_excluded.project_management_entities
+    module: agentkit.backend.project_management.entities
     symbols:
       - ProjectConfiguration
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.skills.errors
+  - id: architecture-conformance.wire_excluded.skills_errors
+    module: agentkit.backend.skills.errors
     symbols:
       - SkillBindingFailedError
       - SkillBindingPartialStateError
@@ -3325,14 +3356,16 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.story_context_manager.models
+  - id: architecture-conformance.wire_excluded.story_context_manager_models
+    module: agentkit.backend.story_context_manager.models
     symbols:
       - StoryContext
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.story_context_manager.story_model
+  - id: architecture-conformance.wire_excluded.story_context_manager_story_model
+    module: agentkit.backend.story_context_manager.story_model
     symbols:
       - CreateStoryInput
       - Story
@@ -3341,28 +3374,32 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.story_context_manager.types
+  - id: architecture-conformance.wire_excluded.story_context_manager_types
+    module: agentkit.backend.story_context_manager.types
     symbols:
       - StoryType
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.story_split.plan_loader
+  - id: architecture-conformance.wire_excluded.story_split_plan_loader
+    module: agentkit.backend.story_split.plan_loader
     symbols:
       - SplitPlanError
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.telemetry.audit_bundle
+  - id: architecture-conformance.wire_excluded.telemetry_audit_bundle
+    module: agentkit.backend.telemetry.audit_bundle
     symbols:
       - AuditBundleExportError
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.telemetry.hooks.base
+  - id: architecture-conformance.wire_excluded.telemetry_hooks_base
+    module: agentkit.backend.telemetry.hooks.base
     symbols:
       - HookContext
       - HookTrigger
@@ -3370,21 +3407,24 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.verify_system.llm_evaluator.bundle
+  - id: architecture-conformance.wire_excluded.verify_system_llm_evaluator_bundle
+    module: agentkit.backend.verify_system.llm_evaluator.bundle
     symbols:
       - ReviewBundle
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.verify_system.llm_evaluator.llm_client
+  - id: architecture-conformance.wire_excluded.verify_system_llm_evaluator_llm_client
+    module: agentkit.backend.verify_system.llm_evaluator.llm_client
     symbols:
       - LlmClientError
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.verify_system.llm_evaluator.roles
+  - id: architecture-conformance.wire_excluded.verify_system_llm_evaluator_roles
+    module: agentkit.backend.verify_system.llm_evaluator.roles
     symbols:
       - LlmVerdict
       - ReviewerRole
@@ -3392,14 +3432,16 @@ wire_excluded_crossings:
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+  - id: architecture-conformance.wire_excluded.verify_system_llm_evaluator_structured_evaluator
+    module: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
     symbols:
       - StructuredEvaluatorResult
     why_not_wire: >-
       not /v1 payload vocabulary: the symbol belongs to the executing owner
       (core) and its cross-side use is a boundary violation
       on the AG3-209 work list, not a contract.
-  - module: agentkit.backend.verify_system.protocols
+  - id: architecture-conformance.wire_excluded.verify_system_protocols
+    module: agentkit.backend.verify_system.protocols
     symbols:
       - TrustClass
     why_not_wire: >-
@@ -3872,52 +3914,60 @@ distribution_anchors:
   # src/agentkit/backend. AC 3 gilt auch fuer sie: jeder traegt seinen
   # Messbeleg. Ihre Zuordnung stammt aus FK-10 Abschnitt A/C und ist in
   # AG3-208 entschieden; AG3-237 hat sie nachgemessen, nicht neu gesetzt.
-  - module_prefix: agentkit.harness_client
+  - id: architecture-conformance.anchor.harness_client
+    module_prefix: agentkit.harness_client
     distribution: edge
     source: FK-10 section A
     measured_evidence: >-
       25 modules, all hook adapters and the project-edge client; runs on the
       developer machine only. measured 2026-08-07.
-  - module_prefix: agentkit.bundles
+  - id: architecture-conformance.anchor.bundles
+    module_prefix: agentkit.bundles
     distribution: edge
     source: FK-10 section A
     measured_evidence: >-
       30 modules, 132 files; everything below is materialised on the developer
       machine. consumers are installer/, skills/bundle_store and the codex
       adapter. measured 2026-08-07.
-  - module_prefix: agentkit.concepts
+  - id: architecture-conformance.anchor.concepts
+    module_prefix: agentkit.concepts
     distribution: edge
     source: FK-10 section A
     measured_evidence: >-
       7 modules (parser, chunking, tokenizer, frontmatter); the only consumers
       are backend/vectordb and backend/story_creation, both edge. measured
       2026-08-07.
-  - module_prefix: agentkit.resources
+  - id: architecture-conformance.anchor.resources
+    module_prefix: agentkit.resources
     distribution: edge
     source: FK-10 section A
     measured_evidence: >-
       tokenizer asset, loaded only by concepts/tokenizer.py. measured
       2026-08-07.
-  - module_prefix: agentkit.integration_clients.vectordb
+  - id: architecture-conformance.anchor.integration_clients_vectordb
+    module_prefix: agentkit.integration_clients.vectordb
     distribution: edge
     source: FK-10 section C
     measured_evidence: >-
       sole importer of weaviate-client, an edge-only distribution; FK-01
       section 1.1a runs Weaviate as a local-direct edge. measured 2026-08-07.
-  - module_prefix: agentkit.integration_clients.mcp
+  - id: architecture-conformance.anchor.integration_clients_mcp
+    module_prefix: agentkit.integration_clients.mcp
     distribution: edge
     source: FK-10 section C
     measured_evidence: >-
       shared client mechanics of the locally started MCP servers. measured
       2026-08-07.
-  - module_prefix: agentkit.frontend
+  - id: architecture-conformance.anchor.frontend
+    module_prefix: agentkit.frontend
     distribution: core
     source: FK-10 section A
     measured_evidence: >-
       0 Python modules, TS/React tree; delivered by the core (`agentkit-backend
       ui`) and speaking REST only (I6). no edge process loads frontend assets.
       measured 2026-08-07.
-  - module_prefix: agentkit.integration_clients
+  - id: architecture-conformance.anchor.integration_clients
+    module_prefix: agentkit.integration_clients
     distribution: core
     source: FK-10 section C
     measured_evidence: >-
@@ -3957,353 +4007,1047 @@ distribution_boundary_violations:
   # ist Liefergegenstand von AG3-209 und existiert nicht. Deshalb steht jedes
   # Paar hier einzeln.
   pairs:
-    - {importer: agentkit.backend.bootstrap.composition_closure, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_exploration, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_governance, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_installer, imported: agentkit.backend.installer.bounded_executor, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_installer, imported: agentkit.backend.installer.mutation_idempotency, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_installer, imported: agentkit.backend.installer.third_party_preflight, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_installer, imported: agentkit.backend.installer.writer_service, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.bootstrap.composition_project_types, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.bootstrap.composition_state, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.bootstrap.story_reset_adapters, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.control_plane.edge_command_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.control_plane.repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.kpi_analytics, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.kpi_analytics.aggregation, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.kpi_analytics.dashboard, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.kpi_analytics.fact_store, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.project_management.read_model_routes, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.pipeline_runtime_store, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.analytics_source, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.control_plane_writer_lease, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.fact_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.freeze_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.governance_hook_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.lock_record_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.parallelization_config_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.project_management_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.story_are_link_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.story_dependency_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.story_read_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.story_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.takeover_approval_read_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.telemetry_projection_repository_misc, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.store.telemetry_read_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.state_backend.story_lifecycle_store, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.story, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.story_context_manager.service, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.story_exit.service, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.story_reset, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.story_split.service, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.task_management.http.routes, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_project, imported: agentkit.backend.task_management.service, direction: edge-to-core}
-    - {importer: agentkit.backend.bootstrap.composition_root, imported: agentkit.backend.bootstrap.composition_project, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_state, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.composition_verify, imported: agentkit.backend.installer.github_coordinates, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.edge_provisioning_adapter, imported: agentkit.backend.installer.github_coordinates, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.story_reset_adapters, imported: agentkit.backend.governance.runner, direction: core-to-edge}
-    - {importer: agentkit.backend.bootstrap.story_reset_adapters, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.cli._operator_ownership_commands, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_ownership_commands, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_admin, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_admin, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_config, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_phase, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_phase, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_state, imported: agentkit.backend.bootstrap.composition_root, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_telemetry, imported: agentkit.backend.bootstrap.composition_root, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_telemetry, imported: agentkit.backend.telemetry.audit_bundle, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_telemetry, imported: agentkit.backend.telemetry.events, direction: edge-to-core}
-    - {importer: agentkit.backend.cli._operator_recovery_telemetry, imported: agentkit.backend.telemetry.storage, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.auth_commands, imported: agentkit.backend.auth.credentials, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.evidence_commands, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.evidence_commands, imported: agentkit.backend.verify_system.evidence, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.evidence_commands, imported: agentkit.backend.verify_system.structural.system_evidence, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.installer_commands, imported: agentkit.backend.config.defaults, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.installer_commands, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.installer_commands, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.lifecycle, imported: agentkit.backend.bootstrap.composition_root, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.lifecycle, imported: agentkit.backend.cli.serve, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.lifecycle, imported: agentkit.backend.control_plane.writer_lease, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.main, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.config.defaults, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.implementation.worker_health.sidecar, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.story_context_manager.service, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.story_exit, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.story_exit.http_models, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.story_reset.http_models, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.story_split.http_models, direction: edge-to-core}
-    - {importer: agentkit.backend.cli.story_commands, imported: agentkit.backend.story_split.plan_loader, direction: edge-to-core}
-    - {importer: agentkit.backend.closure.phase, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.closure.post_merge_finalization.finalization, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.closure.runtime_ports, imported: agentkit.backend.vectordb.client_port, direction: core-to-edge}
-    - {importer: agentkit.backend.closure.runtime_ports, imported: agentkit.backend.vectordb.engine, direction: core-to-edge}
-    - {importer: agentkit.backend.closure.runtime_ports, imported: agentkit.backend.vectordb.mcp_server, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane.models, imported: agentkit.backend.story_creation.reconciliation_evidence, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane.workspace_locator, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane.workspace_locator, imported: agentkit.backend.installer.registration, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane_http.installer_writer_routes, imported: agentkit.backend.installer.http_models, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane_http.installer_writer_routes, imported: agentkit.backend.installer.mutation_idempotency, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane_http.installer_writer_routes, imported: agentkit.backend.installer.registration, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane_http.installer_writer_routes, imported: agentkit.backend.installer.writer_service, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane_http.third_party_validation_routes, imported: agentkit.backend.installer.third_party_errors, direction: core-to-edge}
-    - {importer: agentkit.backend.control_plane_http.third_party_validation_routes, imported: agentkit.backend.installer.third_party_preflight, direction: core-to-edge}
-    - {importer: agentkit.backend.failure_corpus.cli, imported: agentkit.backend.bootstrap.composition_root, direction: edge-to-core}
-    - {importer: agentkit.backend.failure_corpus.cli, imported: agentkit.backend.config.defaults, direction: edge-to-core}
-    - {importer: agentkit.backend.failure_corpus.cli, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.failure_corpus.cli, imported: agentkit.backend.failure_corpus.http_models, direction: edge-to-core}
-    - {importer: agentkit.backend.failure_corpus.writer_client, imported: agentkit.backend.failure_corpus.http_models, direction: edge-to-core}
-    - {importer: agentkit.backend.governance, imported: agentkit.backend.governance.runner, direction: core-to-edge}
-    - {importer: agentkit.backend.governance.default_hook_definitions, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.core_types.qa_artifact_names, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.governance.guards.artifact_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.governance.guards.branch_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.governance.guards.scope_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.governance.protocols, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.integration_stabilization.budget_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.integration_stabilization.preconditions, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.integration_stabilization.seam_allowlist_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.integration_stabilization.state, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.story_context_manager.operating_mode_resolver, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guard_evaluation, imported: agentkit.backend.telemetry.emitters, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.guards.self_protection_guard, imported: agentkit.backend.governance.guard_evaluation, direction: core-to-edge}
-    - {importer: agentkit.backend.governance.guards.story_creation_guard, imported: agentkit.backend.governance.guard_evaluation, direction: core-to-edge}
-    - {importer: agentkit.backend.governance.hook_event_inputs, imported: agentkit.backend.governance.guard_evaluation, direction: core-to-edge}
-    - {importer: agentkit.backend.governance.principal_capabilities.enforcement, imported: agentkit.backend.governance.guard_evaluation, direction: core-to-edge}
-    - {importer: agentkit.backend.governance.principal_capabilities.principals, imported: agentkit.backend.governance.guard_evaluation, direction: core-to-edge}
-    - {importer: agentkit.backend.governance.principal_capabilities.service_paths, imported: agentkit.backend.governance.guard_evaluation, direction: core-to-edge}
-    - {importer: agentkit.backend.governance.rest_edge, imported: agentkit.backend.telemetry.emitters, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.rest_edge, imported: agentkit.backend.telemetry.events, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.capability_blocks, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.errors, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.guard_system, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.guard_system.records, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.guards.self_protection_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.guards.story_creation_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.hook_event_inputs, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.hook_ids, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.locks, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.principal_capabilities, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.principal_capabilities.operations, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.protocols, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.governance.repository, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.implementation.worker_health, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.implementation.worker_health.interventions, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.state_backend.store.freeze_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.state_backend.store.lock_record_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.telemetry.emitters, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.telemetry.hooks.base, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.telemetry.hooks.budget_event_emitter, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.telemetry.hooks.commit_hook, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.runner, imported: agentkit.backend.telemetry.hooks.review_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.governance.setup_preflight_gate.phase, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.implementation.phase, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.implementation.worker_health.artifacts, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.implementation.worker_health.engine, imported: agentkit.backend.governance.guard_evaluation, direction: core-to-edge}
-    - {importer: agentkit.backend.implementation.worker_health.engine, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.implementation.worker_health.rest_repository, imported: agentkit.backend.implementation.worker_health.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09, imported: agentkit.backend.prompt_runtime.runtime, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09, imported: agentkit.backend.skills.errors, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.cp10a_initial_sync_checkpoint, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.cp10d_sonarqube, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.orchestrator, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.bootstrap_checkpoints.orchestrator, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.ccag_settings, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.ccag_settings, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.checkpoint_engine.context, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.checkpoint_engine.engine, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.checkpoint_engine.engine, imported: agentkit.backend.process.language.model, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.checkpoint_engine.flow, imported: agentkit.backend.process.language.model, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.codex_settings, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.codex_settings, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.codex_settings, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.config_boundary, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.config_boundary, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.config_boundary, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.cp10a_initial_sync, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.cp10a_initial_sync, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.file_ops, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.file_ops, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.git_hook_dispatch, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.http_models, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.http_models, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.installed_manifest, imported: agentkit.backend.core_types.plane_artifact_names, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.installed_manifest, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.integration_checkpoints, imported: agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.integration_checkpoints, imported: agentkit.backend.installer.integration_checkpoints.ci_preflight, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.integration_checkpoints, imported: agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.integration_checkpoints, imported: agentkit.backend.installer.integration_checkpoints.scanner_harness, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.integration_checkpoints, imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.interpreter, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.lifecycle.decommission, imported: agentkit.backend.bootstrap.composition_root, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.lifecycle.decommission, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.lifecycle.decommission, imported: agentkit.backend.state_backend.store.story_read_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.lifecycle.detach, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.lifecycle.detach, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.lifecycle.detach, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.mcp_registration, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.mutation_idempotency, imported: agentkit.backend.state_backend.store.inflight_idempotency_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.paths, imported: agentkit.backend.core_types.plane_artifact_names, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.project_structure, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.repo_probe, imported: agentkit.backend.bootstrap.composition_root, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.config.defaults, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.control_plane.third_party_models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.governance.repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.project_management.entities, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.project_management.lifecycle, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.project_management.repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.skills.errors, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.runner, imported: agentkit.backend.skills.materialize, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_light, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_light, imported: agentkit.backend.control_plane.third_party_models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_light, imported: agentkit.backend.installer.integration_checkpoints.ci_preflight, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_light, imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_light, imported: agentkit.backend.installer.third_party_clients, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_preflight, imported: agentkit.backend.control_plane.records, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_preflight, imported: agentkit.backend.control_plane.third_party_models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_preflight, imported: agentkit.backend.installer.third_party_clients, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_preflight, imported: agentkit.backend.state_backend.store.inflight_idempotency_guard, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_self_test, imported: agentkit.backend.control_plane.third_party_models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_self_test, imported: agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_self_test, imported: agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.third_party_self_test, imported: agentkit.backend.installer.third_party_clients, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade._digest, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade._skills_surface, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade._skills_surface, imported: agentkit.backend.state_backend.store.skill_binding_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.config_migration, imported: agentkit.backend.boundary.filesystem.path_identity, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.config_migration, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.config_migration, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.engine, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.engine, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.engine, imported: agentkit.backend.process.language.model, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.engine, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.entry, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.entry, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.footprint, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.footprint, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.footprint, imported: agentkit.backend.prompt_runtime.resources, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.footprint, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.footprint, imported: agentkit.backend.skills.errors, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.hook_migration, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.upgrade_flow, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.upgrade.upgrade_flow, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.vectordb_preflight, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.vectordb_preflight, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_client, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_client, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_client, imported: agentkit.backend.governance.errors, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_client, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_client, imported: agentkit.backend.governance.repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_client, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_client, imported: agentkit.backend.state_backend.store.lock_record_repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_service, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_service, imported: agentkit.backend.governance.repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_service, imported: agentkit.backend.project_management.repository, direction: edge-to-core}
-    - {importer: agentkit.backend.installer.writer_service, imported: agentkit.backend.skills, direction: edge-to-core}
-    - {importer: agentkit.backend.process.language.definitions, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.prompt_runtime.composer, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.prompt_runtime.pins, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.prompt_runtime.resources, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.prompt_runtime.runtime, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.skills.top, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.state_backend.store.exploration_change_frame_repository, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.state_backend.store.exploration_worker_runner, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.backend.state_backend.store.project_registration_repository, imported: agentkit.backend.installer.registration, direction: core-to-edge}
-    - {importer: agentkit.backend.story_context_manager.http.routes, imported: agentkit.backend.story_creation.reconciliation_evidence, direction: core-to-edge}
-    - {importer: agentkit.backend.story_creation.conflict_adjudicator, imported: agentkit.backend.verify_system.llm_evaluator.bundle, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.conflict_adjudicator, imported: agentkit.backend.verify_system.llm_evaluator.llm_client, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.conflict_adjudicator, imported: agentkit.backend.verify_system.llm_evaluator.roles, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.conflict_adjudicator, imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.conflict_adjudicator, imported: agentkit.backend.verify_system.protocols, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_flow, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_flow, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_flow, imported: agentkit.backend.story_context_manager.service, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_flow, imported: agentkit.backend.story_context_manager.story_model, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_flow, imported: agentkit.backend.telemetry.emitters, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_scope_materializer, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_scope_materializer, imported: agentkit.backend.prompt_runtime.resources, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_scope_materializer, imported: agentkit.backend.verify_system.llm_evaluator.bundle, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_scope_materializer, imported: agentkit.backend.verify_system.llm_evaluator.llm_client, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_scope_materializer, imported: agentkit.backend.verify_system.llm_evaluator.roles, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.create_scope_materializer, imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.reconciliation_evidence, imported: agentkit.backend.verify_system.llm_evaluator.roles, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.repo_affinity, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.backend.verify_system.llm_evaluator.bundle, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.backend.verify_system.llm_evaluator.llm_client, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.backend.verify_system.llm_evaluator.roles, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.integration_clients.multi_llm_hub.client, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.integration_clients.multi_llm_hub.config, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.runtime_factory, imported: agentkit.integration_clients.multi_llm_hub.entities, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.story_md_export, imported: agentkit.backend.story_context_manager.story_model, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.story_md_export, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.vectordb_reconciliation, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.vectordb_reconciliation, imported: agentkit.backend.telemetry.emitters, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.vectordb_reconciliation, imported: agentkit.backend.telemetry.events, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.vectordb_reconciliation, imported: agentkit.backend.verify_system.llm_evaluator.bundle, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.vectordb_reconciliation, imported: agentkit.backend.verify_system.llm_evaluator.roles, direction: edge-to-core}
-    - {importer: agentkit.backend.story_creation.vectordb_reconciliation, imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator, direction: edge-to-core}
-    - {importer: agentkit.backend.telemetry.rest_emitter, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.backend.telemetry.rest_emitter, imported: agentkit.backend.telemetry.events, direction: edge-to-core}
-    - {importer: agentkit.backend.vectordb.hook_dispatch, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.vectordb.hook_dispatch, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.vectordb.project_binding, imported: agentkit.backend.config.defaults, direction: edge-to-core}
-    - {importer: agentkit.backend.vectordb.project_binding, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.vectordb.project_binding, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.backend.vectordb.wait_for_weaviate, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.backend.verify_system.qa_cycle.invalidation, imported: agentkit.backend.installer.paths, direction: core-to-edge}
-    - {importer: agentkit.bundles.target_project.tools.agentkit.projectedge, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.bundles.target_project.tools.agentkit.projectedge, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.bundles.target_project.tools.agentkit.projectedge, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.bundles.target_project.tools.agentkit.projectedge, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.harness_client.harness_adapters.codex.decision_mapping, imported: agentkit.backend.governance.protocols, direction: edge-to-core}
-    - {importer: agentkit.harness_client.harness_adapters.codex_config_toml, imported: agentkit.backend.boundary.filesystem, direction: edge-to-core}
-    - {importer: agentkit.harness_client.harness_adapters.settings_writer, imported: agentkit.backend.governance.errors, direction: edge-to-core}
-    - {importer: agentkit.harness_client.harness_adapters.settings_writer, imported: agentkit.backend.governance.hook_registration, direction: edge-to-core}
-    - {importer: agentkit.harness_client.harness_adapters.settings_writer, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.client, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.client, imported: agentkit.backend.control_plane.third_party_models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.client, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.client, imported: agentkit.backend.story_exit.http_models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.client, imported: agentkit.backend.story_reset.http_models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.client, imported: agentkit.backend.story_split.http_models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.client, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.command_executor, imported: agentkit.backend.code_backend.provider_port, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.command_executor, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.command_executor, imported: agentkit.backend.control_plane.edge_commands, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.command_executor, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.command_executor, imported: agentkit.backend.control_plane.push_sync, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.command_executor, imported: agentkit.backend.core_types.verify_evidence, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.command_executor, imported: agentkit.backend.utils.io, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.governance_client, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.governance_client, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.governance_client, imported: agentkit.backend.exceptions, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.merge_local, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.merge_local, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.reconcile, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.reconcile, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.runtime, imported: agentkit.backend.config.loader, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.runtime, imported: agentkit.backend.control_plane.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.runtime, imported: agentkit.backend.control_plane.ownership, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.runtime, imported: agentkit.backend.core_types.operating_mode, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.verify_evidence, imported: agentkit.backend.config.models, direction: edge-to-core}
-    - {importer: agentkit.harness_client.projectedge.verify_evidence, imported: agentkit.backend.core_types.verify_evidence, direction: edge-to-core}
+    - importer: agentkit.backend.bootstrap.composition_closure
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_exploration
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_governance
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_installer
+      imported: agentkit.backend.installer.bounded_executor
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_installer
+      imported: agentkit.backend.installer.mutation_idempotency
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_installer
+      imported: agentkit.backend.installer.third_party_preflight
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_installer
+      imported: agentkit.backend.installer.writer_service
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.bootstrap.composition_project_types
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.bootstrap.composition_state
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.bootstrap.story_reset_adapters
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.control_plane.edge_command_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.control_plane.repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.kpi_analytics
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.kpi_analytics.aggregation
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.kpi_analytics.dashboard
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.kpi_analytics.fact_store
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.project_management.read_model_routes
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.pipeline_runtime_store
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.analytics_source
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.control_plane_writer_lease
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.fact_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.freeze_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.governance_hook_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.lock_record_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.parallelization_config_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.project_management_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.story_are_link_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.story_dependency_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.story_read_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.story_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.takeover_approval_read_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.telemetry_projection_repository_misc
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.store.telemetry_read_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.state_backend.story_lifecycle_store
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.story
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.story_context_manager.service
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.story_exit.service
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.story_reset
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.story_split.service
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.task_management.http.routes
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_project
+      imported: agentkit.backend.task_management.service
+      direction: edge-to-core
+    - importer: agentkit.backend.bootstrap.composition_root
+      imported: agentkit.backend.bootstrap.composition_project
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_state
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.composition_verify
+      imported: agentkit.backend.installer.github_coordinates
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.edge_provisioning_adapter
+      imported: agentkit.backend.installer.github_coordinates
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.story_reset_adapters
+      imported: agentkit.backend.governance.runner
+      direction: core-to-edge
+    - importer: agentkit.backend.bootstrap.story_reset_adapters
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.cli._operator_ownership_commands
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_ownership_commands
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_admin
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_admin
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_config
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_phase
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_phase
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_state
+      imported: agentkit.backend.bootstrap.composition_root
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_telemetry
+      imported: agentkit.backend.bootstrap.composition_root
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_telemetry
+      imported: agentkit.backend.telemetry.audit_bundle
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_telemetry
+      imported: agentkit.backend.telemetry.events
+      direction: edge-to-core
+    - importer: agentkit.backend.cli._operator_recovery_telemetry
+      imported: agentkit.backend.telemetry.storage
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.auth_commands
+      imported: agentkit.backend.auth.credentials
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.evidence_commands
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.evidence_commands
+      imported: agentkit.backend.verify_system.evidence
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.evidence_commands
+      imported: agentkit.backend.verify_system.structural.system_evidence
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.installer_commands
+      imported: agentkit.backend.config.defaults
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.installer_commands
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.installer_commands
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.lifecycle
+      imported: agentkit.backend.bootstrap.composition_root
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.lifecycle
+      imported: agentkit.backend.cli.serve
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.lifecycle
+      imported: agentkit.backend.control_plane.writer_lease
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.main
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.config.defaults
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.implementation.worker_health.sidecar
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.story_context_manager.service
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.story_exit
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.story_exit.http_models
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.story_reset.http_models
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.story_split.http_models
+      direction: edge-to-core
+    - importer: agentkit.backend.cli.story_commands
+      imported: agentkit.backend.story_split.plan_loader
+      direction: edge-to-core
+    - importer: agentkit.backend.closure.phase
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.closure.post_merge_finalization.finalization
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.closure.runtime_ports
+      imported: agentkit.backend.vectordb.client_port
+      direction: core-to-edge
+    - importer: agentkit.backend.closure.runtime_ports
+      imported: agentkit.backend.vectordb.engine
+      direction: core-to-edge
+    - importer: agentkit.backend.closure.runtime_ports
+      imported: agentkit.backend.vectordb.mcp_server
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane.models
+      imported: agentkit.backend.story_creation.reconciliation_evidence
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane.workspace_locator
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane.workspace_locator
+      imported: agentkit.backend.installer.registration
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane_http.installer_writer_routes
+      imported: agentkit.backend.installer.http_models
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane_http.installer_writer_routes
+      imported: agentkit.backend.installer.mutation_idempotency
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane_http.installer_writer_routes
+      imported: agentkit.backend.installer.registration
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane_http.installer_writer_routes
+      imported: agentkit.backend.installer.writer_service
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane_http.third_party_validation_routes
+      imported: agentkit.backend.installer.third_party_errors
+      direction: core-to-edge
+    - importer: agentkit.backend.control_plane_http.third_party_validation_routes
+      imported: agentkit.backend.installer.third_party_preflight
+      direction: core-to-edge
+    - importer: agentkit.backend.failure_corpus.cli
+      imported: agentkit.backend.bootstrap.composition_root
+      direction: edge-to-core
+    - importer: agentkit.backend.failure_corpus.cli
+      imported: agentkit.backend.config.defaults
+      direction: edge-to-core
+    - importer: agentkit.backend.failure_corpus.cli
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.failure_corpus.cli
+      imported: agentkit.backend.failure_corpus.http_models
+      direction: edge-to-core
+    - importer: agentkit.backend.failure_corpus.writer_client
+      imported: agentkit.backend.failure_corpus.http_models
+      direction: edge-to-core
+    - importer: agentkit.backend.governance
+      imported: agentkit.backend.governance.runner
+      direction: core-to-edge
+    - importer: agentkit.backend.governance.default_hook_definitions
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.core_types.qa_artifact_names
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.governance.guards.artifact_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.governance.guards.branch_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.governance.guards.scope_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.governance.protocols
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.integration_stabilization.budget_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.integration_stabilization.preconditions
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.integration_stabilization.seam_allowlist_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.integration_stabilization.state
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.story_context_manager.operating_mode_resolver
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guard_evaluation
+      imported: agentkit.backend.telemetry.emitters
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.guards.self_protection_guard
+      imported: agentkit.backend.governance.guard_evaluation
+      direction: core-to-edge
+    - importer: agentkit.backend.governance.guards.story_creation_guard
+      imported: agentkit.backend.governance.guard_evaluation
+      direction: core-to-edge
+    - importer: agentkit.backend.governance.hook_event_inputs
+      imported: agentkit.backend.governance.guard_evaluation
+      direction: core-to-edge
+    - importer: agentkit.backend.governance.principal_capabilities.enforcement
+      imported: agentkit.backend.governance.guard_evaluation
+      direction: core-to-edge
+    - importer: agentkit.backend.governance.principal_capabilities.principals
+      imported: agentkit.backend.governance.guard_evaluation
+      direction: core-to-edge
+    - importer: agentkit.backend.governance.principal_capabilities.service_paths
+      imported: agentkit.backend.governance.guard_evaluation
+      direction: core-to-edge
+    - importer: agentkit.backend.governance.rest_edge
+      imported: agentkit.backend.telemetry.emitters
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.rest_edge
+      imported: agentkit.backend.telemetry.events
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.capability_blocks
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.errors
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.guard_system
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.guard_system.records
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.guards.self_protection_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.guards.story_creation_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.hook_event_inputs
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.hook_ids
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.locks
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.principal_capabilities
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.principal_capabilities.operations
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.protocols
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.governance.repository
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.implementation.worker_health
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.implementation.worker_health.interventions
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.state_backend.store.freeze_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.state_backend.store.lock_record_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.telemetry.emitters
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.telemetry.hooks.base
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.telemetry.hooks.budget_event_emitter
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.telemetry.hooks.commit_hook
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.runner
+      imported: agentkit.backend.telemetry.hooks.review_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.governance.setup_preflight_gate.phase
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.implementation.phase
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.implementation.worker_health.artifacts
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.implementation.worker_health.engine
+      imported: agentkit.backend.governance.guard_evaluation
+      direction: core-to-edge
+    - importer: agentkit.backend.implementation.worker_health.engine
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.implementation.worker_health.rest_repository
+      imported: agentkit.backend.implementation.worker_health.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09
+      imported: agentkit.backend.prompt_runtime.runtime
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09
+      imported: agentkit.backend.skills.errors
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10a_initial_sync_checkpoint
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10d_sonarqube
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.orchestrator
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.bootstrap_checkpoints.orchestrator
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.ccag_settings
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.ccag_settings
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.checkpoint_engine.context
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.checkpoint_engine.engine
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.checkpoint_engine.engine
+      imported: agentkit.backend.process.language.model
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.checkpoint_engine.flow
+      imported: agentkit.backend.process.language.model
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.codex_settings
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.codex_settings
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.codex_settings
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.config_boundary
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.config_boundary
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.config_boundary
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.cp10a_initial_sync
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.cp10a_initial_sync
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.file_ops
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.file_ops
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.git_hook_dispatch
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.http_models
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.http_models
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.installed_manifest
+      imported: agentkit.backend.core_types.plane_artifact_names
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.installed_manifest
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.integration_checkpoints
+      imported: agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.integration_checkpoints
+      imported: agentkit.backend.installer.integration_checkpoints.ci_preflight
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.integration_checkpoints
+      imported: agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.integration_checkpoints
+      imported: agentkit.backend.installer.integration_checkpoints.scanner_harness
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.integration_checkpoints
+      imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.interpreter
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.lifecycle.decommission
+      imported: agentkit.backend.bootstrap.composition_root
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.lifecycle.decommission
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.lifecycle.decommission
+      imported: agentkit.backend.state_backend.store.story_read_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.lifecycle.detach
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.lifecycle.detach
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.lifecycle.detach
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.mcp_registration
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.mutation_idempotency
+      imported: agentkit.backend.state_backend.store.inflight_idempotency_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.paths
+      imported: agentkit.backend.core_types.plane_artifact_names
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.project_structure
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.repo_probe
+      imported: agentkit.backend.bootstrap.composition_root
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.config.defaults
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.control_plane.third_party_models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.governance.repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.project_management.entities
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.project_management.lifecycle
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.project_management.repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.skills.errors
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.runner
+      imported: agentkit.backend.skills.materialize
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_light
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_light
+      imported: agentkit.backend.control_plane.third_party_models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_light
+      imported: agentkit.backend.installer.integration_checkpoints.ci_preflight
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_light
+      imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_light
+      imported: agentkit.backend.installer.third_party_clients
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_preflight
+      imported: agentkit.backend.control_plane.records
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_preflight
+      imported: agentkit.backend.control_plane.third_party_models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_preflight
+      imported: agentkit.backend.installer.third_party_clients
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_preflight
+      imported: agentkit.backend.state_backend.store.inflight_idempotency_guard
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_self_test
+      imported: agentkit.backend.control_plane.third_party_models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_self_test
+      imported: agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_self_test
+      imported: agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.third_party_self_test
+      imported: agentkit.backend.installer.third_party_clients
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade._digest
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade._skills_surface
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade._skills_surface
+      imported: agentkit.backend.state_backend.store.skill_binding_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.config_migration
+      imported: agentkit.backend.boundary.filesystem.path_identity
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.config_migration
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.config_migration
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.engine
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.engine
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.engine
+      imported: agentkit.backend.process.language.model
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.engine
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.entry
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.entry
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.footprint
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.footprint
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.footprint
+      imported: agentkit.backend.prompt_runtime.resources
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.footprint
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.footprint
+      imported: agentkit.backend.skills.errors
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.hook_migration
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.upgrade_flow
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.upgrade.upgrade_flow
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.vectordb_preflight
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.vectordb_preflight
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_client
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_client
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_client
+      imported: agentkit.backend.governance.errors
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_client
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_client
+      imported: agentkit.backend.governance.repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_client
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_client
+      imported: agentkit.backend.state_backend.store.lock_record_repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_service
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_service
+      imported: agentkit.backend.governance.repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_service
+      imported: agentkit.backend.project_management.repository
+      direction: edge-to-core
+    - importer: agentkit.backend.installer.writer_service
+      imported: agentkit.backend.skills
+      direction: edge-to-core
+    - importer: agentkit.backend.process.language.definitions
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.prompt_runtime.composer
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.prompt_runtime.pins
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.prompt_runtime.resources
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.prompt_runtime.runtime
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.skills.top
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.state_backend.store.exploration_change_frame_repository
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.state_backend.store.exploration_worker_runner
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.backend.state_backend.store.project_registration_repository
+      imported: agentkit.backend.installer.registration
+      direction: core-to-edge
+    - importer: agentkit.backend.story_context_manager.http.routes
+      imported: agentkit.backend.story_creation.reconciliation_evidence
+      direction: core-to-edge
+    - importer: agentkit.backend.story_creation.conflict_adjudicator
+      imported: agentkit.backend.verify_system.llm_evaluator.bundle
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.conflict_adjudicator
+      imported: agentkit.backend.verify_system.llm_evaluator.llm_client
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.conflict_adjudicator
+      imported: agentkit.backend.verify_system.llm_evaluator.roles
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.conflict_adjudicator
+      imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.conflict_adjudicator
+      imported: agentkit.backend.verify_system.protocols
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_flow
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_flow
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_flow
+      imported: agentkit.backend.story_context_manager.service
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_flow
+      imported: agentkit.backend.story_context_manager.story_model
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_flow
+      imported: agentkit.backend.telemetry.emitters
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_scope_materializer
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_scope_materializer
+      imported: agentkit.backend.prompt_runtime.resources
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_scope_materializer
+      imported: agentkit.backend.verify_system.llm_evaluator.bundle
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_scope_materializer
+      imported: agentkit.backend.verify_system.llm_evaluator.llm_client
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_scope_materializer
+      imported: agentkit.backend.verify_system.llm_evaluator.roles
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.create_scope_materializer
+      imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.reconciliation_evidence
+      imported: agentkit.backend.verify_system.llm_evaluator.roles
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.repo_affinity
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.backend.verify_system.llm_evaluator.bundle
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.backend.verify_system.llm_evaluator.llm_client
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.backend.verify_system.llm_evaluator.roles
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.integration_clients.multi_llm_hub.client
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.integration_clients.multi_llm_hub.config
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.runtime_factory
+      imported: agentkit.integration_clients.multi_llm_hub.entities
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.story_md_export
+      imported: agentkit.backend.story_context_manager.story_model
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.story_md_export
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.vectordb_reconciliation
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.vectordb_reconciliation
+      imported: agentkit.backend.telemetry.emitters
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.vectordb_reconciliation
+      imported: agentkit.backend.telemetry.events
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.vectordb_reconciliation
+      imported: agentkit.backend.verify_system.llm_evaluator.bundle
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.vectordb_reconciliation
+      imported: agentkit.backend.verify_system.llm_evaluator.roles
+      direction: edge-to-core
+    - importer: agentkit.backend.story_creation.vectordb_reconciliation
+      imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+      direction: edge-to-core
+    - importer: agentkit.backend.telemetry.rest_emitter
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.backend.telemetry.rest_emitter
+      imported: agentkit.backend.telemetry.events
+      direction: edge-to-core
+    - importer: agentkit.backend.vectordb.hook_dispatch
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.vectordb.hook_dispatch
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.vectordb.project_binding
+      imported: agentkit.backend.config.defaults
+      direction: edge-to-core
+    - importer: agentkit.backend.vectordb.project_binding
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.vectordb.project_binding
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.backend.vectordb.wait_for_weaviate
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.backend.verify_system.qa_cycle.invalidation
+      imported: agentkit.backend.installer.paths
+      direction: core-to-edge
+    - importer: agentkit.bundles.target_project.tools.agentkit.projectedge
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.bundles.target_project.tools.agentkit.projectedge
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.bundles.target_project.tools.agentkit.projectedge
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.bundles.target_project.tools.agentkit.projectedge
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.harness_client.harness_adapters.codex.decision_mapping
+      imported: agentkit.backend.governance.protocols
+      direction: edge-to-core
+    - importer: agentkit.harness_client.harness_adapters.codex_config_toml
+      imported: agentkit.backend.boundary.filesystem
+      direction: edge-to-core
+    - importer: agentkit.harness_client.harness_adapters.settings_writer
+      imported: agentkit.backend.governance.errors
+      direction: edge-to-core
+    - importer: agentkit.harness_client.harness_adapters.settings_writer
+      imported: agentkit.backend.governance.hook_registration
+      direction: edge-to-core
+    - importer: agentkit.harness_client.harness_adapters.settings_writer
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.client
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.client
+      imported: agentkit.backend.control_plane.third_party_models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.client
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.client
+      imported: agentkit.backend.story_exit.http_models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.client
+      imported: agentkit.backend.story_reset.http_models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.client
+      imported: agentkit.backend.story_split.http_models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.client
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.command_executor
+      imported: agentkit.backend.code_backend.provider_port
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.command_executor
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.command_executor
+      imported: agentkit.backend.control_plane.edge_commands
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.command_executor
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.command_executor
+      imported: agentkit.backend.control_plane.push_sync
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.command_executor
+      imported: agentkit.backend.core_types.verify_evidence
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.command_executor
+      imported: agentkit.backend.utils.io
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.governance_client
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.governance_client
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.governance_client
+      imported: agentkit.backend.exceptions
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.merge_local
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.merge_local
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.reconcile
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.reconcile
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.runtime
+      imported: agentkit.backend.config.loader
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.runtime
+      imported: agentkit.backend.control_plane.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.runtime
+      imported: agentkit.backend.control_plane.ownership
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.runtime
+      imported: agentkit.backend.core_types.operating_mode
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.verify_evidence
+      imported: agentkit.backend.config.models
+      direction: edge-to-core
+    - importer: agentkit.harness_client.projectedge.verify_evidence
+      imported: agentkit.backend.core_types.verify_evidence
+      direction: edge-to-core
 wire_private_bindings:
   # Die 118 oeffentlichen Symbole sind die Oberflaeche des Vertragspakets.
   # Diese privaten Namen sind KEINE Symbole im Sinne der Zaehleinheit, aber
