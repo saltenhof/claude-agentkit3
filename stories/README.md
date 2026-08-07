@@ -607,7 +607,7 @@ Weglassen (unvollstaendiges Register) traegt sie fort. Zulaessig ist nur, den
 Eigentuemer herzustellen. AG3-198 ist deshalb am 2026-08-03 in **AG3-199**
 aufgegangen, nicht verschoben worden.
 
-### 6.12 Edge und Kern als getrennte Distributionen (AG3-208…AG3-209)
+### 6.12 Edge und Kern als getrennte Distributionen (AG3-208, AG3-237, AG3-239…AG3-250, AG3-209)
 
 Ausgeloest durch die PO-Entscheidung vom 2026-08-03 in
 `concept/_meta/decisions/2026-08-03-edge-und-kern-sind-zwei-distributionen.md`:
@@ -619,7 +619,7 @@ bei AG3-208.
 
 Die Kante `harness_client -> backend` umfasst am 2026-08-07 **49
 Importstellen ueber 25 Backend-Module** (die frueher genannten 40/20 sind
-ueberholt). Der Schnitt hat **drei** Storys: AG3-208 setzt Regel, Artefakte,
+ueberholt). Der Schnitt hat **drei** Grundstorys: AG3-208 setzt Regel, Artefakte,
 Entry-Point- und Dependency-Vertraege sowie den Gate-Mechanismus; **AG3-237**
 misst und klassifiziert die 44 Backend-Subpakete und das Symbolinventar des
 Vertragspakets; AG3-209 vollzieht die Code-/Paketmigration inklusive
@@ -627,13 +627,65 @@ Installer, Entry Points, Bundles, Tests und blockierendem Gate in einem Zug.
 Ein separates spaeteres Gate oder ein spaeterer Installer-Nachzug waere selbst
 ein verbotener Zwischenzustand.
 
+**Dazu kommen zwoelf BC-Endpunktstorys (AG3-239…AG3-250), und sie werden vor
+AG3-209 gezogen — PO-Entscheid 2026-08-07.** Der Grund steht in AG3-209s
+eigenem Scope: Neue REST-Endpunkte sind dort ausdruecklich ausgeschlossen, mit
+Verweis auf „eigene Story beim jeweiligen BC". Der Bedarf ist belegt — der Edge
+holt **354 distinkte Symbole** aus dem Kern, an **638 Importstellen**. 179 davon
+sind Daten und gehen ueber das Vertragspaket (AG3-237); fuer die **116
+Verhaltens-** und **59 ungeklaerten** Symbole gibt es ueber `/v1` heute keine
+Operation. Ohne diese Storys stuende AG3-209 vor der Wahl, entweder den eigenen
+Scope zu brechen oder einen Schnitt zu vollziehen, nach dem der Edge seine
+Arbeit nicht mehr erledigen kann.
+
 | ID | Titel | Typ | Groesse | Status | depends_on |
 |----|-------|-----|---------|--------|------------|
 | AG3-208 | Edge-/Kern-Distributionszielbild in FK-10, FK-01, FK-30, `PROJECT_STRUCTURE.md` und Formal-Spec | concept | M | ready | — |
-| AG3-237 | Symbolinventar des Vertragspakets und Klassifikation aller 44 Backend-Subpakete | concept | L | ready | 208 |
-| AG3-209 | Edge, Kern und Wire-Vertrag atomar schneiden: Module, Dependencies, Entry Points, Installer, Bundles, Tests und Distribution-Gate | implementation | L | blocked | 208, 237 |
+| AG3-237 | Symbolinventar des Vertragspakets und Klassifikation aller 44 Backend-Subpakete | concept | L | done | 208 |
+| AG3-239 | `governance-and-guards`: 42 Grenzverletzungen, groesster Einzelposten | implementation | L | ready | — |
+| AG3-240 | `story-lifecycle`: Split, Reset, Exit und Story-Kontext ueber `/v1` | implementation | L | ready | — |
+| AG3-241 | `verify-system`: Evidence-Assembly und LLM-Bewertung verlassen den Edge-Prozess | implementation | M | ready | — |
+| AG3-242 | `installation-and-bootstrap`: Integrations-Checkpoints und 35 Kern→Edge-Kanten | implementation | M | ready | — |
+| AG3-243 | `agent-skills`: die Skill-Bindungsabfrage des Hooks | implementation | M | ready | — |
+| AG3-244 | `telemetry-and-events`: genau ein Schreibweg statt zweier | implementation | M | ready | — |
+| AG3-245 | `kpi-and-dashboard`: eine Leseoperation pro Sicht, nicht pro Kennzahl | implementation | S | ready | — |
+| AG3-246 | `implementation-phase`: Worker-Health-Sidecar meldet, Kern entscheidet | implementation | S | ready | — |
+| AG3-247 | `prompt-runtime`: der Integritaetswert kommt aus dem Kern | implementation | S | ready | — |
+| AG3-248 | `project-management`: mutierende Vorgaenge bekommen Idempotenz | implementation | S | ready | — |
+| AG3-249 | `task-management`: den vorhandenen Vertrag benutzen statt importieren | implementation | S | ready | — |
+| AG3-250 | cross-cutting: die `/v1`-Bruecke selbst und der Edge-Composition-Root | implementation | L | ready | — |
+| AG3-209 | Edge, Kern und Wire-Vertrag atomar schneiden: Module, Dependencies, Entry Points, Installer, Bundles, Tests und Distribution-Gate | implementation | L | blocked | 208, 237, 239–250 |
 
-**Graph und gueltige Linearisierung:** `AG3-208 -> AG3-237 -> AG3-209`.
+**Graph und gueltige Linearisierung:**
+`AG3-208 -> AG3-237 -> {AG3-239 … AG3-250} -> AG3-209 -> AG3-230`.
+
+Die zwoelf BC-Storys sind untereinander **unabhaengig** (`depends_on: []`) und
+parallel ziehbar. Empfohlene Reihenfolge nach Hebel, nicht nach Nummer:
+
+1. **AG3-250** — ein einziges Edge-Modul,
+   `backend/bootstrap/composition_project.py`, erzeugt **18 der 23**
+   `state_backend`-Ueberquerungen. Eine strukturelle Ursache, nicht achtzehn
+   Einzelfehler.
+2. **AG3-243** — traegt den `/v1`-Ersatz fuer den Sicherheitsdefekt, den
+   AG3-239 benennt: `governance/hook_event_inputs.py:46` zieht ueber
+   `composition_root.build_skills` den gesamten Kern in den Hook-Prozess.
+3. **AG3-239** und **AG3-242** — die beiden groessten Einzelposten (42 bzw. 48
+   Verletzungspaare).
+4. Der Rest in beliebiger Ordnung.
+
+**Was die zwoelf ausdruecklich NICHT enthalten**, mit Owner:
+
+- **Duplikation** — `utils` (5 Symbole), `config` (3), `boundary` (6). Der Edge
+  bekommt eine eigene Kopie; ein Netzaufruf fuer `ensure_dir` waere falsch.
+  **Owner: AG3-209.**
+- **Falsch einsortierte Edge-Logik** — `bootstrap/story_reset_adapters.py` (10)
+  und `governance/hook_event_inputs.py` (11). Die Module **wandern**; kein
+  Endpunkt. **Owner: AG3-209** (dort Eingangsliste E6).
+- **Die 179 Datensymbole** — **Owner: AG3-237**, Vertragspaket.
+
+**Kein eigener Posten:** `failure-corpus`. Alle acht gemessenen Symbole sind
+`http_models.*` — reine Nutzlast, vollstaendig durch AG3-237 gedeckt. Eine
+Story ohne Inhalt waere schlechter als keine.
 
 **Beruehrung bestehender Storys:** AG3-189 und AG3-206 bleiben mit ihren
 Isolation-/Vollstaendigkeitsinvarianten gueltig, enthalten aber

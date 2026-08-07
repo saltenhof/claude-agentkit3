@@ -1,0 +1,46 @@
+story_id: AG3-247
+story_title_short: "prompt-runtime-endpunkte-fuer-den-edge"
+title: "Prompt-Templates, ihre Hashes und die Bundle-Lock-Berechnung zieht der Edge heute als Kern-Import — der Integritaetsnachweis wird dort gerechnet, wo er nicht gelten kann."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-07"
+size: S
+# HERKUNFT: Orchestrator-Messung 2026-08-07, aufgesetzt auf die in AG3-237
+# veroeffentlichte Klassifikation
+# (concept/formal-spec/architecture-conformance/entities.md).
+#
+# DER FACHLICHE ANLASS: AK3 soll auf zwei Maschinen laufen -- Project Edge auf
+# dem Entwicklerrechner, Kern auf einem zentralen Server. Der Code tut heute so,
+# als waere es eine Maschine: der Edge ruft Kern-Funktionen als normale
+# Python-Funktionen im selben Prozess auf. Ueber ein Netz geht das nicht.
+# Vorgesehen ist /v1 als EINZIGE Bruecke; sie ist unvollstaendig.
+#
+# WARUM EIGENE STORY: AG3-209 (Distributionsschnitt) kann die Luecke NICHT
+# schliessen -- sein Scope verbietet neue REST-Endpunkte ausdruecklich und
+# verweist auf "eigene Story beim jeweiligen BC". Diese Story ist genau das.
+# PO-VORGABE 2026-08-07: hoechstens EINE Story pro Bounded Context.
+#
+# GESAMTMESSUNG 2026-08-07 (Kontext, nicht der Umfang dieser Story):
+#   354 distinkte Symbole holt der Edge aus dem Kern, an 638 Importstellen
+#   179 davon sind Daten -> AG3-237 (Vertragspaket), NICHT hier
+#   116 Verhalten + 59 ungeklaert (Klassifikator scheiterte an Re-Exporten)
+#   347 Grenzverletzungspaare stehen einzeln in entities.md
+#
+# STARTWERTE DIESER STORY -- ausdruecklich STARTPUNKT, KEIN SOLLWERT:
+#   prompt_runtime: 5 Verhalten; 3 Verletzungspaare Edge->Kern PLUS 4
+#   Kern->Edge (prompt_runtime importiert zurueck in backend/installer/).
+#   Die Gegenrichtung gehoert HIERHER, nicht zu AG3-242 -- sie entsteht
+#   hier.
+#   INTEGRITAETSPROBLEM: prompt_template_sha256 erzeugt die Werte, gegen
+#   die der PromptIntegrityGuard prueft. Beide im selben Edge-Prozess
+#   heisst: der Guard prueft gegen einen selbst gerechneten Wert.
+#
+# AC 1 verlangt die EIGENE Messung. Weicht sie ab, gilt die eigene Messung und
+# die Abweichung wird benannt, nicht stillschweigend uebernommen.
+#
+# KAPPUNG (PO-Vorgabe 2026-08-07, woertlich in story.md): HOECHSTENS DREI
+# QS-/Remediation-Runden. Danach Eskalation an den PO statt einer vierten Runde.
+# Harte Kappung, keine Richtgroesse.
+depends_on: []
+unblocks: ["AG3-209"]

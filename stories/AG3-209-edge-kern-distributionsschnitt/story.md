@@ -2,9 +2,13 @@
 
 - **Typ:** implementation
 - **Groesse:** L
-- **Abhaengigkeiten:** `depends_on: ["AG3-208", "AG3-237"]` — AG3-208 liefert
-  Regel, Artefakte und Vertraege; **AG3-237 liefert die Klassifikation** der
-  44 Backend-Subpakete und das Symbolinventar des Vertragspakets
+- **Abhaengigkeiten:** AG3-208 liefert Regel, Artefakte und Vertraege;
+  **AG3-237 liefert die Klassifikation** der 44 Backend-Subpakete und das
+  Symbolinventar des Vertragspakets. **Dazu die zwoelf BC-Storys AG3-239 bis
+  AG3-250** (PO-Entscheid 2026-08-07), die die `/v1`-Endpunkte nachruesten,
+  ohne die AC 2 und AC 4 dieser Story unerreichbar sind. Die massgebliche
+  Liste steht in `status.yaml`; sie wird hier bewusst nicht gespiegelt, damit
+  keine zweite Wahrheit entsteht.
 - **Quell-Konzept:** das in AG3-208 nachgezogene FK-10-Zielbild, FK-01
   (Trust Boundaries), FK-30 (lokale Guard-Engine), FK-07 §7.7-§7.9
 - **Herkunft:** PO-Entscheidung vom 2026-08-03,

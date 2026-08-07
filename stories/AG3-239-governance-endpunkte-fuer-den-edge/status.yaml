@@ -1,0 +1,49 @@
+story_id: AG3-239
+story_title_short: "governance-endpunkte-fuer-den-edge"
+title: "Der Hook-Prozess auf dem Laptop erreicht heute die halbe Governance des Kerns als Python-Import — 42 Grenzverletzungen, der groesste Einzelposten des Distributionsschnitts."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-07"
+size: L
+# HERKUNFT: Orchestrator-Messung 2026-08-07, aufgesetzt auf die in AG3-237
+# veroeffentlichte Klassifikation
+# (concept/formal-spec/architecture-conformance/entities.md).
+#
+# DER FACHLICHE ANLASS: AK3 soll auf zwei Maschinen laufen -- Project Edge auf
+# dem Entwicklerrechner, Kern auf einem zentralen Server. Der Code tut heute so,
+# als waere es eine Maschine: der Edge ruft Kern-Funktionen als normale
+# Python-Funktionen im selben Prozess auf. Ueber ein Netz geht das nicht.
+# Vorgesehen ist /v1 als EINZIGE Bruecke; sie ist unvollstaendig.
+#
+# WARUM EIGENE STORY: AG3-209 (Distributionsschnitt) kann die Luecke NICHT
+# schliessen -- sein Scope verbietet neue REST-Endpunkte ausdruecklich und
+# verweist auf "eigene Story beim jeweiligen BC". Diese Story ist genau das.
+# PO-VORGABE 2026-08-07: hoechstens EINE Story pro Bounded Context.
+#
+# GESAMTMESSUNG 2026-08-07 (Kontext, nicht der Umfang dieser Story):
+#   354 distinkte Symbole holt der Edge aus dem Kern, an 638 Importstellen
+#   179 davon sind Daten -> AG3-237 (Vertragspaket), NICHT hier
+#   116 Verhalten + 59 ungeklaert (Klassifikator scheiterte an Re-Exporten)
+#   347 Grenzverletzungspaare stehen einzeln in entities.md
+#
+# STARTWERTE DIESER STORY -- ausdruecklich STARTPUNKT, KEIN SOLLWERT:
+#   governance: 17 Verhalten + 16 ungeklaert = 33; 42 Verletzungspaare
+#   (33 Edge->Kern, 9 Kern->Edge); eigene Messung: 54 distinkte Symbole
+#   AUSGESCHLOSSEN: governance/hook_event_inputs.py (11 Symbole) -- das
+#   Modul WANDERT (Owner AG3-209, E6) und ist zusaetzlich ein
+#   Sicherheitsdefekt: governance/runner.py:48 importiert es,
+#   hook_event_inputs.py:46 zieht ueber composition_root.build_skills den
+#   GESAMTEN Kern in den Hook-Prozess (verify_system, state_backend).
+#   UNSICHER: integration_stabilization (10 Symbole) liegt hier als WAHL --
+#   FK-05 traegt cross_cutting: true, hat also keinen domain-Wert. Der PO
+#   darf umhaengen; der Posten ist sauber abgegrenzt.
+#
+# AC 1 verlangt die EIGENE Messung. Weicht sie ab, gilt die eigene Messung und
+# die Abweichung wird benannt, nicht stillschweigend uebernommen.
+#
+# KAPPUNG (PO-Vorgabe 2026-08-07, woertlich in story.md): HOECHSTENS DREI
+# QS-/Remediation-Runden. Danach Eskalation an den PO statt einer vierten Runde.
+# Harte Kappung, keine Richtgroesse.
+depends_on: []
+unblocks: ["AG3-209"]

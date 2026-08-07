@@ -31,5 +31,31 @@ size: L
 # vor. Der in AG3-208 spezifizierte Fail-closed-Pfad (NOT_RUN statt PASS,
 # blocks_pass: true) ist eine Anweisung an DIESE Story -- er wirkt erst, wenn
 # sie ihn baut.
-depends_on: ["AG3-208", "AG3-237"]
+#
+# ORCHESTRATOR-ENTSCHEID 2026-08-07 (PO-Entscheid desselben Tages): zusaetzliche
+# Abhaengigkeit auf die ZWOELF BC-Endpunktstorys AG3-239..AG3-250.
+#
+# GRUND: AG3-209s eigener Scope verbietet neue REST-Endpunkte ausdruecklich
+# ("Neue Governance-/Control-Plane-Fachlogik oder neue REST-Endpunkte -- Owner:
+# jeweiliger BC und eigene Story bei einem belegten Gap"). Der Gap ist belegt:
+# 354 distinkte Symbole holt der Edge aus dem Kern, an 638 Importstellen; 179
+# davon sind Daten (AG3-237), 116 sind Verhalten und 59 ungeklaert. Fuer den
+# Verhaltensanteil gibt es ueber /v1 keine Operation.
+#
+# Ohne diese Storys stuende AG3-209 vor der Wahl, entweder den eigenen Scope zu
+# brechen oder einen Schnitt zu vollziehen, nach dem der Edge seine Arbeit nicht
+# mehr erledigen kann. Beides ist ausgeschlossen -- deshalb ziehen die zwoelf
+# Storys VOR AG3-209.
+#
+# Die zwoelf sind untereinander unabhaengig (depends_on: []) und parallel
+# ziehbar. Empfohlene Reihenfolge nach Hebel:
+#   AG3-250 zuerst -- ein einziges Edge-Modul
+#   (bootstrap/composition_project.py) erzeugt 18 der 23
+#   state_backend-Ueberquerungen; danach AG3-243 (traegt den Ersatz fuer den
+#   Sicherheitsdefekt aus AG3-239), dann AG3-239 und AG3-242 als groesste
+#   Einzelposten, der Rest in beliebiger Ordnung.
+depends_on:
+  ["AG3-208", "AG3-237",
+   "AG3-239", "AG3-240", "AG3-241", "AG3-242", "AG3-243", "AG3-244",
+   "AG3-245", "AG3-246", "AG3-247", "AG3-248", "AG3-249", "AG3-250"]
 unblocks: []
