@@ -20,7 +20,7 @@ def test_main_returns_allow_exit_code_and_stdout_json(
         io.StringIO(json.dumps({"tool": "read_file", "arguments": {"path": "a.py"}, "cwd": "."})),
     )
     monkeypatch.setattr(
-        "agentkit.backend.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.run_hook",
         staticmethod(lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.allow("guard_evaluation")),
     )
 
@@ -38,7 +38,7 @@ def test_main_returns_block_exit_code_and_stdout_json(
         io.StringIO(json.dumps({"tool": "shell_command", "arguments": {"command": "git push --force"}, "cwd": "."})),
     )
     monkeypatch.setattr(
-        "agentkit.backend.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.run_hook",
         staticmethod(
             lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.block(
                 "branch_guard",

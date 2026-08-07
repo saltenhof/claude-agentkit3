@@ -437,18 +437,10 @@ def _build_guard_deactivation_port(store_dir: Path, *, project_key: str) -> clos
     logic itself (single delegation step).
     """
     from agentkit.backend.closure.runtime_ports import ProductiveGuardDeactivationPort
-    from agentkit.backend.governance import Governance
-    from agentkit.backend.state_backend.store.governance_hook_repository import (
-        StateBackendHookRegistrationRepository,
-    )
+    from agentkit.backend.governance.administration import Governance
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
 
-    governance = Governance(
-        hook_repo=StateBackendHookRegistrationRepository(store_dir),
-        lock_repo=LockRecordRepository(store_dir),
-        project_key=project_key,
-        project_root=store_dir,
-    )
+    governance = Governance(lock_repo=LockRecordRepository(store_dir))
     return ProductiveGuardDeactivationPort(governance)
 
 

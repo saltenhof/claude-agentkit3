@@ -121,7 +121,7 @@ class TestSharedDispatcher:
             return GuardVerdict.allow("guard_evaluation")
 
         monkeypatch.setattr(
-            "agentkit.backend.governance.runner.Governance.run_hook",
+            "agentkit.backend.governance.runner.run_hook",
             staticmethod(_spy),
         )
         monkeypatch.setattr("sys.stdin", io.StringIO(_CLAUDE_ALLOW_EVENT))
@@ -140,7 +140,7 @@ class TestSharedDispatcher:
             return GuardVerdict.allow("guard_evaluation")
 
         monkeypatch.setattr(
-            "agentkit.backend.governance.runner.Governance.run_hook",
+            "agentkit.backend.governance.runner.run_hook",
             staticmethod(_spy),
         )
         monkeypatch.setattr("sys.stdin", io.StringIO(_CODEX_ALLOW_EVENT))

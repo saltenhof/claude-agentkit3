@@ -165,7 +165,7 @@ def test_codex_phase_aware_cli_sends_post_outcome_to_runner(
 
     monkeypatch.setattr("sys.stdin", io.StringIO(raw))
     monkeypatch.setattr(
-        "agentkit.backend.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.run_hook",
         staticmethod(_spy),
     )
 
@@ -208,7 +208,7 @@ def test_codex_post_tool_input_malformed_fails_closed_without_runner_or_health_m
     monkeypatch.setenv("AGENTKIT_WORKER_ID", "worker-1")
     monkeypatch.setattr("sys.stdin", io.StringIO(malformed))
     monkeypatch.setattr(
-        "agentkit.backend.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.run_hook",
         staticmethod(_spy),
     )
 

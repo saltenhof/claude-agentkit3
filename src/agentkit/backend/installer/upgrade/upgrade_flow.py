@@ -136,7 +136,7 @@ def run_upgrade(
     :class:`CheckpointEngine`, and assembles the :class:`UpgradeResult` from the
     engine's run-state. In ``register`` mode the engine performs the prescribed
     config migration (``.bak`` + write, §51.3.2 / §51.4), the §51.6 hook
-    migration via ``Governance.register_hooks`` (when a governance surface is
+    migration via the injected ``HookRegistrationSurface`` (when one is
     given), the §51.6.1 git-hook dispatch migration and the optional §51.7
     cleanup. ``dry_run`` / ``verify`` are read-only (FK-50 §50.2).
 

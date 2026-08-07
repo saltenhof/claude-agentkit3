@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.protocols import GuardVerdict
-from agentkit.backend.governance.runner import Governance, _run_ccag_hook, run_hook
+from agentkit.backend.governance.runner import _run_ccag_hook, run_hook
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,7 +57,7 @@ def test_registered_dispatcher_returns_named_allow(tmp_path: Path) -> None:
 
 
 def test_governance_surface_uses_same_matcher_only_dispatch(tmp_path: Path) -> None:
-    verdict = Governance.run_hook(
+    verdict = run_hook(
         "ccag_gatekeeper",
         _event(command="git status"),
         phase="pre",

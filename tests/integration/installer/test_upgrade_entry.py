@@ -18,7 +18,6 @@ import yaml
 
 from agentkit.backend.config.models import ProjectConfig
 from agentkit.backend.exceptions import ProjectError
-from agentkit.backend.governance.runner import Governance
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.paths import project_config_path
 from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
@@ -27,6 +26,7 @@ from agentkit.backend.installer.upgrade.config_migration import BACKUP_SUFFIX
 from agentkit.backend.installer.upgrade.engine import UP_02_GUARD_BINDING
 from agentkit.backend.installer.upgrade.entry import run_checkpoint_upgrade
 from agentkit.backend.installer.upgrade.scenarios import UpgradeScenario
+from agentkit.backend.installer.writer_client import InstallerHookGovernance
 from agentkit.backend.skills import SkillBundleStore, Skills
 from agentkit.backend.skills.binding import (
     SkillBinding,
@@ -36,7 +36,6 @@ from agentkit.backend.skills.binding import (
 from agentkit.backend.state_backend.store.governance_hook_repository import (
     StateBackendHookRegistrationRepository,
 )
-from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
@@ -73,11 +72,10 @@ def _write_valid_config(project_root: Path) -> Path:
 
 def _writer_dependencies(
     project_root: Path,
-) -> tuple[Governance, Skills]:
+) -> tuple[InstallerHookGovernance, Skills]:
     return (
-        Governance(
+        InstallerHookGovernance(
             hook_repo=StateBackendHookRegistrationRepository(project_root),
-            lock_repo=LockRecordRepository(project_root),
             project_key="demo",
             project_root=project_root,
         ),

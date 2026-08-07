@@ -89,14 +89,17 @@ class _RecordingHookRepo:
 
 def _make_governance(
     lock_repo: _RecordingLockRepo | None = None,
-    project_key: str = "test-project",
 ) -> object:
-    from agentkit.backend.governance.runner import Governance
+    """Return the core lock-deactivation surface with a recording double.
+
+    AG3-239: the surface no longer takes ``hook_repo``/``project_key`` -- hook
+    registration is edge orchestration and lives in
+    ``installer.writer_client.InstallerHookGovernance``.
+    """
+    from agentkit.backend.governance.administration import Governance
 
     return Governance(
-        hook_repo=_RecordingHookRepo(),  # type: ignore[arg-type]
         lock_repo=lock_repo or _RecordingLockRepo(),  # type: ignore[arg-type]
-        project_key=project_key,
     )
 
 

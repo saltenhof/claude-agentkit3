@@ -2244,7 +2244,17 @@ distribution_membership_evidence:
         distribution: edge
         decided_by: E1
         witness: >-
-          agentkit.harness_client.harness_adapters.settings_writer,agentkit.harness_client.projectedge.governance_client,agentkit.harness_client.projectedge.runtime
+          agentkit.harness_client.projectedge.governance_client,agentkit.harness_client.projectedge.runtime
+        witness_correction: >-
+          AG3-239 removed a third witness that used to stand here,
+          agentkit.harness_client.harness_adapters.settings_writer. It was
+          produced by exactly ONE symbol of the module,
+          Governance._materialise_harness_settings -- and that symbol is the one
+          the AG3-239 symbol cut identified as core-side. An edge assignment
+          decided partly by the witness of a core symbol is not wrong in its
+          outcome here (the two remaining witnesses carry the hook dispatch on
+          their own), but it was wrong in its evidence. See
+          architecture-conformance.symbol_boundary.governance_runner.
       - module: agentkit.backend.governance.default_hook_definitions
         distribution: edge
         decided_by: E3
@@ -3701,6 +3711,54 @@ distribution_symbol_boundaries:
       - CheckId
       - IncidentId
       - PatternId
+  # -------------------------------------------------------------------------
+  # AG3-239: der einzige Eintrag dieser Liste, der NICHT an das Vertragspaket
+  # abgibt, sondern die edge/core-Grenze INNERHALB von backend/ zieht. Die
+  # Modulzuordnung `governance.runner -> edge` war fuer einen Teil der Symbole
+  # falsch: E1 hat sie an einem Zeugen entschieden (`settings_writer`), den
+  # ausschliesslich `Governance._materialise_harness_settings` erzeugte -- also
+  # genau das Symbol, das nicht auf die Edge-Seite gehoert. Die uebrigen zwei
+  # E1-Zeugen (`projectedge.governance_client`, `projectedge.runtime`) gehoeren
+  # zur Hook-Dispatch-Haelfte und tragen deren Zuordnung weiterhin.
+  # -------------------------------------------------------------------------
+  - id: architecture-conformance.symbol_boundary.governance_runner
+    module: agentkit.backend.governance.runner
+    split_required: true
+    public_symbols: 11
+    remainder_distribution: edge
+    remainder_symbols: 10
+    core_symbols:
+      - Governance
+    measured_evidence: >-
+      measured 2026-08-07 with the AG3-239 measurement command against
+      distribution_boundary_violations. `Governance` holds a
+      HookRegistrationRepository and a LockRecordRepository and is constructed
+      only by core composition (composition_closure, composition_project,
+      story_reset_adapters) and by the installer; `deactivate_locks` is called by
+      ClosureSequence (FK-29 section 29.5). Ten import edges crossed the boundary
+      solely because those symbols shared a module with the hook dispatch: six
+      disappeared with the symbol cut, and four more with the follow-up cut of
+      `register_hooks` (see below). Counter-evidence that the module was mixed
+      rather than merely large: all four construction sites supplied a dummy for
+      the half they did not use -- the installer a fail-closed
+      `_UnavailableInstallerLockRepository`, the three composition sites a
+      direct-DB `StateBackendHookRegistrationRepository` they never called.
+    remainder_stays_edge_because: >-
+      GuardRunner, run_hook, parse_hook_wrapper_args, validate_hook_selector and
+      the per-hook dispatch functions decide synchronously inside the short-lived
+      hook process before a tool runs (FK-30). A network call per tool use is
+      neither fast enough nor available enough, so they stay on the developer
+      machine.
+    register_hooks_is_edge_orchestration: >-
+      `register_hooks` did NOT move to the core with `Governance`. It persists
+      through a HookRegistrationRepository (core, in production the REST-backed
+      WriterHookRegistrationRepository) and then materialises
+      `.claude/settings.json` and `.codex/hooks.json` on the DEVELOPER machine.
+      The second half is edge work the core cannot perform in a split
+      deployment -- as core code it produced a core-to-edge import into
+      harness_client.harness_adapters.settings_writer. The composed operation
+      therefore lives on the edge, in
+      installer.writer_client.InstallerHookGovernance.
   - id: architecture-conformance.symbol_boundary.governance_hook_registration
     module: agentkit.backend.governance.hook_registration
     split_required: true

@@ -45,8 +45,8 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:]) if argv is None else list(argv)
     try:
         from agentkit.backend.governance.runner import (
-            Governance,
             parse_hook_wrapper_args,
+            run_hook,
         )
         from agentkit.harness_client.harness_adapters.codex.decision_mapping import (
             CodexHookOutput,
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         neutral_event = to_neutral_event(codex_event)
-        verdict = Governance.run_hook(
+        verdict = run_hook(
             selector.hook_id,
             neutral_event,
             phase=selector.phase,

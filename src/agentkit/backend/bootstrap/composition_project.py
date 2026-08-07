@@ -21,12 +21,9 @@ def build_story_exit_service(*, project_key: str) -> object:
     """Build the productive FK-58 story-exit service."""
 
     from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
-    from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.governance.administration import Governance
     from agentkit.backend.state_backend.store.control_plane_writer_lease import (
         load_bound_control_plane_writer_identity,
-    )
-    from agentkit.backend.state_backend.store.governance_hook_repository import (
-        StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
     from agentkit.backend.story_context_manager.service import StoryService
@@ -36,11 +33,7 @@ def build_story_exit_service(*, project_key: str) -> object:
     if identity is None:
         raise RuntimeError("story exit requires the active control-plane writer identity")
 
-    governance = Governance(
-        hook_repo=StateBackendHookRegistrationRepository(),
-        lock_repo=LockRecordRepository(),
-        project_key=project_key,
-    )
+    governance = Governance(lock_repo=LockRecordRepository())
     return StoryExitService(
         control_plane_repository=ControlPlaneRuntimeRepository(),
         story_service=StoryService(),
@@ -141,14 +134,11 @@ def build_story_split_service(
         ControlPlaneRuntimeRepository,
         ObjectMutationClaimRepository,
     )
-    from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.governance.administration import Governance
     from agentkit.backend.state_backend.store.control_plane_writer_lease import (
         load_bound_control_plane_writer_identity,
     )
     from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
-    from agentkit.backend.state_backend.store.governance_hook_repository import (
-        StateBackendHookRegistrationRepository,
-    )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
     from agentkit.backend.state_backend.store.story_dependency_repository import (
         StateBackendStoryDependencyRepository,
@@ -171,11 +161,7 @@ def build_story_split_service(
     from agentkit.integration_clients.vectordb import WeaviateStoryAdapter
     from agentkit.integration_clients.vectordb.errors import VectorDbUnavailableError
 
-    governance = Governance(
-        hook_repo=StateBackendHookRegistrationRepository(),
-        lock_repo=LockRecordRepository(),
-        project_key=project_key,
-    )
+    governance = Governance(lock_repo=LockRecordRepository())
     story_attributes = StoryService()
     # N26/D2: the indexed ``project_id`` is the AUTHORITATIVE binding
     # (``project_prefix`` per FK-13 §13.4.3), NOT the project key. Resolved ONCE
@@ -323,7 +309,7 @@ def build_story_reset_service(
         ControlPlaneRuntimeRepository,
         RunOwnershipRepository,
     )
-    from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.governance.administration import Governance
     from agentkit.backend.kpi_analytics.aggregation import RefreshWorker
     from agentkit.backend.kpi_analytics.fact_store import FactStore
     from agentkit.backend.state_backend.store.analytics_source import (
@@ -334,9 +320,6 @@ def build_story_reset_service(
     )
     from agentkit.backend.state_backend.store.fact_repository import (
         StateBackendFactRepository,
-    )
-    from agentkit.backend.state_backend.store.governance_hook_repository import (
-        StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
     from agentkit.backend.state_backend.store.story_read_repository import (
@@ -350,12 +333,7 @@ def build_story_reset_service(
 
     resolved_root = project_root or store_dir
     lock_repo = LockRecordRepository(store_dir)
-    governance = Governance(
-        hook_repo=StateBackendHookRegistrationRepository(),
-        lock_repo=lock_repo,
-        project_key=project_key,
-        project_root=resolved_root,
-    )
+    governance = Governance(lock_repo=lock_repo)
     cp_repo = ControlPlaneRuntimeRepository()
     story_repo = StateBackendStoryReadRepository(store_dir=store_dir)
     accessor = build_projection_accessor(store_dir)

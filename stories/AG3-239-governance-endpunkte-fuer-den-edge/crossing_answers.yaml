@@ -1,0 +1,793 @@
+# AG3-239 AC 1 -- one answer per boundary crossing of the bounded context
+# `governance-and-guards`.
+#
+# The population is the output of
+#   .venv\Scripts\python stories/AG3-239-governance-endpunkte-fuer-den-edge/\
+#       measure_boundary_violations.py --bc agentkit.backend.governance
+# measured 2026-08-07: 64 unique ordered module pairs (54 edge-to-core,
+# 10 core-to-edge). `check_crossing_answers.py` proves that this file answers
+# exactly that population -- no pair without an answer, no answer without a
+# pair.
+#
+# answer:
+#   a -- belongs over the interface: a /v1 endpoint carries it
+#   b -- edge logic filed on the wrong side, or vocabulary that belongs in the
+#        contract package: the module or the symbol MOVES, no endpoint
+#   c -- must not happen at all: the call is removed
+#
+# remedy_owner names the story that can execute the answer. Where it is not
+# AG3-239, the reason is that the answer's remedy is an explicitly named
+# out-of-scope item of this story (story.md, "Out of Scope").
+
+measurement:
+  command: >-
+    .venv\Scripts\python
+    stories/AG3-239-governance-endpunkte-fuer-den-edge/measure_boundary_violations.py
+    --bc agentkit.backend.governance
+  measured_on: "2026-08-07"
+  unique_ordered_pairs: 59
+  edge_to_core: 51
+  core_to_edge: 8
+  import_statements: 129
+  distinct_imported_symbols: 53
+  start_value:
+    unique_ordered_pairs: 64
+    edge_to_core: 54
+    core_to_edge: 10
+    note: >-
+      Ausgangsmessung vor jeder Aenderung, mit demselben Kommando gerechnet.
+  progress:
+    - step: "M2b -- Governance auf seine EINE Operation zurueckgeschnitten"
+      removed: 2
+      added: 0
+      net: 59
+      note: >-
+        `register_hooks` persistiert ueber das Repository UND schreibt
+        `.claude/settings.json` / `.codex/hooks.json` auf den Entwicklerrechner.
+        Die zweite Haelfte kann der Kern nicht, also ist der zusammengesetzte
+        Vorgang Edge-Orchestrierung; er liegt jetzt in
+        `installer.writer_client.InstallerHookGovernance`. Damit entfallen
+        `administration -> settings_writer` (Kern schreibt auf den Laptop) und
+        `installer.writer_client -> administration`. Nebenwirkung ohne eigene
+        Ueberquerung, aber derselbe Defekt: vier von vier Konstruktionsstellen
+        lieferten eine Attrappe fuer die nicht benutzte Haelfte -- drei davon ein
+        direkt an die DB gebundenes `StateBackendHookRegistrationRepository` im
+        edge-klassifizierten Composition-Root. Alle vier Attrappen sind weg.
+    - step: "M2 -- Symbolschnitt governance.runner"
+      removed: 6
+      added: 3
+      net: 61
+      note: >-
+        Sechs Ueberquerungen entfallen (story_reset_adapters -> runner,
+        governance -> runner, runner -> errors/locks/repository/
+        lock_record_repository). Drei neue treten hervor -- sie sind keine
+        Regression, sondern Defekte, die der Schnitt SICHTBAR gemacht hat: der
+        Edge-Composition-Root und der Installer bauen den Kern-Service direkt,
+        und der Kern-Service schreibt Harness-Settings auf den Entwicklerrechner.
+        Vorher waren alle drei hinter dem gemischten Modul verborgen.
+  deviation_from_story_startwert: >-
+    story.md names 42 pairs (33 edge-to-core, 9 core-to-edge) as the starting
+    value of the pre-measurement. The own measurement yields 64 (54 / 10). The
+    own measurement is the one that counts, and it is not merely an assertion
+    against the pre-measurement: filtered to `agentkit.backend.governance`, the
+    frozen list `distribution_boundary_violations.pairs` in
+    concept/formal-spec/architecture-conformance/entities.md contains exactly
+    the same 64 pairs -- set-identical, direction-identical, zero symmetric
+    difference. The 42 of story.md is reproducible from no artefact in the
+    repository and is discarded.
+
+crossings:
+
+  # -------------------------------------------------------------------
+  # G1 -- `governance.runner` mixes both sides. Symbol cut, not endpoint.
+  # -------------------------------------------------------------------
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookId]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      After the G1 symbol cut only `HookId` remains: the dispatcher validates the
+      hook selector against it. The frozen classification assigns `HookId` to the
+      CORE remainder of `hook_registration`
+      (`architecture-conformance.symbol_boundary.governance_hook_registration`)
+      and defers it from the contract package, so the edge dispatcher cannot
+      reach it either way. Same blocker as the rest of G5.
+
+  # -------------------------------------------------------------------
+  # G2 -- guards decide synchronously in the hook process. They move.
+  # -------------------------------------------------------------------
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.governance.guards.artifact_guard
+    symbols: [ArtifactGuard]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: >-
+      story.md, "Anlass": the guard engine must stay on the laptop -- it decides
+      synchronously before a tool runs. A network call per tool use is neither
+      fast enough nor available enough. The guard module moves to the edge.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.governance.guards.branch_guard
+    symbols: [BranchGuard]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: See ArtifactGuard -- same argument, same move.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.governance.guards.scope_guard
+    symbols: [ScopeGuard]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: See ArtifactGuard -- same argument, same move.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.guards.self_protection_guard
+    symbols: [SelfProtectionGuard]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: >-
+      FK-30 section 30.5.4 -- always active, dispatched per hook event. Moves to
+      the edge with the other guards.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.guards.story_creation_guard
+    symbols: [StoryCreationGuard]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: FK-31 section 31.5 -- always active, per hook event. Moves.
+
+  - importer: agentkit.backend.governance.guards.self_protection_guard
+    imported: agentkit.backend.governance.guard_evaluation
+    symbols: [HookEvent]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: >-
+      Reverse edge of the same defect: a core-classified guard consuming the
+      edge event type. Disappears when the guard moves; no endpoint and no
+      contract symbol needed.
+
+  - importer: agentkit.backend.governance.guards.story_creation_guard
+    imported: agentkit.backend.governance.guard_evaluation
+    symbols: [HookEvent]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: See self_protection_guard -- disappears with the move.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.guard_system
+    symbols:
+      [BudgetSeverity, PromptIntegrityGuard, SkillUsageCheckGuard,
+       SkillUsageObservation, SpawnMode, SpawnObservation, WebCallBudgetGuard,
+       WebCallBudgetObservation]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: >-
+      Three guards plus their observation records, all dispatched inside the
+      hook process. The guards move; the observation records travel with them as
+      their owners' input types.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.guard_system.records
+    symbols: [GuardDecision, GuardDecisionOutcome]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: >-
+      Decision record of the guard dispatch. Moves with `guard_system`. The
+      frozen classification defers `GuardDecisionOutcome` from the contract
+      package ("not proven as /v1 vocabulary"); that deferral is consistent with
+      this answer -- the symbol is not /v1 vocabulary, it is edge-internal.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.capability_blocks
+    symbols: [binding_invalid_block, capability_block, capability_fault_block]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: >-
+      Three pure constructors that turn an adjudication result into a blocking
+      verdict. No state, no I/O, only the hook dispatcher calls them. They move
+      to the edge; an endpoint for them would be a network call to build a
+      dataclass.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.hook_ids
+    symbols: [POST_HOOK_IDS, PRE_HOOK_IDS, SUPPORTED_HOOK_IDS, SUPPORTED_PHASES]
+    answer: b
+    remedy_owner: AG3-239
+    group: G2
+    reason: >-
+      The frozen classification states the reason itself, for exactly these four
+      symbols: "local dispatch/validation logic (governance/hook_ids.py:5), not a
+      contract field". Local dispatch vocabulary of the hook wrapper -- it moves
+      to the edge with the dispatcher.
+
+  # -------------------------------------------------------------------
+  # G3 -- integration_stabilization: guards and precondition checks of the
+  #       same kind, reading local files. They move.
+  # -------------------------------------------------------------------
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.integration_stabilization.budget_guard
+    symbols: [StabilizationBudgetGuard]
+    answer: b
+    remedy_owner: AG3-239
+    group: G3
+    reason: >-
+      A guard that decides in the hook process, like every other guard. story.md
+      ("Wo diese Story unsicher ist") places integration_stabilization in this
+      BC as a named choice -- its concept document carries `cross_cutting: true`
+      and therefore no `domain:` value. The answer does not depend on that
+      choice: wherever the posten is hung, the module is edge logic.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.integration_stabilization.preconditions
+    symbols: [check_approval_present, check_binding_integrity]
+    answer: b
+    remedy_owner: AG3-239
+    group: G3
+    reason: >-
+      Precondition checks of the same kind as the guards, evaluated in the hook
+      process before a tool runs. They move.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.integration_stabilization.seam_allowlist_guard
+    symbols:
+      [FailClosedSeamGuard, SeamAllowlistGuard, materialize_seam_allowlist_file,
+       read_seam_allowlist_file]
+    answer: b
+    remedy_owner: AG3-239
+    group: G3
+    reason: >-
+      Two guards plus the reader/writer of the local allowlist file they decide
+      against. The file is on the developer machine; a network call would not
+      reach it.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.integration_stabilization.state
+    symbols: [IS_MANIFEST_FILE, load_integration_manifest, load_manifest_approval]
+    answer: b
+    remedy_owner: AG3-239
+    group: G3
+    reason: >-
+      Local manifest reads on the developer machine, same argument as the
+      allowlist file.
+
+  # -------------------------------------------------------------------
+  # G4 -- adjudication and canonical state: the endpoints of this story.
+  # -------------------------------------------------------------------
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.principal_capabilities
+    symbols:
+      [CapabilityEnforcement, CapabilityMatrix, ConflictFreezeOverlay,
+       EnforcementOutcome, OperationClassifier, PathClassifier,
+       PrincipalResolver]
+    answer: a
+    remedy_owner: AG3-239
+    group: G4
+    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
+    replaces_call_sites:
+      - governance/runner.py:1748 (_run_capability_enforcement)
+      - governance/runner.py:1678 (_run_self_protection_guard)
+      - governance/runner.py:1703 (_run_story_creation_guard)
+    reason: >-
+      Capability adjudication belongs to the core (FK-01 section 1.1a, story.md
+      "Der fachliche Kern"). AC 3: this is ONE business transaction -- resolve
+      principal, classify path and operation, consult matrix and freeze overlay,
+      return an outcome -- not seven repository mirrors. The three call sites
+      above wire the same components three times and become one operation.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.state_backend.store.freeze_repository
+    symbols: [FreezeRepository, LocalFreezeJsonExport]
+    answer: a
+    remedy_owner: AG3-239
+    group: G4
+    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
+    replaces_call_sites:
+      - governance/runner.py:1757 (_run_capability_enforcement)
+    reason: >-
+      The freeze overlay is an input of the adjudication, not a separate query.
+      AC 3 forbids giving it its own endpoint. This is also the concrete safety
+      defect of the current arrangement: `FreezeRepository(project_root)` opens
+      a database from inside the short-lived hook process, which AG3-209 AC 3
+      forbids outright.
+
+  - importer: agentkit.backend.governance.principal_capabilities.enforcement
+    imported: agentkit.backend.governance.guard_evaluation
+    symbols: [HookEvent]
+    answer: a
+    remedy_owner: AG3-239
+    group: G4
+    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
+    reason: >-
+      Reverse edge of the adjudication crossing: the core adjudicator consumes
+      the edge event type directly. With the endpoint it consumes the request
+      model of the operation instead, and the edge event never leaves the
+      laptop.
+
+  - importer: agentkit.backend.governance.principal_capabilities.principals
+    imported: agentkit.backend.governance.guard_evaluation
+    symbols: [HookEvent]
+    answer: a
+    remedy_owner: AG3-239
+    group: G4
+    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
+    reason: See principal_capabilities.enforcement -- same request model.
+
+  - importer: agentkit.backend.governance.principal_capabilities.service_paths
+    imported: agentkit.backend.governance.guard_evaluation
+    symbols: [HookEvent]
+    answer: a
+    remedy_owner: AG3-239
+    group: G4
+    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
+    reason: See principal_capabilities.enforcement -- same request model.
+
+  - importer: agentkit.backend.governance.setup_preflight_gate.phase
+    imported: agentkit.backend.installer.paths
+    symbols: [story_dir]
+    answer: c
+    remedy_owner: AG3-239
+    group: G4
+    reason: >-
+      A core gate reaching into an edge installer path helper. The core has no
+      authority over developer-machine paths (FK-10 section 10.2.4a: "the backend
+      keeps no worktree path authority"); the call is removed and the gate uses
+      the path it is given. No endpoint -- an endpoint would let the core keep
+      asking a question it must not ask.
+
+  # -------------------------------------------------------------------
+  # G5 -- vocabulary. The symbol belongs in the contract package.
+  #       Remedy owner is NOT this story (story.md, Out of Scope).
+  # -------------------------------------------------------------------
+  - importer: agentkit.backend.governance.default_hook_definitions
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition, HookEventName, HookId]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      Pure vocabulary. `HookDefinition` and `HookEventName` are already named
+      wire targets in the frozen classification; `HookId` is a wire-DEFERRED
+      symbol carrying an `ag3_209_precondition` and the sentence "until then the
+      symbol stays with its current side". Neither half is executable here.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.hook_event_inputs
+    symbols:
+      [HookWrapperArgs, _AGENT_TOOL, _MANIFEST_SKILL_PROOF_KEY,
+       _SkillBindingLookupAdapter, _event_command, _event_str_arg, _event_tool,
+       _feature_are_enabled, _installed_skill_proof, _pinned_prompt_output_hashes,
+       _resolve_prompt_file_content]
+    answer: b
+    remedy_owner: AG3-209
+    group: G5
+    blocked: true
+    reason: >-
+      story.md, Out of Scope, verbatim: the module is edge logic filed wrongly in
+      the core, it MOVES, owner AG3-209 (entry E6). Explicitly no endpoint --
+      building one would make the security defect plausible instead of removing
+      it. The skill-binding lookup it obtains today by importing
+      `bootstrap.composition_root.build_skills` must exist as a /v1 operation;
+      that operation is owned by AG3-243.
+
+  - importer: agentkit.backend.governance.hook_event_inputs
+    imported: agentkit.backend.governance.guard_evaluation
+    symbols: [HookEvent]
+    answer: b
+    remedy_owner: AG3-209
+    group: G5
+    blocked: true
+    reason: >-
+      Travels with `hook_event_inputs`; disappears once the module sits on the
+      edge. Same owner.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.governance.protocols
+    symbols: [GovernanceGuard, GuardVerdict, ViolationType]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      Guard protocol and verdict vocabulary. `ViolationType` is wire-DEFERRED in
+      the frozen classification ("not proven as /v1 vocabulary", round 2) with an
+      `ag3_209_precondition`; `GuardVerdict` and `GovernanceGuard` have no wire
+      target either. Nothing in this story can move them.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.protocols
+    symbols: [GovernanceGuard, GuardVerdict, ViolationType]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See guard_evaluation -> protocols -- same symbols, same blocker.
+
+  - importer: agentkit.harness_client.harness_adapters.codex.decision_mapping
+    imported: agentkit.backend.governance.protocols
+    symbols: [GuardVerdict]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      The harness adapter maps a verdict to a harness-specific decision. It needs
+      the verdict type, which has no wire target. Same blocker.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.core_types.qa_artifact_names
+    symbols: [CHANGE_FRAME_FILE]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      A file-name constant. Vocabulary; belongs in the contract package or in the
+      edge copy set that AG3-209 owns. Not an endpoint -- a network call to learn
+      a filename would be absurd.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.story_context_manager.operating_mode_resolver
+    symbols: [resolve_operating_mode]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      A pure accessor over a structural protocol, no I/O, deliberately built as
+      the single accessor both the edge and the core read the resolved mode
+      through (its own module docstring). Vocabulary, not adjudication: the
+      classification decision itself already sits on the edge
+      (`projectedge.runtime.ProjectEdgeResolver`). Belongs in the contract
+      package with `core_types.operating_mode`.
+
+  - importer: agentkit.backend.governance.guard_evaluation
+    imported: agentkit.backend.telemetry.emitters
+    symbols: [EventEmitter]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      The emitter PROTOCOL is the seam type both sides implement; the edge
+      implementation `telemetry.rest_emitter` is already classified edge. The
+      protocol belongs in the contract package. Owner of the telemetry
+      vocabulary is not this BC.
+
+  - importer: agentkit.backend.governance.rest_edge
+    imported: agentkit.backend.telemetry.emitters
+    symbols: [EventEmitter, NullEmitter]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See guard_evaluation -> telemetry.emitters. `NullEmitter` is the
+      fail-soft implementation the edge seam falls back to and travels with it.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.telemetry.emitters
+    symbols: [EventEmitter]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See guard_evaluation -> telemetry.emitters -- same symbol.
+
+  - importer: agentkit.backend.governance.rest_edge
+    imported: agentkit.backend.telemetry.events
+    symbols: [Event, EventType]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      The telemetry event payload the edge emitter already ships over
+      `/v1/telemetry/events`. It is wire vocabulary by construction; the endpoint
+      exists, only the type has nowhere to live yet.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.telemetry.hooks.base
+    symbols: [HookContext, HookTrigger]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      Context and trigger vocabulary of the telemetry hooks. Same argument as
+      telemetry.events.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.telemetry.hooks.budget_event_emitter
+    symbols: [BudgetEventEmitter]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      Emitter used inside the hook process; it writes through the already
+      REST-mediated telemetry seam. Belongs on the edge with `rest_emitter`, but
+      the move is a telemetry-BC decision, not a governance one.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.telemetry.hooks.commit_hook
+    symbols: [CommitHook]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See budget_event_emitter -- telemetry-BC owned hook, edge-resident.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.telemetry.hooks.review_guard
+    symbols: [ReviewGuard]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See budget_event_emitter -- telemetry-BC owned hook, edge-resident.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.config.loader
+    symbols: [load_project_config]
+    answer: b
+    remedy_owner: AG3-209
+    group: G5
+    blocked: true
+    reason: >-
+      story.md, Out of Scope, verbatim: `config` gets its own edge copy, owner
+      AG3-209. A network call to read the local project config would be wrong.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.config.models
+    symbols: [TelemetryConfig]
+    answer: b
+    remedy_owner: AG3-209
+    group: G5
+    blocked: true
+    reason: See config.loader -- same out-of-scope item, same owner.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.control_plane.models
+    symbols: [GuardCounterMutationRequest]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      The request model of the ALREADY EXISTING `/v1/governance/guard-counters`
+      endpoint. This crossing is the proof of the structural blocker recorded in
+      report.md: a finished, correctly mediated endpoint still produces a
+      boundary violation, because its request model has no home both sides may
+      import. The frozen classification names exactly this symbol as a wire
+      target in `agentkit_wire.control_plane_mutations`.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.governance.principal_capabilities.operations
+    symbols: [WEB_FETCH, WEB_SEARCH]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      Two operation identifiers. They are the /v1 vocabulary of the adjudication
+      endpoint from G4 and belong in the contract package alongside its request
+      model -- not in a separate endpoint.
+
+  - importer: agentkit.backend.installer.ccag_settings
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition, HookEventName, HookId]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      The installer is genuinely edge and genuinely needs the hook-definition
+      vocabulary; the write path is already REST-mediated
+      (`installer.writer_client` -> `/v1/projects/{key}/installation/...`). Only
+      the types have nowhere to live. `HookId` is wire-deferred.
+
+  - importer: agentkit.backend.installer.http_models
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See installer.ccag_settings -- same vocabulary, same blocker.
+
+  - importer: agentkit.backend.installer.upgrade.engine
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See installer.ccag_settings.
+
+  - importer: agentkit.backend.installer.upgrade.hook_migration
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition, RegistrationResult]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      See installer.ccag_settings. `RegistrationResult` is wire-DEFERRED, because
+      its hull reaches `governance.errors.HookRegistrationError`.
+
+  - importer: agentkit.backend.installer.upgrade.upgrade_flow
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See installer.ccag_settings.
+
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition, RegistrationResult]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      `writer_client` is the REST client that already replaces the direct write.
+      It still imports the payload types across the boundary -- the same
+      structural blocker as GuardCounterMutationRequest, on a path that is
+      otherwise finished.
+
+  - importer: agentkit.backend.installer.writer_service
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition, RegistrationResult]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See installer.writer_client.
+
+  - importer: agentkit.harness_client.harness_adapters.settings_writer
+    imported: agentkit.backend.governance.hook_registration
+    symbols: [HookDefinition]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      The settings writer materialises the hook definitions into
+      `.claude/settings.json` / `.codex/hooks.json` on the developer machine. It
+      is edge by nature and needs the type. Same blocker.
+
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.governance.errors
+    symbols: [HookRegistrationError]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      Wire-DEFERRED in the frozen classification: "not proven as /v1 vocabulary"
+      with an `ag3_209_precondition`. Cannot move here.
+
+  - importer: agentkit.harness_client.harness_adapters.settings_writer
+    imported: agentkit.backend.governance.errors
+    symbols: [HookRegistrationError]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See installer.writer_client -> governance.errors.
+
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.governance.repository
+    symbols: [HookRegistrationRepository]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: >-
+      A PROTOCOL, used as the seam type the installer's REST writer client
+      satisfies. Unlike the `runner` case in G1 the importer really is edge, so
+      the symbol cut does not help; the protocol needs a shared home.
+
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.governance.repository
+    symbols: [HookRegistrationRepository]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See installer.runner -> governance.repository.
+
+  - importer: agentkit.backend.installer.writer_service
+    imported: agentkit.backend.governance.repository
+    symbols: [HookRegistrationRepository]
+    answer: b
+    remedy_owner: AG3-237
+    group: G5
+    blocked: true
+    reason: See installer.runner -> governance.repository.
+
+  # -------------------------------------------------------------------
+  # G6 -- worker health: a foreign BC on the other end.
+  # -------------------------------------------------------------------
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.implementation.worker_health
+    symbols: [PostToolOutcome, apply_post_tool_use]
+    answer: a
+    remedy_owner: AG3-241
+    group: G6
+    endpoint: POST /v1/governance/worker-health (extension of the existing operation)
+    replaces_call_sites:
+      - governance/runner.py:873
+    reason: >-
+      `apply_post_tool_use` mutates canonical worker-health state and belongs to
+      the core. The mediation is half built: `/v1/governance/worker-health` GET
+      and POST already exist (`control_plane_http/governance_mediation.py`), and
+      `implementation.worker_health.rest_repository` is already classified edge --
+      but the hook still calls the engine in process. Extending an endpoint of
+      the `implementation` BC is not this story's mandate; it is named here so
+      the crossing has an answer and an owner rather than disappearing.
+
+  - importer: agentkit.backend.governance.runner
+    imported: agentkit.backend.implementation.worker_health.interventions
+    symbols: [intervention_decision_result]
+    answer: a
+    remedy_owner: AG3-241
+    group: G6
+    endpoint: POST /v1/governance/worker-health (extension of the existing operation)
+    replaces_call_sites:
+      - governance/runner.py:950
+    reason: >-
+      Part of the same business transaction as `apply_post_tool_use` -- AC 3: one
+      operation, not two. Same foreign owner.
+
+  - importer: agentkit.backend.implementation.worker_health.engine
+    imported: agentkit.backend.governance.guard_evaluation
+    symbols: [HookEvent]
+    answer: a
+    remedy_owner: AG3-241
+    group: G6
+    endpoint: POST /v1/governance/worker-health (extension of the existing operation)
+    reason: >-
+      Reverse edge of the same crossing: the core engine consumes the edge event
+      type. With the endpoint it consumes the request model instead.
+
+  # -------------------------------------------------------------------
+  # G7 -- vom Symbolschnitt freigelegt (AG3-239 M2).
+  # -------------------------------------------------------------------
+  - importer: agentkit.backend.bootstrap.composition_project
+    imported: agentkit.backend.governance.administration
+    symbols: [Governance]
+    answer: b
+    remedy_owner: AG3-209
+    group: G7
+    blocked: true
+    reason: >-
+      Freigelegt durch den Symbolschnitt: `composition_project` ist als `edge`
+      klassifiziert und baut den Kern-Service. Die Bindung steht aber NICHT
+      isoliert -- sie sitzt in `build_story_exit_service`,
+      `build_story_split_service` und dem Story-Reset-Builder, also in der
+      Komposition der BCs story-exit, story-split und story-reset. Der Umzug ist
+      der Composition-Root-Schnitt, nicht eine governance-eigene Bindung, und
+      `story.md` weist die uebrigen Bindungen dieser Datei ausdruecklich
+      AG3-240 bis AG3-250 zu.
+
+      Was in dieser Story dennoch behoben ist: die drei Stellen banden bis eben
+      zusaetzlich ein `StateBackendHookRegistrationRepository` -- eine direkte
+      DB-Bindung im edge-klassifizierten Composition-Root -- nur um den
+      Konstruktor zu befriedigen. Diese Attrappen sind entfernt; uebrig bleibt
+      die reine Lock-Deaktivierungs-Bindung.

@@ -175,8 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:]) if argv is None else list(argv)
     try:
         from agentkit.backend.governance.runner import (
-            Governance,
             parse_hook_wrapper_args,
+            run_hook,
         )
     except Exception as exc:  # noqa: BLE001 - import failure must block the tool
         return _emit_hook_runtime_failure(exc, guard="governance_runtime")
@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         event = to_neutral_event(claude_event)
-        decision = Governance.run_hook(
+        decision = run_hook(
             selector.hook_id,
             event,
             phase=selector.phase,

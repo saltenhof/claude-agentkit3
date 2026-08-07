@@ -38,7 +38,7 @@ from agentkit.backend.control_plane.repository import (
     RunOwnershipRepository,
 )
 from agentkit.backend.core_types.attempt import AttemptOutcome
-from agentkit.backend.governance.runner import Governance
+from agentkit.backend.governance.administration import Governance
 from agentkit.backend.kpi_analytics.aggregation import RefreshWorker
 from agentkit.backend.kpi_analytics.fact_store import FactStore
 from agentkit.backend.phase_state_store.models import FlowExecution

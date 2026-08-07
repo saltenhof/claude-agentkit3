@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.closure.gates import TelemetryEvidenceVerdict
     from agentkit.backend.closure.multi_repo_saga import ClosureRepo, GitBackend
-    from agentkit.backend.governance import Governance
+    from agentkit.backend.governance.administration import Governance
     from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockRepository
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.types import StoryType

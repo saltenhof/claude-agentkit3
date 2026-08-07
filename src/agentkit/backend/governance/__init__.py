@@ -1,8 +1,21 @@
 """Governance module -- guards, integrity gates, and policy enforcement.
 
-Re-exports the public API so consumers can write::
+The package root re-exports the governance VOCABULARY (guard protocols, verdicts,
+integrity-gate results) and the guards themselves.
 
-    from agentkit.backend.governance import GuardVerdict, BranchGuard, GuardRunner
+It deliberately does NOT re-export the hook dispatch (``GuardRunner``,
+``HookDecision``, ``run_hook``) or the core administration surface
+(``Governance``). Both are reached through their owning module:
+
+* ``agentkit.backend.governance.runner`` -- hook dispatch, runs in the
+  short-lived hook process on the developer machine (edge);
+* ``agentkit.backend.governance.administration`` -- lock deactivation, holds the
+  canonical lock repository (core).
+
+AG3-239: re-exporting the edge dispatcher from the core package root made every
+importer of ``agentkit.backend.governance`` an importer of the hook process, and
+it was a second import path for symbols that already have an owner (CLAUDE.md,
+KEINE KOMPATIBILITAETSSCHICHTEN). The facade is removed, not deprecated.
 """
 
 from __future__ import annotations
@@ -22,17 +35,13 @@ from agentkit.backend.governance.protocols import (
     GuardVerdict,
     ViolationType,
 )
-from agentkit.backend.governance.runner import Governance, GuardRunner, HookDecision
 
 __all__ = [
     "ArtifactGuard",
     "BranchGuard",
     "GovernanceGuard",
-    "Governance",
-    "GuardRunner",
     "GuardVerdict",
     "DimensionResult",
-    "HookDecision",
     "IntegrityDimension",
     "IntegrityGate",
     "IntegrityGateResult",

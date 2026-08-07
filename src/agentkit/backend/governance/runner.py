@@ -26,10 +26,8 @@ from agentkit.backend.governance.capability_blocks import (
 from agentkit.backend.governance.capability_blocks import (
     capability_fault_block as _capability_fault_block,
 )
-from agentkit.backend.governance.errors import LockRecordNotFoundError
 from agentkit.backend.governance.guard_system.records import GuardDecision, GuardDecisionOutcome
 from agentkit.backend.governance.hook_registration import HookId
-from agentkit.backend.governance.locks import DeactivationResult, LockRecordId
 from agentkit.backend.governance.principal_capabilities.operations import (
     WEB_FETCH,
     WEB_SEARCH,
@@ -38,10 +36,7 @@ from agentkit.backend.governance.protocols import GuardVerdict, ViolationType
 
 if TYPE_CHECKING:
     from agentkit.backend.governance.guard_evaluation import HookEvent
-    from agentkit.backend.governance.hook_registration import HookDefinition, RegistrationResult
     from agentkit.backend.governance.protocols import GovernanceGuard
-    from agentkit.backend.governance.repository import HookRegistrationRepository
-    from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
     from agentkit.backend.telemetry.emitters import EventEmitter
     from agentkit.harness_client.projectedge.governance_client import GovernanceEdgeClient
 
@@ -183,312 +178,6 @@ class GuardRunner:
                     evidence_ref=_evidence_ref(verdict),
                 )
             )
-
-
-class Governance:
-    """Harness-neutral governance top surface.
-
-    Provides three top-level surfaces:
-    - ``run_hook`` (static): dispatch a named hook (pre-existing).
-    - ``register_hooks``: persist hook definitions in the state backend and
-      materialise harness-specific settings files (FK-30 §30.3.1).
-    - ``deactivate_locks``: deactivate story locks and clean up lock exports.
-
-    Args:
-        hook_repo: Repository for hook-definition persistence.
-        lock_repo: Repository for story-execution lock deactivation.
-        project_key: Owning project key used for hook registration scoping.
-            Required for ``register_hooks``.  Sourced from Composition Root /
-            Installer context (Fix E1, AG3-031 Pass-3).
-        project_root: Root directory used by harness settings writers
-            (Fix E2).  Defaults to ``Path.cwd()``.  Tests pass ``tmp_path``.
-
-    AG3-145 sub-step D (FK-10 §10.2.4a): the ``worktree_repo`` dependency was
-    removed. ``deactivate_locks`` no longer writes physically into worktrees; the
-    dev-local ``.agent-guard`` projection (lock-export removal + mode marker) runs
-    entirely over the edge bundle-publication + ``tombstone_worktree_roots``
-    mechanism (``harness_client.projectedge.client``). The backend keeps no
-    worktree path authority.
-    """
-
-    def __init__(
-        self,
-        *,
-        hook_repo: HookRegistrationRepository,
-        lock_repo: LockRecordRepository,
-        project_key: str = "",
-        project_root: Path | None = None,
-    ) -> None:
-        self._hook_repo = hook_repo
-        self._lock_repo = lock_repo
-        self._project_key = project_key
-        self._project_root = project_root
-
-    # ------------------------------------------------------------------
-    # register_hooks (FK-30 §30.3.1)
-    # ------------------------------------------------------------------
-
-    def register_hooks(
-        self,
-        hook_definitions: list[HookDefinition],
-    ) -> RegistrationResult:
-        """Register harness-specific hook definitions in the project.
-
-        FK-30 §30.3.1: signature is ``register_hooks(hook_definitions)`` —
-        no ``project_key`` parameter.  The project key is resolved from
-        ``self._project_key`` set at construction (Fix E1, AG3-031 Pass-3).
-
-        The caller (Installer) must supply ``project_key`` to
-        ``Governance.__init__`` rather than passing it per-call.
-
-        Idempotent: repeated registration of an identical
-        ``(project_key, hook_event_name, matcher)`` triple returns the
-        matcher string in ``skipped`` without overwriting the existing entry
-        (for identical entries).  Entries with a changed ``command`` are
-        overwritten (UPSERT — Fix E3).
-
-        Settings materialisation (Fix E2): after persisting to the backend,
-        calls each registered harness adapter to write the harness-specific
-        settings file (e.g. ``.claude/settings.json``).  Fail-closed: a
-        broken settings file raises, not silently continues.
-
-        Args:
-            hook_definitions: Hook definitions to register.
-
-        Returns:
-            ``RegistrationResult`` with ``registered``, ``skipped``, ``errors``.
-
-        Raises:
-            Exception: On unrecoverable backend failures or broken settings
-                files (FK-30 §30.3.1).
-        """
-        result = self._hook_repo.register(self._project_key, hook_definitions)
-        # Fix E2: materialise harness-specific settings files after backend persist.
-        self._materialise_harness_settings(hook_definitions)
-        return result
-
-    def _materialise_harness_settings(
-        self,
-        hook_definitions: list[HookDefinition],
-    ) -> None:
-        """Write hook definitions into harness-specific settings files.
-
-        Calls both the Claude Code and Codex adapters to write their
-        respective settings files.  Fail-closed: broken settings files
-        (invalid JSON in ``.claude/settings.json``) raise ``ValueError``
-        rather than continuing silently (FK-30 §30.3.1 Z.339).
-
-        The ``project_root`` defaults to ``Path.cwd()``.  Tests that need
-        to redirect to a ``tmp_path`` should configure ``project_root``
-        at Governance construction time (future enhancement: inject via
-        ``__init__`` or composition-root; current default is cwd).
-
-        Args:
-            hook_definitions: Hook definitions to materialise.
-        """
-        from agentkit.harness_client.harness_adapters.settings_writer import (
-            ClaudeCodeSettingsWriter,
-            CodexSettingsWriter,
-        )
-
-        # Write Claude Code settings (.claude/settings.json)
-        ClaudeCodeSettingsWriter(self._project_root).write(hook_definitions)
-        # Write Codex settings (.codex/hooks.json — FK-76 §76.5.2)
-        CodexSettingsWriter(self._project_root).write(hook_definitions)
-
-    # ------------------------------------------------------------------
-    # deactivate_locks (FK-30 §30.6.0)
-    # ------------------------------------------------------------------
-
-    def deactivate_locks(self, story_id: str) -> DeactivationResult:
-        """Deactivate all lock records for a story and remove lock exports.
-
-        Called by ClosureSequence (FK-29 §29.5) after successful postflight.
-        After this call, guards that depend on an active lock record
-        (branch_guard, orchestrator_guard, qa_agent_guard) become inactive.
-
-        Idempotent for already-deactivated stories (all locks INACTIVE):
-        returns empty deactivated_locks without errors (but the story_id
-        must be known — completely unknown story_ids raise LockRecordNotFoundError,
-        surfaced in errors[]).
-
-        Fail-closed (Fix E6, AG3-031 Pass-3):
-        - Unknown story_id (no lock records at all) → LockRecordNotFoundError
-          surfaced in errors[0].
-        - IO errors on lock-export deletion → collected in ``errors[]``.
-        - DB failures → raised immediately (not silently swallowed).
-
-        Args:
-            story_id: Canonical story identifier.
-
-        Returns:
-            ``DeactivationResult`` with ``deactivated_locks``,
-            ``removed_edge_bundles``, ``removed_lock_exports``,
-            ``restored_to_ai_augmented``, ``errors``.
-
-        Raises:
-            Exception: On unrecoverable DB failures.
-        """
-        # Fix E6: fail-closed for unknown story_id.
-        # LockRecordNotFoundError is surfaced in errors[]; critical DB errors
-        # (any other exception) are re-raised immediately.
-        errors: list[str] = []
-        deactivated: list[LockRecordId] = []
-        try:
-            deactivated = self._lock_repo.deactivate_locks_for_story(story_id)
-        except LockRecordNotFoundError as exc:
-            errors.append(str(exc))
-
-        # Fix E4: purge the correct lock-export paths (FK-30 §30.6.0 + FK-29 §29.5)
-        removed_bundles, bundle_errors = self._purge_edge_bundles(story_id)
-        errors.extend(bundle_errors)
-
-        removed_exports, export_errors = self._purge_qa_lock_export(story_id)
-        errors.extend(export_errors)
-
-        # AG3-145 sub-step D (FK-10 §10.2.4a): the mode restoration no longer
-        # touches worktrees (see ``_restore_ai_augmented_mode``). The dev-local
-        # ``.agent-guard/lock.json`` removal is carried by the edge tombstone
-        # projection, not the backend.
-        restored, restore_errors = self._restore_ai_augmented_mode(story_id)
-        errors.extend(restore_errors)
-
-        return DeactivationResult(
-            deactivated_locks=deactivated,
-            removed_edge_bundles=removed_bundles,
-            removed_lock_exports=removed_exports,
-            restored_to_ai_augmented=restored,
-            errors=errors,
-        )
-
-    def _purge_edge_bundles(
-        self, story_id: str
-    ) -> tuple[list[Path], list[str]]:
-        """Remove legacy edge-bundle file for ``story_id``.
-
-        Compatibility path: ``_temp/governance/{story_id}/edge-bundle.json``.
-        Missing files are silently skipped (idempotent). IO errors collected.
-
-        Args:
-            story_id: Canonical story identifier.
-
-        Returns:
-            Tuple of (removed_paths, error_messages).
-        """
-        removed: list[Path] = []
-        errors: list[str] = []
-
-        candidate = Path("_temp") / "governance" / story_id / "edge-bundle.json"
-        if candidate.exists():
-            try:
-                candidate.unlink()
-                removed.append(candidate)
-            except OSError as exc:
-                errors.append(
-                    f"Failed to remove edge bundle {candidate}: {exc}"
-                )
-
-        return removed, errors
-
-    def _purge_qa_lock_export(
-        self, story_id: str
-    ) -> tuple[list[Path], list[str]]:
-        """Remove QA-lock export file for ``story_id`` (FK-30 §30.6.0 + FK-29 §29.5).
-
-        Removes ``_temp/governance/locks/{story_id}/qa-lock.json``.
-        Missing files are silently skipped (idempotent). IO errors collected.
-
-        Args:
-            story_id: Canonical story identifier.
-
-        Returns:
-            Tuple of (removed_paths, error_messages).
-        """
-        removed: list[Path] = []
-        errors: list[str] = []
-
-        qa_lock_path = (
-            Path("_temp") / "governance" / "locks" / story_id / "qa-lock.json"
-        )
-        if qa_lock_path.exists():
-            try:
-                qa_lock_path.unlink()
-                removed.append(qa_lock_path)
-            except OSError as exc:
-                errors.append(
-                    f"Failed to remove qa-lock export {qa_lock_path}: {exc}"
-                )
-
-        return removed, errors
-
-    def _restore_ai_augmented_mode(
-        self, story_id: str
-    ) -> tuple[bool, list[str]]:
-        """Write the ``ai_augmented`` mode tombstone for the story (FK-30 §30.6.0 Z.683).
-
-        AG3-145 sub-step D (FK-10 §10.2.4a): the governance deactivation no
-        longer writes PHYSICALLY into worktrees. The former per-worktree
-        ``.agent-guard/lock.json`` removal and ``.agent-guard/mode.json`` write
-        are gone from the backend -- the dev-local ``.agent-guard`` projection
-        runs entirely over the edge bundle-publication + serverside
-        ``tombstone_worktree_roots`` mechanism
-        (``harness_client.projectedge.client``): on lock deactivation the
-        control-plane emits an edge bundle whose ``tombstone_worktree_roots``
-        drive the edge to delete each worktree's ``.agent-guard/lock.json``.
-
-        Only the backend-local legacy ``_temp/governance/locks/{story_id}/
-        mode.json`` tombstone (existing non-worktree consumers) is written here;
-        it is NOT a worktree write. Idempotent: skipped when the dir is absent.
-
-        Args:
-            story_id: Canonical story identifier.
-
-        Returns:
-            Tuple of (restored, errors) where ``restored`` is True when the
-            legacy mode marker was written, and ``errors`` is a list of non-fatal
-            IO error messages.
-        """
-        import json
-
-        mode_payload = json.dumps(
-            {"operating_mode": "ai_augmented", "story_id": story_id}
-        )
-        any_written = False
-        errors: list[str] = []
-
-        # Legacy backend-local tombstone (non-worktree consumers, backward compat).
-        mode_dir = Path("_temp") / "governance" / "locks" / story_id
-        if mode_dir.exists():
-            legacy_file = mode_dir / "mode.json"
-            try:
-                legacy_file.write_text(mode_payload, encoding="utf-8")
-                any_written = True
-            except OSError as exc:
-                errors.append(
-                    f"failed to write legacy mode.json at {legacy_file}: {exc}"
-                )
-
-        return any_written, errors
-
-    # ------------------------------------------------------------------
-    # run_hook (pre-existing static method — unchanged)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def run_hook(
-        hook_id: str,
-        event: HookEvent,
-        *,
-        phase: str = "pre",
-        project_root: Path | None = None,
-    ) -> HookDecision:
-        """Dispatch a named hook against the harness-neutral event model."""
-        return run_hook(
-            hook_id,
-            event,
-            phase=phase,
-            project_root=project_root,
-        )
 
 
 def parse_hook_wrapper_args(
@@ -1987,7 +1676,6 @@ def _evidence_ref(verdict: GuardVerdict) -> str | None:
 
 
 __all__ = [
-    "Governance",
     "GuardRunner",
     "HookDecision",
     "HookWrapperArgs",
@@ -1999,6 +1687,3 @@ __all__ = [
     "run_hook",
     "validate_hook_selector",
 ]
-
-# DeactivationResult and LockRecordId are imported at the top of the file
-# and live in governance.locks; re-exported here for convenience.

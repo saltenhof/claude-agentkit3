@@ -5,7 +5,7 @@ from __future__ import annotations
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Never, cast
+from typing import TYPE_CHECKING, cast
 
 import yaml
 
@@ -45,9 +45,6 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from agentkit.backend.governance.repository import HookRegistrationRepository
-    from agentkit.backend.state_backend.store.lock_record_repository import (
-        LockRecordRepository,
-    )
     from agentkit.harness_client.projectedge.client import ControlPlaneTransport
 
 _CHILD_OPERATION_NAMESPACE = uuid.UUID("96d25c1a-5c1b-4ec0-8dc0-5584935d9ad2")
@@ -418,12 +415,30 @@ class WriterHookRegistrationRepository:
 
 
 class InstallerHookGovernance:
-    """Narrow installer governance surface without a lock repository.
+    """Hook registration as edge orchestration (FK-30 §30.3.1).
 
-    CP9 and UP04 need exactly two effects: persist desired hook definitions
-    through the active writer and materialize target-project settings.  The
-    full Governance surface also requires an unrelated productive lock
-    repository, which a mutating CLI process must not construct.
+    CP9 and UP04 need exactly two effects, and they sit on two different
+    machines:
+
+    1. **persist** the desired hook definitions -- canonical state, therefore the
+       core, reached through the injected ``HookRegistrationRepository`` (in
+       production the REST-backed :class:`WriterHookRegistrationRepository`);
+    2. **materialise** ``.claude/settings.json`` and ``.codex/hooks.json`` --
+       files on the DEVELOPER machine, therefore the edge.
+
+    Because the second half can only run on the edge, the composed operation is
+    edge orchestration. AG3-239 moved it here out of the core ``Governance``
+    class, which had to reach back into
+    ``harness_client.harness_adapters.settings_writer`` to write those files --
+    a core module writing onto a developer machine, which the split deployment
+    cannot do at all.
+
+    The same move removed the fail-closed dummy lock repository this class used
+    to construct: it existed only because the core class demanded a
+    ``LockRecordRepository`` for an operation this path never calls.
+
+    Fail-closed: a broken settings file raises rather than silently continuing
+    (FK-30 §30.3.1).
     """
 
     def __init__(
@@ -433,35 +448,37 @@ class InstallerHookGovernance:
         project_key: str,
         project_root: Path,
     ) -> None:
-        from agentkit.backend.governance.runner import Governance
-
-        self._delegate = Governance(
-            hook_repo=hook_repo,
-            lock_repo=cast(
-                "LockRecordRepository",
-                _UnavailableInstallerLockRepository(),
-            ),
-            project_key=project_key,
-            project_root=project_root,
-        )
+        self._hook_repo = hook_repo
+        self._project_key = project_key
+        self._project_root = project_root
 
     def register_hooks(
         self,
         hook_definitions: list[HookDefinition],
     ) -> RegistrationResult:
-        """Persist remotely, then materialize local harness settings."""
+        """Persist remotely, then materialize local harness settings.
 
-        return self._delegate.register_hooks(hook_definitions)
+        Args:
+            hook_definitions: Hook definitions to register.
 
+        Returns:
+            ``RegistrationResult`` with ``registered``, ``skipped``, ``errors``.
 
-class _UnavailableInstallerLockRepository:
-    """Fail closed if the hook-only adapter is used for lock deactivation."""
-
-    def deactivate_locks_for_story(self, story_id: str) -> Never:
-        raise RuntimeError(
-            "installer hook governance has no lock-deactivation capability: "
-            f"{story_id}",
+        Raises:
+            Exception: On unrecoverable backend failures or a broken harness
+                settings file.
+        """
+        from agentkit.harness_client.harness_adapters.settings_writer import (
+            ClaudeCodeSettingsWriter,
+            CodexSettingsWriter,
         )
+
+        result = self._hook_repo.register(self._project_key, hook_definitions)
+        # FK-30 §30.3.1 / FK-76 §76.5.2: materialise the harness settings files
+        # AFTER the backend persist, on the machine that owns them.
+        ClaudeCodeSettingsWriter(self._project_root).write(hook_definitions)
+        CodexSettingsWriter(self._project_root).write(hook_definitions)
+        return result
 
 
 __all__ = [

@@ -1,14 +1,17 @@
-"""Contract test for Governance.register_hooks and Governance.deactivate_locks.
+"""Contract test for the two governance top surfaces.
 
-AG3-031 signature pinning per §2.1.4.
-Pins:
-  - Governance.register_hooks parameter names and type annotations.
-  - Governance.deactivate_locks parameter names and type annotations.
-  - Governance.__init__ parameter names (hook_repo, lock_repo, project_key).
-  - run_hook remains a static method (unchanged by AG3-031).
+AG3-031 signature pinning per §2.1.4, retargeted by AG3-239 to the owner of each
+operation:
+
+  - ``Governance.deactivate_locks`` (core) parameter names and annotations;
+  - ``Governance.__init__`` takes ONLY ``lock_repo``;
+  - ``InstallerHookGovernance.register_hooks`` (edge) parameter names and
+    annotations -- the operation materialises harness settings files on the
+    developer machine and therefore cannot sit in the core;
+  - hook dispatch is NOT reachable from the administration surface;
   - HookDefinition fields: hook_event_name, matcher, command (FK-30 §30.3.1).
 
-AG3-031 Pass-2 FK-30-Korrektur 2026-05-24.
+AG3-031 Pass-2 FK-30-Korrektur 2026-05-24; surfaces re-cut by AG3-239.
 """
 
 from __future__ import annotations
@@ -18,7 +21,8 @@ import typing
 
 import pytest
 
-from agentkit.backend.governance.runner import Governance
+from agentkit.backend.governance.administration import Governance
+from agentkit.backend.installer.writer_client import InstallerHookGovernance
 
 
 def _hints(method: object) -> dict[str, object]:
@@ -40,20 +44,24 @@ def _hints(method: object) -> dict[str, object]:
 
 @pytest.mark.contract
 class TestGovernanceInitSignature:
-    """Governance.__init__ has the expected parameters."""
+    """Governance.__init__ takes the lock repository and nothing else."""
 
     def test_init_params_present(self) -> None:
         sig = inspect.signature(Governance.__init__)
         params = list(sig.parameters.keys())
-        assert "self" in params
-        assert "hook_repo" in params
-        assert "lock_repo" in params
-        assert "project_key" in params
+        assert params == ["self", "lock_repo"]
 
-    def test_hook_repo_is_keyword_only(self) -> None:
+    def test_no_hook_repository_dependency(self) -> None:
+        """AG3-239: every call site used to fake the half it did not need.
+
+        The core surface must not demand a ``HookRegistrationRepository`` for an
+        operation it does not perform -- that dummy was a direct-DB binding in
+        three edge-classified composition-root sites.
+        """
         sig = inspect.signature(Governance.__init__)
-        param = sig.parameters["hook_repo"]
-        assert param.kind == inspect.Parameter.KEYWORD_ONLY
+        assert "hook_repo" not in sig.parameters
+        assert "project_key" not in sig.parameters
+        assert "project_root" not in sig.parameters
 
     def test_lock_repo_is_keyword_only(self) -> None:
         sig = inspect.signature(Governance.__init__)
@@ -63,31 +71,40 @@ class TestGovernanceInitSignature:
 
 @pytest.mark.contract
 class TestRegisterHooksSignature:
-    """Signature pinning for Governance.register_hooks."""
+    """Signature pinning for the edge-side ``register_hooks``.
+
+    AG3-239: the operation persists through the injected repository and then
+    writes ``.claude/settings.json`` / ``.codex/hooks.json`` on the developer
+    machine. The core cannot do the second half, so the composed operation is
+    edge orchestration.
+    """
+
+    def test_operation_is_not_on_the_core_surface(self) -> None:
+        assert not hasattr(Governance, "register_hooks")
 
     def test_method_exists(self) -> None:
-        assert hasattr(Governance, "register_hooks")
-        assert callable(Governance.register_hooks)
+        assert hasattr(InstallerHookGovernance, "register_hooks")
+        assert callable(InstallerHookGovernance.register_hooks)
 
     def test_parameter_names(self) -> None:
-        sig = inspect.signature(Governance.register_hooks)
+        sig = inspect.signature(InstallerHookGovernance.register_hooks)
         param_names = list(sig.parameters.keys())
         assert "self" in param_names
         assert "hook_definitions" in param_names
 
     def test_hook_definitions_annotation(self) -> None:
-        hints = _hints(Governance.register_hooks)
+        hints = _hints(InstallerHookGovernance.register_hooks)
         # Should be list[HookDefinition] — check it resolves
         assert "hook_definitions" in hints
 
     def test_return_annotation_present(self) -> None:
-        hints = _hints(Governance.register_hooks)
+        hints = _hints(InstallerHookGovernance.register_hooks)
         assert "return" in hints
 
     def test_is_not_static(self) -> None:
         # register_hooks is an instance method, not a static method
         assert not isinstance(
-            inspect.getattr_static(Governance, "register_hooks"),
+            inspect.getattr_static(InstallerHookGovernance, "register_hooks"),
             staticmethod,
         )
 
@@ -122,17 +139,22 @@ class TestDeactivateLocksSignature:
 
 
 @pytest.mark.contract
-class TestRunHookRemainsStatic:
-    """run_hook must remain a static method (not touched by AG3-031)."""
+class TestHookDispatchIsNotOnTheAdministrationSurface:
+    """Hook dispatch is a module function of the edge dispatcher, not a facade.
 
-    def test_run_hook_is_static(self) -> None:
-        assert isinstance(
-            inspect.getattr_static(Governance, "run_hook"),
-            staticmethod,
-        )
+    AG3-239: ``Governance.run_hook`` was a one-line delegation to
+    ``governance.runner.run_hook``. It made the core administration surface a
+    second import path for the edge hook dispatch, so it is removed rather than
+    deprecated (CLAUDE.md, KEINE KOMPATIBILITAETSSCHICHTEN).
+    """
+
+    def test_administration_surface_has_no_dispatch_facade(self) -> None:
+        assert not hasattr(Governance, "run_hook")
 
     def test_run_hook_parameter_names(self) -> None:
-        sig = inspect.signature(Governance.run_hook)
+        from agentkit.backend.governance.runner import run_hook
+
+        sig = inspect.signature(run_hook)
         param_names = list(sig.parameters.keys())
         assert "hook_id" in param_names
         assert "event" in param_names

@@ -4,7 +4,7 @@ Two migration paths:
 
 * :func:`migrate_hooks` (§51.6) — determine the changed/new/removed hook
   definitions for the current version and re-materialise them through the
-  governance top surface ``Governance.register_hooks`` (story AC4). Hooks are
+  hook-registration surface ``register_hooks`` (story AC4). Hooks are
   NEVER written directly; the owner BC (``governance-and-guards``) materialises
   the harness settings.
 * :func:`migrate_git_hook_dispatch` (§51.6.1) — migrate a pre-dispatching
@@ -102,7 +102,7 @@ def migrate_hooks(
     """Migrate project hooks via ``Governance.register_hooks`` (FK-51 §51.6, AC4).
 
     Determines the changed/new/removed hook definitions and re-materialises them
-    through the governance top surface ``Governance.register_hooks`` — never a
+    through the injected hook-registration surface — never a
     direct settings write (story §5 FIX-THE-MODEL). The obsolete matchers are
     surfaced in the outcome (their removal is the owner BC's responsibility on the
     next registration; the migration reports them so a caller can act).

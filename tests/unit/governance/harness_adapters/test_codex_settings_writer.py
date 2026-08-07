@@ -524,7 +524,7 @@ class TestRegisterHooksWritesCodex:
     @staticmethod
     def _make_governance(tmp_path: Path) -> object:
         from agentkit.backend.governance.hook_registration import RegistrationResult
-        from agentkit.backend.governance.runner import Governance
+        from agentkit.backend.installer.writer_client import InstallerHookGovernance
 
         class _RecordingHookRepo:
             def register(
@@ -542,13 +542,8 @@ class TestRegisterHooksWritesCodex:
             def clear_for_project(self, project_key: str) -> None:
                 return None
 
-        class _RecordingLockRepo:
-            def deactivate_locks_for_story(self, story_id: str) -> list:
-                return []
-
-        return Governance(
+        return InstallerHookGovernance(
             hook_repo=_RecordingHookRepo(),  # type: ignore[arg-type]
-            lock_repo=_RecordingLockRepo(),  # type: ignore[arg-type]
             project_key="test-project",
             project_root=tmp_path,
         )

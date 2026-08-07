@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         ControlPlaneRuntimeRepository,
         RunOwnershipRepository,
     )
-    from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.governance.administration import Governance
     from agentkit.backend.kpi_analytics.aggregation import RefreshWorker
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
     from agentkit.backend.state_backend.store.runtime_execution_purge import (

@@ -142,15 +142,20 @@ def _make_governance(
     hook_repo: _RecordingHookRepo | None = None,
     project_root: Path | None = None,
 ) -> object:
-    """Return a Governance instance with recording doubles."""
+    """Return the edge hook-registration surface with recording doubles.
+
+    AG3-239: ``register_hooks`` persists through the (in production REST-backed)
+    ``HookRegistrationRepository`` and then materialises the harness settings
+    files on the DEVELOPER machine. The second half is edge work, so the composed
+    operation is edge orchestration and no longer sits on the core surface.
+    """
     from pathlib import Path
 
-    from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.installer.writer_client import InstallerHookGovernance
 
     repo = hook_repo or _RecordingHookRepo()
-    return Governance(
-        hook_repo=repo,
-        lock_repo=_RecordingLockRepo(),  # type: ignore[arg-type]
+    return InstallerHookGovernance(
+        hook_repo=repo,  # type: ignore[arg-type]
         project_key="test-project",
         project_root=project_root or Path("."),
     )
