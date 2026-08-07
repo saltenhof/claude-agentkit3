@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import tomllib
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -367,131 +368,126 @@ class _SelectorLiteralException:
     """One exact call-argument literal that is data, never an executable selector."""
 
     path: Path
-    line: int
     literal: str
+    occurrences: int
     reason: str
 
 
 _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
-    *(
-        _SelectorLiteralException(
-            Path("src/agentkit/backend/governance/default_hook_definitions.py"),
-            line,
-            literal,
-            "logical Claude hook identifier consumed only by the absolute-wrapper materializer",
-        )
-        for line, literal in (
-            (68, "agentkit-hook-claude pre "),
-            (73, "agentkit-hook-claude post "),
-            (78, "agentkit-hook-claude post "),
-            (83, "agentkit-hook-claude post "),
-            (88, "agentkit-hook-claude post "),
-            (95, "agentkit-hook-claude pre "),
-            (102, "agentkit-hook-claude post "),
-            (108, "agentkit-hook-claude pre "),
-            (115, "agentkit-hook-claude pre "),
-        )
+    _SelectorLiteralException(
+        Path('src/agentkit/backend/governance/default_hook_definitions.py'),
+        'agentkit-hook-claude pre ',
+        4,
+        'logical Claude hook identifier consumed only by the absolute-wrapper materializer',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/installer/codex_settings.py"),
-        44,
-        "agentkit-hook-codex",
-        "wrapper identity passed to the central absolute-wrapper renderer",
-    ),
-    *(
-        _SelectorLiteralException(
-            Path("src/agentkit/backend/installer/lifecycle/detach.py"),
-            148,
-            literal,
-            "parser vocabulary that recognizes current absolute interpreter-bound "
-            "script hooks by basename and older bare hook text; never launches it",
-        )
-        for literal in ("python", "python3", "python.exe", "python3.exe")
+        Path('src/agentkit/backend/governance/default_hook_definitions.py'),
+        'agentkit-hook-claude post ',
+        5,
+        'logical Claude hook identifier consumed only by the absolute-wrapper materializer',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/installer/runner.py"),
-        1432,
-        "python",
-        "Pydantic serialization mode",
+        Path('src/agentkit/backend/installer/codex_settings.py'),
+        'agentkit-hook-codex',
+        1,
+        'wrapper identity passed to the central absolute-wrapper renderer',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/pipeline_engine/phase_executor/models.py"),
-        466,
-        "python",
-        "Pydantic serialization mode",
+        Path('src/agentkit/backend/installer/lifecycle/detach.py'),
+        'python',
+        1,
+        'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
+        'hook text; never launches it',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/project_management/http/routes.py"),
-        408,
-        "python",
-        "Pydantic serialization mode",
+        Path('src/agentkit/backend/installer/lifecycle/detach.py'),
+        'python3',
+        1,
+        'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
+        'hook text; never launches it',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/project_management/http/routes.py"),
-        533,
-        "python",
-        "Pydantic serialization mode",
+        Path('src/agentkit/backend/installer/lifecycle/detach.py'),
+        'python.exe',
+        1,
+        'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
+        'hook text; never launches it',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/project_management/lifecycle.py"),
-        76,
-        "python",
-        "Pydantic serialization mode",
+        Path('src/agentkit/backend/installer/lifecycle/detach.py'),
+        'python3.exe',
+        1,
+        'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
+        'hook text; never launches it',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/project_management/lifecycle.py"),
-        105,
-        "python",
-        "Pydantic serialization mode",
+        Path('src/agentkit/backend/installer/runner.py'),
+        'python',
+        1,
+        'Pydantic serialization mode',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/backend/story/service.py"),
-        56,
-        "python",
-        "Pydantic serialization mode",
+        Path('src/agentkit/backend/pipeline_engine/phase_executor/models.py'),
+        'python',
+        1,
+        'Pydantic serialization mode',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/harness_client/harness_adapters/claude_code.py"),
-        184,
-        "agentkit-hook-claude",
-        "parser command-name label",
+        Path('src/agentkit/backend/project_management/http/routes.py'),
+        'python',
+        2,
+        'Pydantic serialization mode',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/harness_client/harness_adapters/claude_code.py"),
-        275,
-        "agentkit-hook-claude",
-        "wrapper identity passed to the central absolute-wrapper renderer",
+        Path('src/agentkit/backend/project_management/lifecycle.py'),
+        'python',
+        2,
+        'Pydantic serialization mode',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/harness_client/harness_adapters/codex/cli.py"),
-        62,
-        "agentkit-hook-codex",
-        "parser command-name label",
+        Path('src/agentkit/backend/story/service.py'),
+        'python',
+        1,
+        'Pydantic serialization mode',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/harness_client/harness_adapters/settings_writer.py"),
-        112,
-        "agentkit-hook-claude",
-        "wrapper identity passed to the harness absolute-wrapper materializer",
+        Path('src/agentkit/harness_client/harness_adapters/claude_code.py'),
+        'agentkit-hook-claude',
+        2,
+        'parser command-name label',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/harness_client/harness_adapters/settings_writer.py"),
-        443,
-        "agentkit-hook-codex",
-        "wrapper identity passed to the harness absolute-wrapper materializer",
+        Path('src/agentkit/harness_client/harness_adapters/codex/cli.py'),
+        'agentkit-hook-codex',
+        1,
+        'parser command-name label',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/harness_client/harness_adapters/settings_writer.py"),
-        310,
-        r"^agentkit-hook-claude (?P<phase>\S+) (?P<hook_id>\S+)$",
-        "logical hook-command validation pattern, never an executable command",
+        Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
+        'agentkit-hook-claude',
+        1,
+        'wrapper identity passed to the harness absolute-wrapper materializer',
     ),
     _SelectorLiteralException(
-        Path("src/agentkit/harness_client/harness_adapters/settings_writer.py"),
-        458,
-        ": expected exactly 'agentkit-hook-claude {phase} {hook_id}'. Fail-closed: refusing to write an "
-        "unrecognised command to the ",
-        "validation error text describing the logical hook identifier",
+        Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
+        'agentkit-hook-codex',
+        1,
+        'wrapper identity passed to the harness absolute-wrapper materializer',
+    ),
+    _SelectorLiteralException(
+        Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
+        '^agentkit-hook-claude (?P<phase>\\S+) (?P<hook_id>\\S+)$',
+        1,
+        'logical hook-command validation pattern, never an executable command',
+    ),
+    _SelectorLiteralException(
+        Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
+        # Implizite Konkatenation: der Literalwert bleibt byte-identisch, nur die
+        # Quellzeile wird kuerzer. Wer hier umbricht, aendert den Vergleichswert nicht.
+        ": expected exactly 'agentkit-hook-claude {phase} {hook_id}'. "
+        "Fail-closed: refusing to write an unrecognised command to the ",
+        1,
+        'validation error text describing the logical hook identifier',
     ),
 )
 
@@ -1052,7 +1048,7 @@ class _SourceAudit(ast.NodeVisitor):
         self.sys_module_aliases: set[str] = set()
         self.findings: list[Finding] = []
         self.visible_non_entrypoints: list[Finding] = []
-        self.matched_selector_exceptions: set[_SelectorLiteralException] = set()
+        self.matched_selector_exceptions: Counter[_SelectorLiteralException] = Counter()
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -1315,13 +1311,12 @@ class _SourceAudit(ast.NodeVisitor):
                     candidate
                     for candidate in _NON_COMMAND_SELECTOR_LITERALS
                     if candidate.path == self.path
-                    and candidate.line == literal.lineno
                     and candidate.literal == literal.value
                 ),
                 None,
             )
             if exception is not None:
-                self.matched_selector_exceptions.add(exception)
+                self.matched_selector_exceptions[exception] += 1
                 self.visible_non_entrypoints.append(
                     Finding(
                         self.path,
@@ -2163,7 +2158,7 @@ def _audit_python(
 ) -> tuple[list[Finding], list[Finding], tuple[EntryPoint, ...]]:
     findings: list[Finding] = []
     visible_non_entrypoints: list[Finding] = []
-    matched_selector_exceptions: set[_SelectorLiteralException] = set()
+    matched_selector_exceptions: Counter[_SelectorLiteralException] = Counter()
     audits_by_path: dict[Path, _SourceAudit] = {}
     entrypoints, declaration_findings = _declared_entrypoints(root)
     findings.extend(declaration_findings)
@@ -2201,13 +2196,16 @@ def _audit_python(
 
     if root == REPO_ROOT.resolve():
         for exception in _NON_COMMAND_SELECTOR_LITERALS:
-            if exception not in matched_selector_exceptions:
+            observed = matched_selector_exceptions[exception]
+            if observed != exception.occurrences:
                 findings.append(
                     Finding(
                         exception.path,
-                        exception.line,
-                        "invalid or stale non-command selector-literal exception for "
-                        f"{exception.literal!r}: {exception.reason}",
+                        0,
+                        "non-command selector-literal exception for "
+                        f"{exception.literal!r} declares {exception.occurrences} "
+                        f"occurrence(s) but {observed} were found: "
+                        f"{exception.reason}",
                     )
                 )
 
