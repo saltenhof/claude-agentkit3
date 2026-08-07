@@ -32,12 +32,19 @@ def test_decision_record_has_w4_matrix_and_both_po_decisions() -> None:
 def test_fk10_boot_command_is_single_process_and_tls_complete() -> None:
     fk10 = _read("concept/technical-design/10_runtime_deployment_speicher.md")
 
-    assert "agentkit serve --ui-host 127.0.0.1 --ui-port 9701" in fk10
+    # AG3-208 hat den blossen Scriptnamen `agentkit` zurueckgezogen; `serve`
+    # liefert die Kern-Distribution als `agentkit-backend` aus (FK-10 §10.2.11).
+    # Die Zusage dieses Tests ist unveraendert: EIN Bootbefehl startet BEIDE
+    # Listener, und er ist TLS-vollstaendig.
+    assert "agentkit-backend serve --ui-host 127.0.0.1 --ui-port 9701" in fk10
     assert "--project-host 127.0.0.1 --project-port 9702" in fk10
     assert "--certfile var/core-tls/core-cert.pem" in fk10
     assert "--keyfile var/core-tls/core-key.pem" in fk10
-    assert "agentkit serve --ui-bff" not in fk10
-    assert "agentkit serve --project-api" not in fk10
+    # Die Negativhaelfte muss den HEUTIGEN Scriptnamen tragen. Mit dem alten
+    # `agentkit serve --ui-bff` koennte sie nach der Umbenennung nie mehr
+    # fehlschlagen -- sie waere gruen, ohne noch etwas zu bewachen.
+    assert "agentkit-backend serve --ui-bff" not in fk10
+    assert "agentkit-backend serve --project-api" not in fk10
 
 
 def test_runtime_port_defaults_name_the_shared_writer_process() -> None:
