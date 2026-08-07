@@ -26,6 +26,13 @@ export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 echo "[pre-commit] Running global secret scan..."
 "$PYTHON" -m agentkit.governance.guard_system.secret_scan --staged --repo-root "$REPO_ROOT"
 
+# All four roots, not just src+tests: the CI gate scripts under scripts/ and the
+# concept tooling under tools/ enforce this project's guardrails and are subject
+# to them (AG3-218). ruff is sub-second, so it runs on every commit; mypy is not,
+# and its full proof stays in the Jenkins stage.
+echo "[pre-commit] Running ruff over src tests scripts tools..."
+"$PYTHON" -m ruff check src tests scripts tools
+
 needs_concept_validation=0
 for f in "${CHANGED[@]}"; do
     case "$f" in

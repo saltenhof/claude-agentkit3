@@ -5,21 +5,22 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
-from tools.concept_ingester.config import IngesterConfig
-from tools.concept_ingester.ingester import (
+from concept_ingester.config import IngesterConfig
+from concept_ingester.ingester import (
     IngestStrategy,
     open_client,
     run_ingest,
 )
-from tools.concept_ingester.schema import (
+from concept_ingester.schema import (
     CHUNK_COLLECTION_NAME,
     GLOSSARY_COLLECTION_NAME,
     SCHEMA_PROJECTION_VERSION,
     ensure_all_collections,
 )
-from tools.concept_mcp.filters import FilterSyntaxError, build_filter
-from weaviate.classes.query import Filter, MetadataQuery
+from mcp.server.fastmcp import FastMCP
+from weaviate.classes.query import Filter, FilterReturn, MetadataQuery
+
+from concept_mcp.filters import FilterSyntaxError, build_filter
 
 SERVER_INSTRUCTIONS = """\
 AgentKit 3 concept knowledge base.
@@ -93,7 +94,7 @@ def _config() -> IngesterConfig:
     return IngesterConfig.from_env()
 
 
-def _combine(*parts: Filter | None) -> Filter | None:
+def _combine(*parts: FilterReturn | None) -> FilterReturn | None:
     active = [p for p in parts if p is not None]
     if not active:
         return None
@@ -102,7 +103,7 @@ def _combine(*parts: Filter | None) -> Filter | None:
     return Filter.all_of(active)
 
 
-def _equal_filter(prop: str, value: str | list[str] | None) -> Filter | None:
+def _equal_filter(prop: str, value: str | list[str] | None) -> FilterReturn | None:
     if value is None:
         return None
     if isinstance(value, str):
@@ -114,7 +115,7 @@ def _equal_filter(prop: str, value: str | list[str] | None) -> Filter | None:
     return None
 
 
-def _bool_filter(prop: str, value: bool | None) -> Filter | None:
+def _bool_filter(prop: str, value: bool | None) -> FilterReturn | None:
     if value is None:
         return None
     return Filter.by_property(prop).equal(value)
@@ -149,6 +150,20 @@ _CHUNK_RETURN_PROPERTIES: tuple[str, ...] = (
     "domain_registry_hash",
     "metadata",
 )
+
+
+def _chunk_ordering(obj: Any) -> int:
+    """Return one chunk's ``ordering`` property as the integer it must be.
+
+    Weaviate types a property value as the union of every storable kind. Only
+    the numeric and textual members can carry an ordinal; anything else means
+    the collection no longer matches the schema this server projects, and the
+    caller must not receive a silently reordered result for it.
+    """
+    value = (obj.properties or {}).get("ordering", 0) or 0
+    if isinstance(value, (int, float, str)):
+        return int(value)
+    raise TypeError(f"chunk property 'ordering' is not ordinal: {type(value).__name__}")
 
 
 def _serialize_chunk(obj: Any) -> dict[str, Any]:
@@ -385,7 +400,7 @@ def concept_get(
                 ensure_ascii=False,
                 indent=2,
             )
-        criteria: Filter | None
+        criteria: FilterReturn | None
         if doc_id is not None and rel_path is not None:
             criteria = Filter.all_of(
                 [
@@ -398,9 +413,7 @@ def concept_get(
         else:
             criteria = Filter.by_property("rel_path").equal(rel_path)
         result = collection.query.fetch_objects(filters=criteria, limit=limit)
-        ordered = sorted(
-            result.objects, key=lambda o: int((o.properties or {}).get("ordering", 0) or 0)
-        )
+        ordered = sorted(result.objects, key=_chunk_ordering)
         payload = [_serialize_chunk(o) for o in ordered]
     return json.dumps({"hits": payload, "count": len(payload)}, ensure_ascii=False, indent=2)
 
@@ -450,7 +463,7 @@ def concept_status() -> str:
         kind / domain) and remote total counts.
     """
     cfg = _config()
-    from tools.concept_ingester.discovery import discover
+    from concept_ingester.discovery import discover
 
     result = discover(cfg.concept_root, max_chars=cfg.chunk_max_chars)
 

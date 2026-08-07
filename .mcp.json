@@ -2,8 +2,11 @@
   "mcpServers": {
     "agentkit3-concepts": {
       "command": "python",
-      "args": ["-m", "tools.concept_mcp.server"],
-      "cwd": "T:/codebase/claude-agentkit3"
+      "args": ["-m", "concept_mcp.server"],
+      "cwd": "T:/codebase/claude-agentkit3",
+      "env": {
+        "PYTHONPATH": "tools"
+      }
     }
   }
 }

@@ -9,11 +9,26 @@ MAX_EVIDENCE_CHARS = 2_000
 
 
 class SourceSpanReference(Protocol):
-    """Structural contract shared by W2 and W3 response models."""
+    """Structural contract shared by W2 and W3 response models.
 
-    source_id: str
-    start_id: str
-    end_id: str
+    The members are declared read-only on purpose. Span extraction never writes
+    a coordinate back, and every implementation (``NormativeAssertion``,
+    ``QuotedAssertion``) is a frozen model. A protocol with mutable attributes
+    would demand write access that no implementation offers -- and none can
+    satisfy it.
+    """
+
+    @property
+    def source_id(self) -> str:
+        """Return the gate-owned source this reference points into."""
+
+    @property
+    def start_id(self) -> str:
+        """Return the first boundary label of the referenced span."""
+
+    @property
+    def end_id(self) -> str:
+        """Return the last boundary label of the referenced span."""
 
 
 class SourceSpanContractError(ValueError):

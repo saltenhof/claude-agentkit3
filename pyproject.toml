@@ -136,8 +136,21 @@ show_missing = true
 
 [tool.mypy]
 strict = true
-packages = ["agentkit"]
-mypy_path = ["src", "tools"]
+# The checked set is declared HERE and nowhere else, so `mypy` without arguments
+# is the whole truth. Passing a path on the command line silently replaces this
+# list -- which is exactly how `scripts/` and `tools/` stayed unchecked while the
+# Jenkins stage ran `mypy src` and looked green (AG3-218).
+#
+# `files` rather than `packages`: `scripts/ci/*.py` are executed as standalone
+# scripts, not imported as a package, so they have no package name to name. The
+# module identities that come out of these three roots are the identities the
+# code really runs under -- `agentkit.*` from `src`, `concept_compiler.*` /
+# `concept_governance.*` / `concept_ingester.*` / `concept_mcp.*` /
+# `diagram_export.*` from `tools` (the roots on `mypy_path` below), and each
+# `check_*` script as its own top-level module. A directory list also needs no
+# maintenance when a package or a script is added.
+files = ["src", "scripts", "tools"]
+mypy_path = ["src", "tools", "scripts/ci"]
 plugins = ["pydantic.mypy"]
 
 # Weaviate is a MANDATORY but UNTYPED dependency (FK-13 §13.1/§13.2). It ships

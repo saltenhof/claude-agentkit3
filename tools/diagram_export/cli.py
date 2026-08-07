@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from tools.diagram_export.ak3_data_model import render_drawio, render_mermaid
+from diagram_export.ak3_data_model import render_drawio, render_mermaid
 
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[2] / "concept" / "technical-design" / "diagrams"
 

@@ -495,8 +495,10 @@ Wenn oeffentliche Schnittstellen, Kernzustandsmodelle oder breit wirksame Pipeli
 
 ### Weitere Qualitaetschecks
 
-- `.venv\Scripts\python -m ruff check src tests`
-- `.venv\Scripts\python -m mypy src`
+- `.venv\Scripts\python -m ruff check src tests scripts tools`
+- `.venv\Scripts\python -m mypy` — **ohne Pfadargument**. Der gepruefte
+  Bestand steht in `[tool.mypy] files`; ein Pfad auf der Kommandozeile
+  ersetzt ihn und schrumpft die Pruefung stillschweigend (AG3-218).
 
 ### Zugaenge zu den lokalen Diensten — NICHT nachfragen
 

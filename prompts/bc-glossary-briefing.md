@@ -192,7 +192,7 @@ Ingester liegt unter
 das CLI-Modul angestossen:
 
 ```
-python -m tools.concept_ingester.cli <command>
+python -m concept_ingester.cli <command>
 ```
 
 Verfuegbare Kommandos:
@@ -243,7 +243,7 @@ Genau so, sequentiell:
 3. **Pre-Ingest-Status pruefen**:
 
    ```
-   python -m tools.concept_ingester.cli status
+   python -m concept_ingester.cli status
    ```
 
    Im JSON unter `discovered.glossary_terms.total` muss die neue
@@ -253,7 +253,7 @@ Genau so, sequentiell:
 4. **Delta-Ingest ausfuehren**:
 
    ```
-   python -m tools.concept_ingester.cli delta
+   python -m concept_ingester.cli delta
    ```
 
    Erfolgsbild: `glossary.errors == []`, `glossary.inserted` oder
@@ -265,7 +265,7 @@ Genau so, sequentiell:
 
 ### 3.3 Was passiert intern
 
-`tools.concept_ingester.discovery` liest die Frontmatter aller
+`concept_ingester.discovery` liest die Frontmatter aller
 Contract-Docs, extrahiert `glossary.exported_terms` und
 `glossary.internal_terms`, hashed pro Begriff (term + definition +
 kind + domain + source_doc_id + values + see_also + reason). Geaenderte
@@ -279,7 +279,7 @@ Drei Checks, alle Pflicht.
 ### 4.1 Status-Vergleich
 
 ```
-python -m tools.concept_ingester.cli status
+python -m concept_ingester.cli status
 ```
 
 `discovered.glossary_terms.total` muss gleich

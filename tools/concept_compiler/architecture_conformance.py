@@ -1443,91 +1443,151 @@ def _check_type_taint_rules(
         except (OSError, SyntaxError):
             continue
 
-        alias_map = _build_alias_map(tree)
+        context = _TaintScanContext(
+            module=module,
+            path=record.path,
+            component_groups=component_groups,
+            alias_map=_build_alias_map(tree),
+        )
 
         for rule in applicable_rules:
-            forbidden_tainted = frozenset(rule.forbidden_typed_bloodgroups)
-            forbidden_instantiation = frozenset(
-                rule.forbid_instantiation_of_bloodgroups
+            violations.extend(_type_taint_violations_for_rule(tree, rule, context))
+
+    return violations
+
+
+@dataclass(frozen=True)
+class _TaintScanContext:
+    """The module under AC007 inspection and the tables needed to judge it."""
+
+    module: str
+    path: Path
+    component_groups: tuple[ComponentGroup, ...]
+    alias_map: dict[str, str]
+
+
+def _type_taint_violations_for_rule(
+    tree: ast.Module,
+    rule: TypeTaintRule,
+    context: _TaintScanContext,
+) -> list[ArchitectureViolation]:
+    """Apply ONE taint rule to every public function and class of a module.
+
+    Args:
+        tree: Parsed AST of the module under inspection.
+        rule: The single taint rule being applied.
+        context: Module identity plus the alias/component tables.
+
+    Returns:
+        AC007 violations in AST walk order.
+    """
+    forbidden_tainted = frozenset(rule.forbidden_typed_bloodgroups)
+    forbidden_instantiation = frozenset(rule.forbid_instantiation_of_bloodgroups)
+
+    violations: list[ArchitectureViolation] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            violations.extend(
+                _public_function_taint_violations(
+                    node,
+                    rule,
+                    context,
+                    forbidden_tainted,
+                    forbidden_instantiation,
+                )
             )
+        elif isinstance(node, ast.ClassDef):
+            violations.extend(
+                _public_class_taint_violations(node, rule, context, forbidden_tainted)
+            )
+    return violations
 
-            # Check public function/class signatures
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if node.name.startswith("_"):
-                        continue
-                    annotation_nodes = _collect_annotation_nodes(node)
-                    for ann_node in annotation_nodes:
-                        resolved_names = _resolve_annotation_names(ann_node, alias_map)
-                        for name in resolved_names:
-                            bg = _bloodgroup_for_qualified_name(
-                                name, component_groups, alias_map
-                            )
-                            if bg in forbidden_tainted:
-                                violations.append(
-                                    ArchitectureViolation(
-                                        code="AC007",
-                                        path=record.path,
-                                        module=module,
-                                        line=node.lineno,
-                                        column=node.col_offset + 1,
-                                        message=(
-                                            f"{rule.message}: public function "
-                                            f"'{node.name}' in '{module}' uses "
-                                            f"type '{name}' with bloodgroup '{bg}'"
-                                        ),
-                                        rule_id=f"{rule.rule_id}.type_taint",
-                                    )
-                                )
 
-                    # Check for forbidden instantiation in function body
-                    if forbidden_instantiation:
-                        call_violations = _find_forbidden_calls(
-                            node,
-                            module,
-                            record.path,
-                            rule,
-                            forbidden_instantiation,
-                            component_groups,
-                            alias_map,
-                        )
-                        violations.extend(call_violations)
+def _public_function_taint_violations(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    rule: TypeTaintRule,
+    context: _TaintScanContext,
+    forbidden_tainted: frozenset[str],
+    forbidden_instantiation: frozenset[str],
+) -> list[ArchitectureViolation]:
+    """Report tainted types in a public signature and forbidden instantiations."""
+    if node.name.startswith("_"):
+        return []
+    violations: list[ArchitectureViolation] = []
+    for ann_node in _collect_annotation_nodes(node):
+        for name in _resolve_annotation_names(ann_node, context.alias_map):
+            bg = _bloodgroup_for_qualified_name(
+                name, context.component_groups, context.alias_map
+            )
+            if bg in forbidden_tainted:
+                violations.append(
+                    ArchitectureViolation(
+                        code="AC007",
+                        path=context.path,
+                        module=context.module,
+                        line=node.lineno,
+                        column=node.col_offset + 1,
+                        message=(
+                            f"{rule.message}: public function "
+                            f"'{node.name}' in '{context.module}' uses "
+                            f"type '{name}' with bloodgroup '{bg}'"
+                        ),
+                        rule_id=f"{rule.rule_id}.type_taint",
+                    )
+                )
+    if forbidden_instantiation:
+        violations.extend(
+            _find_forbidden_calls(
+                node,
+                context.module,
+                context.path,
+                rule,
+                forbidden_instantiation,
+                context.component_groups,
+                context.alias_map,
+            )
+        )
+    return violations
 
-                elif isinstance(node, ast.ClassDef):
-                    if node.name.startswith("_"):
-                        continue
-                    # Check public class body for attribute annotations
-                    for item in node.body:
-                        if (
-                            isinstance(item, ast.AnnAssign)
-                            and isinstance(item.target, ast.Name)
-                            and not item.target.id.startswith("_")
-                        ):
-                            resolved = _resolve_annotation_names(
-                                item.annotation, alias_map
-                            )
-                            for name in resolved:
-                                bg = _bloodgroup_for_qualified_name(
-                                    name, component_groups, alias_map
-                                )
-                                if bg in forbidden_tainted:
-                                    violations.append(
-                                        ArchitectureViolation(
-                                            code="AC007",
-                                            path=record.path,
-                                            module=module,
-                                            line=item.lineno,
-                                            column=item.col_offset + 1,
-                                            message=(
-                                                f"{rule.message}: public attribute"
-                                                f" '{item.target.id}' in class"
-                                                f" '{node.name}' of '{module}'"
-                                                f" uses type '{name}' [{bg}]"
-                                            ),
-                                            rule_id=f"{rule.rule_id}.type_taint",
-                                        )
-                                    )
 
+def _public_class_taint_violations(
+    node: ast.ClassDef,
+    rule: TypeTaintRule,
+    context: _TaintScanContext,
+    forbidden_tainted: frozenset[str],
+) -> list[ArchitectureViolation]:
+    """Report tainted types on the public annotated attributes of a class."""
+    if node.name.startswith("_"):
+        return []
+    violations: list[ArchitectureViolation] = []
+    for item in node.body:
+        if not (
+            isinstance(item, ast.AnnAssign)
+            and isinstance(item.target, ast.Name)
+            and not item.target.id.startswith("_")
+        ):
+            continue
+        for name in _resolve_annotation_names(item.annotation, context.alias_map):
+            bg = _bloodgroup_for_qualified_name(
+                name, context.component_groups, context.alias_map
+            )
+            if bg in forbidden_tainted:
+                violations.append(
+                    ArchitectureViolation(
+                        code="AC007",
+                        path=context.path,
+                        module=context.module,
+                        line=item.lineno,
+                        column=item.col_offset + 1,
+                        message=(
+                            f"{rule.message}: public attribute"
+                            f" '{item.target.id}' in class"
+                            f" '{node.name}' of '{context.module}'"
+                            f" uses type '{name}' [{bg}]"
+                        ),
+                        rule_id=f"{rule.rule_id}.type_taint",
+                    )
+                )
     return violations
 
 

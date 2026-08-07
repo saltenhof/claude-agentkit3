@@ -996,8 +996,8 @@ re-laufen, dann erst weiter.
 Tools laufen aus `pyproject.toml`:
 
 ```bash
-ruff check src tests
-mypy src --strict
+ruff check src tests scripts tools
+mypy --strict
 ```
 
 `ruff` und `mypy --strict` sind Pflicht. Keine unerklaerten `noqa`-
@@ -1034,8 +1034,8 @@ Stages (in Reihenfolge):
    Coverage, .git, .venv).
 2. **Setup** — `python -m venv .venv`, `pip install -e ".[dev]"`,
    Output-Verzeichnisse anlegen.
-3. **Ruff** — `ruff check src tests`.
-4. **Mypy** — `mypy src --strict --no-error-summary`.
+3. **Ruff** — `ruff check src tests scripts tools`.
+4. **Mypy** — `mypy --strict --no-error-summary` (ohne Pfadargument).
 5. **Unit Tests + Coverage** — `pytest tests/unit` mit
    SQLite-Backend, JUnit-XML, Coverage-XML.
 6. **Postgres Contract + Integration** — Postgres-DB anlegen,
@@ -1095,7 +1095,7 @@ Eigenes Briefing: `prompts/bc-glossary-briefing.md`. Quintessenz:
   `internal_terms` mit `reason` fuer BC-private Begriffe.
 - `see_also` zeigt nur auf existierende exportierte Begriffe anderer
   BCs (deterministisch, L19 prueft).
-- Nach Aenderung: `python -m tools.concept_ingester.cli delta`,
+- Nach Aenderung: `python -m concept_ingester.cli delta`,
   `concept_status` zur Verifikation.
 - Sub-Agent fuer Glossar-Pflege bekommt **genau eine** `bc_id` und
   arbeitet ausschliesslich an deren Contract-Docs.
@@ -1210,15 +1210,15 @@ PYTHONPATH=. python scripts/ci/check_concept_code_contracts.py
 PYTHONPATH=. python scripts/ci/check_architecture_conformance.py
 
 # Concept-Index Tooling
-python -m tools.concept_ingester.cli status     # Diagnose
-python -m tools.concept_ingester.cli delta      # idempotenter Sync
-python -m tools.concept_ingester.cli ensure-schema
-python -m tools.concept_ingester.cli full       # nur mit Auftraggeber-Bestaetigung
-python -m tools.concept_ingester.cli drop --yes # destruktiv
+python -m concept_ingester.cli status     # Diagnose
+python -m concept_ingester.cli delta      # idempotenter Sync
+python -m concept_ingester.cli ensure-schema
+python -m concept_ingester.cli full       # nur mit Auftraggeber-Bestaetigung
+python -m concept_ingester.cli drop --yes # destruktiv
 
 # Code-Qualitaet
-ruff check src tests
-mypy src --strict
+ruff check src tests scripts tools
+mypy --strict
 pytest tests/unit -q
 pytest tests/contract tests/integration -q
 pytest -m e2e   # opt-in

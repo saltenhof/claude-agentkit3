@@ -15,6 +15,9 @@ if str(SRC_ROOT) not in sys.path:
 if str(TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLS_ROOT))
 
+# E402 below is structural, not a style waiver: these modules live under
+# tools/ and only become importable once the sys.path bootstrap above has
+# run, so the imports cannot move to the top of the file.
 from concept_compiler import audit_formal_prose_links, compile_formal_specs  # noqa: E402
 from concept_compiler.compiler import FormalCompilationError  # noqa: E402
 from concept_compiler.drift import FormalDriftError, audit_concept_doc_classification  # noqa: E402

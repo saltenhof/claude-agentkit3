@@ -192,8 +192,8 @@ laufende Backend antwortet `200 {"status": "ok"}`.
 
 ```bash
 .venv/Scripts/python -m pytest                 # Tests (unit/integration/contract; e2e nur opt-in)
-.venv/Scripts/python -m mypy src               # strict, ohne unerklaerte type: ignore
-.venv/Scripts/python -m ruff check src tests   # ohne unerklaerte noqa
+.venv/Scripts/python -m mypy                                # strict, ohne Pfadargument
+.venv/Scripts/python -m ruff check src tests scripts tools  # ohne unerklaerte noqa
 ```
 
 - **Coverage-Gate: >= 85%** (`pyproject.toml [tool.coverage.report] fail_under = 85`).
@@ -232,7 +232,7 @@ Client-seitiges Embedding). Drei Bausteine:
   (z.B. multilingual-e5 / paraphrase-multilingual-MiniLM).
 
 **(b) Python-Umgebung fuer den Server** — `.mcp.json` startet
-`python -m tools.concept_mcp.server`. Diese Umgebung braucht **nicht** die volle
+`python -m concept_mcp.server`. Diese Umgebung braucht **nicht** die volle
 agentkit-Installation, nur:
 ```bash
 pip install "mcp[cli]" weaviate-client pyyaml
@@ -246,17 +246,18 @@ im Repo automatisch erkannt):
 ```json
 { "mcpServers": { "agentkit3-concepts": {
     "command": "<klon>/.venv/Scripts/python",
-    "args": ["-m", "tools.concept_mcp.server"],
+    "args": ["-m", "concept_mcp.server"], "env": { "PYTHONPATH": "tools" },
     "cwd": "<lokaler-klon-pfad>" } } }
 ```
-→ `cwd` MUSS der lokale Klon-Pfad sein (der Server importiert `tools.*` relativ
-dazu). `command` = venv-Python (empfohlen) oder `"python"`, falls mcp+weaviate
+→ `cwd` MUSS der lokale Klon-Pfad sein und `PYTHONPATH=tools` gesetzt bleiben —
+darueber findet der Server seine Nachbarpakete (`concept_mcp`, `concept_ingester`)
+unter denselben Modulnamen, unter denen `scripts/ci/` und `mypy` sie fuehren. `command` = venv-Python (empfohlen) oder `"python"`, falls mcp+weaviate
 global liegen. Alternativ via CLI: `claude mcp add`.
 
 **(d) Index befuellen** (einmalig, sobald Weaviate laeuft + leer ist):
 ```bash
-<klon>/.venv/Scripts/python -m tools.concept_ingester.cli full     # Schema + Vollingest
-<klon>/.venv/Scripts/python -m tools.concept_ingester.cli status   # local vs. remote counts
+<klon>/.venv/Scripts/python -m concept_ingester.cli full     # Schema + Vollingest
+<klon>/.venv/Scripts/python -m concept_ingester.cli status   # local vs. remote counts
 ```
 Alternativ zur Laufzeit ueber das MCP-Tool `concept_ingest(strategy="full")`,
 Kontrolle mit `concept_status()`. Nach Konzept-Aenderungen reicht `delta`.

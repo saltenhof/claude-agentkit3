@@ -7,14 +7,14 @@ import json
 import sys
 from typing import TYPE_CHECKING
 
-from tools.concept_ingester.config import IngesterConfig
-from tools.concept_ingester.discovery import discover
-from tools.concept_ingester.ingester import (
+from concept_ingester.config import IngesterConfig
+from concept_ingester.discovery import discover
+from concept_ingester.ingester import (
     IngestStrategy,
     open_client,
     run_ingest,
 )
-from tools.concept_ingester.schema import (
+from concept_ingester.schema import (
     CHUNK_COLLECTION_NAME,
     GLOSSARY_COLLECTION_NAME,
     SCHEMA_PROJECTION_VERSION,

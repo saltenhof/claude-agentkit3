@@ -102,7 +102,7 @@ Coverage-Gate entweder die Ein-Pass-Form nutzen oder `--cov-append` +
 `coverage combine`.
 
 ### R6 — mypy/ruff nicht skopieren fuer das Gate
-`mypy src` laeuft warm in ~7 s — immer voll. `ruff check src tests` ist ohnehin
+`mypy` laeuft warm in ~7 s — immer voll. `ruff check src tests scripts tools` ist ohnehin
 sub-Sekunde. In der inneren Schleife darf `ruff` auf die beruehrten Pfade
 beschraenkt werden; `mypy` bleibt voll.
 

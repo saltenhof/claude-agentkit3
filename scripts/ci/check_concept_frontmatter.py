@@ -182,11 +182,14 @@ def load_policy_registry() -> set[str]:
     if not POLICY_REGISTRY_PATH.is_file():
         return set()
     data = yaml.safe_load(POLICY_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
-    return {
-        entry.get("id")
-        for entry in (data.get("policies") or [])
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
-    }
+    policy_ids: set[str] = set()
+    for entry in data.get("policies") or []:
+        if not isinstance(entry, dict):
+            continue
+        policy_id = entry.get("id")
+        if isinstance(policy_id, str):
+            policy_ids.add(policy_id)
+    return policy_ids
 
 
 def domain_of(doc_cid: str, domains: dict[str, DomainEntry]) -> str | None:
@@ -563,17 +566,30 @@ def lint_l18_cross_domain_refs(
                 )
 
 
-def lint_l19_glossary_integrity(
+@dataclass(frozen=True)
+class GlossaryIndex:
+    """Term ownership across every registered domain, as L19 reads it.
+
+    Attributes:
+        exported: Owning doc per ``(domain_id, term_id)`` exported term.
+        internal: Every ``(domain_id, term_id)`` declared internal.
+        owners: Docs that carry a glossary block, keyed by domain id.
+    """
+
+    exported: dict[tuple[str, str], Doc]
+    internal: set[tuple[str, str]]
+    owners: dict[str, list[Doc]]
+
+
+def _collect_glossary_index(
     docs: list[Doc],
     domains: dict[str, DomainEntry],
     report: LintReport,
-) -> None:
-    if not domains:
-        return
-    # Collect all exported terms per domain
-    exported: dict[tuple[str, str], Doc] = {}  # (domain_id, term_id) -> Doc
+) -> GlossaryIndex:
+    """Index all glossary terms and report unusable or duplicated entries."""
+    exported: dict[tuple[str, str], Doc] = {}
     internal_set: set[tuple[str, str]] = set()
-    glossary_owners: dict[str, list[Doc]] = {}  # domain_id -> [docs with glossary]
+    glossary_owners: dict[str, list[Doc]] = {}
     for doc in docs:
         my_domain = domain_of(doc.cid, domains)
         if my_domain is None:
@@ -600,14 +616,26 @@ def lint_l19_glossary_integrity(
             tid = term.get("id") if isinstance(term, dict) else None
             if isinstance(tid, str) and tid:
                 internal_set.add((my_domain, tid))
+    return GlossaryIndex(exported=exported, internal=internal_set, owners=glossary_owners)
 
-    # exported and internal must be disjoint
-    for key in exported:
-        if key in internal_set:
+
+def _lint_l19_exported_and_internal_are_disjoint(
+    index: GlossaryIndex,
+    report: LintReport,
+) -> None:
+    """A term is either the domain's contract or its internal vocabulary."""
+    for key in index.exported:
+        if key in index.internal:
             report.err("L19", f"term {key[1]!r} in domain {key[0]!r} is both exported and internal")
 
-    # only contract docs may carry a glossary
-    for _domain_id, owners in glossary_owners.items():
+
+def _lint_l19_glossaries_live_in_contract_docs(
+    index: GlossaryIndex,
+    domains: dict[str, DomainEntry],
+    report: LintReport,
+) -> None:
+    """Only the contract doc of a domain may carry that domain's glossary."""
+    for owners in index.owners.values():
         for doc in owners:
             if not is_contract_doc(doc.cid, domains):
                 report.err(
@@ -616,7 +644,14 @@ def lint_l19_glossary_integrity(
                     "glossaries belong in the contract doc of their domain",
                 )
 
-    # FK integrity: every see_also must resolve
+
+def _lint_l19_cross_references_resolve(
+    docs: list[Doc],
+    domains: dict[str, DomainEntry],
+    index: GlossaryIndex,
+    report: LintReport,
+) -> None:
+    """Every ``see_also`` entry must name a term some domain actually exports."""
     for doc in docs:
         my_domain = domain_of(doc.cid, domains)
         if my_domain is None:
@@ -628,23 +663,52 @@ def lint_l19_glossary_integrity(
             if not isinstance(term, dict):
                 continue
             for ref in term.get("see_also") or []:
-                if not isinstance(ref, dict):
-                    report.err("L19", f"{doc.path}: see_also entry must be a mapping: {ref!r}")
-                    continue
-                ref_term = ref.get("term")
-                ref_domain = ref.get("domain")
-                if not (isinstance(ref_term, str) and isinstance(ref_domain, str)):
-                    report.err(
-                        "L19",
-                        f"{doc.path}: see_also entry needs 'term' and 'domain' (got {ref!r})",
-                    )
-                    continue
-                if (ref_domain, ref_term) not in exported:
-                    report.err(
-                        "L19",
-                        f"{doc.path}: glossary cross-ref {ref_domain}/{ref_term} "
-                        "does not resolve to any exported term",
-                    )
+                _lint_l19_one_cross_reference(doc, ref, index, report)
+
+
+def _lint_l19_one_cross_reference(
+    doc: Doc,
+    ref: object,
+    index: GlossaryIndex,
+    report: LintReport,
+) -> None:
+    """Validate the shape and the target of a single ``see_also`` entry."""
+    if not isinstance(ref, dict):
+        report.err("L19", f"{doc.path}: see_also entry must be a mapping: {ref!r}")
+        return
+    ref_term = ref.get("term")
+    ref_domain = ref.get("domain")
+    if not (isinstance(ref_term, str) and isinstance(ref_domain, str)):
+        report.err(
+            "L19",
+            f"{doc.path}: see_also entry needs 'term' and 'domain' (got {ref!r})",
+        )
+        return
+    if (ref_domain, ref_term) not in index.exported:
+        report.err(
+            "L19",
+            f"{doc.path}: glossary cross-ref {ref_domain}/{ref_term} "
+            "does not resolve to any exported term",
+        )
+
+
+def lint_l19_glossary_integrity(
+    docs: list[Doc],
+    domains: dict[str, DomainEntry],
+    report: LintReport,
+) -> None:
+    """Run the four L19 checks in their established order.
+
+    The order is part of the lint's observable behaviour: ``LintReport``
+    preserves the sequence in which findings arrive, so collection must stay
+    ahead of the three checks that read the index it builds.
+    """
+    if not domains:
+        return
+    index = _collect_glossary_index(docs, domains, report)
+    _lint_l19_exported_and_internal_are_disjoint(index, report)
+    _lint_l19_glossaries_live_in_contract_docs(index, domains, report)
+    _lint_l19_cross_references_resolve(docs, domains, index, report)
 
 
 def lint_l20_implicit_leakage(

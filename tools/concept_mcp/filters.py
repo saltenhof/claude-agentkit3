@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from weaviate.classes.query import Filter
+from weaviate.classes.query import Filter, FilterReturn
 
 _LEAF_OPS = {"equal", "not_equal", "contains_any", "contains_all", "like"}
 _GROUP_OPS = {"and", "or"}
@@ -29,7 +29,7 @@ class FilterSyntaxError(ValueError):
     """Raised when the filter DSL is malformed."""
 
 
-def build_filter(node: Any) -> Filter | None:
+def build_filter(node: Any) -> FilterReturn | None:
     if node is None:
         return None
     if not isinstance(node, dict):
@@ -44,11 +44,11 @@ def build_filter(node: Any) -> Filter | None:
     raise FilterSyntaxError(f"unsupported filter op: {op}")
 
 
-def _build_group(op: str, node: dict[str, Any]) -> Filter:
+def _build_group(op: str, node: dict[str, Any]) -> FilterReturn:
     operands = node.get("operands")
     if not isinstance(operands, list) or not operands:
         raise FilterSyntaxError(f"'{op}' requires a non-empty 'operands' list")
-    children: list[Filter] = []
+    children: list[FilterReturn] = []
     for raw in operands:
         child = build_filter(raw)
         if child is None:
@@ -59,7 +59,7 @@ def _build_group(op: str, node: dict[str, Any]) -> Filter:
     return Filter.any_of(children)
 
 
-def _build_leaf(op: str, node: dict[str, Any]) -> Filter:
+def _build_leaf(op: str, node: dict[str, Any]) -> FilterReturn:
     prop = node.get("property")
     if not isinstance(prop, str) or not prop:
         raise FilterSyntaxError(f"'{op}' requires a 'property' string")

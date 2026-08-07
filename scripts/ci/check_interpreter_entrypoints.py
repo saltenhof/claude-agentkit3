@@ -526,10 +526,10 @@ class _StaticTextEnvironment:
     """Bounded per-scope constant-string environment for one Python AST."""
 
     bindings_by_scope: dict[ast.AST, dict[str, _RenderedText]]
-    assignments_by_scope: dict[ast.AST, dict[str, ast.AST]]
+    assignments_by_scope: dict[ast.AST, dict[str, ast.expr]]
     discarded_assignments_by_scope: dict[
         ast.AST,
-        dict[str, tuple[tuple[ast.stmt, ast.AST], ...]],
+        dict[str, tuple[tuple[ast.stmt, ast.expr], ...]],
     ]
     scope_by_node: dict[ast.AST, ast.AST]
 
@@ -537,13 +537,13 @@ class _StaticTextEnvironment:
         """Return the safely resolved constants visible at ``node``."""
         return self.bindings_by_scope.get(self.scope_by_node[node], {})
 
-    def assignment_for(self, node: ast.Name) -> ast.AST | None:
+    def assignment_for(self, node: ast.Name) -> ast.expr | None:
         """Return a unique local assignment expression visible at ``node``."""
         return self.assignments_by_scope.get(self.scope_by_node[node], {}).get(
             node.id
         )
 
-    def module_assignment_for(self, node: ast.Name) -> ast.AST | None:
+    def module_assignment_for(self, node: ast.Name) -> ast.expr | None:
         """Return the unique direct assignment for ``node`` in this module."""
         module_scope = next(
             (
@@ -560,7 +560,7 @@ class _StaticTextEnvironment:
     def discarded_assignments_for(
         self,
         node: ast.Name,
-    ) -> tuple[tuple[ast.stmt, ast.AST], ...]:
+    ) -> tuple[tuple[ast.stmt, ast.expr], ...]:
         """Return unsafe candidate assignments kept for fail-closed auditing."""
         return self.discarded_assignments_by_scope.get(
             self.scope_by_node[node], {}
@@ -989,21 +989,36 @@ def _subprocess_binding_inventory(tree: ast.Module) -> _SubprocessBindingInvento
     )
 
 
+@dataclass(frozen=True)
+class _StringLiteral:
+    """One textual constant together with the line it was written on.
+
+    ``ast.Constant.value`` is typed as the union of every constant kind Python
+    admits. The selector audit only ever deals with ``str``/``bytes`` literals,
+    and the narrowing happens exactly once -- in the collector below. Carrying
+    the result in this record instead of a raw ``ast.Constant`` keeps that
+    guarantee in the type system rather than in a comment.
+    """
+
+    value: str | bytes
+    lineno: int
+
+
 class _ArgumentLiteralCollector(ast.NodeVisitor):
     """Collect string literals in one argument while leaving nested calls separate."""
 
     def __init__(self) -> None:
-        self.literals: list[ast.Constant] = []
+        self.literals: list[_StringLiteral] = []
 
     def visit_Call(self, node: ast.Call) -> None:
         """Let the main source visitor audit a nested call as its own boundary."""
 
     def visit_Constant(self, node: ast.Constant) -> None:
         if isinstance(node.value, (str, bytes)):
-            self.literals.append(node)
+            self.literals.append(_StringLiteral(node.value, node.lineno))
 
 
-def _string_literals_without_nested_calls(node: ast.expr) -> tuple[ast.Constant, ...]:
+def _string_literals_without_nested_calls(node: ast.expr) -> tuple[_StringLiteral, ...]:
     collector = _ArgumentLiteralCollector()
     collector.visit(node)
     return tuple(collector.literals)
@@ -1244,13 +1259,16 @@ class _SourceAudit(ast.NodeVisitor):
             audited_expressions: set[int] = set()
             for api in process_resolution.apis:
                 for parameter in api.command_parameters:
-                    argument = _call_parameter_value(node, parameter)
-                    if argument is None or id(argument) in audited_expressions:
+                    command_argument = _call_parameter_value(node, parameter)
+                    if (
+                        command_argument is None
+                        or id(command_argument) in audited_expressions
+                    ):
                         continue
-                    audited_expressions.add(id(argument))
+                    audited_expressions.add(id(command_argument))
                     self._audit_process_command(
                         node,
-                        argument,
+                        command_argument,
                         api=api,
                         provenance=process_resolution.provenance,
                     )
@@ -1459,14 +1477,14 @@ class _SourceAudit(ast.NodeVisitor):
             and isinstance(node.value, ast.Name)
             and node.attr in OWNER_FUNCTIONS
         ):
-            for aliases, bound in zip(
+            for module_aliases, module_bound in zip(
                 reversed(self.owner_module_aliases),
                 reversed(self.bound_names),
                 strict=True,
             ):
-                if node.value.id in aliases:
+                if node.value.id in module_aliases:
                     return node.attr
-                if node.value.id in bound:
+                if node.value.id in module_bound:
                     return None
         return None
 
@@ -2198,13 +2216,13 @@ def _audit_python(
         *entrypoints,
     ]
     for entrypoint in required_boundaries:
-        audit = audits_by_path.get(entrypoint.path)
-        if audit is None:
+        boundary_audit = audits_by_path.get(entrypoint.path)
+        if boundary_audit is None:
             findings.append(
                 Finding(entrypoint.path, 1, f"declared entrypoint {entrypoint.name!r} is missing")
             )
             continue
-        if entrypoint.function not in audit.function_definitions:
+        if entrypoint.function not in boundary_audit.function_definitions:
             findings.append(
                 Finding(
                     entrypoint.path,
@@ -2212,7 +2230,7 @@ def _audit_python(
                     f"declared entrypoint {entrypoint.name!r} has no function {entrypoint.function}()",
                 )
             )
-        if not audit.owner_calls_by_function.get(entrypoint.function):
+        if not boundary_audit.owner_calls_by_function.get(entrypoint.function):
             findings.append(
                 Finding(
                     entrypoint.path,
@@ -2416,9 +2434,9 @@ def _render_static_call_text(
         if value is None:
             return None
         values.append(value)
-    fragments = []
-    dynamic_lines = []
-    dynamic_selectors = []
+    fragments: list[tuple[str, int]] = []
+    dynamic_lines: list[int] = []
+    dynamic_selectors: list[tuple[str, int]] = []
     for index, value in enumerate(values):
         if index:
             fragments.extend(separator.fragments)
@@ -2465,7 +2483,7 @@ class _ScopeAssignmentCollector(ast.NodeVisitor):
     """Collect assignments in one lexical scope, including conditional bodies."""
 
     def __init__(self) -> None:
-        self.candidates: dict[str, list[tuple[ast.stmt, ast.AST]]] = {}
+        self.candidates: dict[str, list[tuple[ast.stmt, ast.expr]]] = {}
 
     def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
@@ -2492,16 +2510,16 @@ class _ScopeAssignmentCollector(ast.NodeVisitor):
 def _direct_constant_assignments(
     scope: ast.AST,
 ) -> tuple[
-    dict[str, ast.AST],
-    dict[str, tuple[tuple[ast.stmt, ast.AST], ...]],
+    dict[str, ast.expr],
+    dict[str, tuple[tuple[ast.stmt, ast.expr], ...]],
 ]:
     """Keep unique direct assignments and retain every discarded candidate."""
     collector = _ScopeAssignmentCollector()
     for statement in _scope_body(scope):
         collector.visit(statement)
     direct_statement_ids = {id(statement) for statement in _scope_body(scope)}
-    assignments: dict[str, ast.AST] = {}
-    discarded: dict[str, tuple[tuple[ast.stmt, ast.AST], ...]] = {}
+    assignments: dict[str, ast.expr] = {}
+    discarded: dict[str, tuple[tuple[ast.stmt, ast.expr], ...]] = {}
     for name, candidates in collector.candidates.items():
         if len(candidates) == 1 and id(candidates[0][0]) in direct_statement_ids:
             assignments[name] = candidates[0][1]
@@ -2539,7 +2557,7 @@ def _local_scope_bindings(scope: ast.AST) -> set[str]:
 
 
 def _resolve_constant_assignments(
-    assignments: dict[str, ast.AST],
+    assignments: dict[str, ast.expr],
     visible: dict[str, _RenderedText],
 ) -> dict[str, _RenderedText]:
     """Resolve a bounded fixed point of literal local assignments."""
@@ -2580,34 +2598,44 @@ def _constant_text_environment(tree: ast.Module) -> _StaticTextEnvironment:
             scopes.append(node)
 
     bindings_by_scope: dict[ast.AST, dict[str, _RenderedText]] = {}
-    assignments_by_scope: dict[ast.AST, dict[str, ast.AST]] = {}
+    assignments_by_scope: dict[ast.AST, dict[str, ast.expr]] = {}
     discarded_assignments_by_scope: dict[
         ast.AST,
-        dict[str, tuple[tuple[ast.stmt, ast.AST], ...]],
+        dict[str, tuple[tuple[ast.stmt, ast.expr], ...]],
     ] = {}
     pending_scopes = set(scopes)
     while pending_scopes:
         progressed = False
         for scope in tuple(pending_scopes):
-            parent = _lexical_parent(scope, parents)
-            if parent is not None and parent not in bindings_by_scope:
+            enclosing_scope = _lexical_parent(scope, parents)
+            if enclosing_scope is not None and enclosing_scope not in bindings_by_scope:
                 continue
+            # The module scope has no lexical parent, so it inherits nothing.
+            inherited_bindings: dict[str, _RenderedText] = {}
+            inherited_assignments: dict[str, ast.expr] = {}
+            inherited_discarded: dict[
+                str, tuple[tuple[ast.stmt, ast.expr], ...]
+            ] = {}
+            if enclosing_scope is not None:
+                inherited_bindings = bindings_by_scope.get(enclosing_scope, {})
+                inherited_assignments = assignments_by_scope.get(enclosing_scope, {})
+                inherited_discarded = discarded_assignments_by_scope.get(
+                    enclosing_scope, {}
+                )
             locally_bound = _local_scope_bindings(scope)
             visible = {
                 name: value
-                for name, value in bindings_by_scope.get(parent, {}).items()
+                for name, value in inherited_bindings.items()
                 if name not in locally_bound
             }
             visible_assignments = {
                 name: value
-                for name, value in assignments_by_scope.get(parent, {}).items()
+                for name, value in inherited_assignments.items()
                 if name not in locally_bound
             }
             visible_discarded = {
                 name: value
-                for name, value in discarded_assignments_by_scope.get(
-                    parent, {}
-                ).items()
+                for name, value in inherited_discarded.items()
                 if name not in locally_bound
             }
             direct_assignments, discarded_assignments = (

@@ -99,8 +99,12 @@ PY
             steps {
                 dir('agentkit-src') {
                     sh '''
+                        set -eu
                         . .venv/bin/activate
-                        python -m ruff check src tests
+                        # scripts/ and tools/ enforce this project's guardrails and are
+                        # subject to them (AG3-218). Leaving them out is how a C901 sat
+                        # unnoticed in the concept-frontmatter gate for weeks.
+                        python -m ruff check src tests scripts tools
                     '''
                 }
             }
@@ -113,8 +117,18 @@ PY
             steps {
                 dir('agentkit-src') {
                     sh '''
+                        set -eu
                         . .venv/bin/activate
-                        python -m mypy src --strict --no-error-summary
+                        # NO path argument: a path on the command line REPLACES
+                        # `[tool.mypy] files` and would silently shrink the checked set
+                        # back to `src` (AG3-218). The three platform passes catch
+                        # `sys.platform` branches that only type-check on the OS the
+                        # build agent happens to run.
+                        for platform in win32 linux darwin; do
+                            echo "[mypy] --platform ${platform}"
+                            MYPY_CACHE_DIR=".mypy_cache_${platform}" \
+                                python -m mypy --strict --platform "${platform}" --no-error-summary
+                        done
                     '''
                 }
             }

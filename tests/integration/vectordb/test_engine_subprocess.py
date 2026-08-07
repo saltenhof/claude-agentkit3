@@ -162,7 +162,7 @@ Text.
 
 
 def test_r06_ingester_uses_ssot_same_discovery_set(tmp_path: Path) -> None:
-    from tools.concept_ingester.discovery import discover
+    from concept_ingester.discovery import discover
 
     from agentkit.concepts.parser import discover_concept_files
 
@@ -201,7 +201,7 @@ Text.
 def test_r06_ingester_fails_closed_on_a_discovery_error(tmp_path: Path) -> None:
     """R06: ANY parse error blocks the ingest -- no partial corpus is published."""
     import pytest
-    from tools.concept_ingester.discovery import ConceptDiscoveryError, discover
+    from concept_ingester.discovery import ConceptDiscoveryError, discover
 
     from agentkit.concepts.parser import discover_concept_files
 
@@ -218,7 +218,7 @@ def test_r06_ingester_fails_closed_on_a_discovery_error(tmp_path: Path) -> None:
 
 
 def test_r06_ingester_accepts_a_fully_valid_corpus(tmp_path: Path) -> None:
-    from tools.concept_ingester.discovery import discover
+    from concept_ingester.discovery import discover
 
     root = tmp_path / "concept" / "technical-design"
     root.mkdir(parents=True)
@@ -227,7 +227,7 @@ def test_r06_ingester_accepts_a_fully_valid_corpus(tmp_path: Path) -> None:
 
 
 def test_r06_ingester_config_has_no_localhost_default(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    from tools.concept_ingester.config import IngesterConfig
+    from concept_ingester.config import IngesterConfig
 
     for key in ("AK3_WEAVIATE_HOST", "AK3_WEAVIATE_HTTP_PORT", "AK3_WEAVIATE_GRPC_PORT"):
         monkeypatch.delenv(key, raising=False)
@@ -275,7 +275,7 @@ def test_r06_ingester_projects_the_scope_qualified_authority_metadata(tmp_path: 
     import json
 
     from concept_governance.chunks import authorization_scopes
-    from tools.concept_ingester.discovery import discover
+    from concept_ingester.discovery import discover
 
     root = tmp_path / "concept" / "technical-design"
     root.mkdir(parents=True)
@@ -331,7 +331,7 @@ def test_n20_ingester_projects_the_contract_and_glossary_fields(tmp_path: Path) 
     silently losing the replaced ingester's behaviour. They are not part of the
     typed FK-13 §13.9.6 model, so they come from the raw frontmatter.
     """
-    from tools.concept_ingester.discovery import discover
+    from concept_ingester.discovery import discover
 
     root = tmp_path / "concept" / "technical-design"
     root.mkdir(parents=True)

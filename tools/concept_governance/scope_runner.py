@@ -29,7 +29,11 @@ from concept_governance.vocabulary import load_scope_vocabulary
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from concept_governance.scope_models import ScopeConsistencyRunResult
+    from concept_governance.scope_models import (
+        ScopeConsistencyFinding,
+        ScopeConsistencyRunResult,
+        ScopePartition,
+    )
     from concept_governance.scope_port import ScopeConsistencyEvaluator
 
 
@@ -69,8 +73,8 @@ def run_scope_consistency(
     except (OSError, ValueError) as exc:
         finding = run_finding("DISCOVERY_FAILURE", str(exc), evaluator.model, concept_root.as_posix())
         return make_scope_result((finding,), 0, 0, 0)
-    partitions = ()
-    coverage_findings = ()
+    partitions: tuple[ScopePartition, ...] = ()
+    coverage_findings: tuple[ScopeConsistencyFinding, ...] = ()
     for scope_set in scope_sets:
         try:
             scope_partitions = partition_scope_sets(

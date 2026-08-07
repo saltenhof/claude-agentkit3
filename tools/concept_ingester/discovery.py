@@ -240,7 +240,12 @@ def _bc_for(doc: Any, projection: _DomainProjection) -> tuple[str, str, str]:
     entry = projection.by_doc.get(doc.concept_id)
     if entry is not None:
         return entry
-    return ("", False, "")
+    # Unregistered documents carry the same empty BC profile as archived ones.
+    # This branch used to return ``False`` in the ``surface`` position, which
+    # ``ConceptChunk.surface: str`` then carried into the ingested corpus as a
+    # boolean. Nothing caught it: the field is a frozen dataclass, not a
+    # validating model, and no static check ever read this file.
+    return ("", "", "")
 
 
 def _project_chunk(ssot_chunk: Any, doc: Any, domain: str, surface: str, display: str, mtime: str) -> ConceptChunk:
