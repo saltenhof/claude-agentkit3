@@ -52,9 +52,6 @@ from agentkit.backend.state_backend.pipeline_runtime_store import (
 )
 from agentkit.backend.state_backend.store.analytics_source import StateBackendAnalyticsSource
 from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
-from agentkit.backend.state_backend.store.governance_hook_repository import (
-    StateBackendHookRegistrationRepository,
-)
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -219,12 +216,11 @@ def _seed_real_state(store_dir: Path, story_id: str) -> None:
 
 
 def _build_service(store_dir: Path, story_service: StoryService) -> StoryResetService:
-    governance = Governance(
-        hook_repo=StateBackendHookRegistrationRepository(),
-        lock_repo=LockRecordRepository(store_dir),
-        project_key=_PROJECT,
-        project_root=store_dir,
-    )
+    # AG3-239: Governance traegt seit dem Symbolschnitt nur noch das
+    # Lock-Repository. Hook-Registrierung ist Edge-Orchestrierung
+    # (InstallerHookGovernance) und hat mit dem Story-Reset nichts zu tun; die
+    # frueher hier uebergebene Attrappe wurde von diesem Pfad nie gerufen.
+    governance = Governance(lock_repo=LockRecordRepository(store_dir))
     from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(store_dir)
