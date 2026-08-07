@@ -1,0 +1,37 @@
+story_id: AG3-236
+story_title_short: "wrapper-platzhalter-nachziehen"
+title: "154 Fundstellen tragen einen zurueckgezogenen Platzhalter -- bis sie nachgezogen sind, gilt jede von ihnen als veraltet."
+type: implementation
+status: ready
+phase: setup
+created: "2026-08-07"
+size: M
+# Herkunft: AG3-208 Runde 2 (2026-08-07), nach dem AC-10-Review.
+#
+# AG3-208 hat `<absolute-agentkit-wrapper>` ZURUECKGEZOGEN. Der erste Versuch,
+# ihn zentral als `agentkit-project-edge` umzudeuten, war der Fehler: Er
+# korrigierte die Fundstellen nicht, sondern machte aus bisher MEHRDEUTIGEN
+# Befehlen ausdruecklich FALSCHE --
+#   `<absolute-agentkit-wrapper> serve`      obwohl `serve` dem Kern gehoert
+#   `<absolute-agentkit-wrapper> dashboard`  obwohl es das Verb nicht gibt
+#
+# An seine Stelle treten vier eindeutige Platzhalter (Edge-CLI, Kern-CLI, zwei
+# Hook-Wrapper), und die Aufloesungsregel lautet: DAS VERB ENTSCHEIDET.
+#
+# UMFANG, gemessen: 154 Fundstellen in 49 Dateien, davon 18 unter
+# concept/formal-spec/*/commands.md (Prosa-Formal-Audit). Dazu aktive bare
+# `agentkit ...`-Kommandos in FK-91:575 und FK-41, obwohl FK-10 das Script
+# zurueckzieht.
+#
+# Das ist Schreibarbeit ohne fachliche Entscheidung -- die Entscheidung ist in
+# AG3-208 gefallen. Genau deshalb ist es eine eigene Story: ein Massenrename
+# gehoert nicht in einen Auftrag, der normative Grundsatzfragen klaert.
+#
+# MITZUFUEHREN, NICHT ZU LOESEN: Neun Verben aus den Fundstellen haben KEINE
+# CLI-Entsprechung -- dashboard, resolve-conflict, structural, policy, stages,
+# migrate, install, backend health. AG3-208 hat sie bewusst NICHT zugeordnet,
+# weil ein Verb einer Distribution zuzuweisen, das es nicht gibt, ein
+# heimatloser Eintrag mit erfundenem Eigentuemer waere. Sie sind vorbestehende
+# Drift, Owner PO.
+depends_on: ["AG3-208"]
+unblocks: []
