@@ -196,9 +196,11 @@ Installation zieht **56 Distributionen**, darunter `psycopg`,
 realem stdin laedt **294 `agentkit.*`-Module aus 23 Backend-Subpaketen**,
 darunter das vollstaendige `verify_system`. **Korrektur einer kursierenden
 Behauptung:** `psycopg` wird dabei *nicht* importiert — der Import steht
-unter `TYPE_CHECKING`. Es ist installiert, nicht geladen. Der Befund traegt
-trotzdem: die Angriffs- und Wartungsflaeche entsteht durch die Anwesenheit
-auf der Maschine.
+unter `TYPE_CHECKING`. Gemessen **ohne Allowlist** (`sys.modules` abzueglich
+`sys.stdlib_module_names` und `agentkit`) laedt der Hooklauf genau **9**
+Nicht-stdlib-Top-Level-Module; `psycopg` ist keines davon. Es ist
+installiert, nicht geladen. Der Befund traegt trotzdem: die Angriffs- und
+Wartungsflaeche entsteht durch die Anwesenheit auf der Maschine.
 
 **Nachgezogene Betroffenheit.** Ein systematischer Sweep ueber
 `concept/**`, `PROJECT_STRUCTURE.md`, `guardrails/**` und `AGENTS.md`
@@ -226,3 +228,47 @@ umfasst am 2026-08-07 **49 Importstellen ueber 25 Backend-Module** (nicht
 40/20); die Gegenrichtung **46 Stellen in 22 Dateien ueber 9
 harness_client-Module**. Die Ownership-Matrix in FK-10 §10.2.12 setzt auf
 den neuen Zahlen auf.
+
+## 9. Nachtrag nach dem unabhaengigen Konzeptreview (2026-08-07)
+
+Das Drei-Achsen-Review hat acht Befunde erhoben. Drei davon sind
+**Entscheidungen**, die hier festgehalten werden, weil AG3-209 sie sonst
+selbst erfinden muesste:
+
+**9.1 `auth bootstrap` ist das vierte Kern-Verb.** Es ist per FK-91 §91.4
+die einzige Nicht-API-Operation und schreibt beim lokalen Credential-Owner
+der Core-Maschine (`backend/cli/auth_commands.py:336`,
+`StrategistCredentialStore`). Als Edge-Verb waere es das einzige, das
+kanonischen Kern-Zustand lokal schreibt (I1/I5-Verstoss); ein anonymer
+HTTP-Endpunkt, der das Authentifizierungspasswort setzt, ist ein offenes
+Tor; ein eigener dritter Befehl waere Oberflaeche ohne Gewinn. Es lautet
+`agentkit-backend auth bootstrap`. Die uebrigen fuenf `auth`-Unterverben
+bleiben duenne REST-Clients der Edge-CLI. Das Verb-Wort `auth` ist damit
+das einzige, das sich auf beide Distributionen verteilt.
+
+**9.2 Der Platzhalter `<absolute-agentkit-wrapper>` wird zurueckgezogen,
+nicht umgedeutet.** Eine zentrale Umdeutung auf die Edge-CLI haette die
+154 Fundstellen nicht korrigiert, sondern aus mehrdeutigen Kommandos
+ausdruecklich falsche gemacht — `<absolute-agentkit-wrapper> serve` ist ein
+Kern-Verb. Es gelten stattdessen vier eindeutige Platzhalter
+(FK-10 §10.2.11); die Aufloesungsregel ist **das Verb entscheidet**. Das
+Nachziehen der 154 Fundstellen in 49 Dateien, davon 18 unter
+`concept/formal-spec/*/commands.md`, ist ein eigener Auftrag. Bis dahin
+gilt jede verbleibende Fundstelle als veraltet, nicht als gueltig.
+
+**9.3 Neun Verben im Konzeptkorpus haben keine CLI-Entsprechung**
+(`dashboard`, `resolve-conflict`, `structural`, `policy`, `stages`,
+`migrate`, `install`, `backend health`). Sie koennen **keiner**
+Distribution zugeordnet werden, weil es sie nicht gibt. Vorbestehende
+Drift, vom Schnitt nur sichtbar gemacht; Owner der Entscheidung
+„implementieren oder streichen" ist der Product Owner.
+
+Die uebrigen fuenf Befunde sind Korrekturen ohne Entscheidungscharakter und
+in den zustaendigen Kapiteln behoben: die Maschinen-/Umgebungsverwechslung
+(FK-10 §10.2.0), die Kollision zwischen Ownership-Matrix und Formal-Spec
+bei `backend/config/*` (FK-10 §10.2.12 B, `entities.md`), die undeklarierte
+Kern-Abhaengigkeit `packaging` (FK-10 §10.2.12 E, FK-01 P7,
+`entities.md`), die Zaehlfehler bei den Backend-Subpaketen (44 statt 46,
+mit nachpruefbarer Arithmetik 5 + 4 + 35) und die Luecken der
+Dependency-Pruefung im Packaging-Gate (FK-07 §7.9a.2 Punkt 5,
+`invariants.md`).

@@ -161,9 +161,26 @@ Weitere Harnesses (Qwen Code, Gemini-CLI, …) folgen demselben Pattern. Es gibt
 **keine Plugin-Registry** und **keine Capability-Selection-Policy** — jeder
 Adapter ist ein fest verdrahtetes Sub-Modul.
 
-> **Binding (normativ):** Verbindlich ist die BC-**Zugehoerigkeit** (dieses Doc,
-> Paketname = BC-Name) und die Importrichtung (§76.9), nicht der
-> Verzeichnisname.
+> **Binding (normativ):** Verbindlich ist die BC-**Zugehoerigkeit** (dieses
+> Doc) und die Importrichtung (§76.9), nicht der Verzeichnisname.
+>
+> Die frueher hier stehende Gleichung „Paketname = BC-Name" gilt **nicht
+> mehr unbesehen**: Sie hatte im Ein-Paket-Zustand genau einen Namensraum
+> zu bedienen. Unter drei Distributionen zerfaellt sie in zwei Achsen, die
+> beide gelten und einander nicht ersetzen:
+>
+> | Achse | Was sie bestimmt | Fuer diesen BC |
+> |---|---|---|
+> | Bounded Context | fachliche Zugehoerigkeit, Ownership, Importrichtung | `harness-integration` |
+> | Auslieferungsartefakt | Importwurzel und Wheel | `agentkit-project-edge` → `agentkit_project_edge` |
+>
+> Die BC-Namensregel bindet damit den **Paketnamen innerhalb** der
+> Distribution, nicht die Importwurzel: Der Adapter heisst
+> `agentkit_project_edge.harness_adapters.{harness}`. Waere es anders,
+> muesste jeder BC eine eigene Distribution haben — genau das ist nicht
+> das Zielbild. Der Paketname `harness_adapters` weicht bewusst vom
+> BC-Namen `harness-integration` ab, weil er den Code benennt, den er
+> enthaelt (Adapter), nicht den Vertrag, dem er dient.
 
 ## 76.4 Adapter-Vertrag
 

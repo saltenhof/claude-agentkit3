@@ -242,8 +242,8 @@ Deployment Unit, die sie ausliefert:
 
 | Boundary | Code-Heimat | Distribution |
 |---|---|---|
-| Bediener-CLI (32 Verben) | `src/agentkit/backend/cli/` | Edge |
-| Kern-CLI (`serve`, `ui`, `decommission`) | `src/agentkit/backend/cli/` | Kern |
+| Bediener-CLI (31 Verben + 5 `auth`-Unterverben) | `src/agentkit/backend/cli/` | Edge |
+| Kern-CLI (`serve`, `ui`, `decommission`, `auth bootstrap`) | `src/agentkit/backend/cli/` | Kern |
 | Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` | Kern |
 | Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` | Kern (Wire-Modelle: Vertragspaket) |
 | State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` | Kern |

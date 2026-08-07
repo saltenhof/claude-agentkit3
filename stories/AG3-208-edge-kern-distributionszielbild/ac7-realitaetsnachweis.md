@@ -121,7 +121,7 @@ realem stdin ausgefuehrt und danach `sys.modules` ausgewertet wurde.
 |---|---:|---:|
 | `agentkit.*`-Module geladen | **294** | **292** |
 | `agentkit.backend.*`-Subpakete geladen | **23** | **23** |
-| Drittbibliotheken geladen | `pydantic`, `yaml` | `pydantic`, `yaml` |
+| Drittbibliotheken geladen (beobachtete Liste, siehe Abschnitt 5) | `pydantic`, `yaml` | `pydantic`, `yaml` |
 
 Die 23 geladenen Backend-Subpakete:
 
@@ -154,10 +154,25 @@ jedem Read/Grep den Postgres-Treiber ueber die Kette
 
 **Das ist widerlegt.** Der Import an dieser Stelle steht unter
 `if TYPE_CHECKING:` (`control_plane_writer_lease.py:27–32`) und wird zur
-Laufzeit nicht ausgefuehrt. Zwei unabhaengige Messungen bestaetigen das:
-die Modulmessung oben (`THIRD_PARTY_LOADED: ['pydantic', 'yaml']`) und eine
-separate AST-Erreichbarkeitsanalyse ueber alle 1042 Module
-(`NO module-level import of 'psycopg' reachable`).
+Laufzeit nicht ausgefuehrt.
+
+**Praezisierung der Belegform (Review-Befund).** Die Messung in Abschnitt 4
+prueft eine **hartcodierte Beobachtungsliste** ohne `pydantic_core` und
+`typing_extensions`; sie belegt streng genommen nur „unter den beobachteten
+direkten Abhaengigkeiten". Das ist als Widerlegung zu schwach. Die
+Nachmessung arbeitet deshalb **ohne Allowlist**: `sys.modules` nach dem
+echten Hooklauf, abzueglich `sys.stdlib_module_names` und `agentkit`.
+Vollstaendiges Ergebnis — **9** Nicht-stdlib-Top-Level-Module:
+
+```
+annotated_types, cython_runtime, pydantic, pydantic_core,
+pywin32_bootstrap, pywin32_system32, typing_extensions,
+typing_inspection, yaml
+```
+
+Diese Liste ist erschoepfend, nicht gefiltert; `psycopg` ist nicht darin.
+Unabhaengig bestaetigt durch eine AST-Erreichbarkeitsanalyse ueber alle
+1042 Module (kein modul-level `psycopg`-Import erreichbar).
 
 `psycopg` ist auf der Maschine **installiert**, nicht **geladen**. Der Befund
 traegt trotzdem: die Angriffs-, Update- und Wartungsflaeche entsteht durch die

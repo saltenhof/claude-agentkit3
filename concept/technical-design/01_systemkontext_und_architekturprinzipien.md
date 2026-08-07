@@ -520,11 +520,17 @@ nur das Bild:
 |--------------|----------------------|-------|
 | `agentkit-wire` | `pydantic` | Wire-Modelle validieren (frozen, strict). Einzige Drittabhaengigkeit des I/O-freien Blatts |
 | `agentkit-project-edge` | `pyyaml`, `tomlkit`, `mcp` (≥ 1.2.0, < 2), `weaviate-client` (4.9–5.0), `tokenizers`, `psutil` — plus `pydantic` transitiv ueber `agentkit-wire` | lokale Konfiguration, Codex-Config-Merge, lokal gestartete MCP-Server, semantische Suche (Carve-out §1.1a), deterministische Chunk-Groesse, Prozessmonitoring der MCP-Registrierung |
-| `agentkit-backend` | `pyyaml`, `psycopg[binary]`, `psycopg-pool`, `argon2-cffi` — plus `pydantic` transitiv | Konzept-Korpus lesen, kanonischer State, Credential-Hashing |
+| `agentkit-backend` | `pyyaml`, `psycopg[binary]`, `psycopg-pool`, `argon2-cffi`, `packaging` — plus `pydantic` transitiv | Konzept-Korpus lesen, kanonischer State, Credential-Hashing, Skill-Versionspolitik |
 
 Die `mcp`-Grenze ist beidseitig: `mcp.server.fastmcp` gibt es erst ab
 1.2.0, und 2.0 liefert weder `mcp.server.fastmcp` noch `mcp.types`; das
 `cli`-Extra wird nicht gebraucht.
+
+`packaging` steht heute in **keiner** Dependency-Deklaration und kommt nur
+transitiv mit. Das faellt erst beim Schnitt auf: der Kern verlaesse sich
+danach auf eine Quelle, die er nicht mehr mitzieht. Deshalb ist die
+Sollmenge je Distribution **beidseitig** zu pruefen — Ueberschuss *und*
+Fehlbestand (FK-07 §7.9a.2 Punkt 5d).
 
 **Infrastruktur-Dependency:** AK3 setzt eine zentrale PostgreSQL-Instanz
 als State- und Analytics-Store voraus. Der Treiber gehoert deshalb zur

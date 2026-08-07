@@ -454,11 +454,48 @@ den Entwicklerrechner getragen hat.
 4. **Das Vertragspaket importiert weder Edge noch Kern** und ist ein
    I/O-freies Blatt: keine Dateisystem-, Netz-, Datenbank-, Subprozess-
    oder Umgebungszugriffe, ausser `pydantic` keine Drittabhaengigkeit.
+   Das gilt auch fuer **dynamische** Ladungen: ein `import_module(...)`
+   oder `__import__` auf einen Kern- oder Edge-Pfad ist derselbe
+   Verstoss wie ein statischer Import und wird gesondert geprueft, weil
+   die Importgraph-Analyse ihn nicht sieht (Anlassfall:
+   `config/models.py:1004`, FK-10 §10.2.12 D).
+4a. **Symbolgenaue Grenze, wo die Modulgrenze nicht reicht.** Fuer
+   Module, die nur teilweise Vertragspaket sind, gibt FK-10 §10.2.12 D
+   eine abschliessende Symbolliste vor. Sie ist die **Spezifikation des
+   Schnitts**: AG3-209 teilt das Modul entlang dieser Liste, sodass
+   danach die Praefixregel wieder allein traegt. Das Gate vergleicht die
+   oeffentliche Oberflaeche des gebauten `agentkit-wire`-Wheels gegen
+   diese Liste — jedes zusaetzlich exportierte Symbol ist ein Verstoss.
+   Ohne diese Vorgabe muesste AG3-209 die Modulgrenzen selbst erfinden;
+   eine Praefixregel allein zoege `backend/exceptions.py` mit allen 22
+   Ausnahmeklassen ins Vertragspaket.
 5. **Wheel-/Dependency-Reachability.** Geprueft wird der Inhalt der
-   **gebauten** Artefakte, nicht der Quellbaum: kein Wheel enthaelt ein
-   Modul einer fremden Zugehoerigkeitsmenge, und die aufgeloeste
-   Dependency-Menge der Edge-Distribution enthaelt keine als kern-only
-   klassifizierte Distribution (FK-10 §10.2.12 E).
+   **gebauten** Artefakte, nicht der Quellbaum. Vier Teilaussagen, die
+   einzeln zu pruefen sind — jede fuer sich laesst sonst eine Verletzung
+   durch:
+   a. Kein Wheel enthaelt ein Modul einer fremden Zugehoerigkeitsmenge.
+   b. **Keine der drei Distributionen deklariert eine der beiden anderen
+      als Paketabhaengigkeit** — ausser dass Edge und Kern jeweils
+      `agentkit-wire` deklarieren. Insbesondere darf `agentkit-backend`
+      **nicht** von `agentkit-project-edge` abhaengen. Diese Aussage ist
+      unabhaengig von (a): ein Kern-Wheel ohne einen einzigen Edge-Import
+      kann die Edge-Distribution trotzdem in `Requires-Dist` fuehren und
+      damit auf jedem Core-Host mitinstallieren.
+   c. `agentkit-wire` deklariert **genau** `pydantic` und sonst nichts.
+   d. Die aufgeloesten Metadaten werden **beidseitig** mit den normativen
+      Mengen aus FK-10 §10.2.12 E verglichen: jede deklarierte
+      Abhaengigkeit steht in der Sollmenge ihrer Distribution
+      (kein Ueberschuss — insbesondere keine als kern-only klassifizierte
+      Distribution im Edge), **und** jede Abhaengigkeit der Sollmenge ist
+      deklariert (kein Fehlbestand — eine nur transitiv mitkommende
+      Bibliothek gilt als nicht deklariert). Beidseitigkeit ist der Punkt:
+      eine reine Verbotsliste haette den fehlenden `packaging`-Eintrag des
+      Kerns nicht gefunden.
+   e. Doppeldeklarationen derselben Bibliothek in Edge **und** Kern sind
+      nur fuer die in FK-10 §10.2.12 E ausdruecklich als beidseitig
+      gefuehrte Menge zulaessig (heute: `pyyaml`). Jede weitere
+      Doppeldeklaration ist ein Verstoss, damit die abschliessende Liste
+      abschliessend bleibt.
 6. **Clean-Edge-Installation.** In einer zuvor leeren Umgebung wird
    ausschliesslich `agentkit-project-edge` installiert. Danach muss ein
    **echter** Hook-Prozess (`agentkit-hook-claude` oder

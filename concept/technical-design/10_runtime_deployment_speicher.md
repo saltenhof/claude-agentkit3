@@ -349,9 +349,15 @@ keine kern-only Drittabhaengigkeit darf im Hook-Prozess ladbar sein.** Nicht
 > kursierende Behauptung:** `psycopg` wird im Hook-Prozess *nicht*
 > importiert (der Import in
 > `state_backend/store/control_plane_writer_lease.py` steht unter
-> `TYPE_CHECKING`) — es ist **installiert**, nicht geladen. Das ist der
-> schwaechere, aber belegte Befund; die Angriffsflaeche entsteht durch die
-> Anwesenheit auf der Maschine, nicht durch den Ladevorgang.
+> `TYPE_CHECKING`) — es ist **installiert**, nicht geladen. Gemessen **ohne
+> Allowlist** (`sys.modules` abzueglich `sys.stdlib_module_names` und
+> `agentkit`) laedt der Hooklauf genau **9** Nicht-stdlib-Top-Level-Module:
+> `annotated_types`, `cython_runtime`, `pydantic`, `pydantic_core`,
+> `pywin32_bootstrap`, `pywin32_system32`, `typing_extensions`,
+> `typing_inspection`, `yaml`. Die Angriffs- und Wartungsflaeche entsteht
+> damit durch die **Anwesenheit** von 56 Distributionen auf einer Maschine,
+> die die Datenbank nie sieht — nicht durch den Ladevorgang. Das ist der
+> schwaechere, aber vollstaendig belegte Befund.
 
 **Parallelität.** Der Harness ruft Hooks sequentiell auf (ein Hook pro
 Tool-Call). Mehrere Sub-Agent-Sessions können parallel laufen, also
@@ -408,11 +414,18 @@ Qualifizierung meint immer **nur Ebene 3**.
 
 **Distributionsregel der Ebenen (normativ).** Ebene 1 traegt `agentkit-backend`,
 Ebene 2 traegt `agentkit-project-edge`; `agentkit-wire` liegt auf beiden.
-**Keine Ebene traegt beide ausfuehrbaren Artefakte.** Ein Entwicklerrechner,
-auf dem `agentkit-backend` installiert ist, ist ein Fehlbetrieb — auch dann,
-wenn der Core dort im Loopback laeuft: Der Loopback-Core ist Ebene 1 auf
-derselben Hardware, nicht Ebene 2 mit Kern-Inhalt. Er wird in eine eigene,
-getrennte Umgebung installiert.
+**Keine Ebene-2-Umgebung enthaelt `agentkit-backend`, und keine
+Ebene-1-Umgebung enthaelt `agentkit-project-edge`.**
+
+**Die Einheit der Trennung ist die Umgebung, nicht die Hardware.** Ein
+Rechner darf beide Ebenen tragen — die Loopback-Ko-Lokalisierung
+(§10.2.4) und die Einzelplatz-Entwicklung setzen das voraus, und dieses
+Repository selbst wird so entwickelt. Verboten ist ausschliesslich, beide
+Artefakte in **dieselbe** Python-Umgebung zu installieren: Der
+Loopback-Core ist Ebene 1 in einer eigenen, isolierten Umgebung, nicht
+Ebene 2 mit zusaetzlichem Kern-Inhalt. Was das Gate prueft, ist deshalb
+eine Umgebung (`sys.prefix` samt aufgeloester Distributionsmenge), nie
+ein Host.
 
 **Abhängigkeitsrichtung:** Ebene 3 setzt Ebene 2 voraus; Ebene 2 setzt
 für kanonische Operationen Ebene 1 voraus. **Kanonischer Zustand lebt
@@ -968,8 +981,33 @@ als REST-Clients auf dem Entwicklerrechner:
 
 | Distribution | Verben |
 |---|---|
-| `agentkit-backend` | `serve`, `ui`, `decommission` |
-| `agentkit-project-edge` | `auth`, `register-project`, `verify-project`, `upgrade-project`, `update`, `detach`, `doctor`, `run-story`, `run-phase`, `resume`, `recover-story`, `admin-abort`, `cleanup`, `reset-escalation`, `override-integrity`, `status`, `query-state`, `query-telemetry`, `weekly-review`, `export-telemetry`, `watch-worker`, `split-story`, `reset-story`, `exit-story`, `takeover-request`, `takeover-confirm`, `export-story-md`, `repair-story-md`, `evidence`, `failure-corpus`, `hook-errors`, `concept` |
+| `agentkit-backend` | `serve`, `ui`, `decommission`, **`auth bootstrap`** |
+| `agentkit-project-edge` | `auth {login, rotate-password, issue-token, store-token, revoke-token}`, `register-project`, `verify-project`, `upgrade-project`, `update`, `detach`, `doctor`, `run-story`, `run-phase`, `resume`, `recover-story`, `admin-abort`, `cleanup`, `reset-escalation`, `override-integrity`, `status`, `query-state`, `query-telemetry`, `weekly-review`, `export-telemetry`, `watch-worker`, `split-story`, `reset-story`, `exit-story`, `takeover-request`, `takeover-confirm`, `export-story-md`, `repair-story-md`, `evidence`, `failure-corpus`, `hook-errors`, `concept` |
+
+**`auth bootstrap` ist das vierte Kern-Verb (Entscheidung, begruendet).**
+Das Verb-Wort `auth` ist das einzige, das sich auf beide Distributionen
+verteilt. Das ist kein Versehen, sondern folgt aus einer bereits
+bestehenden Norm: FK-91 §91.4 fuehrt `auth bootstrap` als **einzige
+Nicht-API-Ausnahme** — es initialisiert das Strategenpasswort einmalig
+**direkt beim lokalen Credential-Owner der Core-Maschine**, verlangt ein
+interaktives Terminal, und „eine anonyme HTTP-Entsprechung existiert
+nicht". Der Code loest das ein: `backend/cli/auth_commands.py:336`
+schreibt ueber `StrategistCredentialStore` lokal in den Kern-Zustand.
+
+Damit sind alle drei denkbaren Zuordnungen bis auf eine ausgeschlossen:
+
+| Zuordnung | Warum ausgeschlossen |
+|---|---|
+| Edge-Verb wie die uebrigen `auth`-Unterverben | Es waere das einzige Edge-Verb, das kanonischen Kern-Zustand **lokal** schreibt — ein I1-/I5-Verstoss. Und es liefe auf der falschen Maschine: der Credential-Owner liegt beim Kern |
+| Neuer HTTP-Vertrag | Ein anonymer Endpunkt, der das Passwort setzt, mit dem man sich spaeter authentifiziert, ist ein offenes Tor. FK-91 schliesst ihn ausdruecklich aus |
+| Eigener, dritter Befehl | Erzeugt ein viertes Console-Script fuer genau ein Verb — mehr Oberflaeche ohne Gewinn |
+
+Bleibt: **`agentkit-backend auth bootstrap`**, ausgefuehrt auf dem
+Core-Host. Das ist keine neue Entscheidung, sondern die Anwendung von
+FK-91 §91.4 auf den Distributionsschnitt. Die Aussage in §10.2.11
+weiter unten — „der Backend-Admin ist eine Rolle, keine Maschine" —
+gilt fuer die fuenf **REST**-Unterverben und ausdruecklich **nicht** fuer
+`bootstrap`.
 
 **Warum die Bediener-Verben Edge sind.** Sie sind duenne REST-Clients auf
 `/v1` ohne eigene Fachautoritaet (§10.2.3, FK-45 §45.4) und werden von
@@ -978,27 +1016,73 @@ Kern als Gegenueber, nicht als Mitinstallation. `serve`, `ui` und
 `decommission` sind dagegen Ebene-1-Operationen: sie starten den Writer,
 liefern das Frontend aus oder legen den Kern still.
 
-**Der Backend-Admin ist eine Rolle, keine Maschine.** Auch die
-administrativen `auth`-Unterverben (`bootstrap`, `login`,
-`rotate-password`, `issue-token`, `store-token`, `revoke-token`) sind
-REST-Aufrufe gegen den Kern und liegen deshalb vollstaendig in der
-Edge-CLI. Der Core-Host braucht keinen Client: eine lokale Ausfuehrung
-solcher Operationen am `/v1`-Vertrag vorbei waere ein I3-Verstoss. Wer
-administriert, benutzt dieselbe Edge-Distribution wie jeder andere
-Bediener — mit anderen Rechten, nicht mit anderem Code.
+**Der Backend-Admin ist eine Rolle, keine Maschine — mit genau einer
+Ausnahme.** Die administrativen `auth`-Unterverben `login`,
+`rotate-password`, `issue-token`, `store-token` und `revoke-token` sind
+REST-Aufrufe gegen den Kern und liegen deshalb in der Edge-CLI. Fuer sie
+braucht der Core-Host keinen Client: eine lokale Ausfuehrung am
+`/v1`-Vertrag vorbei waere ein I3-Verstoss. Wer administriert, benutzt
+insoweit dieselbe Edge-Distribution wie jeder andere Bediener — mit
+anderen Rechten, nicht mit anderem Code.
 
-**Aufloesung des Platzhalters `<absolute-agentkit-wrapper>` (normativ).**
-Der Korpus benutzt an rund 150 Stellen den Platzhalter
-`<absolute-agentkit-wrapper>` fuer den absoluten Pfad des Bediener-CLI
-neben dem zentral aufgeloesten Interpreter. Da das Console-Script
-`agentkit` zurueckgezogen wird, bezeichnet dieser Platzhalter **ab sofort
-und ausschliesslich** das Script `agentkit-project-edge` der
-Edge-Distribution. Analog steht `<absolute-agentkit-hook-claude-wrapper>`
-bzw. `<absolute-agentkit-hook-codex-wrapper>` fuer die beiden
-Hook-Wrapper derselben Distribution. Es gibt genau **eine** Bedeutung je
-Platzhalter; die Umbenennung des Platzhalter-Textes selbst ist reine
-Schreibarbeit ohne fachliche Entscheidung und gehoert nicht in diese
-Story.
+`auth bootstrap` faellt **nicht** darunter. Es ist per FK-91 §91.4 die
+einzige Nicht-API-Operation, laeuft auf dem Core-Host und gehoert zur
+Kern-CLI (Begruendung oben bei der Verb-Zuordnung).
+
+**Der Platzhalter `<absolute-agentkit-wrapper>` wird zurueckgezogen
+(normativ).** Der Korpus benutzt ihn an 154 Stellen in 49 Dateien fuer
+den absoluten Pfad „des" CLI-Wrappers neben dem zentral aufgeloesten
+Interpreter. Unter zwei ausfuehrbaren Artefakten kann ein Platzhalter
+nicht mehr eindeutig sein; er ist **ungueltig**, nicht umgedeutet. An
+seine Stelle treten:
+
+| Platzhalter | Bezeichnet | Distribution |
+|---|---|---|
+| `<absolute-agentkit-project-edge-wrapper>` | Bediener- und Projekt-CLI | `agentkit-project-edge` |
+| `<absolute-agentkit-backend-wrapper>` | Kern-CLI | `agentkit-backend` |
+| `<absolute-agentkit-hook-claude-wrapper>` | Hook-Wrapper Claude Code | `agentkit-project-edge` |
+| `<absolute-agentkit-hook-codex-wrapper>` | Hook-Wrapper Codex | `agentkit-project-edge` |
+
+**Warum nicht einfach umdeuten.** Ein zentraler Satz „der alte
+Platzhalter bedeutet ab sofort die Edge-CLI" haette die 154 Fundstellen
+nicht korrigiert, sondern aus bisher **mehrdeutigen** Kommandos
+**ausdruecklich falsche** gemacht — `<absolute-agentkit-wrapper> serve`
+ist ein Kern-Verb und waere damit dem Edge zugeschrieben worden. Die
+Aufloesungsregel ist deshalb nicht „ein Platzhalter, eine Distribution",
+sondern: **das Verb entscheidet**, gemaess der Verb-Tabelle oben. Bis der
+Text nachgezogen ist, gilt jede verbleibende Fundstelle als **veraltet**,
+nicht als gueltig.
+
+Das Nachziehen der 154 Fundstellen ist mechanisch, aber weder trivial
+noch Teil dieser Story: 18 der 49 Dateien sind
+`concept/formal-spec/*/commands.md` und unterliegen dem
+Prosa-Formal-Audit. Es ist als eigener Auftrag zu erteilen.
+
+**Neun Verben ohne Entsprechung — die Vollstaendigkeitsaussage
+praezisiert.** Die Verb-Tabelle oben ist vollstaendig ueber die
+**implementierte** CLI-Oberflaeche (35 Verben, erhoben aus
+`--help` des heutigen Wheels). Der Konzeptkorpus nennt daneben Verben,
+die es nicht gibt und die deshalb **keiner** Distribution zugeordnet
+werden koennen:
+
+| Verb | Fundstellen | Disposition |
+|---|---|---|
+| `dashboard` | FK-60, FK-62, FK-63, `formal.telemetry-analytics.commands` | vermutlich Vorlaeufer von `ui`; zu entscheiden |
+| `resolve-conflict` | FK-04, FK-55, `formal.principal-capabilities.commands` | in der CLI nicht vorhanden |
+| `structural`, `policy`, `stages` | FK-03, FK-33, `formal.deterministic-checks.commands` | in der CLI nicht vorhanden |
+| `migrate` | FK-18 | in der CLI nicht vorhanden |
+| `install` | FK-03 | vermutlich Vorlaeufer von `register-project` |
+| `backend health` | FK-04 | in der CLI nicht vorhanden |
+
+Das ist **vorbestehende Drift** zwischen Konzept und CLI, die der
+Distributionsschnitt nur sichtbar macht. Sie wird hier benannt und nicht
+stillschweigend zugeordnet: ein Verb einer Distribution zuzuweisen, das
+es nicht gibt, waere ein heimatloser Eintrag mit erfundenem Eigentuemer.
+Owner der Entscheidung „implementieren oder aus dem Konzept entfernen"
+ist der Product Owner. Eine einzige Fundstelle ist **kein** Defekt:
+`<absolute-agentkit-wrapper> serve-control-plane` im Decision Record
+`2026-08-02-port-9702-…` steht dort in einem Satz, der das Verb
+ausdruecklich fuer abgeschafft erklaert.
 
 **Zwei heute unbelegte Zusagen — als Defekt benannt, nicht mitgeschleppt.**
 
@@ -1026,7 +1110,7 @@ der historische Namensraum.
 
 | Einheit | Umfang (Ist) | Besitzer | Begruendung |
 |---|---|---|---|
-| `backend/` | 955 Python-Module, 46 Subpakete | **modulweise geteilt** — siehe B | Der Name ist historisch. Guard-Engine, Installer, Bediener-CLI, Story-Reconciliation und MCP-Server liegen dort, laufen aber auf dem Entwicklerrechner |
+| `backend/` | 955 Python-Module, **44** Subpakete plus das Wurzelmodul `exceptions.py` | **modulweise geteilt** — siehe B | Der Name ist historisch. Guard-Engine, Installer, Bediener-CLI, Story-Reconciliation und MCP-Server liegen dort, laufen aber auf dem Entwicklerrechner |
 | `frontend/` | 0 Python-Module, TS/React-Baum | **Kern** | Wird vom Kern ausgeliefert (`agentkit-backend ui`) und spricht ausschliesslich REST mit ihm (I6). Kein Edge-Prozess laedt Frontend-Assets |
 | `harness_client/` | 25 Module | **Edge** | Hook-Adapter und Project-Edge-Client; laufen ausnahmslos auf dem Entwicklerrechner |
 | `integration_clients/` | 24 Module, 8 Adapter | **adapterweise geteilt** — siehe C | Wer den Adapter treibt, besitzt ihn (I2 bzw. Carve-out FK-01 §1.1a) |
@@ -1046,11 +1130,13 @@ der historische Namensraum.
 | `story_creation/` | **Edge** | Der Reconciler wird vom Zielprojekt-Launcher lokal gebaut und ausgefuehrt; er spricht die VektorDB direkt an (Carve-out FK-01 §1.1a) |
 | `code_backend/provider_port` | **Edge** | Der Port wird im lokalen Service-Identity-Pfad des `command_executor` konsumiert; die Credential-Aufloesung laeuft am Entwicklerrechner. Der uebrige `code_backend/` bleibt Kern |
 | `vectordb/` | **Edge** | Enthaelt den lokal gestarteten MCP-Server (`engine`, `mcp_server`), den Ingest und den Concept-Corpus-Builder (F3) |
-| `config/` (Loader, Pfade, Defaults) | **Edge** | `project.yaml` ist eine Datei auf dem Entwicklerrechner. Der Kern parst sie **nicht** vom Dateisystem: er erhaelt die validierte Konfiguration ueber `/v1` und fuehrt sie als `ProjectManagement`-Zustand (I5, FK-07 §7.4.6). Das **Konfigurationsschema** ist Payload beider Seiten und gehoert ins Vertragspaket — siehe D |
+| `config/loader.py`, `config/validators.py` | **Edge** | `project.yaml` ist eine Datei auf dem Entwicklerrechner. Der Kern parst sie **nicht** vom Dateisystem: er erhaelt die validierte Konfiguration ueber `/v1` und fuehrt sie als `ProjectManagement`-Zustand (I5, FK-07 §7.4.6) |
+| `config/models.py`, `config/defaults.py`, `config/worker_health.py` | **Vertragspaket** | Das Konfigurationsschema ist Payload der Registrierungs- und Update-Endpunkte. `defaults` und `worker_health` muessen mitgehen, weil `models` sie importiert — ein Blatt, das seine eigenen Bausteine nicht mitbringt, ist keines. Damit ist `config/loader.py:16 -> config.defaults` eine **Edge->Vertragspaket**-Kante und erlaubt |
+| `config/sqlite_gate.py` | **Kern** | einziger Konsument ist `state_backend/config.py` |
 | `core_types/mcp_server_registration` | **Edge** | Beschreibt lokal zu startende MCP-Prozesse |
 | `core_types/verify_evidence` (Grenzwerte, Request-/Repository-Vertrag) | **Vertragspaket** | Evidence wird lokal erhoben und ueber `/v1` eingereicht — beidseitiges Vokabular |
 | `utils/io` | **dupliziert, nicht geteilt** | Triviale Hilfsfunktionen (`atomic_write_text`, `read_json_object`). Sie sind **kein** Wire-Vokabular. Jede Distribution fuehrt ihre eigene Kopie; ein gemeinsames Utility-Paket waere der Abstellraum, den §10.1.0a verbietet |
-| **alle uebrigen Subpakete** | **Kern** | Auffangregel: was oben nicht steht, gehoert zum Kern. Das betrifft insbesondere `pipeline_engine`, `verify_system`, `exploration`, `implementation`, `closure`, `state_backend`, `control_plane`, `control_plane_http`, `telemetry`, `telemetry_service`, `kpi_analytics`, `auth`, `project_management`, `story`, `story_context_manager`, `execution_planning`, `phase_state_store`, `artifacts`, `prompt_runtime`, `concept_catalog`, `failure_corpus`, `skills`, `task_management`, `requirements_coverage`, `integration_stabilization`, `project`, `project_ops`, `schemas`, `boundary`, `bootstrap`, `process`, `workers`, `story_exit`, `story_reset`, `story_split` |
+| **alle uebrigen Subpakete** | **Kern** | Auffangregel: was oben nicht steht, gehoert zum Kern. **Arithmetik der Totalfunktion:** 44 unmittelbare Subpakete = 5 vollstaendig Edge (`governance`, `installer`, `cli`, `story_creation`, `vectordb`) + 4 symbolweise geteilt (`config`, `code_backend`, `core_types`, `utils`) + **35** vollstaendig Kern. Dazu das Wurzelmodul `exceptions.py`, ebenfalls symbolweise geteilt (siehe D). Die 35 sind `pipeline_engine`, `verify_system`, `exploration`, `implementation`, `closure`, `state_backend`, `control_plane`, `control_plane_http`, `telemetry`, `telemetry_service`, `kpi_analytics`, `auth`, `project_management`, `story`, `story_context_manager`, `execution_planning`, `phase_state_store`, `artifacts`, `prompt_runtime`, `concept_catalog`, `failure_corpus`, `skills`, `task_management`, `requirements_coverage`, `integration_stabilization`, `project`, `project_ops`, `schemas`, `boundary`, `bootstrap`, `process`, `workers`, `story_exit`, `story_reset`, `story_split` |
 
 **Gegenkanten Kern→Edge.** Die am 2026-08-07 gemessenen 46 Importstellen
 aus `backend/` nach `harness_client/` (22 Dateien, 9 Zielmodule;
@@ -1108,6 +1194,31 @@ Ausdruecklich **nicht** aufgenommen:
 | `state_backend.*`, `verify_system.*`, `pipeline_engine.*` | **Kern** | ausfuehrende Fachlogik |
 | beliebiger „Code, den beide gerade brauchen" | — | Das Vertragspaket ist ein I/O-freies Blatt und kein Ablageort. Wer etwas hineingeben will, das keine `/v1`-Nutzlast ist, verortet es beim ausfuehrenden Besitzer |
 
+**Zwei Module sind nur symbolweise Vertragspaket — und muessen deshalb
+geteilt werden.** Eine Modulpraefix-Regel kann „dieses Symbol ja, jenes
+nein" nicht ausdruecken. Wo die Grenze mitten durch ein Modul laeuft,
+gilt die folgende Symbolliste als **Spezifikation des Schnitts**: AG3-209
+teilt das Modul so, dass danach wieder die Praefixregel allein genuegt.
+Bis dahin ist die Praefixzuordnung dieser beiden Module bewusst
+**unscharf** und darf nicht als „ganzes Modul ist Wire" gelesen werden.
+
+| Modul | Nur diese Symbole gehen ins Vertragspaket | Der Rest gehoert zu |
+|---|---|---|
+| `backend/exceptions.py` (22 Klassen) | `AgentKitError` (Basisklasse, sonst haengt die Ableitung in der Luft), `ControlPlaneApiError` | **Kern** — `StoryError`, `PipelineError`, `WorkflowError`, `TransitionError`, `GateError`, `CorruptStateError`, `ArtifactError`, `IntegrationError`, `GovernanceError`, `WorktreeError`, `ProjectError`, `PreconditionError`, `ControlPlaneClaimCollisionError`, `ControlPlaneBindingCollisionError`, `OwnershipFenceViolationError`, `EdgeCommandNotOpenError`, `ConflictAdjudicationUnavailableError`. **Edge** — `ConfigError` (vom lokalen Loader erhoben), `GuardError`, `InstallationError` |
+| `backend/config/models.py` | `ProjectConfig` und die von ihm erreichbaren Untermodelle | — |
+
+**Ein Wire→Kern-Durchgriff, der mitgeschnitten werden muss.**
+`config/models.py:1004` laedt zur Validierungszeit dynamisch
+`agentkit.backend.verify_system.stage_registry`, um `policy.stage_overrides`
+gegen bekannte Stage-IDs zu pruefen (FK-33 §33.2.4). Das ist nach dem
+Schnitt eine **Vertragspaket→Kern**-Kante und damit verboten — und weil
+sie dynamisch ist, faengt eine reine Importgraph-Analyse sie nicht. Der
+Zielzustand: das Schema validiert **Form**, nicht **Registry-Zugehoerigkeit**;
+die Pruefung gegen den Stage-Katalog gehoert dorthin, wo der Katalog lebt
+— in den Kern, beim Annehmen der Konfiguration ueber `/v1`. Umsetzung
+AG3-209; das Gate prueft dynamische Modulladungen im Vertragspaket
+ausdruecklich mit (§7.9a).
+
 **E — Runtime-Abhaengigkeiten (`[project.dependencies]`).** Jede
 Abhaengigkeit folgt ihrem Laufzeitbesitzer. Belege sind die gemessenen
 Importbereiche (2026-08-07, AST ueber alle 1042 Module).
@@ -1123,6 +1234,7 @@ Importbereiche (2026-08-07, AST ueber alle 1042 Module).
 | `tokenizers` | **Edge** | ausschliesslich `agentkit/concepts/tokenizer.py`, das nur der lokale Ingest nutzt |
 | `tomlkit` | **Edge** | ausschliesslich `harness_client/harness_adapters/codex_config_toml.py` |
 | `psutil` | **Edge** | ausschliesslich `backend/installer/mcp_conformance/process.py` |
+| `packaging` | **Kern** | ausschliesslich `backend/skills/version_policy.py:7` (`from packaging.version import InvalidVersion, Version`); `skills` ist Kern. **Heute nicht deklariert:** `packaging` steht in keiner `[project.dependencies]` und kommt nur transitiv ueber `huggingface-hub`/`hatchling` mit. Nach dem Schnitt zoege der Kern seine transitive Quelle nicht mehr mit — ein Kern-Wheel waere ohne eine notwendige Laufzeitabhaengigkeit baubar. Die Deklaration ist Pflichtbestandteil von AG3-209 |
 
 **Kern-only-Menge (normativ).** `psycopg`, `psycopg-binary`, `psycopg-pool`,
 `argon2-cffi` und die Distribution `agentkit-backend` selbst duerfen in

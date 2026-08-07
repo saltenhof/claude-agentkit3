@@ -226,11 +226,53 @@ distribution_dependency_rules:
       - psycopg
     allowed_third_party_distributions:
       - pydantic
+    forbidden_dynamic_module_loads: true
     message: >-
       the wire contract package is an I/O-free leaf: it imports neither edge
       nor core, performs no filesystem, network, database, subprocess or
       environment access, and declares no third-party dependency other than
-      pydantic
+      pydantic. dynamic loads (import_module, __import__) onto edge or core
+      paths are the same violation as a static import and are checked
+      separately, because the import graph does not see them
+  - id: architecture-conformance.rule.no_inter_distribution_package_dependency
+    scope: all-distributions
+    allowed_edges:
+      - from: architecture-conformance.distribution.edge
+        to: architecture-conformance.distribution.wire
+      - from: architecture-conformance.distribution.core
+        to: architecture-conformance.distribution.wire
+    message: >-
+      no distribution may declare another AK3 distribution in Requires-Dist
+      except edge to wire and core to wire; in particular agentkit-backend must
+      not depend on agentkit-project-edge. this is independent of the import
+      graph: a core wheel without a single edge import can still pull the edge
+      distribution onto every core host through its metadata
+  - id: architecture-conformance.rule.declared_dependencies_match_normative_sets
+    scope: all-distributions
+    comparison: bidirectional
+    message: >-
+      for every distribution the resolved Requires-Dist set must equal the
+      normative runtime_dependencies set: no surplus (no core-only distribution
+      inside the edge) and no shortfall (a library that only arrives
+      transitively counts as undeclared). one-directional checking would have
+      missed the undeclared packaging dependency of the core
+  - id: architecture-conformance.rule.wire_declares_pydantic_only
+    scope: architecture-conformance.distribution.wire
+    message: >-
+      agentkit-wire declares exactly pydantic and nothing else
+  - id: architecture-conformance.rule.dual_declaration_list_is_closed
+    scope: all-distributions
+    message: >-
+      a library declared by both edge and core must appear in
+      dual_declared_dependencies; every further dual declaration is a violation,
+      so the closed list stays closed
+  - id: architecture-conformance.rule.wire_surface_matches_symbol_boundaries
+    scope: architecture-conformance.distribution.wire
+    message: >-
+      the public surface of the built agentkit-wire wheel equals the union of
+      wire_exported_symbols in distribution_symbol_boundaries; every additional
+      exported symbol is a violation. without this a prefix rule would drag all
+      22 exception classes of backend/exceptions.py into the contract package
   - id: architecture-conformance.rule.distribution_membership_is_total_and_disjoint
     scope: all-distributions
     message: >-
@@ -276,13 +318,26 @@ packaging_gate:
         - forbidden_edges_with_locator
     - id: architecture-conformance.gate.check.wheel_reachability
       subject: built-wheels
+      evaluates:
+        - architecture-conformance.rule.no_inter_distribution_package_dependency
+        - architecture-conformance.rule.declared_dependencies_match_normative_sets
+        - architecture-conformance.rule.wire_declares_pydantic_only
+        - architecture-conformance.rule.dual_declaration_list_is_closed
+        - architecture-conformance.rule.wire_surface_matches_symbol_boundaries
       rule: >-
-        no built wheel contains a module belonging to a foreign distribution,
-        and the resolved dependency set of the edge wheel contains no
-        distribution listed in core_only_distributions
+        (a) no built wheel contains a module belonging to a foreign
+        distribution; (b) no distribution declares another AK3 distribution
+        except edge to wire and core to wire; (c) agentkit-wire declares exactly
+        pydantic; (d) every resolved Requires-Dist set equals its normative set
+        in both directions; (e) dual declarations stay inside
+        dual_declared_dependencies; (f) the public wire surface equals the
+        declared symbol boundaries
       reports:
         - wheel_contents_per_distribution
         - resolved_dependency_set_per_distribution
+        - inter_distribution_dependency_edges
+        - dependency_set_surplus_and_shortfall_per_distribution
+        - wire_public_surface_vs_symbol_boundaries
     - id: architecture-conformance.gate.check.clean_edge_install
       subject: empty-environment
       rule: >-
@@ -304,7 +359,16 @@ invariants:
     rule: no module of the edge distribution reaches a module of the core distribution, directly or transitively, including TYPE_CHECKING edges
   - id: architecture-conformance.invariant.wire_is_an_io_free_leaf
     scope: static-analysis
-    rule: the wire contract package imports neither edge nor core, performs no I/O and depends on pydantic only
+    rule: the wire contract package imports neither edge nor core, performs no I/O and depends on pydantic only; dynamic module loads onto edge or core paths count as imports
+  - id: architecture-conformance.invariant.no_distribution_depends_on_another_except_wire
+    scope: build-artifact
+    rule: package metadata declares no AK3 distribution dependency other than edge to wire and core to wire; a core wheel that depends on the edge distribution violates the architecture even with a clean import graph
+  - id: architecture-conformance.invariant.declared_dependencies_equal_normative_sets
+    scope: build-artifact
+    rule: resolved Requires-Dist equals the normative runtime dependency set of its distribution in both directions; transitive-only availability counts as undeclared
+  - id: architecture-conformance.invariant.wire_surface_is_symbol_bounded
+    scope: build-artifact
+    rule: the public surface of the built wire wheel equals the union of the declared wire_exported_symbols; modules whose boundary runs through them must be split as specified
   - id: architecture-conformance.invariant.distribution_membership_is_total_and_disjoint
     scope: static-analysis
     rule: distribution membership is a total and disjoint function over the AK3 module set; no module is homeless and none has two owners

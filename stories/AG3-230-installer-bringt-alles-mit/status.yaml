@@ -43,7 +43,14 @@ status: blocked
 #   Read/Grep den Postgres-Treiber" ist FALSCH. Der Import in
 #   control_plane_writer_lease.py:32 steht unter TYPE_CHECKING. Laufzeit-
 #   `sys.modules` und AST-Erreichbarkeit ueber alle 1042 Module zeigen
-#   uebereinstimmend: geladen werden nur `pydantic` und `pyyaml`. `psycopg` ist
+#   uebereinstimmend: unter den beobachteten DIREKTEN Abhaengigkeiten werden nur
+#   `pydantic` und `pyyaml` geladen.
+#
+#   PRAEZISIERUNG 2026-08-07 (AG3-208 AC-10-Review): Diese Aussage darf nicht
+#   als "nur diese zwei Module ueberhaupt" gelesen werden. Das Messskript prueft
+#   eine hartcodierte Allowlist, in der u. a. `pydantic_core` und
+#   `typing_extensions` fehlen -- allein `import pydantic` laedt beide. Belegt
+#   ist die enge Aussage: der Postgres-Treiber wird NICHT geladen. `psycopg` ist
 #   INSTALLIERT, nicht geladen -- der Befund traegt ueber die Anwesenheit, nicht
 #   ueber den Ladevorgang.
 #

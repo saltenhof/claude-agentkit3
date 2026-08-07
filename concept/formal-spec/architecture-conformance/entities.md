@@ -1590,7 +1590,7 @@ distributions:
       - agentkit.backend.story_creation
       - agentkit.backend.vectordb
       - agentkit.backend.config.loader
-      - agentkit.backend.config.paths
+      - agentkit.backend.config.validators
       - agentkit.backend.code_backend.provider_port
       - agentkit.backend.core_types.mcp_server_registration
       - agentkit.integration_clients.vectordb
@@ -1612,6 +1612,11 @@ distributions:
       - psycopg
       - psycopg-pool
       - argon2-cffi
+      # AG3-208 B5: heute NICHT in [project.dependencies]; kommt nur transitiv
+      # ueber huggingface-hub/hatchling mit. Einziger Importer:
+      # backend/skills/version_policy.py:7. Ohne Deklaration waere das
+      # Kern-Wheel nach dem Split ohne notwendige Laufzeitabhaengigkeit baubar.
+      - packaging
     module_prefixes:
       - agentkit.backend
       - agentkit.frontend
@@ -1634,16 +1639,85 @@ distributions:
       - agentkit.backend.control_plane.third_party_models
       - agentkit.backend.exceptions
       - agentkit.backend.config.models
+      - agentkit.backend.config.defaults
+      - agentkit.backend.config.worker_health
       - agentkit.backend.core_types.operating_mode
       - agentkit.backend.core_types.verify_evidence
       - agentkit.backend.story_exit.http_models
       - agentkit.backend.story_reset.http_models
       - agentkit.backend.story_split.http_models
+# ---------------------------------------------------------------------------
+# Symbolgenaue Zugehoerigkeit (FK-10 Paragraph 10.2.12 D, FK-07 Paragraph 7.9a.2 Punkt 4a)
+#
+# Eine Modulpraefix-Regel kann "dieses Symbol ja, jenes nein" nicht ausdruecken.
+# Wo die Distributionsgrenze mitten durch ein Modul laeuft, ist die folgende
+# Liste die SPEZIFIKATION DES SCHNITTS: AG3-209 teilt das Modul so, dass danach
+# die Praefixregel wieder allein traegt. Bis dahin ist die Praefixzuordnung
+# dieser Module bewusst unscharf und darf nicht als "ganzes Modul gehoert der
+# genannten Distribution" gelesen werden.
+#
+# Das Gate vergleicht die oeffentliche Oberflaeche des gebauten
+# agentkit-wire-Wheels gegen exported_symbols; jedes zusaetzliche Symbol ist ein
+# Verstoss.
+# ---------------------------------------------------------------------------
+distribution_symbol_boundaries:
+  - id: architecture-conformance.symbol_boundary.backend_exceptions
+    module: agentkit.backend.exceptions
+    split_required: true
+    wire_exported_symbols:
+      - AgentKitError
+      - ControlPlaneApiError
+    edge_symbols:
+      - ConfigError
+      - GuardError
+      - InstallationError
+    core_symbols:
+      - StoryError
+      - PipelineError
+      - WorkflowError
+      - TransitionError
+      - GateError
+      - CorruptStateError
+      - PreconditionError
+      - ControlPlaneClaimCollisionError
+      - ControlPlaneBindingCollisionError
+      - OwnershipFenceViolationError
+      - EdgeCommandNotOpenError
+      - ConflictAdjudicationUnavailableError
+      - ProjectError
+      - IntegrationError
+      - GovernanceError
+      - ArtifactError
+      - WorktreeError
+    note: >-
+      AgentKitError ist die gemeinsame Basisklasse und muss deshalb mit ins
+      Vertragspaket; ohne sie haengt die Ableitung von ControlPlaneApiError in
+      der Luft. Die uebrigen 20 Klassen sind fachliche Ausnahmen ihrer
+      jeweiligen Seite und duerfen nicht per Modulpraefix mitwandern.
+  - id: architecture-conformance.symbol_boundary.backend_config_models
+    module: agentkit.backend.config.models
+    split_required: false
+    wire_exported_symbols:
+      - ProjectConfig
+    forbidden_dynamic_imports:
+      - agentkit.backend.verify_system.stage_registry
+    note: >-
+      config/models.py:1004 laedt den Stage-Katalog dynamisch, um
+      policy.stage_overrides zu validieren (FK-33 Paragraph 33.2.4). Nach dem
+      Schnitt ist das eine Vertragspaket->Kern-Kante und verboten; eine reine
+      Importgraph-Analyse sieht sie nicht. Zielzustand: das Schema validiert
+      Form, die Katalogpruefung laeuft im Kern beim Annehmen der Konfiguration
+      ueber /v1.
 core_only_distributions:
   - psycopg
   - psycopg-binary
   - psycopg-pool
   - argon2-cffi
   - agentkit-backend
+# Abschliessende Liste der Bibliotheken, die Edge UND Kern eigenstaendig
+# deklarieren duerfen. Jede weitere Doppeldeklaration ist ein Verstoss --
+# sonst hoert die Liste auf, abschliessend zu sein.
+dual_declared_dependencies:
+  - pyyaml
 ```
 <!-- FORMAL-SPEC:END -->
