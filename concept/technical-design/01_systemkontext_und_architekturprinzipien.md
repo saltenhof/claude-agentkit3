@@ -247,11 +247,19 @@ graph TB
 
 | Komponente | Typ | Auslieferungsort | Technologie |
 |------------|-----|------------------|-------------|
-| `agentkit-project-edge` | Hook-Wrapper, Guard-Engine, Project-Edge-Client, Bediener-CLI, Installer, lokale MCP-Server | Entwicklerrechner (FK-10 §10.2.0 Ebene 2/3) | Python 3.14 |
-| `agentkit-backend` | Pipeline, QA-Subflow, Governance-Adjudication, Closure, Control-Plane-HTTP, State-Backend, Frontend-Auslieferung | zentraler Core-Host (Ebene 1) | Python 3.14 |
+| `agentkit-project-edge` | Hook-Wrapper und Guard-**Engine** (drei Module aus `governance/`), Project-Edge-Client, Bediener-CLI, Installer, lokale MCP-Server, VektorDB-Ingest | Entwicklerrechner (FK-10 §10.2.0 Ebene 2/3) | Python 3.14 |
+| `agentkit-backend` | Pipeline, QA-Subflow, Governance-**Adjudication** (`PolicyEngine`, `IntegrityGate`, `principal_capabilities`, `setup_preflight_gate`, `locks`), Closure, Control-Plane-HTTP, State-Backend, kanonische Telemetrie, Frontend-Auslieferung | zentraler Core-Host (Ebene 1) | Python 3.14 |
 | `agentkit-wire` | gemeinsames `/v1`-Vokabular, I/O-freies Blatt | mit beiden, nie allein | Python 3.14, Pydantic |
 | Rollenprompts + Skills | Paketressourcen / systemweite Bundles | Nicht im Projekt deployt | — |
 | JSON Schemas | Artefakt-Validierung | — | JSON Schema Draft 2020-12 |
+
+**Diese Spalte ist eine Prozess-, keine Paketliste.** „Guard-Engine" und
+„Governance-Adjudication" bezeichnen Faehigkeiten, nicht die Pakete
+`governance/`, `cli/` oder `installer/` — die drei sind gemessen geteilt und
+liegen mit je benannten Modulausnahmen auf **beiden** Seiten. Verbindlich ist
+`distribution_membership_evidence` in
+`formal.architecture-conformance.entities`; die Prosa-Fassung steht in
+FK-10 §10.2.12 B.
 
 Die drei Distributionen werden aus **einem** Repository gebaut und tragen
 **dieselbe** Version (FK-10 §10.2.7). Der Distributionsschnitt selbst ist
@@ -620,7 +628,7 @@ Entwicklerrechner, Zone 2 (Orchestrierung) im Kern.
 | Zone | Maschine | Distribution |
 |------|----------|--------------|
 | 1 — Plattform: Harness | Entwicklerrechner | keine (Fremdplattform) |
-| 1 — Plattform: Hooks und Guard-Engine | Entwicklerrechner | `agentkit-project-edge` |
+| 1 — Plattform: Hooks und Guard-Engine | Entwicklerrechner | `agentkit-project-edge` — als Paketzuordnung nur `governance.{runner,guard_evaluation,rest_edge,default_hook_definitions}`; die Adjudication liegt in `agentkit-backend`. Die Zone-Aussage betrifft den **Ausfuehrungsort**, nicht die Paketzugehoerigkeit |
 | 2 — Pipeline-Orchestrierung | Core-Host | `agentkit-backend` |
 | 3 — Agent-Ausfuehrung | Entwicklerrechner | keine (LLM im Harness) |
 | 4 — Externe LLMs | extern | keine |

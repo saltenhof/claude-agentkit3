@@ -1130,54 +1130,81 @@ mischt, erbt die Zieldistribution alles, was das Modul sonst noch tut.
 Das Vertragspaket ist deshalb **kein Umetikettieren bestehender Module**:
 es ist neuer Code, in den Symbole **wandern**.
 
-### B0 — Feststellung: die Klassifikation ist zu messen, nicht zu behaupten
+### B0 — Zaehleinheit, Kriterium, und was daraus folgt
 
-**Dieses Kapitel klassifiziert die Backend-Subpakete nicht.** Es stellt
-fest, dass sie klassifiziert werden **muessen**, unter welcher Regel das
-zulaessig ist, und wer es tut.
+Drei aufeinanderfolgende unabhaengige Reviews haben je eine Zuweisung
+widerlegt, die ohne Messung getroffen worden war — zuletzt `cli` als
+„vollstaendig Edge", zehn Zeilen nachdem dasselbe Kapitel vier
+Kern-Kommandopfade darin benannte. Die Wurzel war nicht die einzelne
+falsche Zeile, sondern eine fehlende Festlegung: **ohne Zaehleinheit ist
+„das Modul mischt keine Belange" nicht pruefbar.** Die Vormessung mischte
+13 Module, 33 importierte Symbole, 63 Klassen und fuer ein Paket gar
+keine Zahl — vier Einheiten in einer Tabelle.
 
-Der Grund ist belegt, nicht vorsorglich. Drei aufeinanderfolgende
-unabhaengige Reviews haben je eine weitere Zuweisung widerlegt, die ohne
-Messung getroffen worden war — zuletzt `cli` als „vollstaendig Edge",
-zehn Zeilen nachdem dasselbe Kapitel vier Kern-Kommandopfade darin
-benannte. Vier bekannte Mischungen ehrlich offenzulegen und andere
-bekannte Mischungen weiter als rein zu fuehren, waere derselbe Fehler in
-kleinerem Massstab. **Eine Klassifikation, fuer die keine Messung
-vorliegt, ist keine Spezifikation, sondern eine Vermutung mit Zahlen
-daran.**
+AG3-237 hat beides festgelegt und danach gemessen. Beides steht
+normativ in `formal.architecture-conformance.entities`
+(`distribution_counting_unit`, `distribution_mixing_freedom_criterion`)
+und bindet `symbol_boundary_is_the_rule`:
 
-Belegbar ist heute genau dies:
-
-| Aussage | Stand |
+| Festlegung | Inhalt |
 |---|---|
-| Zahl der unmittelbaren Backend-Subpakete | **44**, plus das Wurzelmodul `exceptions.py` |
-| Zugehoerigkeit dieser 44 zu Edge / Kern / Vertragspaket | **offen** |
-| Regel, unter der eine Zuordnung zulaessig ist | `symbol_boundary_is_the_rule` — Praefixzuweisung nur, wo **gemessen** ist, dass das Modul keine Belange mischt |
-| Eigentuemer der Messung und Zuordnung | **AG3-237** (alle 44, Zaehleinheit dort als AC 1 definiert) |
-| Verhalten des Packaging-Gates bis dahin | `NOT_RUN` **mit Grund**, nie `PASS` (FK-07 §7.9a.3) |
+| **Zaehleinheit** | das **oeffentliche Modul-Symbol** (Name auf Modulebene ohne fuehrenden Unterstrich), aggregiert je **Modul**. Begruendung: genau auf diesen beiden Granularitaeten arbeiten die Gate-Checks — `wire_surface_matches_symbol_boundaries` vergleicht Symbole, `source_graph` und `wheel_reachability` loesen ueber Modulpraefixe auf. Kleiner als ein Symbol laesst sich nichts ausliefern, groesser als ein Modul nichts schneiden |
+| **Mischungsfreiheit** | eine Praefixzuweisung ist zulaessig, wenn kein Modul des Pakets **direkt** einen Anker der anderen Seite importiert und keine Drittdistribution der anderen Seite deklariert. Anker sind ausschliesslich die Zuordnungen der Abschnitte A, C und E — nichts aus den 44 Subpaketen ist Anker; ihre Zugehoerigkeit ist Ergebnis der Messung, nie ihre Eingabe |
+| **Wirkungsweise** | das Kriterium ist ein **Veto**, keine Wahl. Es kann eine Zuweisung verbieten; es kann keine Seite bestimmen. Die Seite waehlt der Entry-Point-Vertrag (§10.2.11) zusammen mit I1/I3/I5 |
 
-Vier Bereiche sind bereits vermessen; die Messung ist Eingangsmaterial
-fuer AG3-237 und steht als `measured_evidence` in
-`formal.architecture-conformance.entities`:
+**Warum direkt und nicht transitiv.** Transitive Ankererreichbarkeit
+vermischt zwei verschiedene Defekte mit zwei verschiedenen Heilmitteln.
+Ein Modul, das selbst beide Seiten importiert, mischt Belange und muss
+symbolgenau geschnitten werden. Ein Modul, das beide Seiten nur ueber
+andere Backend-Module *erreicht*, hat irgendwo auf dem Pfad eine
+verbotene Kante — und das Heilmittel ist, diese Kante zu entfernen, nicht
+dieses Modul zu schneiden. Gemessen am 2026-08-07: **drei** Module mischen
+direkt, waehrend die transitive Erreichbarkeit **222** markiert. Haette
+das Kriterium transitiv gemessen, waeren 219 Schnitte spezifiziert
+worden, die niemand braucht.
 
-| Bereich | Gemessener Mischbefund (2026-08-07, AST, symbolgenau) |
-|---|---|
-| `backend/governance/` | Edge-only: `runner`, Guard-Auswertung. **Kern**-only: `integrity_gate/`, `principal_capabilities/`, `setup_preflight_gate/`, `locks`, `guard_system.records`. FK-01 fuehrt `PolicyEngine`, `IntegrityGate` und Governance-Adjudication ausdruecklich als Kern-Logik |
-| `backend/installer/` | 33 kernseitig importierte Symbole (HTTP-Modellfamilie, `InstallerMutationCoordinator`, Pfadhelfer) gegen 4 Edge-only |
-| `backend/control_plane/models.py` | 63 Klassen, 66 Importsymbole: 21 nur Kern, 7 nur Edge, 38 beidseitig; importiert selbst `story_creation.reconciliation_evidence` (Edge) und `telemetry.events` (Kern), baut HTTP-Antworten, loggt |
-| `backend/config/{models,defaults,worker_health}.py` | `models.py` importiert `pathlib`; `defaults.py:37-65` traegt die Kern-Listener-Ports und die Kern-Base-URL |
+**Die belastbare Zahl.** `backend/` fuehrt **955 Module in 44 unmittelbaren
+Subpaketen plus dem Wurzelmodul `exceptions.py`** mit zusammen **3838
+oeffentlichen Modul-Symbolen** (AST, 2026-08-07, ueber alle 1042 Module
+unter `src/agentkit/`). Die Zahl „rund 150" aus der Vormessung war ein
+Startwert; sie zaehlte vier Bereiche in vier Einheiten.
 
-Weitere bekannte, noch nicht vermessene Mischungen — ausdruecklich
-genannt, damit AG3-237 nicht bei null anfaengt und niemand sie fuer rein
-haelt: `cli` (vier Kern-Kommandopfade im Dispatcher, `cli/main.py:203-227`),
-`control_plane` (enthaelt das gemischte `models.py`), `failure_corpus`
-(`writer_client.py:20`, `cli.py:212`), `bootstrap` (Composition Root,
-verdrahtet beide Seiten), `implementation` und `telemetry`.
+**Was heute die Grenze ueberquert.** **181** oeffentliche Backend-Symbole
+werden von der jeweils anderen Seite importiert und sind Vertragsvokabular
+(Pydantic-Modell, Enum, Konstante, Ausnahme). Verhalten (Klasse mit Logik,
+Funktion) gehoert nie ins Vertragspaket — seine Ueberquerung ist der
+Fehler, nicht der Vertrag.
 
-Die Zuordnungen in den folgenden Abschnitten A, C, D und E bleiben
-gueltig: sie betreffen **Deployment Units**, **Drittsystem-Adapter**,
-**Symbolgrenzen** und **Abhaengigkeiten** und sind je einzeln belegt. Nur
-die Klassifikation der Backend-Subpakete (Abschnitt B) faellt heraus.
+Auf Modulebene sind das **347 Grenzverletzungen**, 297 Edge→Kern und 50
+Kern→Edge. **Die Zaehleinheit ist ausdruecklich das eindeutige geordnete
+Paar (importierendes Modul → importiertes Modul)** — die Einheit, die der
+Gate-Check `source_graph` unter `forbidden_edges_with_locator` meldet.
+Zwei andere Zaehlungen desselben Sachverhalts liefern andere Zahlen und
+sind hier **nicht** gemeint: 724 Tupel (Importer, Ziel, Symbol, Zeile) und
+725 rohe AST-Import-Vorkommen. **Beide Zahlen sind ueberholt** und stehen
+hier nur noch, um die Einheit von der Paarzaehlung abzugrenzen: mit dem
+Wechsel von `core_types.mcp_server_registration` zur Edge-Distribution
+entfallen 28 Importvorkommen, und die symbolbezogenen Zahlen sind nicht
+nachgezogen worden. Neu abgeleitet werden sie von AG3-209 zusammen mit der
+Symbolpopulation; **die Paarzahl 347 ist davon nicht betroffen** und gegen
+die veroeffentlichten Praefixe nachgerechnet. Zwei frueher genannte Zahlen sind ersetzt:
+696 (Runde 1, keine definierte Einheit) und 340 (Runde 2, beruhte auf einem
+stillschweigenden Ausschluss der drei symbolgeschnittenen Module und war
+damit nicht nachrechenbar). Es gibt **keinen** Ausschluss: alle 347 Paare
+stehen einzeln in `distribution_boundary_violations.pairs`.
+
+**Diese 347 Kanten sind kein Bestandteil des Klassifikationsbeweises.**
+Eine Kante `edge→core` beweist nicht, dass eine Zugehoerigkeit unbekannt
+waere — sie beweist, dass jemand eine bekannte Grenze verletzt. Sie als
+Vorbedingung der Klassifikation zu fuehren hiesse, die Klassifikation
+durch ihre eigenen Verstoesse unschliessbar zu machen. Sie sind die
+Arbeitsliste, die AG3-209 abzuraeumen hat; der Gate-Check `source_graph`
+ist der Nachweis. Ihre Ursache ist benennbar: die Bediener-Verben sind
+heute **In-Process-Aufrufer** statt der duennen `/v1`-REST-Clients, die
+§10.2.3 verlangt.
+
+Die Zuordnungen der Abschnitte A, C, D und E bleiben gueltig; Abschnitt B
+ist mit AG3-237 **geschlossen** und steht unten.
 
 **A — Deployment Units unter `src/agentkit/` (Ist-Inventar, gemessen 2026-08-07).**
 
@@ -1193,36 +1220,69 @@ die Klassifikation der Backend-Subpakete (Abschnitt B) faellt heraus.
 | `shared/` | **leeres Verzeichnis** | **entfaellt** | Kein Inhalt, kein Besitzer, keine Deployment Unit. Es wird mit dem Schnitt entfernt, nicht umgehaengt |
 | Paket-Root (`__init__.py`, `py.typed`) | 2 Dateien | **je Distribution ein eigener Root** | Es gibt keinen gemeinsamen Paket-Root mehr. Jede Distribution bringt den Root ihrer eigenen Importwurzel mit; die Versionskonstante folgt dem gemeinsamen Repository-Stand (§10.2.7) |
 
-**B — `backend/`: keine Zuordnung in dieser Story.** Die folgende
-Tabelle ist **Eingangsmaterial fuer AG3-237**, keine Festlegung. Sie nennt
-fuer einzelne Subpakete den gemessenen Laufzeitbefund; die Zuordnung
-trifft AG3-237 nach der Messung aller 44. Wo „ausstehend" steht, ist der
-Mischbefund bereits belegt.
+**B — `backend/`: die Zuordnung aller 44 Subpakete, gemessen.** Die
+maschinenlesbare Fassung mit dem Messbeleg je Paket steht als
+`distribution_membership_evidence` in
+`formal.architecture-conformance.entities`. Vier Klassen, disjunkt,
+nachgerechnet:
 
-| Subpaket | Gemessener Laufzeitbefund | Beleg |
+| Klasse | Zahl | Inhalt |
 |---|---|---|
-| `governance/` | ausstehend, gemischt | Die Guard-Engine (`runner`, `guard_evaluation`) laeuft im Hook-Prozess und ist Edge; `integrity_gate/`, `principal_capabilities/` und `setup_preflight_gate/` sind Kern-Logik (FK-01 §1.1a). Symbolinventar erforderlich |
-| `installer/` | ausstehend, gemischt | Die Ausfuehrung (Registrierung, Verify, Upgrade, Detach, Hook-/MCP-Materialisierung, Interpreter-Aufloesung) ist Edge; die HTTP-Modelle, der `InstallerMutationCoordinator` und die Pfadhelfer werden kernseitig gebraucht. Symbolinventar erforderlich |
-| `cli/` | ausstehend, gemischt | Bediener-CLI (§10.2.11), aber der Dispatcher (`cli/main.py:203-227`) fuehrt die vier Kern-Kommandopfade `serve`, `ui`, `decommission` und `auth bootstrap` im selben Modul. Die Ausfuehrung ist ueberwiegend Edge, das Paket ist es nicht |
-| `story_creation/` | laeuft auf dem Entwicklerrechner | Der Reconciler wird vom Zielprojekt-Launcher lokal gebaut und ausgefuehrt; er spricht die VektorDB direkt an (Carve-out FK-01 §1.1a) |
-| `code_backend/provider_port` | wird lokal konsumiert; restliches `code_backend/` nicht gemessen | Der Port wird im lokalen Service-Identity-Pfad des `command_executor` konsumiert; die Credential-Aufloesung laeuft am Entwicklerrechner. Der uebrige `code_backend/` bleibt Kern |
-| `vectordb/` | laeuft auf dem Entwicklerrechner | Enthaelt den lokal gestarteten MCP-Server (`engine`, `mcp_server`), den Ingest und den Concept-Corpus-Builder (F3) |
-| `config/loader.py`, `config/validators.py` | lesen eine Datei des Entwicklerrechners | `project.yaml` ist eine Datei auf dem Entwicklerrechner. Der Kern parst sie **nicht** vom Dateisystem: er erhaelt die validierte Konfiguration ueber `/v1` und fuehrt sie als `ProjectManagement`-Zustand (I5, FK-07 §7.4.6) |
-| `config/models.py`, `config/defaults.py`, `config/worker_health.py` | ausstehend, gemischt | Das Konfigurationsschema ist Payload beider Seiten, seine Defaults und seine Pfadmechanik sind es nicht: `models.py` importiert `pathlib`, `defaults.py:37-65` traegt die Kern-Listener-Ports. Die Grenze verlaeuft **innerhalb** dieser Module. Symbolinventar erforderlich |
-| `config/sqlite_gate.py` | nur kernseitig konsumiert | einziger Konsument ist `state_backend/config.py` |
-| `core_types/mcp_server_registration` | beschreibt lokale Prozesse | Beschreibt lokal zu startende MCP-Prozesse |
-| `core_types/verify_evidence` (Grenzwerte, Request-/Repository-Vertrag) | beidseitig genutzt; als Wire-Inhalt in Abschnitt D gefuehrt | Evidence wird lokal erhoben und ueber `/v1` eingereicht — beidseitiges Vokabular |
-| `utils/io` | beidseitig genutzt, aber kein Vertrag; Abschnitt D schliesst es aus dem Vertragspaket aus | Triviale Hilfsfunktionen (`atomic_write_text`, `read_json_object`). Sie sind **kein** Wire-Vokabular. Jede Distribution fuehrt ihre eigene Kopie; ein gemeinsames Utility-Paket waere der Abstellraum, den §10.1.0a verbietet |
-| **alle 44 unmittelbaren Subpakete** | **offen — Eigentuemer AG3-237** | Auch die Zeilen oben sind **Befund, nicht Zuordnung**: ein eindeutiger Laufzeitbefund ersetzt die Messung des ganzen Pakets nicht. Es gibt **keine** Auffangregel. Eine Zuordnung ohne Messung ist keine Spezifikation, sondern eine Vermutung mit Zahlen daran; siehe die Feststellung unter B0 |
+| Praefix, mischungsfrei, **Kern** | **36** | `artifacts`, `auth`, `boundary`, `code_backend`, `concept_catalog`, `config`, `control_plane`, `control_plane_http`, `core_types`, `execution_planning`, `exploration`, `integration_stabilization`, `kpi_analytics`, `phase_state_store`, `pipeline_engine`, `process`, `project`, `project_management`, `project_ops`, `prompt_runtime`, `requirements_coverage`, `schemas`, `skills`, `state_backend`, `story`, `story_context_manager`, `story_exit`, `story_reset`, `story_split`, `task_management`, `telemetry_service`, `utils`, `verify_system`, `workers` |
+| Praefix, mischungsfrei, **Edge** | **1** | `vectordb` |
+| Praefix + benannte **Modulausnahmen** | **7** | `bootstrap`, `core_types`, `failure_corpus`, `governance`, `implementation`, `installer`, `telemetry` |
+| Praefix + Modulausnahmen + **Symbolschnitt in einem Modul** | **2** | `cli`, `story_creation` |
+| **Summe** | **44** | plus die beiden Wurzelmodule `exceptions.py` und `backend/__init__.py` = **46 Eintraege**, die zusammen 955 von 955 Modulen decken |
 
-**Gegenkanten Kern→Edge.** Die am 2026-08-07 gemessenen 46 Importstellen
-aus `backend/` nach `harness_client/` (22 Dateien, 9 Zielmodule;
-Schwerpunkt `governance/runner.py`, `cli/auth_commands.py`, `installer/*`)
-sind **keine** legitimen Kern→Edge-Laufzeitabhaengigkeiten: sie entstehen
-ausnahmslos in Modulen, die nach dieser Matrix ohnehin zum Edge gehoeren.
-Nach dem Schnitt darf aus dem Kern **keine** Edge-Distribution transitiv
-erreichbar sein; eine verbleibende Kante ist ein Fehler, kein Sonderfall
-(FK-07 §7.9a).
+Die Summe ist eine **Klassifikation**, keine Mengenaddition: jede Klasse
+ist durch das Kriterium aus B0 definiert, und jeder der 46 Eintraege
+traegt seinen eigenen Messbeleg. `backend/__init__.py` steht dabei als
+`module_members`, nicht als Praefix — null oeffentliche Symbole ist kein
+Grund fuer eine Auslassung, und ein Praefix `agentkit.backend` waere unter
+longest-match-wins die wiederhergestellte Auffangregel. Die Zeilen, ueber die drei Reviewrunden
+gestritten haben, sind damit entschieden:
+
+| Subpaket | Zuordnung | Beleg |
+|---|---|---|
+| `governance/` | **Kern**, mit vier Edge-Modulausnahmen | `PolicyEngine`, `IntegrityGate`, `principal_capabilities/`, `setup_preflight_gate/` und `locks` sind Kern-Logik (FK-01 §1.1a). **Vier** Module sind namentlich ausgenommen — drei ueber einen direkten Edge-Anker (`governance.runner`, `governance.guard_evaluation`, `governance.rest_edge`), das vierte per E3-Wahl: `governance.default_hook_definitions` baut die Hook-Definitionen, die der Installer auf dem Entwicklerrechner materialisiert (`installer/ccag_settings.py:32`). **Korrektur gegen Runde 2:** dort stand, es bleibe Kern, weil es „die kanonische Default-Menge" baue — dafuer gibt es keine normative Aussage; das war eine Umdeutung des Gegenbeweises und ist zurueckgezogen. Ankerausnahme und Grenzverletzung bleiben zwei verschiedene Dinge, aber hier lag eine Fehlzuordnung vor, keine Grenzverletzung |
+| `installer/` | **Edge**, mit sieben Kern-Modulen | `register-project`, `verify-project` und `upgrade-project` sind Edge-Kommandopfade (§10.2.11) und schreiben den Entwicklerrechner. Sieben Module treiben Jenkins, SonarQube oder ARE und sind damit Kern-Anker (Abschnitt C): die sechs `integration_checkpoints`-Module und `installer.third_party_clients`. Die 15 HTTP-Modelle, `ProjectRegistration`, `RuntimeProfile` und `CheckpointStatus` sind `/v1`-Nutzlast und wandern ins Vertragspaket |
+| `cli/` | **Edge**, mit zwei Symbolschnitten | 31 der 35 Kommandopfade sind Edge (§10.2.11). `cli.auth_commands` traegt beide Anker direkt (`auth bootstrap` schreibt lokal in `backend.auth.credentials`), `cli.lifecycle` traegt drei Kern-Verben (`serve`, `ui`, `decommission`) neben zwei Edge-Verben. Beides steht als `distribution_symbol_boundaries` |
+| `control_plane/` | **Kern** | Kein Modul importiert direkt einen Edge-Anker; drei importieren den Writer-Lease. Aus `control_plane.models` wandern 52 der 68 oeffentlichen Symbole ins Vertragspaket, die uebrigen 16 bleiben Kern — deshalb ist das Paket Kern und **nicht** Wire |
+| `failure_corpus/` | **Kern**, mit zwei Edge-Modulen | Der Korpus ist kanonischer Zustand. `failure_corpus.cli` und `failure_corpus.writer_client` sprechen den Project-Edge-Client und sind namentlich ausgenommen |
+| `bootstrap/` | **Kern**, mit einem Symbolschnitt | Der Composition Root verdrahtet die Kern-Laufzeit. `bootstrap.composition_project` traegt beide Anker direkt; der Schnitt steht als `distribution_symbol_boundaries` |
+| `implementation/` | **Kern**, mit einem Edge-Modul | `implementation.worker_health.rest_repository` spricht den Governance-Client |
+| `telemetry/` | **Kern**, mit einem Edge-Modul | Kanonische Telemetrie ist Kern-Zustand; `telemetry.rest_emitter` ist der Edge-seitige Emitter |
+| `closure/` | **Kern**, ohne Ausnahme | `closure.runtime_ports` traegt **keinen** Anker: `backend.vectordb` liegt innerhalb `backend/` und ist nach der korrigierten Ankerdefinition kein Anker. Die Runde-2-Aussage „Edge-Modul" ist damit **zurueckgezogen** — das Modul ist Kern, sein einziger Importer ist der Kern-Composition-Root (`composition_closure.py:427`), und es enthaelt weitere kernseitige Closure-Ports. Dass es die VektorDB-Laufzeit im Kern aufbaut, bleibt die benannte Luecke aus Abschnitt C, Eigentuemer Product Owner |
+| `core_types/mcp_server_registration` | **Edge** (Modulausnahme im Kern-Praefix `core_types`, E3) | Anker ist §10.1.0a oben: der Schnitt folgt dem **Laufzeitbesitzer**, nicht dem historischen Namespace — „auch dann, wenn es heute unter `backend/` liegt". Das Modul beschreibt lokal gestartete MCP-Server mit konkreten Kommando-, Argument- und Environment-Shapes (`mcp_server_registration.py:121-145,233-248`); alle sechs produktiven Importeure sind Edge, ein Kern-Importeur existiert nicht. **Zwei zurueckgezogene Ableitungen:** die E2-Ableitung aus Runde 3 (E2 verlangt einen implementierten Console-Script-Kommandopfad; dieses Modul implementiert keinen) und die Kern-Zuordnung aus Runde 4, deren Anker FK-76 §76.9 ausschliesslich Importrichtungen normiert und ueber Foundations oder Distributionen nichts sagt — jene Formulierung stammte aus dem Modul-Docstring, nicht aus dem Konzept. Die Unterscheidung „Vertrag **ueber** einen Prozess" gegen „dessen Implementierung" bleibt richtig; sie widerlegt die E2-Ableitung, traegt aber keine Kernzuordnung |
+| `code_backend/` | **Kern** | Der Port wird bei AK3-getriebenen Vorgaengen vom Kern aufgeloest (I2). Die frueher hier stehende Formulierung „restliches `code_backend/` nicht gemessen" bei gleichzeitigem „bleibt Kern" ist ersetzt: alle 3 Module sind gemessen und keines beruehrt einen Edge-Anker |
+| `config/` | **Kern**, `loader`/`validators` zusaetzlich **dupliziert** | Kein Modul beruehrt einen Anker. `config/models.py` und `config/defaults.py` werden symbolgenau geschnitten (siehe Abschnitt D). `config/loader.py` und `config/validators.py` liest **jede** Seite: der Edge `project.yaml` auf dem Entwicklerrechner, der Kern seine eigene Konfiguration. Sie tun I/O und sind damit kein Wire-Vokabular — es gilt dieselbe Regel wie fuer `utils/io` in Abschnitt D: das Quellmodul gehoert dem Kern, und die Edge-Distribution bringt ihre **eigene Kopie** unter ihrer eigenen Importwurzel mit. Die Zugehoerigkeitsfunktion bleibt dadurch disjunkt, weil die Kopie ein anderes Modul ist. Der Kern parst `project.yaml` **nicht** vom Entwicklerrechner: er erhaelt die validierte Konfiguration ueber `/v1` (I5, FK-07 §7.4.6) |
+| `utils/io` | **Kern**, dupliziert | Triviale Hilfsfunktionen, kein Wire-Vokabular. Jede Distribution fuehrt ihre eigene Kopie; ein gemeinsames Utility-Paket waere der Abstellraum, den §10.1.0a verbietet |
+
+**Gegenkanten Kern→Edge — nachgemessen.** Die frueher hier stehende
+Aussage, die 46 Importstellen entstuenden „ausnahmslos in Modulen, die
+nach dieser Matrix ohnehin zum Edge gehoeren", berief sich auf eine
+Matrix, die es zu dem Zeitpunkt nicht gab. Die Messung vom 2026-08-07
+gegen die jetzt geschlossene Zuordnung ergibt **50 Kern→Edge-Kanten** und
+**297 Edge→Kern-Kanten**, zusammen **347** eindeutige Modulpaare. Sie sind
+Arbeitsliste, nicht Rechtfertigung: nach dem Schnitt darf aus dem Kern **keine**
+Edge-Distribution transitiv erreichbar sein, und aus dem Edge kein Kern;
+jede verbleibende Kante ist ein Fehler, kein Sonderfall (FK-07 §7.9a).
+Eine Zahl ist keine Arbeitsliste. Auf den Gate-Report kann sich diese
+Liste nicht berufen — **das Packaging-Gate existiert noch nicht**, es ist
+Liefergegenstand von AG3-209. Die 347 Paare stehen deshalb **einzeln** in
+`distribution_boundary_violations.pairs` der Formal-Spec, je mit
+importierendem Modul, importiertem Modul und Richtung.
+
+**Ein Edge→Kern-Durchgriff, der ein Codedefekt ist.**
+`governance/hook_event_inputs.py:46` importiert `build_skills` aus
+`bootstrap/composition_root`. Das ist eine einzelne, lazy Importkante —
+Die Richtung ist **Edge→Kern**: `governance.runner` ist Edge und importiert
+das als Kern klassifizierte `hook_event_inputs`, das bei `:46` den
+Composition Root nachzieht. Ueber diese Kante erreicht der Hook-Prozess den gesamten Kern
+(`verify_system`, `pipeline_engine`, `state_backend`). Sie ist der Grund,
+warum eine reine Entry-Point-Erreichbarkeitsmessung auf dem heutigen
+Graphen 735 von 955 Backend-Modulen als „beidseitig" ausweist und damit
+nichts unterscheidet. Behebung gehoert zu AG3-209.
 
 **C — `integration_clients/`.**
 
@@ -1248,41 +1308,104 @@ erreichbar sein; eine verbleibende Kante ist ein Fehler, kein Sonderfall
 
 **D — Vertragspaket `agentkit-wire`: was hineingehoert und was nicht.**
 
-Aufgenommen wird ausschliesslich das Vokabular, das **beide** Seiten auf
-der `/v1`-Grenze brauchen:
+**Das Vertragspaket ist kein Umetikettieren bestehender Module.** Es
+besteht aus **13 neuen Modulen** unter `agentkit_wire`, in die **118
+Symbole wandern**. Deshalb traegt die Wire-Distribution **kein einziges**
+`agentkit.backend.*`-Praefix mehr. Die vollstaendige Liste steht als
+`wire_target_modules` in `formal.architecture-conformance.entities`.
 
-| Inhalt | Herkunft heute | Warum beidseitig |
+| Zielmodul | Symbole | Herkunft |
 |---|---|---|
-| Request-/Response-/Command-/Report-Modelle der `/v1`-Grenze | `backend/control_plane/third_party_models` **vollstaendig**; aus `backend/control_plane/models` **nur die 38 beidseitig genutzten Klassen** (Symbolinventar ausstehend) | Der Edge serialisiert, der Kern deserialisiert dieselben Strukturen. Die 21 nur kernseitig genutzten Klassen desselben Moduls bleiben im Kern |
-| Fehlervertrag (`ControlPlaneApiError` und Fehler-Payload) | `backend/exceptions` | Der Kern erzeugt ihn, der Edge liest ihn |
-| Story-Lifecycle-HTTP-Modelle (`story_exit`, `story_reset`, `story_split`) | `backend/story_*/http_models` | Beide Seiten sprechen sie auf dem Draht |
-| Evidence-Vertrag und Grenzwerte | `backend/core_types/verify_evidence` | Edge erhebt, Kern bewertet |
-| `OperatingMode` und weitere auf dem Draht transportierte Aufzaehlungen | `backend/core_types/operating_mode` | Wert wird uebertragen und beidseitig interpretiert |
-| Konfigurationsschema (`ProjectConfig` und Untermodelle) | aus `backend/config/models` **ohne** dessen `pathlib`-Mechanik und **ohne** die Kern-Listener-Defaults (Symbolinventar ausstehend) | Payload der Registrierungs- und Update-Endpunkte; der Kern fuehrt die Konfiguration als Zustand, der Edge liest sie lokal ein |
-| Compat-/Handshake-Modelle des `/v1/compat`-Vertrags | FK-91 | konstitutiv beidseitig |
+| `agentkit_wire.control_plane_mutations` | 23 | `control_plane.models` |
+| `agentkit_wire.edge_commands` | 23 | `control_plane.models` |
+| `agentkit_wire.failure_corpus` | 15 | `core_types.failure_corpus`, `failure_corpus.http_models`, `failure_corpus.pattern`, `failure_corpus.top`, `failure_corpus.types` |
+| `agentkit_wire.installer_registration` | 15 | `installer.http_models`, `installer.registration` |
+| `agentkit_wire.project_config` | 11 | `config.defaults`, `config.models` |
+| `agentkit_wire.third_party_validation` | 8 | `control_plane.third_party_models` |
+| `agentkit_wire.story_lifecycle` | 6 | `story_exit.http_models`, `story_reset.http_models`, `story_split.http_models` |
+| `agentkit_wire.telemetry_ingest` | 5 | `control_plane.models`, `telemetry.contract.results`, `telemetry.events` |
+| `agentkit_wire.verify_evidence` | 4 | `core_types.verify_evidence` |
+| `agentkit_wire.worker_health` | 3 | `control_plane.models` |
+| `agentkit_wire.errors` | 2 | `exceptions` |
+| `agentkit_wire.governance_registration` | 2 | `governance.hook_registration` |
+| `agentkit_wire.operating_mode` | 1 | `core_types.operating_mode` |
+| **Summe** | **118** | |
+
+**Ein Symbol wandert nur, wenn seine transitive Huelle mitwandert.** Das
+ist die Regel, die in Runde 1 gefehlt hat, und ihr Fehlen war kein
+Formfehler: die dortige Behauptung, die bekannten Wire-Regel-Verstoesse
+laegen saemtlich in den zurueckbleibenden Symbolen, war **falsch**.
+Gemessen gegen die Huelle jedes einzelnen Symbols schliessen **28** der
+123 urspruenglich ausgewaehlten Symbole nicht — darunter `HookEvent`
+(benutzt `pathlib.Path` und den Edge-Typ `FreshnessClass`),
+`ProjectRegistration`, `RegisterProjectStateRequest` und
+`SkillBindingWriteRequest` (`Path`-Felder), `AgentHealthState` (haengt an
+nicht mitwandernden Worker-Health-Typen) und `ReconciliationEvidence`
+(importiert Kern **und** Edge und traegt Validierungsverhalten).
+
+Die Pruefung muss bis zum **Fixpunkt** laufen: ein Symbol, dessen Huelle
+ein in einem frueheren Durchlauf zurueckgestelltes Symbol erreicht, ist
+erneut zu pruefen. Gemessen brauchte das fuenf Durchlaeufe, und acht der
+28 fielen erst in Durchlauf 2 bis 5.
+
+Die 28 stehen als `wire_deferred_symbols` mit je einem benannten
+Huellen-Blocker. Sie wandern **nicht**; AG3-209 zerlegt sie zuerst —
+`Path`-Felder werden zu Zeichenketten, die im Kern validiert werden, und
+Verhalten verlaesst den Nutzlast-Typ. Schweigen darueber waere der Fehler
+aus Runde 1.
+
+**Auch `ProjectConfig` ist davon betroffen (Abschnitt A3).** Die Aussage,
+das Konfigurationsschema lasse sich mit `ProjectConfig` und fuenf
+Untermodellen verschieben, ist gemessen falsch: die Huelle zieht
+`RepositoryConfig`, `PipelineConfig`, `PolicyConfig`, `AreConfig`,
+`OrchestratorGuardConfig` und weitere nach und traegt `pathlib` bis in
+die Blaetter. `ProjectConfig` und `VectorDbConfig` (letzteres ueber
+`urllib`) sind deshalb zurueckgestellt; aus `config/models` wandern heute
+nur `JenkinsConfig`, `SonarQubeConfig` mit seinen drei Untermodellen,
+`TelemetryConfig` und `SUPPORTED_CONFIG_VERSION`. `split_required` bleibt
+damit **`true`** — die Grenze verlaeuft innerhalb des Moduls, wie
+§10.2.12 immer gesagt hat.
+
+**Die Arithmetik der 181.** 95 Symbole wandern als Wurzelsymbole, 28 sind
+zurueckgestellt, 58 sind ausgeschlossen — zusammen 181. Die
+Huellenschliessung zieht weitere 23 modul-interne Datentypen nach, die
+selbst keine Grenzueberquerer sind; Endbestand **118**. Drei Namen der
+Rohkandidatenliste sind nach der Zaehleinheit gar keine Symbole und
+tauchen nirgends auf: `agentkit.__version__` liegt ausserhalb von
+`backend/`, `_AGENT_TOOL` und `_MANIFEST_SKILL_PROOF_KEY` tragen einen
+fuehrenden Unterstrich.
 
 Ausdruecklich **nicht** aufgenommen:
 
 | Inhalt | Besitzer stattdessen | Warum nicht |
 |---|---|---|
-| `governance.*` (`HookEvent`, `PrincipalKind`, `Operation`, `GuardVerdict`, `HookDefinition`, `HookRegistrationError`) | **Edge** | Sie beschreiben eine Entscheidung, die vollstaendig lokal faellt. Der Kern sieht davon nur das Telemetrie-Ereignis, nicht das Modell |
+| `governance.*` **bis auf zwei Symbole**: `PrincipalKind`, `Operation`, `evaluate_pre_tool_use`, `GuardVerdict`, `GovernanceGuard`, `GuardDecision`, `HookEvent`, `ViolationType`, `GuardDecisionOutcome`, `HookRegistrationError`, `RegistrationResult`, `HookId`, `PRE_HOOK_IDS`, `POST_HOOK_IDS`, `SUPPORTED_HOOK_IDS`, `SUPPORTED_PHASES` | **Edge bzw. Kern, je nach Modul** | Kein Draht-Vokabular. **Drei Korrekturen in Folge:** AG3-208 sagte „nichts aus `governance.*` ist Wire" (gemessen falsch); Runde 1 sagte zwoelf Symbole (zu weit); Runde 2 sagte sieben (immer noch zu weit). Belegt sind **zwei**: `/v1/governance-hooks` uebertraegt `HookDefinition` mit seiner typisierten Abhaengigkeit `HookEventName`. `HookId` und die vier Hook-ID-Konstanten sind lokale Dispatch- und Validierungslogik (`governance/hook_ids.py:5`), keine Vertragsfelder. Die Response fuehrt nur Zeichenketten, und `HookRegistrationError` wird clientseitig rekonstruiert statt uebertragen |
 | `code_backend.provider_port`-Credential-Typen | **Edge** | lokale Portaufloesung, kein Draht-Vokabular |
 | `utils.io` | **beide, dupliziert** | Hilfsfunktion, kein Vertrag |
 | `state_backend.*`, `verify_system.*`, `pipeline_engine.*` | **Kern** | ausfuehrende Fachlogik |
 | beliebiger „Code, den beide gerade brauchen" | — | Das Vertragspaket ist ein I/O-freies Blatt und kein Ablageort. Wer etwas hineingeben will, das keine `/v1`-Nutzlast ist, verortet es beim ausfuehrenden Besitzer |
 
-**Zwei Module sind nur symbolweise Vertragspaket — und muessen deshalb
-geteilt werden.** Eine Modulpraefix-Regel kann „dieses Symbol ja, jenes
-nein" nicht ausdruecken. Wo die Grenze mitten durch ein Modul laeuft,
-gilt die folgende Symbolliste als **Spezifikation des Schnitts**: AG3-209
-teilt das Modul so, dass danach wieder die Praefixregel allein genuegt.
-Bis dahin ist die Praefixzuordnung dieser beiden Module bewusst
-**unscharf** und darf nicht als „ganzes Modul ist Wire" gelesen werden.
+**20 Module verlieren Symbole an das Vertragspaket — und keines wird
+dadurch selbst zum Vertragspaket.** Eine Modulpraefix-Regel kann „dieses
+Symbol ja, jenes nein" nicht ausdruecken. Die vollstaendige Fassung steht
+als `distribution_symbol_boundaries` in
+`formal.architecture-conformance.entities`; sie ist die **Spezifikation
+des Schnitts** fuer AG3-209 und je Modul mit Symbolzahl und Zielmodul
+belegt. Sechs der 20 loesen sich dabei vollstaendig auf — auch das ist ein
+Symbolzug und keine Praefixumwidmung: das Zielmodul ist ein anderes und
+heisst anders.
+
+Vier weitere Module tragen einen Schnitt, der **nicht** ins Vertragspaket
+fuehrt, sondern Edge- von Kern-Verhalten trennt (`cli.auth_commands`,
+`cli.lifecycle`, `bootstrap.composition_project`,
+`story_creation.runtime_factory`); auch sie stehen dort.
+
+Zwei Beispiele, an denen sich die Regel entschieden hat:
 
 | Modul | Nur diese Symbole gehen ins Vertragspaket | Der Rest gehoert zu |
 |---|---|---|
-| `backend/exceptions.py` (22 Klassen) | `AgentKitError` (Basisklasse, sonst haengt die Ableitung in der Luft), `ControlPlaneApiError` | **Kern** — `StoryError`, `PipelineError`, `WorkflowError`, `TransitionError`, `GateError`, `CorruptStateError`, `ArtifactError`, `IntegrationError`, `GovernanceError`, `WorktreeError`, `ProjectError`, `PreconditionError`, `ControlPlaneClaimCollisionError`, `ControlPlaneBindingCollisionError`, `OwnershipFenceViolationError`, `EdgeCommandNotOpenError`, `ConflictAdjudicationUnavailableError`. **Edge** — `ConfigError` (vom lokalen Loader erhoben), `GuardError`, `InstallationError` |
-| `backend/config/models.py` | `ProjectConfig` und die von ihm erreichbaren Untermodelle | — |
+| `backend/exceptions.py` (22 Klassen) | `AgentKitError` (Basisklasse, sonst haengt die Ableitung in der Luft), `ControlPlaneApiError` | **Kern** — die uebrigen 20 fachlichen Ausnahmen. `ConfigError`, `GuardError` und `InstallationError` werden dabei **nicht** Edge, sondern bleiben wie alle anderen im Kern-Praefix `agentkit.backend.exceptions`; ihre heutige Edge-Nutzung ist eine der 297 Edge→Kern-Kanten und wird von AG3-209 aufgeloest, nicht durch eine zweite Zuordnung legalisiert |
+| `backend/config/models.py` (24 oeffentliche Symbole) | `JenkinsConfig`, `SonarQubeConfig` + 3 Untermodelle, `TelemetryConfig`, `SUPPORTED_CONFIG_VERSION` — **nicht** `ProjectConfig` und **nicht** `VectorDbConfig`, deren Huellen nicht schliessen | **Kern** — der Rest, darunter die gesamte `pathlib`-Mechanik. `split_required` ist hier **`true`**; die Gegenaussage `split_required: false` aus AG3-208 ist ersetzt |
 
 **Ein Wire→Kern-Durchgriff, der mitgeschnitten werden muss.**
 `config/models.py:1004` laedt zur Validierungszeit dynamisch

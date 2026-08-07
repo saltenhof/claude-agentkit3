@@ -252,10 +252,114 @@ enthaelt niemals einen Direkt-DB-Fallback.
   `CLAUDE.md`.
 - Kein bestehender Story-Status wird durch diese Story eigenmaechtig geaendert.
 
+## Vorgefundenes aus AG3-237 — Eingangsliste
+
+AG3-237 hat die Klassifikation aller 44 Backend-Subpakete geschlossen und ist
+am 2026-08-07 abgenommen worden. Was dort **gemessen, aber nicht ausgefuehrt**
+wurde, steht hier. Massgeblich und maschinenlesbar ist
+`concept/formal-spec/architecture-conformance/entities.md`.
+
+**AG3-209 ist nicht PO-blockiert.** Der Abschlussreview von AG3-237 hat
+ausdruecklich festgestellt, dass keine Grundentscheidung fehlt: die
+Symbolpopulation ist mit den vorhandenen Regeln — Zaehleinheit, Kriterium,
+Wahlregeln E1–E3, Huellenalgorithmus — **deterministisch selbst neu
+ableitbar**. Die eine offene PO-Frage (VektorDB-Laufzeit im Kern) betrifft
+zwei benannte Symbole, nicht den Schnitt als Ganzes.
+
+### E1 — Die Symbolpopulation ist vollstaendig neu abzuleiten (wichtigster Eintrag)
+
+| Locator | Was dort steht | Was zu tun ist |
+|---|---|---|
+| `entities.md` `wire_excluded_crossings`, `wire_excluded_symbol_total: 58`, `wire_qualifying_symbol_total: 181` | als `superseded-no-authority` gekennzeichnet | **Vollstaendig neu ableiten**, nicht teilkorrigieren |
+
+**Die gespeicherte 181er-Liste darf nicht ungeprueft implementiert werden.**
+
+Zwei gemessene Gruende, warum sie nicht traegt:
+
+1. Die **zehn** Symbole aus `core_types.mcp_server_registration` stehen dort
+   mit Besitzer `core` und behaupteter Grenzverletzung. Das Modul ist Edge,
+   und alle sechs Importeure sind Edge — sie ueberqueren keine Grenze mehr.
+2. **Sechs** weitere Ausschluesse haben ueberhaupt keinen Importeur auf der
+   Gegenseite: `LoopbackBindHostError`, `CORE_PROJECT_API_PORT`,
+   `CORE_UI_BFF_PORT`, `CORE_UI_PORT`, `StoryContext`, `StoryType`.
+
+Eine Teilkorrektur auf 48 oder 42 ist ausdruecklich **nicht** gewollt — genau
+dieser halbe Schritt hat AG3-237 fuenf Reviewrunden gekostet. Die Ableitung
+laeuft ueber die volle Population, mit `distribution_counting_unit` und der
+eingefrorenen Zuordnung als Eingang.
+
+**Nicht betroffen und weiterhin gueltig:** die 118er-Huelle
+(`wire_target_modules`, 13 Zielmodule, 95 Wurzelsymbole + 23 Ergaenzungen).
+Sie ist gegen den veroeffentlichten Stand geprueft und geschlossen.
+
+### E2 — 28 zurueckgestellte Wire-Symbole
+
+| Locator | Was dort steht | Was zu tun ist |
+|---|---|---|
+| `entities.md` `wire_deferred_symbols` | 28 Symbole, je mit `hull_blocker` | Vor der Migration **zerlegen**: `Path`-Felder werden Zeichenketten, die im Kern validiert werden; Verhalten verlaesst den Nutzlast-Typ. Danach schliesst die Huelle, und das Symbol wandert |
+
+Betroffen sind unter anderem `ProjectConfig` und `VectorDbConfig`
+(`pathlib`/`urllib` in der Huelle), die Verify-Evidence-Familie,
+`ProjectRegistration`, `RegisterProjectStateRequest`,
+`SkillBindingWriteRequest`, `AgentHealthState` und `ReconciliationEvidence`.
+
+### E3 — 3 private Huellenbindungen
+
+| Locator | Was dort steht | Was zu tun ist |
+|---|---|---|
+| `entities.md` `wire_private_bindings` | `config.models._SEMVER_RE`, `config.models._validate_semver`, `control_plane.models._NO_EDGE_BUNDLE_STATUSES`, `disposition: migrate-with-owner-or-replace` | Mit ihrem Eigentuemersymbol mitnehmen **oder** ersetzen. Sie sind keine Symbole im Sinne der Zaehleinheit, tragen aber produktives Validierungsverhalten wandernder Symbole |
+
+### E4 — 347 Grenzverletzungen als Arbeitsliste
+
+| Locator | Was dort steht | Was zu tun ist |
+|---|---|---|
+| `entities.md` `distribution_boundary_violations.pairs` | 347 eindeutige geordnete Modulpaare, 297 Edge→Kern und 50 Kern→Edge, je mit Importer, Importiertem und Richtung | Abraeumen. Der Gate-Check `source_graph` ist der Nachweis |
+
+Die Liste ist ein **abgeleitetes** Artefakt: sie wird nach jeder
+Zuordnungsaenderung vollstaendig neu gerechnet, nie zeilenweise nachgepflegt.
+Sie kann sich nicht auf den Gate-Report berufen — das Packaging-Gate ist
+Liefergegenstand dieser Story.
+
+### E5 — Zwei `unresolved` Symbole hinter der PO-eigenen VektorDB-Luecke
+
+| Locator | Was dort steht | Was zu tun ist |
+|---|---|---|
+| `entities.md` `symbol_boundary.bootstrap_composition_project`, Feld `unresolved` | `build_story_split_service` und `resolve_split_export_project_id` | Erst zuordenbar, wenn die benannte Luecke aus FK-10 §10.2.12 C entschieden ist: `backend/closure/runtime_ports.py` und `composition_project.py:114,171` bauen die VektorDB-Laufzeit im Kern, was FK-01 §1.1a widerspricht. **Eigentuemer Product Owner** |
+
+Das ist die einzige PO-Abhaengigkeit dieser Eingangsliste und betrifft zwei
+Symbole, nicht den Schnitt.
+
+### E6 — Vier `src/`-Befunde aus der Messung
+
+AG3-237 durfte `src/` nicht anfassen. Alle vier sind mit Locator belegt.
+
+| Locator | Was dort steht | Was zu tun ist |
+|---|---|---|
+| `src/agentkit/backend/governance/hook_event_inputs.py:46` | lazy Import von `build_skills` aus `bootstrap/composition_root` | Auftrennen. Richtung ist **Edge→Kern**: `governance.runner` ist Edge und importiert das als Kern klassifizierte `hook_event_inputs`, das hier den Composition Root nachzieht. Ueber diese eine Kante erreicht der Hook-Prozess den gesamten Kern (`verify_system`, `pipeline_engine`, `state_backend`) |
+| `src/agentkit/backend/closure/runtime_ports.py` | baut die VektorDB-Laufzeit im Kern | Teil der PO-Luecke E5. Das Modul selbst ist **Kern** — es traegt keinen Anker, sein einziger Importer ist `composition_closure.py:427`, und es enthaelt weitere kernseitige Closure-Ports |
+| `src/agentkit/backend/bootstrap/composition_project.py:114,171` | `build_story_split_service` instanziiert `WeaviateStoryAdapter` direkt im Kern | Teil der PO-Luecke E5 |
+| `src/agentkit/backend/bootstrap/composition_project.py:96,105` | `resolve_split_export_project_id` erreicht selbst Edge-VektorDB-Code | Teil der PO-Luecke E5 |
+
+**Kein Defekt und ausdruecklich ausgenommen:** `composition_project.py:636`.
+Dort wird der Project-Edge-Client fuer das Edge-klassifizierte
+`build_compat_window_reader` importiert — das ist regelkonform.
+
+### E7 — Ueberholte symbolbezogene Zahlen
+
+| Locator | Was dort steht | Was zu tun ist |
+|---|---|---|
+| `FK-10 §10.2.12 B0` | `724` Tupel und `725` rohe AST-Import-Vorkommen, als ueberholt gekennzeichnet | Mit der Symbolpopulation (E1) neu ableiten. **Die Paarzahl 347 ist nicht betroffen** |
+
 ## Offene Fragen an den Product Owner
 
 Keine neuen. AG3-209 startet erst, nachdem AG3-208 die drei dort benannten
-PO-Fragen beantwortet und die Antworten normativ verankert hat. Taucht bei der
+PO-Fragen beantwortet und die Antworten normativ verankert hat.
+
+**Aus AG3-237 kommt keine weitere PO-Frage hinzu.** Der Abschlussreview hat
+festgestellt, dass AG3-209 **nicht** PO-blockiert ist: es fehlt keine
+Grundentscheidung, und die Symbolpopulation ist deterministisch selbst neu
+ableitbar (Eingangsliste E1). Die einzige PO-Abhaengigkeit aus AG3-237 ist die
+bereits benannte VektorDB-Luecke und betrifft zwei Symbole (E5). Taucht bei der
 Umsetzung eine neue Grundentscheidung ohne Anker auf, stoppt die Story und legt
 genau diese Frage dem PO vor; sie wird nicht durch einen Packaging-Default
 ersetzt.

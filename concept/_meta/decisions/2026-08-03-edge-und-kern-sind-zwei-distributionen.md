@@ -284,6 +284,13 @@ symbolgenau):
 | `backend/control_plane/models.py` | 63 Klassen; 21 nur Kern, 7 nur Edge, 38 beidseitig; importiert selbst Edge- und Kern-Module, baut HTTP-Antworten, loggt |
 | `backend/config/{models,defaults,worker_health}.py` | `models` importiert `pathlib`; `defaults:37-65` traegt die Kern-Listener-Ports |
 
+> **Nachgezogen 2026-08-07 (AG3-237).** Der Zustand, den §9.4 und §9.5
+> beschreiben, ist der Stand vom 2026-08-03 und dokumentiert, was AG3-208
+> bewusst offen gelassen hat. Er gilt nicht mehr: die Klassifikation ist
+> geschlossen, `pending_symbol_inventory` ist leer, und die Zahl „rund 150"
+> ist durch eine gemessene ersetzt. Massgeblich ist
+> `2026-08-07-symbolinventar-des-vertragspakets.md`.
+
 Konsequenz: Die Zuordnung dieser vier Bereiche wird **nicht** getroffen.
 Sie stehen als `pending_symbol_inventory` in
 `formal.architecture-conformance.entities` und sind Eingangsmaterial fuer

@@ -2,7 +2,54 @@ story_id: AG3-237
 story_title_short: "symbolinventar-vertragspaket"
 title: "Alle 44 Backend-Subpakete brauchen eine GEMESSENE Distributionszuordnung -- das Vertragspaket ist kein Umetikettieren bestehender Module, sondern neuer Code, in den Symbole wandern."
 type: concept
-status: ready
+status: done
+# PO-ENTSCHEID 2026-08-07 nach FUENF Reviewrunden: "Eine letzte Runde, dann
+# schliessen" -- gewaehlt gegen "jetzt schliessen, Rest an AG3-209" und gegen
+# "PO schaut sich die Zuordnung selbst an".
+#
+# GELIEFERT UND UNABHAENGIG NACHGERECHNET (Codex, Abschlussreview):
+#   - Klassifikation aller 955 Backend-Module, Longest-Match 955/955,
+#     KEIN Gleichstand, keine Luecke, KEINE Auffangregel
+#   - 46 Membership-Eintraege, Klassen 36/7/2/1
+#   - 347 Verstosspaare EINZELN gespeichert (297 edge->core, 50 core->edge),
+#     vom Reviewer aus den veroeffentlichten Praefixen mengenweise
+#     nachgerechnet: 0 fehlend, 0 zusaetzlich
+#   - Wire-Huelle ueber 118 Symbole in 13 Modulen GESCHLOSSEN, plus 3 private
+#     Bindings; Fixpunkt vom Reviewer unabhaengig nachgerechnet
+#   - wire_hull_algorithm nachbaubar spezifiziert, inklusive
+#     unresolved_binding_is_fail_closed
+#   - Unterscheidung gemessene Zuordnung (E1/E2) gegen begruendete Wahl (E3)
+#     als maschinenlesbares Feld: 11/4/31 Membership + 16/3/2 Ausnahmen
+#
+# NICHT GELIEFERT, SICHTBAR UEBERGEBEN: Die Symbolpopulation
+# (wire_excluded_crossings, 58/181) ist NICHT vollstaendig neu abgeleitet. Sie
+# traegt `superseded-no-authority` mit Owner AG3-209 und beiden gemessenen
+# Gruenden. Sie wurde BEWUSST NICHT auf 48 oder 42 teilkorrigiert -- eine
+# plausibler aussehende falsche Zahl ist schlimmer als eine als falsch
+# gekennzeichnete. Die 118er-Huelle ist davon ausdruecklich NICHT betroffen.
+#
+# UEBERGABE: stories/AG3-209/story.md, Abschnitt "Vorgefundenes aus AG3-237",
+# sieben Eintraege E1-E7, je mit Locator. Tragender Satz in E1:
+#   "Die gespeicherte 181er-Liste darf nicht ungeprueft implementiert werden."
+# Der Reviewer stellt ausdruecklich fest: AG3-209 ist NICHT PO-blockiert, es
+# fehlt keine Grundentscheidung. Einzige PO-Abhaengigkeit bleibt die
+# Weaviate-Luecke, und die betrifft zwei Symbole, nicht den Schnitt.
+#
+# ORCHESTRATOR-LEHRE, teuer bezahlt: Die Runden 1-3 hatten dieselbe Ursache,
+# und sie war MEINE. Ich liess Klassifikation, abgeleitete Listen und Prosa in
+# derselben Runde bearbeiten. Die Verstossliste wird aber AUS der Klassifikation
+# abgeleitet -- aendert sich die Klassifikation, ist jede vorher gerechnete
+# Liste falsch. Erst die getrennte ABLEITUNGSREIHENFOLGE ab Runde 4
+# (einfrieren -> vollstaendig neu rechnen -> Prosa) hat das gestoppt, und der
+# daraufhin eingebaute stehende Gleichheitscheck (Liste aus veroeffentlichten
+# Praefixen neu rechnen, mengenweise gegen die gespeicherte vergleichen)
+# verhindert die Wiederholung dauerhaft.
+#
+# ZWEITE LEHRE: Zwei Fehlableitungen entstanden dadurch, dass Prosa aus einem
+# CODE-DOCSTRING bzw. eine nicht existente Konzeptaussage als Autoritaetsanker
+# zitiert wurde ("kanonische Default-Menge", FK-76 76.9). Beide sind in der
+# Spec als zurueckgezogen kenntlich, nicht stillschweigend ersetzt. Ein Anker
+# wird gelesen, nicht erinnert.
 phase: setup
 created: "2026-08-07"
 size: L

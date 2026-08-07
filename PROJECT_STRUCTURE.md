@@ -70,6 +70,13 @@ concept/
   formal-spec/                # Deterministisch pruefbare Formalspezifikation
 ```
 
+Die Spalte „Inhalt" nennt **Faehigkeiten**, keine Pakete. `governance/`,
+`cli/`, `installer/`, `closure/`, `failure_corpus/`, `implementation/`,
+`telemetry/`, `bootstrap/` und `story_creation/` sind gemessen geteilt und
+liegen mit benannten Modul- bzw. Symbolausnahmen auf beiden Seiten.
+Verbindlich ist `distribution_membership_evidence` in
+`concept/formal-spec/architecture-conformance/entities.md`.
+
 **Regeln:**
 
 1. `domain-design/` und `technical-design/` bleiben menschenlesbare
@@ -146,9 +153,9 @@ Auslieferungseinheiten. Ausgeliefert wird AK3 in **drei** Distributionen
 
 | Distribution | Importwurzel | Laeuft auf | Inhalt |
 |---|---|---|---|
-| `agentkit-project-edge` | `agentkit_project_edge` | Entwicklerrechner | Hook-Wrapper, Guard-Engine, Project-Edge-Client, Bediener-CLI, Installer, lokal gestartete MCP-Server, Zielprojekt-Bundle |
-| `agentkit-backend` | `agentkit_backend` | zentraler Core-Host | Pipeline, QA-Subflow, Governance-Adjudication, Closure, Control-Plane-HTTP, State-Backend, KPI-Analytics, Frontend-Auslieferung |
-| `agentkit-wire` | `agentkit_wire` | beide (importiert) | ausschliesslich das `/v1`-Vokabular; I/O-freies Blatt, einzige Drittabhaengigkeit `pydantic` |
+| `agentkit-project-edge` | `agentkit_project_edge` | Entwicklerrechner | Hook-Wrapper, Guard-**Engine** (drei Module aus `governance/`), Project-Edge-Client, Bediener-CLI, Installer, VektorDB-Ingest und lokal gestartete MCP-Server, Zielprojekt-Bundle |
+| `agentkit-backend` | `agentkit_backend` | zentraler Core-Host | Pipeline, QA-Subflow, Governance-**Adjudication** (der uebrige `governance/`), Closure, Control-Plane-HTTP, State-Backend, kanonische Telemetrie, KPI-Analytics, Frontend-Auslieferung |
+| `agentkit-wire` | `agentkit_wire` | beide (importiert) | ausschliesslich das `/v1`-Vokabular: **13 neue Module, 118 eingewanderte Symbole** (`wire_target_modules`), kein umetikettiertes Bestandsmodul; I/O-freies Blatt, einzige Drittabhaengigkeit `pydantic` |
 
 **Regeln:**
 
@@ -166,11 +173,12 @@ Auslieferungseinheiten. Ausgeliefert wird AK3 in **drei** Distributionen
 4. **Die Grenze verlaeuft am Symbol, nicht am Modul.** Ein ganzes Modul
    zuzuweisen ist eine Abkuerzung und nur zulaessig, wo **gemessen** ist,
    dass es keine Belange mischt.
-   **Die Zuordnung der 44 unmittelbaren Backend-Subpakete ist offen und
-   gehoert AG3-237** (FK-10 §10.2.12 B0). Wer heute unter `backend/` Code
-   anfasst, darf keine Distributionszugehoerigkeit annehmen — auch nicht
-   fuer scheinbar eindeutige Pakete: `cli` etwa fuehrt vier
-   Kern-Kommandopfade im selben Dispatcher.
+   **Die Zuordnung der 44 unmittelbaren Backend-Subpakete ist mit AG3-237
+   geschlossen** (FK-10 §10.2.12 B0). Verbindlich und maschinenlesbar ist
+   `distribution_membership_evidence` in
+   `concept/formal-spec/architecture-conformance/entities.md`: 46 Eintraege,
+   je mit Messbeleg, zusammen 955 von 955 Modulen. Ein Paket ohne Eintrag
+   gibt es nicht; eine Praefixzuweisung ohne Messbeleg ist ein Verstoss.
 5. **Das Vertragspaket ist kein Abstellraum und kein Umetikettieren.**
    Nur beidseitig benoetigte HTTP-/Wire-Modelle; es ist neuer Code, in den
    Symbole **wandern**, nicht ein umbenanntes Bestandsmodul.
@@ -250,17 +258,17 @@ Deployment Unit, die sie ausliefert:
 
 | Boundary | Code-Heimat | Distribution |
 |---|---|---|
-| Bediener-CLI (31 Verben + 5 `auth`-Unterverben) | `src/agentkit/backend/cli/` | offen (AG3-237) — Ausfuehrung Edge |
-| Kern-CLI (`serve`, `ui`, `decommission`, `auth bootstrap`) | `src/agentkit/backend/cli/` | offen (AG3-237) — Ausfuehrung Kern; dasselbe Paket, vier Kern-Kommandopfade |
-| Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` | offen (AG3-237) |
-| Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` | offen (AG3-237) — `models.py` gemessen gemischt |
-| State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` | offen (AG3-237) |
-| State-Backend Record-Row Mapper | `src/agentkit/backend/state_backend/persistence_mappers/` | offen (AG3-237) |
-| Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` | offen (AG3-237) |
+| Bediener-CLI (31 Verben + 5 `auth`-Unterverben) | `src/agentkit/backend/cli/` | **Edge** — Praefix `agentkit.backend.cli` |
+| Kern-CLI (`serve`, `ui`, `decommission`, `auth bootstrap`) | `src/agentkit/backend/cli/` | **Kern** — nicht per Praefix, sondern per Symbolschnitt: `cli.serve` als Modulausnahme, `cli.lifecycle` und `cli.auth_commands` als Symbolgrenzen |
+| Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` | **Kern** |
+| Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` | **Kern** — aus `models.py` wandern 52 von 68 Symbolen ins Vertragspaket, die uebrigen 16 bleiben Kern |
+| State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` | **Kern** |
+| State-Backend Record-Row Mapper | `src/agentkit/backend/state_backend/persistence_mappers/` | **Kern** |
+| Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` | **Kern** — der Edge bringt seine eigene Kopie unter eigener Importwurzel |
 | Drittsystem-Adapter | `src/agentkit/integration_clients/` | Kern, ausser `vectordb/` und `mcp/` (Edge) |
 | Harness-/ProjectEdge-Client | `src/agentkit/harness_client/` | Edge |
-| Guard-Engine / Hook-Registrierung | `src/agentkit/backend/governance/` | offen (AG3-237) — Engine Edge, `integrity_gate`/`principal_capabilities` Kern |
-| Installer (Ebene 2/3) | `src/agentkit/backend/installer/` | offen (AG3-237) — Ausfuehrung Edge, HTTP-Modelle und Writer-Koordinator Kern |
+| Guard-Engine / Hook-Registrierung | `src/agentkit/backend/governance/` | **Kern**, mit **vier** Edge-Modulausnahmen (`runner`, `guard_evaluation`, `rest_edge`, `default_hook_definitions`) — `integrity_gate` und `principal_capabilities` sind Kern (FK-01 §1.1a) |
+| Installer (Ebene 2/3) | `src/agentkit/backend/installer/` | **Edge**, mit sieben Kern-Modulausnahmen (Jenkins-/Sonar-/ARE-treibende Checkpoints) |
 
 Neue Boundary-Module duerfen nicht als weitere direkte Kinder von
 `src/agentkit/` entstehen. Sie gehoeren in die passende Deployment Unit.

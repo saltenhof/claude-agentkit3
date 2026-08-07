@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: invariant-set
-version: 5
+version: 6
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -282,24 +282,36 @@ distribution_dependency_rules:
       22 exception classes of backend/exceptions.py into the contract package
   - id: architecture-conformance.rule.symbol_boundary_is_the_rule
     scope: all-distributions
+    counting_unit: architecture-conformance.counting_unit.public_module_symbol
+    criterion: architecture-conformance.criterion.mixing_freedom
     message: >-
-      the distribution boundary runs at symbol level. a module prefix
-      assignment is permitted only where measurement shows the module mixes no
-      concerns; where it mixes, the target distribution inherits everything
-      else the module does. modules listed in pending_symbol_inventory are
-      deliberately unassigned; there is no fallback distribution they could
-      drop into
+      the distribution boundary runs at symbol level. the counting unit is the
+      public module-level symbol and the aggregation unit is the module, both
+      defined in distribution_counting_unit; without a fixed unit "mixes no
+      concerns" is not checkable, and the pre-measurement that preceded this
+      rule mixed four units in one table. a module prefix assignment is
+      permitted only where distribution_mixing_freedom_criterion holds; where
+      it does not, the target distribution inherits everything else the module
+      does. the criterion is a VETO, not an election: it can forbid an
+      assignment, it can never choose a side. the side is elected by the
+      entry-point contract (FK-10 section 10.2.11) together with the authority
+      invariants I1/I3/I5, and every elected side carries its own
+      distribution_membership_evidence entry. a prefix assignment without
+      measured evidence is a violation of this rule, not a special case
   - id: architecture-conformance.rule.distribution_membership_is_total_and_disjoint
     scope: all-distributions
     precondition: distribution_classification_status is closed
+    precondition_check: pending_symbol_inventory is empty
     message: >-
       every module under the AK3 import root belongs to exactly one
       distribution; membership resolves by longest matching module prefix, and
       two equally long matching prefixes owned by different distributions are a
       violation rather than a resolution case. there is deliberately NO default
       distribution: a fallback would assign an owner to every unmeasured module
-      without evidence. while distribution_classification_status is open the
-      function is NOT total and the gate reports NOT_RUN
+      without evidence. the precondition has two parts and BOTH must hold:
+      distribution_classification_status is closed AND pending_symbol_inventory
+      is empty. an open classification or a non-empty pending inventory makes
+      the function non-total and the gate reports NOT_RUN with reason
   - id: architecture-conformance.rule.import_root_follows_distribution_name
     scope: all-distributions
     message: >-
@@ -326,13 +338,45 @@ packaging_gate:
   # Zugehoerigkeitsfunktion unvollstaendig. Das Gate meldet dann NOT_RUN mit
   # genau diesem Grund -- nicht PASS, und auch nicht FAIL: es hat nichts
   # gemessen, was falsch waere, sondern etwas, das noch nicht entschieden ist.
+  #
+  # AG3-237 hat die Klassifikation geschlossen. Der Zweig bleibt bestehen: er
+  # ist die Vorbedingungspruefung des Gates, nicht ein Vermerk ueber einen
+  # einmaligen Zustand. Wer spaeter ein Paket wieder auf Pending stellt, faellt
+  # damit automatisch auf NOT_RUN zurueck statt still auf PASS.
   pending_membership:
     blocks_pass: true
     result_state: NOT_RUN
+    precondition: >-
+      pending_symbol_inventory is empty AND distribution_classification_status
+      is closed
+    current_state: >-
+      satisfied since 2026-08-07 (AG3-237): pending_symbol_inventory is empty
+      and all 44 immediate backend subpackages plus the root module
+      exceptions.py carry a measured membership in
+      distribution_membership_evidence
     reason: >-
-      distribution membership incomplete -- distribution_classification_status
-      is open; the classification of all 44 immediate backend subpackages is
-      owned by AG3-237
+      distribution membership incomplete -- pending_symbol_inventory is not
+      empty or distribution_classification_status is not closed
+  # Gate-Checkliste: was VOR dem ersten Lauf erfuellt sein muss. AG3-209 baut
+  # das Gate; diese Liste ist die Vorbedingung, die es nicht uebersehen darf.
+  preconditions:
+    - id: architecture-conformance.gate.precondition.pending_inventory_empty
+      requirement: pending_symbol_inventory is empty
+      owner: AG3-237
+      status: satisfied
+      note: >-
+        the gate must READ this predicate at run time and report NOT_RUN when
+        it fails. a gate that only checks it once at build time would pass on a
+        classification that was reopened afterwards
+    - id: architecture-conformance.gate.precondition.every_prefix_has_evidence
+      requirement: >-
+        every module_prefix and module_member of every distribution has a
+        matching measured-evidence entry -- the 46 backend entries in
+        distribution_membership_evidence and the 8 anchor entries in
+        distribution_anchors. the earlier wording said "under agentkit.backend"
+        and thereby exempted the anchors from AC 3, which AC 3 does not permit
+      owner: AG3-237
+      status: satisfied
   checks:
     - id: architecture-conformance.gate.check.source_graph
       subject: source-import-graph
@@ -401,10 +445,10 @@ invariants:
     rule: the public surface of the built wire wheel equals the union of the declared wire_exported_symbols; modules whose boundary runs through them must be split as specified
   - id: architecture-conformance.invariant.symbol_boundary_is_the_rule
     scope: static-analysis
-    rule: the distribution boundary is defined at symbol level; module prefix assignment is an optimisation permitted only where the module provably mixes no concerns
+    rule: the distribution boundary is defined at symbol level, counted in public module-level symbols and aggregated per module; module prefix assignment is an optimisation permitted only where the measured mixing-freedom criterion holds, and the criterion vetoes an assignment without ever electing a side
   - id: architecture-conformance.invariant.distribution_membership_is_total_and_disjoint
     scope: static-analysis
-    rule: distribution membership is a total and disjoint function over the AK3 module set once AG3-237 has closed the classification; no module is homeless and none has two owners, and there is no default distribution to hide an unmeasured module in. an open classification makes the gate report NOT_RUN, never PASS
+    rule: distribution membership is a total and disjoint function over the AK3 module set; AG3-237 closed the classification on 2026-08-07 for all 44 immediate backend subpackages plus the root module exceptions.py. no module is homeless and none has two owners, and there is no default distribution to hide an unmeasured module in. an open classification or a non-empty pending_symbol_inventory makes the gate report NOT_RUN, never PASS
   - id: architecture-conformance.invariant.packaging_gate_is_blocking_and_baseline_free
     scope: build-artifact
     rule: the packaging gate blocks on violation, keeps no baseline of tolerated findings, and distinguishes NOT_RUN with a named reason from PASS; a missing or unreadable result counts as FAIL

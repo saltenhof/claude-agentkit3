@@ -517,15 +517,36 @@ Die konkreten Implementierungs-Module liegen unter
 `agentkit.backend.governance.guard_system.*` und sind nicht direkt vom
 Harness aus aufrufbar.
 
-> **Distributionszuordnung dieser Module (normativ).** Diese Pfade sind
-> **Locatoren des heutigen Codestands**, nicht die Aussage, dass die
-> Guard-Module zum Kern gehoeren. Ihr Auslieferungsbesitzer ist die
-> Edge-Distribution `agentkit-project-edge` (FK-10 §10.2.12 B); der
-> Zielpfad ist `agentkit_project_edge.governance.*`. Die Umhaengung ist
-> **ein** atomarer Schritt in AG3-209 — es gibt keinen Zeitraum, in dem
-> beide Pfade funktionieren, keinen Alias und keinen Re-Export. Dieselbe
-> Zuordnung gilt fuer alle weiteren `agentkit.backend.governance.*`- und
-> `agentkit.backend.telemetry.hooks`-Locatoren dieses Kapitels.
+> **Distributionszuordnung dieser Module (normativ, gemessen 2026-08-07).**
+> Diese Pfade sind **Locatoren des heutigen Codestands**. Die frueher hier
+> stehende Aussage, der Auslieferungsbesitzer **aller**
+> `agentkit.backend.governance.*`- und
+> `agentkit.backend.telemetry.hooks`-Locatoren dieses Kapitels sei die
+> Edge-Distribution, ist durch die Messung in AG3-237 **widerlegt und
+> ersetzt**: `agentkit.backend.governance` ist **Kern**
+> (`agentkit_backend.governance.*`), denn `PolicyEngine`, `IntegrityGate`,
+> `principal_capabilities/`, `setup_preflight_gate/` und `locks` sind
+> Kern-Logik (FK-01 §1.1a). **Vier** namentlich benannte Module werden
+> Edge und damit zu `agentkit_project_edge.governance.*`. Drei importieren
+> direkt einen Edge-Anker: `governance.runner`,
+> `governance.guard_evaluation`, `governance.rest_edge`. Das vierte ist
+> `governance.default_hook_definitions` — es baut die Hook-Definitionen,
+> die der Installer auf dem Entwicklerrechner materialisiert
+> (`installer/ccag_settings.py:32`). Fuer eine Kernfunktion gibt es dort
+> keine normative Aussage; eine frueher hier stehende Begruendung
+> („kanonische Default-Menge") ist zurueckgezogen.
+> **Das heisst nicht, dass sonst nichts in `governance/` den Edge
+> beruehrt.** Ankerausnahme und Grenzverletzung bleiben zwei verschiedene
+> Dinge: die uebrigen Ueberquerungen stehen als
+> `distribution_boundary_violations` auf der Arbeitsliste von AG3-209,
+> nicht in einer zweiten Zuordnung.
+> `agentkit.backend.telemetry` ist ebenfalls **Kern**, mit `telemetry.rest_emitter`
+> als einziger Edge-Ausnahme; `telemetry.hooks.*` bleibt damit Kern.
+> Massgeblich und maschinenlesbar ist `distribution_membership_evidence`
+> in `formal.architecture-conformance.entities`; FK-10 §10.2.12 B fuehrt
+> die Prosa-Fassung. Die Umhaengung ist **ein** atomarer Schritt in
+> AG3-209 — kein Zeitraum, in dem beide Pfade funktionieren, kein Alias,
+> kein Re-Export.
 
 ### 30.3.2 Matcher-Syntax
 
