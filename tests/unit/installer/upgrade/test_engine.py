@@ -23,11 +23,7 @@ from tests.unit.installer.upgrade.conftest import (
 )
 
 from agentkit.backend.boundary.filesystem import FilesystemContainmentError
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    HookEventName,
-    RegistrationResult,
-)
+from agentkit.backend.governance.hook_registration import RegistrationResult
 from agentkit.backend.installer.ccag_settings import CCAG_HOOK_MATCHER
 from agentkit.backend.installer.checkpoint_engine.engine import CheckpointEngine
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
@@ -47,6 +43,7 @@ from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
 from agentkit.backend.installer.writer_client import InstallerHookGovernance
 from agentkit.backend.process.language.model import FlowLevel, NodeKind
 from agentkit.backend.skills import create_directory_link
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 if TYPE_CHECKING:
     from pathlib import Path

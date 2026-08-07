@@ -17,11 +17,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    HookEventName,
-    HookId,
-)
+from agentkit.backend.governance.hook_registration import HookId
 from agentkit.backend.state_backend.config import (
     ALLOW_SQLITE_ENV,
     STATE_BACKEND_ENV,
@@ -30,6 +26,7 @@ from agentkit.backend.state_backend.config import (
 from agentkit.backend.state_backend.store.governance_hook_repository import (
     StateBackendHookRegistrationRepository,
 )
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 if TYPE_CHECKING:
     from collections.abc import Generator

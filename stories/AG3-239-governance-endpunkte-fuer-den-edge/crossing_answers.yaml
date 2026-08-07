@@ -25,11 +25,11 @@ measurement:
     stories/AG3-239-governance-endpunkte-fuer-den-edge/measure_boundary_violations.py
     --bc agentkit.backend.governance
   measured_on: "2026-08-07"
-  unique_ordered_pairs: 59
-  edge_to_core: 51
+  unique_ordered_pairs: 53
+  edge_to_core: 45
   core_to_edge: 8
-  import_statements: 129
-  distinct_imported_symbols: 53
+  import_statements: 115
+  distinct_imported_symbols: 51
   start_value:
     unique_ordered_pairs: 64
     edge_to_core: 54
@@ -37,6 +37,22 @@ measurement:
     note: >-
       Ausgangsmessung vor jeder Aenderung, mit demselben Kommando gerechnet.
   progress:
+    - step: "M1 -- Vertragspaket src/agentkit_wire angelegt"
+      removed: 6
+      added: 0
+      net: 53
+      note: >-
+        Vier Symbole sind gewandert, genau an den Ort, den
+        distribution_symbol_boundaries ihnen zuweist: HookDefinition und
+        HookEventName nach agentkit_wire.governance_registration, TelemetryConfig
+        nach agentkit_wire.project_config, GuardCounterMutationRequest nach
+        agentkit_wire.control_plane_mutations. Der alte Ort ist jeweils weg --
+        kein Re-Export, keine zweite Aufloesung; erzwungen von
+        tests/contract/wire/test_wire_package_purity.py.
+        Die Messung hielt beim ersten Lauf nach dem Anlegen fail-closed an, weil
+        `agentkit_wire` von der Klassifikation nicht beansprucht war; der Praefix
+        steht jetzt in entities.md. Zusaetzlich korrigiert: eine Kante NACH wire
+        ist keine Verletzung, sondern der Mechanismus, der eine ersetzt.
     - step: "M2b -- Governance auf seine EINE Operation zurueckgeschnitten"
       removed: 2
       added: 0
@@ -353,17 +369,22 @@ crossings:
   # -------------------------------------------------------------------
   - importer: agentkit.backend.governance.default_hook_definitions
     imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition, HookEventName, HookId]
+    symbols: [HookId]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
     group: G5
     blocked: true
     reason: >-
-      Pure vocabulary. `HookDefinition` and `HookEventName` are already named
-      wire targets in the frozen classification; `HookId` is a wire-DEFERRED
-      symbol carrying an `ag3_209_precondition` and the sentence "until then the
-      symbol stays with its current side". Neither half is executable here.
-
+      Teilweise geloest. `HookDefinition` und `HookEventName` sind mit AG3-239 ins
+      Vertragspaket gewandert; uebrig bleibt `HookId`. Die eingefrorene
+      Klassifikation weist `HookId` ausdruecklich dem KERN-Rest von
+      `hook_registration` zu
+      (`architecture-conformance.symbol_boundary.governance_hook_registration`,
+      `core_symbols`) und begruendet das mit "local dispatch/validation logic
+      (governance/hook_ids.py:5), not a contract field". Der Edge braucht den
+      Enum aber, um Hook-Kommandos zu bilden. Das ist ein echter Widerspruch
+      zwischen Zuweisung und Bedarf, und er gehoert dem Eigentuemer des
+      Installer-Schnitts: **AG3-242**.
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.hook_event_inputs
     symbols:
@@ -551,30 +572,6 @@ crossings:
       AG3-209. A network call to read the local project config would be wrong.
 
   - importer: agentkit.backend.governance.runner
-    imported: agentkit.backend.config.models
-    symbols: [TelemetryConfig]
-    answer: b
-    remedy_owner: AG3-209
-    group: G5
-    blocked: true
-    reason: See config.loader -- same out-of-scope item, same owner.
-
-  - importer: agentkit.backend.governance.runner
-    imported: agentkit.backend.control_plane.models
-    symbols: [GuardCounterMutationRequest]
-    answer: b
-    remedy_owner: AG3-237
-    group: G5
-    blocked: true
-    reason: >-
-      The request model of the ALREADY EXISTING `/v1/governance/guard-counters`
-      endpoint. This crossing is the proof of the structural blocker recorded in
-      report.md: a finished, correctly mediated endpoint still produces a
-      boundary violation, because its request model has no home both sides may
-      import. The frozen classification names exactly this symbol as a wire
-      target in `agentkit_wire.control_plane_mutations`.
-
-  - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.principal_capabilities.operations
     symbols: [WEB_FETCH, WEB_SEARCH]
     answer: b
@@ -588,89 +585,67 @@ crossings:
 
   - importer: agentkit.backend.installer.ccag_settings
     imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition, HookEventName, HookId]
+    symbols: [HookId]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
     group: G5
     blocked: true
     reason: >-
-      The installer is genuinely edge and genuinely needs the hook-definition
-      vocabulary; the write path is already REST-mediated
-      (`installer.writer_client` -> `/v1/projects/{key}/installation/...`). Only
-      the types have nowhere to live. `HookId` is wire-deferred.
-
-  - importer: agentkit.backend.installer.http_models
-    imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition]
-    answer: b
-    remedy_owner: AG3-237
-    group: G5
-    blocked: true
-    reason: See installer.ccag_settings -- same vocabulary, same blocker.
-
-  - importer: agentkit.backend.installer.upgrade.engine
-    imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition]
-    answer: b
-    remedy_owner: AG3-237
-    group: G5
-    blocked: true
-    reason: See installer.ccag_settings.
-
+      Teilweise geloest. `HookDefinition` und `HookEventName` sind mit AG3-239 ins
+      Vertragspaket gewandert; uebrig bleibt `HookId`. Die eingefrorene
+      Klassifikation weist `HookId` ausdruecklich dem KERN-Rest von
+      `hook_registration` zu
+      (`architecture-conformance.symbol_boundary.governance_hook_registration`,
+      `core_symbols`) und begruendet das mit "local dispatch/validation logic
+      (governance/hook_ids.py:5), not a contract field". Der Edge braucht den
+      Enum aber, um Hook-Kommandos zu bilden. Das ist ein echter Widerspruch
+      zwischen Zuweisung und Bedarf, und er gehoert dem Eigentuemer des
+      Installer-Schnitts: **AG3-242**.
   - importer: agentkit.backend.installer.upgrade.hook_migration
     imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition, RegistrationResult]
+    symbols: [RegistrationResult]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
     group: G5
     blocked: true
     reason: >-
-      See installer.ccag_settings. `RegistrationResult` is wire-DEFERRED, because
-      its hull reaches `governance.errors.HookRegistrationError`.
-
-  - importer: agentkit.backend.installer.upgrade.upgrade_flow
-    imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition]
-    answer: b
-    remedy_owner: AG3-237
-    group: G5
-    blocked: true
-    reason: See installer.ccag_settings.
-
+      Teilweise geloest. `HookDefinition` ist mit AG3-239 ins Vertragspaket
+      gewandert; uebrig bleibt `RegistrationResult`. Es ist wire-DEFERRED, weil
+      seine Huelle Verhalten erreicht
+      (`governance.errors.HookRegistrationError`), und steht zugleich als
+      `core_symbols` im Symbol-Boundary-Eintrag. Zerlegen hiesse, den
+      Fehlertyp aus dem Ergebnismodell zu loesen -- eine Aenderung am
+      Installer-Schreibpfad. Owner: **AG3-242**.
   - importer: agentkit.backend.installer.writer_client
     imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition, RegistrationResult]
+    symbols: [RegistrationResult]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
     group: G5
     blocked: true
     reason: >-
-      `writer_client` is the REST client that already replaces the direct write.
-      It still imports the payload types across the boundary -- the same
-      structural blocker as GuardCounterMutationRequest, on a path that is
-      otherwise finished.
-
+      Teilweise geloest. `HookDefinition` ist mit AG3-239 ins Vertragspaket
+      gewandert; uebrig bleibt `RegistrationResult`. Es ist wire-DEFERRED, weil
+      seine Huelle Verhalten erreicht
+      (`governance.errors.HookRegistrationError`), und steht zugleich als
+      `core_symbols` im Symbol-Boundary-Eintrag. Zerlegen hiesse, den
+      Fehlertyp aus dem Ergebnismodell zu loesen -- eine Aenderung am
+      Installer-Schreibpfad. Owner: **AG3-242**.
   - importer: agentkit.backend.installer.writer_service
     imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition, RegistrationResult]
+    symbols: [RegistrationResult]
     answer: b
-    remedy_owner: AG3-237
-    group: G5
-    blocked: true
-    reason: See installer.writer_client.
-
-  - importer: agentkit.harness_client.harness_adapters.settings_writer
-    imported: agentkit.backend.governance.hook_registration
-    symbols: [HookDefinition]
-    answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
     group: G5
     blocked: true
     reason: >-
-      The settings writer materialises the hook definitions into
-      `.claude/settings.json` / `.codex/hooks.json` on the developer machine. It
-      is edge by nature and needs the type. Same blocker.
-
+      Teilweise geloest. `HookDefinition` ist mit AG3-239 ins Vertragspaket
+      gewandert; uebrig bleibt `RegistrationResult`. Es ist wire-DEFERRED, weil
+      seine Huelle Verhalten erreicht
+      (`governance.errors.HookRegistrationError`), und steht zugleich als
+      `core_symbols` im Symbol-Boundary-Eintrag. Zerlegen hiesse, den
+      Fehlertyp aus dem Ergebnismodell zu loesen -- eine Aenderung am
+      Installer-Schreibpfad. Owner: **AG3-242**.
   - importer: agentkit.backend.installer.writer_client
     imported: agentkit.backend.governance.errors
     symbols: [HookRegistrationError]

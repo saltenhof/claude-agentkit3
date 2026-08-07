@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
 from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.harness_client.harness_adapters.settings_writer import (
     ClaudeCodeSettingsWriter,
 )
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 if TYPE_CHECKING:
     from pathlib import Path

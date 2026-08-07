@@ -3,14 +3,14 @@
 This module is the production source for the base guard definitions. The
 installer-owned ``build_installed_hook_definitions`` compositor adds the
 matcher-only CCAG endpoint and is the single complete default set handed to
-``Governance.register_hooks``. The settings writers remain generic
+``InstallerHookGovernance.register_hooks``. The settings writers remain generic
 materializers.
 
 AG3-086: the AG3-086 guard-hooks are PERMANENTLY-ACTIVE governance hooks
 (FK-31 §31.7 / FK-30 §30.5.1a / FK-43 §43.6.2). The runner DISPATCHES them, but
 a guard only becomes active in a real install when it is BOUND here — the
 production default hook-registration path the installer runs
-(``installer.runner`` -> ``Governance.register_hooks``). Without binding, the
+(``installer.runner`` -> ``InstallerHookGovernance.register_hooks``). Without binding, the
 dispatch helpers are dead code in a real install. This source therefore wires:
 
 - a PreToolUse ``budget`` guard (``WebCallBudgetGuard``) on the web-call surface
@@ -27,11 +27,8 @@ ARCH-55: hook identifiers and matcher tokens are English.
 
 from __future__ import annotations
 
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    HookEventName,
-    HookId,
-)
+from agentkit.backend.governance.hook_registration import HookId
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 #: Matcher for the web-call surface the budget guard / emitter intercept
 #: (FK-30 §30.5.1a / FK-68 §68.6.1 — ``WebFetch`` / ``WebSearch``).

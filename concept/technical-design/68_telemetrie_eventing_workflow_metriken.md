@@ -419,7 +419,7 @@ die zentrale AgentKit-Control-Plane ingestierbar bleiben.
 
 ### 68.3.1 Hook-basierte Erfassung
 
-> **Owner der Hook-Definitionen, Registrierung (`Governance.register_hooks`),
+> **Owner der Hook-Definitionen, Registrierung (`InstallerHookGovernance.register_hooks`),
 > Enforcement-Verhalten (Block/Warn/Pass) und der harness-spezifischen
 > Settings-Schemas (Beispiel Claude Code: `.claude/settings.json`; Codex:
 > harness-eigenes Aequivalent — siehe FK-76 §76.5) ist

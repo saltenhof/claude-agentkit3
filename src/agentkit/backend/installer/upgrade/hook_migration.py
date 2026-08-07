@@ -34,7 +34,8 @@ from agentkit.harness_client.harness_adapters.settings_writer import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.governance.hook_registration import HookDefinition, RegistrationResult
+    from agentkit.backend.governance.hook_registration import RegistrationResult
+    from agentkit_wire.governance_registration import HookDefinition
 
 
 class HookRegistrationSurface(Protocol):
@@ -78,7 +79,7 @@ def determine_hook_definitions(
     The migration registers the desired (current-version) hook definitions and
     reports which previously-registered matchers are now obsolete (present in
     ``current_matchers`` but not in ``desired``) — the new/changed/removed split
-    of FK-51 §51.6. ``Governance.register_hooks`` is idempotent for unchanged
+    of FK-51 §51.6. ``InstallerHookGovernance.register_hooks`` is idempotent for unchanged
     entries, so re-registering the full desired set is the canonical path.
 
     Args:
@@ -99,7 +100,7 @@ def migrate_hooks(
     *,
     current_matchers: frozenset[str] = frozenset(),
 ) -> HookMigrationOutcome:
-    """Migrate project hooks via ``Governance.register_hooks`` (FK-51 §51.6, AC4).
+    """Migrate project hooks via ``InstallerHookGovernance.register_hooks`` (FK-51 §51.6, AC4).
 
     Determines the changed/new/removed hook definitions and re-materialises them
     through the injected hook-registration surface — never a

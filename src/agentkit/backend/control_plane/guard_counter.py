@@ -20,10 +20,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
-from agentkit.backend.control_plane.models import (
-    GuardCounterMutationAccepted,
-    GuardCounterMutationRequest,
-)
+from agentkit.backend.control_plane.models import GuardCounterMutationAccepted
 from agentkit.backend.kpi_analytics.fact_store.repository import GuardCounterRepository
 
 if TYPE_CHECKING:
@@ -32,6 +29,7 @@ if TYPE_CHECKING:
     from agentkit.backend.state_backend.store.guard_counter_repository import (
         GuardCounterRecordOutcome,
     )
+    from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
 
 class AtomicGuardCounterStore(GuardCounterRepository, Protocol):

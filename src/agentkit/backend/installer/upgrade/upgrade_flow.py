@@ -38,7 +38,6 @@ from agentkit.backend.installer.upgrade.engine import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.governance.hook_registration import HookDefinition
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.installer.upgrade.cleanup import CleanupOutcome, CleanupPlan
     from agentkit.backend.installer.upgrade.footprint import CustomizationFootprint
@@ -49,6 +48,7 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.installer.upgrade.scenarios import UpgradeScenarioDecision
     from agentkit.backend.skills import Skills
+    from agentkit_wire.governance_registration import HookDefinition
 
 
 @dataclass(frozen=True)

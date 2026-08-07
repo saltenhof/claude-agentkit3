@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.control_plane.models import (
     GuardCounterMutationAccepted,
-    GuardCounterMutationRequest,
     TelemetryEventAccepted,
     TelemetryEventIngestRequest,
     TelemetryEventQueryResponse,
@@ -41,6 +40,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.harness_client.projectedge.client import ControlPlaneTransport
+    from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
 _GUARD_COUNTER_PATH = "/v1/governance/guard-counters"
 _WORKER_HEALTH_PATH = "/v1/governance/worker-health"

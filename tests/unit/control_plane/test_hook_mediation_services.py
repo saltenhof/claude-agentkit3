@@ -15,11 +15,7 @@ import pytest
 from agentkit.backend.control_plane.guard_counter import (
     ControlPlaneGuardCounterService,
 )
-from agentkit.backend.control_plane.models import (
-    GuardCounterMutationRequest,
-    WorkerHealthSaveAccepted,
-    WorkerHealthStateResponse,
-)
+from agentkit.backend.control_plane.models import WorkerHealthSaveAccepted, WorkerHealthStateResponse
 from agentkit.backend.control_plane.worker_health import (
     ControlPlaneWorkerHealthService,
 )
@@ -31,6 +27,7 @@ from agentkit.backend.state_backend.store.guard_counter_repository import (
     GuardCounterRecordOutcome,
 )
 from agentkit.harness_client.projectedge.governance_client import GovernanceEdgeClient
+from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

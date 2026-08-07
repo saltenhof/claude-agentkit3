@@ -27,7 +27,7 @@ CP_06_PROFILE_RESOLUTION: Final = "cp_06_profile_resolution"
 CP_07_BACKEND_REGISTRATION: Final = "cp_07_backend_registration"
 #: CP 8 — skill links + prompt-bundle binding.
 CP_08_SKILL_BINDINGS: Final = "cp_08_skill_bindings"
-#: CP 9 — hook registration via ``Governance.register_hooks``.
+#: CP 9 — hook registration via ``InstallerHookGovernance.register_hooks``.
 CP_09_HOOK_REGISTRATION: Final = "cp_09_hook_registration"
 #: CP 10 — MCP-server registration (vectordb knowledge-base and/or ARE MCP).
 CP_10_MCP_REGISTRATION: Final = "cp_10_mcp_registration"

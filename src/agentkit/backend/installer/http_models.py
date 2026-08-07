@@ -6,9 +6,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agentkit.backend.governance.hook_registration import HookDefinition
 from agentkit.backend.installer.registration import RuntimeProfile
 from agentkit.backend.skills import SkillBindingMode, SkillLifecycleStatus
+from agentkit_wire.governance_registration import HookDefinition
 
 
 class InstallerWriterReadyResponse(BaseModel):

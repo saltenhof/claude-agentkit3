@@ -44,11 +44,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.governance.errors import HookRegistrationError
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    HookEventName,
-    RegistrationResult,
-)
+from agentkit.backend.governance.hook_registration import RegistrationResult
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

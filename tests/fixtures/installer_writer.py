@@ -14,10 +14,7 @@ import urllib.error
 import uuid
 from typing import TYPE_CHECKING
 
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    RegistrationResult,
-)
+from agentkit.backend.governance.hook_registration import RegistrationResult
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -32,6 +29,7 @@ if TYPE_CHECKING:
     from agentkit.backend.project_management.entities import Project
     from agentkit.backend.skills import Skills
     from agentkit.backend.skills.bundle_store import SkillBundleStore
+    from agentkit_wire.governance_registration import HookDefinition
 
 
 class InMemoryInstallerRegistrationRepository:

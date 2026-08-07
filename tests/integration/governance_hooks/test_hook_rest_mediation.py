@@ -20,13 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.integration.governance_hooks.conftest import write_control_plane_config
 
-from agentkit.backend.control_plane.models import (
-    EdgeBundle,
-    EdgePointer,
-    GuardCounterMutationRequest,
-    SessionRunBindingView,
-    StoryExecutionLockView,
-)
+from agentkit.backend.control_plane.models import EdgeBundle, EdgePointer, SessionRunBindingView, StoryExecutionLockView
 from agentkit.backend.governance import runner as runner_mod
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.runner import _resolve_local_story_type, run_hook
@@ -43,6 +37,7 @@ from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 from agentkit.harness_client.projectedge.governance_client import (
     build_governance_edge_client,
 )
+from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
 if TYPE_CHECKING:
     from pathlib import Path

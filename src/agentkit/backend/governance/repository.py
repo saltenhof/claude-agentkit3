@@ -21,9 +21,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.artifacts.envelope import ArtifactEnvelope
-    from agentkit.backend.governance.hook_registration import HookDefinition, RegistrationResult
+    from agentkit.backend.governance.hook_registration import RegistrationResult
     from agentkit.backend.state_backend.scope import RuntimeStateScope
     from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit_wire.governance_registration import HookDefinition
 
 
 @runtime_checkable

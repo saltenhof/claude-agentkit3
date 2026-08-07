@@ -1,6 +1,6 @@
 """Harness-specific settings-file materialisation for governance hooks.
 
-FK-30 §30.3.1: ``Governance.register_hooks`` writes the harness-specific
+FK-30 §30.3.1: ``InstallerHookGovernance.register_hooks`` writes the harness-specific
 settings file **directly**, via ``governance.guard_system`` + harness-specific
 adapter.
 
@@ -31,7 +31,7 @@ from agentkit.backend.installer.interpreter import render_ak3_wrapper_command
 from agentkit.backend.utils.io import read_json_object
 
 if TYPE_CHECKING:
-    from agentkit.backend.governance.hook_registration import HookDefinition
+    from agentkit_wire.governance_registration import HookDefinition
 
 
 # ---------------------------------------------------------------------------

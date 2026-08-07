@@ -224,7 +224,7 @@ unverändert. Neue Runs schreiben die aktuelle Schema-Version.
 
 Bei Upgrades koennen sich Hook-Registrierungen aendern (neue Hooks,
 geaenderte Matcher, entfernte Hooks). Der Installer delegiert die
-Hook-Verwaltung an die Top-Surface `Governance.register_hooks`
+Hook-Verwaltung an die Top-Surface `InstallerHookGovernance.register_hooks`
 (BC `governance-and-guards`, FK-30). Die Manipulation der
 harness-spezifischen Settings-Dateien (Beispiel Claude Code:
 `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe
@@ -237,7 +237,7 @@ ist ein Locator des heutigen Codestands, Zielpfad ist
 Der Installer:
 
 1. Ermittelt die neuen/geaenderten Hook-Definitionen fuer die aktuelle Version
-2. Ruft `Governance.register_hooks(hook_definitions)` auf
+2. Ruft `InstallerHookGovernance.register_hooks(hook_definitions)` auf
 3. `governance.guard_system` erkennt AgentKit-Hooks am **Console-Script-Namen**
    der Edge-Distribution (`agentkit-hook-claude`, `agentkit-hook-codex`,
    `agentkit-project-edge`), entfernt veraltete und fuegt neue hinzu. Ein
@@ -249,7 +249,7 @@ Der Installer:
 4. Nicht-AgentKit-Hooks bleiben unveraendert
 
 UP 04 erhaelt dabei eine enge `register_hooks`-Top-Surface, die auf
-`Governance.register_hooks` delegiert und deren Persistenz-Port auf `POST
+`InstallerHookGovernance.register_hooks` delegiert und deren Persistenz-Port auf `POST
 /v1/projects/{project_key}/installation/governance-hooks` zeigt. Nur der aktive
 Writer schreibt die Hook-Registrierungen auf seiner reservierten Session; die
 lokale Governance-Surface materialisiert anschliessend die Harness-Settings.
@@ -319,7 +319,7 @@ Zustand einer höheren Ebene.
 
 | Verb | Ebene | Mechanik | Schutz |
 |------|-------|----------|--------|
-| **Projekt-Detach** | 3 | Skill-Junctions lösen (über die Owner-Top-Surfaces, z. B. `Skills.unbind`), AK3-Hook-Registrierung über `Governance.register_hooks` (nur AK3-Blöcke; das Erkennungsmuster ist der **Console-Script-Name** der Edge-Distribution — `agentkit-hook-claude`, `agentkit-hook-codex`, `agentkit-project-edge` —, **nicht** ein `python -m`-Modulpfad) entfernen, die aus `src/agentkit/bundles/target_project/tools/agentkit/` materialisierten `tools/agentkit/`-Launcher und `.agentkit/`-Bindungen über `src/agentkit/backend/installer/lifecycle/detach.py` löschen | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, **nie** `rmtree` durch den Link (FK-43); Projektcode und fremde Hooks bleiben; **zentraler State des Projekts bleibt** |
+| **Projekt-Detach** | 3 | Skill-Junctions lösen (über die Owner-Top-Surfaces, z. B. `Skills.unbind`), AK3-Hook-Registrierung über `InstallerHookGovernance.register_hooks` (nur AK3-Blöcke; das Erkennungsmuster ist der **Console-Script-Name** der Edge-Distribution — `agentkit-hook-claude`, `agentkit-hook-codex`, `agentkit-project-edge` —, **nicht** ein `python -m`-Modulpfad) entfernen, die aus `src/agentkit/bundles/target_project/tools/agentkit/` materialisierten `tools/agentkit/`-Launcher und `.agentkit/`-Bindungen über `src/agentkit/backend/installer/lifecycle/detach.py` löschen | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, **nie** `rmtree` durch den Link (FK-43); Projektcode und fremde Hooks bleiben; **zentraler State des Projekts bleibt** |
 | **Maschinen-Uninstall** | 2 | **beide** auf dieser Maschine installierten Distributionen deinstallieren — `agentkit-project-edge` und `agentkit-wire` —, danach Bundle-Store und Shims entfernen | Vor dem Entfernen einer Bundle-Version: gebundene Projekte über das Registrierungs-Aggregat ermitteln und als **orphaned** warnen; laufende Harness-/Hook-Prozesse vorher beenden. Eine Deinstallation, die nur ein Artefakt entfernt, hinterlaesst ein verwaistes Vertragspaket |
 | **Core-Decommission** | 1 | Backend-/Frontend-Dienste stoppen, ggf. DB abbauen | **Destruktiv**: nur nach expliziter Bestätigung **und Pflicht-Export** des State-Backends (Audit-Trail, Closure-Records, QA-Ergebnisse); DB-Volume-Löschung **nie** an Dienst-Uninstall koppeln |
 | **Projekt-Löschung** | 1 | kanonischen State eines Projekts zentral löschen | **Destruktiv**; explizite Bestätigung; nicht-destruktive Alternative bleibt **Archivierung** (DK-14) |

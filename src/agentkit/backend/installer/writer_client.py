@@ -12,10 +12,7 @@ import yaml
 from agentkit.backend.boundary.filesystem import assert_project_local_file_path
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.governance.errors import HookRegistrationError
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    RegistrationResult,
-)
+from agentkit.backend.governance.hook_registration import RegistrationResult
 from agentkit.backend.installer.http_models import (
     GovernanceHookClearRequest,
     GovernanceHookListResponse,
@@ -46,6 +43,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.governance.repository import HookRegistrationRepository
     from agentkit.harness_client.projectedge.client import ControlPlaneTransport
+    from agentkit_wire.governance_registration import HookDefinition
 
 _CHILD_OPERATION_NAMESPACE = uuid.UUID("96d25c1a-5c1b-4ec0-8dc0-5584935d9ad2")
 

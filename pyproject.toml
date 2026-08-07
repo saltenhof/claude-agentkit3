@@ -92,7 +92,10 @@ agentkit-hook-claude = "agentkit.harness_client.harness_adapters.claude_code:mai
 agentkit-hook-codex = "agentkit.harness_client.harness_adapters.codex.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentkit"]
+# `agentkit_wire` is the /v1 contract vocabulary both machines import (FK-10).
+# It is a second import root, NOT a second distribution -- the wheel split into
+# agentkit-project-edge / agentkit-backend / agentkit-wire is owned by AG3-209.
+packages = ["src/agentkit", "src/agentkit_wire"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

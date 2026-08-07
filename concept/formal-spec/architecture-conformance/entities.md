@@ -1897,9 +1897,25 @@ distributions:
     #
     # Die Zugehoerigkeit der Wire-Distribution ergibt sich stattdessen aus
     # wire_target_modules (nach dem Schnitt) und distribution_symbol_boundaries
-    # (welches Symbol welches Zielmodul erreicht). Der Praefix `agentkit_wire`
-    # entsteht mit dem Schnitt in AG3-209 und ist bis dahin leer -- nicht offen.
-    module_prefixes: []
+    # (welches Symbol welches Zielmodul erreicht).
+    #
+    # AG3-239 hat `src/agentkit_wire/` ANGELEGT und die ersten vier Symbole
+    # hineingezogen (HookDefinition, HookEventName aus governance.hook_registration;
+    # TelemetryConfig aus config.models; GuardCounterMutationRequest aus
+    # control_plane.models). Der Praefix steht deshalb jetzt hier -- er ist kein
+    # `agentkit.backend.*`-Praefix und behauptet nichts ueber fremde Module,
+    # sondern beansprucht genau den neuen Importwurzel-Baum.
+    #
+    # Der leere Wert war ab dem Moment schaedlich, in dem das Paket existierte:
+    # eine Messung gegen eine unbeanspruchte Wurzel haelt fail-closed an
+    # (belegt: AG3-239 Messlauf nach dem Anlegen), und ohne den Halt haette sie
+    # jede Kante an das Vertragspaket still uebersehen.
+    #
+    # Die dritte DISTRIBUTION -- eigenes Wheel, eigene Metadaten -- ist davon
+    # unberuehrt und bleibt Liefergegenstand von AG3-209. Hier entsteht der
+    # Importwurzel-Baum, nicht das Paketartefakt.
+    module_prefixes:
+      - agentkit_wire
     target_module_prefixes:
       - agentkit_wire
 # ---------------------------------------------------------------------------

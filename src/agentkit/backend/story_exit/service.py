@@ -47,9 +47,24 @@ class StoryExitError(RuntimeError):
     """Fail-closed story-exit rejection."""
 
 
+class _DeactivationOutcome(Protocol):
+    """Structural port for the governance lock-deactivation result.
+
+    Typed rather than ``object`` on purpose: the exit gate below reads
+    ``guards_deactivated``, and with an untyped result that read had to be a
+    ``getattr`` with a ``False`` default -- which turns a renamed or removed
+    field into "guards were not deactivated" and rejects every exit silently
+    (AG3-239).
+    """
+
+    @property
+    def guards_deactivated(self) -> bool:
+        """Whether the canonical lock state proves the guards are off."""
+
+
 class _GovernanceTeardown(Protocol):
-    def deactivate_locks(self, story_id: str) -> object:
-        """Deactivate lock exports and guard regime for ``story_id``."""
+    def deactivate_locks(self, story_id: str) -> _DeactivationOutcome:
+        """Deactivate the guard regime for ``story_id``."""
 
 
 class _StoryServicePort(Protocol):
@@ -240,7 +255,7 @@ class StoryExitService:
         self,
         *,
         request: StoryExitRequest,
-        deactivation_result: object,
+        deactivation_result: _DeactivationOutcome,
         operating_mode: str,
     ) -> None:
         """Post-teardown verification of cleanup and free-mode fallback."""
@@ -270,7 +285,10 @@ class StoryExitService:
             raise StoryExitError("exit_finalized rejected: story lock is not inactive")
         if qa_lock is None or qa_lock.status != "INACTIVE":
             raise StoryExitError("exit_finalized rejected: QA lock is not inactive")
-        if not bool(getattr(deactivation_result, "restored_to_ai_augmented", False)):
+        # Direct attribute access, not getattr-with-default: a renamed or removed
+        # field must fail loudly here rather than silently read as "not
+        # deactivated" and reject every exit (AG3-239).
+        if not bool(deactivation_result.guards_deactivated):
             raise StoryExitError("exit_finalized rejected: guards were not deactivated")
         if operating_mode != "binding_invalid":
             raise StoryExitError("exit_finalized rejected: disown notification is not active")

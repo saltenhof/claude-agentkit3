@@ -41,7 +41,7 @@ NOW = datetime(2026, 6, 9, 12, 0, tzinfo=UTC)
 
 @dataclass
 class _Deactivation:
-    restored_to_ai_augmented: bool = True
+    guards_deactivated: bool = True
 
 
 class _Governance:
@@ -51,7 +51,7 @@ class _Governance:
 
     def deactivate_locks(self, story_id: str) -> _Deactivation:
         self.calls.append(story_id)
-        return _Deactivation(restored_to_ai_augmented=self.restored)
+        return _Deactivation(guards_deactivated=self.restored)
 
 
 class _StoryService:

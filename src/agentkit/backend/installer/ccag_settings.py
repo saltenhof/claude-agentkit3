@@ -5,11 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from agentkit.backend.boundary.filesystem import assert_project_local_file_path
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    HookEventName,
-    HookId,
-)
+from agentkit.backend.governance.hook_registration import HookId
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 _CCAG_HOOK_WRAPPER = "agentkit-hook-claude"
 CCAG_HOOK_MATCHER = "Bash|Write|Edit|Read|Grep|Glob|Agent"

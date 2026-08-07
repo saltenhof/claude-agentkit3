@@ -108,9 +108,14 @@ def module_name_of(path: Path) -> str:
 
 
 def collect_modules() -> dict[str, Path]:
-    """Return every importable module of the ``agentkit`` package."""
+    """Return every importable module below ``src/``.
+
+    All import roots are walked, not just ``agentkit``: since AG3-239 the
+    contract package ``agentkit_wire`` is a sibling root, and a walker that
+    missed it would silently under-report the crossings that reach it.
+    """
     modules: dict[str, Path] = {}
-    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+    for path in sorted(SRC_ROOT.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
         modules[module_name_of(path)] = path
@@ -227,6 +232,14 @@ def _emit(
 ) -> Iterable[Crossing]:
     """Yield a crossing when importer and imported sit in different distributions."""
     imported_distribution = resolve_distribution(imported, prefixes, members)
+    # An import INTO the contract package is not a violation -- it is the
+    # mechanism that replaces one. `wire` runs on both machines by construction
+    # (FK-10), so edge->wire and core->wire are exactly what the distribution
+    # cut is meant to produce. Only edge<->core is a boundary violation.
+    # An import OUT of `wire` into either side would be one, and is caught by
+    # the rule below rather than excused here.
+    if imported_distribution == "wire" and importer_distribution in {"edge", "core"}:
+        return
     if importer_distribution is None or imported_distribution is None:
         if touches_bc(importer) or touches_bc(imported):
             raise MeasurementError(

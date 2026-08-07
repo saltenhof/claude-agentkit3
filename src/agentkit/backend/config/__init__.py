@@ -35,10 +35,10 @@ from agentkit.backend.config.models import (
     SonarQubeQualityGateConfig,
     StageOverride,
     StageOverrideConfig,
-    TelemetryConfig,
     VectorDbConfig,
 )
 from agentkit.backend.config.worker_health import WorkerHealthConfig
+from agentkit_wire.project_config import TelemetryConfig
 
 __all__ = [
     "AreConfig",

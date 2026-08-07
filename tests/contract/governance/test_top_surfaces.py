@@ -31,8 +31,9 @@ def _hints(method: object) -> dict[str, object]:
     Provides a localns that includes governance types so that TYPE_CHECKING-
     gated imports (like HookDefinition) can be resolved by get_type_hints.
     """
-    from agentkit.backend.governance.hook_registration import HookDefinition, RegistrationResult
+    from agentkit.backend.governance.hook_registration import RegistrationResult
     from agentkit.backend.governance.locks import DeactivationResult
+    from agentkit_wire.governance_registration import HookDefinition
 
     localns = {
         "HookDefinition": HookDefinition,
@@ -167,7 +168,7 @@ class TestHookDefinitionFields:
     """HookDefinition has FK-30 §30.3.1 fields: hook_event_name, matcher, command."""
 
     def test_hook_definition_fields_present(self) -> None:
-        from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
+        from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
         defn = HookDefinition(
             hook_event_name=HookEventName.PRE_TOOL_USE,
@@ -182,7 +183,7 @@ class TestHookDefinitionFields:
         """HookDefinition must NOT have harness field (FK-30 §30.3.1 has 3 fields only)."""
         import pydantic
 
-        from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
+        from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
         with pytest.raises(pydantic.ValidationError):
             HookDefinition(  # type: ignore[call-arg]
@@ -196,7 +197,7 @@ class TestHookDefinitionFields:
         """HookDefinition must NOT have hook_id field (not in FK-30 §30.3.1)."""
         import pydantic
 
-        from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
+        from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
         with pytest.raises(pydantic.ValidationError):
             HookDefinition(  # type: ignore[call-arg]

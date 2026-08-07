@@ -21,10 +21,7 @@ from tests.unit.installer.upgrade.conftest import (
 )
 
 from agentkit.backend.config.models import ProjectConfig
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    RegistrationResult,
-)
+from agentkit.backend.governance.hook_registration import RegistrationResult
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.upgrade._digest import config_file_digest
 from agentkit.backend.installer.upgrade.config_migration import (
@@ -40,6 +37,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.skills.binding import SkillBinding
+    from agentkit_wire.governance_registration import HookDefinition
 
 
 class _CrashOnceRegistrationRepo(InMemoryRegistrationRepo):

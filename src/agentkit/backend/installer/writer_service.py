@@ -10,10 +10,7 @@ from agentkit.backend.skills import SkillBinding
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from agentkit.backend.governance.hook_registration import (
-        HookDefinition,
-        RegistrationResult,
-    )
+    from agentkit.backend.governance.hook_registration import RegistrationResult
     from agentkit.backend.governance.repository import HookRegistrationRepository
     from agentkit.backend.installer.http_models import (
         ProjectRegistrationUpgradeRequest,
@@ -27,6 +24,7 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
     from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.skills import SkillBindingRepository
+    from agentkit_wire.governance_registration import HookDefinition
 
 
 class InstallerMigrationWitnessError(ValueError):

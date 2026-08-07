@@ -5,17 +5,14 @@ surface for ``Governance.deactivate_locks``.
 
 Sources:
 - FK-30 §30.6.0 — ``Governance.deactivate_locks`` top-surface
-- FK-22 §22.7   — Lock-Record + Edge-Bundle paths
 - FK-29 §29.5   — Closure-Pfad (ClosureSequence calls deactivate_locks)
 
-AG3-031 Pass-3 FK-30-Korrektur 2026-05-24 (Fix E4):
-  DeactivationResult extended with removed_lock_exports and
-  restored_to_ai_augmented per FK-30 §30.6.0.
+AG3-239: the result is pure canonical state. The three filesystem-reporting
+fields it used to carry are gone -- see ``DeactivationResult``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import NewType
 
 from pydantic import BaseModel, ConfigDict
@@ -29,28 +26,33 @@ class DeactivationResult(BaseModel):
 
     Attributes:
         deactivated_locks: IDs of lock records set to INACTIVE in the backend.
-        removed_edge_bundles: Filesystem paths of edge-bundle files deleted
-            (legacy / compat path; FK-30 §30.6.0 primary paths are in
-            removed_lock_exports).
-        removed_lock_exports: Filesystem paths of lock-export files deleted.
-            Covers the backend-local ``_temp/governance/locks/{story_id}/
-            qa-lock.json`` (FK-30 §30.6.0). AG3-145 sub-step D (FK-10
-            §10.2.4a): the dev-local ``.agent-guard/lock.json`` worktree exports
-            are NO LONGER removed by the backend -- the edge tombstone projection
-            (``tombstone_worktree_roots``) carries that removal.
-        restored_to_ai_augmented: True when the story's operating mode was
-            successfully reverted to ``ai_augmented`` (FK-30 §30.6.0 Z.683).
-        errors: Non-fatal IO errors encountered during deactivation (including
+        guards_deactivated: True when the canonical lock state now says the
+            story holds no active lock -- the condition under which branch
+            guard, orchestrator guard and QA protection stop applying (FK-30
+            §30.6.0). True for an already-deactivated story (idempotent
+            re-entry); False only when the story is unknown to the lock
+            repository, because then nothing was proven about its guards.
+        errors: Non-fatal errors encountered during deactivation (including
             LockRecordNotFoundError surfaced by the repository).
             Critical DB errors are raised, not stored here.
+
+    AG3-239: three fields describing developer-machine files are gone --
+    ``removed_edge_bundles``, ``removed_lock_exports`` and the old
+    ``restored_to_ai_augmented``. They reported on writes the CORE made into
+    ``_temp/governance/**``, which is the EDGE's local projection directory
+    (FK-30 §30.6.1 reads ``_temp/governance/current.json`` in the hook process).
+    Those writes only ever worked because both sides ran on one machine, and
+    ``restored_to_ai_augmented`` was true only when a CWD-relative legacy
+    directory happened to exist. Story exit gated on that flag, so on a core
+    host it would have rejected every exit. The mode restoration on the edge is
+    carried by the tombstone projection (AG3-145 sub-step D, FK-10 §10.2.4a),
+    not by the backend.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     deactivated_locks: list[LockRecordId] = []
-    removed_edge_bundles: list[Path] = []
-    removed_lock_exports: list[Path] = []
-    restored_to_ai_augmented: bool = False
+    guards_deactivated: bool = False
     errors: list[str] = []
 
 

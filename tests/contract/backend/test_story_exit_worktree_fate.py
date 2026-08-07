@@ -167,7 +167,7 @@ def test_story_exit_preserves_worktree_branch_and_commissions_no_cleanup(
         ),
         governance=SimpleNamespace(
             deactivate_locks=lambda _story_id: SimpleNamespace(
-                restored_to_ai_augmented=True
+                guards_deactivated=True
             )
         ),
         artifact_root=tmp_path / "artifacts",

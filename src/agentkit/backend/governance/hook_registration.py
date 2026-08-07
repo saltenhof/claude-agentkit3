@@ -1,15 +1,19 @@
-"""Hook-registration data models for the governance BC.
+"""Core-side hook-registration data models for the governance BC.
 
-Defines ``HookEventName``, ``HookId``, ``HookHarness``, ``HookDefinition``,
-and ``RegistrationResult`` as the canonical typed surface for
-``Governance.register_hooks``.
+Defines ``HookId``, ``HookHarness`` and ``RegistrationResult``.
+
+``HookDefinition`` and ``HookEventName`` are NOT here: both machines need them,
+so they live in ``agentkit_wire.governance_registration`` (AG3-239, per
+``architecture-conformance.symbol_boundary.governance_hook_registration``). The
+three symbols below are the core remainder that entry names -- ``HookId`` is
+local dispatch vocabulary rather than a contract field, and
+``RegistrationResult`` cannot migrate because its hull reaches behaviour
+(``governance.errors.HookRegistrationError``).
 
 Sources:
-- FK-30 §30.3.1 — ``Governance.register_hooks`` top-surface and
-  ``HookDefinition`` fields (hook_event_name, matcher, command)
 - FK-30 §30.5.1 — canonical guard-hook identifiers (11 values)
 
-AG3-031 Pass-2 FK-30-Korrektur 2026-05-24
+AG3-031 Pass-2 FK-30-Korrektur 2026-05-24; symbol cut AG3-239.
 """
 
 from __future__ import annotations
@@ -19,19 +23,6 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 from agentkit.backend.governance.errors import HookRegistrationError
-
-
-class HookEventName(StrEnum):
-    """Hook event timing as defined by FK-30 §30.3.1.
-
-    These are the harness-level hook trigger points.  The string values
-    match the Claude Code ``hook_event_name`` field (§30.2.3) and are used
-    as the top-level key in the harness settings file.
-    """
-
-    PRE_TOOL_USE = "PreToolUse"
-    POST_TOOL_USE = "PostToolUse"
-    POST_TOOL_USE_FAILURE = "PostToolUseFailure"
 
 
 class HookId(StrEnum):
@@ -73,27 +64,6 @@ class HookHarness(StrEnum):
     CODEX = "CODEX"
 
 
-class HookDefinition(BaseModel):
-    """Typed representation of a single harness hook entry.
-
-    Immutable (frozen) to enforce value-object semantics.  Fields are
-    FK-30 §30.3.1 literal concept values:
-
-    Attributes:
-        hook_event_name: Hook timing — ``"PreToolUse"`` or ``"PostToolUse"``.
-        matcher: Harness tool-matcher pattern, e.g. ``"Bash"`` or
-            ``"Write|Edit"``.
-        command: Harness command string, e.g.
-            ``"agentkit-hook-claude pre branch_guard"``.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    hook_event_name: HookEventName
-    matcher: str
-    command: str
-
-
 class RegistrationResult(BaseModel):
     """Result of a ``register_hooks`` call.
 
@@ -114,8 +84,6 @@ class RegistrationResult(BaseModel):
 
 
 __all__ = [
-    "HookDefinition",
-    "HookEventName",
     "HookHarness",
     "HookId",
     "RegistrationResult",

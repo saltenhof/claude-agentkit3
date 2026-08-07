@@ -8,17 +8,14 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from agentkit.backend.control_plane.models import (
-    GuardCounterMutationRequest,
-    TelemetryEventIngestRequest,
-    op_id_validation_error,
-)
+from agentkit.backend.control_plane.models import TelemetryEventIngestRequest, op_id_validation_error
 from agentkit.backend.control_plane_http.responses import (
     HttpResponse,
     _error_response,
     _json_response,
     _single_query_value,
 )
+from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
 if TYPE_CHECKING:
     from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService

@@ -326,7 +326,7 @@ class _StoryExitBoundary:
 
 class _GovernanceExitBoundary:
     def deactivate_locks(self, _story_id: str) -> object:
-        return SimpleNamespace(restored_to_ai_augmented=True)
+        return SimpleNamespace(guards_deactivated=True)
 
 
 class _ResetPhaseBoundaryPorts:

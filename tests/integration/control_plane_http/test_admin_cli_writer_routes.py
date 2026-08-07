@@ -82,11 +82,7 @@ from agentkit.backend.failure_corpus.story_creation_adapter import (
     AK3StoryCreationAdapter,
 )
 from agentkit.backend.failure_corpus.types import CheckId, IncidentId
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    HookEventName,
-    RegistrationResult,
-)
+from agentkit.backend.governance.hook_registration import RegistrationResult
 from agentkit.backend.installer.bounded_executor import BoundedThreadExecutor
 from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 from agentkit.backend.installer.mutation_idempotency import (
@@ -159,6 +155,7 @@ from agentkit.harness_client.projectedge.credentials import (
     project_credentials_path,
     write_pending_project_credentials,
 )
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

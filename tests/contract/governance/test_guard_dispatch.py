@@ -29,12 +29,13 @@ from agentkit.backend.governance.guards.story_creation_guard import (
     RULE_ID as STORY_CREATION_RULE_ID,
 )
 from agentkit.backend.governance.guards.story_creation_guard import SKILL_MARKER_VALUE
-from agentkit.backend.governance.hook_registration import HookEventName, HookId
+from agentkit.backend.governance.hook_registration import HookId
 from agentkit.backend.governance.principal_capabilities import (
     OperationClassifier,
     PrincipalResolver,
 )
 from agentkit.backend.governance.principal_capabilities.operations import canonical_web_tool
+from agentkit_wire.governance_registration import HookEventName
 
 #: The pinned hook-id -> dedicated dispatch-function mapping (AG3-033).
 EXPECTED_DEDICATED_DISPATCH: dict[str, str] = {

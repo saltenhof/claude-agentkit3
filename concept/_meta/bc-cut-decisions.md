@@ -1055,7 +1055,7 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 |---|---|---|
 | `agent-skills` | INST -> AS | CP 8 ruft `Skills.bind_skill(skill_id, bundle_version, project_root, profile)` |
 | `prompt-runtime` | INST -> PR | CP 8 ruft `PromptRuntime.update_binding(bundle_id, version)` |
-| `governance-and-guards` | INST -> GG | CP 9 ruft `Governance.register_hooks(hook_definitions)` |
+| `governance-and-guards` | INST -> GG | CP 9 ruft `InstallerHookGovernance.register_hooks(hook_definitions)` |
 | `story-context-manager` | INST -> SCM | indirekt (StoryStorageBackend-Initialisierung bei Backend-Registrierung) |
 | `telemetry-and-events` | INST -> T | `Telemetry.write_event` fuer CheckpointResult-Events; `Telemetry.write_projection` fuer ProjectRegistration |
 | `pipeline-framework` | INST -> PF | nutzt FlowDefinition-DSL (Einheits-DSL FK-20) fuer CheckpointFlow |
@@ -1072,7 +1072,7 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 4. Upgrade als eigene Sub trotz Wiederverwendung der CheckpointEngine — FK-51 Mechanik ist eigenstaendige Verantwortung.
 5. `BootstrapCheckpoints` mit `mix_allowed:[R,T]` (in Prose) — CP 2-4 rufen GitHub-Adapter (R), CP 5/7 schreiben Filesystem/State-Backend (T).
 6. `IntegrationCheckpoints` mit `mix_allowed:[T]` — Filesystem-Operations dominant.
-7. CP 9 Hook-Registration: der Installer ruft `Governance.register_hooks` (BC 4 Top-Surface) statt direkter JSON-Manipulation (siehe Cross-BC-Entscheidungen).
+7. CP 9 Hook-Registration: der Installer ruft `InstallerHookGovernance.register_hooks` (BC 4 Top-Surface) statt direkter JSON-Manipulation (siehe Cross-BC-Entscheidungen).
 8. CheckpointEngine nutzt FlowDefinition aus pipeline-framework — strukturelle Cross-BC-Wiederverwendung der Einheits-DSL.
 
 ---
@@ -1612,7 +1612,7 @@ Total: ~35 Klassen.
 
 ### Hook-Registration Owner (installation-and-bootstrap vs. governance-and-guards)
 
-- Der Installer ruft `Governance.register_hooks(hook_definitions)`
+- Der Installer ruft `InstallerHookGovernance.register_hooks(hook_definitions)`
   (governance-and-guards Top-Surface, BC 4); er manipuliert Hook-Settings nicht
   direkt.
 - Der Harness-Adapter materialisiert die harness-spezifische Settings-Datei

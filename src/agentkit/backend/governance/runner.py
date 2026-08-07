@@ -438,7 +438,7 @@ def _record_guard_invocation(
     try:
         import uuid
 
-        from agentkit.backend.control_plane.models import GuardCounterMutationRequest
+        from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
         # AG3-129 (FK-10 §10.1.0 I1): the counter is recorded server-side via REST,
         # never by opening PostgreSQL from the hook. The core-side ``record``
@@ -607,7 +607,7 @@ def _sweep_stale_guard_counters(project_root: Path) -> None:
     try:
         import uuid
 
-        from agentkit.backend.control_plane.models import GuardCounterMutationRequest
+        from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
         # AG3-129 (FK-10 §10.1.0 I1): the stale-counter sweep runs server-side via
         # REST, never by opening PostgreSQL from the hook. AG3-140: op_id is
@@ -1126,7 +1126,7 @@ def _web_call_thresholds(project_root: Path) -> tuple[int, int]:
     the guard). A config fault falls back fail-closed to the typed defaults so a
     broken config never silently lifts the budget.
     """
-    from agentkit.backend.config.models import TelemetryConfig
+    from agentkit_wire.project_config import TelemetryConfig
 
     try:
         from agentkit.backend.config.loader import load_project_config

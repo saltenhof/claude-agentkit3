@@ -136,7 +136,74 @@ Installer bauten den Kern-Service direkt. Zwei davon sind mit Punkt 3 behoben;
 die dritte (`composition_project -> governance.administration`) ist der
 Composition-Root-Schnitt und gehoert AG3-209.
 
-## 6. Betroffenheitsmatrix
+## 6. Nachtrag 2026-08-08 — das Vertragspaket und der `_temp`-Defekt
+
+Zwei Folgeentscheide desselben Auftrags, hier festgehalten, weil sie dieselbe
+Grenze betreffen.
+
+### 6a. `src/agentkit_wire/` ist angelegt
+
+Der Symbolschnitt loeste zehn Ueberquerungen ohne Endpunkt. Die naechste Gruppe
+liess sich **gar nicht** loesen, solange es keinen Ort gab, den beide Seiten
+importieren duerfen. Der Beweis dafuer war ein fertiger Endpunkt:
+`/v1/governance/guard-counters` ist korrekt mediiert — der Hook-Prozess spricht
+REST, nie die Datenbank — und zaehlte trotzdem als Grenzverletzung, allein wegen
+`GuardCounterMutationRequest`. Nicht der Endpunkt war das Problem, sondern das
+Vokabular.
+
+**Vier Symbole sind gewandert**, jedes an den Ort, den
+`distribution_symbol_boundaries` ihm bereits zuwies:
+
+| Symbol | von | nach |
+|---|---|---|
+| `HookDefinition`, `HookEventName` | `governance.hook_registration` | `agentkit_wire.governance_registration` |
+| `TelemetryConfig` | `config.models` | `agentkit_wire.project_config` |
+| `GuardCounterMutationRequest` | `control_plane.models` | `agentkit_wire.control_plane_mutations` |
+
+**Das ist ein Umzug, keine Kompatibilitaetsschicht.** Der alte Ort ist jeweils
+weg; kein Symbol loest an zwei Stellen auf. `test_wire_package_purity.py`
+erzwingt beides — die Reinheit des Pakets (kein Import aus `agentkit`, kein I/O,
+nur pydantic) und die Einmaligkeit des Ortes.
+
+**Zwei Korrekturen, die der erste Messlauf danach erzwungen hat:**
+
+1. Die Distribution `wire` trug `module_prefixes: []`, weil das Paket bis dahin
+   nur ein *Ziel* war. Sobald es existierte, war der leere Wert schaedlich: die
+   Messung hielt fail-closed an, weil die neue Wurzel von niemandem beansprucht
+   war. Ohne diesen Halt haette sie jede Kante an das Vertragspaket **still
+   uebersehen**. Der Praefix steht jetzt dort.
+2. Eine Kante **nach** `wire` ist keine Verletzung, sondern der Mechanismus, der
+   eine ersetzt. Das Messwerkzeug zaehlte sie zunaechst mit.
+
+Die dritte **Distribution** (eigenes Wheel) bleibt AG3-209; hier entstand nur
+der Importwurzel-Baum, eingetragen in `pyproject.toml`.
+
+### 6b. Story-Exit haette auf dem Kern-Host nie funktioniert
+
+Der Symbolschnitt legte den Defekt frei. `deactivate_locks` schrieb einen
+Tombstone nach `_temp/governance/locks/{story_id}/mode.json` — **relativ zum
+Prozess-CWD** — und leitete `restored_to_ai_augmented` daraus ab, ob dieses
+Verzeichnis existierte. `_temp/governance/**` ist aber das lokale
+Projektionsverzeichnis des **Edge** (FK-30 §30.6.1 liest dort
+`current.json` im Hook-Prozess). Auf einem Kern-Host existiert es nie.
+
+`story_exit/service.py` gatete genau auf dieses Flag und haette **jeden** Exit
+mit „guards were not deactivated" abgewiesen — ein Totalausfall, den kein Test
+zeigte, weil lokal beide Seiten auf einer Maschine liefen.
+
+**Entscheidung:** Der Beweis „Guards sind deaktiviert" ist kanonischer Zustand,
+kein Dateipfad. `deactivate_locks` fasst kein Dateisystem mehr an; das Feld
+heisst `guards_deactivated` und ist wahr, wenn die Lock-Deaktivierung
+stattgefunden hat (auch idempotent wiederholt), und falsch nur bei unbekannter
+Story — dann ist ueber ihre Guards nichts bewiesen. Die drei Felder, die
+Entwicklerrechner-Dateien meldeten, sind entfernt.
+
+Mitgenommen: `story_exit` las das Flag als `getattr(..., default=False)` ueber
+einen `object`-Parameter. Diese Form macht aus einer Umbenennung stillschweigend
+„nicht deaktiviert". Der Port ist jetzt typisiert (`_DeactivationOutcome`), der
+Zugriff direkt.
+
+## 7. Betroffenheitsmatrix
 
 | Dokument / Artefakt | Betroffen | Aenderung |
 |---|---|---|
@@ -146,3 +213,7 @@ Composition-Root-Schnitt und gehoert AG3-209.
 | FK-29 §29.5 (ClosureSequence) | nein | ruft `deactivate_locks` unveraendert |
 | Record `2026-08-06-keine-reexport-fassaden` | ja, angewandt | zwei weitere Fassaden entfernt |
 | `distribution_boundary_violations.pairs` | ja, abgeleitet | wird von AG3-209 vollstaendig neu gerechnet, nicht hier nachgepflegt |
+| FK-30 §30.3.1 / §30.6.0 | ja | Owner und Effekt der beiden Top-Surfaces korrigiert |
+| FK-50 §50.3, FK-51 §51.6, FK-68, `bc-cut-decisions.md` | ja | Namens-Sweep auf den tatsaechlichen Owner |
+| `pyproject.toml` | ja | `src/agentkit_wire` als zweiter Importwurzel-Baum |
+| FK-58 (Story-Exit) | ja | Gate liest `guards_deactivated` statt eines Dateipfad-Flags |

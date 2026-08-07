@@ -5,7 +5,7 @@
 * CP 8 — skill links via ``Skills.bind_skill`` AND the prompt-bundle binding via
   ``PromptRuntime.update_binding`` (BOTH binding paths, FK-50 §50.3 CP 8 / §50.5,
   story AC6).
-* CP 9 — hook registration via ``Governance.register_hooks`` (FK-50 §50.3 CP 9,
+* CP 9 — hook registration via ``InstallerHookGovernance.register_hooks`` (FK-50 §50.3 CP 9,
   story AC7) — the deliberate §50.3 correction away from a static settings
   deploy, preserving deployed behaviour equivalence.
 """
@@ -287,10 +287,10 @@ def _update_prompt_binding(
 
 
 def cp09_hook_registration(context: CheckpointContext) -> CheckpointResult:
-    """CP 9 — register project hooks via ``Governance.register_hooks`` (AC7).
+    """CP 9 — register project hooks via ``InstallerHookGovernance.register_hooks`` (AC7).
 
     FK-50 §50.3 CP 9 (deliberate §50.3 correction): hooks are registered through
-    the governance top-surface ``Governance.register_hooks`` rather than a static
+    the governance top-surface ``InstallerHookGovernance.register_hooks`` rather than a static
     settings deploy. Behaviour preserved: the same default hook definitions are
     registered and the same harness settings are materialised (the transferred
     ``_register_default_governance_hooks`` drives both).
@@ -302,7 +302,7 @@ def cp09_hook_registration(context: CheckpointContext) -> CheckpointResult:
 
     start = time.monotonic()
     if not context.mode.mutations_allowed:
-        detail = "Would register default project hooks via Governance.register_hooks."
+        detail = "Would register default project hooks via InstallerHookGovernance.register_hooks."
         if is_dry_run(context.mode):
             return planned_result(
                 nid.CP_09_HOOK_REGISTRATION,
@@ -327,7 +327,10 @@ def cp09_hook_registration(context: CheckpointContext) -> CheckpointResult:
         if rel not in context.run_state.created_files:
             context.run_state.created_files.append(rel)
     status = CheckpointStatus.CREATED if changed else CheckpointStatus.PASS
-    detail = f"Registered project hooks via Governance.register_hooks (materialised {len(changed)} settings file(s))."
+    detail = (
+        "Registered project hooks via InstallerHookGovernance.register_hooks "
+        f"(materialised {len(changed)} settings file(s))."
+    )
     return make_result(nid.CP_09_HOOK_REGISTRATION, status=status, detail=detail, start=start)
 
 

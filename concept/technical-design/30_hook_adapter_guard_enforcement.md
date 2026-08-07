@@ -396,19 +396,20 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 > Adapter (siehe FK-76 §76.5). Das folgende Beispiel zeigt die
 > Claude-Code-Materialisierung (`.claude/settings.json`); fuer Codex
 > materialisiert der Codex-Adapter das harness-eigene Aequivalent (z. B.
-> `.codex/config.toml`). Die `Governance.register_hooks(...)`-Top-Surface
+> `.codex/config.toml`). Die `InstallerHookGovernance.register_hooks(...)`-Top-Surface
 > ist harness-neutral; die konkrete Settings-Datei wird vom Adapter
 > geschrieben.
 
-### 30.3.1 Settings-Datei und Top-Surface `Governance.register_hooks`
+### 30.3.1 Settings-Datei und Top-Surface `InstallerHookGovernance.register_hooks`
 
-**Top-Surface: `Governance.register_hooks(hook_definitions)`**
+**Top-Surface: `InstallerHookGovernance.register_hooks(hook_definitions)`**
 
 | Attribut | Wert |
 |----------|------|
 | Aufrufer | Installer (BC 12, FK-50 CP 9) |
 | Eingabe | `hook_definitions: list[HookDefinition]` |
-| Effekt | Schreibt die harness-spezifische Settings-Datei (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent) ueber den Harness-Adapter — Owner: `agentkit.backend.governance.guard_system` plus zugehoeriger Adapter |
+| Implementierung | `agentkit.backend.installer.writer_client.InstallerHookGovernance` (Edge) |
+| Effekt | Persistiert die Hook-Definitionen ueber eine `HookRegistrationRepository` (Kern; produktiv der REST-gestuetzte `WriterHookRegistrationRepository`) und schreibt **danach** die harness-spezifische Settings-Datei (Claude Code: `.claude/settings.json`; Codex: `.codex/hooks.json`) ueber `agentkit.harness_client.harness_adapters.settings_writer` |
 | Idempotenz | Ja — bestehende identische Hook-Eintraege werden nicht doppelt eingetragen; veraltete oder abweichende Eintraege werden ueberschrieben |
 | Fehlerverhalten | Fail-closed: kaputte Settings-Datei (z. B. ungueltiges JSON in `.claude/settings.json`) fuehrt zu Exception, kein stilles Weiterlaufen |
 
@@ -416,24 +417,33 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 `hook_event_name` (`"PreToolUse"` | `"PostToolUse"`), `matcher` (str)
 und `command` (str).
 
+**Warum die Operation auf dem Edge liegt (AG3-239).** Der Vorgang hat zwei
+Haelften auf zwei Maschinen: das Persistieren gehoert dem Kern (kanonischer
+Zustand, FK-01 §1.1a), das Materialisieren der Settings-Datei dem
+**Entwicklerrechner**. Weil der Kern die zweite Haelfte in einer geteilten
+Installation nicht ausfuehren kann, ist der zusammengesetzte Vorgang
+Edge-Orchestrierung. Fachlich definiert bleibt er beim BC
+`governance-and-guards`; er wird nur dort ausgefuehrt, wo seine Wirkung
+eintritt. Bis AG3-239 lag er in der Kern-Klasse `Governance` und erzeugte von
+dort einen core-to-edge-Import in die Settings-Writer.
+
 Die interne Settings-Manipulation liegt ausschliesslich bei
-`agentkit.backend.governance.guard_system` und dem zugehoerigen Harness-Adapter.
-Der Installer haelt keinen eigenen Schreibpfad fuer harness-spezifische
-Settings — er delegiert vollstaendig.
+`agentkit.harness_client.harness_adapters.settings_writer`
+(`ClaudeCodeSettingsWriter`, `CodexSettingsWriter`). Der Installer haelt keinen
+eigenen Schreibpfad fuer harness-spezifische Settings — er delegiert
+vollstaendig.
 
 Hooks werden in der harness-spezifischen Settings-Datei (Claude Code:
 `.claude/settings.json`; Codex: harness-eigenes Aequivalent) registriert.
 Der Installer (Checkpoint 8 / FK-50 CP 9) ruft dazu
-`Governance.register_hooks(hook_definitions)` auf (Top-Surface von BC
-`governance-and-guards`). Die JSON-/TOML-Manipulation gehoert zu
-`agentkit.backend.governance.guard_system` plus dem Harness-Adapter.
+`InstallerHookGovernance.register_hooks(hook_definitions)` auf.
 
 Beispiel der eingetragenen Eintraege (Claude-Code-Materialisierung;
 Tool-Matcher sind dabei Claude-Code-Tool-Namen — der Codex-Adapter
 mappt analog gegen seine harness-eigenen Tool-Bezeichner). Die
 konkreten Modul-Pfade werden vom Harness-Adapter aufgeloest;
 Aufrufe gehen ueber den `agentkit-hook-{harness}`-Wrapper, der
-dann die harness-neutrale `Governance.run_hook(...)`-Top-Surface
+dann die harness-neutrale `governance.runner.run_hook(...)`-Top-Surface
 trifft:
 
 ```json
@@ -638,7 +648,7 @@ Sekunden warten muss, wird unbrauchbar langsam.
 ## 30.5 Hook-Kategorien
 
 > **Owner-Hinweis:** FK-30 (governance.guard_system) ist Owner fuer: Hook-Definitionen,
-> Registrierung (`Governance.register_hooks`), Enforcement-Verhalten (Block/Warn/Pass)
+> Registrierung (`InstallerHookGovernance.register_hooks`), Enforcement-Verhalten (Block/Warn/Pass)
 > und harness-spezifische Settings-Schemas (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe FK-76 §76.5). Die Zuordnung von Hooks zu Telemetrie-Events
 > (EventTypeId-Mapping, Hook-Pfad-zu-Event-Tabelle) ist Verantwortung von
 > FK-68 §68.3.1 (telemetry-and-events). Aenderungen an Event-Emission-Semantik
@@ -792,10 +802,24 @@ Governance-Dateien manipulieren.
 |----------|------|
 | Aufrufer | ClosureSequence (BC 7 / FK-29 §29.5) |
 | Eingabe | `story_id: StoryId` |
-| Effekt | Setzt alle Lock-Records fuer die Story auf inaktiv; entfernt optionale Lock-Exporte (`_temp/governance/locks/{story_id}/qa-lock.json`, `.agent-guard/lock.json` in betroffenen Worktrees); schaltet den Betriebsmodus zurueck auf `ai_augmented` |
-| Owner | `agentkit.backend.governance.guard_system` (Lock-Record-Verwaltung als Sub von guard_system) |
-| Idempotenz | Ja — mehrfaches Aufrufen fuer dieselbe Story-ID hat denselben Effekt wie einmaliges Aufrufen |
-| Fehlerverhalten | Fail-closed bei unbekannter Story-ID: Exception, kein stilles Ignorieren; Closure-Phase darf den Lock nicht "leise vergessen" |
+| Effekt | Setzt alle Lock-Records fuer die Story auf inaktiv. **Kein Dateisystemzugriff.** |
+| Implementierung | `agentkit.backend.governance.administration.Governance` (Kern) |
+| Ergebnis | `DeactivationResult` mit `deactivated_locks`, `guards_deactivated`, `errors` |
+| Idempotenz | Ja — mehrfaches Aufrufen fuer dieselbe Story-ID hat denselben Effekt wie einmaliges Aufrufen; `guards_deactivated` bleibt dabei `true` |
+| Fehlerverhalten | Fail-closed bei unbekannter Story-ID: Fehler in `errors[0]` und `guards_deactivated = false`; Closure-Phase darf den Lock nicht "leise vergessen" |
+
+**Der Beweis „Guards sind deaktiviert" ist kanonischer Zustand, kein Dateipfad
+(AG3-239).** Bis AG3-239 schrieb diese Operation einen Tombstone nach
+`_temp/governance/locks/{story_id}/mode.json` — **relativ zum Prozess-CWD** — und
+leitete ihr Flag daraus ab, ob dieses Verzeichnis existierte.
+`_temp/governance/**` ist jedoch das **lokale Projektionsverzeichnis des Edge**
+(§30.6.1 liest `_temp/governance/current.json` im Hook-Prozess). Auf einem
+Kern-Host existiert es nie; das Flag waere dauerhaft `false` gewesen, und
+FK-58-Story-Exit haette **jeden** Exit mit „guards were not deactivated"
+abgewiesen. Der Kern raeumt deshalb keine Edge-Dateien mehr auf: Die dev-lokale
+Projektion (`.agent-guard/lock.json`, Moduswechsel) traegt vollstaendig die
+Edge-Tombstone-Mechanik ueber `tombstone_worktree_roots` (AG3-145 Teilschritt D,
+FK-10 §10.2.4a).
 
 Nach erfolgreichem Postflight ruft ClosureSequence diese Funktion auf.
 Closure selbst haelt keine Lock-Logik — der Aufruf ist ein einzelner

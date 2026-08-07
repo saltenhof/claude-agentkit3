@@ -11,7 +11,7 @@ from agentkit.backend.exceptions import GovernanceError
 class HookRegistrationError(GovernanceError):
     """Raised when a hook cannot be registered.
 
-    Produced by ``Governance.register_hooks`` and stored inside
+    Produced by ``InstallerHookGovernance.register_hooks`` and stored inside
     ``RegistrationResult.errors`` for non-fatal failures, or raised
     directly for fatal backend errors.
     """

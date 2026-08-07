@@ -13,11 +13,7 @@ from __future__ import annotations
 import subprocess
 from typing import TYPE_CHECKING
 
-from agentkit.backend.governance.hook_registration import (
-    HookDefinition,
-    HookEventName,
-    RegistrationResult,
-)
+from agentkit.backend.governance.hook_registration import RegistrationResult
 from agentkit.backend.installer.git_hook_dispatch import GIT_HOOK_DISPATCH_MARKERS
 from agentkit.backend.installer.upgrade.hook_migration import (
     determine_hook_definitions,
@@ -27,6 +23,7 @@ from agentkit.backend.installer.upgrade.hook_migration import (
     migrate_legacy_claude_hook_settings,
     verify_git_hook_dispatch,
 )
+from agentkit_wire.governance_registration import HookDefinition, HookEventName
 
 if TYPE_CHECKING:
     from pathlib import Path

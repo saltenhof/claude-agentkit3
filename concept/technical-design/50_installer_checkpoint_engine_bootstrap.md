@@ -508,7 +508,7 @@ die Top-Surface des BC `governance-and-guards` auf:
 
 ```python
 # Top-Surface BC governance-and-guards (FK-30/FK-31)
-Governance.register_hooks(hook_definitions)
+InstallerHookGovernance.register_hooks(hook_definitions)
 ```
 
 Die harness-spezifischen Settings-Datei-Formate (Claude Code:
@@ -519,13 +519,13 @@ Format aber nicht. Die harness-neutrale Hook-/Guard-Definition kommt aus FK-30.
 Merge-Modus: bestehende Hooks bleiben erhalten, nur fehlende AgentKit-Hooks
 werden hinzugefuegt. Der Installer registriert pro Harness parallel.
 
-**Idempotenz:** `Governance.register_hooks` prueft ob jeder Hook bereits
+**Idempotenz:** `InstallerHookGovernance.register_hooks` prueft ob jeder Hook bereits
 registriert ist.
 
 Die Hook-Definitionen werden zuerst ueber `POST
 /v1/projects/{project_key}/installation/governance-hooks` im aktiven Writer
 persistiert. Erst danach materialisiert der enge Installer-Governance-Adapter
-ueber `Governance.register_hooks` die harness-spezifischen Settings lokal. Sein
+ueber `InstallerHookGovernance.register_hooks` die harness-spezifischen Settings lokal. Sein
 Lock-Deaktivierungsport ist capability-seitig fail-closed und fuer diese enge
 Surface nicht exponiert; er konstruiert weder ein Hook- noch ein produktives
 Lock-Repository im CLI-Prozess. Retry verwendet denselben

@@ -25,7 +25,6 @@ from agentkit.backend.control_plane.guard_counter import (
 )
 from agentkit.backend.control_plane.models import (
     GuardCounterMutationAccepted,
-    GuardCounterMutationRequest,
     TelemetryEventAccepted,
     TelemetryEventIngestRequest,
     TelemetryEventQueryResponse,
@@ -54,6 +53,8 @@ from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
+
+    from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
 
 
 class LoopbackGovernanceClient:

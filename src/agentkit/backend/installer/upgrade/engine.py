@@ -21,7 +21,7 @@ The flow spine (FK-51 §51.3-§51.7):
     up_01_detect_footprint   (§51.8 — read the four-source footprint, decide §51.3)
     -> up_02_guard_binding   (§51.3.3 / F-51-023 — block a rebind over a customization)
     -> up_03_migrate_config  (§51.3.2 / §51.4 — `.bak` + write across a version jump)
-    -> up_04_migrate_hooks   (§51.6 — Governance.register_hooks via migrate_hooks)
+    -> up_04_migrate_hooks   (§51.6 — InstallerHookGovernance.register_hooks via migrate_hooks)
     -> up_05_migrate_git_hook (§51.6.1 — pre-commit dispatch migration, `.bak`)
     -> up_06_cleanup         (§51.7 — fail-closed obsolete cleanup; optional)
 
@@ -68,7 +68,6 @@ from agentkit.backend.process.language.model import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from agentkit.backend.governance.hook_registration import HookDefinition
     from agentkit.backend.installer.checkpoint_engine.engine import CheckpointHandler
     from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
@@ -81,6 +80,7 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.installer.upgrade.scenarios import UpgradeScenarioDecision
     from agentkit.backend.skills import Skills
+    from agentkit_wire.governance_registration import HookDefinition
 
 #: Upgrade flow id / owner (its own ``level=COMPONENT`` flow on the shared walker).
 UPGRADE_FLOW_ID = "upgrade_flow"
@@ -114,7 +114,7 @@ class UpgradeRequest:
         skills: The agent-skills top surface for the skill-binding footprint
             source (DI; defaults to the productive surface).
         governance: The governance top surface for the §51.6 hook migration
-            (``migrate_hooks`` -> ``Governance.register_hooks``). ``None`` skips
+            (``migrate_hooks`` -> ``InstallerHookGovernance.register_hooks``). ``None`` skips
             the hook step (e.g. unit isolation without a state backend).
         desired_hook_definitions: The desired hook definitions for the current
             version (§51.6). ``None`` -> the productive default set is built.
@@ -566,9 +566,9 @@ def _migration_detail(
 
 
 def up_04_migrate_hooks(context: UpgradeRunContext) -> CheckpointResult:
-    """Migrate project hooks via ``Governance.register_hooks`` (§51.6, AC4).
+    """Migrate project hooks via ``InstallerHookGovernance.register_hooks`` (§51.6, AC4).
 
-    Genuinely wires :func:`migrate_hooks` -> ``Governance.register_hooks`` into
+    Genuinely wires :func:`migrate_hooks` -> ``InstallerHookGovernance.register_hooks`` into
     the engine-driven upgrade flow (no longer a built-but-unwired helper). When
     no governance surface is provided the step is skipped (unit isolation).
     Read-only modes report the planned registration without registering.
@@ -604,7 +604,7 @@ def up_04_migrate_hooks(context: UpgradeRunContext) -> CheckpointResult:
             status=CheckpointStatus.SKIPPED,
             detail=(
                 "[plan] Would register "
-                f"{len(desired)} hook definition(s) via Governance.register_hooks "
+                f"{len(desired)} hook definition(s) via InstallerHookGovernance.register_hooks "
                 "(no mutation in read-only mode)."
             ),
             reason="planned_no_mutation",
@@ -620,7 +620,7 @@ def up_04_migrate_hooks(context: UpgradeRunContext) -> CheckpointResult:
         status=CheckpointStatus.UPDATED if changed else CheckpointStatus.PASS,
         detail=(
             f"Registered {len(outcome.registered)} hook(s) via "
-            f"Governance.register_hooks; removed {len(outcome.removed)} obsolete; "
+            f"InstallerHookGovernance.register_hooks; removed {len(outcome.removed)} obsolete; "
             "migrated legacy Claude settings="
             f"{context.run_state.claude_hook_settings_migrated}."
         ),

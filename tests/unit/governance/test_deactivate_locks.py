@@ -121,29 +121,6 @@ class TestDeactivateLocksHappyPath:
         assert lock_id in result.deactivated_locks
         assert result.errors == []
 
-    def test_edge_bundle_removed(self, tmp_path: Path) -> None:
-        """Edge bundle file is removed when present."""
-        story_id = "story-edge-001"
-        bundle_path = tmp_path / "_temp" / "governance" / story_id / "edge-bundle.json"
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        bundle_path.write_text('{"status": "active"}', encoding="utf-8")
-
-        repo = _RecordingLockRepo()
-        gov = _make_governance(repo)
-
-        import os
-
-        old_cwd = Path.cwd()
-        os.chdir(tmp_path)
-        try:
-            result = gov.deactivate_locks(story_id)  # type: ignore[union-attr]
-        finally:
-            os.chdir(old_cwd)
-
-        assert not bundle_path.exists()
-        # Path is relative (under tmp_path) — check it's in result
-        assert len(result.removed_edge_bundles) == 1
-
     def test_repo_called_with_story_id(self) -> None:
         repo = _RecordingLockRepo()
         gov = _make_governance(repo)
@@ -174,8 +151,9 @@ class TestDeactivateLocksIdempotent:
         result = gov.deactivate_locks("story-already-inactive")  # type: ignore[union-attr]
 
         assert result.deactivated_locks == []
-        assert result.removed_edge_bundles == []
         assert result.errors == []
+        # The guards ARE off -- that is what the caller asked about (AG3-239).
+        assert result.guards_deactivated is True
 
     def test_unknown_story_id_surfaced_in_errors(self) -> None:
         """Completely unknown story_id → fail-closed → error in errors[0].
@@ -192,59 +170,14 @@ class TestDeactivateLocksIdempotent:
         assert len(result.errors) >= 1
         assert any("unknown-story-id" in e or "lock records" in e for e in result.errors)
 
-    def test_missing_edge_bundle_is_ok(self) -> None:
-        """Missing edge-bundle file is not an error when locks were deactivated."""
-        lock_id = LockRecordId("test-project|story-no-bundle|run-1|story_execution")
-        repo = _RecordingLockRepo(stored_locks=[lock_id])
-        gov = _make_governance(repo)
-
-        result = gov.deactivate_locks("story-no-bundle")  # type: ignore[union-attr]
-
-        assert result.errors == []
-        assert result.removed_edge_bundles == []
-
 
 # ---------------------------------------------------------------------------
-# Tests: IO error handling
+# Tests: error handling
 # ---------------------------------------------------------------------------
 
 
-class TestDeactivateLocksIOErrors:
-    """IO errors on edge-bundle deletion go into errors[], not raised."""
-
-    def test_io_error_on_bundle_deletion_collected(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        story_id = "story-io-fail"
-        bundle_path = tmp_path / "_temp" / "governance" / story_id / "edge-bundle.json"
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        bundle_path.write_text("{}", encoding="utf-8")
-
-        # Monkeypatch Path.unlink to raise OSError
-        original_unlink = Path.unlink
-
-        def _failing_unlink(self: Path, missing_ok: bool = False) -> None:
-            if "edge-bundle.json" in str(self):
-                raise OSError("Permission denied (simulated)")
-            original_unlink(self, missing_ok=missing_ok)  # type: ignore[call-arg]
-
-        monkeypatch.setattr(Path, "unlink", _failing_unlink)
-
-        repo = _RecordingLockRepo()
-        gov = _make_governance(repo)
-
-        import os
-
-        old_cwd = Path.cwd()
-        os.chdir(tmp_path)
-        try:
-            result = gov.deactivate_locks(story_id)  # type: ignore[union-attr]
-        finally:
-            os.chdir(old_cwd)
-
-        assert len(result.errors) >= 1
-        assert any("Permission denied" in e or "edge-bundle" in e for e in result.errors)
-        assert result.removed_edge_bundles == []
+class TestDeactivateLocksErrors:
+    """Repository faults: LockRecordNotFoundError is collected, DB errors raise."""
 
     def test_db_error_is_raised(self) -> None:
         """Critical DB errors bubble up, not swallowed."""
@@ -269,21 +202,21 @@ class TestDeactivationResultModel:
 
         result = DeactivationResult()
         assert result.deactivated_locks == []
-        assert result.removed_edge_bundles == []
         assert result.errors == []
+        # Fail-closed default: nothing has been proven yet (AG3-239).
+        assert result.guards_deactivated is False
 
     def test_populated_result(self) -> None:
         from agentkit.backend.governance.locks import DeactivationResult
 
         lid = LockRecordId("proj|story|run|type")
-        p = Path("_temp/governance/story/edge-bundle.json")
         result = DeactivationResult(
             deactivated_locks=[lid],
-            removed_edge_bundles=[p],
+            guards_deactivated=True,
             errors=["some error"],
         )
         assert result.deactivated_locks == [lid]
-        assert result.removed_edge_bundles == [p]
+        assert result.guards_deactivated is True
         assert result.errors == ["some error"]
 
 
@@ -327,6 +260,7 @@ class TestDeactivateLocksDoesNotTouchWorktrees:
         # no mode.json was written there (that is the edge's job now).
         assert lock_file.exists()
         assert not (guard / "mode.json").exists()
-        # No worktree lock-export path is reported as removed by the backend.
-        assert result.removed_lock_exports == []  # type: ignore[union-attr]
+        # AG3-239: it reaches into NO path at all -- not even the backend-local
+        # ``_temp/governance`` tree it used to write.
+        assert not (tmp_path / "_temp").exists()
         assert result.errors == []  # type: ignore[union-attr]

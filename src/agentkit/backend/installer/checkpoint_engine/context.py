@@ -82,7 +82,7 @@ class CheckpointRunState:
     resolved_scope_mappings: dict[str, str] = field(default_factory=dict)
     #: Content digests of the harness settings files captured at CP 8 entry
     #: (BEFORE the static-resource deploy may overwrite them with the bundled
-    #: template). CP 9 (``Governance.register_hooks``) uses this baseline so an
+    #: template). CP 9 (``InstallerHookGovernance.register_hooks``) uses this baseline so an
     #: idempotent re-run reports a settings file as changed only when the
     #: GOVERNANCE result actually differs from the previous governance result
     #: (mirrors the legacy ``before``-digest ordering).
