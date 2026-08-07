@@ -138,12 +138,50 @@ src/agentkit/
     target_project/
 ```
 
+### Distributionen: drei paketierte Artefakte
+
+Die Verzeichnisse unter `src/agentkit/` sind **Quellheimaten**, nicht
+Auslieferungseinheiten. Ausgeliefert wird AK3 in **drei** Distributionen
+(normativ: FK-10 §10.1.0a/§10.2.12, maschinell: FK-07 §7.9a):
+
+| Distribution | Importwurzel | Laeuft auf | Inhalt |
+|---|---|---|---|
+| `agentkit-project-edge` | `agentkit_project_edge` | Entwicklerrechner | Hook-Wrapper, Guard-Engine, Project-Edge-Client, Bediener-CLI, Installer, lokal gestartete MCP-Server, Zielprojekt-Bundle |
+| `agentkit-backend` | `agentkit_backend` | zentraler Core-Host | Pipeline, QA-Subflow, Governance-Adjudication, Closure, Control-Plane-HTTP, State-Backend, KPI-Analytics, Frontend-Auslieferung |
+| `agentkit-wire` | `agentkit_wire` | beide (importiert) | ausschliesslich das `/v1`-Vokabular; I/O-freies Blatt, einzige Drittabhaengigkeit `pydantic` |
+
+**Regeln:**
+
+1. **Keine Distribution und keine Importwurzel heisst `agentkit`.** Die
+   Importwurzel ist der Distributionsname mit `-` → `_`. Grund: AK2
+   liefert ein regulaeres Paket `agentkit` aus, das gleichnamige
+   Namespace-Portionen vollstaendig verdeckt.
+2. **Ein Modul gehoert zu genau einer Distribution.** Die Zuordnung ist
+   total und disjunkt; die Auffangregel („was nicht als Edge oder Wire
+   benannt ist, ist Kern") steht in FK-10 §10.2.12 B.
+3. **Der Namensraum entscheidet nicht, der Laufzeitbesitzer entscheidet.**
+   `backend/governance/`, `backend/installer/`, `backend/cli/`,
+   `backend/story_creation/`, `backend/vectordb/` und
+   `backend/config/`-Loader liegen heute unter `backend/`, laufen aber auf
+   dem Entwicklerrechner und gehoeren damit zur Edge-Distribution.
+4. **Das Vertragspaket ist kein Abstellraum.** Nur beidseitig benoetigte
+   HTTP-/Wire-Modelle. Hilfsfunktionen wie `utils/io` werden je
+   Distribution gefuehrt, nicht geteilt.
+5. **Kein Alias, kein Shim, kein Re-Export, kein Uebergangszeitraum.** Die
+   Umstellung der Importwurzeln ist ein atomarer Schritt (AG3-209).
+6. **Eine Version fuer alle drei Artefakte**, gebunden an den
+   Repository-Stand. Keine unabhaengigen Reihen, keine Versionsmatrix.
+
 ### Deployment-Unit-Regeln
 
 1. Direkt unter `src/agentkit/` duerfen nur Deployment Units bzw.
    paketierte Artefaktfamilien liegen: `backend/`, `frontend/`,
-   `harness_client/`, `integration_clients/`, `bundles/` plus
-   Paketmarker.
+   `harness_client/`, `integration_clients/`, `bundles/`, `concepts/`,
+   `resources/` plus Paketmarker. `concepts/` (Parser/Chunking/Tokenizer
+   des Konzept-Korpus) und `resources/` (Tokenizer-Asset) waren in
+   frueheren Fassungen dieser Liste nicht aufgefuehrt, existieren aber und
+   gehoeren zur Edge-Distribution. Ein leeres `src/agentkit/shared/`
+   ist **keine** Deployment Unit und entfaellt mit dem Distributionsschnitt.
 2. Fachliche Bounded Contexts liegen unter der Deployment Unit, die sie
    ausliefert. Backend-BCs liegen unter `src/agentkit/backend/`.
 3. Externe Drittsystem-Adapter liegen unter
@@ -202,16 +240,19 @@ Verantwortung abgeleitet, nicht aus technischen Querschnitten wie
 Boundary-Module bleiben fachlich relevant, liegen aber innerhalb der
 Deployment Unit, die sie ausliefert:
 
-| Boundary | Code-Heimat |
-|---|---|
-| CLI / Backend-Eingang | `src/agentkit/backend/cli/` |
-| Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` |
-| Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` |
-| State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` |
-| State-Backend Record-Row Mapper | `src/agentkit/backend/state_backend/persistence_mappers/` |
-| Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` |
-| Drittsystem-Adapter | `src/agentkit/integration_clients/` |
-| Harness-/ProjectEdge-Client | `src/agentkit/harness_client/` |
+| Boundary | Code-Heimat | Distribution |
+|---|---|---|
+| Bediener-CLI (32 Verben) | `src/agentkit/backend/cli/` | Edge |
+| Kern-CLI (`serve`, `ui`, `decommission`) | `src/agentkit/backend/cli/` | Kern |
+| Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` | Kern |
+| Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` | Kern (Wire-Modelle: Vertragspaket) |
+| State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` | Kern |
+| State-Backend Record-Row Mapper | `src/agentkit/backend/state_backend/persistence_mappers/` | Kern |
+| Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` | Kern |
+| Drittsystem-Adapter | `src/agentkit/integration_clients/` | Kern, ausser `vectordb/` und `mcp/` (Edge) |
+| Harness-/ProjectEdge-Client | `src/agentkit/harness_client/` | Edge |
+| Guard-Engine / Hook-Registrierung | `src/agentkit/backend/governance/` | Edge |
+| Installer (Ebene 2/3) | `src/agentkit/backend/installer/` | Edge |
 
 Neue Boundary-Module duerfen nicht als weitere direkte Kinder von
 `src/agentkit/` entstehen. Sie gehoeren in die passende Deployment Unit.
@@ -309,6 +350,31 @@ bundles/
 6. **Fixtures** (`tests/fixtures/`) enthalten statische Testdaten. Keine generierten Dateien — die gehoeren in `var/` oder `tmp_path`.
 7. **Neue Tests** gehoeren in die richtige Ebene. Im Zweifel: Unit vor Integration, Integration vor E2E.
 
+### Test- und Build-Topologie unter drei Distributionen
+
+Ein gruener Monorepo-Testlauf beweist **nicht**, dass die drei Artefakte
+getrennt installierbar sind: er laeuft in einer Umgebung, in der alles
+vorhanden ist. Die Topologie muss deshalb unterscheidbar machen, welcher
+Nachweis in welchem Artefaktkontext gilt.
+
+| Nachweisklasse | Kontext | Was er beweist |
+|---|---|---|
+| **Core-Tests** | Umgebung mit `agentkit-backend` + `agentkit-wire` | Kern-Fachlogik funktioniert ohne jede Edge-Distribution |
+| **Edge-Tests** | Umgebung mit `agentkit-project-edge` + `agentkit-wire` | Hook-, Guard-, Installer- und Project-Edge-Pfade funktionieren ohne jede Kern-Distribution |
+| **Contract-Tests** | nur `agentkit-wire` importierbar | Das Vertragspaket ist ein I/O-freies Blatt und traegt das vollstaendige `/v1`-Vokabular |
+| **Clean-Install-/Wheel-Nachweis** | gebaute Wheels, zuvor **leere** Umgebung | Wheel-Inhalt und aufgeloeste Dependency-Menge stimmen; ein **echter** Hook-Prozess entscheidet; keine kern-only Distribution ist vorhanden (FK-07 §7.9a) |
+
+**Regeln:**
+
+1. Ein Test, der Edge- **und** Kern-Importe braucht, ist entweder falsch
+   geschnitten oder ein Contract-Test gegen `agentkit-wire`. Ein dritter
+   Fall ist kein Sollzustand.
+2. Der Clean-Install-Nachweis ist **kein** Unit-Test und wird nicht durch
+   einen ersetzt. `pip --dry-run` erfuellt ihn nicht.
+3. Die volle Testsuite laeuft ausschliesslich auf Jenkins (PO-Anweisung
+   2026-08-04); der Clean-Install-Nachweis ebenfalls, weil er eine
+   wegwerfbare Umgebung und einen Buildschritt braucht.
+
 ### Test-Verzeichnisse
 
 ```
@@ -387,6 +453,11 @@ Diese Verzeichnisse werden von Python-Tools automatisch erzeugt und bleiben dort
 | Neue Top-Level-Verzeichnisse ohne Consent | Struktur ist bewusst designed, nicht ad-hoc erweiterbar |
 | Lose Python-Dateien im Root | Alles unter `src/agentkit/` |
 | Zirkulaere Imports zwischen Modulen | Abhaengigkeitsrichtung ist top-down |
+| Import ueber die Distributionsgrenze (Edge↔Kern) | Was der Edge nicht importieren darf, ist auf dem Entwicklerrechner nicht installiert (FK-07 §7.9a) |
+| Beliebiger geteilter Code im Vertragspaket | `agentkit-wire` ist ein I/O-freies Blatt fuer `/v1`-Vokabular, kein Abstellraum |
+| Eine Distribution oder Importwurzel namens `agentkit` | Kollidiert mit dem regulaeren AK2-Paket gleichen Namens (FK-10 §10.1.0a) |
+| Alias, Shim oder Re-Export fuer eine alte Importwurzel | Zweiter Aufloesungsweg fuer dasselbe Symbol; verboten durch CLAUDE.md |
+| Kern-only Dependency in einer Ebene-2-Umgebung | `psycopg`, `psycopg-pool`, `argon2-cffi` gehoeren nicht auf den Entwicklerrechner |
 
 ---
 

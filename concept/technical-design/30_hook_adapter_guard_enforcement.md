@@ -146,6 +146,43 @@ Autoritaet (FK-42).
 > normalisiert; der A-Kern `guard_evaluation` arbeitet ausschliesslich
 > auf dieser neutralen Repraesentation.
 
+### 30.2.0 Ausfuehrungsort und Auslieferung der Guard-Engine
+
+**Die Guard-Engine ist Edge-Code.** Sie wird aus der Distribution
+`agentkit-project-edge` ausgeliefert, laeuft im Hook-Prozess auf dem
+Entwicklerrechner und importiert ausschliesslich die Importwurzeln
+`agentkit_project_edge` und `agentkit_wire` (FK-10 §10.1.0a/§10.1.3).
+Der heutige Namensraum `agentkit.backend.governance.*` benennt den
+**Namen** ihrer Heimat, nicht ihren **Ausfuehrungsort**; die Umhaengung
+gehoert zu AG3-209.
+
+**Warum lokal und nicht im Kern.** Ein Werkzeugaufruf muss in
+Millisekunden entschieden werden. Ein Netz-Roundtrip pro Tool-Call ist
+kein zulaessiges Design, und ein Hook, der bei Netzausfall „erlaubt",
+waere fail-open. Die Engine entscheidet deshalb lokal — deterministisch,
+gegen eine Regelbasis, die sie **nicht selbst erzeugt**, sondern aus dem
+zentral publizierten Edge-Bundle liest.
+
+**Was lokale Ausfuehrung ausdruecklich nicht bedeutet.** Der Edge erhaelt
+damit **keine** Fachautoritaet und **keine** zweite Wahrheit:
+
+| Zulaessig lokal | Nicht lokal — bleibt Kern |
+|---|---|
+| deterministische Auswertung der publizierten Regelbasis | Erzeugen, Aendern oder Aufheben einer Regel |
+| Lesen lokaler Read-Projektionen mit Max-TTL fuer **nicht-blockierende** Anzeige | Eine Erlaubnis allein aus einer lokalen Projektion herleiten |
+| Zustandsfrage per REST stellen und das Ergebnis anwenden | Kanonischen Zustand halten oder ohne Bestaetigung mutieren |
+| Schreiben harness-spezifischer Settings und lokaler Bindungen | Governance-Adjudication, Policy-Urteil, Gate-Entscheidung |
+
+Sicherheitskritische Zustandsfragen — haelt jemand ein Lock, ist eine
+Guard-Schwelle ueberschritten — werden am Kern bestaetigt oder
+fail-closed blockiert (FK-10 §10.1.3). Nicht bestaetigte Schreibpfade
+blockieren den Tool-Call.
+
+**Abgrenzung zu FK-01 §1.1a.** Der lokale Arm bleibt „duenn" im Sinne von
+**regelfrei**, nicht im Sinne von **codefrei**. Die dort praezisierte
+Unterscheidung — mandatierte Ausfuehrung unter fremder Autoritaet versus
+eigene Fachautoritaet — ist die Grundlage dieses Abschnitts.
+
 ### 30.2.1 Hook-Typen
 
 Beide unterstuetzten Harnesses bieten zwei Hook-Zeitpunkte. Die
@@ -479,6 +516,16 @@ Die konkreten Implementierungs-Module liegen unter
 `agentkit.backend.governance.guards.{branch,orchestrator,...}` bzw.
 `agentkit.backend.governance.guard_system.*` und sind nicht direkt vom
 Harness aus aufrufbar.
+
+> **Distributionszuordnung dieser Module (normativ).** Diese Pfade sind
+> **Locatoren des heutigen Codestands**, nicht die Aussage, dass die
+> Guard-Module zum Kern gehoeren. Ihr Auslieferungsbesitzer ist die
+> Edge-Distribution `agentkit-project-edge` (FK-10 §10.2.12 B); der
+> Zielpfad ist `agentkit_project_edge.governance.*`. Die Umhaengung ist
+> **ein** atomarer Schritt in AG3-209 — es gibt keinen Zeitraum, in dem
+> beide Pfade funktionieren, keinen Alias und keinen Re-Export. Dieselbe
+> Zuordnung gilt fuer alle weiteren `agentkit.backend.governance.*`- und
+> `agentkit.backend.telemetry.hooks`-Locatoren dieses Kapitels.
 
 ### 30.3.2 Matcher-Syntax
 

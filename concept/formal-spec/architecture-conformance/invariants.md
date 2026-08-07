@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: invariant-set
-version: 4
+version: 5
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -186,7 +186,134 @@ read_surface_rules:
     allowed_module_prefixes:
       - agentkit.backend.state_backend
     message: project-catalog read loaders may only be imported from the state-backend project repository surface; A-code and BFF read paths must consume the published ProjectRepository port instead of the generic state_backend.store facade
+distribution_dependency_rules:
+  - id: architecture-conformance.rule.core_must_not_depend_on_edge
+    source_distribution: architecture-conformance.distribution.core
+    forbidden_distributions:
+      - architecture-conformance.distribution.edge
+    include_type_checking_edges: true
+    message: >-
+      core modules may not import edge modules, neither directly nor
+      transitively and not under TYPE_CHECKING; the core distribution must be
+      installable without the edge distribution
+  - id: architecture-conformance.rule.edge_must_not_depend_on_core
+    source_distribution: architecture-conformance.distribution.edge
+    forbidden_distributions:
+      - architecture-conformance.distribution.core
+    include_type_checking_edges: true
+    message: >-
+      edge modules may not import core modules; what the edge must not import
+      is not installed on the developer machine
+  - id: architecture-conformance.rule.wire_is_a_leaf
+    source_distribution: architecture-conformance.distribution.wire
+    forbidden_distributions:
+      - architecture-conformance.distribution.edge
+      - architecture-conformance.distribution.core
+    include_type_checking_edges: true
+    forbidden_module_prefixes:
+      - os
+      - io
+      - pathlib
+      - socket
+      - subprocess
+      - shutil
+      - tempfile
+      - sqlite3
+      - urllib
+      - http
+      - httpx
+      - requests
+      - psycopg
+    allowed_third_party_distributions:
+      - pydantic
+    message: >-
+      the wire contract package is an I/O-free leaf: it imports neither edge
+      nor core, performs no filesystem, network, database, subprocess or
+      environment access, and declares no third-party dependency other than
+      pydantic
+  - id: architecture-conformance.rule.distribution_membership_is_total_and_disjoint
+    scope: all-distributions
+    message: >-
+      every module under the AK3 import root belongs to exactly one
+      distribution; membership resolves by longest matching module prefix,
+      unclaimed modules fall to default_distribution, and two equally long
+      matching prefixes owned by different distributions are a violation
+      rather than a resolution case
+  - id: architecture-conformance.rule.import_root_follows_distribution_name
+    scope: all-distributions
+    message: >-
+      each distribution's target_import_root equals its distribution_name with
+      hyphens replaced by underscores; no distribution and no import root is
+      named 'agentkit'
+  - id: architecture-conformance.rule.single_resolution_path
+    scope: all-distributions
+    message: >-
+      no alias, shim, re-export module or transition window in which an old and
+      a new import root both resolve; a second resolution path for the same
+      symbol is a violation, not a migration
+packaging_gate:
+  id: architecture-conformance.gate.distribution_packaging
+  blocking: true
+  baseline_allowed: false
+  result_states:
+    - PASS
+    - FAIL
+    - NOT_RUN
+  missing_result_is: FAIL
+  not_run_requires_reason: true
+  checks:
+    - id: architecture-conformance.gate.check.source_graph
+      subject: source-import-graph
+      evaluates:
+        - architecture-conformance.rule.core_must_not_depend_on_edge
+        - architecture-conformance.rule.edge_must_not_depend_on_core
+        - architecture-conformance.rule.wire_is_a_leaf
+        - architecture-conformance.rule.distribution_membership_is_total_and_disjoint
+        - architecture-conformance.rule.import_root_follows_distribution_name
+        - architecture-conformance.rule.single_resolution_path
+      reports:
+        - modules_per_distribution
+        - forbidden_edges_with_locator
+    - id: architecture-conformance.gate.check.wheel_reachability
+      subject: built-wheels
+      rule: >-
+        no built wheel contains a module belonging to a foreign distribution,
+        and the resolved dependency set of the edge wheel contains no
+        distribution listed in core_only_distributions
+      reports:
+        - wheel_contents_per_distribution
+        - resolved_dependency_set_per_distribution
+    - id: architecture-conformance.gate.check.clean_edge_install
+      subject: empty-environment
+      rule: >-
+        in a previously empty environment that carries only
+        agentkit-project-edge, a real agentkit-hook-claude or
+        agentkit-hook-codex process fed real stdin must return a decision, and
+        no distribution listed in core_only_distributions may be present;
+        a dry run or a unit test does not satisfy this check
+      reports:
+        - installed_distribution_inventory
+        - hook_process_exit_code
+        - hook_process_output
 invariants:
+  - id: architecture-conformance.invariant.core_does_not_reach_edge
+    scope: static-analysis
+    rule: no module of the core distribution reaches a module of the edge distribution, directly or transitively, including TYPE_CHECKING edges
+  - id: architecture-conformance.invariant.edge_does_not_reach_core
+    scope: static-analysis
+    rule: no module of the edge distribution reaches a module of the core distribution, directly or transitively, including TYPE_CHECKING edges
+  - id: architecture-conformance.invariant.wire_is_an_io_free_leaf
+    scope: static-analysis
+    rule: the wire contract package imports neither edge nor core, performs no I/O and depends on pydantic only
+  - id: architecture-conformance.invariant.distribution_membership_is_total_and_disjoint
+    scope: static-analysis
+    rule: distribution membership is a total and disjoint function over the AK3 module set; no module is homeless and none has two owners
+  - id: architecture-conformance.invariant.packaging_gate_is_blocking_and_baseline_free
+    scope: build-artifact
+    rule: the packaging gate blocks on violation, keeps no baseline of tolerated findings, and distinguishes NOT_RUN with a named reason from PASS; a missing or unreadable result counts as FAIL
+  - id: architecture-conformance.invariant.clean_edge_install_runs_a_real_hook
+    scope: build-artifact
+    rule: an edge-only installation in a previously empty environment executes a real hook process against real stdin and carries no core-only distribution; a dry run or unit test does not satisfy the invariant
   - id: architecture-conformance.invariant.story_dashboard_transport_boundary
     scope: static-analysis
     rule: story and dashboard modules may not directly import transport or hook adapters

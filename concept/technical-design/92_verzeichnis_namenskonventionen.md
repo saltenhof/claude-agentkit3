@@ -46,7 +46,10 @@ werden über die typisierten Layout-Felder in `project.yaml` beschrieben.
 
 ### 92.1.1 Namespace-Konvention fuer Produktionscode
 
-Produktionscode unter `src/agentkit/` folgt einer
+Produktionscode liegt unter `src/agentkit/` und wird in **drei**
+Distributionen mit je eigener Importwurzel ausgeliefert —
+`agentkit_project_edge`, `agentkit_backend`, `agentkit_wire`
+(FK-10 Paragraph 10.1.0a). Innerhalb einer Distribution folgt er einer
 komponentenorientierten Namespace-Regel:
 
 | Regel | Bedeutung |
@@ -54,24 +57,37 @@ komponentenorientierten Namespace-Regel:
 | Komponentenname statt Technikname | Namespaces werden nach fachlicher Verantwortung benannt (`pipeline_engine`, `guard_system`, `conformance_service`) |
 | Snake Case fuer Pakete | Paketnamen sind klein und `snake_case` |
 | Subkomponenten als Unterpakete | Beispiel: `governance/setup_preflight_gate/` |
-| Adapter bleiben unter `integrations/` | Externe Systemgrenzen bleiben technisch gebuendelt |
+| Drittsystem-Adapter bleiben gebuendelt | Code-Heimat ist `src/agentkit/integration_clients/` (nicht `integrations/`), gemaess `PROJECT_STRUCTURE.md`. Die Adapter folgen ihrem Treiber: `github`, `jenkins`, `sonar`, `multi_llm_hub`, `llm_pools`, `are` zum Kern, `vectordb` und `mcp` zum Edge (FK-10 Paragraph 10.2.12 C) |
 | Kein Sammelbecken `utils` fuer Fachlogik | Fachwissen gehoert in Komponenten, nicht in neutrale Hilfspakete |
 
 **Sonderfall Prozesssprache:** Die querschnittliche Ablauf- und
-Kontrollsprache liegt unter `agentkit/process/language/`. Sie gehoert
-keiner einzelnen Fachkomponente wie `pipeline_engine`, sondern wird von
-mehreren Komponenten konsumiert.
+Kontrollsprache liegt unter `src/agentkit/backend/process/language/`. Sie
+gehoert keiner einzelnen Fachkomponente wie `pipeline_engine`, sondern
+wird von mehreren Komponenten konsumiert — alle davon im Kern. Sie ist
+damit Bestandteil der Kern-Distribution und **nicht** des Vertragspakets:
+geteilt wird ausschliesslich `/v1`-Wire-Vokabular
+(FK-10 Paragraph 10.2.12 D).
 
 **Sonderfall Architektur-Tooling:** Der Compiler fuer die formale
 Konzeptspezifikation ist kein Produktionscode und liegt deshalb nicht
 unter `src/agentkit/`, sondern unter `tools/concept_compiler/`.
 
-**Zielstruktur:**
+**Zielstruktur:** Zuerst die Deployment Unit, dann die fachliche
+Komponente — `PROJECT_STRUCTURE.md` ist hierfuer die verbindliche Quelle:
 
 ```text
-src/agentkit/{component_name}/
-src/agentkit/{component_name}/{subcomponent_name}/
+src/agentkit/{deployment_unit}/{component_name}/
+src/agentkit/{deployment_unit}/{component_name}/{subcomponent_name}/
 ```
+
+Eine Komponente direkt unter `src/agentkit/` ist **kein** zulaessiger
+Zielzustand; direkt darunter liegen ausschliesslich Deployment Units.
+Welche Distribution eine Komponente ausliefert, entscheidet ihr
+**Laufzeitbesitzer**, nicht ihr Verzeichnisname: `backend/governance/`,
+`backend/installer/`, `backend/cli/`, `backend/story_creation/` und
+`backend/vectordb/` liegen unter `backend/`, laufen aber auf dem
+Entwicklerrechner und gehoeren zur Edge-Distribution
+(FK-10 Paragraph 10.2.12 B).
 
 ## 92.2 Naming-Schemata
 

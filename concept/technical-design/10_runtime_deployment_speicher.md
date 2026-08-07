@@ -108,12 +108,92 @@ Sonar/Jenkins-Einsicht, `gh`/`git`, ARE-Evidence). Hub-Sparring per MCP
 ist Eigeninitiative des Harness-Agents, nicht AK3-mandatiert und nicht
 Gate-relevant. FK-01 ist der normative Katalog dieser Kanten.
 
+### 10.1.0a Distributionszielbild: Edge, Kern und Vertragspaket
+
+> **Normative Grundlage.** Product-Owner-Entscheidung vom 2026-08-03,
+> `concept/_meta/decisions/2026-08-03-edge-und-kern-sind-zwei-distributionen.md`.
+> Dieses Kapitel ist der autoritative Ort des Distributionsschnitts; FK-01
+> besitzt die Trust-Boundaries, FK-30 die lokal ausgefuehrte Guard-Engine,
+> FK-07 die maschinell erzwungenen Importgrenzen.
+
+AK3 wird in **genau drei** Distributionen ausgeliefert. Der Schnitt folgt
+dem **Laufzeitbesitzer**, nicht dem historischen Namespace: was auf dem
+Entwicklerrechner ausgefuehrt wird, gehoert in das Edge-Artefakt — auch
+dann, wenn es heute unter `backend/` liegt.
+
+| Merkmal | **Edge** | **Kern** | **Vertragspaket** |
+|---|---|---|---|
+| Distributionsname | `agentkit-project-edge` | `agentkit-backend` | `agentkit-wire` |
+| Importwurzel | `agentkit_project_edge` | `agentkit_backend` | `agentkit_wire` |
+| Prozesse | Hook-Prozess (pro Tool-Call), Project-Edge-Launcher, Edge-Command-Loop, Bediener-CLI, lokal gestartete MCP-Server, Installer-Laeufe | Backend-Writer (`agentkit-backend serve`), Frontend-Auslieferung (`agentkit-backend ui`), Migrations-/Decommission-Laeufe | keine — reines Bibliotheksartefakt |
+| Lebensdauer | Millisekunden (Hook) bis Minuten (Installer, Command-Loop); MCP-Server dauerhaft | dauerhaft | n/a |
+| Startakteur | Agent-Harness, Zielprojekt-Launcher, Mensch/Bediener | zentrale Infrastruktur/Ops | n/a |
+| Netzrichtung | ausschliesslich **ausgehend** zum Kern (`/v1` ueber HTTPS) sowie die Carve-out-Kanten aus FK-01 §1.1a | **eingehend** von Edge und Frontend; ausgehend zu DB und Drittsystemen | keine |
+| State-Ownership | keiner. Nur Bindungen, Config und Read-Projektionen mit Max-TTL (I5) | **alleiniger** Eigentuemer des kanonischen Zustands (I1) | keiner |
+| Lokale Engine | ja — deterministische Guard-Evaluation, fs-/worktree-gebundene Mechanik, Story-Reconciliation, Credential-/Provider-Portaufloesung | ja — Pipeline, QA-Subflow, Policy, Closure, Governance-Adjudication | nein — I/O-freies Blatt |
+| Deployment-Ebene (§10.2.0) | Ebene 2 (Entwicklermaschine) + Ebene 3 (Projektbindung) | Ebene 1 (zentral) | mit beiden, nie allein |
+
+**Namensregel (normativ, aus F1 der PO-Entscheidung).** „AgentKit" ist der
+Name des **Frameworks**, nicht eines Artefakts. **Keine Distribution und
+keine Importwurzel traegt den blossen Namen `agentkit`.** Die Importwurzel
+ist mechanisch aus dem Distributionsnamen abgeleitet: Bindestriche werden zu
+Unterstrichen, sonst nichts. Der Grund ist nicht Aesthetik: AK2 liefert ein
+**regulaeres** Paket namens `agentkit` aus, und ein regulaeres Paket verdeckt
+gleichnamige Namespace-Portionen vollstaendig. Behielte AK3 `agentkit.*`,
+waere der Kollisionszustand auf genau der Maschine reproduziert, auf der er
+entstanden ist — dem Entwicklerrechner, der beide Generationen traegt. Damit
+ist der AK2-Namenskonflikt **aufgeloest** und nicht laenger nur isoliert.
+
+**Vertragspaket — Umfang und Grenze.** `agentkit-wire` enthaelt **genau**
+das Vokabular, das beide Seiten auf dem Draht sprechen: die Request-/
+Response-/Fehlermodelle der `/v1`-Grenze und die auf dem Draht
+transportierten Aufzaehlungstypen. Es ist ein **I/O-freies Blatt**: keine
+Dateisystem-, Netz-, Datenbank- oder Prozesszugriffe, keine
+AK3-Fachlogik, keine Importe aus Edge oder Kern, und ausser der
+Validierungsbibliothek keine Drittabhaengigkeit. Es ist **kein Ablageort
+fuer geteilten Code**. Ein Typ, den nur eine Seite braucht — lokale
+Config-, Hook-, Guard- oder Provider-Typen — gehoert zu seinem
+ausfuehrenden Besitzer, auch wenn die andere Seite ihn heute zufaellig
+importiert. Hilfsfunktionen (`utils.io` und Vergleichbares) sind **kein**
+Wire-Vokabular; sie werden dort dupliziert oder verortet, wo sie
+ausgefuehrt werden, nicht ins Vertragspaket gehoben.
+
+**Ein Repository, eine Version (F2).** Alle drei Artefakte werden aus
+diesem Repository gebaut und tragen **dieselbe** Version, gebunden an den
+Repository-Stand. Es gibt keine unabhaengigen SemVer-Reihen, keinen
+Kompatibilitaetsbereich und keine Versionsmatrix — eine Matrix waere genau
+die durch `CLAUDE.md` ausnahmslos verbotene Kompatibilitaetsschicht. Die
+Drahtebene deckt der `/v1/compat`-Handshake ab (§10.2.7, FK-91).
+
+**Nichterreichbarkeit des Entwicklerrechners (normativ).** Der Kern
+oeffnet **nie** eine Verbindung zu einem Entwicklerrechner und hat keinen
+Dateisystemzugriff auf ihn. Jede Kante zwischen beiden wird **vom Edge
+initiiert**. Das gilt ausnahmslos und auch fuer die fachlich
+rueckwaerts gerichtete Review-Delegation aus FK-01 §1.1a: Sie ist die
+**Antwort** auf einen vorangegangenen Project-Edge-Pull eines bereits
+etablierten Knotens, kein Ruf des Kerns auf den Laptop. Fachliche
+Bidirektionalitaet bei transportseitig client-initiiertem Kanal ist damit
+zulaessig; eine eingehende Netzverbindung auf dem Entwicklerrechner ist es
+nicht.
+
+**Die Grenze ist maschinell wahr, nicht konventionell.** Was der Edge
+nicht importieren darf, ist auf dem Entwicklerrechner **nicht
+installiert**. Eine Konvention, die erst auffaellt, wenn jemand sie
+verletzt, ist keine Grenze. Die durchsetzenden Invarianten und das
+blockierende Gate liegen in FK-07 §7.9a und
+`formal.architecture-conformance.*`.
+
 ### 10.1.1 Prozesslandschaft
 
 AgentKit besteht zur Laufzeit aus einer **dünnen Dev-Seite** (Bundle +
 Harness im Project Space) und dem **zentralen AK3 Backend**, das DB und
 Drittsysteme kapselt. Das Zielprojekt enthält keine kopierte
 AgentKit-Runtime und keine kanonischen AgentKit-Zustandsdateien.
+
+Die Dev-Seite wird vollstaendig aus der Edge-Distribution
+`agentkit-project-edge` (plus `agentkit-wire`) ausgeliefert, der zentrale
+Teil vollstaendig aus `agentkit-backend` (plus `agentkit-wire`). Kein
+Prozess des einen Artefakts laeuft auf der Maschine des anderen.
 
 ```mermaid
 graph TB
@@ -177,17 +257,27 @@ menschliche Recovery nach FK-45 §45.4. AK3-Hub-Bewertungen laufen via Unified R
 
 ### 10.1.2 Prozesstypen
 
-| Typ | Lebensdauer | Gestartet von | Rolle gegenüber dem Backend |
-|-----|-------------|---------------|------------------------------|
-| **AK3 Backend** (deterministischer Orchestrierungskern) | Dauerhaft | Zentrale Infrastruktur (`agentkit serve`) | Führt Pipeline/Verify/Closure/Governance aus und hält die Entscheidungs-Autorität; besitzt den kanonischen State (einzige Schreib-Autorität); treibt DB und Drittsystem-Werkzeuge |
-| **Harness-Session** (Claude Code / Codex; FK-76) | Minuten bis Stunden | Mensch (Orchestrator/Worker/Adversarial via CLI `claude` oder `codex`); Project Edge ueber die Harness-Anbindung (Review-Rueckdelegation) | Orchestrator/Worker/Adversarial/Review; ruft kanonische Operationen per REST ausschliesslich über Project Edge auf und empfaengt Rueckdelegationen ueber dessen Harness-Anbindung |
-| **Hook-Prozess** | Millisekunden | Harness (pro Tool-Call, via Harness-Adapter) | REST-Client des Backends; kein DB-/Drittsystem-Zugriff (I1/I2/I3) |
-| **Project Edge** | Sekunden bis Minuten | Agent-Harness oder projektlokaler Edge-Command-Loop | Dünner REST-Client des Backends und einziges Relais beider Richtungen; keine eigene Fachlogik, keine zweite State-Quelle |
-| **agentkit CLI** | Sekunden bis Minuten | Mensch / Operator | Menschlicher und administrativer Recovery-Adapter auf die REST-API; kein Agenten-Aufrufweg, keine eigene Fachlogik, keine zweite State-Quelle |
-| **AK3 Frontend** | Dauerhaft (Browser-Session) | Mensch (`agentkit ui`) | REST-Client des Backends (I6) |
-| **LLM-Hub** | Dauerhaft | Externe Infrastruktur | Drehscheibe (Provider) für mehrere LLM-Modelle; vom Kern über das Unified-REST-Interface getrieben (I2) |
-| **MCP-Server** | Dauerhaft | Mensch oder Autostart | Story-Knowledge-Base Weaviate (Pflicht, I4), ARE (optional) |
-| **Docker-Container** | Dauerhaft | `docker-compose up` | Weaviate + text2vec-transformers (Pflicht) |
+Die Spalte **Distribution** benennt das Artefakt, aus dem der Prozess
+ausgeliefert wird (§10.1.0a). Sie ist Teil des normativen Schnitts: ein
+Prozess mit Distribution „Edge" darf keinen Kern-Code importieren und
+umgekehrt.
+
+| Typ | Distribution | Maschine | Lebensdauer | Gestartet von | Rolle gegenüber dem Backend |
+|-----|--------------|----------|-------------|---------------|------------------------------|
+| **AK3 Backend** (deterministischer Orchestrierungskern) | `agentkit-backend` | zentral (Server oder Loopback-Host) | Dauerhaft | Zentrale Infrastruktur (`agentkit-backend serve`) | Führt Pipeline/Verify/Closure/Governance aus und hält die Entscheidungs-Autorität; besitzt den kanonischen State (einzige Schreib-Autorität); treibt DB und Drittsystem-Werkzeuge |
+| **Harness-Session** (Claude Code / Codex; FK-76) | — (Plattform, nicht AK3) | Entwicklerrechner | Minuten bis Stunden | Mensch (Orchestrator/Worker/Adversarial via CLI `claude` oder `codex`); Project Edge ueber die Harness-Anbindung (Review-Rueckdelegation) | Orchestrator/Worker/Adversarial/Review; ruft kanonische Operationen per REST ausschliesslich über Project Edge auf und empfaengt Rueckdelegationen ueber dessen Harness-Anbindung |
+| **Hook-Prozess** | `agentkit-project-edge` | Entwicklerrechner | Millisekunden | Harness (pro Tool-Call, via Harness-Adapter) | REST-Client des Backends; kein DB-/Drittsystem-Zugriff (I1/I2/I3). Fuehrt die Guard-Evaluation **lokal** aus (§10.1.3, FK-30) |
+| **Project Edge** | `agentkit-project-edge` | Entwicklerrechner | Sekunden bis Minuten | Agent-Harness oder projektlokaler Edge-Command-Loop | Dünner REST-Client des Backends und einziges Relais beider Richtungen; keine eigene Fachlogik, keine zweite State-Quelle |
+| **Bediener-CLI** (`agentkit-project-edge`) | `agentkit-project-edge` | Entwicklerrechner | Sekunden bis Minuten | Mensch / Operator | Menschlicher und administrativer Recovery-Adapter auf die REST-API; kein Agenten-Aufrufweg, keine eigene Fachlogik, keine zweite State-Quelle |
+| **Installer-Lauf** (Ebene 2/3) | `agentkit-project-edge` | Entwicklerrechner | Sekunden bis Minuten | Mensch / Operator | Registriert, verifiziert, aktualisiert und loest Projektbindungen; materialisiert Hook- und MCP-Registrierung lokal |
+| **AK3 Frontend** | `agentkit-backend` | zentral ausgeliefert, im Browser gerendert | Dauerhaft (Browser-Session) | Mensch (`agentkit-backend ui`) | REST-Client des Backends (I6) |
+| **LLM-Hub** | — (Drittsystem) | extern | Dauerhaft | Externe Infrastruktur | Drehscheibe (Provider) für mehrere LLM-Modelle; vom Kern über das Unified-REST-Interface getrieben (I2) |
+| **MCP-Server** (Story-Knowledge-Base, ARE) | `agentkit-project-edge` | Entwicklerrechner | Dauerhaft | Harness oder Autostart | Story-Knowledge-Base Weaviate (Pflicht, I4), ARE (optional). Der Prozess laeuft lokal; `weaviate-client` und `mcp` sind damit **Edge**-Abhaengigkeiten (F3) |
+| **Docker-Container** | — (Drittsystem) | Betreiber-Infrastruktur | Dauerhaft | `docker-compose up` | Weaviate + text2vec-transformers (Pflicht) |
+
+Das Vertragspaket `agentkit-wire` erscheint in dieser Tabelle nicht: es
+startet keinen Prozess. Es wird von Edge- und Kern-Prozessen importiert und
+hat weder Lebensdauer noch Startakteur.
 
 ### 10.1.3 Hook-Prozesse im Detail
 
@@ -230,6 +320,38 @@ des Hooks wird so gewahrt:
 - **Schreibende** Operationen (Telemetrie-Event, Counter-Inkrement,
   Lock-Mutation) gehen **immer** synchron ans Backend; ein nicht
   bestätigter Schreibpfad ist fail-closed (Tool-Call blockiert).
+
+**Was der Hook-Prozess ausliefern darf (normativ).** Der Hook wird aus
+`agentkit-project-edge` (plus `agentkit-wire`) gestartet und importiert
+**ausschliesslich** diese beiden Importwurzeln. Die Guard-Engine — die
+harness-neutrale Auswertung eines Tool-Calls — ist **Edge-Code** und
+laeuft im Hook-Prozess; das ist keine Ausnahme vom duennen Rand, sondern
+seine Aufgabe (§10.1.0a, FK-01 §1.1a, FK-30). Kanonischer Zustand bleibt
+davon unberuehrt: der Hook liest und schreibt ihn ausschliesslich per REST
+(I1/I3).
+
+Daraus folgt fail-closed: **kein als kern-only klassifizierter Import und
+keine kern-only Drittabhaengigkeit darf im Hook-Prozess ladbar sein.** Nicht
+„wird nicht benutzt" — **nicht installiert** (§10.1.0a, FK-07 §7.9a).
+
+> **Ist-Befund, gemessen am 2026-08-07** (AG3-208 AC 7, wegwerfbare leere
+> venv auf Windows, Python 3.14.3, heutiges Einzel-Wheel `agentkit-0.1.0`):
+> Ein **echter** `agentkit-hook-claude`-Prozess mit realem stdin laedt
+> **294 `agentkit.*`-Module aus 23 Backend-Subpaketen**, darunter das
+> vollstaendige `verify_system` (SonarQube-Gate, LLM-Evaluator,
+> Adversarial-Orchestrator, Policy-Engine), `state_backend.store`,
+> `control_plane` und `story_creation`. Die Installation des einen Wheels
+> zieht **56 Distributionen** in die Umgebung, darunter `psycopg`,
+> `psycopg-binary`, `psycopg-pool`, `weaviate-client`, `tokenizers`,
+> `uvicorn` und `starlette` — auf einer Maschine, die die Datenbank nie
+> sieht. Die heutige Grenze existiert also nicht; sie ist die Motivation
+> dieses Kapitels, nicht sein Zustand. **Praezisierung gegen eine
+> kursierende Behauptung:** `psycopg` wird im Hook-Prozess *nicht*
+> importiert (der Import in
+> `state_backend/store/control_plane_writer_lease.py` steht unter
+> `TYPE_CHECKING`) — es ist **installiert**, nicht geladen. Das ist der
+> schwaechere, aber belegte Befund; die Angriffsflaeche entsteht durch die
+> Anwesenheit auf der Maschine, nicht durch den Ladevorgang.
 
 **Parallelität.** Der Harness ruft Hooks sequentiell auf (ein Hook pro
 Tool-Call). Mehrere Sub-Agent-Sessions können parallel laufen, also
@@ -280,9 +402,17 @@ Qualifizierung meint immer **nur Ebene 3**.
 
 | # | Ebene | Was liegt dort | Installationsweg | Update | Uninstall |
 |---|-------|----------------|------------------|--------|-----------|
-| **1** | **Zentral (Core)** | AK3 Backend + Frontend + Postgres-State-Backend | **Eigene Bootstrap-Routine mit manuellen Anteilen** (kein Checkpoint-Installer), §10.2.5 | Ops-getrieben (§10.2.8) | Core-Decommission = State-Stilllegung (§10.2.9) |
-| **2** | **Entwicklermaschine** | dedizierte, vom Installer erzeugte AK3-Python-Umgebung (Paket, deklarierte Abhaengigkeiten, Hook-/Operator-/Project-Edge-Code) **+** immutable Skill-/Prompt-Bundle-Store | isolierte Paket- + Bundle-Installation, §10.2.6 | `agentkit update` zieht neue Paket-/Bundle-Version (§10.2.8) | Maschinen-Uninstall (§10.2.9) |
-| **3** | **Projektraum** | dünne projektlokale Bindungen: config, Hook-Registrierung, Skill-Junctions, Project-Edge-Launcher | `agentkit register-project` (Checkpoint-Installer, FK-50), §10.2.1 | Re-Bind / Re-Run (FK-51) | Projekt-Detach (§10.2.9) |
+| **1** | **Zentral (Core)** | `agentkit-backend` + `agentkit-wire` + Frontend-Auslieferung + Postgres-State-Backend | **Eigene Bootstrap-Routine mit manuellen Anteilen** (kein Checkpoint-Installer), §10.2.5 | Ops-getrieben (§10.2.8) | Core-Decommission = State-Stilllegung (§10.2.9) |
+| **2** | **Entwicklermaschine** | dedizierte, vom Installer erzeugte AK3-Python-Umgebung mit **genau** `agentkit-project-edge` + `agentkit-wire` und deren deklarierten Abhaengigkeiten **+** immutable Skill-/Prompt-Bundle-Store | isolierte Paket- + Bundle-Installation, §10.2.6 | `agentkit-project-edge update` zieht neue Paket-/Bundle-Version (§10.2.8) | Maschinen-Uninstall (§10.2.9) |
+| **3** | **Projektraum** | dünne projektlokale Bindungen: config, Hook-Registrierung, Skill-Junctions, Project-Edge-Launcher | `agentkit-project-edge register-project` (Checkpoint-Installer, FK-50), §10.2.1 | Re-Bind / Re-Run (FK-51) | Projekt-Detach (§10.2.9) |
+
+**Distributionsregel der Ebenen (normativ).** Ebene 1 traegt `agentkit-backend`,
+Ebene 2 traegt `agentkit-project-edge`; `agentkit-wire` liegt auf beiden.
+**Keine Ebene traegt beide ausfuehrbaren Artefakte.** Ein Entwicklerrechner,
+auf dem `agentkit-backend` installiert ist, ist ein Fehlbetrieb — auch dann,
+wenn der Core dort im Loopback laeuft: Der Loopback-Core ist Ebene 1 auf
+derselben Hardware, nicht Ebene 2 mit Kern-Inhalt. Er wird in eine eigene,
+getrennte Umgebung installiert.
 
 **Abhängigkeitsrichtung:** Ebene 3 setzt Ebene 2 voraus; Ebene 2 setzt
 für kanonische Operationen Ebene 1 voraus. **Kanonischer Zustand lebt
@@ -299,7 +429,7 @@ graph TB
         BE --- PG
     end
     subgraph L2["Ebene 2 — Entwicklermaschine: einmal pro Maschine"]
-        PKG["agentkit-Paket<br/>(Hook-Code, Operator-Entry-Points, Project-Edge-Code)"]
+        PKG["agentkit-project-edge + agentkit-wire<br/>(Hook-Code, Guard-Engine, Bediener-CLI, Installer, Project-Edge-Code)"]
         STORE["Skill-/Prompt-Bundle-Store<br/>(immutable, versioniert)"]
     end
     subgraph L3["Ebene 3 — Projektraum: dünne Bindungen pro Projekt"]
@@ -314,8 +444,9 @@ graph TB
 
 ### 10.2.1 Ebene 3 — Projektraum-Registrierung (Checkpoint-Installer)
 
-Dies ist **Ebene 3** der Dreifaltigkeit (§10.2.0). Das `agentkit`-Paket liegt
-bereits in der dedizierten Maschinen-Umgebung vor (Ebene 2, §10.2.6); der
+Dies ist **Ebene 3** der Dreifaltigkeit (§10.2.0). Die Edge-Distribution
+`agentkit-project-edge` (plus `agentkit-wire`) liegt bereits in der
+dedizierten Maschinen-Umgebung vor (Ebene 2, §10.2.6); der
 Checkpoint-Installer (FK-50) registriert nun ein Zielprojekt **über das
 Backend** und schreibt projektlokal nur Konfiguration und Bindungen —
 keinen kanonischen State:
@@ -324,17 +455,17 @@ keinen kanonischen State:
 sequenceDiagram
     participant ADM as Backend-Admin
     participant DEV as Client-Bediener
-    participant INS as agentkit register-project
+    participant INS as agentkit-project-edge register-project
     participant BE as AK3 Backend (REST /v1)
     participant STATE as State-Backend (Postgres)
     participant PROJ as Zielprojekt
 
     Note over ADM,BE: Projektkontext besteht kernseitig vor der Tokenausstellung (FK-15 §15.10.4)
-    ADM->>BE: agentkit auth issue-token (Strategen-Session; Klartext nur im Admin-Terminal)
+    ADM->>BE: agentkit-project-edge auth issue-token (Strategen-Session; Klartext nur im Admin-Terminal)
     ADM-->>DEV: Token ausserhalb AK3 uebergeben
-    DEV->>INS: agentkit auth store-token --project-root ... (HTTPS-Pruefung + atomare Credential-Publikation)
+    DEV->>INS: agentkit-project-edge auth store-token --project-root ... (HTTPS-Pruefung + atomare Credential-Publikation)
     Note over DEV,INS: Vorbedingung — Ebene 2 vorhanden, Core erreichbar und aktive Projekt-Credential vorhanden
-    DEV->>INS: agentkit register-project --gh-owner acme --gh-repo platform
+    DEV->>INS: agentkit-project-edge register-project --gh-owner acme --gh-repo platform
     INS->>BE: Projekt registrieren / Konfiguration validieren (Bearer, REST)
     BE->>STATE: Projekt-Record schreiben (nur Backend, I1)
     INS->>BE: Dritt-System-Referenzen validieren (Bearer, REST /v1)
@@ -351,7 +482,7 @@ Pflicht-Infrastrukturdienste benötigt (Weaviate).
 
 Der Erstlauf ist damit rollengetrennt: Der kernseitige Projektkontext ist die
 Vorbedingung der adminseitigen Tokenausstellung. Der Client-Bediener publiziert
-das ausgehaendigte Token mit `agentkit auth store-token` **vor**
+das ausgehaendigte Token mit `agentkit-project-edge auth store-token` **vor**
 `register-project`. CP7, CP10d und jeder weitere Installer-Aufruf verwenden nur
 diese aktive Projekt-Credential. Ein fehlendes oder ungueltiges Credential
 blockiert vor dem ersten Installer-Netzwerkaufruf; eine Strategen-Session ist
@@ -398,11 +529,24 @@ Governance, Policy) ist **der AK3-Kern** und läuft im Backend; sie ist
 über REST (`/v1`) erreichbar, aber ihre Autorität wird nicht nach außen
 delegiert. Projektseitig laufen nur:
 
-- Kurzlebige Aufrufe des `agentkit`-Pakets — die Operator-Entry-Points
-  und der Project-Edge-Launcher (dünne REST-Clients, keine eigene
-  Fachlogik). „CLI" meint diese Paket-Entry-Points, kein separat
-  installiertes Artefakt.
-- Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse; REST-Clients) sowie Zugriff auf Projektcode und Projektkonfiguration
+- Kurzlebige Aufrufe der Edge-Distribution `agentkit-project-edge` — die
+  Bediener-Entry-Points und der Project-Edge-Launcher (dünne REST-Clients
+  fuer kanonische Operationen). „CLI" meint diese Entry-Points der
+  Edge-Distribution; ein zusaetzliches, separat installiertes Artefakt
+  fuer die CLI gibt es nicht.
+- Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse; REST-Clients fuer
+  kanonischen Zustand) sowie Zugriff auf Projektcode und Projektkonfiguration
+
+**Praezisierung gegen eine haeufige Fehllesung.** „Keine kanonische
+projektlokale Runtime" heisst: keine **Fachautoritaet** und **kein
+kanonischer Zustand** auf dem Entwicklerrechner. Es heisst **nicht**, dass
+dort kein Code ausser einem HTTP-Aufruf laeuft. Der Edge fuehrt die
+deterministische Guard-Evaluation, die fs-/worktree-gebundene Mechanik, die
+Story-Reconciliation und die lokale Credential-/Provider-Portaufloesung
+tatsaechlich aus — im Auftrag und unter der Autoritaet des Kerns
+(§10.1.0a, FK-01 §1.1a, FK-30). Diese Ausfuehrung ist der Grund, warum es
+eine Edge-Distribution gibt; sie waere ueber den Netzweg weder
+millisekundenschnell noch dateisystemnah moeglich.
 
 Der projektlokale **Project-Edge-Launcher** unter `tools/agentkit/` ist
 ein Convenience-Einstieg für Agents. Er darf als Script oder natives
@@ -588,23 +732,23 @@ hochentwickelten Checkpoint-Installer der Ebenen 2/3. Er wird mit
   `openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout var/core-tls/core-key.pem -out var/core-tls/core-cert.pem -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"`.
   Der private Schluessel ist owner-only zu schuetzen; eine fehlende oder
   unlesbare TLS-Datei blockiert den Start.
-- **Operative Schritte (teils manuell):** `agentkit`-Paket auf dem
-  Core-Host installieren → State-Backend-Schema anlegen/migrieren →
+- **Operative Schritte (teils manuell):** `agentkit-backend` (plus
+  `agentkit-wire`) auf dem Core-Host installieren → State-Backend-Schema anlegen/migrieren →
   **einen** Backend-Writer mit beiden Listenern starten
-  (`agentkit serve --ui-host 127.0.0.1 --ui-port 9701 --project-host 127.0.0.1 --project-port 9702 --certfile var/core-tls/core-cert.pem --keyfile var/core-tls/core-key.pem`)
+  (`agentkit-backend serve --ui-host 127.0.0.1 --ui-port 9701 --project-host 127.0.0.1 --project-port 9702 --certfile var/core-tls/core-cert.pem --keyfile var/core-tls/core-key.pem`)
   → Frontend bereitstellen
-  (`agentkit ui`) → Erreichbarkeit verifizieren.
+  (`agentkit-backend ui`) → Erreichbarkeit verifizieren.
 - **Kollisionsfreier Wegwerf-Realitaetsnachweis:** Wenn die Defaultports auf dem
   Pruefhost bereits durch einen installierten Core belegt sind, verwendet der
   Nachweis dieselbe Zertifikatsquelle hostname-validierend auf freien
-  Testports: `agentkit serve --ui-host 127.0.0.1 --ui-port 19701 --project-host 127.0.0.1 --project-port 19702 --certfile var/core-tls/core-cert.pem --keyfile var/core-tls/core-key.pem`;
+  Testports: `agentkit-backend serve --ui-host 127.0.0.1 --ui-port 19701 --project-host 127.0.0.1 --project-port 19702 --certfile var/core-tls/core-cert.pem --keyfile var/core-tls/core-key.pem`;
   danach muessen
   `curl --cacert var/core-tls/core-cert.pem https://127.0.0.1:19701/healthz` und
   `curl --cacert var/core-tls/core-cert.pem https://127.0.0.1:19702/healthz`
   jeweils `200` liefern. Die Testports sind kein neuer Default.
 - **Topologie:** Loopback (Einzelplatz) oder dedizierter Server
   (Team) — §10.2.4; der Installationsweg ist in beiden Fällen derselbe.
-- **Abgrenzung:** `agentkit register-project` (Ebene 3) **setzt einen
+- **Abgrenzung:** `agentkit-project-edge register-project` (Ebene 3) **setzt einen
   laufenden Core voraus** (CP7) und installiert ihn nicht. Ein
   fehlender/nicht erreichbarer Core lässt CP7 fail-closed scheitern.
 
@@ -618,9 +762,13 @@ dokumentierter manueller Betrieb.
 Pro Entwicklermaschine liegt **genau einmal physisch** vor:
 
 - eine dedizierte, vom AK3-Installer erzeugte **virtuelle Python-Umgebung** —
-  sie enthaelt das `agentkit`-Paket, dessen vollstaendige deklarierte
-  Abhaengigkeiten, Hook-Code, Operator-Entry-Points und den
-  Project-Edge-Launcher-Code;
+  sie enthaelt **genau** `agentkit-project-edge` und `agentkit-wire` samt
+  deren vollstaendigen deklarierten Abhaengigkeiten — Hook-Code,
+  Guard-Engine, Bediener-Entry-Points, Installer und
+  Project-Edge-Launcher-Code. `agentkit-backend` und jede als kern-only
+  klassifizierte Abhaengigkeit sind in dieser Umgebung **nicht**
+  installiert; ihre Anwesenheit ist ein Fehlbetrieb und wird vom Gate aus
+  FK-07 §7.9a blockierend erkannt;
 - der **Skill-/Prompt-Bundle-Store** — immutable, versioniert, mehrere
   Versionen nebeneinander (z. B. `…\bundles\<version>\<profile>\…`,
   FK-43).
@@ -682,7 +830,7 @@ AK3 führt **drei operative Versions-Achsen** plus zwei Daten-Contracts:
 
 | Achse | Geltung | Inhalt |
 |-------|---------|--------|
-| **Agent-Runtime** | Ebene 2 | ein SemVer des `agentkit`-Pakets (Hook-Code + Operator-Entry-Points + Project-Edge) |
+| **Agent-Runtime** | Ebene 2 | ein SemVer, gebunden an den Repository-Stand und **fuer alle drei Distributionen identisch** (`agentkit-project-edge`, `agentkit-backend`, `agentkit-wire`). Die Dev-Maschine meldet die Version ihrer Edge-Distribution; sie ist zugleich die Version des Vertragspakets |
 | **Skill-/Prompt-Bundle** | Ebene 2→3 | immutable Version/Hash, pro Projekt gepinnt (FK-43/FK-44) |
 | **Wire `/v1`** | Ebene 3↔1 | statische REST-Grenze; ein Bruch erzeugt `/v2`, keine In-Place-Änderung |
 | `config_version` | Ebene 3 | Parse-Zeit-Contract der `project.yaml` (FK-03) |
@@ -690,6 +838,24 @@ AK3 führt **drei operative Versions-Achsen** plus zwei Daten-Contracts:
 
 `config_version`/`schema_version` sind **keine** Teilnehmer des
 dev↔central-Handshakes; sie sind Parse- bzw. Daten-Contracts.
+
+**Eine Version fuer drei Artefakte (F2, normativ).** `agentkit-project-edge`,
+`agentkit-backend` und `agentkit-wire` werden aus **einem** Repository
+gebaut und **synchron** mit **derselben** Version veroeffentlicht. Der
+Distributionsschnitt fuegt der obigen Tabelle deshalb **keine** vierte
+Achse hinzu. Es gibt insbesondere **nicht**:
+
+- unabhaengige SemVer-Reihen je Artefakt,
+- einen Kompatibilitaetsbereich zwischen Edge- und Kern-Version,
+- eine Versionsmatrix.
+
+Eine solche Matrix waere genau die durch `CLAUDE.md`
+(„KEINE KOMPATIBILITAETSSCHICHTEN") ausnahmslos verbotene
+Kompatibilitaetsschicht. Die einzige verhandelte Grenze bleibt die
+Drahtebene: der `/v1`-Handshake mit `min`/`recommended`/`blocked`
+(FK-91). Ein Edge, dessen Version ausserhalb des vom Kern gefuehrten
+Fensters liegt, wird fail-closed abgewiesen — nicht ueber eine
+Uebersetzungsschicht bedient.
 
 **dev↔central-Kompatibilität wird über das `/v1`-Interface verhandelt**
 (Detailvertrag in FK-91): Jeder Dev→Backend-Request trägt die
@@ -709,7 +875,7 @@ Deployment ist **nicht** einmalig. Das Treibermodell ist **hybrid**:
 - **Der Core annonciert, die Dev-Maschine zieht und aktiviert selbst.**
   Das Backend teilt über `/v1` `min`/`recommended`/`blocked`-Versionen
   mit (Header bzw. Compat-Endpunkt, FK-91); die Aktualisierung führt die
-  Dev-Maschine per `agentkit update` lokal aus (Paket- und/oder
+  Dev-Maschine per `agentkit-project-edge update` lokal aus (Paket- und/oder
   Bundle-Version). **Kein Server-Push von Executables** — das wäre
   Remote-Code-Ausführung über die Trust-Boundary, gerade für Hook-Code.
 - **Kompatibilitätsreaktion (fail-closed by default):**
@@ -731,7 +897,7 @@ Deployment ist **nicht** einmalig. Das Treibermodell ist **hybrid**:
   gesetzt, damit kein zu altes Dev-Paket gegen einen neuen Core läuft.
 
 Per-Ebene-Treiber: Ebene 1 = Ops/Operator; Ebene 2 = Entwickler per
-`agentkit update` (auf Server-Hinweis); Ebene 3 = deliberater
+`agentkit-project-edge update` (auf Server-Hinweis); Ebene 3 = deliberater
 Re-Bind/Re-Run (FK-51).
 
 ### 10.2.9 Uninstall und Decommission
@@ -773,6 +939,195 @@ an Dienst-Uninstall (`down -v`) ist verboten. Ephemeres Runtime-Cleanup
   brechen ab. Lokale Read-Projektionen (§10.1.3) dürfen für reine
   Status-Ansicht gelesen werden, werden aber **nie zur Ersatzwahrheit**
   (I5). Einen Offline-Schreibpfad auf kanonischen Zustand gibt es nicht.
+
+### 10.2.11 Entry-Point- und Namensvertrag
+
+Fuer **jedes** Console-Script und **jedes** CLI-Verb ist festgelegt, welche
+Distribution es ausliefert und auf welcher Maschine es laeuft. Es gibt
+**keinen** Alias, Shim, Re-Export und keinen Zeitraum, in dem zwei Wege
+nebeneinander funktionieren.
+
+**Der blosse Name `agentkit` wird als Console-Script zurueckgezogen.** Er
+gehoerte im heutigen Stand zu einer CLI, die Laptop- und Kern-Verben
+mischte; unter dem Distributionsschnitt haette er zwei Besitzer, und genau
+das ist auf einem Rechner, der zusaetzlich AK2 traegt, der Kollisionsfall
+aus F1. Ein Kompatibilitaets-Alias ist ausgeschlossen.
+
+| Console-Script | Distribution | Maschine | Zweck |
+|---|---|---|---|
+| `agentkit-project-edge` | `agentkit-project-edge` | Entwicklerrechner | Bediener- und Projekt-CLI (alle Verben der Edge-Zeile unten) |
+| `agentkit-hook-claude` | `agentkit-project-edge` | Entwicklerrechner | Hook-Wrapper Claude Code (FK-30, FK-76) |
+| `agentkit-hook-codex` | `agentkit-project-edge` | Entwicklerrechner | Hook-Wrapper Codex (FK-30, FK-76) |
+| `agentkit-story-mcp` | `agentkit-project-edge` | Entwicklerrechner | Story-Knowledge-Base-MCP-Server (FK-13 §13.4) |
+| `agentkit-are-mcp` | `agentkit-project-edge` | Entwicklerrechner | ARE-MCP-Wrapper (optional, `features.are: true`) |
+| `agentkit-backend` | `agentkit-backend` | Core-Host | Kern-CLI (`serve`, `ui`, `decommission`) |
+
+**Verb-Zuordnung.** Die heutige Einheits-CLI fuehrt 35 Verben. Drei davon
+sind Kern-Verben, die uebrigen 32 sind Bediener-/Projekt-Verben und laufen
+als REST-Clients auf dem Entwicklerrechner:
+
+| Distribution | Verben |
+|---|---|
+| `agentkit-backend` | `serve`, `ui`, `decommission` |
+| `agentkit-project-edge` | `auth`, `register-project`, `verify-project`, `upgrade-project`, `update`, `detach`, `doctor`, `run-story`, `run-phase`, `resume`, `recover-story`, `admin-abort`, `cleanup`, `reset-escalation`, `override-integrity`, `status`, `query-state`, `query-telemetry`, `weekly-review`, `export-telemetry`, `watch-worker`, `split-story`, `reset-story`, `exit-story`, `takeover-request`, `takeover-confirm`, `export-story-md`, `repair-story-md`, `evidence`, `failure-corpus`, `hook-errors`, `concept` |
+
+**Warum die Bediener-Verben Edge sind.** Sie sind duenne REST-Clients auf
+`/v1` ohne eigene Fachautoritaet (§10.2.3, FK-45 §45.4) und werden von
+einem Menschen an einem Entwicklerrechner ausgefuehrt. Sie brauchen den
+Kern als Gegenueber, nicht als Mitinstallation. `serve`, `ui` und
+`decommission` sind dagegen Ebene-1-Operationen: sie starten den Writer,
+liefern das Frontend aus oder legen den Kern still.
+
+**Der Backend-Admin ist eine Rolle, keine Maschine.** Auch die
+administrativen `auth`-Unterverben (`bootstrap`, `login`,
+`rotate-password`, `issue-token`, `store-token`, `revoke-token`) sind
+REST-Aufrufe gegen den Kern und liegen deshalb vollstaendig in der
+Edge-CLI. Der Core-Host braucht keinen Client: eine lokale Ausfuehrung
+solcher Operationen am `/v1`-Vertrag vorbei waere ein I3-Verstoss. Wer
+administriert, benutzt dieselbe Edge-Distribution wie jeder andere
+Bediener — mit anderen Rechten, nicht mit anderem Code.
+
+**Aufloesung des Platzhalters `<absolute-agentkit-wrapper>` (normativ).**
+Der Korpus benutzt an rund 150 Stellen den Platzhalter
+`<absolute-agentkit-wrapper>` fuer den absoluten Pfad des Bediener-CLI
+neben dem zentral aufgeloesten Interpreter. Da das Console-Script
+`agentkit` zurueckgezogen wird, bezeichnet dieser Platzhalter **ab sofort
+und ausschliesslich** das Script `agentkit-project-edge` der
+Edge-Distribution. Analog steht `<absolute-agentkit-hook-claude-wrapper>`
+bzw. `<absolute-agentkit-hook-codex-wrapper>` fuer die beiden
+Hook-Wrapper derselben Distribution. Es gibt genau **eine** Bedeutung je
+Platzhalter; die Umbenennung des Platzhalter-Textes selbst ist reine
+Schreibarbeit ohne fachliche Entscheidung und gehoert nicht in diese
+Story.
+
+**Zwei heute unbelegte Zusagen — als Defekt benannt, nicht mitgeschleppt.**
+
+1. Der Story-Knowledge-MCP wird als `<ak3-interpreter> -m
+   agentkit.backend.vectordb.engine` registriert
+   (`backend/core_types/mcp_server_registration.py`), also ueber einen
+   Modulpfad im Kern-Namensraum. Unter dem Distributionsschnitt braucht er
+   einen eigenen Entry Point in der Edge-Distribution
+   (`agentkit-story-mcp`).
+2. `agentkit-are-mcp` wird als Wrapper-Kommando registriert und beim
+   Detach als AK3-Eigentum erkannt, hat aber in `[project.scripts]`
+   **keinen Eintrag** — das Kommando existiert nach der Installation
+   nicht. Der Entry-Point-Vertrag oben schliesst diese Luecke normativ;
+   die Umsetzung gehoert zu AG3-209.
+
+### 10.2.12 Artefakt-Ownership-Matrix
+
+Diese Matrix ist die **vollstaendige** Zuordnung des heutigen Bestands zu
+den drei Artefakten. Sie ist eine **Totalfunktion**: jede Einheit hat genau
+einen Besitzer, und fuer den nicht namentlich genannten Rest gilt die
+Auffangregel in Abschnitt B. Grundlage ist der **Laufzeitbesitzer**, nicht
+der historische Namensraum.
+
+**A — Deployment Units unter `src/agentkit/` (Ist-Inventar, gemessen 2026-08-07).**
+
+| Einheit | Umfang (Ist) | Besitzer | Begruendung |
+|---|---|---|---|
+| `backend/` | 955 Python-Module, 46 Subpakete | **modulweise geteilt** — siehe B | Der Name ist historisch. Guard-Engine, Installer, Bediener-CLI, Story-Reconciliation und MCP-Server liegen dort, laufen aber auf dem Entwicklerrechner |
+| `frontend/` | 0 Python-Module, TS/React-Baum | **Kern** | Wird vom Kern ausgeliefert (`agentkit-backend ui`) und spricht ausschliesslich REST mit ihm (I6). Kein Edge-Prozess laedt Frontend-Assets |
+| `harness_client/` | 25 Module | **Edge** | Hook-Adapter und Project-Edge-Client; laufen ausnahmslos auf dem Entwicklerrechner |
+| `integration_clients/` | 24 Module, 8 Adapter | **adapterweise geteilt** — siehe C | Wer den Adapter treibt, besitzt ihn (I2 bzw. Carve-out FK-01 §1.1a) |
+| `bundles/` | 30 Module, 132 Dateien | **Edge** | Alles darunter wird auf dem Entwicklerrechner materialisiert: Zielprojekt-Scaffold, Skill-Junctions, Project-Edge-Launcher. Konsumenten sind `installer/`, `skills/bundle_store` und der Codex-Adapter |
+| `concepts/` | 7 Module (Parser, Chunking, Tokenizer, Frontmatter) | **Edge** | Einzige Konsumenten sind `backend/vectordb` (MCP-Server + Ingest) und `backend/story_creation` — beide Edge |
+| `resources/` | Tokenizer-Asset | **Edge** | Wird ausschliesslich von `concepts/tokenizer.py` geladen |
+| `shared/` | **leeres Verzeichnis** | **entfaellt** | Kein Inhalt, kein Besitzer, keine Deployment Unit. Es wird mit dem Schnitt entfernt, nicht umgehaengt |
+| Paket-Root (`__init__.py`, `py.typed`) | 2 Dateien | **je Distribution ein eigener Root** | Es gibt keinen gemeinsamen Paket-Root mehr. Jede Distribution bringt den Root ihrer eigenen Importwurzel mit; die Versionskonstante folgt dem gemeinsamen Repository-Stand (§10.2.7) |
+
+**B — `backend/`: Edge-Subpakete (abschliessend) und Auffangregel.**
+
+| Subpaket | Besitzer | Begruendung / Beleg |
+|---|---|---|
+| `governance/` | **Edge** | Die Guard-Engine (`governance.runner`, `governance.guard_evaluation`) laeuft im Hook-Prozess auf dem Entwicklerrechner (FK-30, §10.1.3). Sie liest das lokale Edge-Bundle und schreibt Harness-Settings — beides lokale Mechanik |
+| `installer/` | **Edge** | Projektregistrierung, Verify, Upgrade, Update, Detach, Hook- und MCP-Materialisierung, Interpreter-Aufloesung. Ebene 2 und 3 sind per Definition Entwicklermaschine |
+| `cli/` | **Edge**, ausser den drei Kern-Verben | Bediener-CLI (§10.2.11). `serve`, `ui` und `decommission` ziehen in die Kern-CLI um |
+| `story_creation/` | **Edge** | Der Reconciler wird vom Zielprojekt-Launcher lokal gebaut und ausgefuehrt; er spricht die VektorDB direkt an (Carve-out FK-01 §1.1a) |
+| `code_backend/provider_port` | **Edge** | Der Port wird im lokalen Service-Identity-Pfad des `command_executor` konsumiert; die Credential-Aufloesung laeuft am Entwicklerrechner. Der uebrige `code_backend/` bleibt Kern |
+| `vectordb/` | **Edge** | Enthaelt den lokal gestarteten MCP-Server (`engine`, `mcp_server`), den Ingest und den Concept-Corpus-Builder (F3) |
+| `config/` (Loader, Pfade, Defaults) | **Edge** | `project.yaml` ist eine Datei auf dem Entwicklerrechner. Der Kern parst sie **nicht** vom Dateisystem: er erhaelt die validierte Konfiguration ueber `/v1` und fuehrt sie als `ProjectManagement`-Zustand (I5, FK-07 §7.4.6). Das **Konfigurationsschema** ist Payload beider Seiten und gehoert ins Vertragspaket — siehe D |
+| `core_types/mcp_server_registration` | **Edge** | Beschreibt lokal zu startende MCP-Prozesse |
+| `core_types/verify_evidence` (Grenzwerte, Request-/Repository-Vertrag) | **Vertragspaket** | Evidence wird lokal erhoben und ueber `/v1` eingereicht — beidseitiges Vokabular |
+| `utils/io` | **dupliziert, nicht geteilt** | Triviale Hilfsfunktionen (`atomic_write_text`, `read_json_object`). Sie sind **kein** Wire-Vokabular. Jede Distribution fuehrt ihre eigene Kopie; ein gemeinsames Utility-Paket waere der Abstellraum, den §10.1.0a verbietet |
+| **alle uebrigen Subpakete** | **Kern** | Auffangregel: was oben nicht steht, gehoert zum Kern. Das betrifft insbesondere `pipeline_engine`, `verify_system`, `exploration`, `implementation`, `closure`, `state_backend`, `control_plane`, `control_plane_http`, `telemetry`, `telemetry_service`, `kpi_analytics`, `auth`, `project_management`, `story`, `story_context_manager`, `execution_planning`, `phase_state_store`, `artifacts`, `prompt_runtime`, `concept_catalog`, `failure_corpus`, `skills`, `task_management`, `requirements_coverage`, `integration_stabilization`, `project`, `project_ops`, `schemas`, `boundary`, `bootstrap`, `process`, `workers`, `story_exit`, `story_reset`, `story_split` |
+
+**Gegenkanten Kern→Edge.** Die am 2026-08-07 gemessenen 46 Importstellen
+aus `backend/` nach `harness_client/` (22 Dateien, 9 Zielmodule;
+Schwerpunkt `governance/runner.py`, `cli/auth_commands.py`, `installer/*`)
+sind **keine** legitimen Kern→Edge-Laufzeitabhaengigkeiten: sie entstehen
+ausnahmslos in Modulen, die nach dieser Matrix ohnehin zum Edge gehoeren.
+Nach dem Schnitt darf aus dem Kern **keine** Edge-Distribution transitiv
+erreichbar sein; eine verbleibende Kante ist ein Fehler, kein Sonderfall
+(FK-07 §7.9a).
+
+**C — `integration_clients/`.**
+
+| Adapter | Besitzer | Begruendung |
+|---|---|---|
+| `github/` | **Kern** | I2: in AK3-verantworteten Vorgaengen treibt der Kern GitHub. Die lokale `git`-/`gh`-Worktree-Mechanik des Edge ist CLI-Aufruf, nicht dieser Adapter |
+| `jenkins/` | **Kern** | Stage-Registry und CI-Gate sind Kern-Urteile (FK-33) |
+| `sonar/` | **Kern** | Konformitaetsurteil und Green-Gate liegen im Kern (FK-33 §33.6) |
+| `multi_llm_hub/` | **Kern** | AK3-mandatierte Bewertungen laufen ausschliesslich Core-vermittelt ueber FK-75 (I2) |
+| `llm_pools/` | **Kern** | derselbe Pfad; kein Edge-Konsument |
+| `are/` | **Kern** | Coverage-Read ist Core-vermittelt (§10.2.2). Der Evidence-Upload des Agents ist Carve-out und laeuft ueber den MCP-Wrapper, nicht ueber diesen Adapter |
+| `vectordb/` | **Edge** | FK-01 §1.1a fuehrt Weaviate ausschliesslich als lokal-direkte Kante; der MCP-Server laeuft lokal (F3) |
+| `mcp/` | **Edge** | gemeinsame Client-Mechanik der lokal gestarteten MCP-Server |
+
+> **Benannte Luecke, Owner Product Owner.**
+> `backend/closure/runtime_ports.py` baut heute die VektorDB-Laufzeit **im
+> Kern** zusammen und synchronisiert den Corpus. Das widerspricht
+> FK-01 §1.1a, das Weaviate ausschliesslich als lokal-direkte Kante fuehrt.
+> Genau eine der beiden Aussagen kann stimmen. AG3-208 legalisiert die
+> Abweichung **nicht** und deutet sie nicht um: der Corpus-Sync wird
+> entweder ein Edge-ausgefuehrtes Kommando, oder FK-01 §1.1a braucht eine
+> Entscheidung des Product Owners. Bis dahin bleibt der Befund sichtbar.
+
+**D — Vertragspaket `agentkit-wire`: was hineingehoert und was nicht.**
+
+Aufgenommen wird ausschliesslich das Vokabular, das **beide** Seiten auf
+der `/v1`-Grenze brauchen:
+
+| Inhalt | Herkunft heute | Warum beidseitig |
+|---|---|---|
+| Request-/Response-/Command-/Report-Modelle der `/v1`-Grenze | `backend/control_plane/models`, `backend/control_plane/third_party_models` | Der Edge serialisiert, der Kern deserialisiert dieselben Strukturen |
+| Fehlervertrag (`ControlPlaneApiError` und Fehler-Payload) | `backend/exceptions` | Der Kern erzeugt ihn, der Edge liest ihn |
+| Story-Lifecycle-HTTP-Modelle (`story_exit`, `story_reset`, `story_split`) | `backend/story_*/http_models` | Beide Seiten sprechen sie auf dem Draht |
+| Evidence-Vertrag und Grenzwerte | `backend/core_types/verify_evidence` | Edge erhebt, Kern bewertet |
+| `OperatingMode` und weitere auf dem Draht transportierte Aufzaehlungen | `backend/core_types/operating_mode` | Wert wird uebertragen und beidseitig interpretiert |
+| Konfigurationsschema (`ProjectConfig` und Untermodelle) | `backend/config/models` | Payload der Registrierungs- und Update-Endpunkte; der Kern fuehrt die Konfiguration als Zustand, der Edge liest sie lokal ein |
+| Compat-/Handshake-Modelle des `/v1/compat`-Vertrags | FK-91 | konstitutiv beidseitig |
+
+Ausdruecklich **nicht** aufgenommen:
+
+| Inhalt | Besitzer stattdessen | Warum nicht |
+|---|---|---|
+| `governance.*` (`HookEvent`, `PrincipalKind`, `Operation`, `GuardVerdict`, `HookDefinition`, `HookRegistrationError`) | **Edge** | Sie beschreiben eine Entscheidung, die vollstaendig lokal faellt. Der Kern sieht davon nur das Telemetrie-Ereignis, nicht das Modell |
+| `code_backend.provider_port`-Credential-Typen | **Edge** | lokale Portaufloesung, kein Draht-Vokabular |
+| `utils.io` | **beide, dupliziert** | Hilfsfunktion, kein Vertrag |
+| `state_backend.*`, `verify_system.*`, `pipeline_engine.*` | **Kern** | ausfuehrende Fachlogik |
+| beliebiger „Code, den beide gerade brauchen" | — | Das Vertragspaket ist ein I/O-freies Blatt und kein Ablageort. Wer etwas hineingeben will, das keine `/v1`-Nutzlast ist, verortet es beim ausfuehrenden Besitzer |
+
+**E — Runtime-Abhaengigkeiten (`[project.dependencies]`).** Jede
+Abhaengigkeit folgt ihrem Laufzeitbesitzer. Belege sind die gemessenen
+Importbereiche (2026-08-07, AST ueber alle 1042 Module).
+
+| Abhaengigkeit | Besitzer | Beleg (Importbereich) |
+|---|---|---|
+| `pydantic` | **Vertragspaket** | Die Wire-Modelle sind Pydantic-Modelle; Edge und Kern erhalten sie transitiv ueber `agentkit-wire`. Einzige Drittabhaengigkeit, die das I/O-freie Blatt tragen darf |
+| `pyyaml` | **Edge und Kern, je eigenstaendig deklariert** | Edge: `config/loader`, `installer/*`, `concepts/frontmatter`. Kern: `concept_catalog`, `utils/io`. Beide brauchen sie unabhaengig voneinander; das erzeugt keine Kopplung und keinen gemeinsamen Code. **Dies ist die einzige zulaessige beidseitige Deklaration; die Liste ist abschliessend** |
+| `psycopg`, `psycopg-pool` | **Kern** | ausschliesslich `backend/state_backend/postgres_store` (9 + 1 Importstellen). Auf dem Entwicklerrechner **nicht installiert** |
+| `argon2-cffi` | **Kern** | ausschliesslich `backend/auth/credentials.py` |
+| `weaviate-client` | **Edge** | ausschliesslich `integration_clients/vectordb/weaviate_adapter.py`; F3 traegt diese Last bewusst, damit die semantische Suche nicht ueber den Netzweg laeuft |
+| `mcp` | **Edge** | `backend/vectordb/mcp_server.py` (lokaler Server) und `backend/installer/mcp_conformance` (lokale Registrierungspruefung) |
+| `tokenizers` | **Edge** | ausschliesslich `agentkit/concepts/tokenizer.py`, das nur der lokale Ingest nutzt |
+| `tomlkit` | **Edge** | ausschliesslich `harness_client/harness_adapters/codex_config_toml.py` |
+| `psutil` | **Edge** | ausschliesslich `backend/installer/mcp_conformance/process.py` |
+
+**Kern-only-Menge (normativ).** `psycopg`, `psycopg-binary`, `psycopg-pool`,
+`argon2-cffi` und die Distribution `agentkit-backend` selbst duerfen in
+einer Ebene-2-Umgebung **nicht** vorhanden sein. Der Nachweis ist der
+Clean-Edge-Installationslauf aus FK-07 §7.9a.
 
 ## 10.3 Verzeichnisstruktur
 
@@ -1051,7 +1406,7 @@ leasefreie In-Prozess-Anwendungen sind ausschliesslich eine direkte Testnaht und
 werden von der produktiven Serve-Grenze abgewiesen.
 
 **BEHOBENER VERSTOSS — Stand 2026-08-05, AG3-214 Runde 4:**
-`agentkit register-project` und `agentkit upgrade-project` bauten im separaten
+`agentkit-project-edge register-project` und `agentkit-project-edge upgrade-project` bauten im separaten
 CLI-Prozess produktive State-Backend-Repositories und schrieben damit ohne
 Writer-Lease. Betroffen waren `project_registry`, `projects`, Skill-Bindings
 und Governance-Hook-Registrierungen. Die damaligen produktiven Locator waren
@@ -1116,7 +1471,7 @@ Persistenz-Invarianten dazu sind in
 Bei einem abgebrochenen Story-Run:
 
 1. Mensch erkennt Problem (Stagnation, Fehlermeldung, Stale-Anzeige)
-2. Mensch prüft Zustand: `agentkit status --story {story_id}` (REST) oder
+2. Mensch prüft Zustand: `agentkit-project-edge status --story {story_id}` (REST) oder
    Backend-State-Eintrag des Runs
 3. Locks und Bindungen bleiben bestehen — es gibt keine automatische
    Stale-Freigabe (kein Lease/TTL, keine PID-Prüfung als Auslöser).
@@ -1125,12 +1480,12 @@ Bei einem abgebrochenen Story-Run:
 4. Mensch entscheidet explizit über den offiziellen Recovery-Pfad:
    Neuer Run mit `POST /phases/setup/start` (Aufruf-Parameter gemaess
    FK-91 §91.1a) oder Operator-CLI
-   `agentkit run-phase setup --story {story_id}` (§91.1) — Preflight
+   `agentkit-project-edge run-phase setup --story {story_id}` (§91.1) — Preflight
    erkennt bestehenden Worktree/Branch; der bestehende Worktree wird
    wiederverwendet (explizit-administrative Entscheidung, kein
    Automatismus)
 5. Alternativ: Manuelles Cleanup via
-   `agentkit cleanup --story {story_id}` (Worktree, Branch, Locks, Artefakte)
+   `agentkit-project-edge cleanup --story {story_id}` (Worktree, Branch, Locks, Artefakte)
 
 ## 10.7 Service-Port-Katalog
 
@@ -1182,9 +1537,9 @@ die 5432 belegen darf.
 |------|---------|-----------|-----------|-----------------|-----------|
 | 5432 | PostgreSQL / zentrales DBMS (**native Host-Instanz, exklusiv**; Produktions-State-Backend; nur Backend verbindet; Tests nutzen Nicht-Standard-Ports) | Dateninfrastruktur | TCP | Pflicht (State-Backend) | Zentraler Dienst |
 | 9600 | LLM-Hub (Drehscheibe für mehrere LLM-Modelle; vom Kern über Unified REST getrieben, I2) | LLM-Provider | Unified REST (HTTP/JSON) | Pflicht (mind. 2 Modelle zusätzlich zu Claude) | Externe Infrastruktur |
-| 9700 | AgentKit UI | AgentKit | HTTP (SPA) | Optional | `agentkit ui` |
-| 9701 | AK3 Backend — UI-BFF (REST) | AgentKit (Backend) | HTTPS/JSON | **Pflicht als Listener des gemeinsamen Writer-Prozesses** (die SPA auf 9700 bleibt optional) | gemeinsamer Prozess `agentkit serve --certfile … [--keyfile …]` |
-| 9702 | AK3 Backend — Project-API (REST) | AgentKit (Backend) | HTTPS/JSON | **Pflicht** (Kern-Endpunkt für Hooks/Edge/CLI; I3) | gemeinsamer Prozess `agentkit serve --certfile … [--keyfile …]` |
+| 9700 | AgentKit UI | AgentKit | HTTP (SPA) | Optional | `agentkit-backend ui` |
+| 9701 | AK3 Backend — UI-BFF (REST) | AgentKit (Backend) | HTTPS/JSON | **Pflicht als Listener des gemeinsamen Writer-Prozesses** (die SPA auf 9700 bleibt optional) | gemeinsamer Prozess `agentkit-backend serve --certfile … [--keyfile …]` |
+| 9702 | AK3 Backend — Project-API (REST) | AgentKit (Backend) | HTTPS/JSON | **Pflicht** (Kern-Endpunkt für Hooks/Edge/CLI; I3) | gemeinsamer Prozess `agentkit-backend serve --certfile … [--keyfile …]` |
 | 9800 | ARE Server (via Backend vermittelt) | Fachliche Integration | MCP | Optional (FK-40) | Manuell |
 | 9900 | Jenkins (Web-UI, via Backend vermittelt) | CI/CD | HTTP | Optional (externe Stage-Registry, FK-33) | Docker Compose |
 | 9901 | SonarQube (inkl. Community Branch Plugin, via Backend vermittelt) | Code-Qualitaet | HTTP | **Pflicht fuer codeproduzierende Projekte mit `sonarqube.available: true`** (`sonarqube.enabled: true`, FK-33 §33.6.3); sonst Optional (auch bei `available: false` → Gate NOT_APPLICABLE, FK-33 §33.6.5) | Systemdienst (Installer CP 10d) |
@@ -1219,9 +1574,9 @@ Die Ports sind konfigurierbar:
 | Service | Konfigurationsort | Default |
 |---------|-------------------|---------|
 | LLM-Hub | `project.yaml` → Hub-REST-Endpunkt (Unified REST; Schema in FK-03) | http://127.0.0.1:9600 |
-| UI | `agentkit ui --port N` | 9700 |
-| UI-BFF (Backend) | `agentkit serve --ui-host H --ui-port N --certfile CERT [--keyfile KEY]` | 9701 |
-| Project-API (Backend) | `agentkit serve --project-host H --project-port N --certfile CERT [--keyfile KEY]` | 9702 |
+| UI | `agentkit-backend ui --port N` | 9700 |
+| UI-BFF (Backend) | `agentkit-backend serve --ui-host H --ui-port N --certfile CERT [--keyfile KEY]` | 9701 |
+| Project-API (Backend) | `agentkit-backend serve --project-host H --project-port N --certfile CERT [--keyfile KEY]` | 9702 |
 | ARE | `project.yaml` → `are.base_url` | 9800 |
 | Weaviate | `project.yaml` → `vectordb.url` | 9903 |
 | Jenkins | `project.yaml` → Stage-Registry `external_tools` | 9900 (Jenkins Agent: 9902) |

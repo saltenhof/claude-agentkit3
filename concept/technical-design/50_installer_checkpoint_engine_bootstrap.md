@@ -120,8 +120,9 @@ Checkpoints:
   **eigene Bootstrap-Routine mit manuellen Anteilen** (FK-10 §10.2.5) —
   der Installer prüft den Core nur als Vorbedingung (CP7 „erreichbar"),
   er installiert ihn nicht.
-- **Ebene 2 (Entwicklermaschine: systemweites `agentkit`-Paket +
-  immutabler Bundle-Store)** ist Vorbedingung
+- **Ebene 2 (Entwicklermaschine: die Edge-Distribution
+  `agentkit-project-edge` samt Vertragspaket `agentkit-wire` in einer
+  dedizierten, isolierten Umgebung + immutabler Bundle-Store)** ist Vorbedingung
   (`installer.invariant.system_installation_precedes_project_registration`);
   der Installer prüft sie (CP1 Paket vorhanden) und **bindet** gegen den
   Store (CP8), provisioniert ihn aber nicht (FK-10 §10.2.6).
@@ -133,9 +134,12 @@ Vorbedingungs-Prüfungen auf Ebene 1/2.
 
 <!-- PROSE-FORMAL: formal.installer.commands -->
 
-Der Installer ist transport-agnostisch. CLI-Aufrufe (`agentkit register-project`,
-`agentkit verify-project`) sind Boundary-Controls des aufrufenden BC und
-werden dort dokumentiert. Beispiel-Aufrufe gehoeren nicht zum Installer-Vertrag.
+Der Installer ist transport-agnostisch. CLI-Aufrufe
+(`agentkit-project-edge register-project`,
+`agentkit-project-edge verify-project`) sind Boundary-Controls des
+aufrufenden BC und werden dort dokumentiert. Der Installer wird
+ausschliesslich aus der Edge-Distribution ausgeliefert und laeuft nur auf
+dem Entwicklerrechner (FK-10 §10.2.11/§10.2.12 B). Beispiel-Aufrufe gehoeren nicht zum Installer-Vertrag.
 
 **Writer-Vorbedingung fuer Ebene 3:** `register-project` installiert den Core
 nicht und erwirbt dessen Writer-Lease nicht selbst. Der vorgelagerte Ebene-1-
@@ -238,8 +242,16 @@ herstellen.
 
 ### CP 1: Python-Paket
 
-Prueft `agentkit` und jede in `Requires-Dist` deklarierte Pflicht-Abhaengigkeit
-des ausgefuehrten Artefakts auf installierte und importierbare Top-Level-Pakete.
+Prueft die **auf dieser Maschine erwarteten** Distributionen —
+`agentkit-project-edge` und `agentkit-wire` — und jede in ihren
+`Requires-Dist` deklarierte Pflicht-Abhaengigkeit auf installierte und
+importierbare Top-Level-Pakete. Ein Artefakt namens `agentkit` gibt es
+nicht mehr; die Pruefung geht gegen die Distributionsnamen, nicht gegen
+den Framework-Namen (FK-10 §10.1.0a).
+
+Zusaetzlich fail-closed: keine der als **kern-only** klassifizierten
+Distributionen (FK-10 §10.2.12 E) darf in dieser Umgebung vorhanden sein.
+Eine Ebene-2-Umgebung mit `psycopg` ist ein Fehlbetrieb, kein Sonderfall.
 
 Der Nachweis liegt an der stdlib-only Installer-Eingangsgrenze und laeuft
 vor tieferen Drittpaket-Importen; bei `FAILED` ist CP 1 das einzige Ergebnis,
@@ -719,6 +731,16 @@ und nur nach dessen Erfolg den inkrementellen Aufruf
 `<absolute-ak3-interpreter> -m agentkit.backend.vectordb.cli --concepts-dir <concepts_dir> sync`
 ohne `--full` aus; ein Build- oder Syncfehler publiziert keine neue Freshness.
 
+> **Distributionszuordnung dieser Aufrufe (normativ).** Die
+> `-m agentkit.backend.vectordb.cli`-Pfade sind **Locatoren des heutigen
+> Codestands**. Der Konzept-Korpus-Ingest laeuft auf dem
+> Entwicklerrechner und wird aus der Edge-Distribution
+> `agentkit-project-edge` ausgeliefert (FK-10 §10.2.12 B). Ein
+> Modulpfad im Kern-Namensraum ist kein zulaessiger Zielzustand: die
+> Git-Hooks rufen den Entry Point der Edge-Distribution auf, nicht
+> `python -m` in ein fremdes Artefakt. Zielzustand und Umsetzung:
+> FK-10 §10.2.11, AG3-209.
+
 Die bestehende Secret-Detection (Kap. 15.5.2) bleibt global aktiv
 und wird durch die pfadbasierte Dispatching-Logik nicht berührt.
 
@@ -1013,8 +1035,8 @@ nicht zulaessig.
 
 ### 50.5.1 Deklarationsgetriebene CP-1-Eingangsgrenze
 
-Die installierte Distribution liest ihren Pflichtsatz direkt aus
-`Requires-Dist`; eine explizite Quellpruefung liest `project.dependencies` aus
+Jede installierte Distribution liest ihren Pflichtsatz direkt aus
+ihrer eigenen `Requires-Dist`; eine explizite Quellpruefung liest `project.dependencies` aus
 `pyproject.toml`. Beide sind Projektionen derselben Paketdeklaration. Eine
 separat gepflegte Liste von Distributionen oder Importnamen ist verboten.
 Extra-gebundene optionale Abhaengigkeiten gehoeren nicht zum Pflichtsatz.

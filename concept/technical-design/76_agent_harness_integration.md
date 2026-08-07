@@ -51,7 +51,8 @@ glossary:
     - id: harness-adapter
       definition: >
         Harness-spezifische Mediationsschicht (Bluttyp AT) pro Agent-Harness
-        im Soll-Namespace agentkit.harness_integration.{claude_code,codex}.
+        im Soll-Namespace agentkit_project_edge.harness_adapters.{claude_code,codex}
+        der Edge-Distribution agentkit-project-edge (FK-10 Paragraph 10.1.0a).
         Mappt harness-native Mechanik (Tool-Namen, stdin/stdout, Exit-Codes,
         Settings-Format) auf das harness-neutrale Modell und zurueck. Enthaelt
         keine Guard-Regeln und trifft keine Policy.
@@ -139,10 +140,22 @@ Hook-Auswertung ist in zwei Subkomponenten gespalten:
 
 Erforderliche Adapter:
 
-| Adapter | Modul-Pfad (Soll) | CLI-Wrapper |
-|---|---|---|
-| `claude_code` | `agentkit.harness_integration.claude_code` | `agentkit-hook-claude` |
-| `codex` | `agentkit.harness_integration.codex` | `agentkit-hook-codex` |
+| Adapter | Modul-Pfad (Soll) | Distribution | CLI-Wrapper |
+|---|---|---|---|
+| `claude_code` | `agentkit_project_edge.harness_adapters.claude_code` | `agentkit-project-edge` | `agentkit-hook-claude` |
+| `codex` | `agentkit_project_edge.harness_adapters.codex` | `agentkit-project-edge` | `agentkit-hook-codex` |
+
+> **Korrektur einer dritten Paketwurzel.** Frueher nannte dieses Kapitel
+> `agentkit.harness_integration.*` als Soll-Namespace — eine Wurzel, die
+> weder `PROJECT_STRUCTURE.md` noch
+> `formal.architecture-conformance.entities` je gefuehrt haben und die es
+> im Code nicht gibt (dort: `agentkit.harness_client.harness_adapters.*`).
+> Der Soll-Pfad ist ab sofort die Importwurzel der Edge-Distribution.
+> Auch die harness-neutrale Guard-Auswertung (`governance.guard_evaluation`)
+> wird aus dieser Distribution ausgeliefert und laeuft im Hook-Prozess auf
+> dem Entwicklerrechner (FK-30 Paragraph 30.2.0); die BC-Zuordnung
+> `governance-and-guards` bleibt davon unberuehrt — Bounded Context und
+> Auslieferungsartefakt sind verschiedene Achsen.
 
 Weitere Harnesses (Qwen Code, Gemini-CLI, …) folgen demselben Pattern. Es gibt
 **keine Plugin-Registry** und **keine Capability-Selection-Policy** — jeder

@@ -162,3 +162,67 @@ nicht und werden von ihm nicht stillschweigend umdefiniert.
 | AG3-208 | normativer Umsetzungslocator | Zieht das Zielbild in die zulaessigen autoritativen Konzeptstellen nach. |
 | AG3-209 | technischer Umsetzungslocator | Realisiert Distributionen, Importwurzeln, Vertragspaket und Buildgrenzen atomar. |
 | AG3-210 | getrennter Umsetzungslocator | Realisiert den Bundle-Updatepfad ohne den Distributionsschnitt zu duplizieren. |
+
+## 8. Umsetzungsstand AG3-208 (2026-08-07) und nachgezogene Betroffenheit
+
+Die normative Ausarbeitung ist erfolgt. Autoritativ ist ab sofort
+**FK-10 §10.1.0a** (Distributionszielbild), **§10.2.11**
+(Entry-Point-Vertrag) und **§10.2.12** (Artefakt-Ownership-Matrix);
+FK-01 §1.1/§1.1a/§1.2.2/P7 und FK-30 §30.2.0 sind darauf ausgerichtet,
+die maschinelle Grenze liegt in FK-07 §7.9a sowie in
+`formal.architecture-conformance.{entities,invariants}`
+(`distributions`, `distribution_membership`, `distribution_dependency_rules`,
+`packaging_gate`).
+
+**Artefaktnamen (Konkretisierung von §4.1).** `agentkit-project-edge`
+(Importwurzel `agentkit_project_edge`), `agentkit-backend`
+(`agentkit_backend`), `agentkit-wire` (`agentkit_wire`). Regel: Importwurzel
+= Distributionsname mit `-` → `_`. Das Console-Script `agentkit` wird
+ersatzlos zurueckgezogen.
+
+**AG3-189 ist damit nicht mehr offen.** Der Record hielt in §4.1 fest, die
+Wirkung auf AG3-189 sei „gesondert zu bewerten". Diese Bewertung ist mit
+dem PO-Entscheid vom 2026-08-06 erfolgt: AG3-189 ist abgeschlossen und der
+Code freigegeben. Die Installationsisolation bleibt gueltig und
+eigenstaendig; der Importwurzel-Wechsel entwertet sie nicht, sondern
+entfernt die Ursache, gegen die sie schuetzt. Eine Wiedereroeffnung
+braeuchte einen funktionalen Gegenbeweis, nicht diesen Schnitt.
+
+**Ein Ist-Realitaetsnachweis liegt vor** (AG3-208 AC 7, 2026-08-07,
+Windows, Python 3.14.3, leere Wegwerf-venv, heutiges Einzel-Wheel): die
+Installation zieht **56 Distributionen**, darunter `psycopg`,
+`psycopg-binary`, `psycopg-pool`, `weaviate-client`, `tokenizers`,
+`uvicorn`, `starlette`; ein echter `agentkit-hook-claude`-Prozess mit
+realem stdin laedt **294 `agentkit.*`-Module aus 23 Backend-Subpaketen**,
+darunter das vollstaendige `verify_system`. **Korrektur einer kursierenden
+Behauptung:** `psycopg` wird dabei *nicht* importiert — der Import steht
+unter `TYPE_CHECKING`. Es ist installiert, nicht geladen. Der Befund traegt
+trotzdem: die Angriffs- und Wartungsflaeche entsteht durch die Anwesenheit
+auf der Maschine.
+
+**Nachgezogene Betroffenheit.** Ein systematischer Sweep ueber
+`concept/**`, `PROJECT_STRUCTURE.md`, `guardrails/**` und `AGENTS.md`
+(2026-08-07) hat Stellen gefunden, die §7 dieses Records noch nicht
+fuehrt. Sie sind hier benannt statt stillschweigend weggelassen:
+
+| Stelle | Disposition | Begruendung |
+|--------|-------------|-------------|
+| FK-51 §51.2/§51.7 („die installierte Paketversion", `agentkit update`, „`agentkit`-Paket deinstallieren", Detach-Erkennungsmuster `python -m agentkit.`) | **Widerspruch — in AG3-208 behoben** | „Die Paketversion" (Singular) und ein Uninstall-Verb fuer *ein* Paket sind unter drei Artefakten nicht mehr eindeutig; das Detach-Erkennungsmuster `python -m agentkit.` haette nach dem Importwurzel-Wechsel **nie** gegriffen und verwaiste Hook-Registrierungen hinterlassen. Nebenbefund: dieses Muster war bereits vor dem Schnitt falsch — `installer/lifecycle/detach.py:70` erkennt AK3-Bloecke am Console-Script-Namen `agentkit-hook-claude`, nicht an einem `-m`-Modulpfad. Korrigiert auf den Console-Script-Namen. |
+| FK-50 §50.1/§50.2/CP 1/§50.5.1/CP 10b (Ebene-2-Beschreibung, `agentkit register-project`, CP-1-Pflichtsatz, „die installierte Distribution", `-m agentkit.backend.vectordb.cli`) | **Widerspruch — in AG3-208 behoben** | Ebene 2 traegt jetzt benannt `agentkit-project-edge` + `agentkit-wire`; CP 1 prueft beide Distributionen **und** die Abwesenheit der kern-only Menge; die Git-Hook-Aufrufe sind als Edge-Entry-Point-Ziel normiert. |
+| FK-13 §13.4 (`-m agentkit.backend.vectordb.engine`) | **Widerspruch — in AG3-208 normativ aufgeloest, Umsetzung AG3-209** | Zielzustand ist der Edge-Entry-Point `agentkit-story-mcp`; `engine.main` bleibt der stdio-Einstieg, nur der Aufrufweg wechselt. |
+| FK-76 §76.2/§76.4 (`agentkit.harness_integration.*`) | **Widerspruch — in AG3-208 behoben** | Nannte eine dritte Paketwurzel, die weder `PROJECT_STRUCTURE.md` noch `entities.md` je gefuehrt haben und die es im Code nie gab. Soll-Pfad ist jetzt `agentkit_project_edge.harness_adapters.*`; zusaetzlich festgehalten, dass Bounded Context und Auslieferungsartefakt verschiedene Achsen sind. |
+| FK-92 §92.1.1 (Zielstruktur `src/agentkit/{component_name}/`, `integrations/`, `agentkit/process/language/`) | **Widerspruch — in AG3-208 behoben** | Widersprach bereits `PROJECT_STRUCTURE.md`; der Schnitt macht die Abweichung groesser, erzeugt sie aber nicht. Zielstruktur ist jetzt Deployment-Unit-first, der Adapterpfad `integration_clients/` mit Distributionszuordnung, die Prozesssprache im Kern. |
+| FK-45 §45.4 und rund 150 weitere Stellen mit `<absolute-agentkit-wrapper>` | **aufgeloest ohne Textaenderung** | Der Platzhalter bezeichnet ab sofort ausschliesslich das Edge-Script `agentkit-project-edge` (FK-10 §10.2.11). Damit ist er eindeutig; das Umschreiben des Platzhalter-Textes an 152 Stellen in 49 Dateien ist reine Schreibarbeit ohne fachliche Entscheidung und gehoert nicht in diese Story. |
+| FK-72 (Frontend) | **verortet in AG3-208** | Die Frontend-Deployment-Unit war im Zwei-Distributionen-Bild unverortet; FK-10 §10.2.12 A weist sie dem Kern zu (I6). FK-72 selbst enthaelt keine widersprechende Aussage. |
+| `guardrails/architecture-guardrails.md`, `guardrails/testing-guardrails.md` | **Luecke, Owner PO** | Kennen den Deployment-Unit-Begriff nicht und koennen die Distributionsgrenze deshalb nicht stuetzen. Beschluss 3.3 verlangt maschinelle Wahrheit; die Durchsetzung liegt jetzt in FK-07 §7.9a, nicht in den Guardrails. |
+| `concept/formal-spec/installer/*` | **Luecke, Owner AG3-209** | 300+ Installer-Aussagen, aber keine einzige nennt das installierte **Artefakt**. |
+| `backend/closure/runtime_ports.py` (Kern baut die VektorDB-Laufzeit) | **offener Konflikt, Owner PO** | Widerspricht FK-01 §1.1a, das Weaviate ausschliesslich als lokal-direkte Kante fuehrt. AG3-208 legalisiert die Abweichung nicht (FK-10 §10.2.12 C). |
+| `agentkit-are-mcp` ohne `[project.scripts]`-Eintrag | **Defekt, Umsetzung AG3-209** | Registriertes Kommando ohne Entry Point; FK-10 §10.2.11 schliesst die Luecke normativ. |
+| `bundles/skill_bundles/concept-incubation-core/{4.0.0,4.1.0}/references/process-core.md` „stdlib-only" | **falsche Zusage, Owner PO** | Die deployte Concept-Toolchain importiert `agentkit.backend.installer.interpreter` auf Modulebene (`check.py`, `semantic_gate.py`). Die Zusage ist in beiden ausgelieferten Bundle-Versionen unwahr. |
+| ein leeres `shared`-Verzeichnis unter der Paketwurzel | **entfaellt mit AG3-209** | Kein Inhalt, kein Besitzer, keine Deployment Unit; von git nicht gefuehrt. |
+
+**Zahlenkorrekturen gegenueber §1.** Die Kante `harness_client → backend`
+umfasst am 2026-08-07 **49 Importstellen ueber 25 Backend-Module** (nicht
+40/20); die Gegenrichtung **46 Stellen in 22 Dateien ueber 9
+harness_client-Module**. Die Ownership-Matrix in FK-10 §10.2.12 setzt auf
+den neuen Zahlen auf.

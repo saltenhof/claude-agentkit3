@@ -37,7 +37,7 @@ unresolved_references:
     reason: Installer target-project location, not a source-repository location.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/10_runtime_deployment_speicher.md
-    line: 407
+    line: 551
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
@@ -57,17 +57,17 @@ unresolved_references:
     reason: Runtime-created quarantine location, absent until an adversarial failure occurs.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/30_hook_adapter_guard_enforcement.md
-    line: 638
+    line: 685
     reference: tools/hooks/pre-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/30_hook_adapter_guard_enforcement.md
-    line: 662
+    line: 709
     reference: tools/hooks/post-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/30_hook_adapter_guard_enforcement.md
-    line: 697
+    line: 744
     reference: tools/hooks
     reason: Materialized target-project hook directory, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
@@ -87,33 +87,33 @@ unresolved_references:
     reason: Runtime-created quarantine location, absent until an adversarial failure occurs.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 314
+    line: 326
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
-    line: 523
+    line: 535
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
 
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/51_upgrade_migration_customization_preservation.md
-    line: 248
+    line: 264
     reference: tools/hooks/pre-commit
     reason: Materialized target-project hook location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/51_upgrade_migration_customization_preservation.md
-    line: 306
+    line: 322
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/76_agent_harness_integration.md
-    line: 410
+    line: 423
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/76_agent_harness_integration.md
-    line: 412
+    line: 425
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH

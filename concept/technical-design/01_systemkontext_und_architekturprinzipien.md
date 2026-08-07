@@ -34,9 +34,14 @@ formal_refs:
 
 ## 1.1 Zielbild
 
-AgentKit ist ein systemweit installiertes Python-Paket (`agentkit`),
-das gegen Zielprojekte betrieben wird, ohne seine Laufzeitartefakte in
-deren Repository zu deployen. Im Projekt liegen nur die
+AgentKit ist ein Framework aus **drei** getrennt ausgelieferten
+Distributionen — der Edge-Distribution `agentkit-project-edge` auf dem
+Entwicklerrechner, der Kern-Distribution `agentkit-backend` auf dem
+zentralen Host und dem kleinen, von beiden importierten Vertragspaket
+`agentkit-wire`. „AgentKit" ist der Name des Frameworks; **keine
+Distribution und keine Importwurzel traegt den blossen Namen `agentkit`**
+(FK-10 §10.1.0a). Es wird gegen Zielprojekte betrieben, ohne seine
+Laufzeitartefakte in deren Repository zu deployen. Im Projekt liegen nur die
 projektspezifische Konfiguration und die harness-spezifische Anbindung
 (Claude Code, Codex; siehe FK-76 §76.5); der
 kanonische Laufzeit- und Zustandsraum liegt außerhalb des Projekts in
@@ -84,16 +89,40 @@ Space gebunden ist.
 (Einzel-Stratege) oder zentral auf einem dedizierten Server (Team) — reiner
 Deployment-Schalter, identischer Arm↔Core-Contract.
 
-**Lokaler Arm (pro Project Space, dünn, zustandslos, regelfrei).** Drei
-Akteure, keiner trägt Geschäftsregeln:
+**Lokaler Arm (pro Project Space, dünn, zustandslos, ohne eigene
+Fachautoritaet).** Vier Akteure, keiner trägt eigene Geschäftsregeln:
 
 | Akteur | Principal (FK-55) | Aufgabe |
 |--------|-------------------|---------|
 | LLM-Agent | `worker` / `orchestrator` | kreative Arbeit (Code, Konfliktauflösung, Design) — geliehene Intelligenz |
 | Deterministischer Executor | `pipeline_deterministic` | fs/worktree-gebundene Mechanik (Build/Test, git), meldet Roh-Records — kein eigener Verstand |
-| Hooks | Plattform (Zone 1) | Tool-Call-Enforcement, lesen lokalen Cache, rufen den Core |
+| Hooks | Plattform (Zone 1) | Tool-Call-Enforcement: **fuehren die vom Core mandatierte, deterministische Guard-Evaluation lokal aus**, lesen lokale Read-Projektionen und rufen den Core |
+| Project Edge | kein eigener Principal — handelt im Principal des Aufrufers (FK-55) | Relais beider Richtungen, lokale Story-Reconciliation und Credential-/Provider-Portaufloesung im Auftrag des Core |
 
-Der Arm hält keinen kanonischen Zustand (§1.2.3) und keine Bewertungslogik.
+**„Duenn" heisst regelfrei, nicht codefrei — eine Praezisierung, die den
+Distributionsschnitt traegt.** Der Arm besitzt weder kanonischen Zustand
+(§1.2.3) noch Bewertungs- oder Entscheidungsautoritaet: er erfindet keine
+Regel, aendert keine, hebt keine auf und haelt kein zweites Urteil. Er
+**fuehrt** aber sehr wohl Code aus, und zwar genau zwei Klassen davon:
+
+1. **Deterministische Guard-Evaluation.** Ein Tool-Call muss lokal und in
+   Millisekunden entschieden werden; ein Netz-Roundtrip pro Werkzeugaufruf
+   ist kein zulaessiges Design. Die Guard-Engine ist deshalb
+   Edge-ausgeliefert und laeuft im Hook-Prozess (FK-30, FK-10 §10.1.3).
+   Ihre Regelbasis stammt aus dem zentral publizierten Edge-Bundle; sie
+   erzeugt keine eigene. Sicherheitskritische Zustandsfragen (haelt ein
+   Lock? ist eine Schwelle ueberschritten?) werden weiterhin am Core
+   bestaetigt oder fail-closed blockiert.
+2. **fs-/worktree-gebundene Mechanik**, die AK3 ausdruecklich mandatiert —
+   git-/Worktree-Operationen, Evidence-Erhebung, Story-Reconciliation,
+   Bundle-Materialisierung. Sie ist per Konstruktion nicht fernsteuerbar,
+   weil sie am lokalen Dateisystem haengt.
+
+Beides ist **mandatierte Ausfuehrung unter fremder Autoritaet**, keine
+lokale Fachautoritaet. Genau diese Unterscheidung ist der Grund, warum es
+eine eigene Edge-Distribution gibt und warum sie trotzdem duenn bleibt:
+sie traegt Ausfuehrung, aber keinen Zustand und keine Urteilshoheit
+(FK-10 §10.1.0a).
 
 **Lokalität der Installation.** Zwei Anteile mit unterschiedlicher Lokalität:
 (a) der **Core** ist zentral betreibbar und wird vom Arm ausschließlich über
@@ -216,11 +245,18 @@ graph TB
 
 **AgentKit-Kern** (wird entwickelt und ausgeliefert):
 
-| Komponente | Typ | Technologie |
-|------------|-----|-------------|
-| `agentkit` Python-Paket | Bibliothek + CLI + Hooks | Python 3.14, Pydantic 2.7+, PyYAML 6+ |
-| Rollenprompts + Skills | Paketressourcen / systemweite Bundles | Nicht im Projekt deployt |
-| JSON Schemas | Artefakt-Validierung | JSON Schema Draft 2020-12 |
+| Komponente | Typ | Auslieferungsort | Technologie |
+|------------|-----|------------------|-------------|
+| `agentkit-project-edge` | Hook-Wrapper, Guard-Engine, Project-Edge-Client, Bediener-CLI, Installer, lokale MCP-Server | Entwicklerrechner (FK-10 §10.2.0 Ebene 2/3) | Python 3.14 |
+| `agentkit-backend` | Pipeline, QA-Subflow, Governance-Adjudication, Closure, Control-Plane-HTTP, State-Backend, Frontend-Auslieferung | zentraler Core-Host (Ebene 1) | Python 3.14 |
+| `agentkit-wire` | gemeinsames `/v1`-Vokabular, I/O-freies Blatt | mit beiden, nie allein | Python 3.14, Pydantic |
+| Rollenprompts + Skills | Paketressourcen / systemweite Bundles | Nicht im Projekt deployt | — |
+| JSON Schemas | Artefakt-Validierung | — | JSON Schema Draft 2020-12 |
+
+Die drei Distributionen werden aus **einem** Repository gebaut und tragen
+**dieselbe** Version (FK-10 §10.2.7). Der Distributionsschnitt selbst ist
+in **FK-10 §10.1.0a** normiert; die maschinell erzwungenen Importgrenzen
+in **FK-07 §7.9a**.
 
 **Plattform** (Voraussetzung, nicht Teil von AgentKit):
 
@@ -470,31 +506,36 @@ vorangestellt wird.
 Details zur technischen Umsetzung in Kapitel 08 (Rollen, Prompts,
 Kontext-Selektion).
 
-### P7: Minimale Dependencies
+### P7: Minimale Dependencies — pro Distribution, nicht pro Repository
 
-Das `agentkit` Python-Paket (Python 3.14) hat drei Kern-Dependencies:
+**Das Prinzip lautet nicht „wenige Pakete insgesamt", sondern „auf jeder
+Maschine nur das, was sie ausfuehrt".** Eine gemeinsame Dependency-Menge
+verletzt es auch dann, wenn sie kurz ist: sie installiert den
+Postgres-Treiber auf einem Rechner, der die Datenbank nie sieht. Die
+verbindliche Zuordnung — Abhaengigkeit fuer Abhaengigkeit, mit dem
+gemessenen Importbereich als Beleg — steht in **FK-10 §10.2.12 E**. Hier
+nur das Bild:
 
-| Dependency | Version | Zweck |
-|------------|---------|-------|
-| `pyyaml` | ≥ 6.0 | YAML-Konfiguration parsen |
-| `pydantic` | ≥ 2.7 | Datenmodelle validieren (frozen, strict) |
-| `psutil` | ≥ 5.9 | Prozessmonitoring |
+| Distribution | Runtime-Dependencies | Zweck |
+|--------------|----------------------|-------|
+| `agentkit-wire` | `pydantic` | Wire-Modelle validieren (frozen, strict). Einzige Drittabhaengigkeit des I/O-freien Blatts |
+| `agentkit-project-edge` | `pyyaml`, `tomlkit`, `mcp` (≥ 1.2.0, < 2), `weaviate-client` (4.9–5.0), `tokenizers`, `psutil` — plus `pydantic` transitiv ueber `agentkit-wire` | lokale Konfiguration, Codex-Config-Merge, lokal gestartete MCP-Server, semantische Suche (Carve-out §1.1a), deterministische Chunk-Groesse, Prozessmonitoring der MCP-Registrierung |
+| `agentkit-backend` | `pyyaml`, `psycopg[binary]`, `psycopg-pool`, `argon2-cffi` — plus `pydantic` transitiv | Konzept-Korpus lesen, kanonischer State, Credential-Hashing |
 
-Weitere Pflicht-Dependencies der VektorDB-/MCP-Fähigkeit:
+Die `mcp`-Grenze ist beidseitig: `mcp.server.fastmcp` gibt es erst ab
+1.2.0, und 2.0 liefert weder `mcp.server.fastmcp` noch `mcp.types`; das
+`cli`-Extra wird nicht gebraucht.
 
-| Dependency | Zweck | Status |
-|------------|-------|--------|
-| `weaviate-client` 4.9-5.0 | VektorDB-Anbindung | Pflicht |
-| `mcp` ≥ 1.2.0, < 2 | MCP-Server für Story-Knowledge-Base. Beidseitig begrenzt: `mcp.server.fastmcp` gibt es erst ab 1.2.0, und 2.0 liefert weder `mcp.server.fastmcp` noch `mcp.types`. Das `cli`-Extra wird nicht gebraucht. | Pflicht |
-
-**Infrastruktur-Dependency:** Die systemweite AgentKit-Installation
-setzt eine zentrale PostgreSQL-Instanz als State- und Analytics-Store
-voraus. Der passende Treiber ist deshalb Teil der Runtime-
-Implementierung, auch wenn er nicht zum minimalen Agenten-Kern gehört.
-Postgres wird ausschließlich vom Core angesprochen. Weitere Drittsysteme
-folgen dem Carve-out aus §1.1a: Core-vermittelt bei AK3-mandatiertem
-Kontrollinteresse, lokal-direkt über CLI/MCP nur bei fs/worktree-Bindung,
-Bulk-Evidenz oder Eigenbedarf des Agents.
+**Infrastruktur-Dependency:** AK3 setzt eine zentrale PostgreSQL-Instanz
+als State- und Analytics-Store voraus. Der Treiber gehoert deshalb zur
+**Kern**-Distribution und **nur** zu ihr; Postgres wird ausschliesslich vom
+Core angesprochen (I1). Eine Ebene-2-Umgebung, in der `psycopg` vorhanden
+ist, ist ein Fehlbetrieb und wird vom Gate aus FK-07 §7.9a blockierend
+erkannt. Weitere Drittsysteme folgen dem Carve-out aus §1.1a:
+Core-vermittelt bei AK3-mandatiertem Kontrollinteresse, lokal-direkt über
+CLI/MCP nur bei fs/worktree-Bindung, Bulk-Evidenz oder Eigenbedarf des
+Agents — und die zugehoerige Client-Bibliothek folgt dem, der den Aufruf
+macht, nicht dem historischen Namensraum.
 
 ### P8: Datenformate
 
@@ -556,6 +597,31 @@ nur eine Konfigurationsänderung, keine Code-Änderung.
 | Zone 4 entscheidet nicht | LLM-Antworten werden geparst und validiert; die Pipeline entscheidet basierend auf dem Ergebnis |
 | Trust-Klasse C ist nie blocking | Vom Agent selbst erzeugte Evidence (Screenshots, API-Logs) kann QA nicht bestehen/nicht blockieren |
 | Opake Fehlermeldungen an Zone 3 | Guards geben dem Agent keine Details, warum er blockiert wurde |
+
+### 1.4.3 Maschinen- und Netzgrenze
+
+Die Zonen sind **Vertrauens**grenzen. Quer dazu liegt eine
+**Maschinen**grenze, die im Team-Deployment zugleich eine Netzgrenze ist.
+Beide fallen nicht zusammen: Zone 1 (Hooks) laeuft auf dem
+Entwicklerrechner, Zone 2 (Orchestrierung) im Kern.
+
+| Zone | Maschine | Distribution |
+|------|----------|--------------|
+| 1 — Plattform: Harness | Entwicklerrechner | keine (Fremdplattform) |
+| 1 — Plattform: Hooks und Guard-Engine | Entwicklerrechner | `agentkit-project-edge` |
+| 2 — Pipeline-Orchestrierung | Core-Host | `agentkit-backend` |
+| 3 — Agent-Ausfuehrung | Entwicklerrechner | keine (LLM im Harness) |
+| 4 — Externe LLMs | extern | keine |
+
+**Normative Regeln der Maschinengrenze:**
+
+| Regel | Bedeutung |
+|-------|-----------|
+| Der Kern ist ausschliesslich ueber seinen geschuetzten HTTPS-Vertrag `/v1` erreichbar | Kein Dev-Prozess oeffnet DB, Dateisystem oder interne Ports des Kerns |
+| Der Entwicklerrechner ist **nicht erreichbar** | Der Kern oeffnet nie eine Verbindung zu ihm und hat keinen Dateisystemzugriff auf ihn. Jede Kante wird vom Edge initiiert |
+| Fachliche Rueckrichtung ≠ Netz-Rueckrichtung | Die Review-Delegation (§1.1a) ist die **Antwort** auf einen Project-Edge-Pull eines etablierten Knotens, keine eingehende Verbindung |
+| Zone 1 traegt Ausfuehrung, nicht Autoritaet | Die lokale Guard-Engine wertet die zentral publizierte Regelbasis aus; sie erzeugt keine Regel und haelt keinen kanonischen Zustand (§1.1a, FK-30 §30.2.0) |
+| Die Grenze ist installiert, nicht vereinbart | Was der Edge nicht importieren darf, liegt nicht auf seiner Maschine. Durchsetzung: FK-07 §7.9a |
 
 ## 1.5 Hauptlaufzeitpfade
 

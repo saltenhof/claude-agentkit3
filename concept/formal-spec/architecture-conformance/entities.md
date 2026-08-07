@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 30
+version: 31
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -1530,5 +1530,120 @@ boundary_modules:
     # Driver importieren keine BC-Records direkt; Mapping erfolgt
     # in persistence_mappers (boundary.state_backend_repository). Die Driver
     # erhalten und liefern ausschliesslich dict[str, Any]-Zeilen.
+# ---------------------------------------------------------------------------
+# Distributionen (FK-10 §10.1.0a/§10.2.12, FK-07 §7.9a)
+#
+# AK3 wird in drei Distributionen ausgeliefert. `module_prefixes` benennt die
+# Zugehoerigkeit im HEUTIGEN Importbaum (`agentkit.*`), damit die Zuordnung
+# gegen den tatsaechlichen Code messbar ist. `target_import_root` benennt die
+# Importwurzel des ausgelieferten Artefakts. Die Umstellung der Prefixe auf
+# den Target-Root ist EIN atomarer Schritt (AG3-209); es gibt keinen
+# Zeitraum, in dem beide aufloesen.
+#
+# `default_distribution` macht die Zuordnung total: jedes Modul unter
+# `agentkit.` das von keinem Prefix erfasst ist, gehoert zum Kern. Damit gibt
+# es kein heimatloses Modul.
+#
+# `distribution_prefix_resolution: longest-match-wins` macht sie disjunkt:
+# Prefixe verschiedener Distributionen duerfen sich schachteln, und das
+# laengste treffende Prefix entscheidet. Beispiel:
+# `agentkit.backend`                    -> core
+# `agentkit.backend.governance`         -> edge   (laenger, gewinnt)
+# `agentkit.backend.config.models`      -> wire   (laenger als config.loader-Nachbar)
+# Zwei GLEICH lange treffende Prefixe verschiedener Distributionen sind ein
+# Verstoss gegen architecture-conformance.rule.distribution_membership_is_total_and_disjoint,
+# kein Aufloesungsfall.
+# ---------------------------------------------------------------------------
+default_distribution: architecture-conformance.distribution.core
+distribution_prefix_resolution: longest-match-wins
+distributions:
+  - id: architecture-conformance.distribution.edge
+    code: edge
+    distribution_name: agentkit-project-edge
+    target_import_root: agentkit_project_edge
+    runs_on: developer-machine
+    meaning: >-
+      Edge-Distribution. Hook-Wrapper, Guard-Engine, Project-Edge-Client,
+      Bediener-CLI, Installer, lokal gestartete MCP-Server. Besitzt keinen
+      kanonischen Zustand; erreicht den Kern ausschliesslich ausgehend ueber
+      HTTPS /v1.
+    console_scripts:
+      - agentkit-project-edge
+      - agentkit-hook-claude
+      - agentkit-hook-codex
+      - agentkit-story-mcp
+      - agentkit-are-mcp
+    runtime_dependencies:
+      - pyyaml
+      - tomlkit
+      - mcp
+      - weaviate-client
+      - tokenizers
+      - psutil
+    module_prefixes:
+      - agentkit.harness_client
+      - agentkit.bundles
+      - agentkit.concepts
+      - agentkit.backend.governance
+      - agentkit.backend.installer
+      - agentkit.backend.cli
+      - agentkit.backend.story_creation
+      - agentkit.backend.vectordb
+      - agentkit.backend.config.loader
+      - agentkit.backend.config.paths
+      - agentkit.backend.code_backend.provider_port
+      - agentkit.backend.core_types.mcp_server_registration
+      - agentkit.integration_clients.vectordb
+      - agentkit.integration_clients.mcp
+  - id: architecture-conformance.distribution.core
+    code: core
+    distribution_name: agentkit-backend
+    target_import_root: agentkit_backend
+    runs_on: core-host
+    meaning: >-
+      Kern-Distribution. Pipeline, QA-Subflow, Governance-Adjudication,
+      Closure, Control-Plane-HTTP, State-Backend, KPI-Analytics und die
+      Frontend-Auslieferung. Alleiniger Eigentuemer des kanonischen Zustands.
+      Oeffnet nie eine Verbindung zu einem Entwicklerrechner.
+    console_scripts:
+      - agentkit-backend
+    runtime_dependencies:
+      - pyyaml
+      - psycopg
+      - psycopg-pool
+      - argon2-cffi
+    module_prefixes:
+      - agentkit.backend
+      - agentkit.frontend
+      - agentkit.integration_clients
+  - id: architecture-conformance.distribution.wire
+    code: wire
+    distribution_name: agentkit-wire
+    target_import_root: agentkit_wire
+    runs_on: both
+    meaning: >-
+      Vertragspaket. Ausschliesslich das /v1-Vokabular, das Edge und Kern
+      beide brauchen. I/O-freies Blatt ohne Dateisystem-, Netz-, Datenbank-,
+      Subprozess- oder Umgebungszugriff; einzige Drittabhaengigkeit pydantic.
+      Kein Ablageort fuer geteilten Code.
+    console_scripts: []
+    runtime_dependencies:
+      - pydantic
+    module_prefixes:
+      - agentkit.backend.control_plane.models
+      - agentkit.backend.control_plane.third_party_models
+      - agentkit.backend.exceptions
+      - agentkit.backend.config.models
+      - agentkit.backend.core_types.operating_mode
+      - agentkit.backend.core_types.verify_evidence
+      - agentkit.backend.story_exit.http_models
+      - agentkit.backend.story_reset.http_models
+      - agentkit.backend.story_split.http_models
+core_only_distributions:
+  - psycopg
+  - psycopg-binary
+  - psycopg-pool
+  - argon2-cffi
+  - agentkit-backend
 ```
 <!-- FORMAL-SPEC:END -->

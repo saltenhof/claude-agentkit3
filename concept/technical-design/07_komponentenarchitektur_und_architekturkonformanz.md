@@ -411,6 +411,113 @@ Invarianten:
     veroeffentlichten `ProjectRepository`-Port, nicht die generische
     `state_backend.store`-Fassade.
 
+## 7.9a Distributionsgrenzen und Packaging-Gate
+
+AK3 wird in drei Distributionen ausgeliefert — `agentkit-project-edge`,
+`agentkit-backend`, `agentkit-wire`. Der Schnitt selbst und die
+Ownership-Matrix sind in **FK-10 §10.1.0a/§10.2.12** normiert; dieses
+Kapitel besitzt die **maschinelle Durchsetzung**.
+
+### 7.9a.1 Warum eine zweite Grenzenart noetig ist
+
+Die Grenzen aus §7.8/§7.9 sind **Importgrenzen innerhalb eines
+Artefakts**: sie verhindern, dass A-Code an einen Treiber koppelt. Sie
+koennen nicht ausdruecken, was der Distributionsschnitt verlangt — dass
+bestimmter Code auf einer Maschine **gar nicht vorhanden** ist. Eine
+Importregel, die nur gilt, solange sie niemand verletzt, ist eine
+Konvention. Nicht installiert ist eine Grenze.
+
+Deshalb prueft dieses Kapitel auf zwei Ebenen:
+
+| Ebene | Gegenstand | Was sie beweist |
+|---|---|---|
+| **Quellgraph** | Importkanten zwischen den drei Zugehoerigkeitsmengen | dass der Schnitt im Repository eingehalten ist |
+| **Gebautes Artefakt** | Inhalt der Wheels, aufgeloeste Dependency-Menge, echter Prozesslauf in einer leeren Umgebung | dass er in der Auslieferung ankommt |
+
+Die zweite Ebene ist nicht redundant. Ein gruener Quellgraph beweist
+nicht, dass das Wheel den gemessenen Umfang hat; genau diese Luecke ist
+der Grund, warum eine Einzeldistribution jahrelang unbemerkt den Kern auf
+den Entwicklerrechner getragen hat.
+
+### 7.9a.2 Verbindliche Distributionsinvarianten
+
+1. **Kern importiert Edge nicht.** Aus keinem Modul von
+   `agentkit-backend` ist ein Modul von `agentkit-project-edge` erreichbar
+   — weder direkt noch transitiv, weder zur Laufzeit noch unter
+   `TYPE_CHECKING`.
+2. **Edge importiert Kern nicht.** Symmetrisch.
+3. **Geteilt wird ausschliesslich das Vertragspaket.** Edge und Kern
+   duerfen ausser `agentkit-wire` kein AK3-Modul gemeinsam haben. Ein
+   Modul gehoert zu genau einer der drei Zugehoerigkeitsmengen; die
+   Zuordnung ist total (jedes Modul hat eine) und disjunkt (keines hat
+   zwei).
+4. **Das Vertragspaket importiert weder Edge noch Kern** und ist ein
+   I/O-freies Blatt: keine Dateisystem-, Netz-, Datenbank-, Subprozess-
+   oder Umgebungszugriffe, ausser `pydantic` keine Drittabhaengigkeit.
+5. **Wheel-/Dependency-Reachability.** Geprueft wird der Inhalt der
+   **gebauten** Artefakte, nicht der Quellbaum: kein Wheel enthaelt ein
+   Modul einer fremden Zugehoerigkeitsmenge, und die aufgeloeste
+   Dependency-Menge der Edge-Distribution enthaelt keine als kern-only
+   klassifizierte Distribution (FK-10 §10.2.12 E).
+6. **Clean-Edge-Installation.** In einer zuvor leeren Umgebung wird
+   ausschliesslich `agentkit-project-edge` installiert. Danach muss ein
+   **echter** Hook-Prozess (`agentkit-hook-claude` oder
+   `agentkit-hook-codex`) mit realem stdin eine Entscheidung liefern,
+   **und** keine als kern-only klassifizierte Distribution darf in der
+   Umgebung vorhanden sein. Beide Haelften zusammen sind das Kriterium:
+   ein Lauf, der funktioniert, aber den Kern mitbringt, ist rot.
+7. **Ein Zielpfad.** Es gibt keinen Alias, keinen Shim, kein Re-Export-
+   Modul und keinen Zeitraum, in dem eine alte und eine neue Importwurzel
+   nebeneinander aufloesen. Ein zweiter Aufloesungsweg fuer dasselbe
+   Symbol ist ein Verstoss, kein Uebergang
+   (`META-DEC-2026-08-06-NO-REEXPORT-FACADES`).
+8. **Namensableitung.** Die Importwurzel jeder Distribution ist ihr
+   Distributionsname mit `-` → `_` und sonst unveraendert. Keine
+   Distribution und keine Importwurzel heisst `agentkit`.
+
+### 7.9a.3 Eigenschaften des Gates
+
+Das Packaging-Gate ist ein **eigener, benannter** deterministischer
+Pruefschritt neben der Konformanz-Suite. Verbindlich sind:
+
+| Eigenschaft | Anforderung |
+|---|---|
+| **Blockierend** | Ein Verstoss bricht den Lauf mit Exit-Code ≠ 0 ab. Kein WARNING-Pfad, keine Unterdrueckung per Konfiguration |
+| **Baseline-frei** | Es gibt keine Liste geduldeter Bestandsverstoesse. Ein Verstoss ist ein Verstoss, unabhaengig davon, wie alt er ist |
+| **„Nicht gelaufen" ≠ PASS** | Das Gate schreibt ein Ergebnisartefakt mit den drei Zustaenden `PASS`, `FAIL` und `NOT_RUN` (mit Grund). Ein fehlendes, leeres oder unlesbares Ergebnis wird wie `FAIL` behandelt. Ein uebersprungener Lauf — kein Build-Toolchain, keine Netzverbindung fuer die Dependency-Aufloesung, kein Interpreter — ist `NOT_RUN` **mit benanntem Grund** und niemals stillschweigend gruen |
+| **Messgroessen benannt** | Das Ergebnis nennt: die drei Zugehoerigkeitsmengen mit Modulanzahl, die Zahl der gefundenen verbotenen Kanten mit Locator, den Wheel-Inhalt je Artefakt, die aufgeloeste Dependency-Menge der Edge-Installation und das Exit-Verhalten des echten Hook-Prozesses. Was das Gate **nicht** gemessen hat, steht als `NOT_RUN`-Zeile darin |
+| **Gegen das Artefakt, nicht gegen die Absicht** | Invariante 5 und 6 werden gegen gebaute Wheels und eine echte Installation ausgefuehrt. Ein Unit-Test oder ein Auflauf mit `--dry-run` erfuellt sie nicht |
+
+Die letzte Zeile ist die Umsetzung von `CLAUDE.md`
+„REALITAETSNACHWEIS AN FREMDSYSTEM-GRENZEN" fuer die Paketgrenze: Eine
+Testsuite leitet Eingabe und Erwartung aus derselben Annahme im Repo ab
+und kann Uebereinstimmung mit der installierten Wirklichkeit nicht
+beweisen.
+
+### 7.9a.4 Verhaeltnis zu §7.8/§7.9
+
+Die Distributionsinvarianten **ersetzen** die Importgrenzen aus §7.8/§7.9
+nicht; sie liegen darueber. Innerhalb einer Distribution gelten alle
+bisherigen Regeln unveraendert weiter. Zwei bestehende Regeln werden vom
+Distributionsschnitt inhaltlich verschaerft:
+
+- §7.9 Punkt 5 (`projectedge` importiert nicht `control_plane_http`)
+  verbietet heute genau **ein** Kern-Praefix. Unter dem Schnitt wird
+  daraus das Verbot des **gesamten** Kern-Namensraums.
+- §7.5 fuehrt `agentkit.backend.governance.hookruntime` als
+  Backward-Compat-Pfad des Claude-Code-Adapters. Ein Backward-Compat-Pfad
+  ist unter `CLAUDE.md` „KEINE KOMPATIBILITAETSSCHICHTEN" unzulaessig; er
+  entfaellt mit dem Schnitt ersatzlos und wird nicht in die
+  Edge-Distribution uebernommen.
+
+Die maschinenlesbare Auspraegung liegt in
+`formal.architecture-conformance.entities` (`distributions`,
+`distribution_membership`) und
+`formal.architecture-conformance.invariants`
+(`distribution_dependency_rules`, `packaging_gate`). Die
+Implementierung des Gates gehoert zu **AG3-209**; AG3-208 legt seinen
+Vertrag fest.
+
 ## 7.10 Beziehung zu anderen Konzepten
 
 - FK-01 beschreibt den Systemkontext und die Prinzipien.

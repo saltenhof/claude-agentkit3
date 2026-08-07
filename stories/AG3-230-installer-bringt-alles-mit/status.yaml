@@ -36,11 +36,24 @@ status: blocked
 #   711 von 1042 Modulen (68 %) unter src/agentkit sind aus materialisiertem
 #   Code erreichbar. Der materialisierte Edge-Code importiert den Kern selbst,
 #   auf Modulebene (projectedge.py:20,21,30,35,36,39; check.py:28;
-#   semantic_gate.py:132). Der PreToolUse-Hook laedt bei JEDEM Read/Grep den
-#   Postgres-Treiber:
-#     pre_tool_use.py -> claude_code.py -> guard_evaluation.py
-#     -> projectedge/client.py -> story_creation -> story_context_manager
-#     -> control_plane_writer_lease.py:32   import psycopg
+#   semantic_gate.py:132).
+#
+#   KORREKTUR 2026-08-07 (AG3-208 AC 7, zwei unabhaengige Messungen):
+#   Die hier zuvor stehende Behauptung "der PreToolUse-Hook laedt bei jedem
+#   Read/Grep den Postgres-Treiber" ist FALSCH. Der Import in
+#   control_plane_writer_lease.py:32 steht unter TYPE_CHECKING. Laufzeit-
+#   `sys.modules` und AST-Erreichbarkeit ueber alle 1042 Module zeigen
+#   uebereinstimmend: geladen werden nur `pydantic` und `pyyaml`. `psycopg` ist
+#   INSTALLIERT, nicht geladen -- der Befund traegt ueber die Anwesenheit, nicht
+#   ueber den Ladevorgang.
+#
+#   Was stattdessen gemessen wurde und den Befund traegt: Der echte Hooklauf
+#   (`agentkit-hook-claude pre branch_guard`, realer stdin, Exit 0) laedt
+#   294 agentkit-Module aus 23 Backend-Subpaketen -- inklusive des
+#   VOLLSTAENDIGEN verify_system (16 sonarqube_gate.*, 14 llm_evaluator.*,
+#   adversarial_orchestrator, policy_engine), state_backend.store,
+#   control_plane und installer. Ein PreToolUse auf `Read` laedt den
+#   SonarQube-Gate-Code. Das Einzel-Wheel installiert 56 Distributionen.
 #   harness_client/projectedge/ ist selbst nicht edge-rein: 9 von 13 Modulen
 #   importieren backend.*.
 #   Harte Drittabhaengigkeiten: pydantic, pyyaml, psycopg[binary],

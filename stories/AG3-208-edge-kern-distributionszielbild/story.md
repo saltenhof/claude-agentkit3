@@ -41,6 +41,22 @@ neue Heimat erhaelt.
 | `src/agentkit/backend/cli/main.py:9-26` | Das gemeinsame CLI importiert Installer-, Story-, Evidence-, Recovery- und Auth-Kommandos eager. |
 | `src/agentkit/backend/cli/main.py:127-160` | Ein Dispatcher mischt Laptop-Kommandos (`register-project`, `run-phase`, `update`, `detach`) mit Kern-Kommandos (`serve`) und in-process Fachoberflaechen. |
 
+> **KORREKTUR 2026-08-07 — die Zahlen in Befund 2 und 4 sind veraltet.**
+> Bei der Umsetzung wurde neu gemessen: Es sind **49 Importstellen ueber 25
+> Module**, nicht 40 ueber 20 — die Kopplung ist seit dem 2026-08-03
+> **gewachsen**. In Befund 4 existieren drei Locatoren nicht mehr
+> (`permission_projection.py`, `permission_request_block.py`, `ccag/cli.py`);
+> sie sind mit AG3-226 entfallen. Nahezu alle Zeilennummern sind verschoben.
+>
+> Die Tabellen unten bleiben als **Beleg des Befundzeitpunkts** stehen und
+> werden nicht nachgepflegt — die Ownership-Matrix in FK-10 §10.2.12 setzt auf
+> den **neuen** Zahlen auf, und sie ist der Stand, der gilt. Wer hier eine Zahl
+> zitieren will, misst neu.
+>
+> Das ist derselbe Mechanismus, den diese Session mehrfach belegt hat: Ein
+> Sweep, der aus einem frueheren Stand stammt, ist eine Hypothese ueber den
+> heutigen.
+
 ### Befund 2 — vollstaendige Kantenliste `harness_client -> backend`
 
 Gemessen am 2026-08-03 mit

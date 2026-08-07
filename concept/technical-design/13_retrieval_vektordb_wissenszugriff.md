@@ -344,7 +344,14 @@ ausfuehrbarer Wert in `.mcp.json` publiziert.
 **Normative Praezisierung des Registrierungsvertrags** (AG3-175; Decision Record
 `2026-07-28-vectordb-endpoint-consolidation.md`):
 
-- **Ausfuehrbares Modul.** Registriert wird `-m agentkit.backend.vectordb.engine`.
+- **Ausfuehrbares Modul.** Registriert wird heute
+  `-m agentkit.backend.vectordb.engine`. **Zielzustand ist der
+  Console-Script-Entry-Point `agentkit-story-mcp` der Edge-Distribution
+  `agentkit-project-edge`** (FK-10 §10.2.11): Der MCP-Server laeuft auf
+  dem Entwicklerrechner (PO-Entscheidung 2026-08-03, F3), und ein
+  Modulpfad im Kern-Namensraum wuerde nach dem Distributionsschnitt ins
+  Leere zeigen. Der stdio-Einstiegspunkt bleibt `engine.main`; nur der
+  Aufrufweg wechselt, und zwar in einem Schritt (AG3-209).
   `vectordb.mcp_server` ist ein **Bibliotheksmodul**: als `-m` ausgefuehrt laeuft
   sein Modulrumpf und endet mit Exit 0, ohne zu serven — der
   MCP-Conformance-Check (FK-50 §50.3 CP 10) wertet das korrekt als

@@ -102,15 +102,22 @@ Installationsregistrierung und Skill-Bindings sowie alle kanonischen Writes
 laufen ueber die projektgeskoppelten Installer-HTTPS-Routen; ein produktives
 State-Backend-Repository im CLI-Prozess und ein lokaler Fallback sind verboten.
 
-Der Installer erkennt anhand der installierten Paketversion, der
-registrierten Bundle-Version und des Konfigurations-Digests, ob ein
-Upgrade oder eine Re-Bindung noetig ist.
+Der Installer erkennt anhand der installierten Version der
+Edge-Distribution `agentkit-project-edge`, der registrierten
+Bundle-Version und des Konfigurations-Digests, ob ein Upgrade oder eine
+Re-Bindung noetig ist. „Die Paketversion" ist unter drei Artefakten kein
+eindeutiger Begriff mehr; massgeblich ist die Version des Artefakts, das
+auf **dieser** Maschine liegt. Da alle drei Distributionen aus einem
+Repository gebaut werden und dieselbe Version tragen (FK-10 §10.2.7), ist
+sie zugleich die Version des mitinstallierten Vertragspakets
+`agentkit-wire` — eine zweite Achse oder ein Kompatibilitaetsbereich
+entsteht daraus **nicht**.
 
 **Treibermodell (hybrid; Topologie in FK-10 §10.2.8):** Der zentrale
 Core **annonciert** über `/v1` die unterstützten Versionsfenster
 (`min`/`recommended`/`blocked`; Wire-Detailvertrag in FK-91); die
 **Entwicklermaschine zieht und aktiviert** das Update selbst
-(`agentkit update` für Paket-/Bundle-Version, danach deliberater
+(`agentkit-project-edge update` für Paket-/Bundle-Version, danach deliberater
 Re-Bind/Re-Run auf Ebene 3). **Es gibt keinen Server-Push von
 Executables** — das wäre Remote-Code-Ausführung über die Trust-Boundary,
 gerade für Hook-Code.
@@ -130,7 +137,7 @@ gerade für Hook-Code.
 
 **Treiber je Ebene:** Ebene 1 ops-getrieben (DB-Migration explizit,
 `min`-Client-Politik **vor** Rollout setzen); Ebene 2 Entwickler per
-`agentkit update` auf Server-Hinweis; Ebene 3 deliberater
+`agentkit-project-edge update` auf Server-Hinweis; Ebene 3 deliberater
 Re-Bind/Re-Run.
 
 ## 51.3 Drei Upgrade-Szenarien
@@ -222,14 +229,23 @@ Hook-Verwaltung an die Top-Surface `Governance.register_hooks`
 harness-spezifischen Settings-Dateien (Beispiel Claude Code:
 `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe
 FK-76 §76.5) liegt in `agentkit.backend.governance.guard_system` plus dem
-zugehoerigen Harness-Adapter.
+zugehoerigen Harness-Adapter — beide ausgeliefert aus der
+Edge-Distribution `agentkit-project-edge` (FK-10 §10.2.12 B); der Pfad
+ist ein Locator des heutigen Codestands, Zielpfad ist
+`agentkit_project_edge.governance.guard_system`.
 
 Der Installer:
 
 1. Ermittelt die neuen/geaenderten Hook-Definitionen fuer die aktuelle Version
 2. Ruft `Governance.register_hooks(hook_definitions)` auf
-3. `governance.guard_system` erkennt AgentKit-Hooks anhand des Command-Patterns
-   (`python -m agentkit.`), entfernt veraltete und fuegt neue hinzu
+3. `governance.guard_system` erkennt AgentKit-Hooks am **Console-Script-Namen**
+   der Edge-Distribution (`agentkit-hook-claude`, `agentkit-hook-codex`,
+   `agentkit-project-edge`), entfernt veraltete und fuegt neue hinzu. Ein
+   `python -m`-Modulpfad ist **kein** Erkennungsmerkmal: die Hooks werden als
+   Wrapper-Kommandos registriert (FK-30 §30.3.1), und nach dem
+   Importwurzel-Wechsel wuerde ein Muster auf `agentkit.` nie mehr greifen —
+   Detach und Upgrade wuerden fremde Bloecke stehen lassen statt AK3-Bloecke
+   zu erkennen
 4. Nicht-AgentKit-Hooks bleiben unveraendert
 
 UP 04 erhaelt dabei eine enge `register_hooks`-Top-Surface, die auf
@@ -303,8 +319,8 @@ Zustand einer höheren Ebene.
 
 | Verb | Ebene | Mechanik | Schutz |
 |------|-------|----------|--------|
-| **Projekt-Detach** | 3 | Skill-Junctions lösen (über die Owner-Top-Surfaces, z. B. `Skills.unbind`), AK3-Hook-Registrierung über `Governance.register_hooks` (nur AK3-Blöcke, Command-Pattern `python -m agentkit.`) entfernen, die aus `src/agentkit/bundles/target_project/tools/agentkit/` materialisierten `tools/agentkit/`-Launcher und `.agentkit/`-Bindungen über `src/agentkit/backend/installer/lifecycle/detach.py` löschen | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, **nie** `rmtree` durch den Link (FK-43); Projektcode und fremde Hooks bleiben; **zentraler State des Projekts bleibt** |
-| **Maschinen-Uninstall** | 2 | `agentkit`-Paket deinstallieren, Bundle-Store und Shims entfernen | Vor dem Entfernen einer Bundle-Version: gebundene Projekte über das Registrierungs-Aggregat ermitteln und als **orphaned** warnen; laufende Harness-/Hook-Prozesse vorher beenden |
+| **Projekt-Detach** | 3 | Skill-Junctions lösen (über die Owner-Top-Surfaces, z. B. `Skills.unbind`), AK3-Hook-Registrierung über `Governance.register_hooks` (nur AK3-Blöcke; das Erkennungsmuster ist der **Console-Script-Name** der Edge-Distribution — `agentkit-hook-claude`, `agentkit-hook-codex`, `agentkit-project-edge` —, **nicht** ein `python -m`-Modulpfad) entfernen, die aus `src/agentkit/bundles/target_project/tools/agentkit/` materialisierten `tools/agentkit/`-Launcher und `.agentkit/`-Bindungen über `src/agentkit/backend/installer/lifecycle/detach.py` löschen | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, **nie** `rmtree` durch den Link (FK-43); Projektcode und fremde Hooks bleiben; **zentraler State des Projekts bleibt** |
+| **Maschinen-Uninstall** | 2 | **beide** auf dieser Maschine installierten Distributionen deinstallieren — `agentkit-project-edge` und `agentkit-wire` —, danach Bundle-Store und Shims entfernen | Vor dem Entfernen einer Bundle-Version: gebundene Projekte über das Registrierungs-Aggregat ermitteln und als **orphaned** warnen; laufende Harness-/Hook-Prozesse vorher beenden. Eine Deinstallation, die nur ein Artefakt entfernt, hinterlaesst ein verwaistes Vertragspaket |
 | **Core-Decommission** | 1 | Backend-/Frontend-Dienste stoppen, ggf. DB abbauen | **Destruktiv**: nur nach expliziter Bestätigung **und Pflicht-Export** des State-Backends (Audit-Trail, Closure-Records, QA-Ergebnisse); DB-Volume-Löschung **nie** an Dienst-Uninstall koppeln |
 | **Projekt-Löschung** | 1 | kanonischen State eines Projekts zentral löschen | **Destruktiv**; explizite Bestätigung; nicht-destruktive Alternative bleibt **Archivierung** (DK-14) |
 
