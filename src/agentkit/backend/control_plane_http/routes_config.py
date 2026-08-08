@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane_http.story_split_routes import StorySplitRoutes
     from agentkit.backend.control_plane_http.takeover_approval_routes import TakeoverApprovalRoutes
     from agentkit.backend.control_plane_http.third_party_validation_routes import ThirdPartyValidationRoutes
+    from agentkit.backend.control_plane_http.verify_routes import VerifySystemRoutes
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
@@ -57,3 +58,4 @@ class ControlPlaneApplicationRoutes:
     story_admin_routes: StoryAdminRoutes | None = None
     failure_corpus_routes: FailureCorpusRoutes | None = None
     installer_writer_routes: InstallerWriterRoutes | None = None
+    verify_system_routes: VerifySystemRoutes | None = None

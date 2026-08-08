@@ -49,8 +49,12 @@ from agentkit.backend.story_context_manager.http.routes import (
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
-from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
 from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
+from agentkit_wire.verify_system import (
+    ConflictVerdict,
+    StoryConflictAssessmentRequest,
+    StoryConflictAssessmentResponse,
+)
 
 CORR = "corr-fix1"
 _PROJECT_REPOS = ["ak3-backend", "ak3-frontend"]
@@ -134,24 +138,17 @@ class _FakeAdapter:
         return self._hits
 
 
-class _FakeResult:
-    def __init__(self, verdict: LlmVerdict) -> None:
-        self.verdict = verdict
-
-
 class _FakeEvaluator:
-    def __init__(self, verdict: LlmVerdict) -> None:
+    """Double at the network boundary to the core's conflict assessment (AG3-241)."""
+
+    def __init__(self, verdict: ConflictVerdict) -> None:
         self._verdict = verdict
 
-    def evaluate(
-        self,
-        role: ReviewerRole,
-        bundle: object,
-        previous_findings: object,
-        qa_cycle_round: int,
-    ) -> _FakeResult:
-        del role, bundle, previous_findings, qa_cycle_round
-        return _FakeResult(self._verdict)
+    def assess(
+        self, request: StoryConflictAssessmentRequest
+    ) -> StoryConflictAssessmentResponse:
+        del request
+        return StoryConflictAssessmentResponse(verdict=self._verdict)
 
 
 def _project_config() -> ProjectConfig:
@@ -175,7 +172,7 @@ def _reconciler(
     *,
     hits: list[StorySearchHit] | None = None,
     raise_search: bool = False,
-    verdict: LlmVerdict = LlmVerdict.PASS,
+    verdict: ConflictVerdict = ConflictVerdict.PASS,
 ) -> StoryCreationReconciler:
     return StoryCreationReconciler(
         story_service=svc,

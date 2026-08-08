@@ -114,6 +114,14 @@ _PROJECT_STORY_FIELD_KEY = re.compile(
 _PROJECT_STORY_SEARCH = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/stories/search$",
 )
+# AG3-241: verify-system surface (FK-91 §91.1a). Project-scoped like the story
+# routes; neither mutates canonical state, so neither carries an op_id.
+_PROJECT_STORY_CONFLICT_ASSESSMENTS = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/story-conflict-assessments$",
+)
+_PROJECT_VERIFY_EVIDENCE_ASSEMBLIES = re.compile(
+    r"^/v1/projects/(?P<project_key>[^/]+)/verify-evidence-assemblies$",
+)
 _PROJECT_DASHBOARD_BOARD = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/dashboard/board$",
 )

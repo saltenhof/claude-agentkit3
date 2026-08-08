@@ -38,7 +38,7 @@ from agentkit.backend.story_creation.vectordb_reconciliation import (
     RECONCILIATION_SEARCH_MODE,
     resolve_vectordb_conflict_flag,
 )
-from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict
+from agentkit_wire.verify_system import ConflictVerdict
 
 
 class ReconciliationEvidence(BaseModel):
@@ -76,7 +76,7 @@ class ReconciliationEvidence(BaseModel):
     hits_classified_conflict: int = Field(ge=0)
     threshold_value: float = Field(ge=0.0, le=1.0)
     search_mode: str = RECONCILIATION_SEARCH_MODE
-    verdict: LlmVerdict
+    verdict: ConflictVerdict
     story_was_adapted: bool = False
     participating_repos: tuple[str, ...] = ()
 
@@ -111,7 +111,7 @@ class ReconciliationEvidence(BaseModel):
                 f"({self.search_mode!r}) must be the fixed stage-1 search mode "
                 f"{RECONCILIATION_SEARCH_MODE!r} (FK-21 §21.4.2)"
             )
-        conflict_expected = 1 if self.verdict is LlmVerdict.FAIL else 0
+        conflict_expected = 1 if self.verdict is ConflictVerdict.FAIL else 0
         if self.hits_classified_conflict != conflict_expected:
             raise ValueError(
                 "reconciliation evidence is invalid: hits_classified_conflict "

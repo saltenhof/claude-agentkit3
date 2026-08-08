@@ -12,30 +12,19 @@ target project's configuration:
   :class:`VectorDbUnavailableError` at reconcile time, so the create path
   fail-closes BEFORE persistence (FK-21 §21.4.3) -- never a dummy / skipped
   evidence.
-* **Stage 2 (LLM conflict adjudication)** runs the REAL FK-21 §21.4.1 Schritt 3
-  conflict assessment via the create-scope
-  :class:`~agentkit.backend.story_creation.conflict_adjudicator.CreateTimeConflictAdjudicator`
-  (AG3-115). That adjudicator reuses the unchanged
-  :class:`~agentkit.backend.verify_system.llm_evaluator.structured_evaluator.StructuredEvaluator`
-  over the FK-65 / FK-11 :class:`HubLlmClient` transport, but with a create-scope
-  prompt materializer -- so it needs NO ``StoryContext`` / ``run_id`` / story dir
-  (none of which exist before the story is created). This factory builds that real
-  transport from the target-project config: the Hub base URL is resolved via
-  :func:`~agentkit.integration_clients.multi_llm_hub.config.load_multi_llm_hub_config` and the
-  ``story_creation_review`` role -> pool routing is read from
-  ``pipeline.llm_roles.story_creation_review`` through the config-faithful
-  :class:`_ConfigRolePoolResolver` (FK-75 §75.3: the routing OWNER is config, not
-  the transport). Once stage 1 surfaces above-threshold similarity candidates,
-  stage 2 now produces a genuine binary PASS (no conflict, create proceeds) / FAIL
-  (duplicate / overlap, create blocks) verdict -- no longer a blanket fail-close.
-  An LLM-transport outage at stage 2 raises a TRUTHFUL
-  :class:`~agentkit.backend.story_creation.conflict_adjudicator.CreateTimeConflictAdjudicationError`
-  (the VectorDB is healthy; only the create-time LLM assessment failed).
+* **Stage 2 (conflict adjudication) is ASKED FOR, not run** (AG3-241). The FK-21
+  §21.4.1 Schritt 3 assessment is an LLM evaluation, and an LLM evaluation of the
+  story being created may not run in the process creating it. The factory wires
+  the thin
+  :class:`~agentkit.backend.story_creation.conflict_adjudicator.RestConflictAdjudicator`
+  against ``POST /v1/projects/{project_key}/story-conflict-assessments``; the
+  transport, the pool routing (FK-75 §75.3) and the prompt resolution
+  (FK-44 §44.4.2) all live in the core with the evaluator they belong to.
 
-  **Fallback (truthful, not a bypass):** when the project config does NOT assign a
-  ``story_creation_review`` pool, no real adjudicator can be built. The factory
-  then injects the :class:`FailClosedConflictEvaluator`: an above-threshold
-  candidate set is BLOCKED with the TRUTHFUL
+  **Fallback (truthful, not a bypass):** without a ``project_root`` no
+  Project-Edge client exists, so no adjudicator can be built. The factory then
+  injects the :class:`FailClosedConflictEvaluator`: an above-threshold candidate
+  set is BLOCKED with the TRUTHFUL
   :class:`~agentkit.backend.exceptions.ConflictAdjudicationUnavailableError` (mapped to the
   ``conflict_adjudication_unavailable`` wire code -- NOT a VectorDB outage) rather
   than silently passing an unadjudicated conflict (FK-21 §21.4.3 / NO ERROR
@@ -50,40 +39,39 @@ the authoritative create happens at the Control-Plane boundary via the official
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast, get_args
+from typing import TYPE_CHECKING
 
 from agentkit.backend.exceptions import ConflictAdjudicationUnavailableError
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
 from agentkit.backend.vectordb.endpoints import split_grpc_endpoint, split_http_endpoint
-from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClientError
-from agentkit.integration_clients.multi_llm_hub.entities import HubBackendName
 from agentkit.integration_clients.vectordb import (
     VectorDbUnavailableError,
     WeaviateStoryAdapter,
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentkit.backend.config.models import ProjectConfig, VectorDbConfig
     from agentkit.backend.story_creation.vectordb_reconciliation import (
         ConflictEvaluatorPort,
         ReconciliationResult,
     )
-    from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
-    from agentkit.backend.verify_system.llm_evaluator.roles import ReviewerRole
-    from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
-        StructuredEvaluatorResult,
+    from agentkit_wire.verify_system import (
+        StoryConflictAssessmentRequest,
+        StoryConflictAssessmentResponse,
     )
 
 
 class FailClosedConflictEvaluator:
-    """Fail-closed stage-2 conflict evaluator (no create-time LLM owner yet).
+    """Fail-closed stage-2 conflict evaluator (no reachable core wired).
 
     Implements the :class:`ConflictEvaluatorPort` surface. It is only invoked
-    when stage 1 surfaced above-threshold similarity candidates that need LLM
-    adjudication. Until the productive create-time LLM wiring exists (AG3-065 /
-    AG3-070; the story-execution-scoped ``StructuredEvaluator`` is not a pre-story
-    owner), an above-threshold candidate set is a fail-closed blocker: the create
-    is BLOCKED rather than silently passed (FK-21 §21.4.3 / NO ERROR BYPASSING).
+    when stage 1 surfaced above-threshold similarity candidates that need
+    adjudication. Without a Project-Edge client there is no way to ask the core,
+    and there is no local substitute: an above-threshold candidate set is then a
+    fail-closed blocker -- the create is BLOCKED rather than silently passed
+    (FK-21 §21.4.3 / NO ERROR BYPASSING).
 
     It raises a TRUTHFUL :class:`ConflictAdjudicationUnavailableError` -- NOT a
     :class:`VectorDbUnavailableError`: the VectorDB itself is healthy (stage 1
@@ -92,147 +80,74 @@ class FailClosedConflictEvaluator:
     code so the failure is never mislabelled as a VectorDB outage.
     """
 
-    def evaluate(
-        self,
-        role: ReviewerRole,
-        bundle: ReviewBundle,
-        previous_findings: list[object] | None,
-        qa_cycle_round: int,
-    ) -> StructuredEvaluatorResult:
-        """Raise fail-closed: no create-time LLM adjudicator is configured.
+    def assess(
+        self, request: StoryConflictAssessmentRequest
+    ) -> StoryConflictAssessmentResponse:
+        """Raise fail-closed: no route to the create-time adjudication exists.
 
         Args:
-            role: The reviewer role (unused; fail-closed).
-            bundle: The review bundle (unused; fail-closed).
-            previous_findings: Prior findings (unused; fail-closed).
-            qa_cycle_round: The QA cycle round (unused; fail-closed).
+            request: The assessment request (unused; fail-closed).
 
         Raises:
             ConflictAdjudicationUnavailableError: Always -- an above-threshold
-                similarity conflict needs create-time LLM adjudication that has no
-                owner wired (the ``StructuredEvaluator`` is story-execution
-                scoped). The create fail-closes rather than passing an
-                unadjudicated conflict; the VectorDB is healthy, so this is NOT a
-                VectorDB outage.
+                similarity conflict needs the core's create-time assessment, and
+                no reachable core was wired. The create fail-closes rather than
+                passing an unadjudicated conflict; the VectorDB is healthy, so
+                this is NOT a VectorDB outage.
         """
-        del role, bundle, previous_findings, qa_cycle_round
+        del request
         raise ConflictAdjudicationUnavailableError(
-            "story-creation stage-2 conflict adjudication has no create-time LLM "
-            "owner wired (AG3-065/AG3-070; the StructuredEvaluator is story-"
-            "execution scoped, needing a live StoryContext + run_id that do not "
-            "exist before the story is created). Above-threshold similarity "
-            "candidates cannot be adjudicated, so the create is BLOCKED fail-"
-            "closed (FK-21 §21.4.3) -- no silent pass, no dummy verdict."
+            "story-creation stage-2 conflict adjudication has no reachable owner: "
+            "no Project-Edge client was wired for the create-time assessment "
+            "(AG3-241; the assessment runs in the core, never in this process). "
+            "Above-threshold similarity candidates cannot be adjudicated, so the "
+            "create is BLOCKED fail-closed (FK-21 §21.4.3) -- no silent pass, no "
+            "dummy verdict."
         )
-
-
-class _ConfigRolePoolResolver:
-    """Config-faithful ``RolePoolResolver`` for the create-time conflict role.
-
-    Implements the FK-75 §75.3 ``RolePoolResolver`` surface
-    (:meth:`resolve(role) -> HubBackendName`) by reading the
-    ``pipeline.llm_roles.story_creation_review`` pool assignment from the target
-    project's config. The routing OWNER is the config (AG3-070), not the LLM
-    transport. A role with no configured pool -- or a pool string that is not a
-    valid :data:`~agentkit.integration_clients.multi_llm_hub.entities.HubBackendName` -- fails closed
-    with :class:`LlmClientError` (FK-75 §75.3: no default pool, never a silent
-    fallback). This resolver intentionally serves ONLY the create-time
-    ``story_creation_review`` role: any other role is rejected fail-closed so the
-    create-scope transport cannot be reused for an execution role.
-
-    Attributes:
-        _pool: The validated ``story_creation_review`` pool name.
-    """
-
-    def __init__(self, *, story_creation_review_pool: HubBackendName) -> None:
-        """Initialise the resolver with the validated create-time pool.
-
-        Args:
-            story_creation_review_pool: The validated Hub pool name assigned to
-                the ``story_creation_review`` role.
-        """
-        self._pool = story_creation_review_pool
-
-    def resolve(self, role: str) -> HubBackendName:
-        """Resolve the ``story_creation_review`` role to its configured pool.
-
-        Args:
-            role: The reviewer role wire-string. Must be
-                ``"story_creation_review"`` (the only create-time role).
-
-        Returns:
-            The configured :data:`HubBackendName` for the create-time role.
-
-        Raises:
-            LlmClientError: When ``role`` is not the create-time role (fail-closed:
-                this resolver does not serve execution roles).
-        """
-        if role != "story_creation_review":
-            raise LlmClientError(
-                "create-time RolePoolResolver only serves role "
-                f"'story_creation_review'; got {role!r} (fail-closed, no default "
-                "pool, FK-75 §75.3)."
-            )
-        return self._pool
 
 
 def build_create_time_conflict_evaluator(
     project_config: ProjectConfig,
+    *,
+    project_root: Path | None = None,
 ) -> ConflictEvaluatorPort | None:
-    """Build the real create-time conflict adjudicator from the project config.
+    """Build the edge half of the create-time conflict assessment (AG3-241).
 
-    Wires the REAL FK-21 §21.4.1 Schritt 3 conflict assessment (AG3-115's
-    :class:`~agentkit.backend.story_creation.conflict_adjudicator.CreateTimeConflictAdjudicator`)
-    over the FK-65 / FK-11 :class:`~agentkit.backend.verify_system.llm_evaluator.llm_client.HubLlmClient`
-    transport. The Hub base URL is resolved via
-    :func:`~agentkit.integration_clients.multi_llm_hub.config.load_multi_llm_hub_config` (the SAME
-    transport the rest of the LLM-evaluation path uses) and the
-    ``story_creation_review`` role -> pool routing is read from
-    ``pipeline.llm_roles.story_creation_review`` via :class:`_ConfigRolePoolResolver`
-    (FK-75 §75.3).
+    The assessment itself runs in the core
+    (``POST /v1/projects/{project_key}/story-conflict-assessments``); what is
+    built here is the thin adjudicator that asks for it over the official
+    Project-Edge client. Nothing about the LLM -- transport, pool routing, prompt
+    -- is decided in this process any more; that is the point of the story.
 
     Args:
-        project_config: The loaded target-project config (carries the
-            ``pipeline.llm_roles`` role->pool assignments).
+        project_config: The loaded target-project config (carries the project
+            key that scopes the assessment).
+        project_root: The target-project root the Project-Edge client is built
+            from (base URL, project credential, CA file). ``None`` means no
+            client can be built.
 
     Returns:
-        A wired :class:`CreateTimeConflictAdjudicator` (typed as the
-        ``ConflictEvaluatorPort`` slot the reconciler injects), or ``None`` when
-        the config assigns NO valid ``story_creation_review`` pool -- in which case
-        the caller falls back to the truthful :class:`FailClosedConflictEvaluator`
+        A wired :class:`RestConflictAdjudicator`, or ``None`` when no
+        ``project_root`` was supplied -- in which case the caller falls back to
+        the truthful :class:`FailClosedConflictEvaluator`
         (``conflict_adjudication_unavailable``), never a silent pass.
     """
-    llm_roles = project_config.pipeline.llm_roles
-    if llm_roles is None:
-        return None
-    pool_name = llm_roles.story_creation_review
-    if pool_name is None or pool_name not in get_args(HubBackendName):
-        # No (valid) create-time pool configured: the real adjudicator cannot be
-        # built. The caller falls back to FailClosedConflictEvaluator (truthful
-        # conflict_adjudication_unavailable), not a silent pass.
+    if project_root is None:
         return None
 
     from agentkit.backend.story_creation.conflict_adjudicator import (
-        CreateTimeConflictAdjudicator,
+        RestConflictAdjudicator,
     )
-    from agentkit.backend.verify_system.llm_evaluator.llm_client import HubLlmClient
-    from agentkit.integration_clients.multi_llm_hub.client import HubClient
-    from agentkit.integration_clients.multi_llm_hub.config import load_multi_llm_hub_config
+    from agentkit.harness_client.projectedge.runtime import build_project_edge_client
 
-    hub = HubClient(load_multi_llm_hub_config().base_url)
-    # pool_name was validated against get_args(HubBackendName) above; the cast
-    # records that runtime narrowing for the type checker (the Literal cannot be
-    # statically narrowed from a config ``str``).
-    resolver = _ConfigRolePoolResolver(
-        story_creation_review_pool=cast("HubBackendName", pool_name),
-    )
-    llm_client = HubLlmClient(hub, resolver, owner="agentkit-story-creation")
-    return CreateTimeConflictAdjudicator(llm_client)
+    client = build_project_edge_client(project_root)
+    return RestConflictAdjudicator(client, project_key=project_config.project_key)
 
 
 def build_story_creation_reconciler(
     *,
     project_config: ProjectConfig,
+    project_root: Path | None = None,
     conflict_evaluator: ConflictEvaluatorPort | None = None,
 ) -> StoryCreationReconciler:
     """Build the real reconcile runtime from the target project's config.
@@ -251,10 +166,11 @@ def build_story_creation_reconciler(
 
     Args:
         project_config: The loaded target-project config (carries ``vectordb``
-            host/port + tuning, ``repositories[]`` for repo-affinity and
-            ``pipeline.llm_roles`` for the create-time conflict-pool routing).
+            host/port + tuning and ``repositories[]`` for repo-affinity).
+        project_root: The target-project root the Project-Edge client is built
+            from, so stage 2 can reach the core's assessment endpoint.
         conflict_evaluator: Optional productive stage-2 evaluator; defaults to the
-            real config-wired adjudicator, falling back to a fail-closed evaluator.
+            REST adjudicator, falling back to a fail-closed evaluator.
 
     Returns:
         A configured :class:`StoryCreationReconciler` (reconcile-only ready).
@@ -307,7 +223,9 @@ def build_story_creation_reconciler(
     # otherwise fall back to the truthful fail-closed evaluator.
     evaluator = conflict_evaluator
     if evaluator is None:
-        evaluator = build_create_time_conflict_evaluator(project_config)
+        evaluator = build_create_time_conflict_evaluator(
+            project_config, project_root=project_root
+        )
     if evaluator is None:
         evaluator = FailClosedConflictEvaluator()
 

@@ -810,6 +810,16 @@ nicht referenzieren; ihr agentischer Weg laeuft ueber Project Edge und den
 `collect_verify_evidence`-Vertrag (FK-91 §91.1b). AgentKit CLI nutzt manuelles
 argparse-Subparser-Wiring (FK-43); der Command wird als Subparser registriert.
 
+**Adapter, nicht zweite Implementierung.** Der Command assembliert nicht selbst.
+Er liest den edge-exportierten Checkpoint, ruft
+`POST /v1/projects/{project_key}/verify-evidence-assemblies` (FK-91 §91.1a) und
+schreibt das vom Kern zurueckgegebene Manifest. Die Assemblierung entscheidet,
+welche Evidenz ein Reviewer sieht, und praegt den `manifest_hash`, an dem die
+Reviewer gemessen werden; sie ist damit ein QA-Artefakt-Erzeuger und gehoert
+nicht in den Prozess, der beurteilt wird. FK-91 §91.1 legt dieselbe Rolle fest:
+die CLI ist der menschliche Adapterpfad auf die API, fachlich autoritativ ist
+der API-Vertrag.
+
 **Command-Signatur:**
 
 ```
@@ -818,6 +828,8 @@ argparse-Subparser-Wiring (FK-43); der Command wird als Subparser registriert.
   --story-id ODIN-042 \
   --story-dir ./stories/ODIN-042 \
   --output-dir ./stories/ODIN-042/qa \
+  --project-key odin \
+  --project-root /path/to/odin \
   [--config ./stories/ODIN-042/context.json]
 ```
 
@@ -829,6 +841,8 @@ argparse-Subparser-Wiring (FK-43); der Command wird als Subparser registriert.
 | `--story-dir` | Ja | Verzeichnis der Story-Artefakt-Exporte (enthaelt optional `context.json`) |
 | `--output-dir` | Ja | Zielverzeichnis für `bundle_manifest.json` und assemblierte Dateien |
 | `--config` | Nein | Pfad zu einem Edge-exportierten Evidence-JSON (Default: `story_dir/context.json`); enthaelt logische Repos, Change-Inventar und content-gebundene `collected_files`, niemals `repo_path` |
+| `--project-key` | Ja | Projekt-Scope des Assembly-Endpoints (FK-91 §91.1a) |
+| `--project-root` | Ja | Target-Project-Root, aus dem Base-URL, Projekt-Credential und CA-Datei des Kerns aufgeloest werden |
 
 **Handler-Logik:**
 
@@ -847,6 +861,8 @@ def _register_evidence_commands(subparsers) -> None:
     assemble_parser.add_argument("--story-id", required=True)
     assemble_parser.add_argument("--story-dir", required=True, type=Path)
     assemble_parser.add_argument("--output-dir", required=True, type=Path)
+    assemble_parser.add_argument("--project-key", required=True)
+    assemble_parser.add_argument("--project-root", required=True, type=Path)
     assemble_parser.add_argument("--config", type=Path, default=None)
     assemble_parser.set_defaults(func=_handle_evidence_assemble)
 
@@ -856,10 +872,9 @@ def _handle_evidence_assemble(args) -> int:
 
 1. Laedt den Edge-exportierten `context.json`-Evidence-Checkpoint
 2. Baut logische Repo-Kontexte ohne physische Worktree-Pfade
-    3. Instanziiert EvidenceAssembler mit `collected_files`
-    4. Ruft assemble() auf
-    5. Schreibt bundle_manifest.json in --output-dir
-    6. Gibt Exit-Code 0 bei Erfolg, 1 bei Fehler zurück
+    3. Ruft POST /v1/projects/{project_key}/verify-evidence-assemblies
+    4. Schreibt das zurueckgegebene bundle_manifest.json in --output-dir
+    5. Gibt Exit-Code 0 bei Erfolg, 1 bei Fehler zurück
     """
     ...
 ```

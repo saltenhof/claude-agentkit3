@@ -40,11 +40,15 @@ from agentkit.backend.story_context_manager.story_repository import InMemoryStor
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
 from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.telemetry.events import EventType
-from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
 from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
+from agentkit_wire.verify_system import (
+    ConflictVerdict,
+    StoryConflictAssessmentRequest,
+    StoryConflictAssessmentResponse,
+)
 
 # ---------------------------------------------------------------------------
-# Boundary doubles (Weaviate adapter + LLM evaluator only)
+# Boundary doubles (Weaviate adapter + the core's conflict assessment only)
 # ---------------------------------------------------------------------------
 
 
@@ -71,28 +75,18 @@ class _FakeAdapter:
         return self._hits
 
 
-class _FakeResult:
-    def __init__(self, verdict: LlmVerdict) -> None:
-        self.verdict = verdict
-
-
 class _FakeEvaluator:
-    """Structured-evaluator double over the role-based evaluate surface."""
+    """Double at the network boundary to the core's conflict assessment (AG3-241)."""
 
-    def __init__(self, verdict: LlmVerdict) -> None:
+    def __init__(self, verdict: ConflictVerdict) -> None:
         self._verdict = verdict
-        self.calls: list[ReviewerRole] = []
+        self.calls: list[StoryConflictAssessmentRequest] = []
 
-    def evaluate(
-        self,
-        role: ReviewerRole,
-        bundle: object,
-        previous_findings: object,
-        qa_cycle_round: int,
-    ) -> _FakeResult:
-        del bundle, previous_findings, qa_cycle_round
-        self.calls.append(role)
-        return _FakeResult(self._verdict)
+    def assess(
+        self, request: StoryConflictAssessmentRequest
+    ) -> StoryConflictAssessmentResponse:
+        self.calls.append(request)
+        return StoryConflictAssessmentResponse(verdict=self._verdict)
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +156,7 @@ def _reconciler(
     *,
     hits: list[StorySearchHit] | None = None,
     raise_search: bool = False,
-    verdict: LlmVerdict = LlmVerdict.PASS,
+    verdict: ConflictVerdict = ConflictVerdict.PASS,
     emitter: MemoryEmitter | None = None,
     service: StoryService | None = None,
 ) -> StoryCreationReconciler:
@@ -218,7 +212,7 @@ def test_weaviate_outage_blocks_create_via_real_flow() -> None:
 
 def test_stage2_fail_and_adaptation_sets_flag_true_via_real_flow() -> None:
     body = "## Betroffene Dateien\n- services/api/main.py\n"
-    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=LlmVerdict.FAIL)
+    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=ConflictVerdict.FAIL)
     outcome = reconciler.create_story(
         _input(),
         story_body=body,
@@ -234,7 +228,7 @@ def test_stage2_fail_and_adaptation_sets_flag_true_via_real_flow() -> None:
 def test_stage2_fail_without_adaptation_leaves_flag_false_via_real_flow() -> None:
     """NEGATIVE: a FAIL conflict NOT resolved by adapting leaves the flag False."""
     body = "## Betroffene Dateien\n- services/api/main.py\n"
-    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=LlmVerdict.FAIL)
+    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=ConflictVerdict.FAIL)
     outcome = reconciler.create_story(
         _input(),
         story_body=body,
@@ -247,7 +241,7 @@ def test_stage2_fail_without_adaptation_leaves_flag_false_via_real_flow() -> Non
 
 def test_stage2_pass_leaves_flag_false_via_real_flow() -> None:
     body = "## Betroffene Dateien\n- services/api/main.py\n"
-    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=LlmVerdict.PASS)
+    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=ConflictVerdict.PASS)
     outcome = reconciler.create_story(
         _input(),
         story_body=body,
@@ -311,7 +305,7 @@ def test_reconciler_produces_route_consumable_evidence() -> None:
         "- services/api/main.py\n"
         "- apps/web/page.tsx\n"
     )
-    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=LlmVerdict.FAIL)
+    reconciler = _reconciler(hits=[_hit("AK3-001", 0.95)], verdict=ConflictVerdict.FAIL)
     outcome = reconciler.create_story(
         _input(),
         story_body=body,
@@ -320,7 +314,7 @@ def test_reconciler_produces_route_consumable_evidence() -> None:
     )
     evidence = outcome.evidence
     assert evidence.weaviate_ready is True
-    assert evidence.verdict is LlmVerdict.FAIL
+    assert evidence.verdict is ConflictVerdict.FAIL
     assert evidence.hits_classified_conflict == 1
     # Grounded flag matches the outcome and the persisted story.
     assert evidence.vectordb_conflict_resolved is True
@@ -349,7 +343,7 @@ def test_real_flow_evidence_carries_full_21_4_2_counters() -> None:
     body = "## Betroffene Dateien\n- services/api/main.py\n"
     reconciler = _reconciler(
         hits=[_hit("AK3-001", 0.95), _hit("AK3-002", 0.80), _hit("AK3-003", 0.40)],
-        verdict=LlmVerdict.FAIL,
+        verdict=ConflictVerdict.FAIL,
     )
     outcome = reconciler.create_story(
         _input(),
@@ -379,7 +373,7 @@ def test_real_flow_emits_single_vectordb_search_event() -> None:
     body = "## Betroffene Dateien\n- services/api/main.py\n"
     reconciler = _reconciler(
         hits=[_hit("AK3-001", 0.95), _hit("AK3-002", 0.4)],
-        verdict=LlmVerdict.FAIL,
+        verdict=ConflictVerdict.FAIL,
         emitter=emitter,
     )
     outcome = reconciler.create_story(

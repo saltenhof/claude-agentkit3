@@ -93,16 +93,17 @@ from agentkit.backend.story_context_manager.http.routes import StoryContextRoute
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
-from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
-from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
-    StructuredEvaluatorError,
-)
 from agentkit.harness_client.projectedge import (
     HttpsJsonTransport,
     LocalEdgePublisher,
     ProjectEdgeClient,
 )
 from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
+from agentkit_wire.verify_system import (
+    ConflictVerdict,
+    StoryConflictAssessmentRequest,
+    StoryConflictAssessmentResponse,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -156,41 +157,22 @@ class _FakeAdapter:
         return self._hits
 
 
-class _FakeResult:
-    def __init__(self, verdict: LlmVerdict) -> None:
-        self.verdict = verdict
-
-
 class _FakeEvaluator:
-    """Fake stage-2 evaluator at the genuine LLM edge (mocks exception).
+    """Stage-2 double at the genuine network edge to the core (mocks exception).
 
-    When ``raise_malformed`` is set it raises the SAME
-    :class:`StructuredEvaluatorError` the real ``StructuredEvaluator`` raises for
-    malformed / schema-invalid model output, so the adjudicator's fail-closed
-    wrapping is exercised end-to-end.
+    Since AG3-241 the create-time assessment is a ``/v1`` call, so the boundary
+    this double stands on is the wire to the core -- not an in-process LLM
+    evaluator. It answers with a canned verdict.
     """
 
-    def __init__(self, verdict: LlmVerdict, *, raise_malformed: bool = False) -> None:
+    def __init__(self, verdict: ConflictVerdict) -> None:
         self._verdict = verdict
-        self._raise_malformed = raise_malformed
 
-    def evaluate(
-        self,
-        role: ReviewerRole,
-        bundle: object,
-        previous_findings: object,
-        qa_cycle_round: int,
-        *,
-        run_id: str | None = None,
-    ) -> _FakeResult:
-        # ``run_id`` is accepted (the real ``StructuredEvaluator.evaluate`` takes it
-        # as a keyword) so this fake can stand in BOTH as the reconciler's direct
-        # ``ConflictEvaluatorPort`` (called without ``run_id``) AND as the
-        # adjudicator's internal ``StructuredEvaluator`` (called with ``run_id``).
-        del role, bundle, previous_findings, qa_cycle_round, run_id
-        if self._raise_malformed:
-            raise StructuredEvaluatorError("LLM response unparseable after 2 attempts (FK-11 §11.4.4)")
-        return _FakeResult(self._verdict)
+    def assess(
+        self, request: StoryConflictAssessmentRequest
+    ) -> StoryConflictAssessmentResponse:
+        del request
+        return StoryConflictAssessmentResponse(verdict=self._verdict)
 
 
 # ---------------------------------------------------------------------------
@@ -336,13 +318,15 @@ def _reconciler_factory(
     *,
     raise_search: bool = False,
     hits: list[StorySearchHit] | None = None,
-    verdict: LlmVerdict = LlmVerdict.PASS,
-    raise_malformed: bool = False,
-) -> Callable[[ProjectConfig], StoryCreationReconciler]:
-    def factory(project_config: ProjectConfig) -> StoryCreationReconciler:
+    verdict: ConflictVerdict = ConflictVerdict.PASS,
+) -> Callable[[ProjectConfig, Path], StoryCreationReconciler]:
+    def factory(
+        project_config: ProjectConfig, project_root: Path
+    ) -> StoryCreationReconciler:
+        del project_root  # the stage-2 evaluator is injected directly here
         return StoryCreationReconciler(
             adapter=_FakeAdapter(hits or [], raise_search=raise_search),  # type: ignore[arg-type]
-            evaluator=_FakeEvaluator(verdict, raise_malformed=raise_malformed),  # type: ignore[arg-type]
+            evaluator=_FakeEvaluator(verdict),  # type: ignore[arg-type]
             vectordb_config=VectorDbConfig(similarity_threshold=0.7, max_llm_candidates=5),
             project_config=project_config,
         )
@@ -483,7 +467,7 @@ def test_create_story_tool_above_threshold_conflict_pass_proceeds(
     exit_code = tool.main(
         _argv(tmp_path, op_id="op-conflict-pass"),
         client_factory=_client_factory(base_url, transport_sink=transports),
-        reconciler_factory=_reconciler_factory(hits=hits, verdict=LlmVerdict.PASS),
+        reconciler_factory=_reconciler_factory(hits=hits, verdict=ConflictVerdict.PASS),
     )
 
     assert exit_code == 0
@@ -512,7 +496,7 @@ def test_create_story_tool_above_threshold_conflict_fail_records_conflict(
     exit_code = tool.main(
         _argv(tmp_path, op_id="op-conflict-fail"),
         client_factory=_client_factory(base_url, transport_sink=transports),
-        reconciler_factory=_reconciler_factory(hits=hits, verdict=LlmVerdict.FAIL),
+        reconciler_factory=_reconciler_factory(hits=hits, verdict=ConflictVerdict.FAIL),
     )
 
     assert exit_code == 0
@@ -546,7 +530,10 @@ def test_create_story_tool_no_pool_configured_fails_closed_truthfully(
     _write_project_config(tmp_path)
     hits = [StorySearchHit(story_id="AK3-009", title="dup", score=0.95, snippet="x")]
 
-    def factory(project_config: ProjectConfig) -> StoryCreationReconciler:
+    def factory(
+        project_config: ProjectConfig, project_root: Path
+    ) -> StoryCreationReconciler:
+        del project_root
         return StoryCreationReconciler(
             adapter=_FakeAdapter(hits),  # type: ignore[arg-type]
             evaluator=FailClosedConflictEvaluator(),
@@ -566,26 +553,27 @@ def test_create_story_tool_no_pool_configured_fails_closed_truthfully(
     assert svc.list_stories("ak3") == []
 
 
-def test_create_story_tool_malformed_llm_output_fails_closed(
+def test_create_story_tool_unanswerable_assessment_fails_closed(
     booted_app: tuple[str, StoryService, list[_RecordingTransport]],
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Malformed LLM output => fail-closed ``conflict_adjudication_unavailable``.
+    """A core that cannot answer => fail-closed ``conflict_adjudication_unavailable``.
 
-    Codex finding #3: a real above-threshold candidate reaches stage 2, where the
-    create-time LLM returns malformed / schema-invalid output (the evaluator
-    raises ``StructuredEvaluatorError``). The adjudicator wraps it in
-    ``CreateTimeConflictAdjudicationError`` (fail-closed), the tool maps it to the
-    stable ``conflict_adjudication_unavailable`` code with a NON-zero exit — NEVER
-    a traceback and NEVER a dummy/PASS verdict. NOTHING is persisted.
+    A real above-threshold candidate reaches stage 2 and the core does not return
+    a usable verdict (AG3-241: the assessment runs there, and the reasons it can
+    fail -- LLM outage, malformed model output, no configured pool -- are all
+    invisible from here; what this side sees is "no verdict"). The REAL
+    ``RestConflictAdjudicator`` wraps that in
+    ``CreateTimeConflictAdjudicationError`` and the tool maps it to the stable
+    ``conflict_adjudication_unavailable`` code with a NON-zero exit -- NEVER a
+    traceback and NEVER a dummy/PASS verdict. NOTHING is persisted.
 
-    This wires the REAL ``CreateTimeConflictAdjudicator`` over a fake LLM evaluator
-    (the genuine LLM edge) that raises the SAME ``StructuredEvaluatorError`` the
-    real ``StructuredEvaluator`` raises for unparseable output.
+    The fake lives at the network boundary to the core; the adjudicator, the
+    reconciliation, the tool's error mapping and the router all run for real.
     """
     from agentkit.backend.story_creation.conflict_adjudicator import (
-        CreateTimeConflictAdjudicator,
+        RestConflictAdjudicator,
     )
 
     base_url, svc, transports = booted_app
@@ -593,23 +581,33 @@ def test_create_story_tool_malformed_llm_output_fails_closed(
     _write_project_config(tmp_path)
     hits = [StorySearchHit(story_id="AK3-009", title="dup", score=0.95, snippet="x")]
 
-    # Wire the REAL adjudicator; replace ONLY its internal StructuredEvaluator with
-    # a fake at the genuine LLM edge that raises the malformed-output error, so the
-    # adjudicator's fail-closed wrapping runs for real.
-    def factory(project_config: ProjectConfig) -> StoryCreationReconciler:
-        adjudicator = CreateTimeConflictAdjudicator.__new__(CreateTimeConflictAdjudicator)
-        adjudicator._evaluator = _FakeEvaluator(  # type: ignore[attr-defined]
-            LlmVerdict.PASS, raise_malformed=True
-        )
+    class _UnanswerableCore:
+        """The core answered, but not with a verdict (503 / unreadable body)."""
+
+        def assess_story_conflict(
+            self, *, project_key: str, request: object
+        ) -> object:
+            del project_key, request
+            raise RuntimeError(
+                "core answered 503 story_conflict_assessment_unavailable"
+            )
+
+    def factory(
+        project_config: ProjectConfig, project_root: Path
+    ) -> StoryCreationReconciler:
+        del project_root
         return StoryCreationReconciler(
             adapter=_FakeAdapter(hits),  # type: ignore[arg-type]
-            evaluator=adjudicator,
+            evaluator=RestConflictAdjudicator(
+                _UnanswerableCore(),  # type: ignore[arg-type]
+                project_key=project_config.project_key,
+            ),
             vectordb_config=VectorDbConfig(similarity_threshold=0.7, max_llm_candidates=5),
             project_config=project_config,
         )
 
     exit_code = tool.main(
-        _argv(tmp_path, op_id="op-malformed"),
+        _argv(tmp_path, op_id="op-unanswerable"),
         client_factory=_client_factory(base_url, transport_sink=transports),
         reconciler_factory=factory,
     )
@@ -617,8 +615,8 @@ def test_create_story_tool_malformed_llm_output_fails_closed(
     assert exit_code == tool._CREATE_FAILCLOSED_EXIT
     err = json.loads(capsys.readouterr().err)
     assert err["error_code"] == "conflict_adjudication_unavailable"
-    # Truthful: the message names the malformed-output cause, not a VectorDB outage.
-    assert "malformed" in err["error"].lower()
+    # Truthful: the VectorDB is named healthy, so nobody debugs the wrong system.
+    assert "VectorDB is healthy" in err["error"]
     assert svc.list_stories("ak3") == []
 
 

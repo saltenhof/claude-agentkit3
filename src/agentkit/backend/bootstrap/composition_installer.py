@@ -16,6 +16,9 @@ from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from agentkit.backend.installer.mutation_idempotency import (
         InstallerMutationCoordinator,
     )
@@ -58,6 +61,29 @@ def build_installer_writer_service() -> InstallerWriterService:
     )
 
 
+def build_project_root_lookup() -> Callable[[str], Path | None]:
+    """Compose the canonical project-root lookup over the owner BC's port.
+
+    The verify-system ``/v1`` surface (AG3-241) must resolve the core-host
+    filesystem anchor of a project from canonical level-1 state (FK-10 §10.2.3 /
+    I3), and it must do so WITHOUT reading the state backend itself: a
+    control-plane HTTP module that bypasses the owner BC's port is an AC001/AC010
+    violation. The owner is the installer writer service, which owns the CP-7
+    ``project_registry`` record.
+
+    Returns:
+        A callable resolving ``project_key`` to its registered project root, or
+        ``None`` when the project is not registered.
+    """
+    service = build_installer_writer_service()
+
+    def lookup(project_key: str) -> Path | None:
+        registration = service.get_project_registration(project_key)
+        return None if registration is None else registration.project_root
+
+    return lookup
+
+
 def build_installer_mutation_coordinator() -> InstallerMutationCoordinator:
     """Compose installer mutations over the writer-fenced idempotency owner."""
     from agentkit.backend.installer.mutation_idempotency import (
@@ -70,5 +96,6 @@ def build_installer_mutation_coordinator() -> InstallerMutationCoordinator:
 __all__ = [
     "build_installer_mutation_coordinator",
     "build_installer_writer_service",
+    "build_project_root_lookup",
     "build_third_party_preflight_service",
 ]

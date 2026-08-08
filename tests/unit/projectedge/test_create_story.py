@@ -40,9 +40,13 @@ from agentkit.backend.config.models import (
 from agentkit.backend.control_plane.models import CreateStoryInputs
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
-from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
 from agentkit.harness_client.projectedge import LocalEdgePublisher, ProjectEdgeClient
 from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
+from agentkit_wire.verify_system import (
+    ConflictVerdict,
+    StoryConflictAssessmentRequest,
+    StoryConflictAssessmentResponse,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -78,24 +82,17 @@ class _FakeAdapter:
         return self._hits
 
 
-class _FakeResult:
-    def __init__(self, verdict: LlmVerdict) -> None:
-        self.verdict = verdict
-
-
 class _FakeEvaluator:
-    def __init__(self, verdict: LlmVerdict) -> None:
+    """Double at the network boundary to the core's conflict assessment (AG3-241)."""
+
+    def __init__(self, verdict: ConflictVerdict) -> None:
         self._verdict = verdict
 
-    def evaluate(
-        self,
-        role: ReviewerRole,
-        bundle: object,
-        previous_findings: object,
-        qa_cycle_round: int,
-    ) -> _FakeResult:
-        del role, bundle, previous_findings, qa_cycle_round
-        return _FakeResult(self._verdict)
+    def assess(
+        self, request: StoryConflictAssessmentRequest
+    ) -> StoryConflictAssessmentResponse:
+        del request
+        return StoryConflictAssessmentResponse(verdict=self._verdict)
 
 
 def _project_config() -> ProjectConfig:
@@ -115,7 +112,7 @@ def _project_config() -> ProjectConfig:
 def _reconciler(
     *,
     hits: list[StorySearchHit] | None = None,
-    verdict: LlmVerdict = LlmVerdict.PASS,
+    verdict: ConflictVerdict = ConflictVerdict.PASS,
     raise_search: bool = False,
 ) -> StoryCreationReconciler:
     """A REAL reconciler with fakes ONLY at the external Weaviate/LLM edge."""
@@ -290,7 +287,7 @@ def test_create_story_runs_reconciliation_inside_boundary(tmp_path: Path) -> Non
     hits = [StorySearchHit(story_id="AK3-009", title="prior", score=0.91, snippet="x")]
 
     result = _create(
-        client, reconciler=_reconciler(hits=hits, verdict=LlmVerdict.PASS), op_id="op-r"
+        client, reconciler=_reconciler(hits=hits, verdict=ConflictVerdict.PASS), op_id="op-r"
     )
 
     _, _, payload = transport.calls[0]

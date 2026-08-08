@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     ClientFactory = Callable[[Path], ProjectEdgeClient]
     #: Factory that builds the real reconcile runtime (real default:
     #: :func:`build_story_creation_reconciler`, the fail-closed Weaviate gate).
-    ReconcilerFactory = Callable[[ProjectConfig], StoryCreationReconciler]
+    ReconcilerFactory = Callable[[ProjectConfig, Path], StoryCreationReconciler]
 
 #: Stable fail-closed exit code for a create that the boundary / reconciliation
 #: rejected (distinct from argparse's exit 2 and a transport failure exit 1).
@@ -285,7 +285,7 @@ def _run_create_story(
     build_reconciler = reconciler_factory or _default_reconciler_factory
     try:
         project_config = load_project_config(project_root)
-        reconciler = build_reconciler(project_config)
+        reconciler = build_reconciler(project_config, project_root)
     except ConfigError as exc:
         return _emit_create_error("configuration_error", str(exc), correlation_id, op_id)
     except VectorDbError as exc:
@@ -540,9 +540,17 @@ def _phase_request(args: argparse.Namespace) -> PhaseMutationRequest:
 
 def _default_reconciler_factory(
     project_config: ProjectConfig,
+    project_root: Path,
 ) -> StoryCreationReconciler:
-    """Build the real fail-closed reconcile runtime (production default)."""
-    return build_story_creation_reconciler(project_config=project_config)
+    """Build the real fail-closed reconcile runtime (production default).
+
+    ``project_root`` is what the stage-2 adjudicator needs to reach the core
+    (AG3-241): the conflict assessment runs there, and the base URL, credential
+    and CA file that address it live under the project root.
+    """
+    return build_story_creation_reconciler(
+        project_config=project_config, project_root=project_root
+    )
 
 
 def _build_client(project_root: Path, client_factory: ClientFactory | None) -> ProjectEdgeClient:

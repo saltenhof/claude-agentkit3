@@ -49,6 +49,12 @@ from agentkit_wire.story_lifecycle import (
     StorySplitMutationRequest,
     StorySplitMutationResponse,
 )
+from agentkit_wire.verify_system import (
+    StoryConflictAssessmentRequest,
+    StoryConflictAssessmentResponse,
+    VerifyEvidenceAssemblyRequest,
+    VerifyEvidenceAssemblyResponse,
+)
 
 if TYPE_CHECKING:
     import ssl
@@ -887,6 +893,58 @@ class ProjectEdgeClient:
         )
         data.pop("correlation_id", None)
         return StoryExitMutationResponse.model_validate(data)
+
+    def assess_story_conflict(
+        self,
+        *,
+        project_key: str,
+        request: StoryConflictAssessmentRequest,
+    ) -> StoryConflictAssessmentResponse:
+        """Ask the core to adjudicate a create-time story conflict (AG3-241).
+
+        The stage-1 similarity search runs on this machine; the LLM assessment
+        does not. A story creator who could run it locally could influence the
+        gate that judges the story being created.
+
+        Args:
+            project_key: The project the draft story belongs to.
+            request: The draft story plus its above-threshold candidates.
+
+        Returns:
+            The binary verdict of the core.
+        """
+        project_segment = urllib.parse.quote(project_key, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=f"/v1/projects/{project_segment}/story-conflict-assessments",
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return StoryConflictAssessmentResponse.model_validate(data)
+
+    def assemble_verify_evidence(
+        self,
+        *,
+        project_key: str,
+        request: VerifyEvidenceAssemblyRequest,
+    ) -> VerifyEvidenceAssemblyResponse:
+        """Ask the core to assemble a review bundle (AG3-241, FK-28 §28.7.1).
+
+        Args:
+            project_key: The project the story belongs to.
+            request: The edge-exported evidence checkpoint.
+
+        Returns:
+            The manifest hash, merge paths and the canonical manifest document.
+        """
+        project_segment = urllib.parse.quote(project_key, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=f"/v1/projects/{project_segment}/verify-evidence-assemblies",
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return VerifyEvidenceAssemblyResponse.model_validate(data)
 
     def takeover_request(
         self,

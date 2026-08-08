@@ -21,35 +21,36 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.backend.story_creation.conflict_adjudicator import (
+    build_assessment_request,
+)
+from agentkit_wire.verify_system import ConflictCandidate, ConflictVerdict
 
 if TYPE_CHECKING:
     from agentkit.backend.config.models import VectorDbConfig
     from agentkit.backend.telemetry.emitters import EventEmitter
-    from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
-    from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
-        StructuredEvaluatorResult,
-    )
     from agentkit.integration_clients.vectordb import StorySearchHit, WeaviateStoryAdapter
+    from agentkit_wire.verify_system import (
+        StoryConflictAssessmentRequest,
+        StoryConflictAssessmentResponse,
+    )
 
 
 @runtime_checkable
 class ConflictEvaluatorPort(Protocol):
-    """Thin seam over the EXISTING ``StructuredEvaluator.evaluate`` surface.
+    """Seam over the create-time conflict assessment of the core (AG3-241).
 
-    Injected so the reconciliation depends on the role-based evaluator contract
-    without reaching into LLM transport wiring (owned by AG3-065). A test double
-    with the same surface satisfies the mocks exception (LLM boundary only).
+    The surface is the ``/v1`` operation, not the evaluator: this process asks a
+    question and receives a verdict. It no longer names ``ReviewBundle``,
+    ``ReviewerRole`` or ``StructuredEvaluatorResult`` -- the vocabulary of an
+    evaluator that must not run here. A test double with the same surface
+    satisfies the mocks exception (the boundary to the core).
     """
 
-    def evaluate(
-        self,
-        role: ReviewerRole,
-        bundle: ReviewBundle,
-        previous_findings: list[object] | None,
-        qa_cycle_round: int,
-    ) -> StructuredEvaluatorResult:
-        """Run one role evaluation; return the validated result."""
+    def assess(
+        self, request: StoryConflictAssessmentRequest
+    ) -> StoryConflictAssessmentResponse:
+        """Obtain one create-time conflict verdict."""
         ...
 
 
@@ -71,7 +72,7 @@ class ReconciliationResult:
             for a conflict (the stage-2 input set).
     """
 
-    verdict: LlmVerdict
+    verdict: ConflictVerdict
     total_hits: int
     hits_above_threshold: int
     candidates_evaluated: int
@@ -156,7 +157,7 @@ class AbgleichProtocol:
 
 def resolve_vectordb_conflict_flag(
     *,
-    verdict: LlmVerdict,
+    verdict: ConflictVerdict,
     story_was_adapted: bool,
 ) -> bool:
     """Producer rule for ``vectordb_conflict_resolved`` (FK-21 §21.12 / §21.4.1).
@@ -174,7 +175,7 @@ def resolve_vectordb_conflict_flag(
         ``True`` only for an adapted, resolved ``FAIL`` conflict; ``False``
         otherwise.
     """
-    return verdict is LlmVerdict.FAIL and story_was_adapted
+    return verdict is ConflictVerdict.FAIL and story_was_adapted
 
 
 class VectorDbReconciliation:
@@ -233,7 +234,7 @@ class VectorDbReconciliation:
         above.sort(key=lambda hit: (-hit.score, hit.story_id))
         candidates = above[: self._config.max_llm_candidates]
 
-        verdict = LlmVerdict.PASS
+        verdict = ConflictVerdict.PASS
         if candidates:
             verdict = self._evaluate_conflict(
                 story_id=story_id,
@@ -241,7 +242,7 @@ class VectorDbReconciliation:
                 candidates=candidates,
             )
 
-        hits_classified_conflict = 1 if verdict is LlmVerdict.FAIL else 0
+        hits_classified_conflict = 1 if verdict is ConflictVerdict.FAIL else 0
         result = ReconciliationResult(
             verdict=verdict,
             total_hits=len(hits),
@@ -260,46 +261,22 @@ class VectorDbReconciliation:
         story_id: str,
         story_description: str,
         candidates: list[StorySearchHit],
-    ) -> LlmVerdict:
-        """Run stage 2 via the existing structured evaluator (1 check)."""
-        bundle = self._build_bundle(
+    ) -> ConflictVerdict:
+        """Run stage 2: ask the core for the binary conflict verdict."""
+        request = build_assessment_request(
             story_id=story_id,
             story_description=story_description,
-            candidates=candidates,
+            candidates=[
+                ConflictCandidate(
+                    story_id=hit.story_id,
+                    score=hit.score,
+                    title=hit.title,
+                    snippet=hit.snippet,
+                )
+                for hit in candidates
+            ],
         )
-        evaluation = self._evaluator.evaluate(
-            ReviewerRole.STORY_CREATION_REVIEW,
-            bundle,
-            None,
-            1,
-        )
-        return evaluation.verdict
-
-    @staticmethod
-    def _build_bundle(
-        *,
-        story_id: str,
-        story_description: str,
-        candidates: list[StorySearchHit],
-    ) -> ReviewBundle:
-        """Build the evaluator bundle carrying ``new_story`` + ``candidates``."""
-        from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
-
-        candidate_lines = [
-            f"- {hit.story_id} (score={hit.score:.3f}): {hit.title} -- {hit.snippet}"
-            for hit in candidates
-        ]
-        diff_content = "## Candidates\n" + "\n".join(candidate_lines)
-        return ReviewBundle(
-            story_id=story_id,
-            story_brief_excerpt=story_description,
-            acceptance_criteria=[],
-            diff_summary=f"{len(candidates)} similarity candidate(s) above threshold",
-            diff_content=diff_content,
-            concept_refs=[hit.story_id for hit in candidates],
-            previous_findings=None,
-            qa_cycle_round=1,
-        )
+        return self._evaluator.assess(request).verdict
 
     def _emit_search_event(
         self,

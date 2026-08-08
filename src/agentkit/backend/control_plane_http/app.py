@@ -112,6 +112,7 @@ from agentkit.backend.control_plane_http.takeover_dispatch import (
 from agentkit.backend.control_plane_http.takeover_handlers import (
     dispatch_project_edge_takeover_post,
 )
+from agentkit.backend.control_plane_http.verify_routes import VerifySystemRoutes
 
 logger = logging.getLogger(__name__)
 
@@ -439,6 +440,10 @@ class ControlPlaneApplication(
         self._installer_writer_routes = (
             r.installer_writer_routes or _build_default_installer_writer_routes()
         )
+        # AG3-241: the verify-system surface (FK-91 §91.1a). It resolves its own
+        # filesystem anchor from the canonical project registry, so it needs no
+        # service collaborator -- only the seam its tests replace.
+        self._verify_system_routes = r.verify_system_routes or VerifySystemRoutes()
 
     def ensure_version_handshake(self) -> None:
         """Guarantee a fail-closed handshake middleware on the production listener.
@@ -1093,6 +1098,14 @@ class ControlPlaneApplication(
             )
 
         # Grounded BC POST routes (kpi_analytics, task_management):
+        verify_post = self._dispatch_verify_system_post(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if verify_post is not None:
+            return verify_post
+
         bc_post = self._dispatch_new_bc_post(
             route_path,
             payload,
@@ -1188,6 +1201,33 @@ class ControlPlaneApplication(
                     message=_NOT_FOUND_MESSAGE,
                     correlation_id=correlation_id,
                 )
+        return None
+
+    def _dispatch_verify_system_post(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        """Dispatch POST to the verify-system surface (AG3-241, FK-91 §91.1a)."""
+        conflict_match = _route_patterns._PROJECT_STORY_CONFLICT_ASSESSMENTS.match(
+            route_path
+        )
+        if conflict_match is not None:
+            return self._verify_system_routes.handle_story_conflict_assessment(
+                project_key=conflict_match.group("project_key"),
+                payload=payload,
+                correlation_id=correlation_id,
+            )
+        evidence_match = _route_patterns._PROJECT_VERIFY_EVIDENCE_ASSEMBLIES.match(
+            route_path
+        )
+        if evidence_match is not None:
+            return self._verify_system_routes.handle_evidence_assembly(
+                project_key=evidence_match.group("project_key"),
+                payload=payload,
+                correlation_id=correlation_id,
+            )
         return None
 
     def _dispatch_new_bc_post(

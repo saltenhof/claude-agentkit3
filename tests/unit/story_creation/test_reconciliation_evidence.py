@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.backend.story_creation.reconciliation_evidence import ReconciliationEvidence
-from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict
+from agentkit_wire.verify_system import ConflictVerdict
 
 
 def _evidence(**overrides: object) -> ReconciliationEvidence:
@@ -24,7 +24,7 @@ def _evidence(**overrides: object) -> ReconciliationEvidence:
         "hits_classified_conflict": 0,
         "threshold_value": 0.7,
         "search_mode": "hybrid",
-        "verdict": LlmVerdict.PASS,
+        "verdict": ConflictVerdict.PASS,
     }
     base.update(overrides)
     return ReconciliationEvidence.model_validate(base)
@@ -38,7 +38,7 @@ def test_pass_evidence_is_valid_and_flag_false() -> None:
 
 def test_fail_with_adaptation_grounds_flag_true() -> None:
     evidence = _evidence(
-        verdict=LlmVerdict.FAIL,
+        verdict=ConflictVerdict.FAIL,
         hits_classified_conflict=1,
         story_was_adapted=True,
     )
@@ -47,7 +47,7 @@ def test_fail_with_adaptation_grounds_flag_true() -> None:
 
 def test_fail_without_adaptation_leaves_flag_false() -> None:
     evidence = _evidence(
-        verdict=LlmVerdict.FAIL,
+        verdict=ConflictVerdict.FAIL,
         hits_classified_conflict=1,
         story_was_adapted=False,
     )
@@ -66,12 +66,12 @@ def test_above_threshold_exceeding_total_is_rejected() -> None:
 
 def test_fail_verdict_without_classified_conflict_is_rejected() -> None:
     with pytest.raises(ValidationError, match="does not match verdict"):
-        _evidence(verdict=LlmVerdict.FAIL, hits_classified_conflict=0)
+        _evidence(verdict=ConflictVerdict.FAIL, hits_classified_conflict=0)
 
 
 def test_pass_verdict_with_classified_conflict_is_rejected() -> None:
     with pytest.raises(ValidationError, match="does not match verdict"):
-        _evidence(verdict=LlmVerdict.PASS, hits_classified_conflict=1)
+        _evidence(verdict=ConflictVerdict.PASS, hits_classified_conflict=1)
 
 
 def test_negative_counter_is_rejected() -> None:
@@ -141,7 +141,7 @@ def test_search_mode_defaults_to_hybrid() -> None:
         "hits_above_threshold": 2,
         "hits_classified_conflict": 0,
         "threshold_value": 0.7,
-        "verdict": LlmVerdict.PASS,
+        "verdict": ConflictVerdict.PASS,
     }
     evidence = ReconciliationEvidence.model_validate(base)
     assert evidence.search_mode == "hybrid"

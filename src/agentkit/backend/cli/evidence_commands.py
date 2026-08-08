@@ -1,18 +1,38 @@
-"""Evidence assembly CLI command handlers."""
+"""Evidence assembly CLI command handlers (FK-28 §28.7.1, FK-91 §91.1).
+
+The human operator-recovery surface for the evidence assembly. FK-91 §91.1 fixes
+what such a surface is -- "ein menschlicher Adapterpfad auf diese API; fachlich
+autoritativ ist der API-Vertrag" -- and since AG3-241 this command is one: it
+reads the edge-exported evidence checkpoint, ships it to
+``POST /v1/projects/{project_key}/verify-evidence-assemblies`` and writes the
+manifest the core returned.
+
+It no longer assembles anything. The assembly decides which evidence a reviewer
+sees and stamps the manifest hash the reviewers are held to; running it on the
+developer machine put a QA-artefact producer inside the process being reviewed.
+"""
 
 from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit_wire.verify_system import (
+    EvidenceFile,
+    EvidenceRepository,
+    VerifyEvidenceAssemblyRequest,
+)
+
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable
 
-    from agentkit.backend.verify_system.evidence import RepoContext, VerifyEvidenceFile
-    from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
+    from agentkit.harness_client.projectedge.client import ProjectEdgeClient
+
+    #: Seam returning the Project-Edge client bound to a target-project root.
+    ClientFactory = Callable[[Path], ProjectEdgeClient]
 
 
 def add_evidence_parsers(
@@ -31,56 +51,74 @@ def add_evidence_parsers(
     evidence_assemble_parser.add_argument("--story-id", required=True)
     evidence_assemble_parser.add_argument("--story-dir", required=True)
     evidence_assemble_parser.add_argument("--output-dir", required=True)
+    evidence_assemble_parser.add_argument("--project-key", required=True)
+    evidence_assemble_parser.add_argument("--project-root", required=True)
     evidence_assemble_parser.add_argument("--config")
 
 
-def _cmd_evidence_assemble(args: argparse.Namespace) -> int:
-    """Handle ``agentkit evidence assemble`` command."""
-    from pathlib import Path
+def _cmd_evidence_assemble(
+    args: argparse.Namespace,
+    *,
+    client_factory: ClientFactory | None = None,
+) -> int:
+    """Handle ``agentkit evidence assemble`` command.
 
+    Args:
+        args: The parsed CLI namespace.
+        client_factory: Optional seam returning the Project-Edge client for a
+            project root; defaults to the official builder.
+
+    Returns:
+        ``0`` on success, ``1`` on any fail-closed outcome.
+    """
     from agentkit.backend.utils.io import atomic_write_text
-    from agentkit.backend.verify_system.evidence import (
-        EvidenceAssembler,
-        EvidenceAssemblyError,
-        ImportResolver,
-    )
 
     story_dir = Path(args.story_dir)
     output_dir = Path(args.output_dir)
-    config_path = Path(args.config) if args.config is not None else story_dir / "context.json"
+    config_path = (
+        Path(args.config) if args.config is not None else story_dir / "context.json"
+    )
     try:
         cli_config = _load_evidence_cli_config(config_path)
-        repos = {
-            repo.repo_id: repo
-            for repo in _repo_contexts_from_cli_config(cli_config)
-        }
-        evidence_by_repo = _change_evidence_from_cli_config(cli_config)
-        collected_files = _collected_files_from_cli_config(cli_config)
-        assembler = EvidenceAssembler(
-            repos,
-            collected_files=collected_files,
-            change_evidence_port=_StaticChangeEvidencePort(
-                evidence_by_repo=evidence_by_repo,
-                repo_paths={repo_id: repo.repo_path for repo_id, repo in repos.items()},
-            ),
-            import_evidence_provider=ImportResolver.from_collected_files(
-                collected_files
-            ),
+        request = _request_from_cli_config(cli_config, story_id=args.story_id)
+        client = _build_client(Path(args.project_root), client_factory)
+        response = client.assemble_verify_evidence(
+            project_key=args.project_key, request=request
         )
-        result = assembler.assemble(story_dir=story_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        manifest_path = output_dir / "bundle_manifest.json"
         atomic_write_text(
-            manifest_path,
-            result.manifest.model_dump_json(indent=2) + "\n",
+            output_dir / "bundle_manifest.json", response.bundle_manifest_json
         )
-    except (EvidenceAssemblyError, ValueError, OSError) as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(f"Evidence assembly failed [{args.story_id}]: {exc}", file=sys.stderr)
         return 1
 
-    print(result.manifest.model_dump_json(indent=2))
-    print(json.dumps({"merge_paths": list(result.merge_paths)}, indent=2, sort_keys=True))
+    print(response.bundle_manifest_json.rstrip("\n"))
+    print(
+        json.dumps(
+            {"merge_paths": list(response.merge_paths)}, indent=2, sort_keys=True
+        )
+    )
     return 0
+
+
+def _build_client(
+    project_root: Path, client_factory: ClientFactory | None
+) -> ProjectEdgeClient:
+    """Return the Project-Edge client for ``project_root``.
+
+    Args:
+        project_root: The target-project root carrying base URL and credential.
+        client_factory: Optional seam; ``None`` uses the official builder.
+
+    Returns:
+        The bound client.
+    """
+    if client_factory is not None:
+        return client_factory(project_root)
+    from agentkit.harness_client.projectedge.runtime import build_project_edge_client
+
+    return build_project_edge_client(project_root)
 
 
 def _load_evidence_cli_config(path: Path) -> dict[str, object]:
@@ -112,17 +150,57 @@ def _load_evidence_cli_config(path: Path) -> dict[str, object]:
     return data
 
 
-def _repo_contexts_from_cli_config(
-    config: dict[str, object],
-) -> list[RepoContext]:
-    """Build logical repo contexts without accepting physical worktree paths."""
-    from agentkit.backend.verify_system.evidence import RepoContext
+def _request_from_cli_config(
+    config: dict[str, object], *, story_id: str
+) -> VerifyEvidenceAssemblyRequest:
+    """Project the edge-exported checkpoint onto the wire request.
 
+    Args:
+        config: The parsed evidence checkpoint.
+        story_id: The story the checkpoint belongs to.
+
+    Returns:
+        The validated wire request.
+
+    Raises:
+        ValueError: When the checkpoint is structurally unusable (pydantic
+            raises ``ValidationError``, a ``ValueError`` subclass).
+    """
+    changed_files = _changed_files_from_cli_config(config)
+    repositories = tuple(
+        EvidenceRepository.model_validate(
+            {**item, "changed_files": changed_files.get(str(item.get("repo_id")), ())}
+        )
+        for item in _repository_items(config)
+    )
+    raw_files = config.get("collected_files")
+    if not isinstance(raw_files, list):
+        raise ValueError("evidence config requires collected_files from Project Edge")
+    return VerifyEvidenceAssemblyRequest(
+        story_id=story_id,
+        repositories=repositories,
+        collected_files=tuple(EvidenceFile.model_validate(item) for item in raw_files),
+    )
+
+
+def _repository_items(config: dict[str, object]) -> list[dict[str, object]]:
+    """Return the logical repository entries, rejecting physical paths.
+
+    Args:
+        config: The parsed evidence checkpoint.
+
+    Returns:
+        The repository entries.
+
+    Raises:
+        ValueError: When the list is missing, empty, malformed, or carries a
+            physical ``repo_path``.
+    """
     repositories = config.get("repositories")
     if not isinstance(repositories, list) or not repositories:
         msg = "evidence config must contain a non-empty repositories list"
         raise ValueError(msg)
-    repos: list[RepoContext] = []
+    items: list[dict[str, object]] = []
     for item in repositories:
         if not isinstance(item, dict):
             msg = "each evidence repository config must be an object"
@@ -133,33 +211,29 @@ def _repo_contexts_from_cli_config(
             raise ValueError(msg)
         if "repo_path" in item:
             raise ValueError("physical repo_path is forbidden in evidence config")
-        repos.append(RepoContext.model_validate({**item, "repo_path": Path(repo_id)}))
-    return repos
+        items.append(item)
+    return items
 
 
-def _collected_files_from_cli_config(
+def _changed_files_from_cli_config(
     config: dict[str, object],
-) -> tuple[VerifyEvidenceFile, ...]:
-    """Parse content-bound Project-Edge file observations."""
-    from agentkit.backend.verify_system.evidence import VerifyEvidenceFile
+) -> dict[str, tuple[str, ...]]:
+    """Read the per-repository change inventory of the checkpoint.
 
-    raw_files = config.get("collected_files")
-    if not isinstance(raw_files, list):
-        raise ValueError("evidence config requires collected_files from Project Edge")
-    return tuple(VerifyEvidenceFile.model_validate(item) for item in raw_files)
+    Args:
+        config: The parsed evidence checkpoint.
 
+    Returns:
+        Mapping of ``repo_id`` to its reported changed files.
 
-def _change_evidence_from_cli_config(
-    config: dict[str, object],
-) -> dict[str, ChangeEvidence]:
-    """Build static change evidence from CLI config data."""
-    from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
-
+    Raises:
+        ValueError: When the inventory is missing or malformed.
+    """
     raw_evidence = config.get("change_evidence")
     if not isinstance(raw_evidence, dict) or not raw_evidence:
         msg = "evidence config must contain non-empty change_evidence"
         raise ValueError(msg)
-    evidence: dict[str, ChangeEvidence] = {}
+    inventory: dict[str, tuple[str, ...]] = {}
     for repo_id, item in raw_evidence.items():
         if not isinstance(repo_id, str) or not isinstance(item, dict):
             msg = "each change_evidence entry must map a repo_id to an object"
@@ -170,32 +244,5 @@ def _change_evidence_from_cli_config(
         ):
             msg = f"change_evidence for {repo_id} requires changed_files string list"
             raise ValueError(msg)
-        evidence[repo_id] = ChangeEvidence(
-            available=True,
-            changed_files=tuple(changed_files),
-        )
-    return evidence
-
-
-@dataclass(frozen=True)
-class _StaticChangeEvidencePort:
-    """CLI adapter for pre-collected change evidence.
-
-    This does not run git; it only passes operator-supplied/system-exported
-    ``ChangeEvidence`` into the assembler's existing read-port shape.
-    """
-
-    evidence_by_repo: dict[str, ChangeEvidence]
-    repo_paths: dict[str, Path]
-
-    def collect(self, story_dir: Path) -> ChangeEvidence:
-        """Return the configured evidence matching ``story_dir``."""
-        resolved_story_dir = story_dir.resolve()
-        for repo_id, repo_path in self.repo_paths.items():
-            if repo_path.resolve() == resolved_story_dir:
-                evidence = self.evidence_by_repo.get(repo_id)
-                if evidence is not None:
-                    return evidence
-        from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
-
-        return ChangeEvidence(available=False)
+        inventory[repo_id] = tuple(changed_files)
+    return inventory

@@ -48,6 +48,12 @@ _PROJECT_ONLY_ROUTE_PATTERNS = (
     re.compile(r"^/v1/projects/[^/]+/installation(?:/|$)"),
     re.compile(r"^/v1/telemetry/events(?:/|$)"),
     re.compile(r"^/v1/governance/(?:guard-counters|worker-health)(?:/|$)"),
+    # AG3-241: the verify-system surface is an edge-facing project-token path.
+    # The UI never assesses a conflict and never assembles evidence.
+    re.compile(
+        r"^/v1/projects/[^/]+/(?:story-conflict-assessments"
+        r"|verify-evidence-assemblies)$"
+    ),
 )
 _PROJECT_STRATEGIST_ADMIN_ROUTE_PATTERNS = (
     re.compile(r"^/v1/auth/(?:login|logout|password)$"),

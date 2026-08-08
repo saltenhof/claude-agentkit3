@@ -1,0 +1,294 @@
+# AG3-241 AC 1 -- one answer per boundary crossing of the bounded context
+# `verify-system`.
+#
+# answer:
+#   a -- belongs over the interface: a /v1 endpoint carries it
+#   b -- filed on the wrong side, or vocabulary that belongs in the contract
+#        package: the module or the symbol MOVES, no endpoint
+#   c -- must not happen at all: the call is removed
+#
+# `resolved: true` marks a pair this story already removed. It stays in the file
+# because deleting it would hide the answer that removed it; the mark is VERIFIED
+# by `check_crossing_answers.py`, not trusted -- a "resolved" pair that is still
+# measurable fails the check.
+#
+# `remedy_owner` names the story that can execute the answer. Where it is not
+# AG3-241, the reason is named and measured.
+#
+# SOURCES OF AUTHORITY USED HERE: `distributions` in
+# `concept/formal-spec/architecture-conformance/entities.md`, FK-91 §91.1a
+# (the /v1 operation catalog), FK-28 §28.7.1 (the operator-recovery surface),
+# FK-21 §21.4.1 (the create-time conflict assessment) and FK-10 §10.2.3
+# (the core resolves its own filesystem anchor).
+# `wire_excluded_crossings` is NOT used -- it carries `superseded-no-authority`.
+
+measurement:
+  command: >-
+    .venv\Scripts\python
+    stories/AG3-239-governance-endpunkte-fuer-den-edge/measure_boundary_violations.py
+    --bc agentkit.backend.verify_system
+  tool_note: >-
+    The AG3-239 tool is USED, not copied. A second copy of a measurement script
+    is a second measurement that drifts; the command above runs the same file
+    that produced the AG3-239 and AG3-240 numbers, so the figures are comparable.
+  measured_on: "2026-08-08"
+  start_value:
+    unique_ordered_pairs: 20
+    edge_to_core: 19
+    core_to_edge: 1
+    import_statements: 39
+    distinct_imported_symbols: 20
+    repo_wide_unique_ordered_pairs: 317
+  end_value:
+    unique_ordered_pairs: 1
+    edge_to_core: 0
+    core_to_edge: 1
+    import_statements: 2
+    distinct_imported_symbols: 0
+    repo_wide_unique_ordered_pairs: 294
+  ac2_status: >-
+    NOT met. One crossing remains and is reported as a gap, never as green.
+    See the single `remedy_owner: AG3-209` entry at the bottom of this file.
+
+endpoints:
+  - path: /v1/projects/{project_key}/story-conflict-assessments
+    verb: POST
+    catalogued_in: FK-91 section 91.1a
+    replaces_call_sites:
+      - agentkit.backend.story_creation.vectordb_reconciliation:_evaluate_conflict
+      - agentkit.backend.story_creation.runtime_factory:build_create_time_conflict_evaluator
+      - agentkit.backend.story_creation.conflict_adjudicator:CreateTimeConflictAdjudicator.evaluate
+    pairs_removed: 17
+    one_operation_because: >-
+      Five edge modules took part in ONE act -- build the bundle, resolve the
+      prompt, hold the transport, run the evaluator, read the verdict. Exposing
+      those as five operations would put the evaluation sequence on the wire
+      instead of the question it answers. The edge asks once and receives one
+      binary verdict.
+  - path: /v1/projects/{project_key}/verify-evidence-assemblies
+    verb: POST
+    catalogued_in: FK-91 section 91.1a, FK-28 section 28.7.1
+    replaces_call_sites:
+      - agentkit.backend.cli.evidence_commands:_cmd_evidence_assemble
+    pairs_removed: 2
+    one_operation_because: >-
+      The command instantiated assembler, resolver and repo contexts in sequence.
+      All of it is one act: hand over the checkpoint, receive the manifest.
+
+crossings:
+  # -------------------------------------------------------------------------
+  # (a) Evidence assembly -- the operator-recovery CLI becomes an API adapter.
+  # -------------------------------------------------------------------------
+  - importer: agentkit.backend.cli.evidence_commands
+    imported: agentkit.backend.verify_system.evidence
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [EvidenceAssembler, EvidenceAssemblyError, ImportResolver, RepoContext, VerifyEvidenceFile]
+    reason: >-
+      FK-91 section 91.1 fixes what the operator CLI is: "ein menschlicher
+      Adapterpfad auf diese API; fachlich autoritativ ist der API-Vertrag". This
+      command was not an adapter, it was a second implementation -- it built the
+      assembler in the developer-machine process and wrote a QA artefact there.
+      The assembly decides which evidence a reviewer sees and stamps the
+      manifest_hash the reviewers are held to. It is now
+      POST /v1/projects/{project_key}/verify-evidence-assemblies; the command
+      reads the checkpoint, ships it and writes what the core returned.
+  - importer: agentkit.backend.cli.evidence_commands
+    imported: agentkit.backend.verify_system.structural.system_evidence
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [ChangeEvidence]
+    reason: >-
+      The same act, one import further: the CLI built ChangeEvidence to feed the
+      assembler's read port. The change inventory now travels as data in the
+      request (EvidenceRepository.changed_files) and the port is built core-side.
+
+  # -------------------------------------------------------------------------
+  # (a) Create-time conflict assessment -- 17 pairs, ONE operation.
+  # -------------------------------------------------------------------------
+  - importer: agentkit.backend.story_creation.conflict_adjudicator
+    imported: agentkit.backend.verify_system.llm_evaluator.bundle
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [ReviewBundle]
+    reason: >-
+      The bundle is the evaluator's input vocabulary and is built where the
+      evaluator runs. The module is now the EDGE HALF only -- it asks
+      POST /v1/projects/{project_key}/story-conflict-assessments and names no
+      evaluator symbol.
+  - importer: agentkit.backend.story_creation.conflict_adjudicator
+    imported: agentkit.backend.verify_system.llm_evaluator.llm_client
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [LlmClient, LlmClientError]
+    reason: >-
+      An edge that holds the LLM transport has the assessment path of its own
+      story in hand (CLAUDE.md, WORKFLOW- UND STATE-DISZIPLIN). The transport
+      moved to verify_system.llm_evaluator.create_scope_conflict with the
+      evaluator it belongs to.
+  - importer: agentkit.backend.story_creation.conflict_adjudicator
+    imported: agentkit.backend.verify_system.llm_evaluator.roles
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [LlmVerdict, ReviewerRole]
+    reason: >-
+      Role and ternary verdict are evaluator-internal. The wire carries the
+      binary ConflictVerdict instead, which is what FK-21 section 21.4.1 Schritt 3
+      actually specifies; the ternary LlmVerdict stays with the execution-scoped
+      aggregation.
+  - importer: agentkit.backend.story_creation.conflict_adjudicator
+    imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [StructuredEvaluator, StructuredEvaluatorError, StructuredEvaluatorResult, _PromptMaterializer]
+    reason: >-
+      The sharpest case in this bounded context: the edge reached for the PRIVATE
+      _PromptMaterializer of the evaluator it was being judged by. All four
+      symbols are core-internal and none of them crosses any more.
+  - importer: agentkit.backend.story_creation.conflict_adjudicator
+    imported: agentkit.backend.verify_system.protocols
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [Finding, Severity, TrustClass]
+    reason: >-
+      The edge re-stamped findings to BLOCKING when it collapsed an ambiguous
+      verdict. That collapse is a judgement, and it now happens core-side; the
+      edge sees only the binary result.
+  - importer: agentkit.backend.story_creation.create_scope_materializer
+    imported: agentkit.backend.verify_system.llm_evaluator.bundle
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [ReviewBundle]
+    reason: >-
+      The whole module is prompt resolution for the evaluator (FK-44 section
+      44.4.2) and moved into
+      verify_system.llm_evaluator.create_scope_conflict.CreateScopePromptMaterializer.
+  - importer: agentkit.backend.story_creation.create_scope_materializer
+    imported: agentkit.backend.verify_system.llm_evaluator.llm_client
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [LlmClientError]
+    reason: Same module, same move.
+  - importer: agentkit.backend.story_creation.create_scope_materializer
+    imported: agentkit.backend.verify_system.llm_evaluator.roles
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [ReviewerRole]
+    reason: Same module, same move.
+  - importer: agentkit.backend.story_creation.create_scope_materializer
+    imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [template_name_for_role]
+    reason: >-
+      Template selection per role is the evaluator's own map (ROLE_TEMPLATE);
+      an edge that resolves it decides which prompt judges its story.
+  - importer: agentkit.backend.story_creation.reconciliation_evidence
+    imported: agentkit.backend.verify_system.llm_evaluator.roles
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [LlmVerdict]
+    reason: >-
+      ReconciliationEvidence.verdict is genuinely shared vocabulary -- it is sent
+      as reconciliation.verdict in POST /v1/projects/{project_key}/stories and
+      re-validated core-side. It now names the wire type ConflictVerdict. The
+      value set narrows from three to two, which is a narrowing to the values the
+      single producer could ever emit: PASS_WITH_CONCERNS was already collapsed
+      before the field was filled, and the downstream check read only FAIL as a
+      conflict -- so the third value was a fail-open state, not a capability.
+  - importer: agentkit.backend.story_creation.runtime_factory
+    imported: agentkit.backend.verify_system.llm_evaluator.bundle
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [ReviewBundle]
+    reason: >-
+      The factory typed the evaluator port in evaluator vocabulary. The port is
+      now typed in wire vocabulary and the factory builds the thin REST
+      adjudicator.
+  - importer: agentkit.backend.story_creation.runtime_factory
+    imported: agentkit.backend.verify_system.llm_evaluator.llm_client
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [HubLlmClient, LlmClientError]
+    reason: >-
+      This is where the edge CONSTRUCTED the Hub transport, including the FK-75
+      section 75.3 pool routing. Both moved to the core builder
+      build_create_time_conflict_adjudicator.
+  - importer: agentkit.backend.story_creation.runtime_factory
+    imported: agentkit.backend.verify_system.llm_evaluator.roles
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [ReviewerRole]
+    reason: Part of the same port typing; gone with it.
+  - importer: agentkit.backend.story_creation.runtime_factory
+    imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [StructuredEvaluatorResult]
+    reason: Part of the same port typing; gone with it.
+  - importer: agentkit.backend.story_creation.vectordb_reconciliation
+    imported: agentkit.backend.verify_system.llm_evaluator.bundle
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [ReviewBundle]
+    reason: >-
+      Stage 2 built the review bundle here. Bundle construction moved to
+      create_scope_conflict.build_conflict_bundle; the edge ships candidates.
+  - importer: agentkit.backend.story_creation.vectordb_reconciliation
+    imported: agentkit.backend.verify_system.llm_evaluator.roles
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [LlmVerdict, ReviewerRole]
+    reason: >-
+      The reconciliation named the evaluation role and read the ternary verdict.
+      It now names neither: it asks and reads ConflictVerdict.
+  - importer: agentkit.backend.story_creation.vectordb_reconciliation
+    imported: agentkit.backend.verify_system.llm_evaluator.structured_evaluator
+    answer: a
+    resolved: true
+    remedy_owner: AG3-241
+    symbols: [StructuredEvaluatorResult]
+    reason: Part of the same port typing; gone with it.
+
+  # -------------------------------------------------------------------------
+  # (b) The one crossing that stays -- reported as a gap, never as green.
+  # -------------------------------------------------------------------------
+  - importer: agentkit.backend.verify_system.qa_cycle.invalidation
+    imported: agentkit.backend.installer.paths
+    answer: b
+    resolved: false
+    remedy_owner: AG3-209
+    symbols: [QA_DIR, resolve_qa_story_dir]
+    reason: >-
+      The only core-to-edge crossing of this bounded context, and NOT an endpoint
+      case: a network call for a path constant buys latency and a failure path
+      for code both sides must run locally. installer.paths is a shared project-
+      layout foundation, not edge logic -- it is imported by core modules
+      (closure.phase:46, implementation.phase:51, implementation.worker_health.*)
+      AND by edge modules (governance.guard_evaluation:23, itself edge-classified
+      in entities.md). Splitting it for this one importer would create a second
+      path truth; giving verify-system its own copy of the QA layout would create
+      the same. It belongs in exactly the class the story text assigns to utils,
+      config and boundary: mechanical shared foundation the edge receives as its
+      own copy, Owner AG3-209 (story.md, Out of Scope).
+    gap_note: >-
+      Because of this entry AC 2 (zero) is NOT met. Measured, not estimated:
+      end_value.unique_ordered_pairs = 1.
