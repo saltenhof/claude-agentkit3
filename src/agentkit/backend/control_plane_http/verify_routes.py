@@ -5,9 +5,9 @@ from the developer machine, and both exist for the same reason: the raw
 observation is only makeable there, the judgement is only allowed here.
 
 * ``POST /v1/projects/{project_key}/story-conflict-assessments`` -- the create-time
-  LLM conflict assessment (FK-21 §21.4.1 Schritt 3). Neither operation mutates
+  LLM conflict assessment (FK-21 §21.4.1, step 3). Neither operation mutates
   canonical state, so neither carries an Operation-Ledger ``op_id`` (FK-91 §91.1a
-  Regel 5; same reasoning as ``POST /v1/auth/login``).
+  rule 5; same reasoning as ``POST /v1/auth/login``).
 * ``POST /v1/projects/{project_key}/verify-evidence-assemblies`` -- the review
   bundle of one edge-exported evidence checkpoint (FK-28 §28.7.1).
 

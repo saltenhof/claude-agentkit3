@@ -1,8 +1,9 @@
 """Evidence assembly CLI command handlers (FK-28 §28.7.1, FK-91 §91.1).
 
 The human operator-recovery surface for the evidence assembly. FK-91 §91.1 fixes
-what such a surface is -- "ein menschlicher Adapterpfad auf diese API; fachlich
-autoritativ ist der API-Vertrag" -- and since AG3-241 this command is one: it
+what such a surface is: a human adapter path onto this API, with the API
+contract -- not the command -- as the authority. Since AG3-241 this command is
+exactly that: it
 reads the edge-exported evidence checkpoint, ships it to
 ``POST /v1/projects/{project_key}/verify-evidence-assemblies`` and writes the
 manifest the core returned.
@@ -161,11 +162,12 @@ def _request_from_cli_config(
         ValueError: When the checkpoint is structurally unusable (pydantic
             raises ``ValidationError``, a ``ValueError`` subclass).
     """
-    # AG3-206: `cli.main` importiert die Kommandomodule eager, der
-    # Dependency-Preflight laeuft erst IN main(). Ein Modul-Level-Import von
-    # `agentkit_wire.verify_system` (pydantic) wuerde den Preflight
-    # ueberholen -- der Bediener bekaeme einen Traceback statt der
-    # deklarations-eigenen Diagnose. Deshalb hier lokal.
+    # AG3-206: `cli.main` imports the command modules EAGERLY, while the
+    # dependency preflight only runs INSIDE main(). A module-level import of
+    # `agentkit_wire.verify_system` (pydantic) would therefore overtake the
+    # preflight, and the operator would get a ModuleNotFoundError traceback
+    # instead of the declaration-owned diagnosis. Hence the local import; do
+    # not hoist it.
     from agentkit_wire.verify_system import (
         EvidenceFile,
         EvidenceRepository,
