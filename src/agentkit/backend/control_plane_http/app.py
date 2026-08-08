@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from agentkit.backend.story.service import StoryService
     from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
 
+from agentkit.backend.control_plane_http.bc_dispatch import _GroundedBcDispatchMixin
 from agentkit.backend.control_plane_http.default_routes import (
     _build_default_auth_routes,
     _build_default_concept_routes,
@@ -326,6 +327,7 @@ class ControlPlaneApplication(
     _StoryDashboardHandlersMixin,
     InstallerDispatchMixin,
     _GovernanceMediationHandlers,
+    _GroundedBcDispatchMixin,
     _RuntimeMutationHandlers,
 ):
     """Route and validate HTTP requests for the control plane (FK-72 §72.8.2).
@@ -981,22 +983,6 @@ class ControlPlaneApplication(
             correlation_id=correlation_id,
         )
 
-    def _dispatch_new_bc_get(
-        self,
-        route_path: str,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse | None:
-        """Dispatch GET to the BC http/ modules (AG3-090)."""
-        for routes in (
-            self._kpi_analytics_routes,
-            self._task_management_routes,
-        ):
-            response = routes.handle_get(route_path, query, correlation_id)
-            if response is not None:
-                return _bc_response_to_http_response(response)
-        return None
-
     def _handle_post_request(
         self,
         route_path: str,
@@ -1202,28 +1188,6 @@ class ControlPlaneApplication(
                     correlation_id=correlation_id,
                 )
         return None
-
-    def _dispatch_new_bc_post(
-        self,
-        route_path: str,
-        payload: object,
-        correlation_id: str,
-        auth_result: AuthResult | None,
-    ) -> HttpResponse | None:
-        """Dispatch POST to the grounded BC http/ modules (AG3-090)."""
-        for routes in (
-            self._kpi_analytics_routes,
-            self._task_management_routes,
-        ):
-            response = routes.handle_post(route_path, payload, correlation_id)
-            if response is not None:
-                return _bc_response_to_http_response(response)
-        return self._failure_corpus_routes.handle_post(
-            route_path,
-            payload,
-            correlation_id,
-            auth_result,
-        )
 
     def _handle_put_request(
         self,
