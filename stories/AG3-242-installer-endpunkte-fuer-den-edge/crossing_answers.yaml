@@ -79,10 +79,60 @@ measurement:
 # ---------------------------------------------------------------------------
 endpoints: []
 endpoint_verdict: >-
-  This story builds ZERO new endpoints, and that is a measured result, not an
+  This story builds ZERO new routes, and that is a measured result, not an
   omission. AC 3 forbids an endpoint without a call site it replaces; there is no
-  such call site left. The three operations this BC needs already exist and are
-  already consumed -- checked at the response model, not at the route name:
+  such call site left. The three operations this BC needs already exist -- checked
+  at the response model, not at the route name.
+  "Zero endpoint CHANGES" would be wrong, and the correction matters: the
+  response CONTRACT of the light-validation operation changed. See
+  `contract_change` below.
+consumption_status: >-
+  Precise, because the earlier wording ("all three are already consumed") was too
+  strong. Only `validate_third_party` has a productive call site
+  (`runner.py:1524`, `_run_cp10d_sonarqube`). `start_branch_plugin_self_test` and
+  `reconcile`/`poll_branch_plugin_self_test` exist as client methods with NO
+  productive caller outside the client -- which is consistent with
+  `installer.invariant.heavy_self_test_is_explicit_async_only`: the heavy
+  self-test is started only by an explicit on-demand command and never implicitly
+  by register-project or verify-project. The verdict "no endpoint needed" is
+  unaffected; its earlier justification was not.
+
+# ---------------------------------------------------------------------------
+# The one contract change this story makes, and why it needs no Decision Record
+# ---------------------------------------------------------------------------
+contract_change:
+  model: agentkit.backend.control_plane.third_party_models.ThirdPartyValidationResponse
+  operation: POST /v1/projects/{project_key}/installation/third-party-validation
+  defect: >-
+    The contract was fail-open in two ways at once. It accepted
+    `status="PASS"` next to a system whose own result was `FAILED`, and it
+    accepted a verdict that omitted a system entirely. The installer reads only
+    the aggregate (`runner.py` `_run_cp10d_sonarqube`), so either payload
+    produced `CheckpointStatus.PASS` for a precondition that had failed -- a
+    preflight reporting green while a system was down.
+  enforced_now: >-
+    Exactly one result per system and all of `sonar`, `jenkins`, `are` present;
+    and the aggregate is FAILED if and only if at least one system is FAILED,
+    checked in both directions.
+  no_decision_record_because: >-
+    No normative statement is created; two existing ones are enforced that the
+    code had never honoured. Both were read, not remembered:
+    (1) `installer.invariant.third_party_validation_fails_closed`
+    (`concept/formal-spec/installer/invariants.md:72-74`) -- "an unreachable
+    backend or any applicable unreachable or invalid third system produces a
+    visible failed checkpoint and nonzero installer outcome; no dev-side
+    fallback, bypass, or silent skip is legal". A green aggregate over a failed
+    system is that bypass; an omitted system is that silent skip.
+    (2) FK-91 section 91.1 (`91_api_event_katalog.md:118`) -- the response
+    "traegt Gesamtentscheid sowie typisiertes Einzelresultat/`error_code` je
+    System", which is the completeness half.
+    The producer `run_light_validation` already satisfied both; only the contract
+    failed to require it. No concept file is touched, therefore no record.
+  proven_by:
+    - tests/contract/installer/test_third_party_validation_contract.py::TestTheAggregateIsNotFreelyChosen
+    - tests/unit/installer/test_cp10d_wiring.py::test_cp10d_fails_closed_on_a_contradictory_backend_verdict
+    - tests/unit/installer/test_cp10d_wiring.py::test_cp10d_fails_closed_on_a_verdict_that_omits_a_system
+
 endpoints_that_already_exist:
   - operation: light third-party preflight (Sonar / CI / ARE)
     path: /v1/projects/{project_key}/installation/third-party-validation
@@ -90,9 +140,9 @@ endpoints_that_already_exist:
     response_model: ThirdPartyValidationResponse
     core_implementation: agentkit.backend.installer.third_party_light:run_light_validation
     edge_client: agentkit.harness_client.projectedge.client:ProjectEdgeClient.validate_third_party
-    already_consumed_at: >-
-      agentkit.backend.installer.runner:_run_cp10d_sonarqube -- calls
-      `client.validate_third_party` and fails closed on both
+    productive_call_site: >-
+      agentkit.backend.installer.runner:_run_cp10d_sonarqube (runner.py:1524) --
+      calls `client.validate_third_party` and fails closed on both
       `ControlPlaneApiError` (HTTP verdict) and any transport failure
       (`third_party_backend_unreachable`). No local fallback exists.
   - operation: heavy branch-plugin conformance self-test
@@ -101,11 +151,20 @@ endpoints_that_already_exist:
     response_model: BranchPluginSelfTestOperation
     core_implementation: agentkit.backend.installer.third_party_self_test:execute_branch_plugin_self_test
     edge_client: ProjectEdgeClient.start_branch_plugin_self_test
+    productive_call_site: >-
+      NONE outside the client. The method exists; no installer path calls it.
+      That is the specified behaviour, not a gap:
+      `installer.invariant.heavy_self_test_is_explicit_async_only` forbids
+      register-project and verify-project from triggering it implicitly.
   - operation: read one long-running operation
     path: /v1/project-edge/operations/{op_id}
     verb: GET
     response_model: BranchPluginSelfTestOperation
     edge_client: ProjectEdgeClient.reconcile_branch_plugin_self_test / poll_branch_plugin_self_test
+    productive_call_site: >-
+      NONE outside the client; `poll_branch_plugin_self_test` calls
+      `reconcile_branch_plugin_self_test`, and both wait for a self-test that no
+      productive installer path starts.
 open_uncertainty_resolved: >-
   The question whether the validation route covers ALL local checkpoint calls or
   only the light path is answered, and the answer is neither. `check_default_profile`
@@ -734,12 +793,15 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["is_directory_link"]
-    answer: a
+    answer: b
     remedy_owner: AG3-243
     reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+      NOT an operation. `is_directory_link` asks whether a path on the developer
+      machine is a symlink or a Windows junction (`skills/links.py:85`, straight
+      onto the local path). This is the same case as `check_default_profile`: an
+      endpoint would send the developer machine's filesystem question to a
+      machine that does not have that filesystem. The symbol travels with the
+      edge; AG3-243 files it that way itself.
   - importer: agentkit.backend.installer.lifecycle.decommission
     imported: agentkit.backend.state_backend.store.story_read_repository
     direction: edge-to-core
@@ -764,12 +826,14 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["is_directory_link", "remove_directory_link"]
-    answer: a
+    answer: b
     remedy_owner: AG3-243
     reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+      NOT an operation. Both symbols act directly on a local path
+      (`skills/links.py:85` and the `remove_directory_link` below it): detaching
+      a binding link is a write to the developer machine's own disk, which no
+      core process can perform. Same case as `check_default_profile`. The
+      symbols travel with the edge; AG3-243 files them that way itself.
   - importer: agentkit.backend.installer.lifecycle.detach
     imported: agentkit.backend.utils.io
     direction: edge-to-core
@@ -953,10 +1017,15 @@ crossings:
     imported: agentkit.backend.skills.materialize
     direction: edge-to-core
     symbols: ["bundle_has_placeholders"]
-    answer: a
+    answer: b
     remedy_owner: AG3-243
     reason: >-
-      `bundle_has_placeholders` is a judgement over a core-owned bundle.
+      NOT an operation. `bundle_has_placeholders` reads the `.md` files below a
+      local bundle directory (`skills/materialize.py:83`, `rglob` over
+      `bundle_root`). The bundle it inspects has already been rolled out onto the
+      developer machine, so the question is answerable only there. Same case as
+      `check_default_profile`. The symbol travels with the edge; AG3-243 files it
+      that way itself.
   - importer: agentkit.backend.installer.third_party_light
     imported: agentkit.backend.config.models
     direction: edge-to-core

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+#: The external systems a light validation always reports on. The set is closed:
+#: a verdict that omits one of them says nothing about it, and a preflight that
+#: says nothing is not a preflight.
+VALIDATED_SYSTEMS: Final = ("sonar", "jenkins", "are")
 
 
 class SonarValidationConfig(BaseModel):
@@ -63,13 +68,65 @@ class ThirdPartySystemResult(BaseModel):
 
 
 class ThirdPartyValidationResponse(BaseModel):
-    """Aggregate synchronous light-validation verdict."""
+    """Aggregate synchronous light-validation verdict.
+
+    The aggregate is not an independent field the producer may choose freely: it
+    is a function of the per-system results, and the model enforces that. Without
+    the enforcement the contract was fail-open in two ways at once -- a verdict
+    could carry ``status="PASS"`` next to a failed system, and it could omit a
+    system entirely. The installer reads only the aggregate
+    (``runner.py`` ``_run_cp10d_sonarqube``), so either defect turned a failed
+    precondition into a green checkpoint.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     op_id: str
     status: Literal["PASS", "FAILED"]
     error_code: str | None = None
     systems: tuple[ThirdPartySystemResult, ...]
+
+    @model_validator(mode="after")
+    def _verdict_is_total_and_fail_closed(self) -> ThirdPartyValidationResponse:
+        """Reject an incomplete, ambiguous or self-contradicting verdict.
+
+        Returns:
+            The validated response.
+
+        Raises:
+            ValueError: When a system is missing or reported twice, or when the
+                aggregate status disagrees with the per-system results.
+        """
+        reported = [result.system for result in self.systems]
+        expected = set(VALIDATED_SYSTEMS)
+        if len(reported) != len(set(reported)):
+            raise ValueError(
+                "third-party validation verdict reports a system more than once: "
+                f"{sorted(reported)} -- exactly one result per system is required"
+            )
+        if set(reported) != expected:
+            missing = sorted(expected - set(reported))
+            raise ValueError(
+                "third-party validation verdict is incomplete: no result for "
+                f"{missing}. Every system in {list(VALIDATED_SYSTEMS)} must be "
+                "reported; a system without a verdict is not a passing system"
+            )
+        any_failed = any(result.status == "FAILED" for result in self.systems)
+        if any_failed and self.status != "FAILED":
+            failed = sorted(
+                result.system for result in self.systems if result.status == "FAILED"
+            )
+            raise ValueError(
+                f"third-party validation aggregate is {self.status!r} while "
+                f"{failed} FAILED -- the aggregate is FAILED if and only if at "
+                "least one system FAILED"
+            )
+        if self.status == "FAILED" and not any_failed:
+            raise ValueError(
+                "third-party validation aggregate is 'FAILED' while no system "
+                "FAILED -- the aggregate is FAILED if and only if at least one "
+                "system FAILED"
+            )
+        return self
 
 
 class BranchPluginSelfTestRequest(BaseModel):
@@ -95,6 +152,7 @@ class BranchPluginSelfTestOperation(BaseModel):
 
 
 __all__ = [
+    "VALIDATED_SYSTEMS",
     "AreValidationConfig",
     "BranchPluginSelfTestOperation",
     "BranchPluginSelfTestRequest",

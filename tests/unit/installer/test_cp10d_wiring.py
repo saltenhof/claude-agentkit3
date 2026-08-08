@@ -97,7 +97,9 @@ def _yaml() -> dict[str, object]:
     }
 
 
-def _config(root: Path, edge: _ProjectEdgeBoundary) -> InstallConfig:
+def _config(
+    root: Path, edge: _ProjectEdgeBoundary | _WireValidatingBoundary
+) -> InstallConfig:
     return InstallConfig(
         project_key="acme",
         project_name="Acme",
@@ -164,6 +166,72 @@ def test_cp10d_distinguishes_backend_http_rejection_from_transport_failure(
         "error_code": "unauthorized",
         "http_status": 401,
     }
+
+
+@dataclass
+class _WireValidatingBoundary:
+    """Boundary that parses a raw wire payload exactly as the real client does.
+
+    ``ProjectEdgeClient.validate_third_party`` ends in
+    ``ThirdPartyValidationResponse.model_validate(data)`` (client.py:723). Handing
+    this fake a pre-built response object would test nothing about a hostile
+    payload, because the model refuses to build one. It therefore takes the dict.
+    """
+
+    payload: dict[str, object]
+
+    def validate_third_party(
+        self, *, project_key: str, request: ThirdPartyValidationRequest
+    ) -> ThirdPartyValidationResponse:
+        assert project_key == "acme"
+        del request
+        return ThirdPartyValidationResponse.model_validate(self.payload)
+
+
+def test_cp10d_fails_closed_on_a_contradictory_backend_verdict(tmp_path: Path) -> None:
+    """A wire verdict claiming PASS while Sonar FAILED must not pass CP10d.
+
+    This is the defect the contract now forbids: the installer reads only the
+    aggregate, so before the model enforced the invariant this payload produced
+    ``CheckpointStatus.PASS`` for a Sonar that had failed.
+    """
+    _profile(tmp_path)
+    edge = _WireValidatingBoundary(
+        payload={
+            "op_id": "validation-1",
+            "status": "PASS",
+            "systems": [
+                {"system": "sonar", "status": "FAILED", "error_code": "sonar_unreachable"},
+                {"system": "jenkins", "status": "PASS"},
+                {"system": "are", "status": "SKIPPED"},
+            ],
+        }
+    )
+
+    with pytest.raises(InstallationError) as caught:
+        _run_cp10d_sonarqube(_config(tmp_path, edge), tmp_path, _yaml())
+
+    assert caught.value.detail["cause"] == "ThirdPartyValidationBackendUnavailable"
+
+
+def test_cp10d_fails_closed_on_a_verdict_that_omits_a_system(tmp_path: Path) -> None:
+    """A verdict silent about Jenkins is a silent skip, not a pass."""
+    _profile(tmp_path)
+    edge = _WireValidatingBoundary(
+        payload={
+            "op_id": "validation-1",
+            "status": "PASS",
+            "systems": [
+                {"system": "sonar", "status": "PASS"},
+                {"system": "are", "status": "SKIPPED"},
+            ],
+        }
+    )
+
+    with pytest.raises(InstallationError) as caught:
+        _run_cp10d_sonarqube(_config(tmp_path, edge), tmp_path, _yaml())
+
+    assert caught.value.detail["cause"] == "ThirdPartyValidationBackendUnavailable"
 
 
 def test_cp10d_fails_closed_on_structured_system_failure(tmp_path: Path) -> None:
