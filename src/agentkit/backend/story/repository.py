@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from agentkit.backend.phase_state_store.models import FlowExecution
     from agentkit.backend.pipeline_engine.phase_executor import PhaseState
     from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.story_model import StorySpecification
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 __all__ = ["StoryReadPort"]
@@ -52,6 +53,17 @@ class StoryReadPort(Protocol):
         self, project_key: str, story_id: str
     ) -> StoryContext | None:
         """Return the story context for ``(project_key, story_id)`` or ``None``."""
+        ...
+
+    def load_story_specification(
+        self, project_key: str, story_id: str
+    ) -> StorySpecification | None:
+        """Return the specification of ``(project_key, story_id)`` or ``None``.
+
+        ``None`` is the honest answer for a story that has no specification
+        recorded. A story that does not exist at all is already ``None`` from
+        :meth:`load_story_context`, which the detail read consults first.
+        """
         ...
 
     def load_phase_state(self, story_id: str) -> PhaseState | None:

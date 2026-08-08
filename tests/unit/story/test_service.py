@@ -17,6 +17,7 @@ from agentkit.backend.story_context_manager.types import (
     StoryMode,
     StoryType,
 )
+from agentkit.backend.story_context_manager.story_model import StorySpecification
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
@@ -30,6 +31,12 @@ def _empty_contexts(project_key: str) -> list[StoryContext]:
 
 
 def _missing_context(project_key: str, story_id: str) -> StoryContext | None:
+    return None
+
+
+def _missing_specification(
+    project_key: str, story_id: str
+) -> StorySpecification | None:
     return None
 
 
@@ -65,6 +72,9 @@ class _FakeStoryReadPort:
     load_recent_execution_events: Callable[
         [str, str, str, int], list[ExecutionEventRecord]
     ] = _no_events
+    load_story_specification: Callable[[str, str], StorySpecification | None] = (
+        _missing_specification
+    )
 
 
 def test_fake_port_satisfies_runtime_checkable_protocol() -> None:
@@ -260,3 +270,91 @@ def test_get_story_returns_none_when_missing() -> None:
     )
 
     assert service.get_story("tenant-a", "AG3-404") is None
+
+
+# ---------------------------------------------------------------------------
+# AG3-240: the project-scoped detail read carries the story specification
+# ---------------------------------------------------------------------------
+
+
+def _specification() -> StorySpecification:
+    return StorySpecification(
+        need="The edge must reach a story and its specification over /v1.",
+        solution="The project-scoped detail read resolves both in one call.",
+        acceptance=["specification travels with the detail payload"],
+    )
+
+
+def test_get_story_carries_the_specification() -> None:
+    """The one exposed detail surface answers need/solution/acceptance.
+
+    Before AG3-240 the specification was reachable only through the bare
+    ``/v1/stories/{id}`` route, which the control-plane application deliberately
+    does not delegate. Anything off the core therefore had to construct the core
+    story service locally -- a distribution boundary violation by construction.
+    """
+    context = _context("AG3-240")
+    spec = _specification()
+    service = StoryService(
+        repository=_FakeStoryReadPort(
+            load_story_context=lambda project_key, story_id: context,
+            load_story_specification=lambda project_key, story_id: spec,
+        ),
+    )
+
+    story = service.get_story("tenant-a", "AG3-240")
+
+    assert story is not None
+    assert story.specification is not None
+    assert story.specification.need == spec.need
+    assert story.specification.acceptance == spec.acceptance
+
+
+def test_get_story_reports_a_story_without_a_specification_as_none() -> None:
+    """``None`` means "no specification recorded", never "not loaded"."""
+    context = _context("AG3-240")
+    service = StoryService(
+        repository=_FakeStoryReadPort(
+            load_story_context=lambda project_key, story_id: context,
+        ),
+    )
+
+    story = service.get_story("tenant-a", "AG3-240")
+
+    assert story is not None
+    assert story.specification is None
+
+
+def test_an_unknown_story_is_not_answered_with_a_specification() -> None:
+    """Unknown identity fails closed before the specification is ever consulted."""
+    consulted: list[tuple[str, str]] = []
+
+    def _record(project_key: str, story_id: str) -> StorySpecification | None:
+        consulted.append((project_key, story_id))
+        return _specification()
+
+    service = StoryService(
+        repository=_FakeStoryReadPort(load_story_specification=_record),
+    )
+
+    assert service.get_story("tenant-a", "AG3-does-not-exist") is None
+    assert consulted == []
+
+
+def test_the_specification_survives_the_json_wire_round_trip() -> None:
+    """What the route serialises is what a client can read back (AC 4)."""
+    context = _context("AG3-240")
+    spec = _specification()
+    service = StoryService(
+        repository=_FakeStoryReadPort(
+            load_story_context=lambda project_key, story_id: context,
+            load_story_specification=lambda project_key, story_id: spec,
+        ),
+    )
+
+    story = service.get_story("tenant-a", "AG3-240")
+
+    assert story is not None
+    payload = story.model_dump(mode="json")
+    assert payload["specification"]["need"] == spec.need
+    assert payload["specification"]["acceptance"] == list(spec.acceptance)

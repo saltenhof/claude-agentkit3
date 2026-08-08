@@ -193,31 +193,38 @@ crossings:
     answer: a
     remedy_owner: AG3-209
     blocked: true
-    endpoint: >-
-      `GET /v1/stories/{story_id}` (story_context_manager/http/routes.py:131-152)
-      already returns exactly the needed pair: `{"summary": ..., "spec": ...}`,
-      serialised by `story_to_wire_summary` / `story_spec_to_wire` from
-      `service.get_story_detail() -> (Story, StorySpecification | None)`.
-    correction_from_review_round_1: >-
-      An earlier version of this file named the PROJECT-SCOPED
-      `GET /v1/projects/{key}/stories/{id}` and claimed it returns the
-      specification. It does not: that route answers `backend.story.models.
-      StoryDetail` (story/models.py:79), which has no specification field. The
-      locator was wrong; the answer (a) survives against the correct route.
-    why_not_executable_here: >-
-      `export-story-md` consumes the port
+    endpoint: "GET /v1/projects/{project_key}/stories/{story_id} -- EXTENDED here"
+    server_side: done
+    corrections_from_the_reviews: >-
+      Round 1 caught that this entry named the project-scoped route and claimed
+      it returns the specification; it did not. Round 2 caught the follow-up
+      error: the route that DID carry the specification, bare
+      `GET /v1/stories/{story_id}`, is not exposed at all -- the application
+      delegates only project-scoped story routes (FK-72 section 72.8.1, app.py),
+      so "the operation already exists" was false and "zero new endpoints" with
+      it. The needed operation was unreachable from outside the core.
+    executed: >-
+      The exposed project-scoped detail read now carries the specification.
+      `StoryReadPort.load_story_specification(project_key, story_id)` is the new
+      port method, `StateBackendStoryReadRepository` implements it against the
+      story repository and verifies `project_key` so one project can never be
+      answered with another's specification, `StoryDetail.specification` carries
+      it, and FK-91 section 91.1 (:141) documents the field and its `null`
+      semantics. No new path -- the existing operation was extended.
+    what_remains_for_ag3_209: >-
+      The edge side. `export-story-md` consumes
       `StoryAttributesPort.get_story_detail() -> (Story, StorySpecification|None)`
-      (story_md_export.py:68). The port and its consumer are EDGE
-      (`agentkit.backend.story_creation` is an edge prefix), so the edge needs
-      its own model of a story before a REST client can satisfy that port -- the
-      JSON is already there, the edge-side type is not. Minting that type is the
-      same work as the two `story_model` crossings below and belongs with them.
+      (story_md_export.py:68), and that port plus its consumer are EDGE
+      (`agentkit.backend.story_creation` is an edge prefix). The edge needs its
+      own story type before a REST client can satisfy the port. The JSON is now
+      there; the edge-side type is not, and minting it is the same work as the
+      two `story_model` crossings below.
 
   - id: cli-split-plan-validation
     pairs:
       - agentkit.backend.cli.story_commands -> agentkit.backend.story_split.plan_loader
     symbols: [SplitPlanError, load_split_plan]
-    answer: a
+    answer: b
     remedy_owner: AG3-209
     blocked: true
     anchor: >-
@@ -240,9 +247,11 @@ crossings:
     rationale: >-
       As long as FK-91 requires the edge to send validated text, the edge needs
       the plan contract, and a plan contract that both sides must apply is /v1
-      vocabulary. The resolution is therefore the same class of work as the
-      `story_model` items: an edge-reachable plan type. Not a new endpoint --
-      the split endpoint exists.
+      vocabulary. The resolution is an edge-reachable plan type -- the same class
+      of work as the `story_model` items. The split endpoint already exists and
+      needs no change, which is exactly what makes this (b) and not (a). Review
+      round 2 caught the earlier (a): the answer classes are defined at the top
+      of this file, and "vocabulary moves, no endpoint" is (b).
 
   - id: hook-operating-mode-accessor
     pairs:
@@ -258,14 +267,19 @@ crossings:
       `agentkit.backend.story_context_manager.operating_mode_resolver`.
     rationale: >-
       Explicitly NOT (a): FK-01 section 1.2.3 binds the hook to a local decision
-      in milliseconds, and this is the hook path. The resolver STAYS where FK-56
-      puts it. What moves is the type it is built on: the classification already
-      sends `core_types.operating_mode.OperatingMode` to
+      in milliseconds, and this is the hook path. The remedy is ORDERED, and the
+      order is already decided:
+      `core_types.operating_mode.OperatingMode` moves to
       `agentkit_wire.operating_mode` with `module_dissolves: true`
-      (entities.md:2911, symbol_boundary.core_types_operating_mode). Neither
-      `CarriesOperatingMode` nor the accessor is in that wire target, and neither
-      belongs there -- `agentkit_wire` carries /v1 vocabulary, not shared
-      behaviour, a rule this story wrote into the package docstring itself.
+      (entities.md:2911, symbol_boundary.core_types_operating_mode). After that
+      move the only production caller of the accessor is the edge-side guard path
+      (guard_evaluation.py:24), and the accessor is
+      `return resolved.operating_mode` -- no I/O, no core state. FK-56:173 fixes
+      the NAMESPACE of mode resolution, not the distribution of the module that
+      holds it, so following the type is derivable along the existing anchors.
+      AG3-209 executes both steps together. Neither `CarriesOperatingMode` nor
+      the accessor goes into the wire package, which carries /v1 vocabulary and
+      not behaviour.
     correction_from_review_round_1: >-
       An earlier version of this file called `agentkit_wire.operating_mode` the
       accessor's "correct home". That contradicted both FK-56:173 and the wire
@@ -273,24 +287,26 @@ crossings:
       to the edge while the already-specified `OperatingMode` migration was left
       undone). Both the claim and the experiment are replaced below.
     measured:
-      - step: "core_types.operating_mode -> wire (the specified, foreign-owned step)"
+      - step: "core_types.operating_mode -> wire (the already-decided step)"
         result: "repo 321 -> 320; removes 1, creates 0"
-        note: >-
-          The pair it removes is the resolver's own import of the type. The
-          `guard_evaluation -> resolver` crossing SURVIVES it -- verified
-          directly, not inferred.
-      - step: "the above PLUS resolver -> edge (the coordinated cut, fairly tested)"
+      - step: "the above PLUS resolver -> edge"
         result: "repo 321 -> 321; removes 2, creates 2"
-        note: >-
-          Even done coordinately, moving the resolver to the edge is a wash: the
-          two core consumers `governance.integrity_gate` and
-          `integrity_gate.mode_guard` simply become the new violators. So the cut
-          is not blocked by the unfinished type migration; it does not pay at all.
-    open: >-
-      This crossing has an answer for the TYPE and no executable answer for the
-      ACCESSOR. FK-56 keeps the accessor in the core, FK-01 keeps the hook off
-      the network, and measurement rules out the edge. Escalated rather than
-      resolved by a default.
+    why_those_two_counter_edges_are_not_real:
+      found_by: review round 2
+      detail: >-
+        The two pairs that appear are `governance.integrity_gate` and
+        `integrity_gate.mode_guard` reaching the resolver, and BOTH are
+        `TYPE_CHECKING`-only imports of `OperatingMode`
+        (integrity_gate/__init__.py:56, mode_guard.py:23) -- they want the TYPE,
+        not the accessor. A module-level experiment cannot see that: it counts an
+        import edge either way. After the already-decided `OperatingMode`
+        migration those two type imports point at `agentkit_wire`, so the edges
+        never come into being. The experiment measured a state the ordered remedy
+        never passes through.
+    status_note: >-
+      NOT a Product-Owner item. Derivable for AG3-209 along the existing anchors.
+      An earlier version of this file escalated it on the strength of the
+      experiment above, which does not support the claim.
 
   - id: story-context-routes-reach-story-creation
     pairs:
@@ -317,6 +333,11 @@ crossings:
     remedy_owner: AG3-209
     blocked: true
     endpoint_exists_already: "POST /v1/projects/{project_key}/stories"
+    verified: >-
+      Checked against the application dispatch, not assumed -- the mistake this
+      story made once already. The project-scoped create route IS delegated
+      (app.py `_handle_create_story`), so unlike the detail read there is nothing
+      to extend on the server.
     rationale: >-
       The operation exists; what is missing is an edge-side story type, exactly
       as in `cli-story-read-for-story-md-export`.
@@ -385,15 +406,22 @@ acceptance_criteria:
     take, one is FK-91-mandated, one is FK-56-placed, and the rest need the
     edge-side story vocabulary that AG3-209 owns.
   ac3_no_endpoint_without_need: >-
-    Held in the strongest form available: ZERO new endpoints. Every (a) answer
-    resolves to an operation that already exists; the three mutations already ran
-    over their /v1 operation before this story began. Nothing was built that had
-    no call site.
+    ZERO new endpoints, ONE extended endpoint. The three mutations already ran
+    over their /v1 operation before this story began, so no path was invented.
+    `GET /v1/projects/{project_key}/stories/{story_id}` was EXTENDED by a
+    `specification` field, because the operation the edge needs -- a story
+    together with its specification -- was not reachable from outside the core at
+    all: the route that carried the specification, bare
+    `GET /v1/stories/{story_id}`, is deliberately not delegated by the
+    application (FK-72 section 72.8.1, app.py), and the exposed project-scoped
+    route answered `StoryDetail`, which had no specification field
+    (story/models.py:79). Nothing was built that has no call site.
   ac4_catalogued: >-
-    No new or changed endpoint, so nothing to add. The three story-lifecycle
-    operations are already in FK-91 section 91.1 (:142-144) with their CLI
-    adapters (:596, :598, :602). No Formal-Spec change was made, so the shipped
-    `check.py formal`/`frontmatter` run was not triggered.
+    The extended endpoint is catalogued: FK-91 section 91.1 (:141) now names the
+    `specification` field, its `null` semantics and why the field exists. The
+    three story-lifecycle mutations were already in FK-91 (:142-144) with their
+    CLI adapters (:596, :598, :602) and are unchanged. No Formal-Spec change was
+    made, so the shipped `check.py formal`/`frontmatter` run was not triggered.
   ac5_gates: >-
     All six binding deterministic gates exit 0, plus the interpreter guard. W2/W3
     were not run and are NOT counted as green.
@@ -407,15 +435,24 @@ acceptance_criteria:
     after review round 1 found the earlier claim overstated.
 
 open_items_for_the_product_owner:
+  # Exactly ONE. Two further items stood here after round 1 and were withdrawn in
+  # round 3: both were derivable along existing anchors, and handing up a
+  # derivable question costs the same review round as answering it.
   - >-
     `build_story_split_service` couples a core service to a local Weaviate
-    adapter. AG3-237 named the PO as owner and did not decide it; AG3-240 did not
-    either. Two crossings wait on it.
-  - >-
-    `resolve_operating_mode` has no executable home: FK-56:173 keeps it in the
-    core, FK-01 section 1.2.3 keeps the hook off the network, and the edge move is
-    measured as a wash. It needs a decision, not a default.
-  - >-
-    FK-91:142 requires the operator CLI to send VALIDATED plan text, which keeps
-    the plan contract on both machines. If the writer should be the sole
-    validator, FK-91 has to say so; this story did not change it.
+    adapter. This is a genuine Product-Owner decision and is normed as one:
+    entities.md:3952 records the owner as the Product Owner, and AG3-237
+    explicitly declined to decide it a second time. Two crossings wait on it.
+
+withdrawn_escalations:
+  - item: resolve_operating_mode
+    why: >-
+      Derivable for AG3-209 along the existing anchors. FK-56:173 fixes the
+      namespace, not the distribution, and the two counter-edges the experiment
+      produced are TYPE_CHECKING-only type imports that disappear with the
+      already-decided `OperatingMode` migration.
+  - item: writer as the sole split-plan validator
+    why: >-
+      Only relevant if FK-91 were to be changed, and the current cut does not
+      need it. FK-91 already decides in favour of local CLI validation, and that
+      validation is back in place.

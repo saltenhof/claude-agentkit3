@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from agentkit.backend.phase_state_store.models import FlowExecution
     from agentkit.backend.pipeline_engine.phase_executor import PhaseState
     from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.story_model import StorySpecification
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
@@ -27,6 +28,11 @@ class StubStoryReadPort:
     def load_story_context(
         self, project_key: str, story_id: str
     ) -> StoryContext | None:
+        return None
+
+    def load_story_specification(
+        self, project_key: str, story_id: str
+    ) -> StorySpecification | None:
         return None
 
     def load_phase_state(self, story_id: str) -> PhaseState | None:

@@ -64,6 +64,10 @@ class StoryService:
                     run_id=detail_run_id,
                 ),
             ),
+            specification=self._repo.load_story_specification(
+                context.project_key,
+                context.story_id,
+            ),
         )
 
     def _build_summary(self, context: StoryContext) -> StorySummary:

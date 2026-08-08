@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from agentkit.backend.phase_state_store.models import FlowExecution
     from agentkit.backend.pipeline_engine.phase_executor import PhaseState
     from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.story_model import StorySpecification
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
@@ -71,6 +72,27 @@ class StateBackendStoryReadRepository:
     ) -> StoryContext | None:
         """Return the story context for ``(project_key, story_id)`` or ``None``."""
         return load_story_context_global(project_key, story_id, self.store_dir)
+
+    def load_story_specification(
+        self, project_key: str, story_id: str
+    ) -> StorySpecification | None:
+        """Return the specification of ``(project_key, story_id)`` or ``None``.
+
+        The story master data and its specification live in the story
+        repository, not in the lifecycle store the other reads use, so this is
+        the one method that reaches for it. The display id is globally unique;
+        ``project_key`` is still verified, so a caller scoped to one project can
+        never be answered with another project's specification.
+        """
+        from agentkit.backend.state_backend.store.story_repository import (
+            StateBackendStoryRepository,
+        )
+
+        repository = StateBackendStoryRepository(self.store_dir)
+        story = repository.get_by_display_id(story_id)
+        if story is None or story.project_key != project_key:
+            return None
+        return repository.get_specification(story.story_uuid)
 
     def load_phase_state(self, story_id: str) -> PhaseState | None:
         """Return the single current runtime phase state of ``story_id`` or ``None``."""
