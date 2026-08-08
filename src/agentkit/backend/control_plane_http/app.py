@@ -992,27 +992,6 @@ class ControlPlaneApplication(
                 return _bc_response_to_http_response(response)
         return None
 
-    def _dispatch_hook_mediation_post(
-        self,
-        route_path: str,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse | None:
-        """Dispatch the non-project-scoped hook-mediation writes (AG3-129).
-
-        These are the routes the short-lived hook process on the developer
-        machine posts to instead of touching a database (FK-10 §10.1.0 I1).
-        Grouped into one dispatcher so the main POST router stays inside its
-        complexity budget.
-        """
-        if route_path == "/v1/telemetry/events":
-            return self._handle_post_telemetry(payload, correlation_id)
-        if route_path == "/v1/governance/guard-counters":
-            return self._handle_post_guard_counter(payload, correlation_id)
-        if route_path == "/v1/governance/worker-health":
-            return self._handle_post_worker_health(payload, correlation_id)
-        return None
-
     def _handle_post_request(
         self,
         route_path: str,

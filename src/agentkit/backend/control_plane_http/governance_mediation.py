@@ -40,6 +40,28 @@ class _GovernanceMediationHandlers:
     _telemetry_service: ControlPlaneTelemetryService
     _guard_counter_service: ControlPlaneGuardCounterService
     _worker_health_service: ControlPlaneWorkerHealthService
+    def _dispatch_hook_mediation_post(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        """Dispatch the non-project-scoped hook-mediation writes (AG3-129).
+
+        These are the routes the short-lived hook process on the developer
+        machine posts to instead of touching a database (FK-10 §10.1.0 I1).
+        Liegt bei den Handlern, die er aufruft -- nicht in der Hauptklasse:
+        AG3-239 hatte ihn dort eingefuegt und ControlPlaneApplication damit
+        ueber die 800-LOC-Schwelle geschoben (Sonar PY_CLASS_MAX_LOC_800).
+        """
+        if route_path == "/v1/telemetry/events":
+            return self._handle_post_telemetry(payload, correlation_id)
+        if route_path == "/v1/governance/guard-counters":
+            return self._handle_post_guard_counter(payload, correlation_id)
+        if route_path == "/v1/governance/worker-health":
+            return self._handle_post_worker_health(payload, correlation_id)
+        return None
+
     def _handle_post_telemetry(
         self,
         payload: object,
