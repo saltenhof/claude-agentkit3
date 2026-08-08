@@ -1500,6 +1500,7 @@ def _run_cp10d_sonarqube(
 ) -> SonarPreflightResult:
     """Run local profile validation, then consume the backend light verdict."""
     from agentkit.backend.config.models import SonarQubeConfig
+    from agentkit.backend.control_plane.third_party_models import silently_skipped_systems
     from agentkit.backend.exceptions import ControlPlaneApiError
     from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
         CheckpointStatus,
@@ -1550,6 +1551,23 @@ def _run_cp10d_sonarqube(
         + (f" - {item.detail}" if item.detail else "")
         for item in verdict.systems
     )
+    # Completeness before content: an aggregate only means something once the
+    # verdict answers the question that was asked. Applicability is stated in the
+    # request, so this is the first point that can see a silent skip at all --
+    # the response model never sees the request, and the Project Edge client is
+    # transport, not the owner of the fail-closed outcome.
+    skipped = silently_skipped_systems(request, verdict)
+    if skipped:
+        raise InstallationError(
+            "Third-party validation verdict skipped applicable systems "
+            f"{list(skipped)}: " + "; ".join(details),
+            detail={
+                "cause": "ThirdPartyValidationIncomplete",
+                "error_code": "third_party_applicable_system_skipped",
+                "systems": list(skipped),
+                "details": list(details),
+            },
+        )
     if verdict.status == "FAILED":
         raise _third_party_installation_error(verdict.error_code, details)
     sonar = next(item for item in verdict.systems if item.system == "sonar")

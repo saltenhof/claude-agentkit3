@@ -23,7 +23,13 @@ def run_light_validation(
     resolver: SecretResolver,
     clients: ThirdPartyClientFactory,
 ) -> ThirdPartyValidationResponse:
-    """Run Sonar, Jenkins, and feature-gated ARE reads in the backend."""
+    """Run Sonar, Jenkins, and feature-gated ARE reads in the backend.
+
+    Which systems are applicable is decided by ``request.applicable_systems()``
+    and nowhere else. The consumer checks the returned verdict against that same
+    rule (``silently_skipped_systems``), so producer and check can never drift
+    into two different notions of "not applicable".
+    """
     systems = (
         _sonar_result(request, resolver, clients),
         _jenkins_result(request, resolver, clients),
@@ -44,7 +50,7 @@ def _sonar_result(
     clients: ThirdPartyClientFactory,
 ) -> ThirdPartySystemResult:
     cfg = request.sonar
-    if not cfg.available:
+    if "sonar" not in request.applicable_systems():
         return _skipped("sonar")
     token = resolver.resolve(cfg.token_env or "")
     if not token:
@@ -77,7 +83,7 @@ def _jenkins_result(
     clients: ThirdPartyClientFactory,
 ) -> ThirdPartySystemResult:
     cfg = request.ci
-    if not cfg.available:
+    if "jenkins" not in request.applicable_systems():
         return _skipped("jenkins")
     token = resolver.resolve(cfg.token_env or "")
     if not token:
@@ -101,7 +107,7 @@ def _are_result(
     clients: ThirdPartyClientFactory,
 ) -> ThirdPartySystemResult:
     cfg = request.are
-    if not cfg.enabled:
+    if "are" not in request.applicable_systems():
         return _skipped("are")
     token = resolver.resolve(cfg.token_env or "")
     if not token or not cfg.base_url:

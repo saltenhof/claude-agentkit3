@@ -75,19 +75,30 @@ def _profile(root: Path) -> None:
     path.write_text("{}", encoding="utf-8")
 
 
-def _yaml() -> dict[str, object]:
+def _yaml(
+    *,
+    sonar_available: bool = True,
+    ci_available: bool = True,
+    are_enabled: bool = False,
+) -> dict[str, object]:
+    """Build a project stanza; the three applicability switches are independent.
+
+    They are separate arguments because the three conditions are separate in the
+    source: Sonar and Jenkins are applicable on ``available``, ARE on the
+    ``features.are`` gate (``ThirdPartyValidationRequest.applicable_systems``).
+    """
     return {
         "pipeline": {
-            "features": {"are": False},
+            "features": {"are": are_enabled},
             "sonarqube": {
-                "available": True,
+                "available": sonar_available,
                 "enabled": True,
                 "base_url": "https://sonar.example",
                 "token_env": "SONAR_BACKEND_TOKEN",
                 "scanner_version": "5.0.1",
             },
             "ci": {
-                "available": True,
+                "available": ci_available,
                 "enabled": True,
                 "base_url": "https://jenkins.example",
                 "token_env": "JENKINS_BACKEND_TOKEN",
@@ -179,12 +190,16 @@ class _WireValidatingBoundary:
     """
 
     payload: dict[str, object]
+    requests: list[ThirdPartyValidationRequest] = field(default_factory=list)
 
     def validate_third_party(
         self, *, project_key: str, request: ThirdPartyValidationRequest
     ) -> ThirdPartyValidationResponse:
         assert project_key == "acme"
-        del request
+        # The request is KEPT. Applicability is stated here and nowhere else, so
+        # a test that discards it cannot show which systems the verdict owed an
+        # answer for -- it could only assume it.
+        self.requests.append(request)
         return ThirdPartyValidationResponse.model_validate(self.payload)
 
 
@@ -232,6 +247,81 @@ def test_cp10d_fails_closed_on_a_verdict_that_omits_a_system(tmp_path: Path) -> 
         _run_cp10d_sonarqube(_config(tmp_path, edge), tmp_path, _yaml())
 
     assert caught.value.detail["cause"] == "ThirdPartyValidationBackendUnavailable"
+
+
+def _wire_verdict(**statuses: str) -> dict[str, object]:
+    """Build a raw wire payload, defaulting to the fully unremarkable verdict."""
+    merged = {"sonar": "PASS", "jenkins": "PASS", "are": "SKIPPED", **statuses}
+    return {
+        "op_id": "validation-1",
+        "status": "PASS",
+        "systems": [
+            {"system": name, "status": status} for name, status in merged.items()
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("skipped_system", "sonar_available", "ci_available", "are_enabled"),
+    [
+        ("sonar", True, True, False),
+        ("jenkins", True, True, False),
+        ("are", True, True, True),
+    ],
+)
+def test_cp10d_fails_closed_when_an_applicable_system_reports_skipped(
+    tmp_path: Path,
+    skipped_system: str,
+    sonar_available: bool,
+    ci_available: bool,
+    are_enabled: bool,
+) -> None:
+    """An applicable system that was never probed must not yield a green CP10d.
+
+    This is the fail-open path the aggregate cannot catch: every per-system
+    status is unremarkable, so `status: PASS` is internally consistent, and the
+    installer reads only the aggregate. What makes it illegal is the REQUEST --
+    the system is applicable there, and
+    `installer.invariant.third_party_validation_fails_closed` (invariants.md:72)
+    rules out a silent skip for an applicable system.
+    """
+    _profile(tmp_path)
+    yaml_data = _yaml(
+        sonar_available=sonar_available,
+        ci_available=ci_available,
+        are_enabled=are_enabled,
+    )
+    edge = _WireValidatingBoundary(payload=_wire_verdict(**{skipped_system: "SKIPPED"}))
+
+    with pytest.raises(InstallationError) as caught:
+        _run_cp10d_sonarqube(_config(tmp_path, edge), tmp_path, yaml_data)
+
+    # The request is the evidence that the skip was illegal, not an assumption.
+    assert skipped_system in edge.requests[0].applicable_systems()
+    assert caught.value.detail["cause"] == "ThirdPartyValidationIncomplete"
+    assert caught.value.detail["error_code"] == "third_party_applicable_system_skipped"
+    assert caught.value.detail["systems"] == [skipped_system]
+
+
+def test_cp10d_accepts_skipped_verdicts_for_systems_the_request_excluded(
+    tmp_path: Path,
+) -> None:
+    """The legal skip stays legal: a declared absence is not a silent skip.
+
+    Sonar and Jenkins are switched off via `available`, ARE via the `features.are`
+    gate -- three systems, two different conditions. All three answer SKIPPED and
+    CP10d passes, because the request never asked for them.
+    """
+    yaml_data = _yaml(sonar_available=False, ci_available=False, are_enabled=False)
+    edge = _WireValidatingBoundary(
+        payload=_wire_verdict(sonar="SKIPPED", jenkins="SKIPPED", are="SKIPPED")
+    )
+
+    result = _run_cp10d_sonarqube(_config(tmp_path, edge), tmp_path, yaml_data)
+
+    assert edge.requests[0].applicable_systems() == frozenset()
+    assert result.status == CheckpointStatus.SKIPPED
+    assert result.reason == "not_applicable"
 
 
 def test_cp10d_fails_closed_on_structured_system_failure(tmp_path: Path) -> None:

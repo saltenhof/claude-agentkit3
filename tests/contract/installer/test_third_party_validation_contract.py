@@ -130,23 +130,38 @@ class TestTheAggregateIsNotFreelyChosen:
                 )
             )
 
-        assert "if and only if" in str(caught.value)
+        assert "always makes the aggregate FAILED" in str(caught.value)
 
-    def test_failed_without_any_failed_system_is_rejected(self) -> None:
-        """The other direction: an aggregate FAILED nothing supports."""
-        with pytest.raises(ValidationError) as caught:
-            ThirdPartyValidationResponse.model_validate(
-                _verdict(
+    def test_failed_without_any_failed_system_is_accepted(self) -> None:
+        """The converse is NOT a rule, and enforcing it discarded a valid answer.
+
+        `installer.invariant.third_party_validation_fails_closed`
+        (`concept/formal-spec/installer/invariants.md:72`) names TWO independent
+        causes of a failed outcome: "an unreachable backend OR any applicable
+        unreachable or invalid third system". The decision record
+        `concept/_meta/decisions/2026-07-14-third-party-backend-mediation.md`
+        section 2 says the same: "Bei Backend- oder Dritt-System-Ausfall bricht
+        der Installer sichtbar fail-closed ab". The first cause has no per-system
+        FAILED to point at. Nothing anchors the converse, and rejecting this
+        verdict would throw away a backend-level failure the concept provides
+        for -- re-labelling it as a transport fault at `runner.py`.
+        """
+        accepted = ThirdPartyValidationResponse.model_validate(
+            {
+                **_verdict(
                     "FAILED",
                     [
                         _system("sonar", "PASS"),
                         _system("jenkins", "PASS"),
                         _system("are", "SKIPPED"),
                     ],
-                )
-            )
+                ),
+                "error_code": "backend_probe_environment_unavailable",
+            }
+        )
 
-        assert "if and only if" in str(caught.value)
+        assert accepted.status == "FAILED"
+        assert accepted.error_code == "backend_probe_environment_unavailable"
 
     @pytest.mark.parametrize("omitted", ["sonar", "jenkins", "are"])
     def test_a_verdict_that_omits_a_system_is_rejected(self, omitted: str) -> None:

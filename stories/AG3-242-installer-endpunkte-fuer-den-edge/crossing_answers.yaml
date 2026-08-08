@@ -58,15 +58,37 @@ measurement:
     import_statements: 230
     distinct_imported_symbols: 49
     repo_wide_unique_ordered_pairs: 289
+  answer_tally: >-
+    ACTIVE and HISTORICAL are separate figures and are never summed.
+    ACTIVE: 132 entries carrying 137 decisions -- a 14 / b 123 / c 0. The count
+    of decisions exceeds the count of entries because five pairs mix symbol
+    kinds and are answered per symbol (`symbol_answers`); a blanket answer would
+    be wrong in both directions there.
+    HISTORICAL: 5 entries, all `resolved: true`, all (c) -- crossings this story
+    already removed. They are NOT part of the live workload.
+    Round 3 correction: the earlier figure "a=18 / b=114 / c=5" summed to 137 by
+    mixing the two populations, and eight of the eighteen (a) answers were
+    wrong -- see `round_3_reclassification`.
+  round_3_reclassification: >-
+    Eight (a) answers named the imported symbol's owning BC instead of what the
+    symbol does. Four were local work on the developer machine or plain data
+    (`cp07_to_09 -> prompt_runtime.runtime`, `upgrade.footprint ->
+    prompt_runtime.resources`, `http_models -> skills`, `writer_client ->
+    skills`); four more mixed both kinds in one pair and are now cut per symbol
+    (`runner -> skills`, `upgrade._skills_surface -> skills`, `upgrade.engine ->
+    skills`, `writer_service -> skills`). Every remaining (a) was re-checked at
+    its caller and holds: it reaches canonical state in the state backend
+    (project rows, story/QA records, `skill_bindings`) or a remote third system.
   ac2_status: >-
     NOT met, and not reachable inside this story's mandate. 132 crossings remain,
-    and NONE of them is a missing operation. Counted by remedy owner:
-    75 AG3-209 (modules filed on the wrong side of the tree, or primitives the
-    edge must run locally and therefore copies), 36 AG3-237 (contract-package
-    vocabulary), 21 the endpoint stories of neighbouring bounded contexts
-    (13 AG3-243, 3 AG3-248, 2 AG3-247, 2 AG3-250, 1 AG3-240). The single largest
-    item is `installer.paths` with 21 core-to-edge crossings -- that one module
-    is why a core process cannot start without the installer package.
+    and NONE of them is a missing operation. Counted by remedy owner over the
+    137 active decisions: 75 AG3-209 (modules filed on the wrong side of the
+    tree, or primitives the edge must run locally and therefore copies),
+    41 AG3-237 (contract-package vocabulary), 21 the endpoint stories of
+    neighbouring bounded contexts (13 AG3-243, 3 AG3-248, 2 AG3-247, 2 AG3-250,
+    1 AG3-240). The single largest item is `installer.paths` with 21
+    core-to-edge crossings -- that one module is why a core process cannot start
+    without the installer package.
   card_deviation: >-
     The story card names 48 pairs (13 edge-to-core, 35 core-to-edge). Measured:
     137 (102 edge-to-core, 35 core-to-edge). The core-to-edge figure is exact;
@@ -104,34 +126,65 @@ contract_change:
   model: agentkit.backend.control_plane.third_party_models.ThirdPartyValidationResponse
   operation: POST /v1/projects/{project_key}/installation/third-party-validation
   defect: >-
-    The contract was fail-open in two ways at once. It accepted
-    `status="PASS"` next to a system whose own result was `FAILED`, and it
-    accepted a verdict that omitted a system entirely. The installer reads only
-    the aggregate (`runner.py` `_run_cp10d_sonarqube`), so either payload
-    produced `CheckpointStatus.PASS` for a precondition that had failed -- a
-    preflight reporting green while a system was down.
+    The contract was fail-open in three ways. It accepted `status="PASS"` next
+    to a system whose own result was `FAILED`; it accepted a verdict that
+    omitted a system entirely; and it accepted `SKIPPED` for a system the
+    REQUEST had declared applicable. The installer reads only the aggregate
+    (`runner.py` `_run_cp10d_sonarqube`), so every one of them produced a green
+    CP10d for a precondition that had failed or had never been probed.
   enforced_now: >-
     Exactly one result per system and all of `sonar`, `jenkins`, `are` present;
-    and the aggregate is FAILED if and only if at least one system is FAILED,
-    checked in both directions.
+    at least one FAILED system always forces the aggregate to FAILED; and no
+    system the request declared applicable may answer `SKIPPED`.
+  where_each_check_lives: >-
+    The first two are properties of the response alone and live in the response
+    model. The third cannot: applicability is stated in the REQUEST, which the
+    response model never sees. It lives in `silently_skipped_systems(request,
+    response)` next to both models, and is applied by
+    `runner.py:_run_cp10d_sonarqube` -- the single consumer, the only place
+    holding request and verdict at once, and the owner of the fail-closed
+    installer outcome. Not in `ProjectEdgeClient.validate_third_party`: that is
+    transport and owns no checkpoint verdict. The applicability rule itself has
+    exactly one home, `ThirdPartyValidationRequest.applicable_systems`, which the
+    producer `run_light_validation` also uses for its own skip decisions -- so
+    producer and check cannot drift apart. The three conditions are not the same
+    condition: Sonar and Jenkins on `available`, ARE on the `features.are` gate.
+  reverse_direction_removed: >-
+    Round 2 also enforced "aggregate FAILED implies some system FAILED". That
+    direction is REMOVED: nothing anchors it, and it rejected an answer the
+    concept provides for.
+    `installer.invariant.third_party_validation_fails_closed` names two
+    independent causes -- "an unreachable backend OR any applicable unreachable
+    or invalid third system" -- and the decision record
+    `concept/_meta/decisions/2026-07-14-third-party-backend-mediation.md`
+    section 2 repeats it: "Bei Backend- oder Dritt-System-Ausfall bricht der
+    Installer sichtbar fail-closed ab". A backend-level failure has no
+    per-system FAILED to point at. Fail-closed never required the converse; it
+    only forbids a green verdict over a failed system.
   no_decision_record_because: >-
-    No normative statement is created; two existing ones are enforced that the
-    code had never honoured. Both were read, not remembered:
+    No normative statement is created. Existing ones are enforced that the code
+    had never honoured, and one invented one is withdrawn. All were read, not
+    remembered:
     (1) `installer.invariant.third_party_validation_fails_closed`
     (`concept/formal-spec/installer/invariants.md:72-74`) -- "an unreachable
     backend or any applicable unreachable or invalid third system produces a
     visible failed checkpoint and nonzero installer outcome; no dev-side
     fallback, bypass, or silent skip is legal". A green aggregate over a failed
-    system is that bypass; an omitted system is that silent skip.
+    system is that bypass; an omitted system and an applicable system answering
+    `SKIPPED` are that silent skip. The word "applicable" in the invariant is
+    what makes the request the authority.
     (2) FK-91 section 91.1 (`91_api_event_katalog.md:118`) -- the response
     "traegt Gesamtentscheid sowie typisiertes Einzelresultat/`error_code` je
     System", which is the completeness half.
-    The producer `run_light_validation` already satisfied both; only the contract
-    failed to require it. No concept file is touched, therefore no record.
+    Withdrawing the unanchored reverse direction removes an enforcement, so it
+    creates no norm either. No concept file is touched, therefore no record.
   proven_by:
     - tests/contract/installer/test_third_party_validation_contract.py::TestTheAggregateIsNotFreelyChosen
     - tests/unit/installer/test_cp10d_wiring.py::test_cp10d_fails_closed_on_a_contradictory_backend_verdict
     - tests/unit/installer/test_cp10d_wiring.py::test_cp10d_fails_closed_on_a_verdict_that_omits_a_system
+    - tests/unit/installer/test_cp10d_wiring.py::test_cp10d_fails_closed_when_an_applicable_system_reports_skipped
+    - tests/unit/installer/test_cp10d_wiring.py::test_cp10d_accepts_skipped_verdicts_for_systems_the_request_excluded
+    - tests/contract/installer/test_third_party_validation_contract.py::TestTheAggregateIsNotFreelyChosen::test_failed_without_any_failed_system_is_accepted
 
 endpoints_that_already_exist:
   - operation: light third-party preflight (Sonar / CI / ARE)
@@ -498,11 +551,19 @@ crossings:
     imported: agentkit.backend.prompt_runtime.runtime
     direction: edge-to-core
     symbols: ["PromptRuntime", "build_prompt_bundle_lock_content"]
-    answer: a
+    answer: b
     remedy_owner: AG3-247
     reason: >-
-      `PromptRuntime` and the bundle lock content are core-owned prompt
-      runtime behaviour.
+      Corrected in round 3 -- this was answered (a) on the module's owning BC,
+      not on what the symbols do. `PromptRuntime.update_binding`
+      (`prompt_runtime/runtime.py:206`) resolves the bundle from the
+      installer-managed store on the LOCAL disk and rewrites the project-local
+      `.agentkit/config/prompt-bundle.lock.json`;
+      `build_prompt_bundle_lock_content` is a pure content builder. The core has
+      neither the project root nor that store on its disk, so no endpoint can
+      carry either. Edge work filed in the core tree -- and the direction is
+      already visible: `prompt_runtime/resources.py:21` imports FROM
+      `installer.paths`.
   - importer: agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09
     imported: agentkit.backend.skills.errors
     direction: edge-to-core
@@ -743,12 +804,16 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["SkillBindingMode", "SkillLifecycleStatus"]
-    answer: a
-    remedy_owner: AG3-243
+    answer: b
+    remedy_owner: AG3-237
     reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+      Corrected in round 3 -- the blanket skills-BC reason was applied to an
+      import that contains no operation at all. `http_models.py:10` imports two
+      ENUMS and uses them as field types in the installer's own wire models.
+      The story names enums as contract-package data owned by AG3-237
+      (`story.md:100` out of scope), and the sibling entry for `skills.errors`
+      answers exactly that way. The file already sources `HookDefinition` from
+      `agentkit_wire`; these two belong beside it.
   - importer: agentkit.backend.installer.installed_manifest
     imported: agentkit.backend.core_types.plane_artifact_names
     direction: edge-to-core
@@ -928,13 +993,16 @@ crossings:
   - importer: agentkit.backend.installer.runner
     imported: agentkit.backend.control_plane.third_party_models
     direction: edge-to-core
-    symbols: ["AreValidationConfig", "CiValidationConfig", "SonarValidationConfig", "ThirdPartyValidationRequest"]
+    symbols: ["AreValidationConfig", "CiValidationConfig", "SonarValidationConfig", "ThirdPartyValidationRequest", "silently_skipped_systems"]
     answer: b
     remedy_owner: AG3-237
     reason: >-
-      The seven third-party validation models are named out of scope by this
+      The third-party validation models are named out of scope by this
       story: they are the payload of the checkpoint operation, not the
-      operation. Contract package.
+      operation. Contract package. `silently_skipped_systems` travels with
+      them: it is a pure function of request and response and states the
+      applicability rule the two models already carry -- no call leaves the
+      machine.
   - importer: agentkit.backend.installer.runner
     imported: agentkit.backend.exceptions
     direction: edge-to-core
@@ -999,12 +1067,44 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["SkillBundle", "SkillBundleStore", "SkillProfile", "Skills", "assess_bundle_version"]
-    answer: a
-    remedy_owner: AG3-243
+    symbol_answers:
+      - symbols: ["SkillBundle", "SkillProfile"]
+        answer: b
+        remedy_owner: AG3-237
+        reason: >-
+          A bundle descriptor and a profile enum. Data, no operation --
+          contract-package vocabulary like every other model in this file.
+      - symbols: ["SkillBundleStore", "assess_bundle_version"]
+        answer: b
+        remedy_owner: AG3-243
+        reason: >-
+          Both run on the edge's own machine. `SkillBundleStore`
+          (`skills/bundle_store.py:320`) DISCOVERS bundles on the local
+          filesystem under a machine-local `store_root` -- the shipped bundles
+          inside the installed package, or the `AGENTKIT_SKILL_BUNDLE_STORE_ROOT`
+          override (`bundle_store.py:298`) -- and hands back local paths the
+          installer then links into the project. A path on the core's disk is
+          meaningless to the laptop. `assess_bundle_version`
+          (`skills/version_policy.py:35`) is a pure lookup in the constant
+          `MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS` table: no I/O, no state, and a
+          network round trip for it would be as wrong as one for `ensure_dir`.
+          The skills BC relocates them; no endpoint.
+      - symbols: ["Skills"]
+        answer: a
+        remedy_owner: AG3-243
+        reason: >-
+          The one real core operation in this pair. `Skills.bind_skill` /
+          `bind_skill_materialized` / `unbind_skill` (`skills/top.py:393`, `:575`,
+          `:681`) persist and delete the canonical `SkillBinding` row through
+          `SkillBindingRepository`. The harness links they create stay local by
+          nature, so the operation splits along that seam -- the endpoint carries
+          the binding-row lifecycle, the link work stays on the edge. This is
+          already the shape `installer.writer_client` / `writer_service` use.
     reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+      Corrected in round 3. A blanket answer is wrong in BOTH directions here:
+      the pair mixes local bundle discovery and local harness-link work with
+      data types and canonical binding persistence. The cut is per symbol, see
+      `symbol_answers`.
   - importer: agentkit.backend.installer.runner
     imported: agentkit.backend.skills.errors
     direction: edge-to-core
@@ -1214,12 +1314,23 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["SkillBundleStore", "Skills"]
-    answer: a
-    remedy_owner: AG3-243
-    reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+    symbol_answers:
+      - symbols: ["SkillBundleStore"]
+        answer: b
+        remedy_owner: AG3-243
+        reason: >-
+          Local filesystem discovery over a machine-local `store_root`
+          (`skills/bundle_store.py:320`, default `bundle_store.py:298`). The
+          same symbol, the same answer as in the `runner` pair.
+      - symbols: ["Skills"]
+        answer: a
+        remedy_owner: AG3-243
+        reason: >-
+          `build_skills_surface` (`upgrade/_skills_surface.py:41`) assembles the
+          surface whose only consumer is `footprint.py:282`
+          (`resolve_binding`) -- a read of the canonical `skill_bindings` row.
+          Canonical state access, and today the edge reaches it by constructing
+          a state-backend adapter itself.
   - importer: agentkit.backend.installer.upgrade._skills_surface
     imported: agentkit.backend.state_backend.store.skill_binding_repository
     direction: edge-to-core
@@ -1284,12 +1395,22 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["Skills", "assess_bundle_version"]
-    answer: a
-    remedy_owner: AG3-243
-    reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+    symbol_answers:
+      - symbols: ["assess_bundle_version"]
+        answer: b
+        remedy_owner: AG3-237
+        reason: >-
+          A pure comparison against the in-code constant
+          `MINIMUM_CONFORM_SKILL_BUNDLE_VERSIONS`
+          (`skills/version_policy.py:35`, table at `:14`). No I/O, no state --
+          policy data the edge evaluates locally. Contract package.
+      - symbols: ["Skills"]
+        answer: a
+        remedy_owner: AG3-243
+        reason: >-
+          `engine.py:287` calls `list_bound_skills`, a read of the canonical
+          `skill_bindings` rows, to find norm-violating pins (`up_02_guard_binding`).
+          Canonical state, therefore the operation.
   - importer: agentkit.backend.installer.upgrade.entry
     imported: agentkit.backend.exceptions
     direction: edge-to-core
@@ -1333,10 +1454,16 @@ crossings:
     imported: agentkit.backend.prompt_runtime.resources
     direction: edge-to-core
     symbols: ["resolve_project_prompt_binding"]
-    answer: a
+    answer: b
     remedy_owner: AG3-247
     reason: >-
-      Prompt binding resolution is a core judgement over core-owned bundles.
+      Corrected in round 3 -- "a core judgement" described the owning BC, not
+      the work. `resolve_project_prompt_binding(project_root)`
+      (`prompt_runtime/resources.py:105`) reads the PROJECT-LOCAL lock
+      `.agentkit/config/prompt-bundle.lock.json` (`resources.py:30`) and
+      resolves it against the local bundle store. Both files live on the
+      developer machine; the core cannot read either. Same class as
+      `config.loader:load_project_config` above, which is already answered (b).
   - importer: agentkit.backend.installer.upgrade.footprint
     imported: agentkit.backend.skills
     direction: edge-to-core
@@ -1449,12 +1576,15 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["SkillBinding"]
-    answer: a
-    remedy_owner: AG3-243
+    answer: b
+    remedy_owner: AG3-237
     reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+      Corrected in round 3 -- the blanket skills-BC reason hid that this import
+      is a DATA model, not an operation. `WriterSkillBindingRepository`
+      (`writer_client.py:254`) uses `SkillBinding` purely as the wire type it
+      serialises into `SkillBindingWriteRequest` and validates back out of the
+      HTTP response. The operation here is the writer route that already exists;
+      the class travelling over it is contract-package vocabulary.
   - importer: agentkit.backend.installer.writer_service
     imported: agentkit.backend.governance.hook_registration
     direction: edge-to-core
@@ -1490,12 +1620,21 @@ crossings:
     imported: agentkit.backend.skills
     direction: edge-to-core
     symbols: ["SkillBinding", "SkillBindingRepository"]
-    answer: a
-    remedy_owner: AG3-243
-    reason: >-
-      Skill bundle store, profile and version assessment are core-owned
-      behaviour over core-owned bundles; the installer consumes the public
-      surface of a foreign BC.
+    symbol_answers:
+      - symbols: ["SkillBinding"]
+        answer: b
+        remedy_owner: AG3-237
+        reason: >-
+          The data model the writer constructs from the request before saving
+          (`writer_service.py:150`). Vocabulary, same as in `writer_client`.
+      - symbols: ["SkillBindingRepository"]
+        answer: a
+        remedy_owner: AG3-243
+        reason: >-
+          The port through which the writer saves, loads and deletes the
+          canonical `skill_bindings` row (`writer_service.py:138-172`,
+          productively `StateBackendSkillBindingRepository`). No harness link is
+          created here -- this half is purely canonical state.
   - importer: agentkit.backend.process.language.definitions
     imported: agentkit.backend.installer.paths
     direction: core-to-edge

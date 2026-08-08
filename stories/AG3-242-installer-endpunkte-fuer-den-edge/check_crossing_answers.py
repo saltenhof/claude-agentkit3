@@ -10,8 +10,15 @@ neither a forgotten crossing nor an invented one can pass:
 * every entry of ``crossing_answers.yaml`` corresponds to a measured pair, or is
   marked ``resolved: true`` -- and that mark is verified, not trusted;
 * every entry carries exactly one answer out of ``a`` / ``b`` / ``c``, a
-  non-empty reason and a remedy owner;
+  non-empty reason and a remedy owner -- or, where one pair genuinely carries
+  two different answers, a ``symbol_answers`` split whose groups partition the
+  entry's symbols exactly (no symbol answered twice, none left unanswered);
 * the symbol list of an entry matches the measured symbols of its pair.
+
+A pair whose symbols mix local edge work with a real core operation must NOT be
+given a blanket answer: a uniform answer is wrong in both directions there. The
+``symbol_answers`` split exists for exactly that case and is the reason the
+tallies below are printed per DECISION as well as per entry.
 
 Usage::
 
@@ -69,6 +76,25 @@ def measure() -> dict[tuple[str, str], set[str]]:
     return measured
 
 
+def decisions(entry: dict[str, object]) -> list[dict[str, object]]:
+    """Return the answer decisions of an entry: the entry itself, or its split."""
+    split = entry.get("symbol_answers")
+    if split is None:
+        return [entry]
+    return [group for group in split if isinstance(group, dict)]
+
+
+def _check_decision(pair: str, decision: dict[str, object], problems: list[str]) -> None:
+    """Record the defects of one answer decision."""
+    answer = decision.get("answer")
+    if answer not in VALID_ANSWERS:
+        problems.append(f"{pair}: answer {answer!r} is not a/b/c")
+    if not str(decision.get("reason", "")).strip():
+        problems.append(f"{pair}: empty reason")
+    if not str(decision.get("remedy_owner", "")).strip():
+        problems.append(f"{pair}: no remedy owner")
+
+
 def index_answers(
     entries: list[dict[str, object]], problems: list[str]
 ) -> dict[tuple[str, str], dict[str, object]]:
@@ -76,16 +102,26 @@ def index_answers(
     answered: dict[tuple[str, str], dict[str, object]] = {}
     for entry in entries:
         key = (str(entry["importer"]), str(entry["imported"]))
+        pair = f"{key[0]} -> {key[1]}"
         if key in answered:
-            problems.append(f"answered twice: {key[0]} -> {key[1]}")
+            problems.append(f"answered twice: {pair}")
         answered[key] = entry
-        answer = entry.get("answer")
-        if answer not in VALID_ANSWERS:
-            problems.append(f"{key[0]} -> {key[1]}: answer {answer!r} is not a/b/c")
-        if not str(entry.get("reason", "")).strip():
-            problems.append(f"{key[0]} -> {key[1]}: empty reason")
-        if not str(entry.get("remedy_owner", "")).strip():
-            problems.append(f"{key[0]} -> {key[1]}: no remedy owner")
+        split = entry.get("symbol_answers")
+        if split is None:
+            _check_decision(pair, entry, problems)
+            continue
+        if entry.get("answer") is not None:
+            problems.append(f"{pair}: carries both `answer` and `symbol_answers`")
+        covered: list[str] = []
+        for group in decisions(entry):
+            _check_decision(pair, group, problems)
+            covered.extend(str(symbol) for symbol in group.get("symbols") or ())
+        declared = [str(symbol) for symbol in entry.get("symbols") or ()]
+        if sorted(covered) != sorted(declared):
+            problems.append(
+                f"{pair}: symbol_answers cover {sorted(covered)} != "
+                f"entry symbols {sorted(declared)}"
+            )
     return answered
 
 
@@ -98,12 +134,13 @@ def check_endpoint_claims(document: dict[str, object], problems: list[str]) -> N
     """
     built = document.get("endpoints") or []
     for entry in document["crossings"]:  # type: ignore[index]
-        if entry.get("answer") == "a" and entry.get("remedy_owner") == "AG3-242":
-            if not built:
-                problems.append(
-                    f"{entry['importer']} -> {entry['imported']}: answered (a) with "
-                    "remedy_owner AG3-242, but `endpoints` is empty"
-                )
+        for decision in decisions(entry):
+            if decision.get("answer") == "a" and decision.get("remedy_owner") == "AG3-242":
+                if not built:
+                    problems.append(
+                        f"{entry['importer']} -> {entry['imported']}: answered (a) with "
+                        "remedy_owner AG3-242, but `endpoints` is empty"
+                    )
 
 
 def main() -> int:
@@ -147,18 +184,35 @@ def main() -> int:
             f"!= answered {len(answered)}"
         )
 
-    print(f"measured pairs : {len(measured)}")
-    print(f"answered pairs : {len(answered)}")
-    counts = {code: 0 for code in sorted(VALID_ANSWERS)}
-    for entry in entries:
-        answer = str(entry.get("answer"))
-        if answer in counts:
-            counts[answer] += 1
-    print(f"answers        : {counts}")
+    # Active and historical are counted SEPARATELY and never summed into one
+    # figure. A `resolved: true` pair is a crossing this story already removed;
+    # adding it to the live tally states a workload that no longer exists.
+    active = {code: 0 for code in sorted(VALID_ANSWERS)}
+    historical = {code: 0 for code in sorted(VALID_ANSWERS)}
     owners: dict[str, int] = {}
+    active_entries = 0
+    historical_entries = 0
     for entry in entries:
-        owner = str(entry.get("remedy_owner", ""))
-        owners[owner] = owners.get(owner, 0) + 1
+        is_historical = entry.get("resolved") is True
+        if is_historical:
+            historical_entries += 1
+        else:
+            active_entries += 1
+        for decision in decisions(entry):
+            bucket = historical if is_historical else active
+            answer = str(decision.get("answer"))
+            if answer in bucket:
+                bucket[answer] += 1
+            owner = str(decision.get("remedy_owner", ""))
+            owners[owner] = owners.get(owner, 0) + 1
+
+    print(f"measured pairs : {len(measured)}")
+    print(f"entries        : {len(answered)} = {active_entries} active + {historical_entries} historical")
+    print(f"active answers     : {active}")
+    print(f"historical answers : {historical}")
+    print("(answers are counted per DECISION -- a `symbol_answers` entry")
+    print(" contributes one count per symbol group, so the answer totals may")
+    print(" exceed the entry count.)")
     print(f"remedy owners  : {dict(sorted(owners.items()))}")
 
     if problems:
