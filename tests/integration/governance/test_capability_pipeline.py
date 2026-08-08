@@ -317,7 +317,16 @@ def test_corrupt_freeze_export_blocks_not_raises(
     assert verdict.allowed is False
     assert verdict.guard_name == "principal_capability"
     assert verdict.detail is not None
-    assert verdict.detail.get("fault_class") == "FreezePersistenceError"
+    # AG3-239: the corrupt export is now read on the EDGE (it is a
+    # developer-machine file) and REPORTED to the core as ``unreadable``, so the
+    # block no longer derives from an escaping ``FreezePersistenceError``. The
+    # assertion moved to the equally specific -- and more directly stated --
+    # signal: the dual-materialization invariant disagreed, and the reason names
+    # the unreadable export. Same fail-closed outcome, named rather than
+    # inferred from an exception class.
+    assert verdict.detail.get("freeze_disagreement") is True
+    assert verdict.detail.get("capability_rule_id") == "FK-55-55.10.5"
+    assert "unreadable" in verdict.message
 
 
 def test_freeze_repository_backend_fault_blocks_not_raises(

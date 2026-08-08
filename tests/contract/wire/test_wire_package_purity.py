@@ -132,22 +132,37 @@ class TestMigratedSymbolsHaveExactlyOneHome:
             ("agentkit.backend.governance.hook_registration", "HookDefinition"),
             ("agentkit.backend.governance.hook_registration", "HookEventName"),
             ("agentkit.backend.config.models", "TelemetryConfig"),
+            ("agentkit.backend.config", "TelemetryConfig"),
             (
                 "agentkit.backend.control_plane.models",
                 "GuardCounterMutationRequest",
             ),
         ],
     )
-    def test_old_location_no_longer_defines_it(
+    def test_old_location_no_longer_resolves_it(
         self, old_module: str, symbol: str
     ) -> None:
+        """``hasattr``, not ``__all__`` -- the latter cannot see the violation.
+
+        A module that imports the migrated symbol still BINDS the public name,
+        so ``from <old_module> import <symbol>`` keeps working even when
+        ``__all__`` no longer lists it. Checking ``__all__`` therefore passes on
+        exactly the arrangement it is supposed to forbid; AG3-239 review round 1
+        found ``TelemetryConfig`` reachable at three paths under a green
+        ``__all__`` assertion. ``hasattr`` is what the promise "exactly one
+        import path" actually means.
+
+        A module that genuinely needs the type at runtime imports it under a
+        private alias (see ``config/models.py``), which binds no public name.
+        """
         import importlib
 
         module = importlib.import_module(old_module)
-        defined_here = getattr(module, "__all__", ())
-        assert symbol not in defined_here, (
-            f"{old_module} still exports {symbol}. The symbol moved to the wire "
-            "package; a second import path is a compatibility layer."
+        assert not hasattr(module, symbol), (
+            f"`from {old_module} import {symbol}` still resolves. The symbol "
+            "moved to the wire package; a second import path is a compatibility "
+            "layer. If the module needs the type at runtime, import it under a "
+            "leading-underscore alias."
         )
 
     @pytest.mark.parametrize(

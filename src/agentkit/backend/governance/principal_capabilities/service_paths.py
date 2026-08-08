@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 from agentkit.backend.governance.principal_capabilities.principals import Principal
 
 if TYPE_CHECKING:
-    from agentkit.backend.governance.guard_evaluation import HookEvent
+    from agentkit.backend.governance.principal_capabilities.adjudication_input import (
+        AdjudicationInput,
+    )
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,7 @@ OFFICIAL_SERVICE_PATHS: tuple[OfficialServicePath, ...] = (
 )
 
 
-def is_official_service_path(event: HookEvent, principal: Principal) -> bool:
+def is_official_service_path(event: AdjudicationInput, principal: Principal) -> bool:
     """Return whether ``event`` carries an attested FK-55 official service path.
 
     The path is read only from structural service attestation fields. Free Bash

@@ -18,10 +18,10 @@ from uuid import uuid4
 
 from agentkit.backend.governance import rest_edge
 from agentkit.backend.governance.capability_blocks import (
-    binding_invalid_block as _binding_invalid_block,
+    CAPABILITY_DENIED_REASON,
 )
 from agentkit.backend.governance.capability_blocks import (
-    capability_block as _capability_block,
+    binding_invalid_block as _binding_invalid_block,
 )
 from agentkit.backend.governance.capability_blocks import (
     capability_fault_block as _capability_fault_block,
@@ -39,6 +39,10 @@ if TYPE_CHECKING:
     from agentkit.backend.governance.protocols import GovernanceGuard
     from agentkit.backend.telemetry.emitters import EventEmitter
     from agentkit.harness_client.projectedge.governance_client import GovernanceEdgeClient
+    from agentkit_wire.governance_adjudication import (
+        CapabilityAdjudicationResponse,
+        LocalFreezeState,
+    )
 
 from agentkit.backend.governance.hook_event_inputs import (
     _AGENT_TOOL,
@@ -1434,74 +1438,129 @@ def _run_capability_enforcement(
     ``ai_augmented`` mode the harness may decide the interactive operation;
     story execution remains blocked directly by this layer.
     """
-    from agentkit.backend.governance.principal_capabilities import (
-        CapabilityEnforcement,
-        CapabilityMatrix,
-        ConflictFreezeOverlay,
-        EnforcementOutcome,
-        OperationClassifier,
-        PathClassifier,
-        PrincipalResolver,
-    )
-    from agentkit.backend.state_backend.store.freeze_repository import (
-        FreezeRepository,
-        LocalFreezeJsonExport,
+    from agentkit_wire.governance_adjudication import (
+        AdjudicationOutcome,
+        CapabilityAdjudicationRequest,
     )
 
-    enforcement = CapabilityEnforcement(
-        principal_resolver=PrincipalResolver(),
-        path_classifier=PathClassifier(),
-        op_classifier=OperationClassifier(),
-        matrix=CapabilityMatrix(),
-        freeze=ConflictFreezeOverlay(
-            FreezeRepository(project_root),
-            local_export=LocalFreezeJsonExport(project_root),
-        ),
-    )
     # FK-55 §55.10.3 step 2: derive execution_mode (and the story binding) from
     # the LOCAL lock/run exports — NOT from operation_args (AG3-032 ERROR C). The
     # ProjectEdgeResolver is the single local source of both the operating mode
     # and the story_scope_binding (same source as guard_evaluation).
     context = _resolve_capability_context(event, project_root=project_root)
-    story_id = context.story_id
-    scope_roots = context.scope_roots
+    request = CapabilityAdjudicationRequest(
+        op_id=str(uuid4()),
+        operation=str(event.operation),
+        operation_args=dict(event.operation_args),
+        principal_kind=str(event.principal_kind),
+        freshness_class=str(event.freshness_class),
+        cwd=event.cwd,
+        session_id=event.session_id,
+        parent_session_id=event.parent_session_id,
+        cli_args=list(event.cli_args) if event.cli_args is not None else None,
+        execution_mode=context.execution_mode,
+        story_id=context.story_id,
+        story_scope_roots=list(context.scope_roots or []),
+        binding_revocation_reason=context.binding_revocation_reason,
+        new_owner_ref=context.new_owner_ref,
+        # AG3-239: the LOCAL half of
+        # ``freeze_has_backend_record_and_local_export`` is a file only this
+        # machine can read. The edge reports it; the core compares it against
+        # the canonical record and fails closed on any disagreement.
+        local_freeze=_local_freeze_state(project_root, context.story_id),
+    )
     try:
-        result = enforcement.evaluate(
-            event,
-            project_root=project_root,
-            story_id=story_id,
-            story_scope_roots=scope_roots,
-            binding_revocation_reason=context.binding_revocation_reason, new_owner_ref=context.new_owner_ref,
+        result = rest_edge.governance_edge_client(project_root).adjudicate_capability(
+            request
         )
     except Exception as exc:  # noqa: BLE001
-        # AG3-032 ERROR 6 + ERROR D / FK-55 §55.10.5 / FK-31 §31.2.7 / FAIL-CLOSED:
-        # ANY capability-layer evaluation fault must FAIL-CLOSED as a deterministic
-        # BLOCK, never escape as a runtime fault. This is the capability-layer
-        # boundary: a typed ``PrincipalCapabilityError`` (e.g. a corrupt/stale dual
-        # freeze export, FreezePersistenceError) AND an untyped backend fault from
-        # the injected FreezeRepository (e.g. a disabled-SQLite / missing-Postgres-
-        # URL ``RuntimeError`` raised inside the freeze read) are both mapped here.
-        # The concrete fault class is recorded in ``detail`` for the audit trail.
+        # FAIL-CLOSED (FK-55 §55.10.5 / FK-31 §31.2.7 / AG3-032 ERROR 6+D): an
+        # adjudication that cannot be OBTAINED is not an adjudication that
+        # permits. An unreachable core, a transport error and a malformed answer
+        # all become the same deterministic BLOCK — never a fail-open pass.
         return _capability_fault_block(exc)
-    if result.outcome is EnforcementOutcome.DENY:
-        return _capability_block(result.verdict)
-    if result.outcome is EnforcementOutcome.UNCLASSIFIED_MUTATION:
-        # ALL modes: an unclassified MUTATION target is a fail-closed BLOCK
-        # (FK-55 §55.10.2). normal mode is NOT a fail-open escape (ERROR 2).
-        return _capability_block(result.verdict)
-    if result.outcome is EnforcementOutcome.UNKNOWN_PERMISSION:
-        return _resolve_mode_scoped_block(context, result.verdict)
-    if result.outcome is EnforcementOutcome.UNRESOLVED:
-        # A non-mutating unclassifiable / target-less event resolves by the SAME
-        # three mode buckets (FK-55 §55.10.2 / §55.6.1 mode-specific): a binding-
-        # invalid edge must fail-closed here too — it must not defer to the harness.
-        return _resolve_mode_scoped_block(context, result.verdict)
-    return None
+
+    if result.outcome is AdjudicationOutcome.PERMIT:
+        return None
+    if result.outcome is AdjudicationOutcome.FAULT:
+        return _capability_fault_block(RuntimeError(result.detail or result.message))
+    if result.outcome in {
+        AdjudicationOutcome.DENY,
+        AdjudicationOutcome.UNCLASSIFIED_MUTATION,
+    }:
+        # ALL modes: a hard denial and an unclassified MUTATION target are
+        # fail-closed BLOCKs (FK-55 §55.10.2). normal mode is NOT a fail-open
+        # escape (AG3-032 ERROR 2).
+        return _remote_capability_block(result)
+    # UNKNOWN_PERMISSION and UNRESOLVED resolve by the SAME three mode buckets
+    # (FK-55 §55.10.2 / §55.6.1): a binding-invalid edge fails closed here too
+    # and must not defer to the harness.
+    return _resolve_mode_scoped_block(context, _remote_capability_block(result))
+
+
+def _local_freeze_state(project_root: Path, story_id: str | None) -> LocalFreezeState:
+    """Read what THIS machine's local freeze export says (AG3-239).
+
+    Stays on the edge on purpose: the export is a developer-machine file, and
+    the invariant ``freeze_has_backend_record_and_local_export`` needs both
+    halves compared. Reported, never judged here -- the core owns the verdict.
+
+    An unreadable export is reported as ``unreadable`` rather than as absent, so
+    a corrupt file can never read as "no freeze".
+    """
+    from agentkit.backend.state_backend.store.freeze_repository import (
+        LocalFreezeJsonExport,
+    )
+    from agentkit_wire.governance_adjudication import LocalFreezeState
+
+    if story_id is None:
+        return LocalFreezeState()
+    try:
+        payload = LocalFreezeJsonExport(project_root).read()
+    except Exception:  # noqa: BLE001 -- a broken export is a reportable state
+        return LocalFreezeState(present=True, unreadable=True)
+    if payload is None:
+        return LocalFreezeState(present=False)
+    version = payload.get("freeze_version")
+    exported_story = payload.get("story_id")
+    return LocalFreezeState(
+        present=True,
+        story_id=str(exported_story) if isinstance(exported_story, str) else None,
+        freeze_version=version if isinstance(version, int) else None,
+    )
+
+
+def _remote_capability_block(result: CapabilityAdjudicationResponse) -> HookDecision:
+    """Turn a blocking adjudication answer into the hook's guard verdict.
+
+    An unrecognised violation value must never turn a BLOCK into a crash (that
+    would be a fail-OPEN in disguise, because an escaping exception in the hook
+    is not a decision). It degrades to the generic unauthorized-operation
+    category and keeps the raw value in the detail for the audit trail.
+    """
+    violation = ViolationType.UNAUTHORIZED_OPERATION
+    if result.violation_type:
+        try:
+            violation = ViolationType(result.violation_type)
+        except ValueError:
+            violation = ViolationType.UNAUTHORIZED_OPERATION
+    return GuardVerdict.block(
+        result.guard_name or "principal_capability",
+        violation,
+        result.message or CAPABILITY_DENIED_REASON,
+        detail={
+            # The rule the CORE decided by, not a placeholder for "some rule".
+            "capability_rule_id": result.rule_id,
+            "adjudication_outcome": result.outcome.value,
+            "reported_violation_type": result.violation_type,
+            "freeze_disagreement": result.freeze_disagreement,
+        },
+    )
 
 
 def _resolve_mode_scoped_block(
     context: _CapabilityContext,
-    verdict: object,
+    block: HookDecision,
 ) -> HookDecision | None:
     """Resolve an UNKNOWN_PERMISSION / UNRESOLVED outcome by execution-mode bucket.
 
@@ -1514,9 +1573,18 @@ def _resolve_mode_scoped_block(
       inconsistent and remains a named fail-closed block.
     - genuine ``ai_augmented`` (no lock/session at all): defer (return ``None``).
       This is the deliberate effect of interpretation A.
+
+    Args:
+        context: The locally-derived capability context.
+        block: The ALREADY BUILT blocking verdict. AG3-239: this used to take a
+            raw capability result and re-wrap it through ``_capability_block``.
+            Handing that a finished ``GuardVerdict`` would silently drop its
+            message -- ``_capability_block`` reads ``.reason``, which a verdict
+            does not carry -- and the operator would see the generic default
+            instead of the core's reason.
     """
     if context.is_story_execution:
-        return _capability_block(verdict)
+        return block
     if context.is_binding_invalid:
         return _binding_invalid_block(context.block_reason)
     return None

@@ -648,8 +648,12 @@ Sekunden warten muss, wird unbrauchbar langsam.
 ## 30.5 Hook-Kategorien
 
 > **Owner-Hinweis:** FK-30 (governance.guard_system) ist Owner fuer: Hook-Definitionen,
-> Registrierung (`InstallerHookGovernance.register_hooks`), Enforcement-Verhalten (Block/Warn/Pass)
-> und harness-spezifische Settings-Schemas (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe FK-76 §76.5). Die Zuordnung von Hooks zu Telemetrie-Events
+> Registrierung (`InstallerHookGovernance.register_hooks`) und Enforcement-Verhalten
+> (Block/Warn/Pass). Die harness-spezifischen **Settings-Schemas** gehoeren
+> **nicht** FK-30: alleiniger normativer Owner der Dateiformate
+> (`.claude/settings.json`, `.codex/hooks.json`) ist **FK-76 §76.5**. FK-30
+> liefert die harness-neutralen Hook-INHALTE (Matcher + Command je Guard, §30.3.1),
+> FK-76 die Materialisierung. Die Zuordnung von Hooks zu Telemetrie-Events
 > (EventTypeId-Mapping, Hook-Pfad-zu-Event-Tabelle) ist Verantwortung von
 > FK-68 §68.3.1 (telemetry-and-events). Aenderungen an Event-Emission-Semantik
 > werden in FK-68 autorisiert; Aenderungen an Enforcement-Entscheidungen werden

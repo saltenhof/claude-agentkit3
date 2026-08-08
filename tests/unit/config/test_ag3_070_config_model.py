@@ -30,7 +30,6 @@ from agentkit.backend.config import (
     PolicyConfig,
     ProjectConfig,
     SonarQubeConfig,
-    TelemetryConfig,
     VectorDbConfig,
 )
 from agentkit.backend.config.loader import load_project_config
@@ -41,6 +40,7 @@ from agentkit.backend.config.models import (
     StageOverrideConfig,
 )
 from agentkit.backend.exceptions import ConfigError
+from agentkit_wire.project_config import TelemetryConfig
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -51,7 +51,9 @@ from agentkit.backend.governance.principal_capabilities.service_paths import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from agentkit.backend.governance.guard_evaluation import HookEvent
+    from agentkit.backend.governance.principal_capabilities.adjudication_input import (
+        AdjudicationInput,
+    )
     from agentkit.backend.governance.principal_capabilities.freeze import ConflictFreezeOverlay
     from agentkit.backend.governance.principal_capabilities.matrix import CapabilityMatrix
     from agentkit.backend.governance.principal_capabilities.operations import (
@@ -235,7 +237,7 @@ class CapabilityEnforcement:
 
     def evaluate(
         self,
-        event: HookEvent,
+        event: AdjudicationInput,
         *,
         project_root: Path | None = None,
         story_id: str | None = None,
@@ -368,7 +370,7 @@ class CapabilityEnforcement:
 
     def _resolve_targets(
         self,
-        event: HookEvent,
+        event: AdjudicationInput,
         principal: Principal,
         op_class: OperationClass,
         story_id: str | None,
@@ -506,7 +508,7 @@ class CapabilityEnforcement:
 
     def _classify_targets(
         self,
-        event: HookEvent,
+        event: AdjudicationInput,
         project_root: Path,
         story_id: str | None,
         story_scope_roots: Sequence[str] | None,
@@ -537,7 +539,7 @@ class CapabilityEnforcement:
         ]
 
 
-def _candidate_paths(event: HookEvent) -> list[str]:
+def _candidate_paths(event: AdjudicationInput) -> list[str]:
     """Extract cheap candidate target paths from the event args.
 
     Inspects the well-known structured keys (``file_path``, ``path``,
@@ -561,7 +563,7 @@ def _candidate_paths(event: HookEvent) -> list[str]:
 
 
 def _service_path_override_allowed(
-    event: HookEvent,
+    event: AdjudicationInput,
     principal: Principal,
     op_class: OperationClass,
     path_class: PathClass,

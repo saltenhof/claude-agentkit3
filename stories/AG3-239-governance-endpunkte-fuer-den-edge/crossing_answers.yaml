@@ -25,11 +25,11 @@ measurement:
     stories/AG3-239-governance-endpunkte-fuer-den-edge/measure_boundary_violations.py
     --bc agentkit.backend.governance
   measured_on: "2026-08-07"
-  unique_ordered_pairs: 53
+  unique_ordered_pairs: 50
   edge_to_core: 45
-  core_to_edge: 8
-  import_statements: 115
-  distinct_imported_symbols: 51
+  core_to_edge: 5
+  import_statements: 104
+  distinct_imported_symbols: 47
   start_value:
     unique_ordered_pairs: 64
     edge_to_core: 54
@@ -37,6 +37,27 @@ measurement:
     note: >-
       Ausgangsmessung vor jeder Aenderung, mit demselben Kommando gerechnet.
   progress:
+    - step: "M3 -- Capability-Adjudication als /v1-Operation"
+      removed: 3
+      added: 0
+      net: 50
+      note: >-
+        `POST /v1/governance/capability-adjudications` gebaut: Route, Kern-Service,
+        Wire-Vertrag, duenner Edge-Client. Ersetzt die In-Prozess-Verdrahtung in
+        `runner._run_capability_enforcement`. AC 3: FK-55 §55.10.3 Schritte 1-5
+        sind EIN Vorgang, nicht fuenf Repository-Spiegel.
+        Direkt entfallen sind die drei Rueckkanten
+        `principal_capabilities.{enforcement,principals,service_paths} ->
+        guard_evaluation` -- geloest durch einen strukturellen Eingangs-Port
+        (`principal_capabilities/adjudication_input.py`) statt durch einen
+        Typumzug: `HookEvent` kann nicht ins Vertragspaket (Huelle offen,
+        `Path.cwd()`), aber ein Port braucht keinen Umzug. Vorbild im Repo:
+        `operating_mode_resolver.CarriesOperatingMode`.
+        Zwei weitere Paare sind dadurch SUBSTANZIELL geschrumpft, ohne zu
+        verschwinden: `runner -> principal_capabilities` traegt statt sieben nur
+        noch die drei reinen Klassifizierer, und `runner -> freeze_repository`
+        statt zwei nur noch `LocalFreezeJsonExport` -- `FreezeRepository` liegt
+        jetzt hinter dem Endpunkt. Genau diese Trennung verlangte Review Runde 1.
     - step: "M1 -- Vertragspaket src/agentkit_wire angelegt"
       removed: 6
       added: 0
@@ -65,10 +86,17 @@ measurement:
         `installer.writer_client.InstallerHookGovernance`. Damit entfallen
         `administration -> settings_writer` (Kern schreibt auf den Laptop) und
         `installer.writer_client -> administration`. Nebenwirkung ohne eigene
-        Ueberquerung, aber derselbe Defekt: vier von vier Konstruktionsstellen
-        lieferten eine Attrappe fuer die nicht benutzte Haelfte -- drei davon ein
-        direkt an die DB gebundenes `StateBackendHookRegistrationRepository` im
-        edge-klassifizierten Composition-Root. Alle vier Attrappen sind weg.
+        Ueberquerung, aber derselbe Defekt: FUENF von fuenf Konstruktionsstellen
+        lieferten eine Attrappe fuer die nicht benutzte Haelfte, und zwar in
+        BEIDE Richtungen. Vier lieferten den ungenutzten HOOK-Teil
+        (`composition_closure.py:446`, `composition_project.py:39,174,353` -- ein
+        direkt an die DB gebundenes `StateBackendHookRegistrationRepository`, das
+        nie gerufen wurde; drei davon im edge-klassifizierten Composition-Root).
+        Die fuenfte, `installer/writer_client.py:438`, lieferte den ungenutzten
+        LOCK-Teil: ein fail-closed `_UnavailableInstallerLockRepository`, das
+        beim Anfassen wirft. Alle fuenf Attrappen sind weg. (Review Runde 1
+        korrigierte hier "vier von vier" -- die Installer-Stelle fehlte, und sie
+        ist die aussagekraeftigste, weil sie in die andere Richtung faelscht.)
     - step: "M2 -- Symbolschnitt governance.runner"
       removed: 6
       added: 3
@@ -93,32 +121,34 @@ measurement:
     repository and is discarded.
 
 # ---------------------------------------------------------------------------
-# Befunde, die diese Story SICHTBAR gemacht, aber NICHT angefasst hat.
-# Sie sind keine Ueberquerungen und stehen deshalb ausserhalb der Liste unten.
+# Widerlegte Befunde. Sie stehen hier, WEIL sie einmal behauptet waren --
+# kommentarlos entfernen hiesse, die Pruefung unsichtbar zu machen.
 # ---------------------------------------------------------------------------
-open_findings:
-  - id: AG3-239.finding.lock_deactivation_is_not_project_scoped
-    severity: offen -- Modellfrage, nicht entschieden
-    locators:
-      - src/agentkit/backend/state_backend/store/lock_record_repository.py:114
-      - src/agentkit/backend/state_backend/store/lock_record_repository.py:166
-    finding: >-
-      `LockRecordRepository.deactivate_locks_for_story(story_id)` nimmt KEINEN
+refuted_findings:
+  - id: AG3-239.refuted.lock_deactivation_is_not_project_scoped
+    raised_in: Review Runde 1 (vom Koordinator eingebracht)
+    claim: >-
+      `LockRecordRepository.deactivate_locks_for_story(story_id)` nimmt keinen
       `project_key`, obwohl der Primaerschluessel der Tabelle
-      `(project_key, story_id, run_id, lock_type)` ist. Fuehren in einer
-      Mehrprojekt-Installation zwei Projekte dieselbe Story-ID, deaktiviert ein
-      Aufruf die Locks BEIDER.
-    not_caused_here: >-
-      Vorbestehend. Der Code vor AG3-239 rief dieselbe Signatur; der Symbolschnitt
-      hat den Befund nur sichtbar gemacht, weil er `project_key` als toten
-      Parameter der Composition-Builder freilegte (Sonar python:S1172, 3x MAJOR).
-    why_untouched: >-
-      Ob Story-IDs projektuebergreifend eindeutig sind, ist eine Modellfrage. Die
-      Antwort entscheidet, ob das ein Defekt oder ein Nicht-Problem ist -- und
-      eine normative Grundentscheidung wird nicht durch einen Parameter-Default
-      ersetzt. Hier unveraendert sichtbar gelassen und gemeldet, nicht mitigiert
-      (CLAUDE.md, "Wer fremde Schuld mitigiert, uebernimmt sie").
-    addressee: PO -- Entscheid ueber die Eindeutigkeit von Story-IDs
+      `(project_key, story_id, run_id, lock_type)` ist; in einer
+      Mehrprojekt-Installation koennten zwei Projekte dieselbe Story-ID fuehren
+      und ein Aufruf die Locks beider deaktivieren.
+    verdict: widerlegt
+    refutation: >-
+      Die Vorbedingung trifft nicht zu: Story-IDs sind global eindeutig, nicht
+      nur projektweit. FK-18 §250 fuehrt `story_display_id` als **global
+      UNIQUE**; FK-73 §88 macht die Projektpraefixe eindeutig, aus denen die
+      Anzeige-ID gebildet wird; `postgres_schema.sql:21` setzt beides um. Zwei
+      Projekte KOENNEN dieselbe Story-ID also nicht fuehren.
+      Der zusammengesetzte Lock-Primaerschluessel beweist die Behauptung nicht:
+      er existiert, um mehrere Lock-Typen und Runs pro Story zu unterscheiden,
+      nicht um Stories zwischen Projekten zu trennen. Aus "der PK hat vier
+      Spalten" folgt nicht, dass jede Aggregat-Operation alle vier nehmen muss --
+      `deactivate_locks_for_story` operiert bewusst ueber ALLE Runs und
+      Lock-Typen einer Story.
+    consequence: >-
+      Kein Handlungsbedarf, kein Adressat, keine Folgestory. Der Eintrag bleibt
+      als Widerlegung stehen, damit die Frage nicht ein zweites Mal gestellt wird.
 
 crossings:
 
@@ -224,18 +254,34 @@ crossings:
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.guard_system.records
     symbols: [GuardDecision, GuardDecisionOutcome]
-    answer: b
-    remedy_owner: AG3-239
-    group: G2
+    answer: a
+    remedy_owner: AG3-245
+    group: G4
+    endpoint: POST /v1/governance/guard-decisions (noch nicht gebaut)
     reason: >-
-      Decision record of the guard dispatch. Moves with `guard_system`. The
-      frozen classification defers `GuardDecisionOutcome` from the contract
-      package ("not proven as /v1 vocabulary"); that deferral is consistent with
-      this answer -- the symbol is not /v1 vocabulary, it is edge-internal.
-
+      **Korrigiert in Review Runde 1: die vorherige Antwort (b) "edge-internal"
+      war sachlich falsch.** `GuardDecision` ist kein Edge-Interna, sondern ein
+      **kanonischer, append-only Audit-Record** (FK-18 §173,
+      `state_backend/store/guard_decision_repository.py:74`). Er wird von zehn
+      Kern-Modulen gelesen (control_plane.runtime, state_backend, story_exit,
+      principal_capabilities.freeze) -- ein Umzug auf den Edge haette die
+      Verletzungszahl erhoeht statt gesenkt, was die What-if-Messung dieser
+      Story auch gezeigt hat (64 -> 98).
+      Richtig ist die Arbeitsteilung: der Edge ERZEUGT die Entscheidung im
+      Hook-Prozess, aber das kanonische Anhaengen gehoert dem Kern und braucht
+      `/v1`-Mediation. Das ist ein eigener fachlicher Vorgang (Audit-Append),
+      nicht Teil der Adjudikation -- AC 3 verbietet, ihn in den
+      Adjudikations-Endpunkt hineinzuziehen.
+    related_finding: >-
+      Beim Nachpruefen sichtbar geworden: produktiv wird derzeit **gar kein**
+      Decision-Repository injiziert (`guard_evaluation.py:114`) -- der
+      Audit-Record entsteht im Hook, wird aber nirgends kanonisch angehaengt.
+      Der Endpunkt hat damit nicht nur eine Grenzverletzung zu loesen, sondern
+      eine fehlende Persistenz. Owner beider: AG3-245.
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.capability_blocks
-    symbols: [binding_invalid_block, capability_block, capability_fault_block]
+    symbols:
+      [CAPABILITY_DENIED_REASON, binding_invalid_block, capability_fault_block]
     answer: b
     remedy_owner: AG3-239
     group: G2
@@ -312,72 +358,45 @@ crossings:
   # -------------------------------------------------------------------
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.principal_capabilities
-    symbols:
-      [CapabilityEnforcement, CapabilityMatrix, ConflictFreezeOverlay,
-       EnforcementOutcome, OperationClassifier, PathClassifier,
-       PrincipalResolver]
-    answer: a
+    symbols: [OperationClassifier, PathClassifier, PrincipalResolver]
+    answer: b
     remedy_owner: AG3-239
-    group: G4
-    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
-    replaces_call_sites:
-      - governance/runner.py:1748 (_run_capability_enforcement)
-      - governance/runner.py:1678 (_run_self_protection_guard)
-      - governance/runner.py:1703 (_run_story_creation_guard)
+    group: G2
     reason: >-
-      Capability adjudication belongs to the core (FK-01 section 1.1a, story.md
-      "Der fachliche Kern"). AC 3: this is ONE business transaction -- resolve
-      principal, classify path and operation, consult matrix and freeze overlay,
-      return an outcome -- not seven repository mirrors. The three call sites
-      above wire the same components three times and become one operation.
-
+      Nach dem Endpunkt bleiben hier NUR noch die drei reinen Klassifizierer.
+      Die eigentliche Adjudikation (`CapabilityEnforcement`, `CapabilityMatrix`,
+      `ConflictFreezeOverlay`, `EnforcementOutcome`) ist ueber
+      `POST /v1/governance/capability-adjudications` gegangen und steht nicht
+      mehr im Hook-Prozess.
+      Die drei Verbliebenen sind keine Adjudikation, sondern Klassifikation:
+      sie bilden Strings auf Prinzipal-, Pfad- und Operationsklassen ab, ohne
+      Zustand und ohne I/O. Sie werden ausschliesslich von
+      `SelfProtectionGuard` und `StoryCreationGuard` gebraucht -- zwei Guards,
+      die im Hook-Prozess entscheiden und nach G2 auf den Edge wandern. Die
+      Klassifizierer wandern als ihre Eingabelogik mit. Ein Netzaufruf pro
+      Tool-Use nur, um einen Werkzeugnamen zu klassifizieren, waere genau der
+      Latenzpfad, den `story.md` ausschliesst.
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.state_backend.store.freeze_repository
-    symbols: [FreezeRepository, LocalFreezeJsonExport]
-    answer: a
+    symbols: [LocalFreezeJsonExport]
+    answer: b
     remedy_owner: AG3-239
-    group: G4
-    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
-    replaces_call_sites:
-      - governance/runner.py:1757 (_run_capability_enforcement)
+    group: G2
     reason: >-
-      The freeze overlay is an input of the adjudication, not a separate query.
-      AC 3 forbids giving it its own endpoint. This is also the concrete safety
-      defect of the current arrangement: `FreezeRepository(project_root)` opens
-      a database from inside the short-lived hook process, which AG3-209 AC 3
-      forbids outright.
-
-  - importer: agentkit.backend.governance.principal_capabilities.enforcement
-    imported: agentkit.backend.governance.guard_evaluation
-    symbols: [HookEvent]
-    answer: a
-    remedy_owner: AG3-239
-    group: G4
-    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
-    reason: >-
-      Reverse edge of the adjudication crossing: the core adjudicator consumes
-      the edge event type directly. With the endpoint it consumes the request
-      model of the operation instead, and the edge event never leaves the
-      laptop.
-
-  - importer: agentkit.backend.governance.principal_capabilities.principals
-    imported: agentkit.backend.governance.guard_evaluation
-    symbols: [HookEvent]
-    answer: a
-    remedy_owner: AG3-239
-    group: G4
-    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
-    reason: See principal_capabilities.enforcement -- same request model.
-
-  - importer: agentkit.backend.governance.principal_capabilities.service_paths
-    imported: agentkit.backend.governance.guard_evaluation
-    symbols: [HookEvent]
-    answer: a
-    remedy_owner: AG3-239
-    group: G4
-    endpoint: POST /v1/projects/{project_key}/governance/capability-adjudications
-    reason: See principal_capabilities.enforcement -- same request model.
-
+      **Die beiden Symbole tragen bewusst UNTERSCHIEDLICHE Antworten** (Review
+      Runde 1: sie duerfen nicht dieselbe tragen). `FreezeRepository` ist
+      kanonischer Zustand und liegt seit AG3-239 hinter
+      `POST /v1/governance/capability-adjudications` -- es steht nicht mehr in
+      diesem Paar. `LocalFreezeJsonExport` bleibt auf dem Edge: Die Invariante
+      `principal-capabilities.invariant.freeze_has_backend_record_and_local_export`
+      verlangt BEIDES -- kanonischen Backend-Record UND lokalen, hook-lesbaren
+      Export in gleicher Version. Der Export ist eine Datei auf dem
+      Entwicklerrechner; nur der Edge kann sie lesen. Der Edge meldet ihren
+      Inhalt im Request, der Kern vergleicht und faellt fail-closed.
+      Offen bleibt allein der ORT des Symbols: es liegt noch im kern-
+      klassifizierten Modul `state_backend.store.freeze_repository`. Der
+      Symbolschnitt dieses Moduls (Export -> Edge, Repository -> Kern) ist die
+      Restarbeit dieses Paares.
   - importer: agentkit.backend.governance.setup_preflight_gate.phase
     imported: agentkit.backend.installer.paths
     symbols: [story_dir]

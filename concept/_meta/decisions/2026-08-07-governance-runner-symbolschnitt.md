@@ -56,8 +56,8 @@ Die Zahl allein wuerde nur „viele Kanten" zeigen. Der Beweis, dass die
 **Modulzuordnung** falsch war und nicht bloss die Kantenzahl hoch, liegt an den
 Konstruktionsstellen:
 
-> **Alle vier Konstruktionsstellen lieferten eine Attrappe fuer die Haelfte, die
-> sie nicht brauchten.**
+> **Alle FUENF Konstruktionsstellen lieferten eine Attrappe fuer die Haelfte, die
+> sie nicht brauchten -- und zwar in beide Richtungen.**
 
 - Der Installer (`installer.writer_client.InstallerHookGovernance`) baute ein
   fail-closed `_UnavailableInstallerLockRepository`, das bei Benutzung wirft —
@@ -68,7 +68,8 @@ Konstruktionsstellen:
   Composition-Root.
 
 Eine Klasse, deren saemtliche Aufrufer die Haelfte ihrer Abhaengigkeiten faelschen
-muessen, ist nicht eine Klasse.
+muessen -- die einen den Hook-Teil, die anderen den Lock-Teil --, ist nicht eine
+Klasse.
 
 ## 3. Entscheidung
 
@@ -203,6 +204,65 @@ einen `object`-Parameter. Diese Form macht aus einer Umbenennung stillschweigend
 „nicht deaktiviert". Der Port ist jetzt typisiert (`_DeactivationOutcome`), der
 Zugriff direkt.
 
+## 6c. Nachtrag Review-Runde 2 — die Adjudikation ist jetzt eine `/v1`-Operation
+
+**`POST /v1/governance/capability-adjudications`** (FK-91 §91.1). Der
+Hook-Prozess konstruiert die Capability-Komponenten nicht mehr selbst; er stellt
+dem Kern **eine** Frage, und der Kern besitzt die Antwort (FK-01 §1.1a). FK-55
+§55.10.3 Schritte 1–5 sind ein Vorgang, nicht fuenf Repository-Spiegel.
+
+**Der Freeze-Schnitt ist der interessante Teil.** Die Invariante
+`freeze_has_backend_record_and_local_export` verlangt **beides** — kanonischen
+Record und lokalen, hook-lesbaren Export in gleicher Version. Die beiden liegen
+auf zwei Maschinen, also tragen `FreezeRepository` und `LocalFreezeJsonExport`
+**unterschiedliche** Antworten: das Repository wandert hinter den Endpunkt, der
+Export bleibt auf dem Edge. Der Edge meldet, was sein Export sagt; der Kern
+vergleicht und faellt fail-closed bei jeder Abweichung. Die umgekehrte
+Aufteilung haette entweder eine Datenbank in den Hook-Prozess gelegt oder die
+Invariante unpruefbar gemacht.
+
+**Die Rueckkanten sind mit einem Port geloest, nicht mit einem Typumzug.** Drei
+Kern-Module lasen ihre Eingabe, indem sie `HookEvent` aus dem Edge-Modul
+`guard_evaluation` importierten. `HookEvent` kann nicht ins Vertragspaket — seine
+Huelle schliesst nicht (`Path.cwd()` in den Validatoren), und die Klassifikation
+stellt es mit `ag3_209_precondition` zurueck. Ein **struktureller Port**
+(`principal_capabilities/adjudication_input.py`) braucht keinen Umzug: der Kern
+benennt die sieben Felder, die er liest, und sowohl das Edge-`HookEvent` als auch
+die Wire-Request erfuellen ihn ohne Import. Vorbild im Bestand:
+`operating_mode_resolver.CarriesOperatingMode`. mypy prueft die Passung an der
+Aufrufstelle — es hat beim Bau vier fehlende Felder gemeldet.
+
+**Korrigiert:** `GuardDecision` war als „(b) edge-internal" eingestuft. Das war
+falsch. Es ist ein kanonischer, append-only Audit-Record (FK-18 §173), den zehn
+Kern-Module lesen; die What-if-Messung dieser Story zeigte, dass ein Umzug auf
+den Edge die Verletzungszahl von 64 auf 98 getrieben haette. Richtig ist: der
+Edge **erzeugt** die Entscheidung, das kanonische Anhaengen braucht
+`/v1`-Mediation. Dabei sichtbar geworden: produktiv wird derzeit **gar kein**
+Decision-Repository injiziert (`guard_evaluation.py:114`) — der Audit-Record
+entsteht und verschwindet. Owner beider: AG3-245.
+
+## 6d. Nachtrag — der Interpreter-Guard pinnt wieder einen Ort
+
+Der Guard war von (Pfad, Zeile, Literal) auf (Pfad, Literal, **Anzahl**)
+umgebaut worden. Das schwaechte ihn: ein erlaubtes Vorkommen entfernen und
+dasselbe Literal an **anderer Stelle derselben Datei** einfuegen laesst die
+Gesamtzahl unveraendert und blieb damit unsichtbar.
+
+Der Locator traegt jetzt zusaetzlich den **qualifizierten Namen** der
+umschliessenden Funktion beziehungsweise Klasse, mit Anzahl je Scope
+(`_SelectorLiteralException.scopes`). Das ueberlebt Zeilenverschiebungen — anders
+als der alte Zeilenanker — und faengt die Verlagerung.
+
+**Revert-Red-Beweis, gefuehrt:** Ein erlaubtes `'python'` wurde innerhalb
+derselben Datei aus `StoryService.get_story` in `_story_run_view` verschoben, in
+identischer Aufrufargument-Rolle, Gesamtzahl unveraendert 1.
+
+- Anzahl-Pruefung: **nicht** gefeuert (wie erwartet — sie ist blind dafuer)
+- Scope-Pruefung: **gefeuert**, Exit 1
+
+Genau die Luecke, die der Reviewer benannt hat, und der Beweis zeigt, dass der
+neue Teil sie schliesst und nicht bloss den alten dupliziert.
+
 ## 7. Betroffenheitsmatrix
 
 | Dokument / Artefakt | Betroffen | Aenderung |
@@ -217,3 +277,7 @@ Zugriff direkt.
 | FK-50 §50.3, FK-51 §51.6, FK-68, `bc-cut-decisions.md` | ja | Namens-Sweep auf den tatsaechlichen Owner |
 | `pyproject.toml` | ja | `src/agentkit_wire` als zweiter Importwurzel-Baum |
 | FK-58 (Story-Exit) | ja | Gate liest `guards_deactivated` statt eines Dateipfad-Flags |
+| FK-91 §91.1 | ja | neuer Endpunkt `/v1/governance/capability-adjudications` katalogisiert |
+| FK-55 §55.10.3 | nein | Schritte unveraendert; nur der Ort, an dem sie laufen |
+| FK-76 §76.5 | ja, bestaetigt | FK-30 beanspruchte die Settings-Schemas mit; alleiniger Owner ist FK-76 |
+| `scripts/ci/check_interpreter_entrypoints.py` | ja | struktureller Locator statt blosser Anzahl |

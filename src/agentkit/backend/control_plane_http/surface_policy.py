@@ -47,7 +47,9 @@ _PROJECT_ONLY_ROUTE_PATTERNS = (
     re.compile(r"^/v1/project-edge(?:/|$)"),
     re.compile(r"^/v1/projects/[^/]+/installation(?:/|$)"),
     re.compile(r"^/v1/telemetry/events(?:/|$)"),
-    re.compile(r"^/v1/governance/(?:guard-counters|worker-health)(?:/|$)"),
+    re.compile(
+        r"^/v1/governance/(?:guard-counters|worker-health|capability-adjudications)(?:/|$)"
+    ),
 )
 _PROJECT_STRATEGIST_ADMIN_ROUTE_PATTERNS = (
     re.compile(r"^/v1/auth/(?:login|logout|password)$"),

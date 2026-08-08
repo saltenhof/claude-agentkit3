@@ -26,7 +26,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentkit.backend.governance.guard_evaluation import HookEvent
+    from agentkit.backend.governance.principal_capabilities.adjudication_input import (
+        AdjudicationInput,
+    )
 
 
 class Principal(StrEnum):
@@ -100,7 +102,7 @@ class PrincipalResolver:
     fail-closed to the most restrictive applicable principal (§55.10.1).
     """
 
-    def resolve(self, event: HookEvent) -> Principal:
+    def resolve(self, event: AdjudicationInput) -> Principal:
         """Return the attested principal for ``event``.
 
         Args:

@@ -363,14 +363,51 @@ class _SkillFenceException:
 _NON_ENTRYPOINT_SKILL_FENCE_MENTIONS: tuple[_SkillFenceException, ...] = ()
 
 
+def _qualified_scope_by_line(tree: ast.AST) -> dict[int, str]:
+    """Map each source line to the qualified name of its enclosing def/class.
+
+    Line-keyed rather than node-keyed on purpose: the selector audit carries
+    literals as ``_StringLiteral`` records (value + line), not as raw AST nodes,
+    and a scope is a contiguous line range, so the line is a sufficient and
+    stable key. Lines outside every def/class are ``<module>``.
+    """
+    scopes: dict[int, str] = {}
+
+    def walk(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                qualified = f"{prefix}.{child.name}" if prefix else child.name
+                start = child.lineno
+                end = child.end_lineno or start
+                for line in range(start, end + 1):
+                    scopes[line] = qualified
+                walk(child, qualified)
+            else:
+                walk(child, prefix)
+
+    walk(tree, "")
+    return scopes
+
+
 @dataclass(frozen=True, slots=True)
 class _SelectorLiteralException:
-    """One exact call-argument literal that is data, never an executable selector."""
+    """One exact call-argument literal that is data, never an executable selector.
+
+    ``scopes`` is the STRUCTURAL locator: the qualified name of the enclosing
+    function or class for each permitted occurrence, with its count. A bare
+    total is not enough -- removing one permitted occurrence and adding the same
+    literal somewhere else in the same file keeps the total identical, so a
+    count-only guard cannot see the relocation. The qualified name survives line
+    shifts (unlike a line anchor) and still pins the place.
+
+    ``<module>`` denotes module level.
+    """
 
     path: Path
     literal: str
     occurrences: int
     reason: str
+    scopes: frozenset[tuple[str, int]] = frozenset()
 
 
 _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
@@ -379,18 +416,21 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
         'agentkit-hook-claude pre ',
         4,
         'logical Claude hook identifier consumed only by the absolute-wrapper materializer',
+        frozenset({('build_default_hook_definitions', 4)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/governance/default_hook_definitions.py'),
         'agentkit-hook-claude post ',
         5,
         'logical Claude hook identifier consumed only by the absolute-wrapper materializer',
+        frozenset({('build_default_hook_definitions', 5)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/installer/codex_settings.py'),
         'agentkit-hook-codex',
         1,
         'wrapper identity passed to the central absolute-wrapper renderer',
+        frozenset({('<module>', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/installer/lifecycle/detach.py'),
@@ -398,6 +438,7 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
         1,
         'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
         'hook text; never launches it',
+        frozenset({('<module>', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/installer/lifecycle/detach.py'),
@@ -405,6 +446,7 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
         1,
         'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
         'hook text; never launches it',
+        frozenset({('<module>', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/installer/lifecycle/detach.py'),
@@ -412,6 +454,7 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
         1,
         'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
         'hook text; never launches it',
+        frozenset({('<module>', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/installer/lifecycle/detach.py'),
@@ -419,66 +462,77 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
         1,
         'parser vocabulary that recognizes current absolute interpreter-bound script hooks by basename and older bare '
         'hook text; never launches it',
+        frozenset({('<module>', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/installer/runner.py'),
         'python',
         1,
         'Pydantic serialization mode',
+        frozenset({('_sync_project_management_project', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/pipeline_engine/phase_executor/models.py'),
         'python',
         1,
         'Pydantic serialization mode',
+        frozenset({('evolve_phase_state', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/project_management/http/routes.py'),
         'python',
         2,
         'Pydantic serialization mode',
+        frozenset({('ProjectManagementRoutes._do_patch_configuration', 1), ('ProjectManagementRoutes._do_patch_detail', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/project_management/lifecycle.py'),
         'python',
         2,
         'Pydantic serialization mode',
+        frozenset({('create_project', 1), ('update_configuration', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/backend/story/service.py'),
         'python',
         1,
         'Pydantic serialization mode',
+        frozenset({('StoryService.get_story', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/harness_client/harness_adapters/claude_code.py'),
         'agentkit-hook-claude',
         2,
         'parser command-name label',
+        frozenset({('main', 1), ('main_project_edge', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/harness_client/harness_adapters/codex/cli.py'),
         'agentkit-hook-codex',
         1,
         'parser command-name label',
+        frozenset({('main', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
         'agentkit-hook-claude',
         1,
         'wrapper identity passed to the harness absolute-wrapper materializer',
+        frozenset({('ClaudeCodeSettingsWriter.write', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
         'agentkit-hook-codex',
         1,
         'wrapper identity passed to the harness absolute-wrapper materializer',
+        frozenset({('remap_command', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
         '^agentkit-hook-claude (?P<phase>\\S+) (?P<hook_id>\\S+)$',
         1,
         'logical hook-command validation pattern, never an executable command',
+        frozenset({('<module>', 1)}),
     ),
     _SelectorLiteralException(
         Path('src/agentkit/harness_client/harness_adapters/settings_writer.py'),
@@ -488,6 +542,7 @@ _NON_COMMAND_SELECTOR_LITERALS: tuple[_SelectorLiteralException, ...] = (
         "Fail-closed: refusing to write an unrecognised command to the ",
         1,
         'validation error text describing the logical hook identifier',
+        frozenset({('_render_harness_hook_command', 1)}),
     ),
 )
 
@@ -1049,6 +1104,12 @@ class _SourceAudit(ast.NodeVisitor):
         self.findings: list[Finding] = []
         self.visible_non_entrypoints: list[Finding] = []
         self.matched_selector_exceptions: Counter[_SelectorLiteralException] = Counter()
+        #: (exception, enclosing qualified name) -> occurrences, the structural
+        #: half of the selector-literal locator.
+        self.matched_selector_scopes: Counter[
+            tuple[_SelectorLiteralException, str]
+        ] = Counter()
+        self._scope_names: dict[int, str] = {}
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -1317,6 +1378,9 @@ class _SourceAudit(ast.NodeVisitor):
             )
             if exception is not None:
                 self.matched_selector_exceptions[exception] += 1
+                self.matched_selector_scopes[
+                    (exception, self._qualified_scope(literal))
+                ] += 1
                 self.visible_non_entrypoints.append(
                     Finding(
                         self.path,
@@ -1335,6 +1399,16 @@ class _SourceAudit(ast.NodeVisitor):
                     f"{_raw_ast_text(self.source, raw_owner)!r}",
                 )
             )
+
+    def _qualified_scope(self, literal: _StringLiteral) -> str:
+        """Return the qualified name of the def/class enclosing ``literal``.
+
+        ``<module>`` for module level. Built once per module: the structural
+        locator must not cost a tree walk per literal.
+        """
+        if not self._scope_names:
+            self._scope_names = _qualified_scope_by_line(ast.parse(self.source))
+        return self._scope_names.get(literal.lineno, "<module>")
 
     def _audit_process_command(
         self,
@@ -2159,6 +2233,7 @@ def _audit_python(
     findings: list[Finding] = []
     visible_non_entrypoints: list[Finding] = []
     matched_selector_exceptions: Counter[_SelectorLiteralException] = Counter()
+    matched_selector_scopes: Counter[tuple[_SelectorLiteralException, str]] = Counter()
     audits_by_path: dict[Path, _SourceAudit] = {}
     entrypoints, declaration_findings = _declared_entrypoints(root)
     findings.extend(declaration_findings)
@@ -2192,6 +2267,7 @@ def _audit_python(
         findings.extend(audit.findings)
         visible_non_entrypoints.extend(audit.visible_non_entrypoints)
         matched_selector_exceptions.update(audit.matched_selector_exceptions)
+        matched_selector_scopes.update(audit.matched_selector_scopes)
         audits_by_path[relative] = audit
 
     if root == REPO_ROOT.resolve():
@@ -2206,6 +2282,27 @@ def _audit_python(
                         f"{exception.literal!r} declares {exception.occurrences} "
                         f"occurrence(s) but {observed} were found: "
                         f"{exception.reason}",
+                    )
+                )
+            # The STRUCTURAL half. A matching total proves nothing on its own:
+            # deleting one permitted occurrence and adding the same literal in
+            # another function of the same file leaves the total untouched, and a
+            # count-only guard cannot see the relocation.
+            observed_scopes = {
+                scope: count
+                for (candidate, scope), count in matched_selector_scopes.items()
+                if candidate == exception
+            }
+            if observed_scopes != dict(exception.scopes):
+                findings.append(
+                    Finding(
+                        exception.path,
+                        0,
+                        "non-command selector-literal exception for "
+                        f"{exception.literal!r} is declared in scope(s) "
+                        f"{sorted(dict(exception.scopes).items())} but was found "
+                        f"in {sorted(observed_scopes.items())}: a permitted "
+                        "literal may not move to another scope of the same file",
                     )
                 )
 

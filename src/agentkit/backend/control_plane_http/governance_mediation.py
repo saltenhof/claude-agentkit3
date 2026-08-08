@@ -16,11 +16,15 @@ from agentkit.backend.control_plane_http.responses import (
     _single_query_value,
 )
 from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
+from agentkit_wire.governance_adjudication import CapabilityAdjudicationRequest
 
 if TYPE_CHECKING:
     from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService
     from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
     from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
+    from agentkit.backend.governance.capability_adjudication import (
+        CapabilityAdjudicationService,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,41 @@ class _GovernanceMediationHandlers:
     _telemetry_service: ControlPlaneTelemetryService
     _guard_counter_service: ControlPlaneGuardCounterService
     _worker_health_service: ControlPlaneWorkerHealthService
+    _capability_adjudication_service: CapabilityAdjudicationService
+
+    def _handle_post_capability_adjudication(
+        self,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Adjudicate one principal operation (AG3-239, FK-55 §55.10.3).
+
+        The hook process cannot answer this itself: the capability matrix, the
+        principal attestation and the canonical conflict-freeze record are core
+        state (FK-01 §1.1a). Steps 1-5 are ONE operation, not five.
+        """
+        try:
+            request = CapabilityAdjudicationRequest.model_validate(payload)
+        except ValidationError as exc:
+            return _error_response(
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
+                error_code="invalid_capability_adjudication_payload",
+                message="Invalid capability adjudication payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        # No RuntimeError branch on purpose: the service maps EVERY capability
+        # fault to a deterministic BLOCK response (FK-55 §55.10.5). Turning a
+        # backend fault into a 503 here would hand the hook an ambiguous answer
+        # where the contract requires a decision.
+        result = self._capability_adjudication_service.adjudicate(request)
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
 
     def _handle_post_telemetry(
         self,

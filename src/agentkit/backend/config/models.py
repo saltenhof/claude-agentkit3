@@ -29,7 +29,12 @@ from agentkit.backend.config.defaults import (
     DEFAULT_VERIFY_LAYERS,
 )
 from agentkit.backend.config.worker_health import WorkerHealthConfig
-from agentkit_wire.project_config import TelemetryConfig
+
+# Private alias on purpose: the model below needs the type at runtime, but
+# binding the PUBLIC name here would give the symbol a second import path
+# (`from agentkit.backend.config.models import TelemetryConfig`) and undo
+# the AG3-239 move. A leading underscore is not a counted public symbol.
+from agentkit_wire.project_config import TelemetryConfig as _TelemetryConfig
 
 #: The single supported ``config_version`` value for ``project.yaml``.
 #: FK-03 §3.2.1 / §3.3.4: pipeline-config versioning area (separate from
@@ -802,7 +807,7 @@ class PipelineConfig(BaseModel):
     orchestrator_guard: OrchestratorGuardConfig = OrchestratorGuardConfig()
     policy: PipelinePolicyConfig = PipelinePolicyConfig()
     vectordb: VectorDbConfig | None = None
-    telemetry: TelemetryConfig = TelemetryConfig()
+    telemetry: _TelemetryConfig = _TelemetryConfig()
     governance: GovernanceConfig = GovernanceConfig()
     conformance: ConformanceConfig = ConformanceConfig()
     layer2: Layer2Config = Layer2Config()

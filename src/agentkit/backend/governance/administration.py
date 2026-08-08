@@ -55,11 +55,15 @@ class Governance:
         lock_repo: Repository for story-execution lock deactivation.
 
     AG3-239: until this story the class carried ``register_hooks`` as well, and
-    every construction site had to supply a dummy for the half it did not need --
-    the installer faked a lock repository, and the three composition-root sites
-    faked a hook repository by binding a direct-DB
-    ``StateBackendHookRegistrationRepository`` they never called. Four dummies at
-    four of four call sites is the measurement that the class was two things.
+    every one of its FIVE construction sites had to supply a dummy for the half it
+    did not need. Four supplied the unused HOOK half -- ``composition_closure``
+    and the three ``composition_project`` builders bound a direct-DB
+    ``StateBackendHookRegistrationRepository`` they never called (three of them
+    inside an edge-classified composition root). The fifth, the installer, went
+    the other way and supplied the unused LOCK half: a fail-closed
+    ``_UnavailableInstallerLockRepository`` that raises when touched. Five dummies
+    at five of five call sites, in BOTH directions, is the measurement that the
+    class was two things.
 
     AG3-145 sub-step D (FK-10 §10.2.4a) and AG3-239: the operation touches no
     filesystem at all. The dev-local ``.agent-guard`` projection runs entirely

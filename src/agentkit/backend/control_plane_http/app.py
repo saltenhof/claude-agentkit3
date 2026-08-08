@@ -28,6 +28,7 @@ from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseL
 from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
+from agentkit.backend.governance.capability_adjudication import CapabilityAdjudicationService
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -341,6 +342,7 @@ class ControlPlaneApplication(
         telemetry_service: ControlPlaneTelemetryService | None = None,
         guard_counter_service: ControlPlaneGuardCounterService | None = None,
         worker_health_service: ControlPlaneWorkerHealthService | None = None,
+        capability_adjudication_service: CapabilityAdjudicationService | None = None,
         runtime_service: ControlPlaneRuntimeService | None = None,
         story_service: StoryService | None = None,
         dashboard_service: DashboardService | None = None,
@@ -354,6 +356,9 @@ class ControlPlaneApplication(
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._guard_counter_service = (
             guard_counter_service or ControlPlaneGuardCounterService()
+        )
+        self._capability_adjudication_service = (
+            capability_adjudication_service or CapabilityAdjudicationService()
         )
         self._worker_health_service = (
             worker_health_service or ControlPlaneWorkerHealthService()
@@ -992,6 +997,29 @@ class ControlPlaneApplication(
                 return _bc_response_to_http_response(response)
         return None
 
+    def _dispatch_hook_mediation_post(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        """Dispatch the non-project-scoped hook-mediation writes (AG3-129).
+
+        These are the routes the short-lived hook process on the developer
+        machine posts to instead of touching a database (FK-10 §10.1.0 I1).
+        Grouped into one dispatcher so the main POST router stays inside its
+        complexity budget.
+        """
+        if route_path == "/v1/telemetry/events":
+            return self._handle_post_telemetry(payload, correlation_id)
+        if route_path == "/v1/governance/capability-adjudications":
+            return self._handle_post_capability_adjudication(payload, correlation_id)
+        if route_path == "/v1/governance/guard-counters":
+            return self._handle_post_guard_counter(payload, correlation_id)
+        if route_path == "/v1/governance/worker-health":
+            return self._handle_post_worker_health(payload, correlation_id)
+        return None
+
     def _handle_post_request(
         self,
         route_path: str,
@@ -1033,13 +1061,11 @@ class ControlPlaneApplication(
         if planning_response is not None:
             return _planning_response_to_http_response(planning_response)
 
-        if route_path == "/v1/telemetry/events":
-            return self._handle_post_telemetry(payload, correlation_id)
-        # AG3-129 hook-mediation writes (non-project-scoped, mirror telemetry ingest):
-        if route_path == "/v1/governance/guard-counters":
-            return self._handle_post_guard_counter(payload, correlation_id)
-        if route_path == "/v1/governance/worker-health":
-            return self._handle_post_worker_health(payload, correlation_id)
+        mediation_response = self._dispatch_hook_mediation_post(
+            route_path, payload, correlation_id,
+        )
+        if mediation_response is not None:
+            return mediation_response
         project_edge_response = self._dispatch_project_edge_post(
             route_path,
             payload,

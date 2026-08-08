@@ -1883,17 +1883,16 @@ distributions:
     console_scripts: []
     runtime_dependencies:
       - pydantic
-    # KEIN Praefix im heutigen Importbaum -- und das ist kein Versaeumnis.
-    #
     # Das Vertragspaket ist kein Umetikettieren bestehender Module: es ist
     # neuer Code, in den Symbole WANDERN. Die sechs Praefixe, die hier bis
     # AG3-208 standen (control_plane.third_party_models, core_types.operating_mode,
     # core_types.verify_evidence, story_{exit,reset,split}.http_models), waren
     # eine Modulzuweisung ohne symbolgenaue Messung; AG3-237 hat sie durch
-    # wire_target_modules ersetzt. `module_prefixes` bleibt leer, weil jedes
-    # `agentkit.backend.*`-Praefix hier zugleich behaupten wuerde, das ganze
-    # Modul sei Vertragsvokabular -- genau die Aussage, die in drei
-    # Reviewrunden viermal widerlegt worden ist.
+    # wire_target_modules ersetzt. Ein `agentkit.backend.*`-Praefix steht hier
+    # deshalb bis heute nicht: es wuerde behaupten, das ganze Modul sei
+    # Vertragsvokabular -- genau die Aussage, die in drei Reviewrunden viermal
+    # widerlegt worden ist. `agentkit_wire` ist kein solches Praefix, sondern der
+    # eigene Importwurzel-Baum des Pakets, und steht seit AG3-239 unten.
     #
     # Die Zugehoerigkeit der Wire-Distribution ergibt sich stattdessen aus
     # wire_target_modules (nach dem Schnitt) und distribution_symbol_boundaries
