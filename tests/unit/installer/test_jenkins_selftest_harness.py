@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from agentkit.backend.installer.integration_checkpoints import (
-    JenkinsBranchPluginSelfTestHarness,
+from agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test import (
     run_branch_plugin_conformance_self_test,
+)
+from agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness import (
+    JenkinsBranchPluginSelfTestHarness,
 )
 from agentkit.integration_clients.jenkins import JenkinsHttpResponse
 from agentkit.integration_clients.sonar import SonarHttpResponse

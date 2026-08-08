@@ -8,8 +8,12 @@ In scope (AG3-052 §2.1.6): the CP10d PRECONDITION checks.
   (a) reachability + ``min_version``;
   (b) token role incl. ``Administer Issues`` (for the reconciler);
   (c) Community Branch Plugin present and recent;
-* The default quality-gate profile artefact remains a separate dev-local
-  pre-send configuration check; no project root crosses into the backend.
+* The default quality-gate profile artefact is a separate dev-local pre-send
+  configuration check; no project root crosses into the backend. It lives where
+  the file it inspects lives -- on the developer machine, in
+  ``agentkit.backend.installer.sonar_local_profile`` (AG3-242). Keeping it here
+  made this module mixed: server-side probes the core runs, plus one filesystem
+  check the core can never run, because the project root is not on its disk.
 
 Out of scope (AG3-052 §2.2): the CP10d config-drift-against-CP7 handling
 (owner Installer/AG3-039). This story only builds/binds the derived
@@ -24,8 +28,6 @@ from typing import TYPE_CHECKING
 from agentkit.integration_clients.sonar import SonarApiError
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from agentkit.backend.config.models import SonarQubeConfig
     from agentkit.integration_clients.sonar import SonarClient
 
@@ -104,20 +106,6 @@ def _run_applicable_checks(
         )
 
 
-def check_default_profile(
-    config: SonarQubeConfig, repo_root: Path
-) -> SonarPreflightResult | None:
-    """Validate the dev-local profile artifact before contacting the backend."""
-    profile_path = repo_root / config.quality_gate.default_profile
-    if not profile_path.is_file():
-        return SonarPreflightResult(
-            status=CheckpointStatus.FAILED,
-            reason="default_profile_missing",
-            details=(f"default quality-gate profile not found: {profile_path}",),
-        )
-    return None
-
-
 def _probe_server(
     config: SonarQubeConfig,
     client: SonarClient,
@@ -145,6 +133,5 @@ __all__ = [
     "ADMINISTER_ISSUES",
     "CheckpointStatus",
     "SonarPreflightResult",
-    "check_default_profile",
     "check_sonarqube_preconditions",
 ]

@@ -54,6 +54,20 @@ FORMAL_BLOCK = re.compile(
 )
 
 
+#: The pre-split package root. Invariant
+#: ``architecture-conformance.rule.import_root_follows_distribution_name`` states
+#: that no distribution and no import root is named ``agentkit``; the totality
+#: invariant scopes over "every module under the AK3 import root", and this
+#: module sits under none of the three. It is therefore not unclassified by
+#: omission -- the classification derivably has no membership to give it, because
+#: the package migration (AG3-209) dissolves it into one root per wheel.
+#:
+#: It is EXCLUDED, not silently skipped: ``main`` reports it, and the exclusion
+#: is exactly one named module. Any other unclaimed module still halts the
+#: measurement.
+PRE_SPLIT_ROOT_MODULES = frozenset({"agentkit"})
+
+
 class MeasurementError(RuntimeError):
     """Raised when the measurement cannot be completed fail-closed."""
 
@@ -161,6 +175,8 @@ def iter_crossings(
 ) -> Iterable[Crossing]:
     """Yield every import statement that crosses a distribution boundary."""
     for importer, path in modules.items():
+        if importer in PRE_SPLIT_ROOT_MODULES:
+            continue
         importer_distribution = resolve_distribution(importer, prefixes, members)
         if importer_distribution is None and touches_bc(importer):
             raise MeasurementError(
@@ -240,6 +256,12 @@ def _emit(
     # the rule below rather than excused here.
     if imported_distribution == "wire" and importer_distribution in {"edge", "core"}:
         return
+    # Reaching the pre-split root is not a crossing between two distributions:
+    # the root has no membership to cross into (see PRE_SPLIT_ROOT_MODULES). The
+    # module dissolves with the package migration, and both sides of such an
+    # import land in the same wheel afterwards.
+    if imported in PRE_SPLIT_ROOT_MODULES:
+        return
     if importer_distribution is None or imported_distribution is None:
         if touches_bc(importer) or touches_bc(imported):
             raise MeasurementError(
@@ -286,8 +308,10 @@ def main() -> int:
     unclaimed = sorted(
         name
         for name in modules
-        if resolve_distribution(name, prefixes, members) is None
+        if name not in PRE_SPLIT_ROOT_MODULES
+        and resolve_distribution(name, prefixes, members) is None
     )
+    excluded_roots = sorted(name for name in modules if name in PRE_SPLIT_ROOT_MODULES)
     crossings = list(iter_crossings(modules, prefixes, members, touches_bc))
 
     if bc_prefixes:
@@ -320,6 +344,7 @@ def main() -> int:
     print(f"import statements        : {len(crossings)}")
     print(f"distinct imported symbols: {len(symbols)}")
     print(f"unclaimed modules        : {len(unclaimed)} {unclaimed}")
+    print(f"pre-split roots excluded : {len(excluded_roots)} {excluded_roots}")
     print()
     for (importer, imported), entries in sorted(pairs.items()):
         names = sorted({entry.symbol for entry in entries})

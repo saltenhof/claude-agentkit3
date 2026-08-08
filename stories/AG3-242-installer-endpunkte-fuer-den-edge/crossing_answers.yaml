@@ -1,0 +1,1629 @@
+# AG3-242 AC 1 -- one answer per boundary crossing of the bounded context
+# `installation-and-bootstrap` (`backend/installer/` and `backend/process/language/`).
+#
+# answer:
+#   a -- belongs over the interface: a /v1 endpoint carries it
+#   b -- filed on the wrong side, or vocabulary that belongs in the contract
+#        package: the module or the symbol MOVES, no endpoint
+#   c -- must not happen at all: the call is removed
+#
+# `resolved: true` marks a pair this story already removed. It stays in the file
+# because deleting it would hide the answer that removed it; the mark is VERIFIED
+# by `check_crossing_answers.py`, not trusted -- a "resolved" pair that is still
+# measurable fails the check.
+#
+# `remedy_owner` names the story that can execute the answer. Where it is not
+# AG3-242, the reason names why.
+#
+# SOURCES OF AUTHORITY USED HERE: `distributions`,
+# `distribution_side_election_rules` and
+# `architecture-conformance.rule.import_root_follows_distribution_name` in
+# `concept/formal-spec/architecture-conformance/entities.md` and
+# `.../invariants.md`; FK-91 section 91.1a (the /v1 operation catalog);
+# FK-10 section 10.2.3; FK-01 section 1.2.3 (the edge decides locally where the
+# fact is local); FK-50 CP 10d.
+# `wire_excluded_crossings` is NOT used -- it carries `superseded-no-authority`.
+
+measurement:
+  command: >-
+    .venv\Scripts\python
+    stories/AG3-239-governance-endpunkte-fuer-den-edge/measure_boundary_violations.py
+    --bc agentkit.backend.installer --bc agentkit.backend.process.language
+  tool_note: >-
+    The AG3-239 tool is USED, not copied -- a second copy of a measurement script
+    is a second measurement that drifts. One change was made to it, and it is
+    numerically inert for AG3-239/240/241 (repo-wide total 294 before and after):
+    the pre-split package root `agentkit` is now EXCLUDED and reported instead of
+    halting the run. It is not unclassified by omission. The invariant
+    `architecture-conformance.rule.import_root_follows_distribution_name` states
+    that no distribution and no import root is named `agentkit`, and the totality
+    invariant scopes over "every module under the AK3 import root" -- this module
+    sits under none of the three. It dissolves into one root per wheel with the
+    package migration (AG3-209). Without the exclusion this BC cannot be measured
+    at all: `agentkit/__init__.py:93` imports the installer's interpreter guard,
+    an import that `scripts/ci/check_interpreter_entrypoints.py` REQUIRES
+    (`PACKAGE_BOUNDARY` + `_enforce_installed_runtime_isolation`).
+  measured_on: "2026-08-08"
+  start_value:
+    unique_ordered_pairs: 137
+    edge_to_core: 102
+    core_to_edge: 35
+    import_statements: 241
+    distinct_imported_symbols: 55
+    repo_wide_unique_ordered_pairs: 294
+  end_value:
+    unique_ordered_pairs: 132
+    edge_to_core: 97
+    core_to_edge: 35
+    import_statements: 230
+    distinct_imported_symbols: 49
+    repo_wide_unique_ordered_pairs: 289
+  ac2_status: >-
+    NOT met, and not reachable inside this story's mandate. 132 crossings remain,
+    and NONE of them is a missing operation. Counted by remedy owner:
+    75 AG3-209 (modules filed on the wrong side of the tree, or primitives the
+    edge must run locally and therefore copies), 36 AG3-237 (contract-package
+    vocabulary), 21 the endpoint stories of neighbouring bounded contexts
+    (13 AG3-243, 3 AG3-248, 2 AG3-247, 2 AG3-250, 1 AG3-240). The single largest
+    item is `installer.paths` with 21 core-to-edge crossings -- that one module
+    is why a core process cannot start without the installer package.
+  card_deviation: >-
+    The story card names 48 pairs (13 edge-to-core, 35 core-to-edge). Measured:
+    137 (102 edge-to-core, 35 core-to-edge). The core-to-edge figure is exact;
+    the edge-to-core figure on the card undercounts by 89. The card's 13 counts
+    only the crossings INSIDE the installer tree and omits the 89 that reach
+    other core packages. The measured figure governs (AC 1).
+
+# ---------------------------------------------------------------------------
+# AC 3 / AC 4 -- ENDPOINTS
+# ---------------------------------------------------------------------------
+endpoints: []
+endpoint_verdict: >-
+  This story builds ZERO new endpoints, and that is a measured result, not an
+  omission. AC 3 forbids an endpoint without a call site it replaces; there is no
+  such call site left. The three operations this BC needs already exist and are
+  already consumed -- checked at the response model, not at the route name:
+endpoints_that_already_exist:
+  - operation: light third-party preflight (Sonar / CI / ARE)
+    path: /v1/projects/{project_key}/installation/third-party-validation
+    verb: POST
+    response_model: ThirdPartyValidationResponse
+    core_implementation: agentkit.backend.installer.third_party_light:run_light_validation
+    edge_client: agentkit.harness_client.projectedge.client:ProjectEdgeClient.validate_third_party
+    already_consumed_at: >-
+      agentkit.backend.installer.runner:_run_cp10d_sonarqube -- calls
+      `client.validate_third_party` and fails closed on both
+      `ControlPlaneApiError` (HTTP verdict) and any transport failure
+      (`third_party_backend_unreachable`). No local fallback exists.
+  - operation: heavy branch-plugin conformance self-test
+    path: /v1/projects/{project_key}/installation/branch-plugin-self-test
+    verb: POST
+    response_model: BranchPluginSelfTestOperation
+    core_implementation: agentkit.backend.installer.third_party_self_test:execute_branch_plugin_self_test
+    edge_client: ProjectEdgeClient.start_branch_plugin_self_test
+  - operation: read one long-running operation
+    path: /v1/project-edge/operations/{op_id}
+    verb: GET
+    response_model: BranchPluginSelfTestOperation
+    edge_client: ProjectEdgeClient.reconcile_branch_plugin_self_test / poll_branch_plugin_self_test
+open_uncertainty_resolved: >-
+  The question whether the validation route covers ALL local checkpoint calls or
+  only the light path is answered, and the answer is neither. `check_default_profile`
+  was the one checkpoint call the installer still ran locally, and it MUST stay
+  local: it asks whether a file exists under the project root, and the project
+  root is on the developer machine. Its own module docstring already said so
+  ("dev-local pre-send configuration check; no project root crosses into the
+  backend") while the function sat in a module the classification calls core.
+  That is answer (b), not (a) -- an endpoint would have shipped the developer's
+  filesystem question to a machine that cannot see the filesystem. It now lives
+  in `agentkit.backend.installer.sonar_local_profile`, with no core import, and
+  `integration_checkpoints.sonar_preflight` is mixing-free.
+  The scanner harness is not a local call at all: its only importers are the
+  core-side self-test service and the removed facade.
+after_this_story: >-
+  No genuine edge module executes an integration checkpoint locally any more.
+  The eight remaining crossings inside the installer tree are seven imports BY
+  three core-side services that are merely filed under `installer.`, plus one
+  data-only import (`CheckpointStatus`, `SonarPreflightResult`) in the installer
+  runner. Command that proves it is in `measurement.command` above.
+
+# ---------------------------------------------------------------------------
+# AC 1 -- one answer per crossing
+# ---------------------------------------------------------------------------
+crossings:
+  - importer: agentkit.backend.bootstrap.composition_closure
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["project_root_for_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.bootstrap.composition_exploration
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["project_root_for_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.bootstrap.composition_governance
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["project_root_for_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.bootstrap.composition_installer
+    imported: agentkit.backend.installer.bounded_executor
+    direction: core-to-edge
+    symbols: ["BoundedThreadExecutor"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `BoundedThreadExecutor` runs the core's bounded background work and is
+      wired by the core composition root. Core service, wrong tree.
+  - importer: agentkit.backend.bootstrap.composition_installer
+    imported: agentkit.backend.installer.mutation_idempotency
+    direction: core-to-edge
+    symbols: ["InstallerMutationCoordinator"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `InstallerMutationCoordinator` guards core-side mutation idempotency
+      and is imported by the core route module and the core composition root.
+      Core service, wrong tree.
+  - importer: agentkit.backend.bootstrap.composition_installer
+    imported: agentkit.backend.installer.third_party_preflight
+    direction: core-to-edge
+    symbols: ["ThirdPartyPreflightService"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `ThirdPartyPreflightService` is the service the core route
+      `third_party_validation_routes` hosts. Core service, wrong tree.
+  - importer: agentkit.backend.bootstrap.composition_installer
+    imported: agentkit.backend.installer.writer_service
+    direction: core-to-edge
+    symbols: ["InstallerWriterService"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `InstallerWriterService` is the core-side implementation behind
+      `/v1/.../installation/...`; the core route module and the core
+      composition root import it. It is filed under `installer.` and
+      therefore counted edge. It moves to a core-prefixed package.
+  - importer: agentkit.backend.bootstrap.composition_state
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.bootstrap.composition_verify
+    imported: agentkit.backend.installer.github_coordinates
+    direction: core-to-edge
+    symbols: ["parse_github_remote_url"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `parse_github_remote_url` is a pure parser over a remote URL, used by
+      the core bootstrap and the core edge-provisioning adapter. It belongs
+      with the code-backend side that consumes it.
+  - importer: agentkit.backend.bootstrap.edge_provisioning_adapter
+    imported: agentkit.backend.installer.github_coordinates
+    direction: core-to-edge
+    symbols: ["parse_github_remote_url"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `parse_github_remote_url` is a pure parser over a remote URL, used by
+      the core bootstrap and the core edge-provisioning adapter. It belongs
+      with the code-backend side that consumes it.
+  - importer: agentkit.backend.bootstrap.story_reset_adapters
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.closure.phase
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["resolve_qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.closure.post_merge_finalization.finalization
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.control_plane.workspace_locator
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.control_plane.workspace_locator
+    imported: agentkit.backend.installer.registration
+    direction: core-to-edge
+    symbols: ["ProjectRegistration"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `ProjectRegistration`, `RuntimeProfile` and `CheckpointStatus` are data
+      read by core routes and the core registration repository.
+  - importer: agentkit.backend.control_plane_http.installer_writer_routes
+    imported: agentkit.backend.installer.http_models
+    direction: core-to-edge
+    symbols: ["GovernanceHookClearRequest", "GovernanceHookListResponse", "GovernanceHookRegistrationRequest", "GovernanceHookRegistrationResponse", "InstallerWriterReadyResponse", "ProjectRegistrationListResponse", "ProjectRegistrationMutationResponse", "ProjectRegistrationReadResponse", "ProjectRegistrationUpgradeRequest", "RegisterProjectStateRequest", "SkillBindingDeleteRequest", "SkillBindingListResponse", "SkillBindingMutationResponse", "SkillBindingReadResponse", "SkillBindingWriteRequest"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Fifteen Pydantic request/response models of the installer-writer /v1
+      surface, imported by the core route module that serves them. This is
+      textbook contract-package vocabulary: both machines need it.
+  - importer: agentkit.backend.control_plane_http.installer_writer_routes
+    imported: agentkit.backend.installer.mutation_idempotency
+    direction: core-to-edge
+    symbols: ["InstallerMutationCoordinator"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `InstallerMutationCoordinator` guards core-side mutation idempotency
+      and is imported by the core route module and the core composition root.
+      Core service, wrong tree.
+  - importer: agentkit.backend.control_plane_http.installer_writer_routes
+    imported: agentkit.backend.installer.registration
+    direction: core-to-edge
+    symbols: ["CheckpointStatus"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `ProjectRegistration`, `RuntimeProfile` and `CheckpointStatus` are data
+      read by core routes and the core registration repository.
+  - importer: agentkit.backend.control_plane_http.installer_writer_routes
+    imported: agentkit.backend.installer.writer_service
+    direction: core-to-edge
+    symbols: ["InstallerMigrationWitnessError", "InstallerWriterService"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `InstallerWriterService` is the core-side implementation behind
+      `/v1/.../installation/...`; the core route module and the core
+      composition root import it. It is filed under `installer.` and
+      therefore counted edge. It moves to a core-prefixed package.
+  - importer: agentkit.backend.control_plane_http.third_party_validation_routes
+    imported: agentkit.backend.installer.third_party_errors
+    direction: core-to-edge
+    symbols: ["ThirdPartyOperationConflictError", "ThirdPartyServiceUnavailableError"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Two exception types raised by the core-side preflight service and
+      caught by the core route module.
+  - importer: agentkit.backend.control_plane_http.third_party_validation_routes
+    imported: agentkit.backend.installer.third_party_preflight
+    direction: core-to-edge
+    symbols: ["ThirdPartyPreflightService"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      `ThirdPartyPreflightService` is the service the core route
+      `third_party_validation_routes` hosts. Core service, wrong tree.
+  - importer: agentkit.backend.control_plane_http.verify_routes
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.implementation.phase
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["resolve_qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.implementation.worker_health.artifacts
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.implementation.worker_health.engine
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09
+    imported: agentkit.backend.prompt_runtime.runtime
+    direction: edge-to-core
+    symbols: ["PromptRuntime", "build_prompt_bundle_lock_content"]
+    answer: a
+    remedy_owner: AG3-247
+    reason: >-
+      `PromptRuntime` and the bundle lock content are core-owned prompt
+      runtime behaviour.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09
+    imported: agentkit.backend.skills.errors
+    direction: edge-to-core
+    symbols: ["SkillError"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Exception types. Contract-package vocabulary.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["ProjectConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10_mcp_registration
+    imported: agentkit.backend.utils.io
+    direction: edge-to-core
+    symbols: ["atomic_write_text"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Atomic write and directory helpers the edge executes against its own
+      disk. Named out of scope by this story: a network call for `ensure_dir`
+      would be plainly wrong. The edge gets its own copy.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10a_initial_sync_checkpoint
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["InstallationError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.cp10d_sonarqube
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["InstallationError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.orchestrator
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["ProjectConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.bootstrap_checkpoints.orchestrator
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.ccag_settings
+    imported: agentkit.backend.boundary.filesystem
+    direction: edge-to-core
+    symbols: ["assert_project_local_file_path"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Filesystem containment primitives the edge must execute locally on the
+      developer machine. A network call for `assert_project_local_file_path`
+      would buy latency and a failure path for a decision that is local by
+      nature (FK-01 section 1.2.3). The edge gets its own copy.
+  - importer: agentkit.backend.installer.ccag_settings
+    imported: agentkit.backend.governance.hook_registration
+    direction: edge-to-core
+    symbols: ["HookId"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `HookId` and `RegistrationResult` are data. AG3-239 already moved
+      `HookDefinition` and `HookEventName` from this module into
+      `agentkit_wire`; these two follow the same route.
+  - importer: agentkit.backend.installer.checkpoint_engine.context
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["ProjectConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.checkpoint_engine.engine
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["InstallationError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.checkpoint_engine.engine
+    imported: agentkit.backend.process.language.model
+    direction: edge-to-core
+    symbols: ["FlowDefinition", "NodeKind"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `FlowDefinition`, `NodeDefinition`, `EdgeRule`, `FlowLevel` and
+      `NodeKind` are the Flow-DSL vocabulary -- Pydantic models and enums, no
+      behaviour. The checkpoint engine and the upgrade engine declare their
+      flows in it. Data, therefore contract package, not an endpoint.
+  - importer: agentkit.backend.installer.checkpoint_engine.flow
+    imported: agentkit.backend.process.language.model
+    direction: edge-to-core
+    symbols: ["EdgeRule", "FlowDefinition", "FlowLevel", "NodeDefinition", "NodeKind"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `FlowDefinition`, `NodeDefinition`, `EdgeRule`, `FlowLevel` and
+      `NodeKind` are the Flow-DSL vocabulary -- Pydantic models and enums, no
+      behaviour. The checkpoint engine and the upgrade engine declare their
+      flows in it. Data, therefore contract package, not an endpoint.
+  - importer: agentkit.backend.installer.codex_settings
+    imported: agentkit.backend.boundary.filesystem
+    direction: edge-to-core
+    symbols: ["FilesystemContainmentError", "assert_project_local_file_path"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Filesystem containment primitives the edge must execute locally on the
+      developer machine. A network call for `assert_project_local_file_path`
+      would buy latency and a failure path for a decision that is local by
+      nature (FK-01 section 1.2.3). The edge gets its own copy.
+  - importer: agentkit.backend.installer.codex_settings
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["InstallationError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.codex_settings
+    imported: agentkit.backend.utils.io
+    direction: edge-to-core
+    symbols: ["atomic_write_text"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Atomic write and directory helpers the edge executes against its own
+      disk. Named out of scope by this story: a network call for `ensure_dir`
+      would be plainly wrong. The edge gets its own copy.
+  - importer: agentkit.backend.installer.config_boundary
+    imported: agentkit.backend.config.loader
+    direction: edge-to-core
+    symbols: ["parse_project_config"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Project config parsing runs against a file on the developer machine.
+      The parser travels with the edge; the file never crosses.
+  - importer: agentkit.backend.installer.config_boundary
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["ProjectConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.config_boundary
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ConfigError", "ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.cp10a_initial_sync
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["ProjectConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.cp10a_initial_sync
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["InstallationError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.file_ops
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.file_ops
+    imported: agentkit.backend.utils.io
+    direction: edge-to-core
+    symbols: ["atomic_write_text", "atomic_write_yaml", "ensure_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Atomic write and directory helpers the edge executes against its own
+      disk. Named out of scope by this story: a network call for `ensure_dir`
+      would be plainly wrong. The edge gets its own copy.
+  - importer: agentkit.backend.installer.git_hook_dispatch
+    imported: agentkit.backend.utils.io
+    direction: edge-to-core
+    symbols: ["atomic_write_text"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Atomic write and directory helpers the edge executes against its own
+      disk. Named out of scope by this story: a network call for `ensure_dir`
+      would be plainly wrong. The edge gets its own copy.
+  - importer: agentkit.backend.installer.http_models
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["SkillBindingMode", "SkillLifecycleStatus"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.installed_manifest
+    imported: agentkit.backend.core_types.plane_artifact_names
+    direction: edge-to-core
+    symbols: ["AGENT_SPAWN_SKILL_PROOF_KEY"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Artifact-name constants shared by both machines. Contract package.
+  - importer: agentkit.backend.installer.installed_manifest
+    imported: agentkit.backend.utils.io
+    direction: edge-to-core
+    symbols: ["read_json_object"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Atomic write and directory helpers the edge executes against its own
+      disk. Named out of scope by this story: a network call for `ensure_dir`
+      would be plainly wrong. The edge gets its own copy.
+  - importer: agentkit.backend.installer.interpreter
+    imported: agentkit.backend.boundary.filesystem
+    direction: edge-to-core
+    symbols: ["is_filesystem_link"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Filesystem containment primitives the edge must execute locally on the
+      developer machine. A network call for `assert_project_local_file_path`
+      would buy latency and a failure path for a decision that is local by
+      nature (FK-01 section 1.2.3). The edge gets its own copy.
+  - importer: agentkit.backend.installer.lifecycle.decommission
+    imported: agentkit.backend.bootstrap.composition_root
+    direction: edge-to-core
+    symbols: ["build_project_repository", "cli_load_execution_events_for_project_global"]
+    answer: a
+    remedy_owner: AG3-250
+    reason: >-
+      The edge builds core ports in-process (GitHub code backend, project
+      repository, global execution-event read). Those are core acts behind
+      the /v1 bridge; the edge composition root owns how the edge reaches
+      them.
+  - importer: agentkit.backend.installer.lifecycle.decommission
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["is_directory_link"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.lifecycle.decommission
+    imported: agentkit.backend.state_backend.store.story_read_repository
+    direction: edge-to-core
+    symbols: ["StateBackendStoryReadRepository"]
+    answer: a
+    remedy_owner: AG3-240
+    reason: >-
+      Story read access is canonical core state; the story-lifecycle
+      operations carry it.
+  - importer: agentkit.backend.installer.lifecycle.detach
+    imported: agentkit.backend.boundary.filesystem
+    direction: edge-to-core
+    symbols: ["AK3_OWNER_POLICIES", "FilesystemContainmentError", "assert_project_local_file_path", "matches_resolved_path_owner"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Filesystem containment primitives the edge must execute locally on the
+      developer machine. A network call for `assert_project_local_file_path`
+      would buy latency and a failure path for a decision that is local by
+      nature (FK-01 section 1.2.3). The edge gets its own copy.
+  - importer: agentkit.backend.installer.lifecycle.detach
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["is_directory_link", "remove_directory_link"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.lifecycle.detach
+    imported: agentkit.backend.utils.io
+    direction: edge-to-core
+    symbols: ["atomic_write_text"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Atomic write and directory helpers the edge executes against its own
+      disk. Named out of scope by this story: a network call for `ensure_dir`
+      would be plainly wrong. The edge gets its own copy.
+  - importer: agentkit.backend.installer.mcp_registration
+    imported: agentkit.backend.boundary.filesystem
+    direction: edge-to-core
+    symbols: ["AK3_OWNER_POLICIES", "matches_resolved_path_owner"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Filesystem containment primitives the edge must execute locally on the
+      developer machine. A network call for `assert_project_local_file_path`
+      would buy latency and a failure path for a decision that is local by
+      nature (FK-01 section 1.2.3). The edge gets its own copy.
+  - importer: agentkit.backend.installer.mutation_idempotency
+    imported: agentkit.backend.state_backend.store.inflight_idempotency_guard
+    direction: edge-to-core
+    symbols: ["IdempotencyRequest", "InflightIdempotencyGuard", "StateBackendInflightIdempotencyGuard", "compute_body_hash", "run_route_idempotent", "state_backend_atomic_writer_mutation"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.paths
+    imported: agentkit.backend.core_types.plane_artifact_names
+    direction: edge-to-core
+    symbols: ["INSTALLED_MANIFEST_FILENAME"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Artifact-name constants shared by both machines. Contract package.
+  - importer: agentkit.backend.installer.project_structure
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.repo_probe
+    imported: agentkit.backend.bootstrap.composition_root
+    direction: edge-to-core
+    symbols: ["build_github_code_backend_port"]
+    answer: a
+    remedy_owner: AG3-250
+    reason: >-
+      The edge builds core ports in-process (GitHub code backend, project
+      repository, global execution-event read). Those are core acts behind
+      the /v1 bridge; the edge composition root owns how the edge reaches
+      them.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.config.defaults
+    direction: edge-to-core
+    symbols: ["DEFAULT_CONTROL_PLANE_BASE_URL", "DEFAULT_MAX_FEEDBACK_ROUNDS", "DEFAULT_MAX_REMEDIATION_ROUNDS", "DEFAULT_STORY_TYPES", "DEFAULT_VERIFY_LAYERS"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Constants. Contract-package vocabulary, not an operation.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.config.loader
+    direction: edge-to-core
+    symbols: ["load_project_config", "parse_project_config"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Project config parsing runs against a file on the developer machine.
+      The parser travels with the edge; the file never crosses.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["ProjectConfig", "SUPPORTED_CONFIG_VERSION", "SonarQubeConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.control_plane.third_party_models
+    direction: edge-to-core
+    symbols: ["AreValidationConfig", "CiValidationConfig", "SonarValidationConfig", "ThirdPartyValidationRequest"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      The seven third-party validation models are named out of scope by this
+      story: they are the payload of the checkpoint operation, not the
+      operation. Contract package.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ControlPlaneApiError", "InstallationError", "ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.governance.repository
+    direction: edge-to-core
+    symbols: ["HookRegistrationRepository"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `HookRegistrationRepository` is imported under TYPE_CHECKING only, as
+      the protocol the edge's REST-backed `WriterHookRegistrationRepository`
+      satisfies (writer_client.py:44, writer_service.py:14, runner.py:70).
+      The edge already reaches the core over /v1 here; only the protocol
+      crosses, and a protocol is contract vocabulary.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight
+    direction: edge-to-core
+    symbols: ["CheckpointStatus", "SonarPreflightResult"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      After AG3-242 removed `check_default_profile` from this core module,
+      only `CheckpointStatus` and `SonarPreflightResult` still cross -- the
+      result vocabulary of the checkpoint, not its execution. The installer's
+      own checkpoint already runs over /v1 (`client.validate_third_party`,
+      runner.py `_run_cp10d_sonarqube`). Data, therefore contract package.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.project_management.entities
+    direction: edge-to-core
+    symbols: ["ProjectConfiguration"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `ProjectConfiguration` is data.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.project_management.lifecycle
+    direction: edge-to-core
+    symbols: ["create_project", "update_configuration"]
+    answer: a
+    remedy_owner: AG3-248
+    reason: >-
+      `create_project` and `update_configuration` write canonical project
+      state. The core owns that state (I1/I5); the edge must ask for the act.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.project_management.repository
+    direction: edge-to-core
+    symbols: ["ProjectRepository"]
+    answer: a
+    remedy_owner: AG3-248
+    reason: >-
+      `ProjectRepository` reads and writes canonical project state, which the
+      core owns.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["SkillBundle", "SkillBundleStore", "SkillProfile", "Skills", "assess_bundle_version"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.skills.errors
+    direction: edge-to-core
+    symbols: ["SkillBindingPartialStateError", "SkillBundleNotFoundError"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Exception types. Contract-package vocabulary.
+  - importer: agentkit.backend.installer.runner
+    imported: agentkit.backend.skills.materialize
+    direction: edge-to-core
+    symbols: ["bundle_has_placeholders"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      `bundle_has_placeholders` is a judgement over a core-owned bundle.
+  - importer: agentkit.backend.installer.third_party_light
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["JenkinsConfig", "SonarQubeConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.third_party_light
+    imported: agentkit.backend.control_plane.third_party_models
+    direction: edge-to-core
+    symbols: ["ThirdPartySystemResult", "ThirdPartyValidationRequest", "ThirdPartyValidationResponse"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      The seven third-party validation models are named out of scope by this
+      story: they are the payload of the checkpoint operation, not the
+      operation. Contract package.
+  - importer: agentkit.backend.installer.third_party_light
+    imported: agentkit.backend.installer.integration_checkpoints.ci_preflight
+    direction: edge-to-core
+    symbols: ["check_ci_preconditions"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_light
+    imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight
+    direction: edge-to-core
+    symbols: ["check_sonarqube_preconditions"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_light
+    imported: agentkit.backend.installer.third_party_clients
+    direction: edge-to-core
+    symbols: ["SecretResolver", "ThirdPartyClientFactory"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_preflight
+    imported: agentkit.backend.control_plane.records
+    direction: edge-to-core
+    symbols: ["ControlPlaneOperationRecord"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_preflight
+    imported: agentkit.backend.control_plane.third_party_models
+    direction: edge-to-core
+    symbols: ["BranchPluginSelfTestOperation", "BranchPluginSelfTestRequest", "ThirdPartyValidationRequest", "ThirdPartyValidationResponse"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      The seven third-party validation models are named out of scope by this
+      story: they are the payload of the checkpoint operation, not the
+      operation. Contract package.
+  - importer: agentkit.backend.installer.third_party_preflight
+    imported: agentkit.backend.installer.third_party_clients
+    direction: edge-to-core
+    symbols: ["SecretResolver", "ThirdPartyClientFactory"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_preflight
+    imported: agentkit.backend.state_backend.store.inflight_idempotency_guard
+    direction: edge-to-core
+    symbols: ["AbortedOutcome", "FreshClaim", "IdempotencyRequest", "InFlightOutcome", "InflightIdempotencyGuard", "MismatchOutcome", "ReplayOutcome", "compute_body_hash"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_self_test
+    imported: agentkit.backend.control_plane.third_party_models
+    direction: edge-to-core
+    symbols: ["BranchPluginSelfTestOperation", "BranchPluginSelfTestRequest"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      The seven third-party validation models are named out of scope by this
+      story: they are the payload of the checkpoint operation, not the
+      operation. Contract package.
+  - importer: agentkit.backend.installer.third_party_self_test
+    imported: agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test
+    direction: edge-to-core
+    symbols: ["run_branch_plugin_conformance_self_test"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_self_test
+    imported: agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness
+    direction: edge-to-core
+    symbols: ["JenkinsBranchPluginSelfTestHarness"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.third_party_self_test
+    imported: agentkit.backend.installer.third_party_clients
+    direction: edge-to-core
+    symbols: ["SecretResolver", "ThirdPartyClientFactory"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The importer is core-side code filed under the `installer.` prefix and
+      is therefore classified edge by longest-match-wins. Its own docstring
+      calls it backend-owned, and the core route that hosts it
+      (`control_plane_http.third_party_validation_routes` /
+      `installer_writer_routes`) imports it in the opposite direction. No
+      endpoint is missing -- the module is on the wrong side of the tree.
+      Relocating it to a core-prefixed package removes this crossing and the
+      core-to-edge one with it.
+  - importer: agentkit.backend.installer.upgrade._digest
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ConfigError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.upgrade._skills_surface
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["SkillBundleStore", "Skills"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.upgrade._skills_surface
+    imported: agentkit.backend.state_backend.store.skill_binding_repository
+    direction: edge-to-core
+    symbols: ["StateBackendSkillBindingRepository"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      A canonical-state repository of the skills BC; the edge must reach it
+      over the skills operations, never as a direct store call.
+  - importer: agentkit.backend.installer.upgrade.config_migration
+    imported: agentkit.backend.boundary.filesystem.path_identity
+    direction: edge-to-core
+    symbols: ["is_filesystem_link"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Link identity is decided against the local filesystem; the edge gets
+      its own copy, as for the parent package.
+  - importer: agentkit.backend.installer.upgrade.config_migration
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ConfigError", "InstallationError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.upgrade.config_migration
+    imported: agentkit.backend.utils.io
+    direction: edge-to-core
+    symbols: ["assert_atomic_write_target"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Atomic write and directory helpers the edge executes against its own
+      disk. Named out of scope by this story: a network call for `ensure_dir`
+      would be plainly wrong. The edge gets its own copy.
+  - importer: agentkit.backend.installer.upgrade.engine
+    imported: agentkit.backend.boundary.filesystem
+    direction: edge-to-core
+    symbols: ["assert_project_local_file_path"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Filesystem containment primitives the edge must execute locally on the
+      developer machine. A network call for `assert_project_local_file_path`
+      would buy latency and a failure path for a decision that is local by
+      nature (FK-01 section 1.2.3). The edge gets its own copy.
+  - importer: agentkit.backend.installer.upgrade.engine
+    imported: agentkit.backend.process.language.model
+    direction: edge-to-core
+    symbols: ["EdgeRule", "FlowDefinition", "FlowLevel", "NodeDefinition", "NodeKind"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `FlowDefinition`, `NodeDefinition`, `EdgeRule`, `FlowLevel` and
+      `NodeKind` are the Flow-DSL vocabulary -- Pydantic models and enums, no
+      behaviour. The checkpoint engine and the upgrade engine declare their
+      flows in it. Data, therefore contract package, not an endpoint.
+  - importer: agentkit.backend.installer.upgrade.engine
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["Skills", "assess_bundle_version"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.upgrade.entry
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.upgrade.entry
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["Skills"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.upgrade.footprint
+    imported: agentkit.backend.config.loader
+    direction: edge-to-core
+    symbols: ["load_project_config"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Project config parsing runs against a file on the developer machine.
+      The parser travels with the edge; the file never crosses.
+  - importer: agentkit.backend.installer.upgrade.footprint
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ConfigError", "InstallationError", "ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.upgrade.footprint
+    imported: agentkit.backend.prompt_runtime.resources
+    direction: edge-to-core
+    symbols: ["resolve_project_prompt_binding"]
+    answer: a
+    remedy_owner: AG3-247
+    reason: >-
+      Prompt binding resolution is a core judgement over core-owned bundles.
+  - importer: agentkit.backend.installer.upgrade.footprint
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["Skills"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.upgrade.footprint
+    imported: agentkit.backend.skills.errors
+    direction: edge-to-core
+    symbols: ["SkillBindingFailedError"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Exception types. Contract-package vocabulary.
+  - importer: agentkit.backend.installer.upgrade.hook_migration
+    imported: agentkit.backend.governance.hook_registration
+    direction: edge-to-core
+    symbols: ["RegistrationResult"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `HookId` and `RegistrationResult` are data. AG3-239 already moved
+      `HookDefinition` and `HookEventName` from this module into
+      `agentkit_wire`; these two follow the same route.
+  - importer: agentkit.backend.installer.upgrade.upgrade_flow
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["Skills"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.vectordb_preflight
+    imported: agentkit.backend.config.models
+    direction: edge-to-core
+    symbols: ["ProjectConfig"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Pydantic configuration models. Data, named out of scope by this story
+      and owned by the contract package.
+  - importer: agentkit.backend.installer.vectordb_preflight
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ProjectError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.boundary.filesystem
+    direction: edge-to-core
+    symbols: ["assert_project_local_file_path"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      Filesystem containment primitives the edge must execute locally on the
+      developer machine. A network call for `assert_project_local_file_path`
+      would buy latency and a failure path for a decision that is local by
+      nature (FK-01 section 1.2.3). The edge gets its own copy.
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.exceptions
+    direction: edge-to-core
+    symbols: ["ControlPlaneApiError"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The cross-BC exception god-module (132 direct importers repo-wide). Its
+      split into per-BC exception modules is tracked separately; no endpoint
+      can carry an exception class.
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.governance.errors
+    direction: edge-to-core
+    symbols: ["HookRegistrationError"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      Exception type. Contract-package vocabulary.
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.governance.hook_registration
+    direction: edge-to-core
+    symbols: ["RegistrationResult"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `HookId` and `RegistrationResult` are data. AG3-239 already moved
+      `HookDefinition` and `HookEventName` from this module into
+      `agentkit_wire`; these two follow the same route.
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.governance.repository
+    direction: edge-to-core
+    symbols: ["HookRegistrationRepository"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `HookRegistrationRepository` is imported under TYPE_CHECKING only, as
+      the protocol the edge's REST-backed `WriterHookRegistrationRepository`
+      satisfies (writer_client.py:44, writer_service.py:14, runner.py:70).
+      The edge already reaches the core over /v1 here; only the protocol
+      crosses, and a protocol is contract vocabulary.
+  - importer: agentkit.backend.installer.writer_client
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["SkillBinding"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.installer.writer_service
+    imported: agentkit.backend.governance.hook_registration
+    direction: edge-to-core
+    symbols: ["RegistrationResult"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `HookId` and `RegistrationResult` are data. AG3-239 already moved
+      `HookDefinition` and `HookEventName` from this module into
+      `agentkit_wire`; these two follow the same route.
+  - importer: agentkit.backend.installer.writer_service
+    imported: agentkit.backend.governance.repository
+    direction: edge-to-core
+    symbols: ["HookRegistrationRepository"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `HookRegistrationRepository` is imported under TYPE_CHECKING only, as
+      the protocol the edge's REST-backed `WriterHookRegistrationRepository`
+      satisfies (writer_client.py:44, writer_service.py:14, runner.py:70).
+      The edge already reaches the core over /v1 here; only the protocol
+      crosses, and a protocol is contract vocabulary.
+  - importer: agentkit.backend.installer.writer_service
+    imported: agentkit.backend.project_management.repository
+    direction: edge-to-core
+    symbols: ["ProjectRepository"]
+    answer: a
+    remedy_owner: AG3-248
+    reason: >-
+      `ProjectRepository` reads and writes canonical project state, which the
+      core owns.
+  - importer: agentkit.backend.installer.writer_service
+    imported: agentkit.backend.skills
+    direction: edge-to-core
+    symbols: ["SkillBinding", "SkillBindingRepository"]
+    answer: a
+    remedy_owner: AG3-243
+    reason: >-
+      Skill bundle store, profile and version assessment are core-owned
+      behaviour over core-owned bundles; the installer consumes the public
+      surface of a foreign BC.
+  - importer: agentkit.backend.process.language.definitions
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.prompt_runtime.composer
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["prompt_instance_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.prompt_runtime.pins
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["prompt_run_pin_path"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.prompt_runtime.resources
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["prompt_bundle_store_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.prompt_runtime.runtime
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["prompt_bundle_lock_path", "prompt_bundle_store_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.skills.top
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["materialized_skill_variant_store_root"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.state_backend.store.exploration_change_frame_repository
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["resolve_qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.state_backend.store.exploration_worker_runner
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["resolve_qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.state_backend.store.project_registration_repository
+    imported: agentkit.backend.installer.registration
+    direction: core-to-edge
+    symbols: ["ProjectRegistration", "RuntimeProfile"]
+    answer: b
+    remedy_owner: AG3-237
+    reason: >-
+      `ProjectRegistration`, `RuntimeProfile` and `CheckpointStatus` are data
+      read by core routes and the core registration repository.
+  - importer: agentkit.backend.verify_system.qa_cycle.invalidation
+    imported: agentkit.backend.installer.paths
+    direction: core-to-edge
+    symbols: ["QA_DIR", "resolve_qa_story_dir"]
+    answer: b
+    remedy_owner: AG3-209
+    reason: >-
+      The workspace path layout (story, QA, prompt-instance, prompt-bundle,
+      materialized-skill directories) is core-owned truth. It sits in the
+      edge installer only because the installer was its first writer. 21 of
+      the 35 core-to-edge crossings of this BC are this one module, and they
+      are the reason a core process cannot start without the installer
+      package (AG3-209 AC 6). The module moves to the core; no endpoint -- a
+      path layout is not an operation.
+  - importer: agentkit.backend.installer.integration_checkpoints
+    imported: agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test
+    direction: edge-to-core
+    symbols: ["ScannerHarness", "SelfTestScan", "run_branch_plugin_conformance_self_test"]
+    answer: c
+    resolved: true
+    remedy_owner: AG3-242
+    reason: >-
+      The package __init__ re-exported five modules that the classification
+      calls core, while the package itself resolves to edge. Every crossing
+      existed only because the facade existed: the sole importers were three
+      test modules. CLAUDE.md forbids re-export facades outright. Removed;
+      importers now name the checkpoint module they use.
+  - importer: agentkit.backend.installer.integration_checkpoints
+    imported: agentkit.backend.installer.integration_checkpoints.ci_preflight
+    direction: edge-to-core
+    symbols: ["CiPreflightResult", "check_ci_preconditions"]
+    answer: c
+    resolved: true
+    remedy_owner: AG3-242
+    reason: >-
+      The package __init__ re-exported five modules that the classification
+      calls core, while the package itself resolves to edge. Every crossing
+      existed only because the facade existed: the sole importers were three
+      test modules. CLAUDE.md forbids re-export facades outright. Removed;
+      importers now name the checkpoint module they use.
+  - importer: agentkit.backend.installer.integration_checkpoints
+    imported: agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness
+    direction: edge-to-core
+    symbols: ["JenkinsBranchPluginSelfTestHarness"]
+    answer: c
+    resolved: true
+    remedy_owner: AG3-242
+    reason: >-
+      The package __init__ re-exported five modules that the classification
+      calls core, while the package itself resolves to edge. Every crossing
+      existed only because the facade existed: the sole importers were three
+      test modules. CLAUDE.md forbids re-export facades outright. Removed;
+      importers now name the checkpoint module they use.
+  - importer: agentkit.backend.installer.integration_checkpoints
+    imported: agentkit.backend.installer.integration_checkpoints.scanner_harness
+    direction: edge-to-core
+    symbols: ["ScanRunner", "SonarClientScannerHarness"]
+    answer: c
+    resolved: true
+    remedy_owner: AG3-242
+    reason: >-
+      The package __init__ re-exported five modules that the classification
+      calls core, while the package itself resolves to edge. Every crossing
+      existed only because the facade existed: the sole importers were three
+      test modules. CLAUDE.md forbids re-export facades outright. Removed;
+      importers now name the checkpoint module they use.
+  - importer: agentkit.backend.installer.integration_checkpoints
+    imported: agentkit.backend.installer.integration_checkpoints.sonar_preflight
+    direction: edge-to-core
+    symbols: ["SonarPreflightResult", "check_sonarqube_preconditions"]
+    answer: c
+    resolved: true
+    remedy_owner: AG3-242
+    reason: >-
+      The package __init__ re-exported five modules that the classification
+      calls core, while the package itself resolves to edge. Every crossing
+      existed only because the facade existed: the sole importers were three
+      test modules. CLAUDE.md forbids re-export facades outright. Removed;
+      importers now name the checkpoint module they use.

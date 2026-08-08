@@ -1504,15 +1504,21 @@ def _run_cp10d_sonarqube(
     from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
         CheckpointStatus,
         SonarPreflightResult,
-        check_default_profile,
+    )
+    from agentkit.backend.installer.sonar_local_profile import (
+        DEFAULT_PROFILE_MISSING,
+        missing_default_profile,
     )
 
     pipeline = yaml_data.get("pipeline")
     sonar_stanza = pipeline.get("sonarqube") if isinstance(pipeline, dict) else None
     if isinstance(sonar_stanza, dict) and bool(sonar_stanza.get("available", True)):
-        local_failure = check_default_profile(SonarQubeConfig.model_validate(sonar_stanza), root)
-        if local_failure is not None:
-            raise _third_party_installation_error(local_failure.reason, local_failure.details)
+        local_detail = missing_default_profile(
+            root,
+            SonarQubeConfig.model_validate(sonar_stanza).quality_gate.default_profile,
+        )
+        if local_detail is not None:
+            raise _third_party_installation_error(DEFAULT_PROFILE_MISSING, (local_detail,))
 
     request = _third_party_validation_request(config, yaml_data)
     try:

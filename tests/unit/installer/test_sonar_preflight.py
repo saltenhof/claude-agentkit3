@@ -12,14 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agentkit.backend.config.models import SonarQubeConfig
-from agentkit.backend.installer.integration_checkpoints import (
-    check_sonarqube_preconditions,
-)
 from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
     ADMINISTER_ISSUES,
     CheckpointStatus,
     SonarPreflightResult,
-    check_default_profile,
+    check_sonarqube_preconditions,
 )
 from agentkit.integration_clients.sonar import SonarApiError, SonarHttpResponse
 
@@ -114,19 +111,6 @@ class TestApplicableFailClosed:
     ) -> None:
         result = _check(_profile(tmp_path))
         assert result.status == CheckpointStatus.PASS
-
-    def test_missing_default_profile_fails(self, tmp_path: Path) -> None:
-        config = SonarQubeConfig(
-            available=True,
-            enabled=True,
-            base_url="http://sonar:9901",
-            token_env="SONARQUBE_TOKEN",
-            scanner_version="5.0.1",
-        )
-        result = check_default_profile(config, tmp_path)
-        assert result is not None
-        assert result.status == CheckpointStatus.FAILED
-        assert result.reason == "default_profile_missing"
 
     def test_missing_dependency_when_applicable_fails(self, tmp_path: Path) -> None:
         result = _check(_profile(tmp_path), client=None)
