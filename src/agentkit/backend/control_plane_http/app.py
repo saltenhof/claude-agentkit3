@@ -1098,7 +1098,7 @@ class ControlPlaneApplication(
             )
 
         # Grounded BC POST routes (kpi_analytics, task_management):
-        verify_post = self._dispatch_verify_system_post(
+        verify_post = self._verify_system_routes.dispatch_post(
             route_path,
             payload,
             correlation_id,
@@ -1201,33 +1201,6 @@ class ControlPlaneApplication(
                     message=_NOT_FOUND_MESSAGE,
                     correlation_id=correlation_id,
                 )
-        return None
-
-    def _dispatch_verify_system_post(
-        self,
-        route_path: str,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse | None:
-        """Dispatch POST to the verify-system surface (AG3-241, FK-91 §91.1a)."""
-        conflict_match = _route_patterns._PROJECT_STORY_CONFLICT_ASSESSMENTS.match(
-            route_path
-        )
-        if conflict_match is not None:
-            return self._verify_system_routes.handle_story_conflict_assessment(
-                project_key=conflict_match.group("project_key"),
-                payload=payload,
-                correlation_id=correlation_id,
-            )
-        evidence_match = _route_patterns._PROJECT_VERIFY_EVIDENCE_ASSEMBLIES.match(
-            route_path
-        )
-        if evidence_match is not None:
-            return self._verify_system_routes.handle_evidence_assembly(
-                project_key=evidence_match.group("project_key"),
-                payload=payload,
-                correlation_id=correlation_id,
-            )
         return None
 
     def _dispatch_new_bc_post(

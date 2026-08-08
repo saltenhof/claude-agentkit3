@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
+from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.responses import (
     HttpResponse,
     _error_response,
@@ -86,6 +87,40 @@ class VerifySystemRoutes:
                 BC's port (this module never reads the state backend itself).
         """
         self._project_root_lookup = project_root_lookup or _default_project_root_lookup()
+
+    def dispatch_post(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        """Dispatch a POST to this surface, or return ``None`` when unmatched.
+
+        Lives here rather than on ``ControlPlaneApplication``: it dispatches to
+        this class's own handlers, and every bounded context that hangs routes
+        on the application would otherwise grow that class past its size budget
+        (Sonar PY_CLASS_MAX_LOC_800). AG3-239 already moved the hook-mediation
+        dispatcher for the same reason.
+        """
+        conflict_match = _route_patterns._PROJECT_STORY_CONFLICT_ASSESSMENTS.match(
+            route_path
+        )
+        if conflict_match is not None:
+            return self.handle_story_conflict_assessment(
+                project_key=conflict_match.group("project_key"),
+                payload=payload,
+                correlation_id=correlation_id,
+            )
+        evidence_match = _route_patterns._PROJECT_VERIFY_EVIDENCE_ASSEMBLIES.match(
+            route_path
+        )
+        if evidence_match is not None:
+            return self.handle_evidence_assembly(
+                project_key=evidence_match.group("project_key"),
+                payload=payload,
+                correlation_id=correlation_id,
+            )
+        return None
 
     def handle_story_conflict_assessment(
         self,
@@ -190,7 +225,10 @@ class VerifySystemRoutes:
         story_dir = resolve_story_dir(project_root, request.story_id)
         try:
             response = assemble_evidence_bundle(request, story_dir=story_dir)
-        except (EvidenceAssemblyError, ValidationError, ValueError) as exc:
+        # `ValidationError` derives from `ValueError`, so naming both would catch
+        # the same thing twice (Sonar S5713). `EvidenceAssemblyError` derives
+        # from `RuntimeError` and is therefore listed separately.
+        except (EvidenceAssemblyError, ValueError) as exc:
             # The checkpoint itself cannot produce a bundle -- a caller defect,
             # not an outage. 422 keeps it distinct from a malformed body (400)
             # and from an unavailable core (503).
