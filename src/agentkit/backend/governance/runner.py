@@ -1443,10 +1443,6 @@ def _run_capability_enforcement(
         PathClassifier,
         PrincipalResolver,
     )
-    from agentkit.backend.state_backend.store.freeze_repository import (
-        LocalFreezeJsonExport,
-    )
-
     # FK-01 §1.2.3: "Ein Tool-Call muss lokal und in Millisekunden entschieden
     # werden; ein Netz-Roundtrip pro Werkzeugaufruf ist kein zulaessiges
     # Design." The adjudication therefore runs HERE, in the hook process, and
@@ -1470,20 +1466,18 @@ def _run_capability_enforcement(
     # psycopg noch ein Postgres-Repository erreichbar"). Constructing
     # ``FreezeRepository(project_root)`` here, as the pre-AG3-239 code did, put
     # a database in the short-lived hook process; that is gone.
-    enforcement = CapabilityEnforcement(
-        principal_resolver=PrincipalResolver(),
-        path_classifier=PathClassifier(),
-        op_classifier=OperationClassifier(),
-        matrix=CapabilityMatrix(),
-        freeze=ConflictFreezeOverlay(
-            local_export=LocalFreezeJsonExport(project_root),
-        ),
-    )
     # FK-55 §55.10.3 step 2: derive execution_mode (and the story binding) from
     # the LOCAL lock/run exports — NOT from operation_args (AG3-032 ERROR C). The
     # ProjectEdgeResolver is the single local source of both the operating mode
     # and the story_scope_binding (same source as guard_evaluation).
     context = _resolve_capability_context(event, project_root=project_root)
+    enforcement = CapabilityEnforcement(
+        principal_resolver=PrincipalResolver(),
+        path_classifier=PathClassifier(),
+        op_classifier=OperationClassifier(),
+        matrix=CapabilityMatrix(),
+        freeze=ConflictFreezeOverlay(_BundleFreezeState(context)),
+    )
     try:
         result = enforcement.evaluate(
             event,
@@ -1514,7 +1508,80 @@ def _run_capability_enforcement(
         # three mode buckets (FK-55 §55.10.2 / §55.6.1 mode-specific): a binding-
         # invalid edge must fail-closed here too — it must not defer to the harness.
         return _resolve_mode_scoped_block(context, _capability_block(result.verdict))
+    if context.block_reason in _FREEZE_FAMILY_BLOCK_REASONS:
+        # AG3-239 round 4 — FAIL-CLOSED HOLE, closed here. An ALLOW outcome used
+        # to return ``None`` and let the tool run, because the execution mode was
+        # only consulted for UNKNOWN_PERMISSION / UNRESOLVED. A missing or
+        # unreadable freeze projection resolves to
+        # ``block_reason="freeze_state_unreadable"``, so that was the path by
+        # which a LOST freeze context could still permit a matrix-allowed
+        # mutation -- exactly what FK-55 §55.10.5 forbids ("stale or missing →
+        # blocked").
+        #
+        # Deliberately narrowed to the FREEZE family. The other
+        # ``binding_invalid`` reasons (``session_binding_mismatch``,
+        # ``inactive_story_execution_lock``, ``worktree_root_mismatch``) carry
+        # their own established semantics and their own tests -- a bundle
+        # published for somebody ELSE'S session must not block this principal.
+        return _binding_invalid_block(context.block_reason)
     return None
+
+
+#: Block reasons the CORE-PUBLISHED freeze projection can produce
+#: (``projectedge.runtime._blocking_freeze_reason``). Any of them means the
+#: freeze context is active, stale or unreadable -- all three block, including a
+#: matrix-ALLOWED operation (FK-55 §55.10.5).
+_FREEZE_FAMILY_BLOCK_REASONS = frozenset(
+    {
+        "freeze_state_unreadable",
+        "conflict_freeze",
+        "split_admin_freeze",
+        "reconcile_repair",
+        "contested_local_writes",
+        "remote_branch_diverged_after_takeover",
+        "local_stale_or_dirty_takeover_target",
+    }
+)
+
+
+class _BundleFreezeState:
+    """Freeze state read from the CORE-PUBLISHED edge bundle (AG3-239 round 4).
+
+    Satisfies the read half of
+    ``principal_capabilities.freeze.FreezeStore`` without any I/O: the freeze
+    projection has already been resolved by ``ProjectEdgeResolver`` when the
+    capability context was built, so this only re-presents it.
+
+    **Why this replaced ``LocalFreezeJsonExport`` here.** The overlay used to
+    consult ``.agentkit/governance/freeze.json`` directly, and that consultation
+    was **fail-open**: an absent file read as "not frozen"
+    (``freeze.py`` ``_local_state`` maps absence, a foreign ``story_id`` and a
+    missing/non-integer ``freeze_version`` all to ``None``). File ABSENCE cannot
+    distinguish "no freeze is active" from "an active freeze was never
+    materialised or has been lost", and FK-55 §55.10.5 requires the second case
+    to block.
+
+    The edge bundle carries the explicit state instead: ``active_freezes`` is a
+    core-published, validated list, and ``active_freezes_readable`` is an
+    explicit flag. ``ProjectEdgeResolver`` already fails closed on it --
+    unreadable becomes ``block_reason="freeze_state_unreadable"`` and the mode
+    becomes ``binding_invalid`` -- so absence no longer decides anything and
+    there is only ONE freeze truth on the edge instead of two.
+
+    It also takes the last database module out of the hook dispatcher: nothing
+    here imports ``state_backend``.
+    """
+
+    __slots__ = ("_context",)
+
+    def __init__(self, context: _CapabilityContext) -> None:
+        self._context = context
+
+    def read_freeze(self, story_id: str) -> object | None:
+        """Return a freeze marker when the published bundle names one."""
+        if not story_id or story_id != self._context.story_id:
+            return None
+        return self._context.active_freeze_marker
 
 
 def _resolve_mode_scoped_block(
@@ -1575,6 +1642,15 @@ class _CapabilityContext:
     block_reason: str | None = None
     binding_revocation_reason: str | None = None
     new_owner_ref: str | None = None
+    #: The CORE-PUBLISHED freeze projection for this story, or ``None`` when the
+    #: bundle explicitly says no freeze is active. AG3-239 round 4: this is the
+    #: single freeze truth on the edge. It replaces a second, weaker one -- the
+    #: capability overlay used to read ``.agentkit/governance/freeze.json``
+    #: directly, where an ABSENT file read as "not frozen". Absence cannot tell
+    #: "no freeze" from "freeze lost or never materialised", and FK-55 §55.10.5
+    #: requires the second case to block. ``ProjectEdgeResolver`` fails closed on
+    #: an unreadable projection before this field is ever populated.
+    active_freeze_marker: object | None = None
 
     @property
     def is_story_execution(self) -> bool:
@@ -1636,6 +1712,7 @@ def _resolve_capability_context(
         and event.session_id is not None
         and session.session_id == event.session_id
     )
+    active_freezes = resolved.bundle.active_freezes
     return _CapabilityContext(
         execution_mode=resolved.operating_mode,
         project_key=session.project_key,
@@ -1643,6 +1720,7 @@ def _resolve_capability_context(
         run_id=session.run_id,
         scope_roots=list(session.worktree_roots),
         block_reason=resolved.block_reason,
+        active_freeze_marker=active_freezes[0] if active_freezes else None,
         binding_revocation_reason=(
             resolved.block_reason if revoked_session_matches_event else None
         ),

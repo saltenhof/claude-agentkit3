@@ -30,12 +30,12 @@ from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.config.loader import load_project_config
 from agentkit.backend.core_types import PauseReason
+from agentkit.backend.core_types.project_layout import story_dir
 from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.governance.setup_preflight_gate.context_builder import (
     build_story_context,
 )
 from agentkit.backend.governance.setup_preflight_gate.preflight import run_preflight
-from agentkit.backend.installer.paths import story_dir
 from agentkit.backend.pipeline_engine.lifecycle import HandlerResult
 from agentkit.backend.pipeline_engine.phase_executor import (
     AreBundleSignal,

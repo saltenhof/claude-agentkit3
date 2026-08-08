@@ -284,6 +284,60 @@ identischer Aufrufargument-Rolle, Gesamtzahl unveraendert 1.
 Genau die Luecke, die der Reviewer benannt hat, und der Beweis zeigt, dass der
 neue Teil sie schliesst und nicht bloss den alten dupliziert.
 
+## 6e. Nachtrag Review-Runde 3 — der Freeze war fail-open, und ich hatte ihn so gemacht
+
+Runde 3 verdrahtete die Capability-Overlay auf `LocalFreezeJsonExport`. **Das war
+fail-open.** Bei `store=None` liefert `is_frozen` schlicht `local is not None`,
+und `_local_state` bildet Abwesenheit, fremde `story_id` und fehlende oder
+nicht-ganzzahlige `freeze_version` **alle** auf `None` ab. Nur unlesbares JSON
+warf.
+
+**Dateiabwesenheit kann nicht zwischen „kein Freeze aktiv" und „aktiver Freeze
+nie materialisiert oder verloren" unterscheiden** — und FK-55 §55.10.5 verlangt
+fuer den zweiten Fall Blockade.
+
+**Der explizite Zustand, den FK-01 §1.2.3 beschreibt, existierte bereits.** Das
+Edge-Bundle traegt `active_freezes` **und** das Flag `active_freezes_readable`;
+`ProjectEdgeResolver` faellt darauf fail-closed
+(`_load_freeze_projection` liefert bei fehlender wie bei kaputter Datei
+`([], False)` → `block_reason="freeze_state_unreadable"`). Die Datei
+`.agentkit/governance/freeze.json` war damit eine **zweite, schwaechere
+Freeze-Wahrheit** neben der kern-publizierten.
+
+Behoben: Die Overlay liest jetzt den publizierten Bundle-Zustand
+(`_BundleFreezeState`), nicht mehr die Datei. Es gibt genau **eine** Freeze-
+Wahrheit auf dem Edge, und Abwesenheit entscheidet nichts mehr. Nebenwirkung:
+`state_backend` ist damit vollstaendig aus dem Hook-Dispatcher verschwunden.
+
+**Dabei ein zweiter, aelterer Fail-open gefunden und geschlossen.** Eine
+matrix-ALLOWED Operation kehrte mit `None` zurueck, auch wenn der Modus
+`binding_invalid` war — die Modus-Buckets wurden nur fuer UNKNOWN_PERMISSION und
+UNRESOLVED konsultiert. Ein verlorener Freeze-Kontext (`freeze_state_unreadable`)
+konnte auf diesem Weg eine erlaubte Mutation durchlassen. Die Sperre ist
+**bewusst auf die Freeze-Familie eingegrenzt**: `session_binding_mismatch`,
+`inactive_story_execution_lock` und `worktree_root_mismatch` behalten ihre
+etablierte, separat getestete Semantik — ein Bundle fuer eine FREMDE Session
+darf diesen Prinzipal nicht blockieren.
+
+**Interface-Segregation als Modellfix.** mypy wies den Bundle-Adapter zurueck,
+weil `FreezeStore` Schreibmethoden verlangt. Statt Attrappen zu bauen ist das
+Protokoll geteilt: `FreezeReader` (lesen) und `FreezeStore` (lesen + schreiben).
+Der Hook-Prozess bekommt nur die Lese-Haelfte — er darf einen Freeze nie
+aktivieren oder loesen —, und Aktivierung/Release pruefen die Schreibfaehigkeit
+explizit und fail-closed.
+
+**`/v1/governance/guard-decisions` — bewusst NICHT gebaut.** Beide Bedingungen
+(nicht blockierend, kein stiller Verlust) sind gleichzeitig erfuellbar; der Grund
+ist ein anderer. Der **Erzeuger** ist nicht verdrahtet: `GuardRunner` hat den
+typisierten Sink, aber `guard_evaluation.py:114` injiziert ihn nicht, und
+niemand sonst tut es. Ein Endpunkt haette nichts zu empfangen. Die einzige
+korrekte Edge-Senke ist ein lokaler Spool, und ein Spool ohne Drain ist der
+halbfertige Uebergang, den ZERO DEBT verbietet — beide Haelften gehoeren in einen
+Schnitt. Und die Dauerhaftigkeitszusage (audit-before-act oder danach? Was gilt
+bei Rechnerausfall vor der Uebertragung?) ist eine normative Frage, die den
+Mechanismus bestimmt und nicht erfunden werden darf. Vollstaendige Bauliste und
+Owner-Vorschlag stehen im Story-Record.
+
 ## 7. Betroffenheitsmatrix
 
 | Dokument / Artefakt | Betroffen | Aenderung |
@@ -302,3 +356,5 @@ neue Teil sie schliesst und nicht bloss den alten dupliziert.
 | FK-01 §1.2.3 | nein, angewandt | traegt den Rueckbau des Endpunkts |
 | FK-76 §76.5 | ja, bestaetigt | FK-30 beanspruchte die Settings-Schemas mit; alleiniger Owner ist FK-76 |
 | `scripts/ci/check_interpreter_entrypoints.py` | ja | struktureller Locator statt blosser Anzahl |
+| FK-55 §55.10.5 | nein, angewandt | traegt den Freeze-Fail-open-Fix |
+| `core_types/project_layout.py` | ja, neu | kern-eigene Story-Pfad-Aufloesung (Kopiermuster FK-10/AG3-209) |

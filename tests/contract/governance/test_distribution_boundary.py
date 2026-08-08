@@ -26,6 +26,7 @@ _INIT = _GOVERNANCE / "__init__.py"
 #: not name any of them -- naming one is how a database reaches the laptop.
 _CANONICAL_REPOSITORIES = frozenset(
     {
+        "FreezeRepository",
         "HookRegistrationRepository",
         "LockRecordRepository",
         "StateBackendHookRegistrationRepository",
@@ -99,3 +100,30 @@ class TestPackageRootIsNotAFacade:
 
     def test_root_does_not_reexport_the_administration_surface(self) -> None:
         assert "Governance" not in _imported_names(_INIT)
+
+
+@pytest.mark.contract
+class TestDuplicatedLayoutConstantsDoNotDrift:
+    """The two copies of the project layout must stay byte-identical.
+
+    ``core_types.project_layout`` and ``installer.paths`` hold the same layout
+    knowledge on the two machines (AG3-239 / FK-10 copy-set pattern). Duplication
+    is the deliberate answer to "a path helper has no wire home"; silent drift
+    between the copies is not, and it would be invisible until a story directory
+    resolved to two different places.
+    """
+
+    def test_stories_dir_matches_the_edge_copy(self) -> None:
+        import agentkit.backend.core_types.project_layout as core_layout
+        import agentkit.backend.installer.paths as edge_layout
+
+        assert core_layout.STORIES_DIR == edge_layout.STORIES_DIR
+
+    def test_story_dir_resolves_identically(self) -> None:
+        from pathlib import Path
+
+        from agentkit.backend.core_types.project_layout import story_dir as core_story_dir
+        from agentkit.backend.installer.paths import story_dir as edge_story_dir
+
+        root = Path("/tmp/project")
+        assert core_story_dir(root, "AG3-239") == edge_story_dir(root, "AG3-239")

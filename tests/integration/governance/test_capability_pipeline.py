@@ -276,8 +276,16 @@ def test_foreign_revoked_bundle_does_not_apply_disowned_overlay(
 
 
 def _write_corrupt_freeze_export(project_root: Path) -> None:
-    """Write a corrupt local freeze.json export (invalid JSON) under project_root."""
-    export = project_root / ".agentkit" / "governance" / "freeze.json"
+    """Corrupt the CORE-PUBLISHED freeze projection inside the edge bundle.
+
+    AG3-239 round 4: the capability layer no longer reads
+    ``.agentkit/governance/freeze.json``. That file was a second freeze truth
+    whose ABSENCE meant "not frozen" -- fail-open, because absence cannot tell
+    "no freeze" from "freeze lost". The single truth is the projection the core
+    publishes into the edge bundle, and it carries an explicit
+    ``state_readable`` flag, so an unreadable projection blocks by construction.
+    """
+    export = project_root / "_temp" / "governance" / "bundles" / "edge-001" / "freeze.json"
     export.parent.mkdir(parents=True, exist_ok=True)
     export.write_text("{ this is not valid json ", encoding="utf-8")
 
@@ -317,11 +325,12 @@ def test_corrupt_freeze_export_blocks_not_raises(
     assert verdict.allowed is False
     assert verdict.guard_name == "principal_capability"
     assert verdict.detail is not None
-    # AG3-239 round 3: the CONCRETE fault class is asserted again. Routing the
-    # adjudication through a wire response had replaced every fault with a
-    # generic ``RuntimeError``; evaluating locally keeps the original exception,
-    # so the audit trail names what actually broke.
-    assert verdict.detail.get("fault_class") == "FreezePersistenceError"
+    # AG3-239 round 4: the block is now NAMED rather than inferred from an
+    # exception class. The unreadable projection is the CORE-PUBLISHED one, and
+    # the resolver states the reason explicitly -- which is strictly more
+    # informative than "something threw FreezePersistenceError".
+    assert verdict.detail.get("block_reason") == "freeze_state_unreadable"
+    assert verdict.detail.get("operating_mode") == "binding_invalid"
 
 
 def test_hook_adjudicates_without_reaching_any_state_backend(
@@ -329,22 +338,12 @@ def test_hook_adjudicates_without_reaching_any_state_backend(
 ) -> None:
     """The hook process holds no database, so a dead backend cannot reach it.
 
-    AG3-239 round 3 replaced ``test_freeze_repository_backend_fault_blocks_not_raises``.
-    That test disabled the state backend and asserted the resulting
-    ``RuntimeError`` became a fail-closed block -- a correct assertion about
-    code that constructed ``FreezeRepository(project_root)`` INSIDE the
-    short-lived hook process. AG3-209 AC 3 forbids exactly that ("aus dem
-    Hook-Prozess ist weder psycopg noch ein Postgres-Repository erreichbar"),
-    and FK-01 §1.2.3 forbids replacing it with a network roundtrip per tool
-    call. The freeze is therefore consulted through the LOCAL export only.
-
-    So the premise is gone by design, and the stronger claim is asserted here:
-    with the state backend unusable the hook still decides, because it never
-    asked one.
+    AG3-209 AC 3 forbids a repository in the short-lived hook process, and
+    FK-01 §1.2.3 forbids replacing it with a network roundtrip per tool call.
+    The freeze is therefore read from the CORE-PUBLISHED edge-bundle projection.
     """
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
-    # Make ANY state-backend access fail hard.
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.delenv("AGENTKIT_ALLOW_SQLITE", raising=False)
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
@@ -360,7 +359,6 @@ def test_hook_adjudicates_without_reaching_any_state_backend(
             "operation_args": {"file_path": f"{worktree}/src/module.py"},
         }
     )
-    # Must not raise and must not fault: no freeze export exists, no freeze.
     verdict = run_hook("ccag_gatekeeper", event, phase="pre", project_root=tmp_path)
     assert verdict.detail is None or verdict.detail.get("fault_class") is None, (
         "a dead state backend must be unreachable from the hook, not a fault "
@@ -368,11 +366,18 @@ def test_hook_adjudicates_without_reaching_any_state_backend(
     )
 
 
-def test_hook_capability_path_constructs_no_freeze_repository() -> None:
-    """Pin the absence structurally, not only behaviourally.
+def test_hook_dispatcher_imports_no_state_backend_module() -> None:
+    """Pin the MODULE boundary, not just a symbol name (AG3-239 round 4).
 
-    A behavioural test can pass while the repository is constructed and merely
-    happens not to fault. The dispatcher must not NAME it at all.
+    The earlier version of this test asserted only that the name
+    ``FreezeRepository`` was absent from the dispatcher's AST. That proved less
+    than it promised: ``runner.py`` still imported the core-classified module
+    ``state_backend.store.freeze_repository``, which defines ``FreezeRepository``
+    alongside ``LocalFreezeJsonExport`` and reaches Postgres. "Not imported by
+    name" is not "unreachable from the hook process".
+
+    The claim now matches the proof: the dispatcher imports NO ``state_backend``
+    module at all.
     """
     import ast
     import inspect
@@ -380,17 +385,53 @@ def test_hook_capability_path_constructs_no_freeze_repository() -> None:
     from agentkit.backend.governance import runner as runner_module
 
     tree = ast.parse(inspect.getsource(runner_module))
-    named = {
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+        elif isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+    leaked = sorted(m for m in modules if "state_backend" in m)
+    assert leaked == [], (
+        f"the hook dispatcher imports state_backend modules {leaked}. Every one "
+        "of them can reach a database from the short-lived hook process "
+        "(AG3-209 AC 3). The freeze comes from the core-published edge-bundle "
+        "projection instead."
+    )
+
+
+def test_absent_freeze_file_does_not_decide_anything() -> None:
+    """Freeze absence must not be readable as "not frozen" (AG3-239 round 4).
+
+    The regression this pins: the capability overlay used to consult
+    ``.agentkit/governance/freeze.json`` directly, and an ABSENT file read as
+    "no freeze". File absence cannot distinguish "no freeze is active" from "an
+    active freeze was never materialised or has been lost", and FK-55 §55.10.5
+    requires the second case to BLOCK. The overlay is now driven by the
+    core-published projection, which states the answer explicitly.
+    """
+    import ast
+    import inspect
+
+    from agentkit.backend.governance import runner as runner_module
+
+    tree = ast.parse(inspect.getsource(runner_module))
+    imported = {
         alias.name
         for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
+        if isinstance(node, ast.Import | ast.ImportFrom)
         for alias in node.names
     }
-    assert "FreezeRepository" not in named, (
-        "the hook dispatcher imports FreezeRepository -- that puts a database "
-        "in the short-lived hook process (AG3-209 AC 3). The freeze is read "
-        "from the LOCAL export; a missing or stale one blocks fail-closed."
+    assert "LocalFreezeJsonExport" not in imported, (
+        "the dispatcher reads the local freeze export file again -- absence "
+        "would silently mean 'not frozen'"
     )
+    adapters = [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "_BundleFreezeState"
+    ]
+    assert adapters, "the bundle-driven freeze adapter is gone"
 
 def test_capability_deny_blocks_before_ccag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

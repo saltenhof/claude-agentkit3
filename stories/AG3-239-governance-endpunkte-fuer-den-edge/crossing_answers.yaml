@@ -25,10 +25,10 @@ measurement:
     stories/AG3-239-governance-endpunkte-fuer-den-edge/measure_boundary_violations.py
     --bc agentkit.backend.governance
   measured_on: "2026-08-07"
-  unique_ordered_pairs: 50
-  edge_to_core: 45
-  core_to_edge: 5
-  import_statements: 111
+  unique_ordered_pairs: 48
+  edge_to_core: 44
+  core_to_edge: 4
+  import_statements: 109
   distinct_imported_symbols: 51
   start_value:
     unique_ordered_pairs: 64
@@ -37,21 +37,53 @@ measurement:
     note: >-
       Ausgangsmessung vor jeder Aenderung, mit demselben Kommando gerechnet.
   owner_split:
-    executable_by_ag3_239: 18
+    executable_by_ag3_239: 16
     foreign_or_open_owner: 32
     blocked_true_flag: 29
-    note: >-
-      Zwei verschiedene Zahlen, in Review Runde 2 zurecht auseinandergehalten.
-      `foreign_or_open_owner` zaehlt jede Ueberquerung, deren Antwort eine ANDERE
-      Story ausfuehren muss (32). `blocked_true_flag` zaehlt nur die, die
-      zusaetzlich das Flag `blocked: true` tragen (29) -- die drei
-      Worker-Health-Ueberquerungen und die zwei offenen Posten sind fremd
-      beziehungsweise offen, aber nicht als `blocked` markiert, weil sie auf kein
-      fehlendes Vertragspaket warten. Wer 29 als "fremder Owner" berichtet, zaehlt
-      drei Posten zu wenig.
+    arithmetic: >-
+      32 - 4 + 1 = 29. Review Runde 3 hat die frueher hier stehende Erklaerung
+      zurecht als falsch zurueckgewiesen; sie ist neu GERECHNET, nicht neu
+      behauptet.
+      Von den 32 fremden/offenen Posten tragen VIER kein `blocked`-Flag: die drei
+      Worker-Health-Ueberquerungen (AG3-246) und der offene `GuardDecision`-Posten
+      -- sie warten auf keine fehlende Vorbedingung, sondern nur auf eine andere
+      Story. Umgekehrt traegt EIN AG3-239-eigener Posten das Flag sehr wohl:
+      `principal_capabilities.operations` (die beiden Operations-IDs wandern mit
+      dem Dispatcher, sind aber im Spec wire-relevant).
+      `resolve_operating_mode` ist NICHT mehr Teil der Differenz: es ist seit
+      Runde 3 nicht mehr offen, sondern AG3-240 zugewiesen, und traegt `blocked`.
     open_without_owner:
       - agentkit.backend.governance.guard_system.records
-      - agentkit.backend.story_context_manager.operating_mode_resolver
+  remaining_own_moves_are_not_independently_executable:
+    measured_on: "2026-08-08"
+    claim_under_test: >-
+      Review Runde 3 erwartete, dass das Ausfuehren der AG3-239-eigenen
+      (b)-Bewegungen die Zahl auf 32 bringt.
+    result: >-
+      Widerlegt. Als Reklassifikation heute ausgefuehrt
+      (guards, capability_blocks, hook_ids, principal_capabilities -> edge)
+      steigt der BC von 48 auf 68 und der Repo-Gesamtstand von 329 auf 349.
+      Die Bewegung ERZEUGT mehr Verletzungen, als sie aufloest.
+    why: >-
+      Zwei Abhaengigkeiten, beide fremd-owned:
+      (1) `principal_capabilities.principals` wird von SIEBEN Kern-Modulen
+      importiert (control_plane.runtime._admin, _ownership_transfer*,
+      control_plane_http.story_admin_routes / story_split_routes /
+      takeover_handlers). `Principal` ist Kern-Adjudikationsvokabular, nicht
+      edge-intern -- eine Verschiebung nach edge macht aus sieben Kern-Importen
+      sieben neue Verletzungen.
+      (2) Jeder Guard haengt an `governance.protocols` (wire-DEFERRED,
+      `ag3_209_precondition`) und an `guard_system.protected_paths`
+      (kern-geteilt, u. a. verify_system.adversarial_orchestrator).
+    consequence: >-
+      Die 16 eigenen (b)-Antworten sind fachlich richtig und bleiben stehen, aber
+      sie sind NICHT unabhaengig ausfuehrbar: sie warten auf dieselben zwei
+      Vorbedingungen wie die 29 blockierten Posten -- die Zerlegung der
+      zurueckgestellten Vokabularsymbole (AG3-209) und den Symbolschnitt von
+      `guard_system` in Guard-Klassen (edge) gegen Records/Paths/Patterns (kern).
+      AC 2 (null Verletzungen) ist damit fuer diesen BC erst nach AG3-209
+      erreichbar. Das ist eine gemessene Aussage, keine Schaetzung -- das
+      Kommando steht oben, das Ergebnis ist reproduzierbar.
   progress:
     - step: "M3 -- struktureller Eingangs-Port (der Endpunkt ist zurueckgebaut)"
       removed: 3
@@ -184,9 +216,12 @@ crossings:
     imported: agentkit.backend.governance.hook_registration
     symbols: [HookId]
     answer: b
-    remedy_owner: AG3-242
+    remedy_owner: AG3-209
     owner_note: >-
-      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
+      Review Runde 3: stand auf AG3-242. Falsch -- der Importeur liegt im
+      GOVERNANCE-Paket, nicht im gemessenen Installer-BC, also kann die
+      Installer-Story ihn nicht ausfuehren. `HookId` ist im Spec
+      wire-DEFERRED mit `ag3_209_precondition`; die Zerlegung fuehrt AG3-209.
     group: G5
     blocked: true
     reason: >-
@@ -284,7 +319,36 @@ crossings:
     answer: a
     remedy_owner: OPEN -- kein Eigentuemer zugewiesen, Entscheid beim PO
     owner_note: >-
-      Review Runde 2: stand auf AG3-245 -- das ist der KPI-BC und besitzt nur Auswertungssichten, nicht den kanonischen Governance-Audit-Schreibweg. Unter AG3-240..250 gibt es keine Story, die diesen Weg besitzt; der Governance-BC ist diese Story, und der Audit-Append steht NICHT auf ihrer In-Scope-Liste (dort stehen Adjudikation, Hook-Registrierung, Lock-Verwaltung, Freeze-Abfrage). Ich erfinde keinen Eigentuemer: der Posten geht offen an den PO. Dazu gehoert der Nebenbefund, dass produktiv gar kein Decision-Repository injiziert wird (guard_evaluation.py:114) -- der Audit-Record entsteht und verschwindet.
+      Review Runde 3 hat den Endpunkt `/v1/governance/guard-decisions`
+      ausdruecklich freigegeben, mit zwei Bedingungen: er darf den synchronen
+      Entscheidungspfad nicht blockieren (FK-01 §1.2.3), und ein verlorener
+      Record darf nicht STILL verloren gehen. Beides ist gleichzeitig erfuellbar
+      -- lokaler, fsync-fester Spool im Hook, spaetere Uebertragung -- der
+      synchrone Pfad zahlt dann nur einen lokalen Append, keinen Netzaufruf.
+      **Ich baue ihn in dieser Runde trotzdem nicht, und das ist eine
+      Entscheidung, keine Kapitulation.** Drei Gruende, alle belegbar:
+      (1) Der ERZEUGER ist nicht verdrahtet. `GuardRunner` hat den typisierten
+      Sink `_GuardDecisionSink` (runner.py:97), aber `guard_evaluation.py:114`
+      konstruiert `GuardRunner(guards=...)` ohne ihn, und in `src/` injiziert ihn
+      niemand. Ein Endpunkt haette nichts zu empfangen; zuerst muss der Sink
+      gefuellt werden.
+      (2) Der Sink darf auf dem Edge weder Datenbank noch Netz sein. Damit ist
+      der Spool die einzige korrekte Edge-Senke -- und ein Spool, den niemand
+      leert, ist ein Outbox ohne Drain, also genau der halbfertige Uebergang,
+      den ZERO DEBT verbietet. Beide Haelften gehoeren in einen Schnitt.
+      (3) Die Dauerhaftigkeitszusage ist eine NORMATIVE Frage, die ich nicht
+      erfinden darf: Muss die Entscheidung persistiert sein, BEVOR der Block
+      wirkt (audit-before-act), oder genuegt danach? Und wenn der
+      Entwicklerrechner ausfaellt, bevor der Spool uebertragen ist -- ist der
+      Audit dann verloren oder nie entstanden? Die Antwort bestimmt den
+      Mechanismus, nicht umgekehrt.
+      Was gebaut werden muss, damit es in EINEM Schnitt geht: Wire-Modell fuer
+      die Entscheidung, `POST /v1/governance/guard-decisions` mit `op_id`-
+      Idempotenz gegen das vorhandene `guard_decision_repository`, ein
+      fsync-fester Edge-Spool als `_GuardDecisionSink`, ein benannter
+      Drain-Zeitpunkt, und Crash-Replay-Tests. Owner-Vorschlag: AG3-239 in einem
+      Folgeschnitt oder AG3-209; der PO entscheidet zusammen mit der
+      Dauerhaftigkeitszusage aus (3).
     group: G4
     endpoint: POST /v1/governance/guard-decisions (noch nicht gebaut)
     reason: >-
@@ -410,51 +474,16 @@ crossings:
       waren, loest der strukturelle Port
       (principal_capabilities/adjudication_input.py), der von jedem Endpunkt
       unabhaengig ist und bleibt.
-  - importer: agentkit.backend.governance.runner
-    imported: agentkit.backend.state_backend.store.freeze_repository
-    symbols: [LocalFreezeJsonExport]
-    answer: b
-    remedy_owner: AG3-239
-    group: G2
-    reason: >-
-      **Die beiden Symbole tragen bewusst UNTERSCHIEDLICHE Antworten** (Review
-      Runde 1: sie duerfen nicht dieselbe tragen). `FreezeRepository` ist
-      kanonischer Zustand und liegt seit AG3-239 hinter
-      `POST /v1/governance/capability-adjudications` -- es steht nicht mehr in
-      diesem Paar. `LocalFreezeJsonExport` bleibt auf dem Edge: Die Invariante
-      `principal-capabilities.invariant.freeze_has_backend_record_and_local_export`
-      verlangt BEIDES -- kanonischen Backend-Record UND lokalen, hook-lesbaren
-      Export in gleicher Version. Der Export ist eine Datei auf dem
-      Entwicklerrechner; nur der Edge kann sie lesen. Der Edge meldet ihren
-      Inhalt im Request, der Kern vergleicht und faellt fail-closed.
-      Offen bleibt allein der ORT des Symbols: es liegt noch im kern-
-      klassifizierten Modul `state_backend.store.freeze_repository`. Der
-      Symbolschnitt dieses Moduls (Export -> Edge, Repository -> Kern) ist die
-      Restarbeit dieses Paares.
-  - importer: agentkit.backend.governance.setup_preflight_gate.phase
-    imported: agentkit.backend.installer.paths
-    symbols: [story_dir]
-    answer: c
-    remedy_owner: AG3-239
-    group: G4
-    reason: >-
-      A core gate reaching into an edge installer path helper. The core has no
-      authority over developer-machine paths (FK-10 section 10.2.4a: "the backend
-      keeps no worktree path authority"); the call is removed and the gate uses
-      the path it is given. No endpoint -- an endpoint would let the core keep
-      asking a question it must not ask.
-
-  # -------------------------------------------------------------------
-  # G5 -- vocabulary. The symbol belongs in the contract package.
-  #       Remedy owner is NOT this story (story.md, Out of Scope).
-  # -------------------------------------------------------------------
   - importer: agentkit.backend.governance.default_hook_definitions
     imported: agentkit.backend.governance.hook_registration
     symbols: [HookId]
     answer: b
-    remedy_owner: AG3-242
+    remedy_owner: AG3-209
     owner_note: >-
-      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
+      Review Runde 3: stand auf AG3-242. Falsch -- der Importeur liegt im
+      GOVERNANCE-Paket, nicht im gemessenen Installer-BC, also kann die
+      Installer-Story ihn nicht ausfuehren. `HookId` ist im Spec
+      wire-DEFERRED mit `ag3_209_precondition`; die Zerlegung fuehrt AG3-209.
     group: G5
     blocked: true
     reason: >-
@@ -555,9 +584,11 @@ crossings:
     imported: agentkit.backend.story_context_manager.operating_mode_resolver
     symbols: [resolve_operating_mode]
     answer: b
-    remedy_owner: OPEN -- kein Eigentuemer zugewiesen, Entscheid beim PO
+    remedy_owner: AG3-240
     owner_note: >-
-      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). `OperatingMode` ist ein AG3-237-Wire-Ziel mit `module_dissolves: true`, aber der ACCESSOR `resolve_operating_mode` ist Verhalten und gehoert dem story-context-manager-BC. Keine der Storys AG3-240..250 traegt diesen BC erkennbar; statt zu raten, geht der Posten offen an den PO.
+      Review Runde 3: stand faelschlich als OPEN. AG3-240 (story-lifecycle)
+      nennt `resolve_operating_mode` ausdruecklich in seiner Story
+      (AG3-240 story.md:80). Der Posten ist nicht ownerlos.
     group: G5
     blocked: true
     reason: >-

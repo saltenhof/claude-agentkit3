@@ -93,7 +93,22 @@ _FREEZE_REASON = "conflict_freeze active: mutation blocked for non-official prin
 
 
 @runtime_checkable
-class FreezeStore(Protocol):
+class FreezeReader(Protocol):
+    """The freeze READ contract -- the only half an evaluator needs.
+
+    Segregated from :class:`FreezeStore` in AG3-239: the hook process evaluates
+    the freeze but must never activate or release one, and typing its adapter
+    against the full store would force it to carry write methods it has no
+    business owning. The read half is what ``is_frozen`` and ``apply`` consult.
+    """
+
+    def read_freeze(self, story_id: str) -> object | None:
+        """Return the canonical freeze record, or ``None``."""
+        ...
+
+
+@runtime_checkable
+class FreezeStore(FreezeReader, Protocol):
     """Canonical freeze persistence contract (implemented by FreezeRepository).
 
     Injected so the capability package does not import ``state_backend`` directly
@@ -111,10 +126,6 @@ class FreezeStore(Protocol):
         kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
     ) -> object:
         """Persist the canonical freeze record."""
-        ...
-
-    def read_freeze(self, story_id: str) -> object | None:
-        """Return the canonical freeze record, or ``None``."""
         ...
 
     def clear_freeze(
@@ -180,10 +191,12 @@ class ConflictFreezeOverlay:
     """Applies the story-scoped conflict-freeze on top of a base verdict.
 
     Args:
-        store: Canonical freeze persistence (the truth side of the dual
-            materialization). When ``None``, the overlay operates export-only
-            (the local export is the sole record); production wiring always
-            supplies the backend store.
+        store: The freeze READ side. Core wiring passes the canonical
+            ``FreezeRepository``; the hook process passes an adapter over the
+            core-published edge-bundle projection. Typed as
+            :class:`FreezeReader` because reading is all the overlay needs --
+            activation and release require a full :class:`FreezeStore` and are
+            checked at those call sites.
         local_export: The local freeze-export boundary. When ``None`` the
             overlay degrades to backend-only consultation; production wiring
             always supplies the export so BOTH materializations are consulted
@@ -192,7 +205,7 @@ class ConflictFreezeOverlay:
 
     def __init__(
         self,
-        store: FreezeStore | None = None,
+        store: FreezeReader | None = None,
         *,
         local_export: LocalFreezeExport | None = None,
         proof_store: ConflictFreezeProofStore | None = None,
@@ -230,7 +243,7 @@ class ConflictFreezeOverlay:
         """
         frozen_at = _frozen_at_now()
         if self._store is not None:
-            self._store.set_freeze(
+            self._writable_store().set_freeze(
                 story_id,
                 frozen_at=frozen_at,
                 freeze_reason=reason,
@@ -254,9 +267,34 @@ class ConflictFreezeOverlay:
     def release(self, story_id: str) -> None:
         """Release a freeze: clear the backend record and remove the export."""
         if self._store is not None:
-            self._store.clear_freeze(story_id, FreezeKind.CONFLICT_FREEZE)
+            self._writable_store().clear_freeze(story_id, FreezeKind.CONFLICT_FREEZE)
         if self._local_export is not None:
             self._local_export.remove()
+
+    def _writable_store(self) -> FreezeStore:
+        """Return the store, proving it can WRITE (AG3-239).
+
+        Activation and release need the full :class:`FreezeStore`; the overlay
+        is typed on the read half so an evaluator-only adapter -- the hook
+        process reading the published edge-bundle projection -- does not have to
+        carry write methods it must never own.
+
+        Raises:
+            FreezePersistenceError: When the injected reader cannot write. That
+                is a wiring defect, and it fails closed and loudly rather than
+                silently skipping the canonical persist.
+        """
+        from agentkit.backend.governance.principal_capabilities.errors import (
+            FreezePersistenceError,
+        )
+
+        store = self._store
+        if not isinstance(store, FreezeStore):
+            raise FreezePersistenceError(
+                "freeze activation/release requires a writable FreezeStore; the "
+                f"injected reader {type(store).__name__!r} is read-only"
+            )
+        return store
 
     # -- queries -------------------------------------------------------------
 
