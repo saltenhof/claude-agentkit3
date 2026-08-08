@@ -19,17 +19,12 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit_wire.verify_system import (
-    EvidenceFile,
-    EvidenceRepository,
-    VerifyEvidenceAssemblyRequest,
-)
-
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable
 
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
+    from agentkit_wire.verify_system import VerifyEvidenceAssemblyRequest
 
     #: Seam returning the Project-Edge client bound to a target-project root.
     ClientFactory = Callable[[Path], ProjectEdgeClient]
@@ -166,6 +161,17 @@ def _request_from_cli_config(
         ValueError: When the checkpoint is structurally unusable (pydantic
             raises ``ValidationError``, a ``ValueError`` subclass).
     """
+    # AG3-206: `cli.main` importiert die Kommandomodule eager, der
+    # Dependency-Preflight laeuft erst IN main(). Ein Modul-Level-Import von
+    # `agentkit_wire.verify_system` (pydantic) wuerde den Preflight
+    # ueberholen -- der Bediener bekaeme einen Traceback statt der
+    # deklarations-eigenen Diagnose. Deshalb hier lokal.
+    from agentkit_wire.verify_system import (
+        EvidenceFile,
+        EvidenceRepository,
+        VerifyEvidenceAssemblyRequest,
+    )
+
     changed_files = _changed_files_from_cli_config(config)
     repositories = tuple(
         EvidenceRepository.model_validate(
