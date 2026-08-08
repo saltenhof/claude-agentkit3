@@ -234,8 +234,8 @@ def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
         _build_strategist_control_plane_client,
     )
     from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
-    from agentkit.backend.story_split.http_models import StorySplitMutationRequest
     from agentkit.backend.story_split.plan_loader import SplitPlanError, load_split_plan
+    from agentkit_wire.story_lifecycle import StorySplitMutationRequest
 
     del cli_args  # not consulted: the human-started CLI path IS the §54.4 approval.
     project_key = str(getattr(args, "project", "") or os.environ.get("AGENTKIT_PROJECT_KEY", "")).strip()
@@ -253,7 +253,11 @@ def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
         )
         return 1
 
-    # Read + validate the plan BEFORE any mutation (fail-closed, §54.6).
+    # Read + validate the plan BEFORE any mutation (fail-closed, §54.6). FK-91
+    # §91.1 binds the CLI to sending the VALIDATED plan text. The writer
+    # validates the same text again through the same `parse_split_plan` -- one
+    # rule, checked on both sides, because a request that reached the core is
+    # never trusted for having passed a client.
     try:
         plan, plan_text = load_split_plan(Path(args.plan))
     except SplitPlanError as exc:
@@ -305,7 +309,7 @@ def _cmd_reset_story(args: argparse.Namespace) -> int:
         _build_strategist_control_plane_client,
     )
     from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
-    from agentkit.backend.story_reset.http_models import StoryResetMutationRequest
+    from agentkit_wire.story_lifecycle import StoryResetMutationRequest
 
     project_key = str(
         getattr(args, "project", "") or os.environ.get("AGENTKIT_PROJECT_KEY", ""),
@@ -357,17 +361,13 @@ def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:
         _build_strategist_control_plane_client,
     )
     from agentkit.backend.config.defaults import DEFAULT_CONTROL_PLANE_BASE_URL
-    from agentkit.backend.story_exit import ExitReason
-    from agentkit.backend.story_exit.http_models import StoryExitMutationRequest
+    from agentkit_wire.story_lifecycle import StoryExitMutationRequest
 
     del cli_args
 
-    try:
-        reason = ExitReason(args.reason)
-    except ValueError:
-        print(f"exit-story failed: invalid reason code {args.reason!r}", file=sys.stderr)
-        return 1
-
+    # The FK-58 reason vocabulary is adjudicated by the core, which answers
+    # ``400 invalid_story_exit_reason`` for an unknown code. The edge does not
+    # keep a second copy of the closed set.
     project_key = str(
         getattr(args, "project", "") or os.environ.get("AGENTKIT_PROJECT_KEY", ""),
     ).strip()
@@ -400,7 +400,7 @@ def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:
             request=StoryExitMutationRequest(
                 op_id=f"story-exit-{uuid.uuid4().hex}",
                 run_id=run_id,
-                reason=reason.value,
+                reason=str(args.reason),
                 note=getattr(args, "note", None),
             ),
         )

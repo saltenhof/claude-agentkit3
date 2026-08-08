@@ -40,13 +40,15 @@ from agentkit.backend.control_plane.third_party_models import (
     ThirdPartyValidationResponse,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
-from agentkit.backend.story_exit.http_models import StoryExitMutationRequest, StoryExitMutationResponse
-from agentkit.backend.story_reset.http_models import StoryResetMutationRequest, StoryResetMutationResponse
-from agentkit.backend.story_split.http_models import (
+from agentkit.backend.utils.io import atomic_write_text
+from agentkit_wire.story_lifecycle import (
+    StoryExitMutationRequest,
+    StoryExitMutationResponse,
+    StoryResetMutationRequest,
+    StoryResetMutationResponse,
     StorySplitMutationRequest,
     StorySplitMutationResponse,
 )
-from agentkit.backend.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     import ssl

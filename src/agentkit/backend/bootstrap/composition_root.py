@@ -18,13 +18,13 @@ if TYPE_CHECKING:
         build_project_repository as build_project_repository,
     )
     from agentkit.backend.bootstrap.composition_project import (
-        build_story_read_service as build_story_read_service,
-    )
-    from agentkit.backend.bootstrap.composition_project import (
         build_takeover_approval_read_source as build_takeover_approval_read_source,
     )
     from agentkit.backend.bootstrap.composition_project import (
         build_task_management_routes as build_task_management_routes,
+    )
+    from agentkit.backend.bootstrap.composition_story_lifecycle import (
+        build_story_read_service as build_story_read_service,
     )
 
 _EXPORT_MODULE_NAMES = {
@@ -63,10 +63,13 @@ _EXPORT_MODULE_NAMES = {
     "agentkit.backend.bootstrap.composition_project": (
         "_default_split_source_state_loader", "build_compat_window_reader", "build_dashboard_service",
         "build_kpi_analytics", "build_kpi_analytics_read_facade", "build_project_read_model_routes",
-        "build_project_repository", "build_project_telemetry_event_source", "build_story_exit_service",
-        "build_story_read_service", "build_story_reset_service", "build_story_split_service",
+        "build_project_repository", "build_project_telemetry_event_source",
+        "build_story_split_service",
         "build_task_management_routes", "build_takeover_approval_read_source",
         "cli_load_story_context", "cli_read_phase_state_record",
+    ),
+    "agentkit.backend.bootstrap.composition_story_lifecycle": (
+        "build_story_exit_service", "build_story_read_service", "build_story_reset_service",
     ),
     "agentkit.backend.bootstrap.composition_state": (
         "build_phase_envelope_store", "build_phase_state_residue_probe", "build_planning_projection_accessor",

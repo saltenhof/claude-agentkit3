@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
@@ -11,12 +10,12 @@ from pydantic import ValidationError
 
 from agentkit.backend.control_plane_http.responses import HttpResponse, _error_response, _json_response
 from agentkit.backend.governance.principal_capabilities.principals import Principal
-from agentkit.backend.story_split.http_models import (
+from agentkit.backend.story_split.plan_loader import SplitPlanError, parse_split_plan
+from agentkit.backend.story_split.service import StorySplitError, StorySplitRequest, StorySplitResult
+from agentkit_wire.story_lifecycle import (
     StorySplitMutationRequest,
     StorySplitMutationResponse,
 )
-from agentkit.backend.story_split.models import SplitPlan
-from agentkit.backend.story_split.service import StorySplitError, StorySplitRequest, StorySplitResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,9 +56,8 @@ class StorySplitRoutes:
             )
         try:
             wire_request = StorySplitMutationRequest.model_validate(payload)
-            raw_plan = json.loads(wire_request.plan_text)
-            plan = SplitPlan.model_validate(raw_plan)
-        except (ValidationError, json.JSONDecodeError) as exc:
+            plan = parse_split_plan(wire_request.plan_text)
+        except (ValidationError, SplitPlanError) as exc:
             return _error_response(
                 HTTPStatus.BAD_REQUEST,
                 error_code="invalid_story_split_request",

@@ -11,10 +11,8 @@ from pydantic import ValidationError
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.control_plane_http.responses import HttpResponse, _error_response, _json_response
 from agentkit.backend.governance.principal_capabilities.principals import Principal
-from agentkit.backend.story_exit.http_models import StoryExitMutationRequest, StoryExitMutationResponse
 from agentkit.backend.story_exit.models import ExitReason
 from agentkit.backend.story_exit.service import StoryExitError, StoryExitRequest, StoryExitResult
-from agentkit.backend.story_reset.http_models import StoryResetMutationRequest, StoryResetMutationResponse
 from agentkit.backend.story_reset.models import (
     PlannedPurge,
     StoryResetRecord,
@@ -22,6 +20,12 @@ from agentkit.backend.story_reset.models import (
     StoryResetResult,
 )
 from agentkit.backend.story_reset.service import StoryResetError
+from agentkit_wire.story_lifecycle import (
+    StoryExitMutationRequest,
+    StoryExitMutationResponse,
+    StoryResetMutationRequest,
+    StoryResetMutationResponse,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable

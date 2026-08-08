@@ -14,6 +14,7 @@ import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.backend.cli.main import main
+from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.skills import create_directory_link, is_directory_link
 
 
@@ -259,7 +260,7 @@ class TestCLIMain:
         """AC2: --dry-run prints the planned purge domains and does not mutate."""
         import json as _json
 
-        from agentkit.backend.story_reset.http_models import (
+        from agentkit_wire.story_lifecycle import (
             StoryResetMutationRequest,
             StoryResetMutationResponse,
         )
@@ -314,7 +315,7 @@ class TestCLIMain:
         """The public command sends the exact validated plan to the REST client."""
         import json as _json
 
-        from agentkit.backend.story_split.http_models import (
+        from agentkit_wire.story_lifecycle import (
             StorySplitMutationRequest,
             StorySplitMutationResponse,
         )
@@ -454,16 +455,20 @@ class TestCLIMain:
         assert exit_code == 1
         assert "explicit project root" in capsys.readouterr().err
 
-    def test_split_story_rejects_invalid_plan_before_mutation(
+    def test_split_story_rejects_an_invalid_plan_before_any_call(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        # AK2: an unreadable/invalid plan fails closed BEFORE the service builds.
+        """FK-91 §91.1: the CLI sends the VALIDATED plan text, so it validates.
+
+        The same `parse_split_plan` runs again inside the writer -- one rule,
+        checked on both sides. This asserts the edge half: a defective plan never
+        reaches the network.
+        """
         monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
         monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
-        monkeypatch.setenv("AGENTKIT_SESSION_ID", "sess-1")
 
         def _explode(*_args: object) -> object:
             raise AssertionError("client must not be built for an invalid plan")
@@ -475,10 +480,80 @@ class TestCLIMain:
         bad_plan = tmp_path / "plan.json"
         bad_plan.write_text("not json {", encoding="utf-8")
 
-        exit_code = main(["split-story", "--story", "AG3-042", "--plan", str(bad_plan), "--reason", "r"])
+        exit_code = main(
+            ["split-story", "--story", "AG3-042", "--plan", str(bad_plan), "--reason", "r"]
+        )
 
         assert exit_code == 1
         assert "InvalidPlan" in capsys.readouterr().err
+
+    def test_split_story_rejects_a_missing_plan_before_any_call(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A plan document that is not there is rejected locally, fail-closed."""
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
+        monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
+
+        def _explode(*_args: object) -> object:
+            raise AssertionError("client must not be built for a missing plan")
+
+        monkeypatch.setattr(
+            "agentkit.backend.cli._operator_recovery_phase._build_strategist_control_plane_client",
+            _explode,
+        )
+
+        exit_code = main(
+            [
+                "split-story",
+                "--story",
+                "AG3-042",
+                "--plan",
+                str(tmp_path / "absent.json"),
+                "--reason",
+                "r",
+            ]
+        )
+
+        assert exit_code == 1
+        err = capsys.readouterr().err
+        assert "InvalidPlan" in err
+        assert "not found" in err
+
+    def test_exit_story_forwards_an_unknown_reason_to_the_single_validator(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """FK-58 reason adjudication has ONE owner: the core (AG3-240)."""
+        from agentkit_wire.story_lifecycle import StoryExitMutationRequest
+
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
+        monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
+        captured: dict[str, object] = {}
+
+        class _WriterClient:
+            def exit_story(self, **kwargs: object) -> object:
+                captured.update(kwargs)
+                raise ControlPlaneApiError("400 invalid_story_exit_reason")
+
+        monkeypatch.setattr(
+            "agentkit.backend.cli._operator_recovery_phase._build_strategist_control_plane_client",
+            lambda *_args: _WriterClient(),
+        )
+        monkeypatch.setattr(
+            "agentkit.backend.cli.story_commands.getpass.getpass", lambda _prompt: "secret"
+        )
+
+        exit_code = main(
+            ["exit-story", "--story", "AG3-042", "--reason", "no_such_reason_code"]
+        )
+
+        assert exit_code == 1
+        request = captured["request"]
+        assert isinstance(request, StoryExitMutationRequest)
+        assert request.reason == "no_such_reason_code"
 
     def test_watch_worker_command_dispatches(
         self,

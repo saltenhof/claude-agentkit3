@@ -1,0 +1,421 @@
+# AG3-240 AC 1 -- one answer per boundary crossing of the bounded context
+# `story-lifecycle`.
+#
+# answer:
+#   a -- belongs over the interface: a /v1 endpoint carries it
+#   b -- filed on the wrong side, or vocabulary that belongs in the contract
+#        package: the module or the symbol MOVES, no endpoint
+#   c -- must not happen at all: the call is removed
+#
+# `remedy_owner` names the story that can execute the answer. Where it is not
+# AG3-240, the reason is named and, where it is a claim about numbers, MEASURED.
+#
+# SOURCES OF AUTHORITY USED HERE: `distributions`, `distribution_symbol_
+# boundaries`, `wire_target_modules` and `wire_deferred_symbols` in
+# `concept/formal-spec/architecture-conformance/entities.md`.
+# `wire_excluded_crossings` is NOT used -- it carries
+# `superseded-no-authority` (entities.md:3181, :3212) because AG3-237 did not
+# carry it forward after the symbol cut. Review round 1 caught an earlier
+# version of this file leaning on it.
+
+measurement:
+  command: >-
+    .venv\Scripts\python
+    stories/AG3-239-governance-endpunkte-fuer-den-edge/measure_boundary_violations.py
+    --bc agentkit.backend.story_split --bc agentkit.backend.story_reset
+    --bc agentkit.backend.story_exit --bc agentkit.backend.story_context_manager
+    --bc agentkit.backend.story
+  tool_note: >-
+    The AG3-239 tool is USED, not copied. A second copy of a measurement script
+    is a second measurement that drifts; the command above runs the same file
+    that produced the AG3-239 numbers, so the figures are comparable.
+  measured_on: "2026-08-08"
+  start_value:
+    unique_ordered_pairs: 19
+    edge_to_core: 18
+    core_to_edge: 1
+    import_statements: 33
+    distinct_imported_symbols: 22
+  end_value:
+    unique_ordered_pairs: 9
+    edge_to_core: 8
+    core_to_edge: 1
+    import_statements: 17
+    distinct_imported_symbols: 11
+  repo_wide:
+    before: 329
+    after: 317
+    note: >-
+      329 is where AG3-239 left the repository. The "before" figure was taken by
+      stashing the working tree, measuring, and restoring it. No crossing outside
+      this bounded context was created.
+  deviation_from_the_story_card: >-
+    story.md gives 18 Edge->Kern pairs. The own measurement finds 18 edge-to-core
+    AND one core-to-edge pair, i.e. 19. The card's figure was not wrong, it was
+    one-directional. The 22 distinct symbols match exactly.
+
+# ---------------------------------------------------------------------------
+# EXECUTED IN THIS STORY -- 10 pairs resolved
+# ---------------------------------------------------------------------------
+
+crossings:
+
+  - id: split-exit-reset-wire-models
+    pairs:
+      - agentkit.backend.cli.story_commands -> agentkit.backend.story_exit.http_models
+      - agentkit.backend.cli.story_commands -> agentkit.backend.story_reset.http_models
+      - agentkit.backend.cli.story_commands -> agentkit.backend.story_split.http_models
+      - agentkit.harness_client.projectedge.client -> agentkit.backend.story_exit.http_models
+      - agentkit.harness_client.projectedge.client -> agentkit.backend.story_reset.http_models
+      - agentkit.harness_client.projectedge.client -> agentkit.backend.story_split.http_models
+    symbols:
+      - StorySplitMutationRequest
+      - StorySplitMutationResponse
+      - StoryResetMutationRequest
+      - StoryResetMutationResponse
+      - StoryExitMutationRequest
+      - StoryExitMutationResponse
+    answer: b
+    remedy_owner: AG3-240
+    status: done
+    anchor: architecture-conformance.wire_module.story_lifecycle
+    rationale: >-
+      No endpoint was missing -- all three exist and the CLI already called them
+      over HTTPS. What was missing was a home for the vocabulary: both sides
+      named the request and the response by importing the core. The frozen
+      classification names the target module and the six symbols and carries
+      `module_dissolves: true` for all three sources.
+    executed: >-
+      src/agentkit_wire/story_lifecycle.py created with the six models; the three
+      `http_models.py` modules deleted (no remainder, no re-export); four
+      importers rewritten. Review round 1 independently confirmed all six class
+      definitions byte-identical to the deleted originals, defaults and Field
+      constraints included.
+    proof: >-
+      tests/contract/wire/test_wire_package_purity.py
+      ::TestMigratedSymbolsHaveExactlyOneHome::test_a_dissolved_source_module_is_gone
+
+  - id: composition-project-story-builders
+    pairs:
+      - agentkit.backend.bootstrap.composition_project -> agentkit.backend.story
+      - agentkit.backend.bootstrap.composition_project -> agentkit.backend.story_exit.service
+      - agentkit.backend.bootstrap.composition_project -> agentkit.backend.story_reset
+    symbols:
+      - StoryService  # agentkit.backend.story
+      - StoryExitService
+      - StoryResetService
+      - FileResetRecordStore
+    answer: b
+    remedy_owner: AG3-240
+    status: done
+    anchor: architecture-conformance.symbol_boundary.bootstrap_composition_project
+    finding_that_corrects_the_story_card: >-
+      story.md says split, reset and exit "werden auf dem Edge INSTANZIIERT und
+      laufen dort". Measured, that is not true: all three run inside the writer.
+      `StoryAdminRoutes` and `StorySplitRoutes` build the services, and the CLI
+      reaches them over HTTPS. The in-scope item "die story-eigenen
+      state_backend-Bindungen entfallen mit ihrem Ersatz" therefore had nothing
+      to delete -- the replacement already existed and USED the bindings. They
+      were core composition sitting in an edge-prefixed module.
+    rationale: >-
+      `composition_project` falls into the edge distribution only because of ONE
+      edge anchor (`build_compat_window_reader` builds a ProjectEdgeClient), and
+      the classification already lists these builders as `core_symbols`. The
+      remedy is not an endpoint and not a module move -- it is pulling the
+      story-owned wiring out of a mixed module.
+    executed: >-
+      src/agentkit/backend/bootstrap/composition_story_lifecycle.py holds
+      `build_story_exit_service`, `build_story_reset_service` and
+      `build_story_read_service`. The lazy re-export map in `composition_root`
+      points at the new module, so no public entry point changed.
+
+  - id: cli-exit-reason-vocabulary
+    pairs:
+      - agentkit.backend.cli.story_commands -> agentkit.backend.story_exit
+    symbols: [ExitReason]
+    answer: c
+    remedy_owner: AG3-240
+    status: done
+    anchor: >-
+      FK-58 section 58.x, 58_story_exit_human_takeover_handoff.md:200 -- "Die CLI
+      ist ein duenner HTTPS-Adapter ... Der Writer ... baut erst dort den
+      StoryExitService".
+    rationale: >-
+      The CLI held a second copy of the closed FK-58 reason set while the route
+      resolved `ExitReason(wire.reason)` again and answered
+      `400 invalid_story_exit_reason`. One adjudicator, not two. `ExitReason` is
+      deliberately NOT moved to the wire package: an admissible-reason set is a
+      core decision, not payload vocabulary.
+    proof:
+      - tests/unit/control_plane_http/test_story_lifecycle_routes.py
+        ::TestExitRouteRejections::test_an_unknown_reason_code_is_rejected_here_and_only_here
+      - tests/unit/cli/test_main.py
+        ::test_exit_story_forwards_an_unknown_reason_to_the_single_validator
+
+# ---------------------------------------------------------------------------
+# ANSWERED, EXECUTED ELSEWHERE -- 9 pairs
+# ---------------------------------------------------------------------------
+
+  - id: composition-project-split-builder
+    pairs:
+      - agentkit.backend.bootstrap.composition_project -> agentkit.backend.story_split.service
+      - agentkit.backend.bootstrap.composition_project -> agentkit.backend.story_context_manager.service
+    symbols:
+      - StorySplitService
+      - StorySplitSagaGuard
+      - StorySplitError
+      - SplitSourceState
+      - StoryService  # story_context_manager, at :118 (split) and :383 (read models)
+    answer: b
+    remedy_owner: Product Owner, then AG3-209
+    blocked: true
+    anchor: >-
+      architecture-conformance.symbol_boundary.bootstrap_composition_project,
+      field `unresolved`
+    rationale: >-
+      `build_story_split_service` builds a CORE service AND resolves a Weaviate
+      adapter locally (composition_project.py:114,171 before the extraction).
+      AG3-237 recorded exactly this as an open question whose "owner is the
+      Product Owner" and refused to decide it a second time; AG3-240 does not
+      decide it either, so the builder stays put and its two crossings stay with
+      it. Its sibling `resolve_split_export_project_id` carries the same flag.
+    second_cause_of_the_story_context_manager_pair: >-
+      The `story_context_manager.service` pair also has a SECOND cause at
+      composition_project.py:383, `build_project_read_model_routes`. That is
+      project-management wiring that happens to construct a story service; it
+      belongs to that bounded context and is not this story's to move. Removing
+      only the split builder would therefore not clear this pair.
+
+  - id: cli-story-read-for-story-md-export
+    pairs:
+      - agentkit.backend.cli.story_commands -> agentkit.backend.story_context_manager.service
+    symbols: [StoryService]
+    answer: a
+    remedy_owner: AG3-209
+    blocked: true
+    endpoint: >-
+      `GET /v1/stories/{story_id}` (story_context_manager/http/routes.py:131-152)
+      already returns exactly the needed pair: `{"summary": ..., "spec": ...}`,
+      serialised by `story_to_wire_summary` / `story_spec_to_wire` from
+      `service.get_story_detail() -> (Story, StorySpecification | None)`.
+    correction_from_review_round_1: >-
+      An earlier version of this file named the PROJECT-SCOPED
+      `GET /v1/projects/{key}/stories/{id}` and claimed it returns the
+      specification. It does not: that route answers `backend.story.models.
+      StoryDetail` (story/models.py:79), which has no specification field. The
+      locator was wrong; the answer (a) survives against the correct route.
+    why_not_executable_here: >-
+      `export-story-md` consumes the port
+      `StoryAttributesPort.get_story_detail() -> (Story, StorySpecification|None)`
+      (story_md_export.py:68). The port and its consumer are EDGE
+      (`agentkit.backend.story_creation` is an edge prefix), so the edge needs
+      its own model of a story before a REST client can satisfy that port -- the
+      JSON is already there, the edge-side type is not. Minting that type is the
+      same work as the two `story_model` crossings below and belongs with them.
+
+  - id: cli-split-plan-validation
+    pairs:
+      - agentkit.backend.cli.story_commands -> agentkit.backend.story_split.plan_loader
+    symbols: [SplitPlanError, load_split_plan]
+    answer: a
+    remedy_owner: AG3-209
+    blocked: true
+    anchor: >-
+      FK-91 section 91.1, 91_api_event_katalog.md:142 -- "Der Operator-CLI sendet
+      den VALIDIERTEN Plantext ... ueber HTTPS".
+    history: >-
+      This story first answered (c) and removed the local validation, on the
+      grounds that the route validates the same document again. Review round 1
+      showed that FK-91 binds the CLI to sending validated text, so the removal
+      contradicted a normative document. It was REVERTED rather than resolved by
+      changing FK-91 -- the concept change is the large solution and nobody
+      ordered it.
+    what_was_kept_from_the_attempt: >-
+      The duplication itself is gone even though the crossing is back.
+      `plan_loader` now has ONE validation implementation, `parse_split_plan`,
+      with two entries: `load_split_plan(path)` for the edge and
+      `parse_split_plan(text)` for the writer, which no longer reimplements
+      `json.loads` + `SplitPlan.model_validate` inline in the route. Validated
+      means the same thing on both sides -- one rule checked twice, not two rules.
+    rationale: >-
+      As long as FK-91 requires the edge to send validated text, the edge needs
+      the plan contract, and a plan contract that both sides must apply is /v1
+      vocabulary. The resolution is therefore the same class of work as the
+      `story_model` items: an edge-reachable plan type. Not a new endpoint --
+      the split endpoint exists.
+
+  - id: hook-operating-mode-accessor
+    pairs:
+      - agentkit.backend.governance.guard_evaluation -> agentkit.backend.story_context_manager.operating_mode_resolver
+    symbols: [resolve_operating_mode]
+    answer: b
+    remedy_owner: AG3-209
+    blocked: true
+    assigned_by: AG3-239
+    anchor: >-
+      FK-56, 56_ai_augmented_mode_and_story_execution_separation.md:173 -- mode
+      resolution sits under
+      `agentkit.backend.story_context_manager.operating_mode_resolver`.
+    rationale: >-
+      Explicitly NOT (a): FK-01 section 1.2.3 binds the hook to a local decision
+      in milliseconds, and this is the hook path. The resolver STAYS where FK-56
+      puts it. What moves is the type it is built on: the classification already
+      sends `core_types.operating_mode.OperatingMode` to
+      `agentkit_wire.operating_mode` with `module_dissolves: true`
+      (entities.md:2911, symbol_boundary.core_types_operating_mode). Neither
+      `CarriesOperatingMode` nor the accessor is in that wire target, and neither
+      belongs there -- `agentkit_wire` carries /v1 vocabulary, not shared
+      behaviour, a rule this story wrote into the package docstring itself.
+    correction_from_review_round_1: >-
+      An earlier version of this file called `agentkit_wire.operating_mode` the
+      accessor's "correct home". That contradicted both FK-56:173 and the wire
+      rule, and it was argued from an unfair experiment (the resolver was moved
+      to the edge while the already-specified `OperatingMode` migration was left
+      undone). Both the claim and the experiment are replaced below.
+    measured:
+      - step: "core_types.operating_mode -> wire (the specified, foreign-owned step)"
+        result: "repo 321 -> 320; removes 1, creates 0"
+        note: >-
+          The pair it removes is the resolver's own import of the type. The
+          `guard_evaluation -> resolver` crossing SURVIVES it -- verified
+          directly, not inferred.
+      - step: "the above PLUS resolver -> edge (the coordinated cut, fairly tested)"
+        result: "repo 321 -> 321; removes 2, creates 2"
+        note: >-
+          Even done coordinately, moving the resolver to the edge is a wash: the
+          two core consumers `governance.integrity_gate` and
+          `integrity_gate.mode_guard` simply become the new violators. So the cut
+          is not blocked by the unfinished type migration; it does not pay at all.
+    open: >-
+      This crossing has an answer for the TYPE and no executable answer for the
+      ACCESSOR. FK-56 keeps the accessor in the core, FK-01 keeps the hook off
+      the network, and measurement rules out the edge. Escalated rather than
+      resolved by a default.
+
+  - id: story-context-routes-reach-story-creation
+    pairs:
+      - agentkit.backend.story_context_manager.http.routes -> agentkit.backend.story_creation.reconciliation_evidence
+    symbols: [ReconciliationEvidence]
+    answer: b
+    remedy_owner: AG3-209
+    blocked: true
+    anchor: architecture-conformance.wire_deferred.story_creation_reconciliation_evidence
+    rationale: >-
+      The only core-to-edge pair of this BC, and the frozen classification
+      already answers it: the symbol is wire-DEFERRED with a named
+      `ag3_209_precondition` (its hull reaches
+      `verify_system.llm_evaluator.roles.LlmVerdict`, and it carries Path-typed
+      fields). It is /v1 payload vocabulary that cannot migrate before it is
+      decomposed. An endpoint for it would be an endpoint for a datum that
+      belongs in the contract package.
+
+  - id: story-creation-reaches-the-story-service
+    pairs:
+      - agentkit.backend.story_creation.create_flow -> agentkit.backend.story_context_manager.service
+    symbols: [StoryService]
+    answer: a
+    remedy_owner: AG3-209
+    blocked: true
+    endpoint_exists_already: "POST /v1/projects/{project_key}/stories"
+    rationale: >-
+      The operation exists; what is missing is an edge-side story type, exactly
+      as in `cli-story-read-for-story-md-export`.
+
+  - id: story-creation-reaches-the-story-model
+    pairs:
+      - agentkit.backend.story_creation.create_flow -> agentkit.backend.story_context_manager.story_model
+      - agentkit.backend.story_creation.story_md_export -> agentkit.backend.story_context_manager.story_model
+    symbols: [CreateStoryInput, Story, StorySpecification]
+    answer: b
+    remedy_owner: AG3-209
+    blocked: true
+    rationale: >-
+      Data, not behaviour, and therefore never an endpoint of this story
+      (story.md, Out of Scope). The three symbols are core vocabulary -- measured:
+      42 core modules import `story_model`, so reclassifying it to the edge takes
+      the repository from 321 to 361. The edge needs its own type, which is the
+      wire/edge-model work AG3-209 owns.
+    authority_note: >-
+      NOT argued from `wire_excluded_crossings`; that section carries
+      `superseded-no-authority`. The argument here is the measurement plus the
+      absence of these symbols from any `wire_target_modules` entry.
+
+# ---------------------------------------------------------------------------
+# MEASURED, NOT ASSUMED
+# ---------------------------------------------------------------------------
+
+refuted_remedies:
+  measured_on: "2026-08-08"
+  method: >-
+    The distribution of one module is overridden in the prefix map the AG3-239
+    tool builds from the formal spec, and the full crossing set is recomputed.
+    Nothing in `concept/` is modified.
+  claim_under_test: >-
+    "The remaining crossings are movements, so executing the movement lowers the
+    number." -- the expectation AG3-239 review round 3 held.
+  results:
+    - move: story_context_manager.operating_mode_resolver -> edge
+      repo_pairs: "321 -> 323 (unfair variant), 321 -> 321 (fair variant)"
+      note: see the `measured` block of `hook-operating-mode-accessor`
+    - move: story_context_manager.service -> edge
+      repo_pairs: "321 -> 345"
+      removed: 3
+      created: 27
+    - move: story_context_manager.story_model -> edge
+      repo_pairs: "321 -> 361"
+      removed: 2
+      created: 42
+  what_this_does_NOT_prove: >-
+    Review round 1 rightly pushed back on an earlier version of this section: a
+    whole-module reclassification experiment measures whether the MODULE belongs
+    on the other side. It says nothing about whether an individual builder can be
+    lifted out of a mixed module. That is why the three story-owned builders were
+    extracted after all (`composition-project-story-builders`, 19 -> 11 -> 9) --
+    the experiment had been used to justify not trying.
+
+# ---------------------------------------------------------------------------
+
+acceptance_criteria:
+  ac1_every_crossing_answered: >-
+    19 of 19. Ten resolved here, nine answered with a named owner, an anchor
+    quoted from the document itself, and measurements where the reason is numeric.
+  ac2_zero_violations: >-
+    NOT reached: 19 -> 9. Reported as a gap, never as green. Of the nine, one
+    pair-group waits on a Product-Owner decision AG3-237 explicitly declined to
+    take, one is FK-91-mandated, one is FK-56-placed, and the rest need the
+    edge-side story vocabulary that AG3-209 owns.
+  ac3_no_endpoint_without_need: >-
+    Held in the strongest form available: ZERO new endpoints. Every (a) answer
+    resolves to an operation that already exists; the three mutations already ran
+    over their /v1 operation before this story began. Nothing was built that had
+    no call site.
+  ac4_catalogued: >-
+    No new or changed endpoint, so nothing to add. The three story-lifecycle
+    operations are already in FK-91 section 91.1 (:142-144) with their CLI
+    adapters (:596, :598, :602). No Formal-Spec change was made, so the shipped
+    `check.py formal`/`frontmatter` run was not triggered.
+  ac5_gates: >-
+    All six binding deterministic gates exit 0, plus the interpreter guard. W2/W3
+    were not run and are NOT counted as green.
+  ac6_negative_paths: >-
+    tests/unit/control_plane_http/test_story_lifecycle_routes.py. Split:
+    unauthorised/non-strategist (403), defective plan (400), plan for another
+    story (400), unreachable core (503). Reset: three unauthorised shapes (403),
+    malformed payload (400), unknown story (409), unreachable core (503). Exit:
+    three unauthorised shapes (403), unknown run identity (409), unknown reason
+    code (400), unreachable core (503). The reset unknown-identity test was added
+    after review round 1 found the earlier claim overstated.
+
+open_items_for_the_product_owner:
+  - >-
+    `build_story_split_service` couples a core service to a local Weaviate
+    adapter. AG3-237 named the PO as owner and did not decide it; AG3-240 did not
+    either. Two crossings wait on it.
+  - >-
+    `resolve_operating_mode` has no executable home: FK-56:173 keeps it in the
+    core, FK-01 section 1.2.3 keeps the hook off the network, and the edge move is
+    measured as a wash. It needs a decision, not a default.
+  - >-
+    FK-91:142 requires the operator CLI to send VALIDATED plan text, which keeps
+    the plan contract on both machines. If the writer should be the sole
+    validator, FK-91 has to say so; this story did not change it.

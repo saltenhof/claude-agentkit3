@@ -175,6 +175,12 @@ class TestMigratedSymbolsHaveExactlyOneHome:
                 "agentkit_wire.control_plane_mutations",
                 "GuardCounterMutationRequest",
             ),
+            ("agentkit_wire.story_lifecycle", "StorySplitMutationRequest"),
+            ("agentkit_wire.story_lifecycle", "StorySplitMutationResponse"),
+            ("agentkit_wire.story_lifecycle", "StoryResetMutationRequest"),
+            ("agentkit_wire.story_lifecycle", "StoryResetMutationResponse"),
+            ("agentkit_wire.story_lifecycle", "StoryExitMutationRequest"),
+            ("agentkit_wire.story_lifecycle", "StoryExitMutationResponse"),
         ],
     )
     def test_new_location_defines_it(self, wire_module: str, symbol: str) -> None:
@@ -183,3 +189,24 @@ class TestMigratedSymbolsHaveExactlyOneHome:
         module = importlib.import_module(wire_module)
         assert hasattr(module, symbol)
         assert symbol in getattr(module, "__all__", ())
+
+    @pytest.mark.parametrize(
+        "dissolved_module",
+        [
+            "agentkit.backend.story_split.http_models",
+            "agentkit.backend.story_reset.http_models",
+            "agentkit.backend.story_exit.http_models",
+        ],
+    )
+    def test_a_dissolved_source_module_is_gone(self, dissolved_module: str) -> None:
+        """``module_dissolves: true`` means the file no longer exists (AG3-240).
+
+        The three story-lifecycle ``http_models`` modules had NO remainder: their
+        whole public surface is ``/v1`` vocabulary. Leaving the module behind as
+        a re-export would be the compatibility layer the move exists to avoid,
+        and ``hasattr`` on a surviving module cannot tell the two apart.
+        """
+        import importlib
+
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(dissolved_module)
