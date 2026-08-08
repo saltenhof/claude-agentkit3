@@ -28,36 +28,61 @@ measurement:
   unique_ordered_pairs: 50
   edge_to_core: 45
   core_to_edge: 5
-  import_statements: 104
-  distinct_imported_symbols: 47
+  import_statements: 111
+  distinct_imported_symbols: 51
   start_value:
     unique_ordered_pairs: 64
     edge_to_core: 54
     core_to_edge: 10
     note: >-
       Ausgangsmessung vor jeder Aenderung, mit demselben Kommando gerechnet.
+  owner_split:
+    executable_by_ag3_239: 18
+    foreign_or_open_owner: 32
+    blocked_true_flag: 29
+    note: >-
+      Zwei verschiedene Zahlen, in Review Runde 2 zurecht auseinandergehalten.
+      `foreign_or_open_owner` zaehlt jede Ueberquerung, deren Antwort eine ANDERE
+      Story ausfuehren muss (32). `blocked_true_flag` zaehlt nur die, die
+      zusaetzlich das Flag `blocked: true` tragen (29) -- die drei
+      Worker-Health-Ueberquerungen und die zwei offenen Posten sind fremd
+      beziehungsweise offen, aber nicht als `blocked` markiert, weil sie auf kein
+      fehlendes Vertragspaket warten. Wer 29 als "fremder Owner" berichtet, zaehlt
+      drei Posten zu wenig.
+    open_without_owner:
+      - agentkit.backend.governance.guard_system.records
+      - agentkit.backend.story_context_manager.operating_mode_resolver
   progress:
-    - step: "M3 -- Capability-Adjudication als /v1-Operation"
+    - step: "M3 -- struktureller Eingangs-Port (der Endpunkt ist zurueckgebaut)"
       removed: 3
       added: 0
       net: 50
       note: >-
-        `POST /v1/governance/capability-adjudications` gebaut: Route, Kern-Service,
-        Wire-Vertrag, duenner Edge-Client. Ersetzt die In-Prozess-Verdrahtung in
-        `runner._run_capability_enforcement`. AC 3: FK-55 §55.10.3 Schritte 1-5
-        sind EIN Vorgang, nicht fuenf Repository-Spiegel.
-        Direkt entfallen sind die drei Rueckkanten
+        Runde 1 baute hier `POST /v1/governance/capability-adjudications`.
+        **Review Runde 2 hat ihn als normativ falsch verworfen und er ist
+        vollstaendig zurueckgebaut** -- FK-01 §1.2.3 verbietet einen
+        Netz-Roundtrip pro Werkzeugaufruf, und die Adjudikation ist genau das.
+        Die Messung zeigt, dass er ohnehin nichts geloest hat: 50 Paare mit
+        Endpunkt, 50 ohne.
+        Was BLEIBT und die drei Ueberquerungen tatsaechlich geloest hat, ist der
+        strukturelle Eingangs-Port. Entfallen sind die drei Rueckkanten
         `principal_capabilities.{enforcement,principals,service_paths} ->
         guard_evaluation` -- geloest durch einen strukturellen Eingangs-Port
         (`principal_capabilities/adjudication_input.py`) statt durch einen
         Typumzug: `HookEvent` kann nicht ins Vertragspaket (Huelle offen,
         `Path.cwd()`), aber ein Port braucht keinen Umzug. Vorbild im Repo:
         `operating_mode_resolver.CarriesOperatingMode`.
-        Zwei weitere Paare sind dadurch SUBSTANZIELL geschrumpft, ohne zu
-        verschwinden: `runner -> principal_capabilities` traegt statt sieben nur
-        noch die drei reinen Klassifizierer, und `runner -> freeze_repository`
-        statt zwei nur noch `LocalFreezeJsonExport` -- `FreezeRepository` liegt
-        jetzt hinter dem Endpunkt. Genau diese Trennung verlangte Review Runde 1.
+        Ein Gewinn des Runde-1-Umbaus ist BEWUSST behalten worden:
+        `FreezeRepository`
+        ist aus dem Hook-Prozess verschwunden und bleibt draussen. Der Freeze wird
+        jetzt ueber den LOKALEN Export konsultiert
+        (`ConflictFreezeOverlay(local_export=...)`), ohne Datenbank und ohne
+        Netzaufruf. Das erfuellt beides zugleich: FK-01 §1.2.3 (lokale
+        Entscheidung) und AG3-209 AC 3 ("aus dem Hook-Prozess ist weder psycopg
+        noch ein Postgres-Repository erreichbar"). Der Zustand vor dieser Story
+        konstruierte `FreezeRepository(project_root)` im kurzlebigen Hook-Prozess;
+        das ist weg. `runner -> freeze_repository` traegt deshalb nur noch
+        `LocalFreezeJsonExport`.
     - step: "M1 -- Vertragspaket src/agentkit_wire angelegt"
       removed: 6
       added: 0
@@ -159,7 +184,9 @@ crossings:
     imported: agentkit.backend.governance.hook_registration
     symbols: [HookId]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
     group: G5
     blocked: true
     reason: >-
@@ -255,7 +282,9 @@ crossings:
     imported: agentkit.backend.governance.guard_system.records
     symbols: [GuardDecision, GuardDecisionOutcome]
     answer: a
-    remedy_owner: AG3-245
+    remedy_owner: OPEN -- kein Eigentuemer zugewiesen, Entscheid beim PO
+    owner_note: >-
+      Review Runde 2: stand auf AG3-245 -- das ist der KPI-BC und besitzt nur Auswertungssichten, nicht den kanonischen Governance-Audit-Schreibweg. Unter AG3-240..250 gibt es keine Story, die diesen Weg besitzt; der Governance-BC ist diese Story, und der Audit-Append steht NICHT auf ihrer In-Scope-Liste (dort stehen Adjudikation, Hook-Registrierung, Lock-Verwaltung, Freeze-Abfrage). Ich erfinde keinen Eigentuemer: der Posten geht offen an den PO. Dazu gehoert der Nebenbefund, dass produktiv gar kein Decision-Repository injiziert wird (guard_evaluation.py:114) -- der Audit-Record entsteht und verschwindet.
     group: G4
     endpoint: POST /v1/governance/guard-decisions (noch nicht gebaut)
     reason: >-
@@ -280,17 +309,15 @@ crossings:
       eine fehlende Persistenz. Owner beider: AG3-245.
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.capability_blocks
-    symbols:
-      [CAPABILITY_DENIED_REASON, binding_invalid_block, capability_fault_block]
+    symbols: [binding_invalid_block, capability_block, capability_fault_block]
     answer: b
     remedy_owner: AG3-239
     group: G2
     reason: >-
-      Three pure constructors that turn an adjudication result into a blocking
-      verdict. No state, no I/O, only the hook dispatcher calls them. They move
-      to the edge; an endpoint for them would be a network call to build a
-      dataclass.
-
+      Drei reine Konstruktoren, die ein Adjudikationsergebnis in ein blockierendes
+      Verdikt uebersetzen. Kein Zustand, kein I/O, nur der Hook-Dispatcher ruft
+      sie. Sie wandern mit ihm auf den Edge; ein Netzaufruf, um ein Dataclass zu
+      bauen, waere absurd.
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.hook_ids
     symbols: [POST_HOOK_IDS, PRE_HOOK_IDS, SUPPORTED_HOOK_IDS, SUPPORTED_PHASES]
@@ -358,24 +385,31 @@ crossings:
   # -------------------------------------------------------------------
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.governance.principal_capabilities
-    symbols: [OperationClassifier, PathClassifier, PrincipalResolver]
+    symbols:
+      [CapabilityEnforcement, CapabilityMatrix, ConflictFreezeOverlay,
+       EnforcementOutcome, OperationClassifier, PathClassifier, PrincipalResolver]
     answer: b
     remedy_owner: AG3-239
     group: G2
     reason: >-
-      Nach dem Endpunkt bleiben hier NUR noch die drei reinen Klassifizierer.
-      Die eigentliche Adjudikation (`CapabilityEnforcement`, `CapabilityMatrix`,
-      `ConflictFreezeOverlay`, `EnforcementOutcome`) ist ueber
-      `POST /v1/governance/capability-adjudications` gegangen und steht nicht
-      mehr im Hook-Prozess.
-      Die drei Verbliebenen sind keine Adjudikation, sondern Klassifikation:
-      sie bilden Strings auf Prinzipal-, Pfad- und Operationsklassen ab, ohne
-      Zustand und ohne I/O. Sie werden ausschliesslich von
-      `SelfProtectionGuard` und `StoryCreationGuard` gebraucht -- zwei Guards,
-      die im Hook-Prozess entscheiden und nach G2 auf den Edge wandern. Die
-      Klassifizierer wandern als ihre Eingabelogik mit. Ein Netzaufruf pro
-      Tool-Use nur, um einen Werkzeugnamen zu klassifizieren, waere genau der
-      Latenzpfad, den `story.md` ausschliesst.
+      Korrigiert in Review Runde 2: die Antwort war (a) "Endpunkt", und das war
+      normativ falsch. FK-01 §1.2.3 sagt woertlich: "Ein Tool-Call muss lokal und
+      in Millisekunden entschieden werden; ein Netz-Roundtrip pro Werkzeugaufruf
+      ist kein zulaessiges Design. Die Guard-Engine ist deshalb Edge-ausgeliefert
+      und laeuft im Hook-Prozess." story.md sagt im Anlass dasselbe. Die
+      Adjudikation IST Guard-Engine.
+      Die richtige Antwort ist (b): die Engine gehoert auf den Edge, mit einer
+      Regelbasis, die der Kern publiziert -- "Ihre Regelbasis stammt aus dem
+      zentral publizierten Edge-Bundle; sie erzeugt keine eigene". Der Kern
+      besitzt den kanonischen Zustand und veroeffentlicht ihn; die ENTSCHEIDUNG
+      faellt lokal, und eine fehlende oder versionsfremde Materialisierung
+      blockiert fail-closed.
+      Der in Runde 1 gebaute Endpunkt ist vollstaendig zurueckgebaut. Die Messung
+      belegt, dass er nichts wert war: 50 Paare mit ihm, 50 ohne ihn -- er hat
+      NULL Grenzverletzungen geloest. Die drei Rueckkanten, die ihm zugeschrieben
+      waren, loest der strukturelle Port
+      (principal_capabilities/adjudication_input.py), der von jedem Endpunkt
+      unabhaengig ist und bleibt.
   - importer: agentkit.backend.governance.runner
     imported: agentkit.backend.state_backend.store.freeze_repository
     symbols: [LocalFreezeJsonExport]
@@ -419,6 +453,8 @@ crossings:
     symbols: [HookId]
     answer: b
     remedy_owner: AG3-242
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
     group: G5
     blocked: true
     reason: >-
@@ -466,7 +502,9 @@ crossings:
     imported: agentkit.backend.governance.protocols
     symbols: [GovernanceGuard, GuardVerdict, ViolationType]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-209
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen). Das Symbol ist im Spec wire-DEFERRED mit `ag3_209_precondition` -- die Zerlegung, die es migrierbar macht, fuehrt AG3-209.
     group: G5
     blocked: true
     reason: >-
@@ -479,7 +517,9 @@ crossings:
     imported: agentkit.backend.governance.protocols
     symbols: [GovernanceGuard, GuardVerdict, ViolationType]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-209
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen). Das Symbol ist im Spec wire-DEFERRED mit `ag3_209_precondition` -- die Zerlegung, die es migrierbar macht, fuehrt AG3-209.
     group: G5
     blocked: true
     reason: See guard_evaluation -> protocols -- same symbols, same blocker.
@@ -488,7 +528,9 @@ crossings:
     imported: agentkit.backend.governance.protocols
     symbols: [GuardVerdict]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-209
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen). Das Symbol ist im Spec wire-DEFERRED mit `ag3_209_precondition` -- die Zerlegung, die es migrierbar macht, fuehrt AG3-209.
     group: G5
     blocked: true
     reason: >-
@@ -499,7 +541,9 @@ crossings:
     imported: agentkit.backend.core_types.qa_artifact_names
     symbols: [CHANGE_FRAME_FILE]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-209
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen). Eine Dateinamens-Konstante gehoert in die Edge-Kopiermenge, die AG3-209 fuehrt.
     group: G5
     blocked: true
     reason: >-
@@ -511,7 +555,9 @@ crossings:
     imported: agentkit.backend.story_context_manager.operating_mode_resolver
     symbols: [resolve_operating_mode]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: OPEN -- kein Eigentuemer zugewiesen, Entscheid beim PO
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). `OperatingMode` ist ein AG3-237-Wire-Ziel mit `module_dissolves: true`, aber der ACCESSOR `resolve_operating_mode` ist Verhalten und gehoert dem story-context-manager-BC. Keine der Storys AG3-240..250 traegt diesen BC erkennbar; statt zu raten, geht der Posten offen an den PO.
     group: G5
     blocked: true
     reason: >-
@@ -526,7 +572,9 @@ crossings:
     imported: agentkit.backend.telemetry.emitters
     symbols: [EventEmitter]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237. Das Feld nennt die Story, die die Antwort AUSFUEHREN kann -- AG3-237 ist abgeschlossen und schliesst jede Codeaenderung aus. Telemetrie-Vokabular und -Verhalten fuehrt AG3-244.
     group: G5
     blocked: true
     reason: >-
@@ -539,7 +587,9 @@ crossings:
     imported: agentkit.backend.telemetry.emitters
     symbols: [EventEmitter, NullEmitter]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237. Das Feld nennt die Story, die die Antwort AUSFUEHREN kann -- AG3-237 ist abgeschlossen und schliesst jede Codeaenderung aus. Telemetrie-Vokabular und -Verhalten fuehrt AG3-244.
     group: G5
     blocked: true
     reason: See guard_evaluation -> telemetry.emitters. `NullEmitter` is the
@@ -549,7 +599,9 @@ crossings:
     imported: agentkit.backend.telemetry.emitters
     symbols: [EventEmitter]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237. Das Feld nennt die Story, die die Antwort AUSFUEHREN kann -- AG3-237 ist abgeschlossen und schliesst jede Codeaenderung aus. Telemetrie-Vokabular und -Verhalten fuehrt AG3-244.
     group: G5
     blocked: true
     reason: See guard_evaluation -> telemetry.emitters -- same symbol.
@@ -558,7 +610,9 @@ crossings:
     imported: agentkit.backend.telemetry.events
     symbols: [Event, EventType]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      `EventType` ist ein AG3-237-Wire-Ziel, `Event` der Kern-Rest -- die KLASSIFIKATION stammt also von AG3-237. Ausfuehren kann sie nur der Telemetrie-BC: AG3-244.
     group: G5
     blocked: true
     reason: >-
@@ -570,7 +624,9 @@ crossings:
     imported: agentkit.backend.telemetry.hooks.base
     symbols: [HookContext, HookTrigger]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237. Das Feld nennt die Story, die die Antwort AUSFUEHREN kann -- AG3-237 ist abgeschlossen und schliesst jede Codeaenderung aus. Telemetrie-Vokabular und -Verhalten fuehrt AG3-244.
     group: G5
     blocked: true
     reason: >-
@@ -581,7 +637,9 @@ crossings:
     imported: agentkit.backend.telemetry.hooks.budget_event_emitter
     symbols: [BudgetEventEmitter]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237. Das Feld nennt die Story, die die Antwort AUSFUEHREN kann -- AG3-237 ist abgeschlossen und schliesst jede Codeaenderung aus. Telemetrie-Vokabular und -Verhalten fuehrt AG3-244.
     group: G5
     blocked: true
     reason: >-
@@ -593,7 +651,9 @@ crossings:
     imported: agentkit.backend.telemetry.hooks.commit_hook
     symbols: [CommitHook]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237. Das Feld nennt die Story, die die Antwort AUSFUEHREN kann -- AG3-237 ist abgeschlossen und schliesst jede Codeaenderung aus. Telemetrie-Vokabular und -Verhalten fuehrt AG3-244.
     group: G5
     blocked: true
     reason: See budget_event_emitter -- telemetry-BC owned hook, edge-resident.
@@ -602,7 +662,9 @@ crossings:
     imported: agentkit.backend.telemetry.hooks.review_guard
     symbols: [ReviewGuard]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-244
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237. Das Feld nennt die Story, die die Antwort AUSFUEHREN kann -- AG3-237 ist abgeschlossen und schliesst jede Codeaenderung aus. Telemetrie-Vokabular und -Verhalten fuehrt AG3-244.
     group: G5
     blocked: true
     reason: See budget_event_emitter -- telemetry-BC owned hook, edge-resident.
@@ -622,7 +684,9 @@ crossings:
     imported: agentkit.backend.governance.principal_capabilities.operations
     symbols: [WEB_FETCH, WEB_SEARCH]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-239
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen). Die beiden Operations-IDs sind lokales Dispatch-Vokabular des Hook-Prozesses (`_WEB_TOOLS`) und wandern mit dem Dispatcher -- dieselbe (b)-Bewegung wie die Klassifizierer.
     group: G5
     blocked: true
     reason: >-
@@ -635,6 +699,8 @@ crossings:
     symbols: [HookId]
     answer: b
     remedy_owner: AG3-242
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
     group: G5
     blocked: true
     reason: >-
@@ -697,7 +763,9 @@ crossings:
     imported: agentkit.backend.governance.errors
     symbols: [HookRegistrationError]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-209
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen). Das Symbol ist im Spec wire-DEFERRED mit `ag3_209_precondition` -- die Zerlegung, die es migrierbar macht, fuehrt AG3-209.
     group: G5
     blocked: true
     reason: >-
@@ -708,7 +776,9 @@ crossings:
     imported: agentkit.backend.governance.errors
     symbols: [HookRegistrationError]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-209
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen). Das Symbol ist im Spec wire-DEFERRED mit `ag3_209_precondition` -- die Zerlegung, die es migrierbar macht, fuehrt AG3-209.
     group: G5
     blocked: true
     reason: See installer.writer_client -> governance.errors.
@@ -717,7 +787,9 @@ crossings:
     imported: agentkit.backend.governance.repository
     symbols: [HookRegistrationRepository]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
     group: G5
     blocked: true
     reason: >-
@@ -729,7 +801,9 @@ crossings:
     imported: agentkit.backend.governance.repository
     symbols: [HookRegistrationRepository]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
     group: G5
     blocked: true
     reason: See installer.runner -> governance.repository.
@@ -738,7 +812,9 @@ crossings:
     imported: agentkit.backend.governance.repository
     symbols: [HookRegistrationRepository]
     answer: b
-    remedy_owner: AG3-237
+    remedy_owner: AG3-242
+    owner_note: >-
+      Review Runde 2: stand auf AG3-237 (abgeschlossen, kann nichts ausfuehren). Der Installer-Schnitt fuehrt AG3-242.
     group: G5
     blocked: true
     reason: See installer.runner -> governance.repository.
@@ -750,7 +826,9 @@ crossings:
     imported: agentkit.backend.implementation.worker_health
     symbols: [PostToolOutcome, apply_post_tool_use]
     answer: a
-    remedy_owner: AG3-241
+    remedy_owner: AG3-246
+    owner_note: >-
+      Review Runde 2: stand auf AG3-241 -- das ist verify-system. Worker-Health fuehrt AG3-246.
     group: G6
     endpoint: POST /v1/governance/worker-health (extension of the existing operation)
     replaces_call_sites:
@@ -768,7 +846,9 @@ crossings:
     imported: agentkit.backend.implementation.worker_health.interventions
     symbols: [intervention_decision_result]
     answer: a
-    remedy_owner: AG3-241
+    remedy_owner: AG3-246
+    owner_note: >-
+      Review Runde 2: stand auf AG3-241 -- das ist verify-system. Worker-Health fuehrt AG3-246.
     group: G6
     endpoint: POST /v1/governance/worker-health (extension of the existing operation)
     replaces_call_sites:
@@ -781,7 +861,7 @@ crossings:
     imported: agentkit.backend.governance.guard_evaluation
     symbols: [HookEvent]
     answer: a
-    remedy_owner: AG3-241
+    remedy_owner: AG3-246
     group: G6
     endpoint: POST /v1/governance/worker-health (extension of the existing operation)
     reason: >-

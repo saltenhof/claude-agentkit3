@@ -204,42 +204,63 @@ einen `object`-Parameter. Diese Form macht aus einer Umbenennung stillschweigend
 „nicht deaktiviert". Der Port ist jetzt typisiert (`_DeactivationOutcome`), der
 Zugriff direkt.
 
-## 6c. Nachtrag Review-Runde 2 — die Adjudikation ist jetzt eine `/v1`-Operation
+## 6c. Nachtrag Review-Runde 2 — der Endpunkt war falsch und ist zurueckgebaut
 
-**`POST /v1/governance/capability-adjudications`** (FK-91 §91.1). Der
-Hook-Prozess konstruiert die Capability-Komponenten nicht mehr selbst; er stellt
-dem Kern **eine** Frage, und der Kern besitzt die Antwort (FK-01 §1.1a). FK-55
-§55.10.3 Schritte 1–5 sind ein Vorgang, nicht fuenf Repository-Spiegel.
+Runde 1 baute `POST /v1/governance/capability-adjudications`. **Das war ein
+Fehler, und er ist vollstaendig zurueckgenommen.**
 
-**Der Freeze-Schnitt ist der interessante Teil.** Die Invariante
-`freeze_has_backend_record_and_local_export` verlangt **beides** — kanonischen
-Record und lokalen, hook-lesbaren Export in gleicher Version. Die beiden liegen
-auf zwei Maschinen, also tragen `FreezeRepository` und `LocalFreezeJsonExport`
-**unterschiedliche** Antworten: das Repository wandert hinter den Endpunkt, der
-Export bleibt auf dem Edge. Der Edge meldet, was sein Export sagt; der Kern
-vergleicht und faellt fail-closed bei jeder Abweichung. Die umgekehrte
-Aufteilung haette entweder eine Datenbank in den Hook-Prozess gelegt oder die
-Invariante unpruefbar gemacht.
+**Der normative Grund.** FK-01 §1.2.3 sagt woertlich:
 
-**Die Rueckkanten sind mit einem Port geloest, nicht mit einem Typumzug.** Drei
-Kern-Module lasen ihre Eingabe, indem sie `HookEvent` aus dem Edge-Modul
-`guard_evaluation` importierten. `HookEvent` kann nicht ins Vertragspaket — seine
-Huelle schliesst nicht (`Path.cwd()` in den Validatoren), und die Klassifikation
-stellt es mit `ag3_209_precondition` zurueck. Ein **struktureller Port**
-(`principal_capabilities/adjudication_input.py`) braucht keinen Umzug: der Kern
-benennt die sieben Felder, die er liest, und sowohl das Edge-`HookEvent` als auch
-die Wire-Request erfuellen ihn ohne Import. Vorbild im Bestand:
-`operating_mode_resolver.CarriesOperatingMode`. mypy prueft die Passung an der
-Aufrufstelle — es hat beim Bau vier fehlende Felder gemeldet.
+> „Ein Tool-Call muss lokal und in Millisekunden entschieden werden; ein
+> Netz-Roundtrip pro Werkzeugaufruf ist kein zulaessiges Design. Die
+> Guard-Engine ist deshalb Edge-ausgeliefert und laeuft im Hook-Prozess (FK-30,
+> FK-10 §10.1.3). Ihre Regelbasis stammt aus dem zentral publizierten
+> Edge-Bundle; sie erzeugt keine eigene. Sicherheitskritische Zustandsfragen
+> (haelt ein Lock? ist eine Schwelle ueberschritten?) werden weiterhin am Core
+> bestaetigt **oder fail-closed blockiert**."
+
+Die Capability-Adjudikation ist Guard-Engine. Ein Endpunkt, den **jeder**
+Werkzeugaufruf trifft, ist genau das verbotene Design. `story.md` sagt im Anlass
+dasselbe.
+
+**Der empirische Grund.** Der Endpunkt hat **null** Grenzverletzungen geloest:
+50 Paare mit ihm, 50 ohne ihn. Die drei Ueberquerungen, die ihm zugeschrieben
+waren, loest der strukturelle Eingangs-Port
+(`principal_capabilities/adjudication_input.py`) — der ist von jedem Endpunkt
+unabhaengig, bleibt, und ist der eigentliche Gewinn dieses Umbaus.
+
+**Die richtige Form steht im Anker selbst:** kanonischer Zustand im Kern,
+publiziert als lokale Materialisierung; Entscheidung lokal; fehlende oder
+versionsfremde Materialisierung blockiert fail-closed. Das ist dasselbe Muster
+wie beim Freeze.
+
+**Ein Gewinn ist bewusst behalten worden.** `FreezeRepository` ist aus dem
+Hook-Prozess verschwunden und bleibt draussen. Der Freeze wird ueber den
+**lokalen Export** konsultiert (`ConflictFreezeOverlay(local_export=...)`) —
+ohne Datenbank und ohne Netzaufruf. Das erfuellt beide Normen zugleich: FK-01
+§1.2.3 (lokale Entscheidung) und AG3-209 AC 3 („aus dem Hook-Prozess ist weder
+psycopg noch ein Postgres-Repository erreichbar"). Der Zustand **vor** dieser
+Story konstruierte `FreezeRepository(project_root)` im kurzlebigen Hook-Prozess;
+das ist weg und durch einen Strukturtest gepinnt.
+
+**Sechs Folgebefunde der Runde 2 loesen sich mit dem Rueckbau auf**, weil ihr
+Gegenstand nicht mehr existiert: die ungeprueft uebernommene Story-Identitaet,
+der Loopback als Attrappe fuer die HTTP-Grenze, die `story_id`-Luecke im
+Freeze-Vergleich, das TOCTOU zwischen zwei Record-Lesungen, die vom Edge
+behauptbare `local_freeze`-Angabe und der fehlende `allowed`/`outcome`-Validator.
+Der vierte Informationsverlust ist ebenfalls behoben: die konkrete Fehlerklasse
+(z. B. `FreezePersistenceError`) erreicht den Audit-Trail wieder, weil die
+Ausnahme lokal bleibt statt durch eine Wire-Antwort in einen generischen
+`RuntimeError` verpackt zu werden.
 
 **Korrigiert:** `GuardDecision` war als „(b) edge-internal" eingestuft. Das war
-falsch. Es ist ein kanonischer, append-only Audit-Record (FK-18 §173), den zehn
-Kern-Module lesen; die What-if-Messung dieser Story zeigte, dass ein Umzug auf
-den Edge die Verletzungszahl von 64 auf 98 getrieben haette. Richtig ist: der
-Edge **erzeugt** die Entscheidung, das kanonische Anhaengen braucht
-`/v1`-Mediation. Dabei sichtbar geworden: produktiv wird derzeit **gar kein**
-Decision-Repository injiziert (`guard_evaluation.py:114`) — der Audit-Record
-entsteht und verschwindet. Owner beider: AG3-245.
+falsch — es ist ein kanonischer, append-only Audit-Record (FK-18 §173), den zehn
+Kern-Module lesen; ein Umzug auf den Edge haette die Verletzungszahl von 64 auf
+98 getrieben. Der Edge **erzeugt** die Entscheidung, das kanonische Anhaengen
+gehoert dem Kern. Einen Eigentuemer dafuer gibt es unter AG3-240..250 nicht, und
+er wird hier nicht erfunden: der Posten geht **offen an den PO**, zusammen mit
+dem Nebenbefund, dass produktiv gar kein Decision-Repository injiziert wird
+(`guard_evaluation.py:114`).
 
 ## 6d. Nachtrag — der Interpreter-Guard pinnt wieder einen Ort
 
@@ -277,7 +298,7 @@ neue Teil sie schliesst und nicht bloss den alten dupliziert.
 | FK-50 §50.3, FK-51 §51.6, FK-68, `bc-cut-decisions.md` | ja | Namens-Sweep auf den tatsaechlichen Owner |
 | `pyproject.toml` | ja | `src/agentkit_wire` als zweiter Importwurzel-Baum |
 | FK-58 (Story-Exit) | ja | Gate liest `guards_deactivated` statt eines Dateipfad-Flags |
-| FK-91 §91.1 | ja | neuer Endpunkt `/v1/governance/capability-adjudications` katalogisiert |
-| FK-55 §55.10.3 | nein | Schritte unveraendert; nur der Ort, an dem sie laufen |
+| FK-55 §55.10.3 | nein | Schritte und Ort unveraendert: lokal im Hook-Prozess |
+| FK-01 §1.2.3 | nein, angewandt | traegt den Rueckbau des Endpunkts |
 | FK-76 §76.5 | ja, bestaetigt | FK-30 beanspruchte die Settings-Schemas mit; alleiniger Owner ist FK-76 |
 | `scripts/ci/check_interpreter_entrypoints.py` | ja | struktureller Locator statt blosser Anzahl |

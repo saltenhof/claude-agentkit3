@@ -8,20 +8,23 @@ on the developer machine. Three core modules did that, and each import was a
 core-to-edge boundary violation.
 
 The fix is a **structural port**, not a moved type. The core names the fields it
-reads; anything carrying them satisfies the port without an import:
+reads; anything carrying them satisfies the port without an import. Today the
+edge ``HookEvent`` satisfies it, and any future carrier of the same seven fields
+will too -- neither side has to know about the other.
 
-* the edge ``HookEvent``, when adjudication runs in-process (tests, and the
-  guard chain that already holds an event);
-* ``agentkit_wire.governance_adjudication.CapabilityAdjudicationRequest``, when
-  it arrives over ``/v1``.
-
-Neither side has to know about the other. This mirrors
-``story_context_manager.operating_mode_resolver.CarriesOperatingMode``, which
-solves the same problem for the operating mode.
+This mirrors ``story_context_manager.operating_mode_resolver.CarriesOperatingMode``,
+which solves the same problem for the operating mode.
 
 ``HookEvent`` itself does NOT migrate to the contract package: its hull does not
 close (``Path.cwd()`` in its validators), and the frozen classification defers it
 with an ``ag3_209_precondition``. A port needs no migration.
+
+**The port is independent of any endpoint.** AG3-239 briefly routed adjudication
+through ``/v1`` and the port was mistaken for part of that change. It is not: the
+adjudication itself must stay local (FK-01 §1.2.3 -- "ein Netz-Roundtrip pro
+Werkzeugaufruf ist kein zulaessiges Design"), and the port is what stops the CORE
+package from importing an EDGE module regardless of where the evaluation runs.
+It removed three boundary violations on its own; the endpoint removed none.
 """
 
 from __future__ import annotations

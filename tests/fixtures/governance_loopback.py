@@ -42,9 +42,6 @@ from agentkit.backend.control_plane.telemetry import execution_event_to_wire
 from agentkit.backend.control_plane.worker_health import (
     ControlPlaneWorkerHealthService,
 )
-from agentkit.backend.governance.capability_adjudication import (
-    CapabilityAdjudicationService,
-)
 from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
@@ -65,10 +62,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
-    from agentkit_wire.governance_adjudication import (
-        CapabilityAdjudicationRequest,
-        CapabilityAdjudicationResponse,
-    )
 
 
 class LoopbackGovernanceClient:
@@ -76,19 +69,6 @@ class LoopbackGovernanceClient:
 
     def __init__(self, project_root: Path) -> None:
         self._project_root = project_root
-    def adjudicate_capability(
-        self, request: CapabilityAdjudicationRequest
-    ) -> CapabilityAdjudicationResponse:
-        """Run the REAL core adjudication service in-process (AG3-239).
-
-        Same service the HTTP handler calls, minus the socket hop -- the guard
-        suites exercise guard LOGIC, and the transport itself is covered
-        end-to-end under ``tests/integration/governance_hooks``.
-        """
-        return CapabilityAdjudicationService(
-            project_root=self._project_root
-        ).adjudicate(request)
-
     def mutate_guard_counter(
         self, request: GuardCounterMutationRequest
     ) -> GuardCounterMutationAccepted:

@@ -111,8 +111,13 @@ def main() -> int:
         if answer in counts:
             counts[answer] += 1
     print(f"answers        : {counts}")
+    # Two DIFFERENT numbers -- review round 2 caught them being conflated.
     blocked = sum(1 for entry in entries if entry.get("blocked") is True)
-    print(f"blocked (foreign owner): {blocked}")
+    foreign = sum(
+        1 for entry in entries if str(entry.get("remedy_owner", "")) != "AG3-239"
+    )
+    print(f"foreign or open owner  : {foreign}")
+    print(f"  of those, blocked    : {blocked}")
 
     if problems:
         print()

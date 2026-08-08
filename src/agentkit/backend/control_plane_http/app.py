@@ -28,7 +28,6 @@ from agentkit.backend.control_plane.writer_lease import ControlPlaneWriterLeaseL
 from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
-from agentkit.backend.governance.capability_adjudication import CapabilityAdjudicationService
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -342,7 +341,6 @@ class ControlPlaneApplication(
         telemetry_service: ControlPlaneTelemetryService | None = None,
         guard_counter_service: ControlPlaneGuardCounterService | None = None,
         worker_health_service: ControlPlaneWorkerHealthService | None = None,
-        capability_adjudication_service: CapabilityAdjudicationService | None = None,
         runtime_service: ControlPlaneRuntimeService | None = None,
         story_service: StoryService | None = None,
         dashboard_service: DashboardService | None = None,
@@ -356,9 +354,6 @@ class ControlPlaneApplication(
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._guard_counter_service = (
             guard_counter_service or ControlPlaneGuardCounterService()
-        )
-        self._capability_adjudication_service = (
-            capability_adjudication_service or CapabilityAdjudicationService()
         )
         self._worker_health_service = (
             worker_health_service or ControlPlaneWorkerHealthService()
@@ -1012,8 +1007,6 @@ class ControlPlaneApplication(
         """
         if route_path == "/v1/telemetry/events":
             return self._handle_post_telemetry(payload, correlation_id)
-        if route_path == "/v1/governance/capability-adjudications":
-            return self._handle_post_capability_adjudication(payload, correlation_id)
         if route_path == "/v1/governance/guard-counters":
             return self._handle_post_guard_counter(payload, correlation_id)
         if route_path == "/v1/governance/worker-health":

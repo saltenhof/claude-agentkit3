@@ -34,9 +34,6 @@ from agentkit.backend.control_plane.models import (
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.harness_client.projectedge.client import HttpsJsonTransport
-from agentkit_wire.governance_adjudication import (
-    CapabilityAdjudicationResponse,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -44,11 +41,7 @@ if TYPE_CHECKING:
 
     from agentkit.harness_client.projectedge.client import ControlPlaneTransport
     from agentkit_wire.control_plane_mutations import GuardCounterMutationRequest
-    from agentkit_wire.governance_adjudication import (
-        CapabilityAdjudicationRequest,
-    )
 
-_CAPABILITY_ADJUDICATION_PATH = "/v1/governance/capability-adjudications"
 _GUARD_COUNTER_PATH = "/v1/governance/guard-counters"
 _WORKER_HEALTH_PATH = "/v1/governance/worker-health"
 _TELEMETRY_EVENTS_PATH = "/v1/telemetry/events"
@@ -70,40 +63,6 @@ class GovernanceEdgeClient:
                 stack across every Dev->Core call (AC6).
         """
         self._transport = transport
-
-    # ------------------------------------------------------------------
-    # Capability adjudication (FK-55 §55.10.3) -- BLOCKING, fail-closed.
-    # ------------------------------------------------------------------
-
-    def adjudicate_capability(
-        self, request: CapabilityAdjudicationRequest
-    ) -> CapabilityAdjudicationResponse:
-        """Ask the core whether a principal may perform an operation.
-
-        Unlike the guard counter this call is BLOCKING and its failure mode is
-        the opposite: a counter that cannot be written is dropped (FK-30
-        "blockieren nie"), whereas an adjudication that cannot be obtained must
-        BLOCK. The caller therefore does NOT catch transport errors here -- the
-        hook maps them to a fail-closed block (FK-55 §55.10.5).
-
-        Args:
-            request: The adjudication request, including what the edge's local
-                freeze export says.
-
-        Returns:
-            The core's adjudication result.
-
-        Raises:
-            ControlPlaneApiError: When the core is unreachable or answers with
-                an error. The caller must fail closed.
-        """
-        data = self._transport.send(
-            method="POST",
-            path=_CAPABILITY_ADJUDICATION_PATH,
-            payload=request.model_dump(mode="json"),
-        )
-        data.pop("correlation_id", None)
-        return CapabilityAdjudicationResponse.model_validate(data)
 
     # ------------------------------------------------------------------
     # Guard-invocation counter (FK-61 §61.4.3) -- non-blocking volume KPI.

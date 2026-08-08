@@ -317,39 +317,37 @@ def test_corrupt_freeze_export_blocks_not_raises(
     assert verdict.allowed is False
     assert verdict.guard_name == "principal_capability"
     assert verdict.detail is not None
-    # AG3-239: the corrupt export is now read on the EDGE (it is a
-    # developer-machine file) and REPORTED to the core as ``unreadable``, so the
-    # block no longer derives from an escaping ``FreezePersistenceError``. The
-    # assertion moved to the equally specific -- and more directly stated --
-    # signal: the dual-materialization invariant disagreed, and the reason names
-    # the unreadable export. Same fail-closed outcome, named rather than
-    # inferred from an exception class.
-    assert verdict.detail.get("freeze_disagreement") is True
-    assert verdict.detail.get("capability_rule_id") == "FK-55-55.10.5"
-    assert "unreadable" in verdict.message
+    # AG3-239 round 3: the CONCRETE fault class is asserted again. Routing the
+    # adjudication through a wire response had replaced every fault with a
+    # generic ``RuntimeError``; evaluating locally keeps the original exception,
+    # so the audit trail names what actually broke.
+    assert verdict.detail.get("fault_class") == "FreezePersistenceError"
 
 
-def test_freeze_repository_backend_fault_blocks_not_raises(
+def test_hook_adjudicates_without_reaching_any_state_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # ERROR D / FAIL-CLOSED: the injected FreezeRepository raises a PLAIN
-    # RuntimeError when its backend is unusable (SQLite disabled / no Postgres
-    # URL). That fault is raised INSIDE the freeze read during capability
-    # evaluation (worker = frozen principal + WRITE = mutating → the overlay
-    # consults the backend record). run_hook must catch it and return a
-    # deterministic capability-fault BLOCK (exit 2), NEVER an unhandled raise.
+    """The hook process holds no database, so a dead backend cannot reach it.
+
+    AG3-239 round 3 replaced ``test_freeze_repository_backend_fault_blocks_not_raises``.
+    That test disabled the state backend and asserted the resulting
+    ``RuntimeError`` became a fail-closed block -- a correct assertion about
+    code that constructed ``FreezeRepository(project_root)`` INSIDE the
+    short-lived hook process. AG3-209 AC 3 forbids exactly that ("aus dem
+    Hook-Prozess ist weder psycopg noch ein Postgres-Repository erreichbar"),
+    and FK-01 §1.2.3 forbids replacing it with a network roundtrip per tool
+    call. The freeze is therefore consulted through the LOCAL export only.
+
+    So the premise is gone by design, and the stronger claim is asserted here:
+    with the state backend unusable the hook still decides, because it never
+    asked one.
+    """
     worktree = str(tmp_path / "worktree")
     _publish_story_binding(tmp_path, worktree)
-    # Disable the SQLite backend so FreezeRepository.read_freeze raises RuntimeError.
+    # Make ANY state-backend access fail hard.
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.delenv("AGENTKIT_ALLOW_SQLITE", raising=False)
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-
-    def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
-        _ = project_root
-        raise AssertionError("CCAG must not run after a fail-closed backend fault")
-
-    monkeypatch.setattr(runner_mod, "_run_ccag_hook", _spy_ccag)
 
     event = HookEvent.model_validate(
         {
@@ -362,13 +360,37 @@ def test_freeze_repository_backend_fault_blocks_not_raises(
             "operation_args": {"file_path": f"{worktree}/src/module.py"},
         }
     )
-    # Must NOT raise; must return a deterministic fail-closed BLOCK.
+    # Must not raise and must not fault: no freeze export exists, no freeze.
     verdict = run_hook("ccag_gatekeeper", event, phase="pre", project_root=tmp_path)
-    assert verdict.allowed is False
-    assert verdict.guard_name == "principal_capability"
-    assert verdict.detail is not None
-    assert verdict.detail.get("fault_class") == "RuntimeError"
+    assert verdict.detail is None or verdict.detail.get("fault_class") is None, (
+        "a dead state backend must be unreachable from the hook, not a fault "
+        f"inside it: {verdict.detail}"
+    )
 
+
+def test_hook_capability_path_constructs_no_freeze_repository() -> None:
+    """Pin the absence structurally, not only behaviourally.
+
+    A behavioural test can pass while the repository is constructed and merely
+    happens not to fault. The dispatcher must not NAME it at all.
+    """
+    import ast
+    import inspect
+
+    from agentkit.backend.governance import runner as runner_module
+
+    tree = ast.parse(inspect.getsource(runner_module))
+    named = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert "FreezeRepository" not in named, (
+        "the hook dispatcher imports FreezeRepository -- that puts a database "
+        "in the short-lived hook process (AG3-209 AC 3). The freeze is read "
+        "from the LOCAL export; a missing or stale one blocks fail-closed."
+    )
 
 def test_capability_deny_blocks_before_ccag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
